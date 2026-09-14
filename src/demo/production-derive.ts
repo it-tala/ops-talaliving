@@ -9,7 +9,7 @@
 import { officeDay } from "@/lib/office";
 import type { DemoState } from "./state";
 import {
-  PROCESS_STAGES, STAGE_SOURCES, STAGE_NAME, ROUTE, goodsOnSite,
+  PROCESS_STAGES, STAGE_SOURCES, STAGE_NAME, RETIRED_STAGES, ROUTE, goodsOnSite,
   type WorkOrder, type WorkOrderView, type StageProgress,
   type Product, type ProductView, type BomLineView, type ProductDrawing,
   type BomRevision, type BomRevisionView, type BomDiff, type BomDiffLine,
@@ -92,6 +92,14 @@ export function workOrderView(
         seq: s.seq,
         covers: s.covers,
         done,
+        /* **Nobody has reported anything against this stage**, which is not the
+           same fact as *nothing has passed it* — and the difference started
+           mattering the day the four stages became the owner's four (D275).
+           A dining table has no lamps in it, so *Machinery / instalasi* sits
+           empty on almost every order, and reading that empty as a zero made
+           every later stage look like it had jumped a step. An unknown cannot
+           be overtaken (F60, F74's rule one level out). */
+        recorded: parts.length > 0,
         percent: wo.qty > 0 ? Math.round((done / wo.qty) * 100) : 0,
         /* Only interesting where more than one source spoke. */
         parts: parts.length > 1 ? parts : [],
@@ -126,6 +134,18 @@ export function workOrderView(
     && wo.subcon_expected_back !== null
     && wo.subcon_expected_back < today;
 
+  /* Work recorded against steps the business no longer has.
+   *
+   *  `POTONG`, `SERUT` and `RAKIT` are bought in as *barang mentah* now
+   *  (D275), so they belong to none of the four and are deliberately not
+   *  rolled into Sanding — six pieces cut is not six pieces sanded. But the
+   *  work happened, and a process change must never make past work disappear
+   *  (A5). It is carried separately, named, and shown apart from the four
+   *  rather than inside one of them. */
+  const retired = RETIRED_STAGES
+    .map((r) => ({ code: r.code, name: r.name, done: total(r.code) }))
+    .filter((r) => r.done !== 0);
+
   /* Steps **inside** one stage that disagree.
    *
    *  The minimum resolves the count, and resolving it silently would be the
@@ -153,6 +173,10 @@ export function workOrderView(
      a mis-keyed number or work that skipped a step — both worth a sentence,
      neither worth blocking the report that revealed it (A6). */
   for (let i = 1; i < stages.length; i += 1) {
+    /* Skip a comparison whose earlier stage nobody has written anything
+       against: *this order does not go through it* and *it is behind* are
+       different states, and only the second is worth a sentence (D275). */
+    if (!stages[i - 1].recorded) continue;
     if (stages[i].done > stages[i - 1].done) {
       warnings.push(
         `${stages[i].name} (${stages[i].done}) melebihi ${stages[i - 1].name} (${stages[i - 1].done}) — salah ketik, atau ada tahap yang dilewati.`,
@@ -197,6 +221,7 @@ export function workOrderView(
   return {
     ...wo,
     stages,
+    retired,
     route_name: route.name,
     at_vendor,
     goods_on_site: goodsOnSite(wo),

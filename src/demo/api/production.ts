@@ -1,7 +1,7 @@
 /** Implements `/api/v1/production` from `03-api.md`. */
 import { refused, ok, invalid, notFound, noop, type Result } from "@/services/_shared/envelope";
 import {
-  PROCESS_STAGES, DESIGN_KIND_LABEL, ROUTE, STAGE_NAME, goodsOnSite,
+  PROCESS_STAGES, RETIRED_STAGES, DESIGN_KIND_LABEL, ROUTE, STAGE_NAME, goodsOnSite,
   type WorkOrder, type WorkOrderView, type ProgressEntry, type ProductView,
   type DesignKind, type DesignTaskView, type RouteCode, type BomExplosion,
   type WorkAttribution,
@@ -303,12 +303,28 @@ export async function recordProgress(
   const wo = state.work_orders.find((w) => w.wo_no === input.wo_no);
   if (!wo) return notFound(SERVICE, "wo_not_found", `No work order ${input.wo_no}.`);
   if (!PROCESS_STAGES.some((s) => s.code === input.stage)) {
-    return invalid(SERVICE, "unknown_stage", `No stage called ${input.stage}.`, { field: "stage" });
+    /* Retired stages get their own sentence. `POTONG` is not a typo — it is a
+       step this business had until it started buying rough pieces in (D275),
+       and somebody typing it is describing work that used to happen here. The
+       message says that rather than "no such stage", because the two send a
+       person to different places. */
+    const retired = RETIRED_STAGES.find((r) => r.code === input.stage);
+    return invalid(
+      SERVICE, "unknown_stage",
+      retired
+        ? `${retired.name} bukan lagi tahap di sini — barang mentah sekarang dibeli jadi, jadi yang dicatat di bengkel mulai dari ${STAGE_NAME(PROCESS_STAGES[0].code)}. Catatan lama dengan tahap ini tetap tersimpan.`
+        : `No stage called ${input.stage}.`,
+      { field: "stage", retired: !!retired },
+    );
   }
-  /* A stage this order's route does not contain. Reporting *Pembuatan* against
-     an order the vendor builds is not a mis-keyed number, it is a claim about
-     a stage that does not exist here — so it is refused rather than warned
-     about, and the refusal names the route (D254). */
+  /* A stage this order's route does not contain (D254).
+   *
+   *  **Currently unreachable, and kept anyway.** Since D275 both routes carry
+   *  the same four stages — what separates a subcontracted order is who held
+   *  the piece, not which steps it passes — so nothing can be in the catalogue
+   *  and off a route at the same time. The guard stays because a guard deleted
+   *  for being unreachable is a guard nobody reinstates when the routes
+   *  diverge again, and W6 is likely to diverge them. */
   const route = ROUTE(wo.route);
   if (!route.stages.includes(input.stage)) {
     return invalid(

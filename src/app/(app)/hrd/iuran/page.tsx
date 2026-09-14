@@ -137,6 +137,9 @@ export default function ContributionsPage() {
                     {unconfirmed.map((r) => SCHEME_LABEL[r.scheme as ContributionScheme]).join(", ")}.
                     Angkanya dipakai untuk menghitung, tapi belum ada yang memastikannya — tarif yang
                     belum dicek tidak boleh terlihat sama dengan yang sudah. IT yang mengubahnya.
+                    Untuk JKK, pemilik sudah memutuskan kelas risikonya tidak perlu dikejar (Q49):
+                    yang dipakai memeriksa adalah <strong>tagihan bulanan dibanding daftar nama</strong>
+                    di bawah, bukan ketepatan persentasenya.
                   </span>
                 </p>
               )}
@@ -237,14 +240,16 @@ export default function ContributionsPage() {
               <Card className="mb-4">
                 <CardHeader
                   title="PPh 21"
-                  subtitle="Tercatat sebagai pendaftaran, tidak dihitung."
+                  subtitle="Tercatat sebagai pendaftaran. Tidak dihitung di sini, dan tidak akan."
                   icon={AlertTriangle}
                 />
                 <p className="px-5 py-3 text-[13px] text-slate-600">
                   Siapa punya NPWP dan status PTKP-nya dicatat di register bawah. Perhitungannya
-                  <strong> belum dibangun</strong>: PPh 21 progresif memakai tabel TER yang belum pernah
-                  diberikan ke sistem ini. Potongan yang salah lebih buruk daripada potongan yang belum
-                  ada — yang belum ada kelihatan di slip, yang salah ditemukan karyawan yang uangnya kurang.
+                  <strong> bukan pekerjaan sistem ini</strong> — itu keputusan pemilik, bukan pekerjaan
+                  yang tertunda (Q50). PPh 21 progresif memakai tabel TER yang berubah, dan yang
+                  melaporkan SPT-lah yang memegangnya. Potongan yang salah lebih buruk daripada potongan
+                  yang tidak ada — yang tidak ada kelihatan di slip, yang salah ditemukan karyawan yang
+                  uangnya kurang.
                 </p>
               </Card>
 

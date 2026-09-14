@@ -41,10 +41,28 @@ export interface ProcessStage {
   covers: string;
 }
 
+/** The owner's own four, named by him when Q47 asked whether ours were right
+ *  (D275): *sanding/amplas — finishing — machinery / instalasi lampu, kabel dan
+ *  sebagainya — packing*.
+ *
+ *  Two of ours are not in his list and that is the substance of the answer,
+ *  not an omission to paper over.
+ *
+ *  **Pembuatan is gone**, and Q48 says why: the business buys *barang mentah*
+ *  from a vendor. The rough piece arrives already cut and assembled, so the
+ *  first thing that happens to it in this building is sanding. Ours started
+ *  with a stage the workshop does not do.
+ *
+ *  **QC is gone too**, and unlike Pembuatan nothing in his answers explains
+ *  it — so the board keeps his four and the question of whether checking is a
+ *  step of its own is asked again as Q51 rather than decided here. Old `QC`
+ *  entries are not orphaned meanwhile: they roll into Packing, which is the
+ *  step they always immediately preceded.
+ */
 export const PROCESS_STAGES: ProcessStage[] = [
-  { code: "PEMBUATAN", name: "Pembuatan", seq: 1, covers: "potong · serut / bentuk · rakit" },
-  { code: "FINISHING", name: "Finishing", seq: 2, covers: "amplas · cat / coating" },
-  { code: "QC", name: "QC", seq: 3, covers: "periksa sebelum dibungkus" },
+  { code: "AMPLAS", name: "Sanding / amplas", seq: 1, covers: "menghaluskan barang mentah dari vendor" },
+  { code: "FINISHING", name: "Finishing", seq: 2, covers: "cat · coating · politur" },
+  { code: "MACHINERY", name: "Machinery / instalasi", seq: 3, covers: "lampu, kabel, rel, mekanisme" },
   { code: "PACKING", name: "Packing", seq: 4, covers: "bungkus, siap kirim" },
 ];
 
@@ -71,21 +89,37 @@ export const PROCESS_STAGES: ProcessStage[] = [
  *  to guess it.
  */
 export const STAGE_SOURCES: Record<string, { code: string; name: string }[]> = {
-  PEMBUATAN: [
-    { code: "POTONG", name: "Potong" },
-    { code: "SERUT", name: "Serut / bentuk" },
-    { code: "RAKIT", name: "Rakit" },
-    { code: "PEMBUATAN", name: "Pembuatan" },
+  /* Amplas is a stage of its own now (D275), so it is no longer a source of
+     Finishing — and every historical entry that reads `AMPLAS` lands here,
+     which is where its work always actually was. */
+  AMPLAS: [{ code: "AMPLAS", name: "Amplas" }],
+  FINISHING: [{ code: "FINISHING", name: "Finishing" }],
+  MACHINERY: [{ code: "MACHINERY", name: "Machinery / instalasi" }],
+  /* `QC` is not one of the owner's four, and its old entries must not vanish
+     — a stage disappearing from the list is not the same as the work never
+     having happened (A5). They roll into Packing, the step they always came
+     immediately before, and `LEGACY_STAGES` keeps the word itself readable. */
+  PACKING: [
+    { code: "QC", name: "QC" },
+    { code: "PACKING", name: "Packing" },
   ],
-  FINISHING: [
-    { code: "AMPLAS", name: "Amplas" },
-    { code: "FINISHING", name: "Finishing" },
-  ],
-  QC: [{ code: "QC", name: "QC" }],
-  PACKING: [{ code: "PACKING", name: "Packing" }],
 };
 
-const ALL_SOURCES = Object.values(STAGE_SOURCES).flat();
+/** Stage codes that were once part of the route and are no longer.
+ *
+ *  Not a roll-up target: `POTONG`, `SERUT` and `RAKIT` are work the business
+ *  now buys in as *barang mentah*, and folding them into Sanding would claim
+ *  that six pieces were sanded because six were cut. They keep their names so
+ *  a work order from August still reads correctly, and they sit **outside**
+ *  the four rather than inside one of them (D275). */
+export const RETIRED_STAGES: { code: string; name: string }[] = [
+  { code: "POTONG", name: "Potong" },
+  { code: "SERUT", name: "Serut / bentuk" },
+  { code: "RAKIT", name: "Rakit" },
+  { code: "PEMBUATAN", name: "Pembuatan" },
+];
+
+const ALL_SOURCES = [...Object.values(STAGE_SOURCES).flat(), ...RETIRED_STAGES];
 
 export const STAGE_NAME = (code: string) =>
   PROCESS_STAGES.find((s) => s.code === code)?.name
@@ -114,14 +148,20 @@ export const ROUTES: ProductionRoute[] = [
   {
     code: "IN_HOUSE",
     name: "Dikerjakan sendiri",
-    description: "Dibuat dari bahan di bengkel sendiri, sampai dibungkus.",
-    stages: ["PEMBUATAN", "FINISHING", "QC", "PACKING"],
+    description: "Barang mentah dihaluskan, difinishing, dipasangi kelengkapannya, lalu dibungkus di bengkel sendiri.",
+    stages: ["AMPLAS", "FINISHING", "MACHINERY", "PACKING"],
   },
   {
     code: "SUBCON",
+    /* Its stages no longer differ from IN_HOUSE's, and that is the honest
+       reading of the owner's answers rather than an oversight: once *barang
+       mentah* is bought in for everything (Q48), what separates a subcontracted
+       order is **who held the piece and when**, not which steps it goes
+       through. The vendor leg on the work order is what carries that, and W6
+       is the record that will carry it properly. */
     name: "Dilempar ke vendor",
-    description: "Barangnya dibuat vendor. Kembali ke bengkel untuk finishing dan packing.",
-    stages: ["FINISHING", "QC", "PACKING"],
+    description: "Ada proses yang dikerjakan vendor. Yang membedakan bukan tahapannya, melainkan siapa yang memegang barangnya dan kapan.",
+    stages: ["AMPLAS", "FINISHING", "MACHINERY", "PACKING"],
   },
 ];
 
@@ -277,6 +317,14 @@ export interface StageProgress {
   /** Cumulative, from the entries. Where old seven-stage entries rolled up
    *  into this one it is the **smallest** of them, never their sum (F74). */
   done: number;
+  /** Whether anybody has reported anything against this stage at all.
+   *
+   *  `done: 0` answers two different questions and they need telling apart
+   *  (D275): *nothing has passed this stage yet* and *this order does not go
+   *  through this stage*. A plain table never visits Machinery / instalasi,
+   *  and reading its empty column as a zero made Packing look like it had
+   *  jumped a step on almost every order in the seed. */
+  recorded: boolean;
   /** Of the order's quantity. */
   percent: number;
   /** Every source that carried a figure, with its own total, so the minimum
@@ -289,6 +337,12 @@ export interface WorkOrderView extends WorkOrder {
   /** **Only the stages on this order's route.** A stage the route does not
    *  contain is absent, not zero (D254). */
   stages: StageProgress[];
+  /** Work reported against steps this business no longer has — the cutting and
+   *  assembly it now buys in as *barang mentah* (D275). Deliberately **not**
+   *  folded into one of the four: six pieces cut is not six pieces sanded. It
+   *  is shown apart, because a process change must not make past work
+   *  disappear (A5). Empty on every order written since the change. */
+  retired: { code: string; name: string; done: number }[];
   route_name: string;
   /** Sent to the vendor and not back yet. Derived, never stored. */
   at_vendor: boolean;

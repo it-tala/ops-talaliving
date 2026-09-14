@@ -3756,3 +3756,65 @@ went from 32 to 50 and nothing else looked different — no error, no wrong
 figure, just more amber. The number was the thing that asked the question, and
 it was worth chasing rather than accepting, which is also how the 50 turned out
 to be a mid-edit artifact once it was measured properly against the baseline.
+
+---
+
+## F91 — the answer that broke yesterday's answer
+
+Q44 was answered on 13 September as *produksi 07.30, kantor 08.00, istirahat 45
+menit*, and built the same day: `day_start_by_unit`, a start time per unit, in
+the dated rule book. It was right for the sentence it was given.
+
+The next day the same question came back with the rest of it. Production is
+**07.30–16.30** with 45 minutes. The office is **08.00–17.15** with an hour.
+**Friday has a longer break** than the other days. There is a guard on a
+**twelve-hour shift**. There is a house assistant who **starts at two in the
+afternoon**.
+
+A map of one number per unit cannot hold a single one of those beyond the first
+— not an end time, not a Friday, not a shift with no stated start, and not a
+person whose hours are their own rather than their unit's.
+
+What is worth keeping is not "ask better questions". The first answer was a
+true answer to the question asked, and the question was a reasonable one. What
+the second answer shows is that **the shape of a rule is a claim about the
+world, and a narrow shape asserts the world is simple.** `Record<string,
+number>` said: every unit has exactly one number, and that number is a start
+time. Nobody wrote that assertion down and nobody checked it, because it was
+carried in a type rather than a sentence.
+
+The replacement says less. A schedule may have no start time, no end time and
+no break, and each absence means *nobody has stated this* rather than zero. The
+guard's twelve hours begin at a time nobody has fixed, and a person on that
+pattern reads **tidak terukur** on punctuality — never *never late*, which is
+the exact illusion Q44 was raised about in the first place (F70).
+
+---
+
+## F92 — a stage nobody uses is not a stage at zero
+
+Adopting the owner's four stages put *Machinery / instalasi* third. Almost
+nothing in the seed has anything to install — a dining table has no lamps in it
+— so the column reads empty on nearly every order.
+
+The board then warned, on nearly every order, that **Packing had overtaken
+Machinery**: work that had jumped a step, a mis-keyed number, somebody should
+look. All of it manufactured, from one reading: `done: 0`.
+
+`done: 0` answers two different questions. *Nothing has passed this stage yet*
+and *this order does not go through this stage* are different facts, and the
+comparison that produces the warning is only meaningful against the first. An
+unknown cannot be overtaken.
+
+This is F74 one level out. There the error was adding a stage's direct entries
+to its rolled-up ones because the two could not be told apart; here it is
+comparing against a number that was never reported. Both times the fix is the
+same shape: **stop inferring the fact from the figure, and carry the fact.**
+`StageProgress.recorded` says whether anybody reported anything at all, and the
+overtaking check skips any comparison whose earlier stage nobody has written
+against.
+
+The thing to keep is that **a warning that fires on almost everything is a
+warning nobody reads**, and the cost is not the noise — it is the one real
+overtaking in the seed, which was sitting in the same list as thirty invented
+ones and would have been scrolled past with them.

@@ -27,6 +27,11 @@ export interface Employee {
   position: string;
   /** Which part of the business — used to group a payroll run, nothing more. */
   unit: string;
+  /** The working pattern this person is on, overriding whatever their unit
+   *  defaults to (Q44, D274). Null is the ordinary case and means *whatever my
+   *  unit is on*; it is set for the people whose hours are their own — the
+   *  guard on a twelve-hour shift, the house assistant who starts at two. */
+  schedule_code?: string | null;
   pay_basis: PayBasis;
   /** **Pokok only**, per month, per day or per hour, matching `pay_basis`.
    *  Whole rupiah. */
@@ -1068,6 +1073,38 @@ export interface AllowanceWithholdingView extends AllowanceWithholding {
 }
 
 /** The rule book, as it stands on one date. */
+/** One working pattern (Q44, D274).
+ *
+ *  Five of them in this business and no two alike, which is why this is a row
+ *  rather than a pair of numbers. What matters about the shape:
+ *
+ *  - **`start_minutes` is nullable.** The guard works twelve hours and nobody
+ *    has said from when. A schedule with no start cannot measure lateness, and
+ *    that reads as *tidak terukur* with the reason — never as *never late*,
+ *    which is the error Q44 was raised about in the first place (F70).
+ *  - **`end_minutes` is nullable** for the same reason and separately: 07.30
+ *    to 16.30 is nine hours with 45 minutes out of it; 08.00 to 17.15 is nine
+ *    and a quarter with an hour. Those are the same working day by different
+ *    arithmetic, and neither can be derived from the other.
+ *  - **Friday has its own break**, because it does here — a longer midday
+ *    break, the same for everybody who has one. Null means Friday is like any
+ *    other day for this schedule, which is a different fact from *nobody has
+ *    said*, and the seed distinguishes them.
+ */
+export interface WorkSchedule {
+  code: string;
+  name: string;
+  /** Minutes from midnight. Null where nobody has stated it. */
+  start_minutes: number | null;
+  end_minutes: number | null;
+  break_minutes: number | null;
+  /** Friday's break where it differs. Null = no separate Friday rule stated. */
+  friday_break_minutes: number | null;
+  /** What is known about it that the numbers do not say — a twelve-hour shift
+   *  that may or may not rotate, an end time nobody has fixed. */
+  note: string | null;
+}
+
 export interface PayRules {
   overtime_mode: OvertimeMode;
   /** Ordinary working day. */
@@ -1119,29 +1156,26 @@ export interface PayRules {
    *  again (F62), and the one it was not answering is the one the owner
    *  actually set: fifteen minutes. */
   day_starts_minutes: number;
-  /** When a **particular unit's** day starts, where it is not the figure
-   *  above. Workshop 07:30, office 08:00 (Q44, D270).
+  /** The working patterns this business actually runs (Q44, D274).
    *
-   *  Q44 was raised because the two could not be told apart: one start time
-   *  meant the workshop tapped in at 06:49 and 07:02 against an 08:00 rule, so
-   *  with the owner's fifteen-minute grace on top **nobody in the business was
-   *  ever late** — including the man carrying a hand-typed Rp 45.000 lateness
-   *  deduction (F70). A map rather than a column on the employee, because it
-   *  is a rule about a unit and it belongs in the rule book that is versioned
-   *  by date (D173): changing the workshop's start time next March must not
-   *  rewrite what last March's lateness was measured against.
+   *  It was `day_start_by_unit` — a start time per unit — for one day, and the
+   *  owner's fuller answer broke it: there is not a start time per unit, there
+   *  are **shifts**, and they differ in more than when they begin. Production
+   *  is 07.30–16.30 with 45 minutes of break; the office 08.00–17.15 with an
+   *  hour; **Friday is a longer break for everybody**; the guard works a
+   *  twelve-hour shift; the house assistant starts at two in the afternoon. A
+   *  map of numbers cannot hold any of that.
    *
-   *  A unit that is not in the map uses `day_starts_minutes`. That is the
-   *  honest default here — an unlisted unit is one nobody has set a time for,
-   *  and the office time is the company's stated one. */
-  day_start_by_unit: Record<string, number>;
-  /** How long the break is supposed to be, in minutes. 45 (Q44, D270).
-   *
-   *  Measured against the taps, and **reported rather than deducted**: a break
-   *  that ran long is a fact about a day, and turning it into money is the
-   *  same decision lateness is waiting on (D251). Null where the business has
-   *  not set one, which is not the same as a break of zero. */
-  break_minutes: number | null;
+   *  Kept in the rule book rather than on the employee for the reason every
+   *  rule here is: it is versioned by date (D173), so changing the workshop's
+   *  hours next March must not rewrite what last March was measured against.
+   *  Which schedule a person is on **is** on the employee, because that is a
+   *  fact about the person and it changes when they move jobs. */
+  schedules: WorkSchedule[];
+  /** The schedule a unit is on when nobody has said otherwise. An employee's
+   *  own `schedule_code` wins over this, and this wins over nothing at all —
+   *  a unit with no schedule falls back to `day_starts_minutes` and says so. */
+  schedule_by_unit: Record<string, string>;
   /** Minutes after the start of the day before lateness counts at all. The
    *  owner's figure is 15 (Q41, D251) and it is a rule rather than a constant
    *  precisely because he said *atau bisa di custom*. */

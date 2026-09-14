@@ -554,12 +554,19 @@ fill the column is a wrong number in a costing report (D204).
 `inv.log_purchases.nota_attachment_id` links the load to the paper it was
 entered from (D201). Nullable only for loads recorded before that rule.
 
-`hr.pay_rule_sets` gains `day_start_by_unit` and `break_minutes` (D270), and
-the selector that reads it now orders by **`effective_from` and then
-`version`**. Sorting by date alone was fine until two books shared a date —
-which happens the first time a correction is dated to the version it corrects —
-and a dated rule book whose answer depends on row order is not a dated rule
-book (F89).
+`hr.pay_rule_sets` carries the business's **working patterns** as rows —
+`schedules` plus `schedule_by_unit` — and `hr.employees.schedule_code` names
+the one a person is on (D274). It was a `day_start_by_unit` map for exactly one
+day: the owner's fuller answer has five patterns, a Friday that differs, an end
+time, a twelve-hour shift and a start time nobody has fixed, and a map of one
+number per unit can hold none of them (F91). `start_minutes`, `end_minutes` and
+`break_minutes` are all **nullable, and null means unstated** — a schedule
+without a start cannot measure lateness, which reads as *tidak terukur* rather
+than as nobody ever being late. The selector that reads the book orders by
+`effective_from` **and then `version`**: sorting by date alone was fine until
+two books shared a date, which happens the first time a correction is dated to
+the version it corrects, and a dated rule book whose answer depends on row
+order is not a dated rule book (F89).
 
 `effective_days_per_month` is **not a column**. It is
 `effective_days_per_year / 12`, computed where it is shown (D271): two stored

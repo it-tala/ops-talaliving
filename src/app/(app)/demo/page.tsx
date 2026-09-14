@@ -154,13 +154,21 @@ export default function DemoDiagnosticsPage() {
        else's workshop. */
     await identity.actAs("usr_made");
     const offRoute = await production.recordProgress({
+      /* `PEMBUATAN` is a retired stage since D275 — the business buys its rough
+         pieces in, so it is on no route at all now. The guard is the same one
+         and still the only thing standing between a board and work reported
+         against a step nobody does. */
       wo_no: "spk-26-09-02_01", stage: "PEMBUATAN", qty: 1, work_date: officeToday(),
     });
     results.push({
-      name: "D254 — reporting a stage the order's route does not contain",
-      expect: "422 stage_not_on_route",
+      /* `stage_not_on_route` is unreachable since D275 — both routes carry the
+         same four stages now — so what this probe reaches is the guard one
+         step earlier, and that is the one worth proving: a board must refuse
+         work reported against a step the business no longer has. */
+      name: "D254/D275 — reporting work against a step the business no longer has",
+      expect: "422 unknown_stage",
       got: offRoute.error ? `${offRoute.error.status} ${offRoute.error.code}` : "accepted",
-      pass: offRoute.error?.status === 422 && offRoute.error.code === "stage_not_on_route",
+      pass: offRoute.error?.status === 422 && offRoute.error.code === "unknown_stage",
     });
 
     const atVendor = await production.recordProgress({

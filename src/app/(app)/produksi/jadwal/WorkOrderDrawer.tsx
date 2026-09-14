@@ -628,6 +628,25 @@ export function WorkOrderDrawer({
               )}
             </Loaded>
 
+            {/* Work against steps the business no longer has. Shown apart from
+                the four rather than inside one of them: the cutting is bought
+                in now, and six pieces cut is not six pieces sanded (D275). */}
+            {w.retired.length > 0 && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3">
+                <p className="text-[11px] uppercase tracking-wide text-slate-400">
+                  Tahap lama, sudah tidak dipakai
+                </p>
+                <p className="mt-1 text-[13px] text-slate-700">
+                  {w.retired.map((r) => `${r.name} ${formatNumber(r.done)}`).join(" · ")}
+                </p>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Dicatat waktu bengkel masih memotong dan merakit sendiri. Sekarang barang mentahnya
+                  dibeli jadi, jadi langkah-langkah ini tidak ada lagi di papan — angkanya tetap disimpan
+                  dan tidak pernah dihitung sebagai bagian dari empat tahap sekarang.
+                </p>
+              </div>
+            )}
+
             {/* What the run should take against what actually left the rack.
                 Nothing here deducts automatically: the BOM proposes and the
                 storeman disposes, because he is the one who carried it (D266). */}

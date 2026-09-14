@@ -14,7 +14,7 @@ import type {
   Employee, TimesheetDay, DayState, ScanSlot, DayPay, DayMark,
   OvertimeSheet, OvertimeStage, PayrollLine, PayrollView, PayrollRun,
   PayslipDay, AdjustmentKind,
-  PayRules, PayRuleSet, OvertimeTier, OvertimePart, HourlyBasis,
+  PayRules, PayRuleSet, WorkSchedule, OvertimeTier, OvertimePart, HourlyBasis,
   AllowanceWithholding, AllowanceWithholdingView,
   ContributionScheme, ContributionRate, Enrolment, ContributionLine, ContributionRoll,
   Task, TaskView, KpiMeasure, KpiView,
@@ -226,9 +226,12 @@ export function timesheetDay(
        and turning it into money is the same decision lateness has been waiting
        on since D251. Null means the business has not set one, which is not a
        break of zero, so nothing is said at all. */
-    if (rules.break_minutes != null && break_hours * 60 > rules.break_minutes) {
+    /* Friday's allowance differs from the rest of the week here, so it is
+       looked up per date rather than per person (Q44, D274). */
+    const allowed = breakAllowanceFor(rules, employee, workDate);
+    if (allowed != null && break_hours * 60 > allowed) {
       notes.push(
-        `Istirahat ${Math.round(break_hours * 60)} menit, lewat ${Math.round(break_hours * 60 - rules.break_minutes)} menit dari jatah ${rules.break_minutes} menit`,
+        `Istirahat ${Math.round(break_hours * 60)} menit, lewat ${Math.round(break_hours * 60 - allowed)} menit dari jatah ${allowed} menit`,
       );
     }
     if (slots.ot_start && !slots.ot_end) issues.push("Lembur started and never finished");
@@ -479,7 +482,12 @@ export function payrollLine(
     const inAt = d.slots.in;
     if (!inAt || d.mark) return 0;
     const mins = Number(inAt.slice(11, 13)) * 60 + Number(inAt.slice(14, 16));
-    return Math.max(mins - dayStartFor(rules, employee.unit) - rules.late_grace_minutes, 0);
+    const start = dayStartFor(rules, employee);
+    /* Nobody has said when this person's day starts, so nothing about this day
+       is late. Not zero because they were punctual — zero because there is no
+       threshold, and inventing one puts minutes on a payslip (D274). */
+    if (start === null) return 0;
+    return Math.max(mins - start - rules.late_grace_minutes, 0);
   };
   const late_minutes = days.reduce((s, d) => s + lateBy(d), 0);
   const late_days = days.filter((d) => lateBy(d) > 0).length;
@@ -764,8 +772,46 @@ export function clockOf(minutes: number): string {
   return `${String(Math.floor(minutes / 60)).padStart(2, "0")}.${String(minutes % 60).padStart(2, "0")}`;
 }
 
-export function dayStartFor(rules: PayRules, unit: string): number {
-  return rules.day_start_by_unit?.[unit] ?? rules.day_starts_minutes;
+/** The working pattern this person is on (Q44, D274).
+ *
+ *  Person first, then their unit, then nothing — and *nothing* is a real
+ *  answer here rather than a default: it returns null, and every reader has to
+ *  decide what to do about a person whose hours nobody has written down. The
+ *  one thing none of them may do is assume they are on the office clock, which
+ *  is precisely the assumption that made it impossible for the workshop to be
+ *  late (F70).
+ */
+export function scheduleFor(rules: PayRules, employee: Employee): WorkSchedule | null {
+  const byPerson = employee.schedule_code
+    ? rules.schedules?.find((sc) => sc.code === employee.schedule_code)
+    : undefined;
+  if (byPerson) return byPerson;
+  const code = rules.schedule_by_unit?.[employee.unit];
+  return (code ? rules.schedules?.find((sc) => sc.code === code) : undefined) ?? null;
+}
+
+/** When this person's day starts, or **null when nobody has said**.
+ *
+ *  The guard works twelve hours from a time nobody has fixed. A number here
+ *  would be an invention, and an invented threshold produces a lateness figure
+ *  that looks measured — which is worse than no figure at all.
+ */
+export function dayStartFor(rules: PayRules, employee: Employee): number | null {
+  const sc = scheduleFor(rules, employee);
+  if (sc) return sc.start_minutes;
+  /* No schedule at all: the company's stated start, which is what the rule
+     book says when it says nothing more specific. */
+  return rules.day_starts_minutes;
+}
+
+/** The break this schedule allows on this date — Friday differs here. Null
+ *  means nobody has set one, which is not a break of zero. */
+export function breakAllowanceFor(
+  rules: PayRules, employee: Employee, workDate: string,
+): number | null {
+  const sc = scheduleFor(rules, employee);
+  if (!sc) return null;
+  return weekdayOf(workDate) === 5 ? (sc.friday_break_minutes ?? sc.break_minutes) : sc.break_minutes;
 }
 
 export function taskView(state: DemoState, t: Task, today = officeToday()): TaskView {
@@ -849,18 +895,25 @@ export function kpiView(
      asked to do, correct until somebody picks a range that spans the boundary
      (F89). The threshold each day was judged by is printed in the basis below,
      so a reader can see which book they are looking at. */
+  const startOn = (d: (typeof days)[number]) =>
+    dayStartFor(activePayRules(state, d.work_date).rules, employee);
   const lateOn = (d: (typeof days)[number]): boolean => {
     const inAt = d.slots.in!;
     const mins = Number(inAt.slice(11, 13)) * 60 + Number(inAt.slice(14, 16));
     const r = activePayRules(state, d.work_date).rules;
-    return mins - dayStartFor(r, employee.unit) - r.late_grace_minutes > 0;
+    const start = startOn(d);
+    return start !== null && mins - start - r.late_grace_minutes > 0;
   };
-  const lateDays = tapped.filter(lateOn).length;
+  /* Days whose schedule has no start time cannot be judged, so they leave the
+     arithmetic entirely rather than counting as punctual (D261's rule, in a
+     new place): a guard on an unstated shift must not score 100%. */
+  const judgeable = tapped.filter((d) => startOn(d) !== null);
+  const lateDays = judgeable.filter(lateOn).length;
   /* The thresholds actually applied across the window — usually one, and named
      as several when the window spans a change rather than quietly averaged. */
-  const startsUsed = [...new Set(tapped.map((d) => {
+  const startsUsed = [...new Set(judgeable.map((d) => {
     const r = activePayRules(state, d.work_date).rules;
-    return `${clockOf(dayStartFor(r, employee.unit))}+${r.late_grace_minutes}m`;
+    return `${clockOf(startOn(d) as number)}+${r.late_grace_minutes}m`;
   }))];
   const minDaysTaps = settingNumber(state, "kpi.min_days_recorded", 5);
   const thinTaps = tapped.length < minDaysTaps;

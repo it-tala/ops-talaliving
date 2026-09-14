@@ -194,5 +194,13 @@ PRODUCTION_PROGRESS.push(
      for as long as nothing looks an entry up by id. Linking a name to a person
      is exactly that (F84). */
   e("prg_26", "wo_07", "FINISHING", 5, "2026-09-10", "Sakirin", null, "emp_w016"),
+  /* wo_04 is the display rack, the one product in the seed that actually has
+     something to install — lampu strip and its wiring. Machinery reads 0 on
+     every other order, and that is honest rather than broken: a plain dining
+     table has no lamps in it. Whether a stage that does not apply should show
+     as *0* at all is the substance of Q52 (D275). */
+  e("prg_28", "wo_04", "AMPLAS", 6, "2026-09-08", "Sumiati", null, "emp_w006"),
+  e("prg_29", "wo_04", "FINISHING", 4, "2026-09-10", "Sakirin", null, "emp_w016"),
+  e("prg_30", "wo_04", "MACHINERY", 2, "2026-09-12", "Thohari", "Pasang lampu strip dan kabel.", "emp_w027"),
   e("prg_27", "wo_07", "QC", 3, "2026-09-11", "Made Suparta", null, "emp_05"),
 );

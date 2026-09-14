@@ -54,6 +54,13 @@ const UNDERTIME_MODE_LABEL: Record<UndertimeMode, string> = {
   half_day_step: "Kurang lebih dari setengah hari → potong ½ hari",
 };
 
+/** Minutes from midnight as a clock face, and **an honest blank** where the
+ *  business has not stated one — never 00.00, which would read as midnight. */
+function clock(minutes: number | null): string {
+  if (minutes == null) return "belum ditetapkan";
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}.${String(minutes % 60).padStart(2, "0")}`;
+}
+
 export default function PayRulesPage() {
   const { can } = useSession();
   const { toast } = useToast();
@@ -304,26 +311,13 @@ export default function PayRulesPage() {
                       />
                       <div className="grid gap-3 sm:grid-cols-2">
                         <Field
-                          label="Jam kerja mulai — kantor (menit dari tengah malam)"
-                          hint="480 = jam 08.00. Ini juga jawaban untuk unit yang belum punya jamnya sendiri."
+                          label="Jam masuk perusahaan (menit dari tengah malam)"
+                          hint="480 = jam 08.00. Dipakai hanya untuk unit yang tidak punya jadwal kerja sendiri di bawah."
                           value={rules.day_starts_minutes}
                           onChange={(v) => set({ day_starts_minutes: v })}
                           disabled={!mayEdit}
                         />
-                        <Field
-                          label="Jam kerja mulai — produksi"
-                          hint="450 = jam 07.30 (Q44). Satu perusahaan, dua jadwal: dengan satu jam masuk untuk semua, bengkel diukur dengan jam kantor dan — ditambah toleransi 15 menit — tidak ada seorang pun yang pernah bisa terlambat."
-                          value={rules.day_start_by_unit?.Workshop ?? rules.day_starts_minutes}
-                          onChange={(v) => set({ day_start_by_unit: { ...rules.day_start_by_unit, Workshop: v } })}
-                          disabled={!mayEdit}
-                        />
-                        <Field
-                          label="Istirahat (menit)"
-                          hint="45 menit (Q44). Dibandingkan dengan tap istirahat dan dilaporkan di hari yang lewat jatah — tidak pernah dipotong, sama seperti keterlambatan."
-                          value={rules.break_minutes ?? 0}
-                          onChange={(v) => set({ break_minutes: v || null })}
-                          disabled={!mayEdit}
-                        />
+
                         <Field
                           label="Toleransi terlambat (menit)"
                           hint="Pemilik menetapkan 15. Di bawah ini tidak dihitung terlambat sama sekali."
@@ -331,6 +325,68 @@ export default function PayRulesPage() {
                           onChange={(v) => set({ late_grace_minutes: v })}
                           disabled={!mayEdit}
                         />
+                      </div>
+
+                      {/* Five patterns, not a start time per unit (Q44, D274).
+                          What a schedule does not say is left blank and named
+                          as unstated — the guard's twelve hours begin at a time
+                          nobody has fixed, and a number invented here becomes a
+                          lateness figure that looks measured. */}
+                      <div>
+                        <p className="mb-1 text-[12px] font-medium text-slate-700">Jadwal kerja</p>
+                        <div className="overflow-x-auto">
+                          <table className="w-full min-w-[520px] text-[12px]">
+                            <thead>
+                              <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400">
+                                <th className="py-1 pr-3 font-medium">Pola</th>
+                                <th className="py-1 pr-3 font-medium">Masuk</th>
+                                <th className="py-1 pr-3 font-medium">Pulang</th>
+                                <th className="py-1 pr-3 font-medium">Istirahat</th>
+                                <th className="py-1 pr-3 font-medium">Jumat</th>
+                                <th className="py-1 font-medium">Unit</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {(rules.schedules ?? []).map((sc) => {
+                                const units = Object.entries(rules.schedule_by_unit ?? {})
+                                  .filter(([, code]) => code === sc.code).map(([u]) => u);
+                                return (
+                                  <tr key={sc.code} className="align-top">
+                                    <td className="py-1.5 pr-3 text-slate-800">
+                                      {sc.name}
+                                      {sc.note && (
+                                        <span className="block max-w-[260px] whitespace-normal text-[11px] text-amber-700">
+                                          {sc.note}
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="py-1.5 pr-3 tabular-nums text-slate-700">{clock(sc.start_minutes)}</td>
+                                    <td className="py-1.5 pr-3 tabular-nums text-slate-700">{clock(sc.end_minutes)}</td>
+                                    <td className="py-1.5 pr-3 tabular-nums text-slate-700">
+                                      {sc.break_minutes == null ? "belum ditetapkan" : `${sc.break_minutes} menit`}
+                                    </td>
+                                    <td className="py-1.5 pr-3 tabular-nums text-slate-700">
+                                      {sc.friday_break_minutes == null ? "—" : `${sc.friday_break_minutes} menit`}
+                                    </td>
+                                    <td className="py-1.5 text-slate-500">
+                                      {units.length > 0 ? units.join(", ") : "belum ada yang dipasang"}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                              {(rules.schedules ?? []).length === 0 && (
+                                <tr><td colSpan={6} className="py-2 text-slate-500">
+                                  Buku aturan ini belum punya jadwal kerja; semua unit memakai jam masuk perusahaan di atas.
+                                </td></tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          Jadwal yang jam masuknya belum ditetapkan tidak bisa dipakai menilai ketepatan waktu —
+                          orang di jadwal itu terbaca <strong>tidak terukur</strong>, bukan tepat waktu. Istirahat
+                          dibandingkan dengan tap dan dilaporkan kalau lewat, tidak pernah dipotong.
+                        </p>
                       </div>
                       <p className="rounded-lg bg-slate-50 px-3 py-2 text-[12px] text-slate-600">
                         Dua angka, bukan satu. Sebelumnya keduanya satu kolom bernama
