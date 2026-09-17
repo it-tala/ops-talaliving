@@ -337,6 +337,12 @@ export interface WorkOrderView extends WorkOrder {
   /** **Only the stages on this order's route.** A stage the route does not
    *  contain is absent, not zero (D254). */
   stages: StageProgress[];
+  /** True where the **product** has no stage list, so this order is running on
+   *  its route's stages instead (D278). Not an error — a product nobody has
+   *  set up yet is the ordinary state of a catalogue — but it is the
+   *  difference between *this product does not go through Machinery* and
+   *  *nobody has said whether it does*, and the board must not blur them. */
+  stages_unset: boolean;
   /** Work reported against steps this business no longer has — the cutting and
    *  assembly it now buys in as *barang mentah* (D275). Deliberately **not**
    *  folded into one of the four: six pieces cut is not six pieces sanded. It
@@ -420,6 +426,21 @@ export interface Product {
   /** Working days from start to finished, for promising a date. A hint, never
    *  a schedule: the work order carries the date that was actually promised. */
   lead_time_days: number | null;
+  /** Which of the four stages this product actually goes through (Q52, D278).
+   *
+   *  *Anggap per produk melewati setiap prosesnya* — so the stages belong to
+   *  the product, and a product goes through **all** of its own. A dining
+   *  table has no lamps or cables in it, and drawing it a *Machinery /
+   *  instalasi* column it will never fill made every later stage look like it
+   *  had jumped a step until `recorded` was added to paper over it (F92).
+   *  Naming the stages per product removes the column instead of explaining
+   *  it away.
+   *
+   *  **Null is not "all four".** It means nobody has said yet, and the board
+   *  falls back to the route's stages and marks the product as one somebody
+   *  should look at — the same rule the BOM and the size already follow
+   *  (D150): what is missing is named, never filled in by software. */
+  stages: string[] | null;
   /** What the workshop's own time on one unit costs, **typed by a person**
    *  (D239). Null until somebody types it, and null stays null: the owner was
    *  explicit that this comes from *perumusan manual*, and labour is where an

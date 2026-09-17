@@ -160,6 +160,19 @@ export default function DemoDiagnosticsPage() {
          against a step nobody does. */
       wo_no: "spk-26-09-02_01", stage: "PEMBUATAN", qty: 1, work_date: officeToday(),
     });
+    /* D278 — the product's own stages. A dining table has no lamps in it, so
+       reporting *Machinery / instalasi* against one is not a mis-keyed number,
+       it is work on a step that does not exist for this thing. */
+    const notOnProduct = await production.recordProgress({
+      wo_no: "spk-26-08-24_01", stage: "MACHINERY", qty: 1, work_date: officeToday(),
+    });
+    results.push({
+      name: "D278 — reporting a stage the product does not go through",
+      expect: "422 stage_not_on_product",
+      got: notOnProduct.error ? `${notOnProduct.error.status} ${notOnProduct.error.code}` : "accepted",
+      pass: notOnProduct.error?.status === 422 && notOnProduct.error.code === "stage_not_on_product",
+    });
+
     results.push({
       /* `stage_not_on_route` is unreachable since D275 — both routes carry the
          same four stages now — so what this probe reaches is the guard one

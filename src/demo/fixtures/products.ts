@@ -16,30 +16,35 @@ import type { Product, BomComponent, BomRevision } from "@/services/production/c
 export const PRODUCTS: Product[] = [
   {
     id: "prd_01", product_code: "PRD-MJ-220", name: "Meja makan jati 220×100",
+    stages: ["AMPLAS", "FINISHING", "PACKING"],
     category: "Meja", uom: "set",
     description: "Meja makan solid jati, kaki tapered, finishing natural matt.",
     length_mm: 2200, width_mm: 1000, height_mm: 750, dimension_note: null, labour_cost: 1_800_000, labour_note: "Sample 1 unit, Agustus: 2 tukang × 1,5 hari potong-rakit + 1 tukang × 1 hari finishing. Diukur, bukan ditaksir.", lead_time_days: 14, active: true, note: null,
   },
   {
     id: "prd_02", product_code: "PRD-KR-STD", name: "Kursi makan jati",
+    stages: ["AMPLAS", "FINISHING", "PACKING"],
     category: "Kursi", uom: "pcs",
     description: "Kursi makan solid jati, dudukan busa, kain pelanggan.",
     length_mm: 450, width_mm: 520, height_mm: 900, dimension_note: null, labour_cost: 320_000, labour_note: "Sample 4 kursi sekaligus, dibagi empat.", lead_time_days: 10, active: true, note: null,
   },
   {
     id: "prd_03", product_code: "PRD-LM-3P", name: "Lemari pakaian 3 pintu",
+    stages: ["AMPLAS", "FINISHING", "MACHINERY", "PACKING"],
     category: "Lemari", uom: "unit",
     description: "Rangka plywood 18 mm, HPL putih, dua laci dalam.",
     length_mm: 1800, width_mm: 600, height_mm: 2100, dimension_note: null, labour_cost: null, labour_note: null, lead_time_days: 21, active: true, note: null,
   },
   {
     id: "prd_04", product_code: "PRD-PT-90", name: "Pintu panel jati 90×210",
+    stages: ["AMPLAS", "FINISHING", "PACKING"],
     category: "Pintu", uom: "daun",
     description: "Daun pintu panel solid jati, empat panel.",
     length_mm: 900, width_mm: 2100, height_mm: 40, dimension_note: null, labour_cost: null, labour_note: null, lead_time_days: 12, active: true, note: null,
   },
   {
     id: "prd_05", product_code: "PRD-RK-DSP", name: "Rak display besi–kayu",
+    stages: ["AMPLAS", "FINISHING", "MACHINERY", "PACKING"],
     category: "Rak", uom: "unit",
     description: "Rangka besi hollow dari vendor, papan jati 3 cm.",
     /* Deliberately without measurements: the frame is fabricated by a vendor
@@ -51,6 +56,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     id: "prd_06", product_code: "PRD-NK-KCL", name: "Nakas jati kecil",
+    stages: ["AMPLAS", "FINISHING", "PACKING"],
     category: "Meja", uom: "unit",
     description: "Nakas satu laci, finishing walnut.",
     length_mm: 450, width_mm: 400, height_mm: 550, dimension_note: null, labour_cost: null, labour_note: null, lead_time_days: 7, active: true,
@@ -58,6 +64,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     id: "prd_07", product_code: "PRD-SUB-LACI", name: "Box laci 45 cm (sub-rakitan)",
+    stages: null,
     category: "Sub-rakitan", uom: "pcs",
     description: "Box laci plywood 12 mm dengan rel full extension. Dipakai di lemari dan nakas.",
     length_mm: 450, width_mm: 400, height_mm: 150, dimension_note: null, labour_cost: 180_000, labour_note: "Box laci: 1 tukang setengah hari termasuk pasang rel.", lead_time_days: 3, active: true, note: null,

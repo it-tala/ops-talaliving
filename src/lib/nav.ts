@@ -60,6 +60,7 @@ export const NAV: NavSection[] = [
     icon: Users,
     items: [
       { label: "Employees", labelKey: "employees", href: "/hrd/karyawan", icon: Users, permission: "hrd.read", badge: "core" },
+      { label: "Work schedules", labelKey: "workSchedules", href: "/hrd/jadwal", icon: CalendarClock, permission: "hrd.read", badge: "new" },
       { label: "Attendance", labelKey: "attendance", href: "/hrd/absensi", icon: CalendarCheck, permission: "hrd.read" },
       { label: "Overtime", labelKey: "overtime", href: "/hrd/lembur", icon: Clock, permission: "hrd.read", badge: "new" },
       { label: "Employee Files", labelKey: "employeeFiles", href: "/hrd/berkas-201", icon: FileBadge, permission: "hrd.read", badge: "new" },

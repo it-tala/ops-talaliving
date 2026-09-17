@@ -61,6 +61,11 @@ export function workOrderView(
     ? state.products.find((p) => p.product_code === wo.product_code)
     : undefined;
   const route = ROUTE(wo.route);
+  /* Which stages this product goes through, or the route's own list where
+     nobody has said (D278). Null is not "all of them" — it is a gap, and
+     `stages_unset` below is what the screen says about it. */
+  const productStages = state.products.find((pr) => pr.product_code === wo.product_code)?.stages ?? null;
+  const stageSet = productStages ?? route.stages;
   const total = (code: string) =>
     entries.filter((p) => p.stage === code).reduce((a, p) => a + p.qty, 0);
 
@@ -69,7 +74,13 @@ export function workOrderView(
      *nobody has started building this* about goods a vendor has already built
      (D254). */
   const stages: StageProgress[] = PROCESS_STAGES
-    .filter((s) => route.stages.includes(s.code))
+    /* Route **and** product. The route says what this order's path allows; the
+       product says which of those it actually goes through (D278) — a dining
+       table has no lamps in it, and drawing it a Machinery column it will
+       never fill is what made every later stage look like it jumped a step
+       (F92). A product that has not been told falls back to the route, and the
+       board says so rather than inventing a list. */
+    .filter((s) => route.stages.includes(s.code) && stageSet.includes(s.code))
     .map((s) => {
       /* **A minimum over every source that carried a figure, never a sum.**
          Four chairs cut, four planed and four assembled is four chairs made,
@@ -222,6 +233,9 @@ export function workOrderView(
     ...wo,
     stages,
     retired,
+    /* Named, never filled in: a product whose stages nobody has set runs on
+       the route's list, and the board says which it is doing (D278, D150). */
+    stages_unset: productStages === null,
     route_name: route.name,
     at_vendor,
     goods_on_site: goodsOnSite(wo),

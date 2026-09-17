@@ -27,10 +27,14 @@ export interface Employee {
   position: string;
   /** Which part of the business — used to group a payroll run, nothing more. */
   unit: string;
-  /** The working pattern this person is on, overriding whatever their unit
-   *  defaults to (Q44, D274). Null is the ordinary case and means *whatever my
-   *  unit is on*; it is set for the people whose hours are their own — the
-   *  guard on a twelve-hour shift, the house assistant who starts at two. */
+  /** The working pattern this person is on (Q44/Q53, D274, D279).
+   *
+   *  *Setiap karyawan akan punya jadwal kerja tertaut* — so this is HR's to
+   *  set on everybody, not an override for the unusual few. Null still means
+   *  *nobody has linked one*, and that is now a **gap HR is asked to close**
+   *  rather than a quiet fall-back: the screen counts the unlinked and names
+   *  them. What it must never become is an assumption, because a person
+   *  assumed onto the office clock is the mistake Q44 was raised about (F70). */
   schedule_code?: string | null;
   pay_basis: PayBasis;
   /** **Pokok only**, per month, per day or per hour, matching `pay_basis`.
@@ -1103,6 +1107,33 @@ export interface WorkSchedule {
   /** What is known about it that the numbers do not say — a twelve-hour shift
    *  that may or may not rotate, an end time nobody has fixed. */
   note: string | null;
+}
+
+/** A schedule with its week and month worked out (Q53, D279).
+ *
+ *  HR asked to see total hours per week and per month, and both are
+ *  **derived** — the schedule holds times, not totals, because two stored
+ *  numbers that must agree is how bruto and diterima drifted apart (F73).
+ *
+ *  Everything here is null the moment the schedule is missing a piece: a
+ *  pattern with no end time has no daily hours, and a pattern with no daily
+ *  hours has no week. Null propagates instead of being papered over with a
+ *  zero, because *belum ditetapkan* and *tidak bekerja* are different answers
+ *  and only one of them is somebody's to fix.
+ */
+export interface ScheduleHours {
+  /** Working hours in one ordinary day: end − start − break. */
+  daily_hours: number | null;
+  /** Friday, where its break differs. Null when no separate Friday rule. */
+  friday_hours: number | null;
+  /** Working days a week, from the rule book's `week_pattern`. */
+  days_per_week: number;
+  /** The week, Friday counted at its own length where it has one. */
+  weekly_hours: number | null;
+  /** `weekly_hours × 52 ÷ 12`, and the arithmetic is printed beside it. */
+  monthly_hours: number | null;
+  /** What is stopping the figures, in words, where they are null. */
+  blocked_by: string | null;
 }
 
 export interface PayRules {

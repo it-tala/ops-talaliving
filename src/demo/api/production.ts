@@ -326,6 +326,18 @@ export async function recordProgress(
    *  for being unreachable is a guard nobody reinstates when the routes
    *  diverge again, and W6 is likely to diverge them. */
   const route = ROUTE(wo.route);
+  /* The product's own stages, where it has them (D278). Refused rather than
+     warned about for the same reason the route check is: reporting *Machinery*
+     against a dining table is not a mis-keyed number, it is work on a step
+     that does not exist for this thing. */
+  const productStages = state.products.find((pr) => pr.product_code === wo.product_code)?.stages;
+  if (productStages && !productStages.includes(input.stage)) {
+    return invalid(
+      SERVICE, "stage_not_on_product",
+      `${STAGE_NAME(input.stage)} bukan tahap yang dilalui ${wo.product_code}. Tahapnya: ${productStages.map(STAGE_NAME).join(" → ")}.`,
+      { field: "stage", product_code: wo.product_code, stages: productStages },
+    );
+  }
   if (!route.stages.includes(input.stage)) {
     return invalid(
       SERVICE, "stage_not_on_route",
@@ -521,6 +533,9 @@ export async function saveProduct(
     height_mm?: number | null;
     dimension_note?: string | null;
     lead_time_days?: number | null;
+    /** Which of the four this product goes through (D278). Omitted leaves it
+     *  as it was; null is a deliberate *nobody has said*. */
+    stages?: string[] | null;
     active?: boolean;
     note?: string | null;
   },
@@ -557,6 +572,7 @@ export async function saveProduct(
         height_mm: input.height_mm ?? row.height_mm,
         dimension_note: input.dimension_note?.trim() ?? row.dimension_note,
         lead_time_days: input.lead_time_days ?? row.lead_time_days,
+        stages: input.stages ?? row.stages,
         active: input.active ?? row.active,
         note: input.note?.trim() ?? row.note,
       });
@@ -577,6 +593,10 @@ export async function saveProduct(
         height_mm: input.height_mm ?? null,
         dimension_note: input.dimension_note?.trim() || null,
         lead_time_days: input.lead_time_days ?? null,
+        /* Null, not the four: nobody has said which stages this product goes
+           through, and that is a thing to be named rather than assumed (D278,
+           D150's rule). */
+        stages: input.stages ?? null,
         labour_cost: null, labour_note: null,
         active: input.active ?? true,
         note: input.note?.trim() || null,
