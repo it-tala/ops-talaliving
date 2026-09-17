@@ -55,52 +55,47 @@ Phase 1 actually took.
 
 ---
 
-## Where this ladder is supposed to land — **open, and it blocks a deployment**
+## Where this ladder lands — **answered, and it was answered by D265**
 
-Nothing in `supabase/migrations/` has been applied to Supabase, and as things
-stand **none of it can be.** This was found by looking rather than by assuming,
-and it is the largest open question in Phase 2 after the data migration.
+This section used to say the opposite, and it was right when it was written:
+the ladder created `core` and `hr`, the only Supabase project on the account is
+`john-lau-v01` — the running legacy system — and it already owns schemas by
+both names. `0002` would have collided with a live `core.users` on its first
+statement.
 
-There is one project on the account: **`john-lau-v01`**. It is not an empty
-project waiting for this schema — it is the running legacy system, with 3.126
-transactions, 285 vendors, 957 items, 1.301 audit rows and 116 migrations of
-its own. And it already uses two of our six schema names:
+**D265 renamed every schema `ops_*`, and that removed the collision without
+anybody noticing it had.** Checked against the live project on 2026-09-17:
 
-| | `john-lau-v01` today | what our ladder would create |
-|---|---|---|
-| `core` | 11 tables — `users`, `roles`, `user_roles`, `audit_log`, `companies`, `policy_registry`, … | `users`, `user_modules`, `user_authorities`, `audit_log`, … |
-| `hr` | 43 tables — `employees`, `punch_events`, `payslips`, `payroll_periods`, … | `employees`, `attendance_scans`, `day_marks`, … |
-| `procure` `acct` `prod` `inv` | absent | ours |
+| live today | ours |
+|---|---|
+| `public` 65 tables · `hr` 43 · `po_import` 12 · `core` 11 · `ops` 10 | `ops_core` `ops_procure` `ops_acct` `ops_hr` `ops_prod` `ops_inv` |
 
-`0002` creates `core.users`; the live project has a `core.users` with six rows
-and a different shape. `0003` creates `core.audit_log`; the live one has 1.301
-rows in it. **The ladder fails on its second file**, and the failure is the good
-outcome — the bad one is a migration written defensively enough to half succeed
-and leave two identity models in one schema.
+Nothing overlaps — `ops` and `ops_core` are different names, and the ladder
+contains **zero** references to any schema outside `ops_*` besides `auth`,
+which is GoTrue's and is read-only to us. So the answer is the one that was
+previously listed as option 2's expensive cousin and is now simply free:
 
-Three ways out. None is a decision to make while deploying:
+**One project. Both systems. Separate schemas.**
 
-1. **A second Supabase project.** The new system gets its own database, the old
-   one keeps running, and cutover (B9) is a parallel run between two projects
-   rather than two schemas. Cleanest, and it makes B8's import an
-   import — across a network, which it would be anyway from Sheets.
-2. **New schema names in the same project** — `core2`, or a prefix. Cheap to
-   type and expensive to live with: every policy, every function signature and
-   every generated type carries the name, and "which `core` is this" becomes a
-   question asked for years.
-3. **Migrate the legacy `core` and `hr` into the new shape first.** The most
-   honest end state and the most dangerous path: it is destructive DDL against
-   live payroll and ledger data, and it puts the riskiest work first rather
-   than last.
+The owner chose this on 2026-09-17, and the reason that decided it was not the
+$10 a month. It is that **the import becomes a join instead of a network
+transfer** — `insert into ops_procure.vendors select … from public.vendors` in
+one transaction, re-runnable, reconcilable row by row. Two projects would have
+meant writing an exporter, an importer, and a story for what happens when one
+of them dies half way.
 
-The recommendation is **(1)**, and the reason is in this folder's own rules:
-Supabase is production. Option 3 asks the owner to accept destructive DDL on
-the running business before a single screen has been proved against the new
-schema. Option 1 asks them to accept a second project's monthly cost.
+What the arrangement costs, and how each cost is paid:
 
-Until it is answered, the ladder is developed and proved against the throwaway
-Postgres in `supabase/local/`, which is where every figure in this folder comes
-from. **Nothing has been applied to `john-lau-v01`, and nothing should be.**
+| risk | control |
+|---|---|
+| a migration reaches into the legacy schemas | `supabase/local/check_schema_isolation.sh`, run by `smoke.sh` and by CI, refuses any migration naming `core` `hr` `ops` `po_import` `public` |
+| a `security definer` function resolves a name into the wrong schema | `set search_path` explicit on every one of them |
+| `rebuild.sh` pointed at production | it already refuses a non-local `PGHOST`, and refuses any database with accounts in it |
+| the legacy system is still writing | it is — a Google Chat event landed at 03:21 UTC on 2026-09-17. The import is idempotent by `legacy_ref`, and a pg_cron mirror keeps new events flowing to both sides until cutover |
+
+**Still true, and not softened:** nothing in `supabase/migrations/` has been
+applied to `john-lau-v01` yet. Applying it is a reviewed step in the cutover
+runbook, not something a session does because it was nearby.
 
 ## Is the design ready? — the honest answer
 

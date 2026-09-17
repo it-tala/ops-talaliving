@@ -62,3 +62,21 @@ export function serviceRoleKey(): string {
 export function isConfigured(): boolean {
   return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 }
+
+/** Which client should answer.
+ *
+ *  Two conditions, and both have to hold. `NEXT_PUBLIC_USE_SUPABASE` is somebody
+ *  choosing; the keys are there being something to choose. The order matters:
+ *  demo mode is a **mode**, never a fallback for a misconfigured deployment.
+ *  Falling back silently would mean a production app quietly serving fixtures,
+ *  with every screen looking entirely correct.
+ *
+ *  It lives here rather than in `src/lib/api/index.ts` because `src/lib/live.ts`
+ *  has to ask the same question to decide which menu items to draw, and reaching
+ *  it through the api barrel pulled `supabase-js` into the bundle of every
+ *  screen — including the demo deployment, which has no database to talk to.
+ *  One definition, in the file that already owns the keys.
+ */
+export function isRealApi(): boolean {
+  return process.env.NEXT_PUBLIC_USE_SUPABASE === "1" && isConfigured();
+}

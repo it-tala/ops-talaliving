@@ -1,0 +1,121 @@
+# The gate in front of `main`.
+#
+# `main` is the branch Vercel deploys to production — to `ops.talaliving.com`,
+# in front of a business that books real money. Vercel's Git integration
+# deploys whatever lands on the branch and asks nothing, so the gate cannot be
+# the deploy: it has to be the merge. Branch protection on `main` requires this
+# workflow, and pushes reach `main` only through a merged pull request.
+#
+# Two jobs, because they fail for unrelated reasons and a red tick should say
+# which half broke without anybody opening the log:
+#
+#   app        the thing people look at — types, lint, and a production build
+#   database   the thing that decides — the whole ladder from nothing, then
+#              every smoke file, then the two static checks
+#
+# The database job is not optional politeness. Postgres is the application here
+# (ADR-002): the money rules are constraints, views and `security definer`
+# functions, so a migration that fails to apply is a feature that does not
+# exist, and a policy that quietly stops refusing returns the right number to
+# the wrong person with nothing on screen looking unusual.
+
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+    branches: [main]
+
+# A second push to the same branch makes the first run pointless. Runs against
+# `main` are never cancelled: that is the history of what was actually green.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  app:
+    name: app — types, lint, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # `tsc` first and on its own. `next.config.mjs` sets
+      # `eslint.ignoreDuringBuilds`, and a Next build tolerates type errors in
+      # code it does not reach — so neither of the steps below is a substitute
+      # for this one, and a green build with a broken type is the kind of green
+      # this project exists to distrust.
+      - name: typecheck
+        run: npx tsc --noEmit
+
+      - name: lint
+        run: npm run lint
+
+      # Which screens the live deployment opens is derived from which services
+      # `src/lib/api` actually implements, walked through the import graph. A
+      # hand-kept list would be correct on the day it was written and silently
+      # wrong the first time a procurement screen grew one `hr.` call.
+      - name: live routes match the code
+        run: node scripts/check-live-routes.mjs
+
+      # No Supabase variables here, deliberately. The build has to succeed with
+      # none set, because that is how `ops-talaliving.vercel.app` runs — demo
+      # mode, browser-held fixtures, no database. `useRealApi()` requires both
+      # the flag and the keys, so a missing key is never silently a demo.
+      - name: build
+        run: npm run build
+
+  database:
+    name: database — ladder, smoke, static checks
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The runner ships a psql, but not necessarily one matching the server.
+      # Pinning the client to 16 keeps `\copy`, error formats and `ON_ERROR_STOP`
+      # behaving the way they do on the cluster the migrations were proved on.
+      - name: postgresql-client 16
+        run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
+          sudo sed -i 's|deb http|deb [signed-by=/usr/share/keyrings/pgdg.gpg] http|' /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16
+          psql --version
+
+      # From nothing, every time. A migration that only works against
+      # yesterday's database is a migration that will fail on a fresh one, and
+      # the fresh one is the production project on the day it is first applied.
+      - name: apply the ladder from nothing
+        run: supabase/local/rebuild.sh
+
+      # `smoke.sh` runs `check_shadowing` and `check_schema_isolation` first,
+      # then one file per schema — each proving a refusal and a derivation.
+      - name: smoke
+        run: supabase/local/smoke.sh
