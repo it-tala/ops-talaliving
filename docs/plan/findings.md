@@ -3991,3 +3991,75 @@ because `TourBar` only mounts with a `?tour=` parameter. Only the third check �
 `/dashboard?tour=flow-b` — actually asked the question. F94's lesson, one day
 old and already needed again: **a check that has never failed for the right
 reason has not been checked.**
+
+## F96 — the number thirty milestones cite, that nobody else could produce
+
+**Refusal table 28/28.** It is the evidence line on more than thirty entries of
+the milestone board — the closing sentence of most of them, and the thing that
+makes "the refusals still refuse" a claim rather than a hope.
+
+It was produced, every time, by a Playwright script written from memory into a
+scratch directory at the start of a session and thrown away at the end. Nothing
+in the repository named it. No dependency declared the browser it drove —
+`playwright` turned out to be installed **globally**, in the environment, not in
+the project. Nobody else could run it, and after this session nobody could run
+it at all.
+
+The number was true every time it was reported. It was also **unreproducible by
+anyone but the person reporting it**, which is an odd property for a project's
+headline check, and an unrecoverable one for a project that is about to hand its
+backend to a second session.
+
+Writing it into the repository as `scripts/refusal-probe.mjs` meant fixing three
+things the throwaway version got wrong every time it was rewritten, because a
+script rewritten from memory relearns its own bugs:
+
+**It waited on a stopwatch.** `sleep 22`, because the probes switch the acting
+user and finish with `actAs(original)`, which takes fifteen-odd seconds. A sleep
+long enough on a warm dev server is not long enough on a cold CI runner, and the
+failure looks like a broken app rather than a slow one. The page already says
+when it is finished — the button reads *Testing…* while running — so it waits for
+that. It waits for the run to **start** first, because "not running" is also true
+before anything has begun. The check got faster as a side effect: 13 seconds
+against 22.
+
+**It did not page.** `DataTable` shows 25 rows. A 26th probe once read as missing
+for exactly that reason (M58), and the bug was in the scraper both times it was
+suspected of being in the table.
+
+**It matched rows by selector, not by shape.** `table tbody tr` collects every
+table on `/demo`, and the first run of the rewritten check cheerfully reported
+62 rows and 34 failures — all of them purchase-request lines that had never
+claimed to be probes. A probe row is three cells whose last is a verdict, and
+that is now what it looks for.
+
+One guard the throwaway never had: **zero rows is a failure, not a clean sheet.**
+A renamed button, a changed route, a page that throws before it begins — all of
+them produce an empty list, and an empty list of failures reads exactly like
+success. It is the more likely failure of the two.
+
+Then the part that matters more than the script: **a check nobody runs is a check
+that does not exist.** There was no CI at all. `.github` did not exist. Every
+check in sixty-three milestones was typed into a terminal, read once, quoted in a
+commit message and lost. That is survivable while one person builds and worthless
+the moment a second one does — which is precisely what the Phase 2 split
+arranges. `.github/workflows/checks.yml` runs lint, types, the seam conformance
+ratchet, the build, and the refusal probes, cheapest first, so a missing type is
+not discovered after a four-minute browser run.
+
+Three things in it were verified rather than assumed, and one of them was wrong.
+`playwright-core` does expose an `install` CLI — checked, because the package
+that ships the installer is usually `playwright`. `wait-on` was in the first
+draft and is **not a dependency of this repository**; it became a curl loop,
+since a check that fetches a package at run time has one more way to be
+unavailable on the morning somebody needs its answer. And the probe had only
+ever been run against `next dev`, while CI runs `next start` — a different React
+mode, and F79 was a StrictMode double-invoke, so the difference is not academic.
+It passes 28/28 against the production build; that is now a measured fact rather
+than a reasonable expectation.
+
+Both failure branches were exercised before the check was trusted: pointed at a
+page with no probe table, it exits 1 and names which of the three causes it is;
+with one probe's expectation deliberately falsified, it exits 1 and prints the
+probe and what it actually got. F95's lesson again, and it keeps being needed:
+**a check that has never failed for the right reason has not been checked.**

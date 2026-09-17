@@ -1,0 +1,66 @@
+# The checks this project has been running by hand for sixty-three milestones.
+#
+# Every one of them was real and every one of them was manual: typed into a
+# terminal, read once, reported in a commit message, and gone. That is fine
+# while one person is building and worthless the moment a second one is (F96).
+#
+# The order is deliberate — cheapest first, so a missing type is not discovered
+# after a four-minute browser run.
+name: checks
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Types
+        run: npx tsc --noEmit
+
+      # The ratchet. Today's gap is in KNOWN_GAP and passes; new drift fails.
+      # Shrinking that list is the only honest progress bar for the swap (F94).
+      - name: API seam conformance
+        run: npm run check:api
+
+      - name: Build
+        run: npm run build
+
+      # The refusal table — the evidence line in thirty-odd milestone entries,
+      # and until F96 the only one nobody but its author could reproduce.
+      - name: Install Chromium
+        run: npx playwright-core install --with-deps chromium
+
+      # A curl loop rather than `npx wait-on`: one less package fetched at run
+      # time, and one less thing that can be unavailable on the morning somebody
+      # needs the result.
+      - name: Start the app
+        run: |
+          npm run start -- -p 3100 &
+          for i in $(seq 1 60); do
+            if curl -fsS -o /dev/null http://localhost:3100/demo; then
+              echo "up after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "the app did not answer on :3100 within 60s"; exit 1
+
+      - name: Refusal probes
+        run: npm run check:refusals
+        env:
+          PROBE_URL: http://localhost:3100

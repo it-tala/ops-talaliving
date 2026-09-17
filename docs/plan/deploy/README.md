@@ -27,6 +27,7 @@ the tree disagreed, the tree is recorded here.
 | REST API | **none.** `src/app/api/` does not exist; there are zero route handlers |
 | Deployed anywhere | no. No Vercel config, no Dockerfile, no CI |
 | Seam conformance | `npm run check:api` — **43 values short** of what the screens call |
+| Checks | `.github/workflows/checks.yml` — lint, types, seam ratchet, build, refusal probes |
 
 ### Three corrections to carry in
 
@@ -204,6 +205,10 @@ the owner to decide — not as a migration already performed.
 
 ## 5. Suggested order of work
 
+0. Run the checks before changing anything: `npm ci`, `npm run lint`, `npx tsc --noEmit`,
+   `npm run check:api`, `npm run build`, then `npm run check:refusals` against the
+   running app. They all pass on `main` as of M64; a red one means something moved
+   under you, and you want to know that before it is tangled up with a deployment.
 1. Read the Cloud Run bill by SKU. Report. *(cheap, and may end §4 immediately)*
 2. Put the §2 identity question and the §3 one-bot-or-two question to the owner.
 3. Stand up the Supabase project; apply `0001…0022` to a **fresh** project.

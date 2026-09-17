@@ -75,7 +75,12 @@ Three things make it work:
 4. Append to `findings.md` — what the screen revealed, what it could not
    answer, what the rule turns out to be.
 5. Update the board **in the same commit** as the work.
-6. Push. Report the preview link.
+6. **Run the checks, and report what they said rather than that you ran them.**
+   `npm run lint`, `npx tsc --noEmit`, `npm run build`, `npm run check:api`, and
+   `npm run check:refusals` against a running app. They are also a CI workflow
+   now (`.github/workflows/checks.yml`), because for sixty-three milestones every
+   one of these was manual, typed once, and gone (F96).
+7. Push. Report the preview link.
 
 ## What a session must never do
 

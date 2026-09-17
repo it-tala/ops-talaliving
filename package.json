@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "check:api": "node scripts/api-conformance.mjs"
+    "check:api": "node scripts/api-conformance.mjs",
+    "check:refusals": "node scripts/refusal-probe.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
@@ -30,6 +31,7 @@
     "eslint": "^8.57.1",
     "eslint-config-next": "^14.2.35",
     "jsqr": "^1.4.0",
+    "playwright-core": "^1.56.1",
     "postcss": "8.4.47",
     "tailwindcss": "3.4.13",
     "typescript": "5.6.3"
