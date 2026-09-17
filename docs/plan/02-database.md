@@ -592,6 +592,21 @@ dereferenced the column until D266, so nothing checked it. It stays text, and
 the check is now done on read: `ref_missing` follows any `spk-` reference and
 the screen marks it. A key nothing follows is a key nothing checks.
 
+`prod.vendor_legs` is one row per trip to one vendor for one process (D280).
+It replaced four columns on `work_orders` — vendor, sent, promised, returned —
+which could describe exactly one trip, in a business where several vendors each
+do one process and a piece can visit more than one of them. `returned_qty` is
+**nullable and separate from `returned_on`**, because twenty out and eighteen
+back is the ordinary case and the two that stayed are a question for the
+vendor. `expected_back` is nullable and means *no promise was given*, which is
+not the same as *not yet due*: late is measured against a date somebody agreed
+(D134). The work order view still exposes `at_vendor` and `days_at_vendor`, and
+both are **derived from the legs** rather than stored beside them.
+
+`prod.products.stages` names which of the four a product goes through (D278).
+Null is not "all four" — it means nobody has set the product up, and the order
+falls back to its route's list with `stages_unset` saying which is happening.
+
 `prod.production_progress` carries **two** columns for who did the work and
 they are not redundant (D264). `worked_by` is the name as the mandor wrote it,
 kept verbatim for ever, because a record that rewrites itself when somebody is
@@ -1787,11 +1802,6 @@ erDiagram
         text project_code "public code, validated at the seam"
         date due_date "the promise, not the plan"
         route_t route "IN_HOUSE|SUBCON - a list of stages, not a flag (D254)"
-        uuid subcon_vendor_id FK "the vendor who builds it, at the seam"
-        date subcon_sent_on "three dates and no status field: at_vendor is derived"
-        date subcon_expected_back "the vendor's PROMISE - prints with a +/-"
-        date subcon_returned_on
-        text subcon_note
         wo_status_t status "OPEN|DONE|CANCELLED"
         uuid created_by FK
         text note

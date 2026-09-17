@@ -27,7 +27,7 @@ import type {
   AllowanceWithholding, ContributionRate, Enrolment, Task,
 } from "@/services/hr/contracts";
 import type {
-  WorkOrder, ProgressEntry, Product, BomComponent, BomRevision,
+  WorkOrder, ProgressEntry, VendorLeg, Product, BomComponent, BomRevision,
   DesignTask, DesignRevision, DesignQuestion,
 } from "@/services/production/contracts";
 import type {
@@ -164,6 +164,9 @@ export interface DemoState {
   work_orders: WorkOrder[];
   /** Work done, append-only — a correction is a negative entry (A5). */
   production_progress: ProgressEntry[];
+  /** One trip to one vendor for one process (W6, D280). Replaces the four
+   *  `subcon_*` columns that could only ever describe one. */
+  vendor_legs: VendorLeg[];
   /** What we sell and make, and what each one is made of (D149). */
   products: Product[];
   bom_components: BomComponent[];
