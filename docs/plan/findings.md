@@ -3818,3 +3818,54 @@ The thing to keep is that **a warning that fires on almost everything is a
 warning nobody reads**, and the cost is not the noise — it is the one real
 overtaking in the seed, which was sitting in the same list as thirty invented
 ones and would have been scrolled past with them.
+
+## F93 — a finished seam that nothing imports
+
+Asked to confirm what `main` now holds before writing a deployment brief, the
+summary offered was: the frontend so far, plus accounting and procurement
+backends, *"di satu schema baru untuk semua `ops_`"*. Two of those three are
+right. Reading the tree instead of the summary turned up three things, and the
+third is the one that would have cost a day.
+
+**Six schemas, not one.** The migrations create `ops_core`, `ops_procure`,
+`ops_acct`, `ops_hr`, `ops_inv`, `ops_prod` — the last three empty and reserved.
+What they share is the **prefix**, and the prefix exists because the owner said
+to leave the old system's schema alone, so both can sit in one Postgres without
+colliding. Worth correcting on its own, but worth more for the reason attached
+to it: *performanya lebih baik*. Schema count does not affect query performance
+in Postgres. A true decision carrying a false reason survives until somebody
+optimises against the reason.
+
+**Only three of eleven services have a backend.** `src/lib/api/` exports
+identity, procurement and accounting. The other eight are screens and contracts
+over fixtures. So the swap was never going to be one flip of one flag — it is a
+flip that takes three screens live and leaves eight reading fixtures, and
+nothing anywhere said which were which.
+
+**And the seam is not connected.** Not one file under `src/app` or
+`src/components` imports `@/lib/api`; 109 import `@/demo`. The Supabase client
+is written, typed, smoke-tested against a local stack, and **imported by
+nothing but itself**. Deploying `main` today ships the demo.
+
+That last one is not a bug — `src/lib/api/index.ts` says so in its own header,
+the swap is deliberately one line in a file the build session may not edit, and
+`useRealApi()` refuses to treat demo mode as a fallback for a misconfigured
+deployment, on the grounds that a production app quietly serving fixtures looks
+entirely correct on every screen. All of that is right. The finding is that
+**none of it is visible from outside the module**. Every ordinary signal of
+doneness was present — it compiles, it passes lint, the migrations apply, the
+smoke tests pass, 46 tables and 69 functions exist — and every one of those
+signals is a statement about the module, not about whether anything calls it.
+
+The check that found it was three lines of `grep -rl`, and the reason to run it
+was that a deployment brief has to say what deploying actually produces. The
+lesson generalises past this repo: **"it is built" and "it is reachable" are
+different claims, and the tests that prove the first are silent about the
+second.** F86 was this shape inside the data — nine stock issues pointing at
+work orders that never existed, every quantity correct, every key dangling.
+Here it is one level out, in the wiring: a key nothing follows is a key nothing
+checks, and a module nothing imports is a module nothing exercises.
+
+The deployment brief now opens with all three, in `docs/plan/deploy/README.md`,
+because the first thing a fresh session needs to know is what it is actually
+shipping.
