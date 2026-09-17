@@ -18,8 +18,26 @@
  */
 export const LOCALE = "en-US";
 
+/** The locale actually in force.
+ *
+ *  A module-level value rather than a constant, because the settings screen
+ *  can move it (D216) and a settings page whose values nothing reads is
+ *  theatre. It is set once when the sandbox hydrates and again whenever the
+ *  setting changes; everything below reads it rather than `LOCALE`, so there
+ *  is still exactly one place the shape of a number is decided.
+ */
+let activeLocale: string = LOCALE;
+
+export function setActiveLocale(locale: string) {
+  activeLocale = locale || LOCALE;
+}
+
+export function getActiveLocale(): string {
+  return activeLocale;
+}
+
 export function formatIDR(value: number, withSymbol = true): string {
-  const n = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 }).format(Math.round(value));
+  const n = new Intl.NumberFormat(activeLocale, { maximumFractionDigits: 0 }).format(Math.round(value));
   return withSymbol ? `Rp ${n}` : n;
 }
 
@@ -46,15 +64,15 @@ function compactNumber(value: number): string {
 }
 
 export function formatNumber(value: number): string {
-  return new Intl.NumberFormat(LOCALE).format(value);
+  return new Intl.NumberFormat(activeLocale).format(value);
 }
 
 export function formatDate(d: Date): string {
-  return new Intl.DateTimeFormat(LOCALE, { day: "2-digit", month: "short", year: "numeric" }).format(d);
+  return new Intl.DateTimeFormat(activeLocale, { day: "2-digit", month: "short", year: "numeric" }).format(d);
 }
 
 export function formatDateTime(d: Date): string {
-  return new Intl.DateTimeFormat(LOCALE, {
+  return new Intl.DateTimeFormat(activeLocale, {
     day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
   }).format(d);
 }
@@ -62,5 +80,5 @@ export function formatDateTime(d: Date): string {
 /** Timber volume in cubic metres — three decimals, because 0.001 m³ of a log
  *  is money. */
 export function formatM3(value: number): string {
-  return `${new Intl.NumberFormat(LOCALE, { minimumFractionDigits: 3, maximumFractionDigits: 3 }).format(value)} m³`;
+  return `${new Intl.NumberFormat(activeLocale, { minimumFractionDigits: 3, maximumFractionDigits: 3 }).format(value)} m³`;
 }

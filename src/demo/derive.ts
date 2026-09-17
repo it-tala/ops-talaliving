@@ -21,15 +21,30 @@ import type {
 } from "@/services/procurement/contracts";
 import { COUNTING_CONDITIONS, PROBLEM_CONDITIONS } from "@/services/procurement/contracts";
 import type {
+  Market, MarketView, MarketLevel,
+  Property, PropertyAgent, PropertyView, PropertyAgentView,
+  OutreachStage, PipelineMetrics, RepView,
+} from "@/services/marketing/contracts";
+import type {
   Transaction, AccountBalance, TransactionView, InboxHealth,
   FundingView, FundingDetail, FundingSpendGroup, FundingSpendRow,
   CashPlan, CashRow, CashCell, CashCellState, CashMonth, CashUnplanned, CashDue,
   CashComponent, CashEvent, CashMonthDetail, CashDayRow, Transaction as TrxRow,
   BankStatement, BankStatementView, StatementLineView,
+  DocumentCoverage, CoverageTransaction, CoverageLine, CoveragePayment, TransactionCoverage,
+  MonthlyBills, MonthlyBill,
 } from "@/services/accounting/contracts";
 import type { DocKind } from "@/services/documents/contracts";
 import { REQUEST_SUPPORT_KINDS } from "@/services/documents/contracts";
-import { LOCALE } from "@/lib/format";
+import { getActiveLocale } from "@/lib/format";
+import { officeToday, officeDay } from "@/lib/office";
+/* HR owns who is enrolled; accounting owns what was paid. The audit is
+   composed here rather than in either service's tables, and it reads HR's
+   **derived roll** rather than its rows (ADR-004). */
+import { contributionRoll } from "./hr-derive";
+import type { ContributionScheme, ContributionAuditGroup } from "@/services/hr/contracts";
+import { SCHEME_LABEL, COMPUTED_SCHEMES } from "@/services/hr/contracts";
+import { settingNumber } from "./settings";
 
 /** One definition, read from settings — never a literal repeated in three
  *  files, which is how `john-lau` ended up with three different tolerances. */
@@ -450,8 +465,8 @@ export function poJourney(state: DemoState, poId: string): PoJourney {
             by: state.users.find((u) => u.id === r.received_by)?.full_name ?? "—",
             qc_by: state.users.find((u) => u.id === r.qc_by)?.full_name ?? "—",
             note: r.note,
-            has_photo: links.some((l) => l.kind === "Receiving Item"),
-            has_delivery_note: links.some((l) => l.kind === "Delivery Note"),
+            photo_attachment_id: links.find((l) => l.kind === "Receiving Item")?.attachment_id ?? null,
+            delivery_note_attachment_id: links.find((l) => l.kind === "Delivery Note")?.attachment_id ?? null,
             status: r.status,
           };
         }),
@@ -521,7 +536,7 @@ export function vendorJourney(state: DemoState, vendorId: string): VendorJourney
 function formatShort(n: number): string {
   if (n >= 1_000_000_000) return `Rp ${(n / 1_000_000_000).toFixed(1)} B`;
   if (n >= 1_000_000) return `Rp ${(n / 1_000_000).toFixed(1)} M`;
-  return `Rp ${n.toLocaleString(LOCALE)}`;
+  return `Rp ${n.toLocaleString(getActiveLocale())}`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -921,6 +936,12 @@ export function fundingView(state: DemoState, trx: Transaction, all?: Transactio
       left_of_transfer: running,
       decided: isDecided(state, t),
       expects_link: expectsDecision(state, t.type_code),
+      /* Above the owner's limit and nothing approved behind it. Below it, the
+         row is still undecided and still listed: the limit decides what is
+         worth chasing, never what is true (D229). */
+      over_no_approval_limit: !isDecided(state, t)
+        && expectsDecision(state, t.type_code)
+        && t.amount_idr > settingNumber(state, "ops.no_approval_limit_idr", 2_000_000),
       status: t.status,
     };
   });
@@ -1016,7 +1037,7 @@ const dueDateOf = (month: string, day: number) =>
 
 const monthLabel = (month: string) => {
   const [y, m] = month.split("-").map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString(LOCALE, { month: "short", year: "numeric" });
+  return new Date(y, m - 1, 1).toLocaleDateString(getActiveLocale(), { month: "short", year: "numeric" });
 };
 
 /** Twelve months starting with the one we are in. */
@@ -1096,9 +1117,19 @@ function payingAccountIds(state: DemoState): Set<string> {
   );
 }
 
-export function cashPlan(state: DemoState, now = new Date()): CashPlan {
+/** Twelve months, planned against actual.
+ *
+ *  `now` and `windowFrom` are **two different questions** and were one argument
+ *  until F68. `now` is what *due*, *overdue* and *paid* are measured against —
+ *  always the real today. `windowFrom` is only where the twelve months start.
+ *  Passing one date for both meant that asking for a past month re-dated the
+ *  whole world: August opened with its unpaid paydays reading *belum jatuh
+ *  tempo*, because the plan believed it was the first of August. A month that
+ *  has gone by has no bills that are *not yet due*.
+ */
+export function cashPlan(state: DemoState, now = new Date(), windowFrom = now): CashPlan {
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  const months = planMonths(now);
+  const months = planMonths(windowFrom);
   const current = months[0];
   const paying = payingAccountIds(state);
   const ledger = state.transactions.filter((t) => t.status !== "VOID" && paying.has(t.account_id));
@@ -1410,7 +1441,17 @@ export function poTerms(state: DemoState, poId: string): PoTermView[] {
     return qty >= l.qty;
   });
   const anyDelivered = view.value_received > 0;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = officeToday();
+
+  /* The first arrival against this order, for a term that fires on delivery
+     and already has. Once something has landed the term is due on the day it
+     landed, not on the day the vendor once promised. */
+  const arrivals = state.receipts
+    .filter((r) => receiptCounts(r) && lines.some((l) => l.id === r.po_line_id))
+    .map((r) => r.received_at.slice(0, 10))
+    .sort();
+  const firstArrival = arrivals[0] ?? null;
+  const lastArrival = arrivals.length > 0 ? arrivals[arrivals.length - 1] : null;
 
   let left = view.paid_to_date;
   let firstUnpaid: string | null = null;
@@ -1457,6 +1498,22 @@ export function poTerms(state: DemoState, poId: string): PoTermView[] {
       state: termState,
       blocked_by: termState === "BLOCKED" ? firstUnpaid : null,
       trigger,
+      /* Q26 (D234): a term that has not fired is still dated, by the promise
+         that will fire it — the expected delivery for an `on_delivery` term.
+         Null where no such promise has been recorded: undated is honest, and
+         a date invented here would be planned against. */
+      expected_on: fired
+        ? (t.due_rule === "on_issue"
+          ? po.issued_at?.slice(0, 10) ?? null
+          : t.due_rule === "on_delivery"
+            ? (t.kind === "FINAL" ? lastArrival : firstArrival)
+            : t.due_date)
+        : (t.due_rule === "on_issue"
+          ? null
+          : t.due_rule === "on_delivery"
+            ? po.expected_delivery
+            : t.due_date),
+      expected_basis: fired ? "fired" : t.due_rule === "date" ? "stated" : "expected",
     };
   });
 }
@@ -1481,7 +1538,7 @@ export function poDetail(state: DemoState, poId: string): PoDetail | null {
   const amendments = superseded.map((old) => {
     const now = state.po_lines.find((l) => l.id === old.superseded_by);
     const say = (l: typeof old | undefined) => l
-      ? `${l.qty.toLocaleString(LOCALE)} ${l.uom} × ${formatShort(l.unit_price)}`
+      ? `${l.qty.toLocaleString(getActiveLocale())} ${l.uom} × ${formatShort(l.unit_price)}`
       : "removed";
     return {
       line_no: old.line_no,
@@ -1549,7 +1606,7 @@ export function poDetail(state: DemoState, poId: string): PoDetail | null {
 
   /* Late is a claim about a promise, so it needs the promise: with no
      expected date nothing is late, it is merely absent (D134). */
-  const today = new Date().toISOString().slice(0, 10);
+  const today = officeToday();
   const days_late = po.expected_delivery && view.delivery_state !== "COMPLETE"
     && po.expected_delivery < today
     ? Math.round(
@@ -1572,6 +1629,8 @@ export function poDetail(state: DemoState, poId: string): PoDetail | null {
     approval_asked_by_name: asker?.full_name ?? null,
     approved_at: po.approved_at,
     approved_by_name: approver?.full_name ?? null,
+    self_confirmed: po.self_confirmed,
+    approval_sent_to: po.approval_sent_to,
     approval_note: po.approval_note,
     note: po.note,
     created_at: po.created_at,
@@ -1666,4 +1725,637 @@ function daysApartIso(from: string, to: string): number {
   const [fy, fm, fd] = from.slice(0, 10).split("-").map(Number);
   const [ty, tm, td] = to.slice(0, 10).split("-").map(Number);
   return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86_400_000);
+}
+
+/* ── Marketing: the Package pipeline ─────────────────────────────────────── */
+
+/** Seven days of silence and the approach moves to the next agent.
+ *
+ *  This is the tracker's own rule, carried verbatim (D183). It is a **derived**
+ *  flag rather than a stored one on purpose: the sheet has a MOVE ON column
+ *  somebody has to remember to fill in, and a column somebody has to remember
+ *  is a column that is wrong by Friday.
+ */
+/** Seven days by default, and a setting (D216): it is derived on read, so
+ *  moving it moves today's follow-up queue rather than rewriting anything. */
+const MOVE_ON_DAYS_DEFAULT = 7;
+
+function agentView(state: DemoState, a: PropertyAgent, today: string): PropertyAgentView {
+  const waiting = a.sent_on && !a.replied_on ? daysApartIso(a.sent_on, today) : null;
+  return {
+    ...a,
+    waiting_days: waiting,
+    move_on: waiting != null && waiting >= settingNumber(state, "ops.agent_move_on_days", MOVE_ON_DAYS_DEFAULT)
+      && a.stage !== "RECYCLED" && a.stage !== "SKIP" && a.stage !== "DEAL",
+    due: !!a.next_action_on && a.next_action_on <= today
+      && a.stage !== "RECYCLED" && a.stage !== "SKIP" && a.stage !== "DEAL",
+  };
+}
+
+const LADDER: OutreachStage[] = [
+  "QUEUED", "MSG SENT", "REPLIED", "CALL SET", "FORM BACK", "PRESENTATION", "DEAL",
+];
+const rank = (s: OutreachStage) => LADDER.indexOf(s);
+
+/** A market, resolved once so no screen has to join a code to a city (D187). */
+export function marketView(state: DemoState, market: Market): MarketView {
+  return {
+    ...market,
+    label: `${market.city} · ${market.area_label}`,
+    full_path: [market.country_name, market.region, market.city, market.area_label]
+      .filter(Boolean).join(" · "),
+    properties: state.properties.filter((p) => p.market_code === market.code).length,
+    scraped: state.scrape_rows.filter((r) => r.market_code === market.code).length,
+  };
+}
+
+export function marketViews(state: DemoState): MarketView[] {
+  return state.markets
+    .map((m) => marketView(state, m))
+    .sort((a, b) => a.country_name.localeCompare(b.country_name)
+      || a.city.localeCompare(b.city)
+      || a.area_label.localeCompare(b.area_label));
+}
+
+/** The market a row belongs to, or a placeholder that says the code is wrong.
+ *  A row pointing at a market nobody defined is a data problem worth seeing on
+ *  the screen, not a crash and not a silent blank. */
+function marketOf(state: DemoState, code: string): MarketView {
+  const found = state.markets.find((m) => m.code === code);
+  if (found) return marketView(state, found);
+  return {
+    id: "", code, country_code: "??", country_name: "Pasar tidak dikenal",
+    region: null, city: code, area_label: code,
+    currency: "", timezone: "UTC", language: "en", active: false,
+    label: code, full_path: code, properties: 0, scraped: 0,
+  };
+}
+
+/** Grouping key and label at whichever altitude was asked for. */
+function groupOf(m: MarketView, level: MarketLevel): { key: string; label: string } {
+  if (level === "country") return { key: m.country_code, label: m.country_name };
+  if (level === "city") return { key: `${m.country_code}|${m.city}`, label: `${m.country_name} · ${m.city}` };
+  return { key: m.code, label: m.full_path };
+}
+
+export function propertyView(state: DemoState, property: Property, today: string): PropertyView {
+  const agents = state.property_agents
+    .filter((a) => a.property_id === property.id)
+    .sort((a, b) => a.slot - b.slot)
+    .map((a) => agentView(state, a, today));
+
+  /* The furthest any agent reached. A property with one agent at DEAL is not
+     also a property at QUEUED, and counting it twice is how a funnel stops
+     adding up (D183). */
+  const best = agents.reduce<OutreachStage>((acc, a) => (rank(a.stage) > rank(acc) ? a.stage : acc), "QUEUED");
+
+  /* Who to chase: the first agent still in play. `SKIP` and `RECYCLED` are
+     exits, and an agent who replied is somebody else's move. */
+  const next = agents.find((a) => a.stage !== "RECYCLED" && a.stage !== "SKIP") ?? null;
+
+  return {
+    ...property,
+    market: marketOf(state, property.market_code),
+    agents,
+    best_stage: best,
+    next_agent: next,
+    /* Everybody approached, nobody agreed — the property goes back on the pile
+       rather than sitting in the funnel for ever. */
+    exhausted: agents.length > 0
+      && agents.every((a) => a.stage === "RECYCLED" || a.stage === "SKIP"),
+  };
+}
+
+export function propertyViews(state: DemoState, today: string): PropertyView[] {
+  return state.properties
+    .map((p) => propertyView(state, p, today))
+    /* Trouble first, then the best prospects: anything past the move-on line,
+       then by score, then by how far it has got. */
+    .sort((a, b) => {
+      const aMove = a.agents.some((x) => x.move_on) ? 0 : 1;
+      const bMove = b.agents.some((x) => x.move_on) ? 0 : 1;
+      if (aMove !== bMove) return aMove - bMove;
+      if (a.score !== b.score) return b.score - a.score;
+      return rank(b.best_stage) - rank(a.best_stage);
+    });
+}
+
+/** Does this market sit inside the filter? A filter is a prefix of the market
+ *  code — `AU` is every Australian market, `AU-QLD-GOLDCOAST` is the city, the
+ *  whole code is one district. One rule, three altitudes (D187). */
+function inScope(code: string, scope?: string): boolean {
+  return !scope || code === scope || code.startsWith(`${scope}-`);
+}
+
+export function pipelineMetrics(
+  state: DemoState, today: string, scope?: string, level: MarketLevel = "area",
+): PipelineMetrics {
+  const props = propertyViews(state, today).filter((p) => inScope(p.market_code, scope));
+  const agents = props.flatMap((p) => p.agents);
+
+  const messaged = agents.filter((a) => rank(a.stage) >= rank("MSG SENT") || a.stage === "RECYCLED").length;
+  const replied = agents.filter((a) => rank(a.stage) >= rank("REPLIED")).length;
+  const qualified = props.filter((p) => p.status === "QUALIFIED");
+
+  const groups = new Map<string, {
+    label: string; scraped: number; enriched: number; converted: number; currencies: Set<string>;
+  }>();
+  for (const row of state.scrape_rows) {
+    if (!inScope(row.market_code, scope)) continue;
+    const market = marketOf(state, row.market_code);
+    const g = groupOf(market, level);
+    const cur = groups.get(g.key)
+      ?? { label: g.label, scraped: 0, enriched: 0, converted: 0, currencies: new Set<string>() };
+    cur.scraped += 1;
+    if (row.enriched) cur.enriched += 1;
+    if (row.property_ref) cur.converted += 1;
+    if (market.currency) cur.currencies.add(market.currency);
+    groups.set(g.key, cur);
+  }
+
+  return {
+    properties: props.length,
+    qualified: qualified.length,
+    validated: qualified.filter((p) => p.validated).length,
+    messaged,
+    replied,
+    /* No rate over nothing: zero messages is not a zero per cent reply rate
+       (the same rule the BOM cost follows — a missing figure, not a wrong one). */
+    reply_rate: messaged > 0 ? Math.round((replied / messaged) * 100) : null,
+    forms_back: agents.filter((a) => rank(a.stage) >= rank("FORM BACK")).length,
+    deals: agents.filter((a) => a.stage === "DEAL").length,
+    funnel: LADDER.map((stage) => ({ stage, properties: props.filter((p) => p.best_stage === stage).length })),
+    level,
+    scrape: [...groups.entries()]
+      .map(([key, v]) => ({
+        key, label: v.label,
+        scraped: v.scraped, enriched: v.enriched, converted: v.converted,
+        currencies: [...v.currencies].sort(),
+      }))
+      .sort((x, y) => x.label.localeCompare(y.label)),
+  };
+}
+
+/** What to do today: every agent past the move-on line first, then anything
+ *  due. Ordered so the top of the list is the thing that is already late. */
+export function followUpQueue(state: DemoState, today: string, scope?: string) {
+  const out: { property: PropertyView; agent: PropertyAgentView; kind: "move_on" | "due" }[] = [];
+  for (const p of propertyViews(state, today)) {
+    if (!inScope(p.market_code, scope)) continue;
+    for (const a of p.agents) {
+      if (a.move_on) out.push({ property: p, agent: a, kind: "move_on" });
+      else if (a.due) out.push({ property: p, agent: a, kind: "due" });
+    }
+  }
+  return out.sort((x, y) => (x.kind === y.kind ? 0 : x.kind === "move_on" ? -1 : 1));
+}
+
+/** A representative, and what the business owes them.
+ *
+ *  Commission is computed from the **contract value of projects that actually
+ *  exist** — never from a quote, never from a lead's hoped-for size (D186). A
+ *  referral without a project code contributes nothing to the figure, and the
+ *  screen shows it as work in progress rather than as money.
+ */
+export function repViews(state: DemoState): RepView[] {
+  return state.sales_reps.map((rep) => {
+    const referrals = state.referrals
+      .filter((r) => r.rep_id === rep.id)
+      .sort((a, b) => b.introduced_on.localeCompare(a.introduced_on));
+    const won = referrals.filter((r) => r.status === "WON" && r.contract_value != null);
+    const wonValue = won.reduce((s, r) => s + (r.contract_value ?? 0), 0);
+    const earned = Math.round(wonValue * rep.commission_percent / 100);
+    const paid = won
+      .filter((r) => r.commission_trx_no)
+      .reduce((s, r) => s + Math.round((r.contract_value ?? 0) * rep.commission_percent / 100), 0);
+
+    return {
+      ...rep,
+      market: rep.market_code ? marketOf(state, rep.market_code) : null,
+      referrals,
+      leads: referrals.length,
+      won: won.length,
+      won_value: wonValue,
+      commission_earned: earned,
+      commission_unpaid: earned - paid,
+      from_properties: [...new Set(state.property_agents
+        .filter((a) => a.rep_id === rep.id)
+        .map((a) => state.properties.find((p) => p.id === a.property_id)?.ref)
+        .filter((x): x is string => !!x))],
+    };
+  });
+}
+
+/** Everything one document is holding up, and whether the arithmetic closes.
+ *
+ *  Three shapes, one computation (D206):
+ *
+ *  - a document linked to several transactions — `attachment_links` has always
+ *    been many-to-many, this is the first screen to read it that way;
+ *  - one transaction allocated across several request lines — one transfer,
+ *    four purchases;
+ *  - one request line paid by several transactions — the cash half and the
+ *    transfer half of the same purchase, which the ledger correctly holds as
+ *    two rows on two accounts.
+ *
+ *  The figure that matters is the **gap**, and it is null rather than zero
+ *  when nobody has read what the document is worth. A gap measured against an
+ *  unknown is the whole amount wearing a different name.
+ */
+export function documentCoverage(
+  state: DemoState,
+  attachmentId: string,
+  documentAmount: number | null,
+): DocumentCoverage {
+  const links = state.attachment_links.filter((l) => l.attachment_id === attachmentId);
+
+  const trxNos = [...new Set(links.filter((l) => l.entity === "transaction").map((l) => l.entity_no))];
+  const transactions: CoverageTransaction[] = trxNos
+    .map((no) => state.transactions.find((t) => t.trx_no === no))
+    .filter((t): t is Transaction => !!t)
+    .map((t) => ({
+      trx_no: t.trx_no,
+      trx_date: t.trx_date,
+      account_code: state.accounts.find((a) => a.id === t.account_id)?.code ?? "—",
+      account_name: state.accounts.find((a) => a.id === t.account_id)?.name ?? "—",
+      direction: t.direction,
+      amount_idr: t.status === "VOID" ? 0 : t.amount_idr,
+      status: t.status,
+      description: t.description,
+      /* Other papers behind the same row. A nota and its transfer proof is the
+         ordinary case, not a duplicate. */
+      other_documents: state.attachment_links.filter(
+        (l) => l.entity === "transaction" && l.entity_no === t.trx_no && l.attachment_id !== attachmentId,
+      ).length,
+    }));
+
+  const trxIds = new Set(
+    transactions.map((t) => state.transactions.find((x) => x.trx_no === t.trx_no)!.id),
+  );
+
+  /* Every request line those transactions reach — and then, for each line,
+     **every** transaction paying it, including ones this document knows
+     nothing about. That last part is the split payment: showing only our own
+     half would make a fully paid line look half paid. */
+  const lineNos = [...new Set(
+    state.payment_allocations
+      .filter((a) => a.superseded_by === null && a.pr_line_no && trxIds.has(a.trx_id))
+      .map((a) => a.pr_line_no as string),
+  )];
+
+  const lines: CoverageLine[] = lineNos.map((lineNo) => {
+    const line = state.pr_lines.find((l) => l.line_no_full === lineNo);
+    const cov = line ? lineCoverage(state, line) : null;
+    const payments: CoveragePayment[] = state.payment_allocations
+      .filter((a) => a.superseded_by === null && a.pr_line_no === lineNo)
+      .map((a) => {
+        const trx = state.transactions.find((t) => t.id === a.trx_id);
+        return {
+          trx_no: trx?.trx_no ?? "—",
+          account_code: state.accounts.find((x) => x.id === trx?.account_id)?.code ?? "—",
+          method: a.method,
+          amount: a.amount,
+          from_this_document: trxIds.has(a.trx_id),
+        };
+      })
+      .sort((a, b) => a.trx_no.localeCompare(b.trx_no));
+
+    return {
+      line_no_full: lineNo,
+      description: line?.description ?? lineNo,
+      approved: cov?.approved ?? 0,
+      covered: cov?.covered ?? 0,
+      remaining: cov?.remaining ?? 0,
+      settled: cov?.settled ?? false,
+      payments,
+    };
+  });
+
+  const covered_total = transactions.reduce((sum, t) => sum + t.amount_idr, 0);
+
+  return {
+    attachment_id: attachmentId,
+    document_amount: documentAmount,
+    transactions,
+    lines,
+    covered_total,
+    gap: documentAmount == null ? null : documentAmount - covered_total,
+    shared: transactions.length > 1,
+  };
+}
+
+/** The same three questions, asked of the ledger row rather than the paper.
+ *
+ *  A document in the verification queue is attached to nothing, so its own
+ *  coverage is empty and decides nothing. What decides whether *link* is the
+ *  right road is what the row being linked to already carries (D207): the
+ *  paper already on it, what it already pays, and how much of it is pointed at
+ *  nothing yet.
+ */
+export function transactionCoverage(state: DemoState, trxNo: string): TransactionCoverage | null {
+  const trx = state.transactions.find((t) => t.trx_no === trxNo);
+  if (!trx) return null;
+
+  const documents = state.attachment_links
+    .filter((l) => l.entity === "transaction" && l.entity_no === trxNo)
+    .map((l) => ({
+      attachment_id: l.attachment_id,
+      filename: state.attachments.find((a) => a.id === l.attachment_id)?.filename ?? l.attachment_id,
+      kind: l.kind as string,
+    }));
+
+  const allocs = state.payment_allocations.filter(
+    (a) => a.superseded_by === null && a.trx_id === trx.id,
+  );
+
+  const allocations = allocs.map((a) => ({
+    target: (a.pr_line_no ?? a.po_no ?? "—") as string,
+    kind: (a.pr_line_no ? "line" : "po") as "line" | "po",
+    amount: a.amount,
+    method: a.method,
+  }));
+
+  const allocated_total = allocs.reduce((sum, a) => sum + a.amount, 0);
+
+  /* For each request line this row touches, **every** payment against it —
+     including the halves paid from other rows. Showing only this row's share
+     would make a settled line look half paid. */
+  const lines: CoverageLine[] = [...new Set(allocs.map((a) => a.pr_line_no).filter((x): x is string => !!x))]
+    .map((lineNo) => {
+      const line = state.pr_lines.find((l) => l.line_no_full === lineNo);
+      const cov = line ? lineCoverage(state, line) : null;
+      return {
+        line_no_full: lineNo,
+        description: line?.description ?? lineNo,
+        approved: cov?.approved ?? 0,
+        covered: cov?.covered ?? 0,
+        remaining: cov?.remaining ?? 0,
+        settled: cov?.settled ?? false,
+        payments: state.payment_allocations
+          .filter((a) => a.superseded_by === null && a.pr_line_no === lineNo)
+          .map((a) => {
+            const t = state.transactions.find((x) => x.id === a.trx_id);
+            return {
+              trx_no: t?.trx_no ?? "—",
+              account_code: state.accounts.find((x) => x.id === t?.account_id)?.code ?? "—",
+              method: a.method,
+              amount: a.amount,
+              from_this_document: a.trx_id === trx.id,
+            };
+          })
+          .sort((a, b) => a.trx_no.localeCompare(b.trx_no)),
+      };
+    });
+
+  return {
+    trx_no: trx.trx_no,
+    amount_idr: trx.status === "VOID" ? 0 : trx.amount_idr,
+    status: trx.status,
+    account_code: state.accounts.find((a) => a.id === trx.account_id)?.code ?? "—",
+    description: trx.description,
+    documents,
+    allocations,
+    allocated_total,
+    unallocated: (trx.status === "VOID" ? 0 : trx.amount_idr) - allocated_total,
+    lines,
+  };
+}
+
+/** The month's bills, as a worklist rather than as a plan (D227).
+ *
+ *  Built from `cashPlan` — the same computation the twelve-month calendar
+ *  draws — so the two can never disagree. What this adds is one month, in date
+ *  order, with the previous month beside each line.
+ *
+ *  The comparison is the part with a rule in it: **a line that did not exist
+ *  last month has `last_month: null`, not zero** (D228). A first occurrence is
+ *  not an infinite increase, and flagging it as one is how an anomaly list
+ *  teaches people to ignore anomaly lists.
+ */
+/** Accounting's audit of one statutory scheme, for one month (D259).
+ *
+ *  The comparison the owner asked for and nothing more: **daftar nama terdaftar
+ *  × biaya per orang**, against the money that actually left. The expected
+ *  figure comes from HR's enrolment register, the paid figure from the cash
+ *  calendar line the scheme is tied to — so this screen and the bills screen
+ *  cannot disagree about what was paid, because it is one calculation seen
+ *  twice (D228).
+ *
+ *  `difference` is null while the expected figure is unknown. A difference
+ *  against an unknown is not zero, and an audit that prints a reassuring nil
+ *  where it has no roll of names is the most dangerous screen in the building.
+ */
+export function contributionAudit(
+  state: DemoState,
+  month: string,
+  now = new Date(),
+): ContributionAuditGroup[] {
+  const plan = cashPlan(state, now, firstOf(month));
+  const tolerance = settingNumber(state, "ops.contribution_tolerance_idr", 50_000);
+
+  /* Group the schemes the way the money is grouped: by the invoice that pays
+     them. A scheme nobody has tied to a line lands in its own group with a
+     null component, which is a different sentence from a mismatch. */
+  const groups = new Map<string, { componentId: string | null; schemes: ContributionScheme[] }>();
+  for (const scheme of COMPUTED_SCHEMES) {
+    const comp = state.cash_components.find((c) => c.active && c.scheme_codes.includes(scheme));
+    const key = comp?.id ?? `__none__${scheme}`;
+    const g = groups.get(key) ?? { componentId: comp?.id ?? null, schemes: [] };
+    g.schemes.push(scheme);
+    groups.set(key, g);
+  }
+
+  return [...groups.values()].map((g) => {
+    const rolls = g.schemes.map((s) => contributionRoll(state, s, month));
+    const component = g.componentId
+      ? state.cash_components.find((c) => c.id === g.componentId)
+      : undefined;
+    const row = component ? plan.rows.find((r) => r.component.id === component.id) : undefined;
+    const cell = row?.cells.find((c) => c.month === month);
+    const paid = cell?.actual ?? 0;
+    const planned = cell?.planned ?? null;
+    const trx_nos = cell?.events.flatMap((e) => e.trx_nos) ?? [];
+
+    /* Unknown wins over zero. If **any** scheme on the invoice has no rate for
+       the month, the invoice's expected total is unknown — adding up the ones
+       that do have rates would produce a confident figure missing a part of
+       itself. */
+    const anyUnknown = rolls.some((r) => r.rate === null);
+    const headcount = new Set(rolls.flatMap((r) => r.lines.map((l) => l.employee_id))).size;
+    const expected = anyUnknown || headcount === 0
+      ? null
+      : rolls.reduce((a, r) => a + r.expected_total, 0);
+    const difference = expected === null ? null : paid - expected;
+    const unusual = difference !== null && Math.abs(difference) > tolerance;
+
+    const names = g.schemes.map((s) => SCHEME_LABEL[s]).join(", ");
+    let verdict: string;
+    if (anyUnknown) {
+      const missing = rolls.filter((r) => r.rate === null).map((r) => SCHEME_LABEL[r.scheme]).join(", ");
+      verdict = `Tarif ${missing} untuk bulan ini belum ada, jadi total tagihan ini tidak bisa dihitung. Bukan nol — belum diketahui.`;
+    } else if (headcount === 0) {
+      verdict = `Belum ada satu nama pun terdaftar di ${names}. Selama daftarnya kosong, tagihan apa pun tidak punya pembanding.`;
+    } else if (!component) {
+      verdict = `${headcount} orang terdaftar, seharusnya ${formatRupiah(expected!)}. Belum ada baris kalender kas untuk ${names}, jadi yang dibayar belum bisa ditarik.`;
+    } else if (paid === 0) {
+      verdict = `${headcount} orang terdaftar, seharusnya ${formatRupiah(expected!)}. Belum ada pembayaran tercatat bulan ini.`;
+    } else if (difference! > tolerance) {
+      verdict = `Dibayar ${formatRupiah(paid)} untuk ${headcount} orang yang seharusnya ${formatRupiah(expected!)} — lebih ${formatRupiah(difference!)}. Ini bentuk kebocoran yang dimaksud: tagihan yang lebih besar dari daftar namanya.`;
+    } else if (difference! < -tolerance) {
+      verdict = `Dibayar ${formatRupiah(paid)}, kurang ${formatRupiah(-difference!)} dari yang seharusnya. Kurang bayar iuran menimbulkan denda.`;
+    } else {
+      verdict = `Cocok: ${headcount} orang, ${formatRupiah(paid)} dibayar terhadap ${formatRupiah(expected!)} yang diharapkan.`;
+    }
+
+    return {
+      component_id: component?.id ?? null,
+      component_name: component?.name ?? null,
+      schemes: g.schemes,
+      expected, planned, paid, difference, unusual, headcount, trx_nos, verdict,
+    };
+  });
+}
+
+/** Plain rupiah for a sentence. The formatter proper follows the locale
+ *  setting, and these strings are built in the service rather than the screen,
+ *  so they use one spelling that does not move underneath a saved verdict. */
+function formatRupiah(n: number): string {
+  return `Rp ${Math.round(n).toLocaleString("id-ID")}`;
+}
+
+export function monthlyBills(
+  state: DemoState,
+  month: string,
+  now = new Date(),
+): MonthlyBills {
+  /* Today is the office's own, and it is **not** taken from the plan: the plan
+     below may be anchored in a past month so that month's cells exist at all,
+     and `generated_for` would then be a day in the past. Overdue is a claim
+     about now (D234's lesson, one function over). */
+  const today = officeDay(now);
+  const prev = previousMonth(month);
+
+  /* `cashPlan` runs twelve months **forward** from where it is anchored, so a
+     month behind today is not in the default window — and neither is last
+     month, ever. Anchoring a second run at the month being compared against is
+     what makes the comparison possible at all; without it `last_month` was
+     structurally always null and the whole column was dead (F68).
+
+     Both runs are the same function over the same ledger. This is still one
+     calculation seen twice, which is D228's whole condition. */
+  const plan = cashPlan(state, now, firstOf(month));
+  const prevPlan = cashPlan(state, now, firstOf(prev));
+
+  /* What a line is worth **for a whole month**, on one rule applied to both
+     months being compared: a month that has ended is worth what it actually
+     cost; a month still running is worth what it is expected to cost.
+
+     Both halves of that rule were got wrong first time and the errors looked
+     plausible (F68). Taking `actual` for a month still running compared a
+     half-paid September against a finished August and reported the materials
+     bill as −82% when nothing had changed. Taking `actual || planned` for a
+     finished month let a line nobody paid fall back to its estimate, which
+     reads as *we spent this* when the truth is *we spent nothing*. */
+  const ended = (m: string) => m < today.slice(0, 7);
+  const figure = (cell: CashCell, m: string) =>
+    ended(m) ? cell.actual : Math.max(cell.planned, cell.actual);
+
+  /* Keyed by component and summed over the month. A weekly line has four or
+     five events in a month, and *is this bill unusual* is a question about the
+     month, not about one Tuesday — comparing a single Rp 30 juta payday
+     against last month's whole Rp 150 juta payroll reported −80% on every
+     payroll row in the system, five times a month, for no reason (F68). */
+  const lastByComponent = new Map<string, number>();
+  for (const row of prevPlan.rows) {
+    const cell = row.cells.find((c) => c.month === prev);
+    if (cell && cell.state !== "SKIPPED") lastByComponent.set(row.component.id, figure(cell, prev));
+  }
+
+  /* The same figure for the month being shown, so the two sides of every
+     percentage are the same kind of number. */
+  const thisByComponent = new Map<string, number>();
+  const occurrences = new Map<string, number>();
+  for (const row of plan.rows) {
+    const cell = row.cells.find((c) => c.month === month);
+    if (cell && cell.state !== "SKIPPED") {
+      thisByComponent.set(row.component.id, figure(cell, month));
+      occurrences.set(row.component.id, cell.events.length);
+    }
+  }
+
+  const threshold = settingNumber(state, "ops.bill_anomaly_percent", 25);
+
+  const bills: MonthlyBill[] = plan.rows
+    .flatMap((row) =>
+      row.cells
+        .filter((c) => c.month === month)
+        .flatMap((c) => c.events.map((e) => ({ row, cell: c, event: e }))),
+    )
+    .map(({ row, cell, event }) => {
+      const last = lastByComponent.get(row.component.id) ?? null;
+      const thisMonth = thisByComponent.get(row.component.id) ?? 0;
+      const delta = last == null ? null : thisMonth - last;
+      const deltaPercent = last == null || last === 0
+        ? null
+        : Math.round(((thisMonth - last) / last) * 100);
+      return {
+        component_id: row.component.id,
+        name: event.name,
+        date: event.date,
+        direction: event.direction,
+        planned: event.planned,
+        actual: event.actual,
+        outstanding: Math.max(0, event.planned - event.actual),
+        state: event.state,
+        days_away: daysBetween(today, event.date),
+        vendor_name: event.vendor_name,
+        account_code: event.account_code,
+        trx_nos: event.trx_nos,
+        matched_by: event.matched_by,
+        reason: event.reason,
+        month_total: thisMonth,
+        occurrences: occurrences.get(row.component.id) ?? 1,
+        last_month: last,
+        delta,
+        delta_percent: deltaPercent,
+        unusual: deltaPercent != null && Math.abs(deltaPercent) >= threshold,
+      };
+    })
+    .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+
+  const out = bills.filter((b) => b.direction === "OUT" && b.state !== "SKIPPED");
+  const lastTotal = lastByComponent.size > 0
+    ? prevPlan.rows
+        .filter((r) => r.component.direction === "OUT")
+        .reduce((sum, r) => {
+          const c = r.cells.find((x) => x.month === prev);
+          return sum + (c && c.state !== "SKIPPED" ? figure(c, prev) : 0);
+        }, 0)
+    : null;
+
+  return {
+    month,
+    label: monthLabel(month),
+    bills,
+    total_planned: out.reduce((s, b) => s + b.planned, 0),
+    total_paid: out.reduce((s, b) => s + b.actual, 0),
+    total_outstanding: out.reduce((s, b) => s + b.outstanding, 0),
+    overdue_count: out.filter((b) => b.state === "OVERDUE").length,
+    overdue_amount: out.filter((b) => b.state === "OVERDUE").reduce((s, b) => s + b.outstanding, 0),
+    due_this_week: out.filter((b) => b.state === "DUE").length,
+    /* Counted per **line**, not per row: a weekly payroll that moved is one
+       unusual bill, not five (F68). */
+    unusual_count: new Set(out.filter((b) => b.unusual).map((b) => b.component_id)).size,
+    last_month_total: lastTotal,
+  };
+}
+
+/** The first day of a month, as a `Date`, for anchoring a plan run there. */
+function firstOf(month: string): Date {
+  return new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 1);
+}
+
+function previousMonth(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
 }

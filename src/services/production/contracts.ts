@@ -16,31 +16,176 @@
 /** The stages a piece goes through, in order.
  *
  *  Seeded rather than typed by somebody, so that "which stage is it in" has
- *  the same answer on every screen and in every report. The list itself is our
- *  reading of a furniture workshop and is the one thing here most likely to be
- *  wrong in detail — Q35 asks the owner to correct it. Changing it is a seed
- *  edit, not a schema change, which is exactly why it is data.
+ *  the same answer on every screen and in every report. Changing the list is a
+ *  seed edit, not a schema change, which is exactly why it is data.
+ *
+ *  **Four, down from seven** (D253). The owner's answer to Q35 was
+ *  *sederhanakan, karena ada item yang dilempar ke vendor dan kita tinggal
+ *  finishing dan packing* — and the second half of that sentence is what
+ *  decided the shape of the first. Seven stages could only describe a
+ *  subcontracted piece as *four stages mysteriously skipped*; four stages, with
+ *  the making of the piece as **one** of them, describe it as what it is: a
+ *  different route through the same workshop, one stage shorter.
+ *
+ *  The collapsed detail is not thrown away — see `LEGACY_STAGES`.
  */
 export interface ProcessStage {
   code: string;
   name: string;
-  /** 1-based. A piece cannot be sanded before it is cut, and the order is what
-   *  makes that checkable. */
+  /** 1-based. A piece cannot be finished before it is built, and the order is
+   *  what makes that checkable. */
   seq: number;
+  /** What the workshop actually does inside it, for the screen. Not stages:
+   *  nobody reports against these, they are here so *Pembuatan* is not a word
+   *  somebody has to interpret. */
+  covers: string;
 }
 
+/** The owner's own four, named by him when Q47 asked whether ours were right
+ *  (D275): *sanding/amplas — finishing — machinery / instalasi lampu, kabel dan
+ *  sebagainya — packing*.
+ *
+ *  Two of ours are not in his list and that is the substance of the answer,
+ *  not an omission to paper over.
+ *
+ *  **Pembuatan is gone**, and Q48 says why: the business buys *barang mentah*
+ *  from a vendor. The rough piece arrives already cut and assembled, so the
+ *  first thing that happens to it in this building is sanding. Ours started
+ *  with a stage the workshop does not do.
+ *
+ *  **QC is gone too**, and unlike Pembuatan nothing in his answers explains
+ *  it — so the board keeps his four and the question of whether checking is a
+ *  step of its own is asked again as Q51 rather than decided here. Old `QC`
+ *  entries are not orphaned meanwhile: they roll into Packing, which is the
+ *  step they always immediately preceded.
+ */
 export const PROCESS_STAGES: ProcessStage[] = [
-  { code: "POTONG", name: "Potong", seq: 1 },
-  { code: "SERUT", name: "Serut / bentuk", seq: 2 },
-  { code: "RAKIT", name: "Rakit", seq: 3 },
-  { code: "AMPLAS", name: "Amplas", seq: 4 },
-  { code: "FINISHING", name: "Finishing", seq: 5 },
-  { code: "QC", name: "QC", seq: 6 },
-  { code: "PACKING", name: "Packing", seq: 7 },
+  { code: "AMPLAS", name: "Sanding / amplas", seq: 1, covers: "menghaluskan barang mentah dari vendor" },
+  { code: "FINISHING", name: "Finishing", seq: 2, covers: "cat · coating · politur" },
+  { code: "MACHINERY", name: "Machinery / instalasi", seq: 3, covers: "lampu, kabel, rel, mekanisme" },
+  { code: "PACKING", name: "Packing", seq: 4, covers: "bungkus, siap kirim" },
 ];
 
+/** Every stage code that counts towards each of the four, old and new.
+ *
+ *  Progress already recorded **keeps its own stage code** — that was the
+ *  condition attached to Q35 from the day it was asked, and it is the ordinary
+ *  rule here anyway: nothing that happened is rewritten (A5). So the old codes
+ *  stay in the data and are rolled up on read.
+ *
+ *  Two things about the roll-up, and the second one is the trap.
+ *
+ *  **It is a minimum, not a sum.** Four chairs cut, four planed and four
+ *  assembled is four chairs made, not twelve. A piece has finished *Pembuatan*
+ *  when it has finished every step inside it, so the count is the smallest of
+ *  the steps that were actually recorded.
+ *
+ *  **A stage is a source of itself.** `FINISHING` is the name of one of the
+ *  four *and* the name of one of the seven that collapsed into it, so an entry
+ *  reading `FINISHING` cannot be told apart from a new one — and adding "the
+ *  direct entries" to "the rolled-up ones" counted the same pieces twice, as
+ *  amplas 4 + finishing 3 = 7 of an order for 4 (F74). Listing every source,
+ *  the stage's own code included, removes the distinction rather than trying
+ *  to guess it.
+ */
+export const STAGE_SOURCES: Record<string, { code: string; name: string }[]> = {
+  /* Amplas is a stage of its own now (D275), so it is no longer a source of
+     Finishing — and every historical entry that reads `AMPLAS` lands here,
+     which is where its work always actually was. */
+  AMPLAS: [{ code: "AMPLAS", name: "Amplas" }],
+  FINISHING: [{ code: "FINISHING", name: "Finishing" }],
+  MACHINERY: [{ code: "MACHINERY", name: "Machinery / instalasi" }],
+  /* `QC` is not one of the owner's four, and its old entries must not vanish
+     — a stage disappearing from the list is not the same as the work never
+     having happened (A5). They roll into Packing, the step they always came
+     immediately before, and `LEGACY_STAGES` keeps the word itself readable. */
+  PACKING: [
+    { code: "QC", name: "QC" },
+    { code: "PACKING", name: "Packing" },
+  ],
+};
+
+/** Stage codes that were once part of the route and are no longer.
+ *
+ *  Not a roll-up target: `POTONG`, `SERUT` and `RAKIT` are work the business
+ *  now buys in as *barang mentah*, and folding them into Sanding would claim
+ *  that six pieces were sanded because six were cut. They keep their names so
+ *  a work order from August still reads correctly, and they sit **outside**
+ *  the four rather than inside one of them (D275). */
+export const RETIRED_STAGES: { code: string; name: string }[] = [
+  { code: "POTONG", name: "Potong" },
+  { code: "SERUT", name: "Serut / bentuk" },
+  { code: "RAKIT", name: "Rakit" },
+  { code: "PEMBUATAN", name: "Pembuatan" },
+];
+
+const ALL_SOURCES = [...Object.values(STAGE_SOURCES).flat(), ...RETIRED_STAGES];
+
 export const STAGE_NAME = (code: string) =>
-  PROCESS_STAGES.find((s) => s.code === code)?.name ?? code;
+  PROCESS_STAGES.find((s) => s.code === code)?.name
+  ?? ALL_SOURCES.find((s) => s.code === code)?.name
+  ?? code;
+
+/** How a piece gets made.
+ *
+ *  A route is a **list of stages**, not a flag, because the thing that differs
+ *  between them is exactly which stages apply. A subcontracted order does not
+ *  have *Pembuatan at 0%* — it does not have Pembuatan. Rendering a stage that
+ *  is not on the route as an empty bar would say *nobody has started building
+ *  this*, which is false about goods a vendor has already built (D254).
+ */
+export type RouteCode = "IN_HOUSE" | "SUBCON";
+
+export interface ProductionRoute {
+  code: RouteCode;
+  name: string;
+  /** Said in the workshop's own terms, for the picker. */
+  description: string;
+  stages: string[];
+}
+
+export const ROUTES: ProductionRoute[] = [
+  {
+    code: "IN_HOUSE",
+    name: "Dikerjakan sendiri",
+    description: "Barang mentah dihaluskan, difinishing, dipasangi kelengkapannya, lalu dibungkus di bengkel sendiri.",
+    stages: ["AMPLAS", "FINISHING", "MACHINERY", "PACKING"],
+  },
+  {
+    code: "SUBCON",
+    /* Its stages no longer differ from IN_HOUSE's, and that is the honest
+       reading of the owner's answers rather than an oversight: once *barang
+       mentah* is bought in for everything (Q48), what separates a subcontracted
+       order is **who held the piece and when**, not which steps it goes
+       through. The vendor leg on the work order is what carries that, and W6
+       is the record that will carry it properly. */
+    name: "Dilempar ke vendor",
+    description: "Ada proses yang dikerjakan vendor. Yang membedakan bukan tahapannya, melainkan siapa yang memegang barangnya dan kapan.",
+    stages: ["AMPLAS", "FINISHING", "MACHINERY", "PACKING"],
+  },
+];
+
+export const ROUTE = (code: RouteCode) =>
+  ROUTES.find((r) => r.code === code) ?? ROUTES[0];
+
+/** Are the goods physically in the workshop?
+ *
+ *  **One predicate, read by both the API and the screen.** The first version
+ *  had the rule twice — the API refused on *sent and not back* and on *never
+ *  sent*, and the drawer hid its reporting form on `at_vendor`, which is only
+ *  the first of those. So an order the vendor had not even been given yet
+ *  offered a form that the API would refuse on submit (F75). Offering
+ *  something that will be refused is a trap, not a choice, and two conditions
+ *  written separately will always drift into being two different conditions.
+ *
+ *  An in-house order is always on site: there is nowhere else for it to be.
+ */
+export function goodsOnSite(
+  wo: Pick<WorkOrder, "route" | "subcon_sent_on" | "subcon_returned_on">,
+): boolean {
+  if (wo.route !== "SUBCON") return true;
+  return wo.subcon_sent_on !== null && wo.subcon_returned_on !== null;
+}
 
 export type WorkOrderStatus = "OPEN" | "DONE" | "CANCELLED";
 
@@ -67,6 +212,29 @@ export interface WorkOrder {
   project_code: string | null;
   /** Deadline. Not a plan — a promise somebody made to a customer. */
   due_date: string;
+  /** Which stages this order actually goes through (D254). */
+  route: RouteCode;
+  /** The BOM revision this order was written against, pinned when it was
+   *  created (D256). **Null is not "the current one"** — it means the order
+   *  predates versioning, or its product has no released BOM, and the screen
+   *  says so rather than showing today's list as though it were the one used.
+   *  A figure may be missing; it may not be quietly wrong. */
+  bom_rev: number | null;
+  /** The vendor building it, on a `SUBCON` order. A public id validated at the
+   *  seam, like every other cross-service reference (ADR-004). */
+  subcon_vendor_id: string | null;
+  /** When it left, when it was promised back, when it actually came back.
+   *
+   *  Three dates and not one status, for the reason every status ladder in
+   *  this system is derived: *at the vendor* is `sent && !returned`, and a
+   *  stored flag is a field somebody forgets to move while the goods sit in a
+   *  lorry. `subcon_expected_back` is the vendor's promise — the same shape as
+   *  a PO's expected delivery (D234), and marked as a promise wherever it is
+   *  printed. */
+  subcon_sent_on: string | null;
+  subcon_expected_back: string | null;
+  subcon_returned_on: string | null;
+  subcon_note: string | null;
   status: WorkOrderStatus;
   created_at: string;
   created_by: string;
@@ -89,9 +257,26 @@ export interface ProgressEntry {
   qty: number;
   /** The office day the work happened, not the day it was typed. */
   work_date: string;
-  /** Who did it — a name, not an employee link: production does not own
-   *  people, and a subcontractor is a legitimate answer here. */
+  /** Who did it, **as it was written down**. Kept verbatim and for ever: it is
+   *  what the mandor actually wrote, and a record that rewrites itself when
+   *  somebody is later linked answers the wrong question in an argument. */
   worked_by: string | null;
+  /** The link, added **beside** the name and never instead of it (D264).
+   *
+   *  Null does not mean *not an employee*. It means nobody has said yet, and
+   *  that is a different fact from `worked_by_not_a_person` — which is a person
+   *  having looked at the name and confirmed it is a team or a vendor's crew.
+   *  The system never matches a name to an employee on its own; it may only
+   *  suggest, and a human confirms (D264).
+   *
+   *  **Invariant:** never set together with `worked_by_not_a_person`. The API
+   *  refuses the contradiction, and everything downstream reads the derived
+   *  `attribution` rather than these two fields, so the pair cannot drift
+   *  apart in a caller's hands (F75's rule). */
+  worked_by_employee_id: string | null;
+  /** Confirmed by a person: this name is **not one of our employees** — *Tim
+   *  potong*, a subcontractor, a vendor's crew. Resolved, not missing. */
+  worked_by_not_a_person: boolean;
   /** Where this came from. `overtime_sheet` entries are posted when a lembur
    *  sheet is approved, carrying the sheet number so the two can be told apart
    *  and so a re-post is a no-op (D147). */
@@ -102,18 +287,85 @@ export interface ProgressEntry {
   recorded_at: string;
 }
 
+/** How a name on a piece of work resolves to a person — **derived from the
+ *  pair above, never stored**, so nothing downstream can read one half of the
+ *  invariant and miss the other (D264).
+ *
+ *  Three states and they are genuinely three. `unknown` is not a worse
+ *  `not_a_person`: it is the state of every entry written before anybody was
+ *  asked, and the only one that is somebody's to resolve. */
+export type WorkAttribution = "employee" | "not_a_person" | "unknown";
+
+export function attributionOf(
+  row: { worked_by_employee_id: string | null; worked_by_not_a_person: boolean },
+): WorkAttribution {
+  if (row.worked_by_employee_id) return "employee";
+  return row.worked_by_not_a_person ? "not_a_person" : "unknown";
+}
+
+export const ATTRIBUTION_LABEL: Record<WorkAttribution, string> = {
+  employee: "Tertaut ke karyawan",
+  not_a_person: "Bukan satu orang",
+  unknown: "Belum ditautkan",
+};
+
 export interface StageProgress {
   stage: string;
   name: string;
   seq: number;
-  /** Cumulative, from the entries. */
+  covers: string;
+  /** Cumulative, from the entries. Where old seven-stage entries rolled up
+   *  into this one it is the **smallest** of them, never their sum (F74). */
   done: number;
+  /** Whether anybody has reported anything against this stage at all.
+   *
+   *  `done: 0` answers two different questions and they need telling apart
+   *  (D275): *nothing has passed this stage yet* and *this order does not go
+   *  through this stage*. A plain table never visits Machinery / instalasi,
+   *  and reading its empty column as a zero made Packing look like it had
+   *  jumped a step on almost every order in the seed. */
+  recorded: boolean;
   /** Of the order's quantity. */
   percent: number;
+  /** Every source that carried a figure, with its own total, so the minimum
+   *  above can be checked instead of believed. Only worth printing when there
+   *  is more than one — a stage with a single source **is** that source. */
+  parts: { code: string; name: string; done: number }[];
 }
 
 export interface WorkOrderView extends WorkOrder {
+  /** **Only the stages on this order's route.** A stage the route does not
+   *  contain is absent, not zero (D254). */
   stages: StageProgress[];
+  /** Work reported against steps this business no longer has — the cutting and
+   *  assembly it now buys in as *barang mentah* (D275). Deliberately **not**
+   *  folded into one of the four: six pieces cut is not six pieces sanded. It
+   *  is shown apart, because a process change must not make past work
+   *  disappear (A5). Empty on every order written since the change. */
+  retired: { code: string; name: string; done: number }[];
+  route_name: string;
+  /** Sent to the vendor and not back yet. Derived, never stored. */
+  at_vendor: boolean;
+  /** Whether any stage may be reported at all — the goods are in the building.
+   *  The same predicate the API refuses on, so the screen cannot offer what
+   *  the API will reject (F75). */
+  goods_on_site: boolean;
+  /** The product's newest released revision **now**, against this order's
+   *  pinned one. When they differ the BOM has moved on since this order was
+   *  written, which is a thing to see: the projection this order is measured
+   *  against is the old list, deliberately. */
+  product_current_rev: number | null;
+  bom_drifted: boolean;
+  /** Whether moving this order onto the newer revision is allowed at all — the
+   *  same predicate the API refuses on, so the screen cannot offer a button
+   *  that will be rejected (F75). False once anything has been built: the old
+   *  list is what was actually consumed. */
+  bom_repinnable: boolean;
+  /** Days since it left. Null when it has not been sent. */
+  days_at_vendor: number | null;
+  /** Past the date the vendor promised, and still not back. The workshop is
+   *  not late here; the vendor is, and the board must not say otherwise. */
+  subcon_overdue: boolean;
   /** The furthest stage with anything finished — "sampai mana". */
   current_stage: string | null;
   current_stage_name: string;
@@ -168,6 +420,17 @@ export interface Product {
   /** Working days from start to finished, for promising a date. A hint, never
    *  a schedule: the work order carries the date that was actually promised. */
   lead_time_days: number | null;
+  /** What the workshop's own time on one unit costs, **typed by a person**
+   *  (D239). Null until somebody types it, and null stays null: the owner was
+   *  explicit that this comes from *perumusan manual*, and labour is where an
+   *  invented number does the most damage because it flows straight into a
+   *  quoted price. Nothing in this system derives it — not from the pay rules,
+   *  not from recorded hours, not from a rate × a guess. */
+  labour_cost: number | null;
+  /** How the figure above was arrived at. Required alongside it: a labour cost
+   *  with no working behind it is a number the next person cannot check or
+   *  update. */
+  labour_note: string | null;
   active: boolean;
   note: string | null;
 }
@@ -179,9 +442,77 @@ export interface Product {
  *  carried as a public code and resolved at the screen, never joined across
  *  services (ADR-004).
  */
+/** One dated version of a product's bill of material (D256).
+ *
+ *  The owner reversed the default on Q36: a BOM **is** versioned. The default
+ *  had been current-state with every change audited, which preserves the
+ *  history and loses the **pinning** — a wardrobe built in June reads today as
+ *  though it had always used today's components, and the projection against
+ *  what was actually bought becomes a comparison with the wrong list.
+ *
+ *  Two states and no more. A **draft** is being edited; a **released** one is
+ *  frozen for ever. There is at most one draft per product, because a second
+ *  one would raise the question of which the next work order pins to, and
+ *  there is no answer to that question worth having.
+ */
+export interface BomRevision {
+  id: string;
+  product_id: string;
+  /** 1, 2, 3 — per product, and printed everywhere as `rev 2`. */
+  rev: number;
+  /** Null while it is a draft. Set once, never cleared: releasing is what
+   *  makes the revision a fact rather than a working copy (A5). */
+  released_at: string | null;
+  released_by: string | null;
+  /** Why this version exists. Required to release — *rev 3* with no sentence
+   *  is a number somebody will have to reverse-engineer from a diff. */
+  note: string | null;
+  created_at: string;
+  created_by: string;
+}
+
+export interface BomRevisionView extends BomRevision {
+  released_by_name: string | null;
+  /** The revision a new work order would pin to: the newest released one. */
+  is_current: boolean;
+  is_draft: boolean;
+  component_count: number;
+  /** Work orders pinned to this revision. A released revision with orders
+   *  behind it is the reason none of this can be edited. */
+  used_by: number;
+}
+
+/** What changed between two revisions, line by line.
+ *
+ *  Computed from the two component lists rather than from an edit log: a diff
+ *  derived from the things themselves cannot disagree with them, and an edit
+ *  log can (A3). */
+export interface BomDiffLine {
+  ref_code: string;
+  ref_name: string | null;
+  change: "added" | "removed" | "changed";
+  before: { qty: number; uom: string; waste_percent: number } | null;
+  after: { qty: number; uom: string; waste_percent: number } | null;
+}
+
+export interface BomDiff {
+  product_code: string;
+  from_rev: number | null;
+  to_rev: number;
+  lines: BomDiffLine[];
+  /** True when the two lists are identical — which is why releasing an
+   *  unchanged draft is refused: a revision number for nothing is noise in a
+   *  history somebody will later have to read. */
+  identical: boolean;
+}
+
 export interface BomComponent {
   id: string;
   product_id: string;
+  /** The revision this line belongs to. A line is never moved between
+   *  revisions: opening a new draft **copies** the released one, so the
+   *  released lines stay exactly as they were released (A5). */
+  rev: number;
   kind: "material" | "product";
   /** `procure.items.code`, or another `products.product_code`. */
   ref_code: string;
@@ -209,6 +540,114 @@ export interface BomLineView extends BomComponent {
   subtotal: number | null;
 }
 
+/** One purchasable material, after the sub-assemblies have been walked through.
+ *
+ *  The BOM itself stays **one level** — that is what somebody authored, and it
+ *  is what the catalogue screen shows. This is the other question: *what do I
+ *  actually have to buy for this run*, which is a walk rather than a sum
+ *  (D257). A wardrobe needs two drawer boxes; a purchase request needs the
+ *  plywood and the runners that a drawer box is made of.
+ */
+export interface BomExplodedLine {
+  ref_code: string;
+  ref_name: string | null;
+  /** For the whole run, with waste applied **at every level it passed
+   *  through**. Ten per cent more drawer boxes means ten per cent more of the
+   *  plywood inside each one. */
+  qty: number;
+  uom: string;
+  unit_price: number | null;
+  price_source: "standard" | "last" | "none";
+  subtotal: number | null;
+  /** Every chain of parents this material arrived by, product code by product
+   *  code. The same screw reached through two different sub-assemblies is one
+   *  line with two paths — merged, because a purchase request wants one row per
+   *  thing to buy, and named, because *why do I need 40 screws* is the next
+   *  question. */
+  via: string[][];
+  /** 0 when the material sits directly on the product's own BOM. */
+  depth: number;
+}
+
+/** What a run should consume, against what actually left the rack (D266).
+ *
+ *  The two halves are deliberately produced by different people. The BOM says
+ *  what the run *ought* to take; the storeman says what *did* go out, because
+ *  he is the one who carried it. Nothing here is deducted automatically, and
+ *  that is the decision rather than an omission: stock that moves because a
+ *  progress entry was typed is stock nobody counted, and the rack then
+ *  disagrees with the screen in a way only a stock-take can find.
+ *
+ *  The gap between the two is the number this business has never been able to
+ *  see: *did this run use more plywood than it should have.*
+ */
+export interface MaterialLine {
+  item_code: string;
+  item_name: string;
+  uom: string;
+  /** From the pinned BOM revision × the whole order, waste included at every
+   *  level. Null for something issued that the BOM does not mention — which is
+   *  not an error, it is the case worth looking at. */
+  expected: number | null;
+  /** Issues minus returns against this SPK. */
+  issued: number;
+  /** `expected − issued`, and null while `expected` is. Negative means more
+   *  went out than the list called for. */
+  remaining: number | null;
+  /** What is on the rack now, across every location. */
+  on_hand: number;
+  /** True where this item was issued against the order and the BOM never
+   *  named it. The screen says so rather than folding it into a variance. */
+  off_bom: boolean;
+}
+
+export interface MaterialPlan {
+  wo_no: string;
+  /** The revision the expectation was computed from. Null where the order
+   *  predates versioning or the product has no BOM — and then every
+   *  `expected` is null too, never zero (F60). */
+  rev: number | null;
+  /** Why there is no expectation, where there is none. */
+  no_plan_reason: string | null;
+  lines: MaterialLine[];
+  /** Set once the order is finished. A variance read mid-run is not a
+   *  variance — it is a run that has not finished drawing its material yet,
+   *  and calling it an overrun teaches people to ignore the figure. */
+  variance_readable: boolean;
+  /** Pieces completed against ordered, so the reader can see how far in the
+   *  order is without leaving the panel. */
+  completed: number;
+  ordered: number;
+}
+
+export interface BomExplosion {
+  product_code: string;
+  qty: number;
+  /** The revision walked. A work order passes its own pinned one (D256). */
+  rev: number | null;
+  lines: BomExplodedLine[];
+  total: number | null;
+  unpriced: number;
+  /** The sub-assemblies the walk went through, with how many of each the run
+   *  needs — the things the workshop has to **make** rather than buy. */
+  sub_assemblies: { product_code: string; name: string | null; qty: number; rev: number | null }[];
+  /** Sub-assemblies with no released BOM. They stay in `lines` as themselves,
+   *  because a thing that has to be obtained somehow is not nothing — and the
+   *  screen says they could not be broken down rather than implying they were.
+   *  Missing, never quietly wrong. */
+  unexploded: string[];
+  /** A product that contains itself, however indirectly. Null normally; the
+   *  chain when it happens, so somebody can see where the loop closes rather
+   *  than being told the BOM is "invalid" (D257). */
+  cycle: string[] | null;
+  /** Typed, never derived (D239). `labour_total` is `labour_cost × qty`, and
+   *  null the moment the per-unit figure is null: a run of twelve costs twelve
+   *  times an unknown, which is still unknown. */
+  labour_cost: number | null;
+  labour_total: number | null;
+  labour_note: string | null;
+}
+
 /** A drawing, as the product screen needs it. */
 export interface ProductDrawing {
   attachment_id: string;
@@ -221,7 +660,20 @@ export interface ProductDrawing {
 }
 
 export interface ProductView extends Product {
+  /** The components **of the revision being viewed** — the draft where one is
+   *  open, otherwise the newest released one. */
   components: BomLineView[];
+  /** Which revision `components` came from, and what else exists. */
+  viewing_rev: number | null;
+  current_rev: number | null;
+  draft_rev: number | null;
+  revisions: BomRevisionView[];
+  /** What the open draft changes against the newest released revision — **derived
+   *  here, from the same component list this view already carries**, so it
+   *  cannot describe a state the screen is not showing. Fetching it separately
+   *  made it one edit stale, which is a diff that is confidently wrong (F77).
+   *  Null when no draft is open. */
+  draft_diff: BomDiff | null;
   /** `2200 × 1000 × 750 mm`, built from the three numbers so every screen
    *  spells it the same way. Null when nothing has been recorded. */
   dimension: string | null;
@@ -232,8 +684,15 @@ export interface ProductView extends Product {
    *  rather than left to be discovered: ukuran, gambar kerja, gambar jadi,
    *  BOM. */
   missing: string[];
-  /** Material cost for one unit, from the components that have a price. */
+  /** Material cost for one unit, from the components that have a price.
+   *  Sub-assemblies are costed by **walking into them** (D257), so a wardrobe
+   *  is priced from the plywood its drawer boxes are made of. */
   material_cost: number | null;
+  /** The typed figure and the two of them together. `total_cost` is null when
+   *  either half is — half a number is not a number, and a product priced at
+   *  its materials alone would be quoted at a loss. */
+  labour_cost: number | null;
+  total_cost: number | null;
   /** How many components could not be priced — the figure above is only worth
    *  what this number says it is. */
   unpriced: number;
@@ -294,9 +753,15 @@ export interface DesignTask {
   product_code: string;
   kind: DesignKind;
   status: DesignStatus;
-  /** Who is drawing it. Null is honest — an unassigned task is the queue's
-   *  most useful row. */
+  /** Who is drawing it, as it was written down. Null is honest — an unassigned
+   *  task is the queue's most useful row. */
   assignee: string | null;
+  /** The link beside the name, on the same terms as `ProgressEntry` (D264): a
+   *  freelance drafter is a legitimate answer, so the link is optional and
+   *  never replaces what was typed. */
+  assignee_employee_id: string | null;
+  /** Confirmed: this name is not one of our employees. */
+  assignee_not_a_person: boolean;
   /** When it is needed by. Set by hand, or left null and taken from the job. */
   due_date: string | null;
   note: string | null;

@@ -11,6 +11,7 @@
  */
 import { initialState, stateSignature } from "./fixtures";
 import type { DemoState, AuditRow, OutboxRow } from "./state";
+import { setActiveLocale } from "@/lib/format";
 
 const STORAGE_KEY = "ops-v2-demo/v2";
 
@@ -69,7 +70,17 @@ export function hydrate() {
   emit();
 }
 
+/** Settings that live outside the store's own reach — the number formatter is
+ *  a pure function nothing passes state to — are pushed into place whenever
+ *  the store changes. One direction, so the setting stays the only source
+ *  (D216). */
+function applySettings() {
+  const locale = state.app_settings?.find((x) => x.key === "format.locale")?.value;
+  if (locale) setActiveLocale(locale);
+}
+
 function emit() {
+  applySettings();
   for (const l of listeners) l();
 }
 
@@ -116,7 +127,7 @@ export function officeDay(at: Date = new Date()): string {
  *  is only one candidate now. */
 export function nextDocNumber(
   draft: DemoState,
-  prefix: "pr" | "fund" | "trx" | "pay" | "po" | "ask" | "pyr" | "spk" | "lbr" | "kyu" | "stk" | "izn" | "dsn" | "rkk",
+  prefix: "pr" | "fund" | "trx" | "pay" | "po" | "ask" | "pyr" | "spk" | "lbr" | "kyu" | "stk" | "izn" | "dsn" | "rkk" | "agn" | "lead" | "ppn" | "krm" | "pas" | "tmn" | "bast" | "tgs" | "kol",
   at: Date = new Date(),
 ): string {
   const day = officeDay(at);

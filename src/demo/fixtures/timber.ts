@@ -1,5 +1,5 @@
 import type {
-  LogPurchase, LogPiece, SawnBoard,
+  LogPurchase, LogPiece, SawnBoard, BoardMove,
 } from "@/services/inventory/contracts";
 
 /** Four loads of logs, two vendors, and the thing nobody could see before.
@@ -22,7 +22,7 @@ export const LOG_PURCHASES: LogPurchase[] = [
     id: "lgp_01", purchase_no: "kyu-26-07-12_01",
     vendor_id: "vnd_01", trx_no: null, pr_line_no: null,
     received_on: "2026-07-12", species: "Jati",
-    total_cost: 54_700_000, claimed_m3: 3.2, measure: "round",
+    total_cost: 54_700_000, claimed_m3: 3.2, measure: "round", nota_attachment_id: "att_50",
     note: "Sortimen A, kering angin. Bongkar di halaman belakang.",
     created_at: "2026-07-12T09:30:00+08:00", created_by: "usr_made",
   },
@@ -30,7 +30,7 @@ export const LOG_PURCHASES: LogPurchase[] = [
     id: "lgp_02", purchase_no: "kyu-26-08-05_01",
     vendor_id: "vnd_12", trx_no: null, pr_line_no: null,
     received_on: "2026-08-05", species: "Jati",
-    total_cost: 33_200_000, claimed_m3: 2.3, measure: "round",
+    total_cost: 33_200_000, claimed_m3: 2.3, measure: "round", nota_attachment_id: "att_51",
     note: "Harga per m³ lebih murah dari Sumber Kayu — makanya dicoba.",
     created_at: "2026-08-05T14:10:00+08:00", created_by: "usr_made",
   },
@@ -38,7 +38,7 @@ export const LOG_PURCHASES: LogPurchase[] = [
     id: "lgp_03", purchase_no: "kyu-26-08-26_01",
     vendor_id: "vnd_01", trx_no: null, pr_line_no: null,
     received_on: "2026-08-26", species: "Jati",
-    total_cost: 34_600_000, claimed_m3: 1.87, measure: "round",
+    total_cost: 34_600_000, claimed_m3: 1.87, measure: "round", nota_attachment_id: "att_52",
     note: null,
     created_at: "2026-08-26T10:05:00+08:00", created_by: "usr_made",
   },
@@ -46,7 +46,7 @@ export const LOG_PURCHASES: LogPurchase[] = [
     id: "lgp_04", purchase_no: "kyu-26-09-08_01",
     vendor_id: "vnd_12", trx_no: null, pr_line_no: null,
     received_on: "2026-09-08", species: "Mahoni",
-    total_cost: 6_600_000, claimed_m3: 0.95, measure: "round",
+    total_cost: 6_600_000, claimed_m3: 0.95, measure: "round", nota_attachment_id: null,
     note: "Belum digergaji — masih menunggu jadwal sawmill.",
     created_at: "2026-09-08T16:40:00+08:00", created_by: "usr_made",
   },
@@ -137,4 +137,66 @@ export const SAWN_BOARDS: SawnBoard[] = [
   board("lgp_03", "lgc_015", 30, 200, 3000, 6, "2026-09-02"),
   board("lgp_03", "lgc_016", 30, 220, 2800, 9, "2026-09-02"),
   board("lgp_03", "lgc_017", 30, 210, 3000, 9, "2026-09-03"),
+];
+
+/** What happened to the boards after the saw (D203).
+ *
+ *  Three things this has to show, and the demo is built so each is visible
+ *  without anybody clicking:
+ *
+ *  - **wood going to a job**, against an SPK, from a load somebody kept track
+ *    of — so the issue has a cost;
+ *  - **wood going to a job from a mixed pile**, where the load is genuinely
+ *    unknown. Its quantity is exact and its cost is blank, which is the honest
+ *    pair and the one a costing report has to be able to show (D204);
+ *  - **an opname that found four boards more than the system had**, with the
+ *    reason on the row — because the alternative, letting an issue take the
+ *    rack negative, is how a count stops being usable at all.
+ */
+export const BOARD_MOVES: BoardMove[] = [
+  {
+    id: "bmv_01", move_no: "ppn-26-08-18_01", at: "2026-08-18T09:10:00+08:00",
+    board_key: "Jati|30x200x3000", species: "Jati",
+    thickness_mm: 30, width_mm: 200, length_mm: 3000,
+    qty: -14, kind: "issue",
+    purchase_id: "lgp_01", ref_no: "spk-26-08-17_01",
+    reason: null, by: "usr_made",
+  },
+  {
+    id: "bmv_02", move_no: "ppn-26-08-26_01", at: "2026-08-26T14:40:00+08:00",
+    board_key: "Jati|30x220x2800", species: "Jati",
+    thickness_mm: 30, width_mm: 220, length_mm: 2800,
+    qty: -6, kind: "issue",
+    /* This size came off two different loads and the stack was topped up
+       without anybody writing down from which. Quantity exact, cost blank. */
+    purchase_id: null, ref_no: "spk-26-08-24_02",
+    reason: null, by: "usr_made",
+  },
+  {
+    id: "bmv_03", move_no: "ppn-26-08-29_01", at: "2026-08-29T16:05:00+08:00",
+    board_key: "Jati|30x200x3000", species: "Jati",
+    thickness_mm: 30, width_mm: 200, length_mm: 3000,
+    qty: 3, kind: "return",
+    purchase_id: "lgp_01", ref_no: "spk-26-08-17_01",
+    reason: "Sisa potong, masih utuh.", by: "usr_made",
+  },
+  {
+    id: "bmv_04", move_no: "ppn-26-09-01_01", at: "2026-09-01T08:20:00+08:00",
+    board_key: "Jati|30x180x3000", species: "Jati",
+    thickness_mm: 30, width_mm: 180, length_mm: 3000,
+    qty: -2, kind: "scrap",
+    purchase_id: "lgp_01", ref_no: null,
+    reason: "Melengkung setelah seminggu di rak terbuka.", by: "usr_made",
+  },
+  {
+    id: "bmv_05", move_no: "ppn-26-09-05_01", at: "2026-09-05T10:00:00+08:00",
+    board_key: "Jati|30x190x2500", species: "Jati",
+    thickness_mm: 30, width_mm: 190, length_mm: 2500,
+    qty: 4, kind: "adjust",
+    /* Nobody knows which load these came off, so they are counted and left out
+       of the value — four boards that are real and unpriced (D204). */
+    purchase_id: null, ref_no: null,
+    reason: "Opname 5 September: fisik 12, tercatat 8. Sisa gergajian Juli yang tidak pernah dilaporkan.",
+    by: "usr_made",
+  },
 ];

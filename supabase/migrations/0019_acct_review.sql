@@ -15,13 +15,13 @@
 -- **the only way their rows exist at all** (D180). Nobody enters those
 -- transactions; the statement is the source.
 
-create table acct.evidence_inbox (
+create table ops_acct.evidence_inbox (
   id             uuid primary key default gen_random_uuid(),
   ref_id         text not null unique,
-  origin         acct.inbox_origin_t not null,
-  status         acct.inbox_status_t not null default 'PENDING',
-  attachment_id  uuid not null references core.attachments(id),
-  reported_by    uuid references core.users(id),
+  origin         ops_acct.inbox_origin_t not null,
+  status         ops_acct.inbox_status_t not null default 'PENDING',
+  attachment_id  uuid not null references ops_core.attachments(id),
+  reported_by    uuid references ops_core.users(id),
   reported_at    timestamptz not null default now(),
 
   -- The AI's reading. **A proposal, never a posting.** Every field is nullable
@@ -34,11 +34,11 @@ create table acct.evidence_inbox (
   -- here is money going OUT — somebody bought first. A transfer proof from
   -- leadership is the other direction, and the two are resolved by different
   -- people for different reasons (D81).
-  money_direction acct.direction_t,
+  money_direction ops_acct.direction_t,
 
   produced_trx_no     text,
   produced_pr_line_no text,
-  resolved_by    uuid references core.users(id),
+  resolved_by    uuid references ops_core.users(id),
   resolved_at    timestamptz,
   resolve_note   text,
 
@@ -49,36 +49,36 @@ create table acct.evidence_inbox (
     (status = 'PENDING') = (resolved_at is null))
 );
 
-create index inbox_pending_idx on acct.evidence_inbox (reported_at desc)
+create index inbox_pending_idx on ops_acct.evidence_inbox (reported_at desc)
   where status = 'PENDING';
-create index inbox_recent_idx  on acct.evidence_inbox (reported_at desc);
+create index inbox_recent_idx  on ops_acct.evidence_inbox (reported_at desc);
 
 -- ── the bank's own record ─────────────────────────────────────────────────
-create table acct.bank_statements (
+create table ops_acct.bank_statements (
   id            uuid primary key default gen_random_uuid(),
-  account_id    uuid not null references acct.accounts(id),
+  account_id    uuid not null references ops_acct.accounts(id),
   period_start  date not null,
   period_end    date not null,
   opening_balance numeric not null,
   closing_balance numeric not null,
   currency      text not null default 'IDR',
   filename      text not null,
-  status        acct.statement_status_t not null default 'PENDING',
-  attachment_id uuid references core.attachments(id),
+  status        ops_acct.statement_status_t not null default 'PENDING',
+  attachment_id uuid references ops_core.attachments(id),
   note          text,
-  uploaded_by   uuid not null references core.users(id),
+  uploaded_by   uuid not null references ops_core.users(id),
   uploaded_at   timestamptz not null default now(),
   constraint period_forward check (period_end >= period_start)
 );
 
-create index statements_account_idx on acct.bank_statements (account_id, period_start desc);
+create index statements_account_idx on ops_acct.bank_statements (account_id, period_start desc);
 
-create table acct.statement_lines (
+create table ops_acct.statement_lines (
   id            uuid primary key default gen_random_uuid(),
-  statement_id  uuid not null references acct.bank_statements(id) on delete restrict,
+  statement_id  uuid not null references ops_acct.bank_statements(id) on delete restrict,
   line_no       int not null check (line_no > 0),
   value_date    date not null,
-  direction     acct.direction_t not null,
+  direction     ops_acct.direction_t not null,
   -- In the statement's own currency. For an IDR statement this and
   -- `amount_idr` are the same number.
   amount        numeric not null check (amount > 0),
@@ -98,7 +98,7 @@ create table acct.statement_lines (
   -- code, like every other cross-reference.
   trx_no        text,
   note          text,
-  decided_by    uuid references core.users(id),
+  decided_by    uuid references ops_core.users(id),
   decided_at    timestamptz,
 
   unique (statement_id, line_no),
@@ -117,52 +117,52 @@ create table acct.statement_lines (
     (fx_rate is null) or (amount_idr is not null))
 );
 
-create index statement_lines_stmt_idx on acct.statement_lines (statement_id, line_no);
-create index statement_lines_open_idx on acct.statement_lines (statement_id)
+create index statement_lines_stmt_idx on ops_acct.statement_lines (statement_id, line_no);
+create index statement_lines_open_idx on ops_acct.statement_lines (statement_id)
   where status = 'unmatched';
 
-alter table acct.evidence_inbox  enable row level security;
-alter table acct.bank_statements enable row level security;
-alter table acct.statement_lines enable row level security;
+alter table ops_acct.evidence_inbox  enable row level security;
+alter table ops_acct.bank_statements enable row level security;
+alter table ops_acct.statement_lines enable row level security;
 
-create policy inbox_read on acct.evidence_inbox
-  for select to authenticated using (core.has_permission('accounting.read'));
-create policy statements_read on acct.bank_statements
-  for select to authenticated using (core.has_permission('accounting.read'));
-create policy statement_lines_read on acct.statement_lines
-  for select to authenticated using (core.has_permission('accounting.read'));
+create policy inbox_read on ops_acct.evidence_inbox
+  for select to authenticated using (ops_core.has_permission('accounting.read'));
+create policy statements_read on ops_acct.bank_statements
+  for select to authenticated using (ops_core.has_permission('accounting.read'));
+create policy statement_lines_read on ops_acct.statement_lines
+  for select to authenticated using (ops_core.has_permission('accounting.read'));
 
 -- Anybody who can file a document can put one in the inbox: that is the whole
 -- point of the exception road — it must be easier than not recording it.
-create policy inbox_new on acct.evidence_inbox
-  for insert to authenticated with check (core.has_permission('accounting.create'));
+create policy inbox_new on ops_acct.evidence_inbox
+  for insert to authenticated with check (ops_core.has_permission('accounting.create'));
 -- **Resolving is its own authority.** Deciding that a document belongs to a
 -- ledger row, or to nothing, is a judgement about money (D94).
-create policy inbox_resolve on acct.evidence_inbox
+create policy inbox_resolve on ops_acct.evidence_inbox
   for update to authenticated
-  using (core.has_authority('resolve_inbox'))
-  with check (core.has_authority('resolve_inbox'));
+  using (ops_core.has_authority('resolve_inbox'))
+  with check (ops_core.has_authority('resolve_inbox'));
 
-create policy statements_write on acct.bank_statements
-  for insert to authenticated with check (core.has_permission('accounting.create'));
-create policy statements_edit on acct.bank_statements
+create policy statements_write on ops_acct.bank_statements
+  for insert to authenticated with check (ops_core.has_permission('accounting.create'));
+create policy statements_edit on ops_acct.bank_statements
   for update to authenticated
-  using (core.has_permission('accounting.update'))
-  with check (core.has_permission('accounting.update'));
-create policy statement_lines_write on acct.statement_lines
-  for insert to authenticated with check (core.has_permission('accounting.create'));
-create policy statement_lines_decide on acct.statement_lines
+  using (ops_core.has_permission('accounting.update'))
+  with check (ops_core.has_permission('accounting.update'));
+create policy statement_lines_write on ops_acct.statement_lines
+  for insert to authenticated with check (ops_core.has_permission('accounting.create'));
+create policy statement_lines_decide on ops_acct.statement_lines
   for update to authenticated
-  using (core.has_authority('post_ledger'))
-  with check (core.has_authority('post_ledger'));
+  using (ops_core.has_authority('post_ledger'))
+  with check (ops_core.has_authority('post_ledger'));
 
-grant select on acct.evidence_inbox, acct.bank_statements, acct.statement_lines
+grant select on ops_acct.evidence_inbox, ops_acct.bank_statements, ops_acct.statement_lines
   to authenticated;
-grant insert on acct.evidence_inbox, acct.bank_statements, acct.statement_lines
+grant insert on ops_acct.evidence_inbox, ops_acct.bank_statements, ops_acct.statement_lines
   to authenticated;
 grant update (status, produced_trx_no, produced_pr_line_no,
               resolved_by, resolved_at, resolve_note)
-  on acct.evidence_inbox to authenticated;
-grant update (status, note) on acct.bank_statements to authenticated;
+  on ops_acct.evidence_inbox to authenticated;
+grant update (status, note) on ops_acct.bank_statements to authenticated;
 grant update (status, trx_no, note, amount_idr, fx_rate, decided_by, decided_at)
-  on acct.statement_lines to authenticated;
+  on ops_acct.statement_lines to authenticated;

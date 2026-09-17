@@ -2,7 +2,7 @@
 # Find PL/pgSQL locals that share a name with a column somewhere in the schema.
 #
 # Written after the fifth instance. `declare covered numeric;` in a function
-# that later says `select covered from procure.v_line_coverage` is ambiguous,
+# that later says `select covered from ops_procure.v_line_coverage` is ambiguous,
 # and Postgres refuses the query rather than guessing — correctly, and **at run
 # time**. The migration applies, the function is created, and the failure waits
 # until the one branch that happens to reach that line.
@@ -30,7 +30,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 psql -h "$HOST" -p "$PORT" -U "$USER" -Atc "
   select distinct column_name
     from information_schema.columns
-   where table_schema in ('core','procure','acct','hr','prod','inv')
+   where table_schema in ('ops_core','ops_procure','ops_acct','ops_hr','ops_prod','ops_inv')
 " > /tmp/_columns.txt
 
 python3 - "$HERE/../migrations" /tmp/_columns.txt <<'PY'

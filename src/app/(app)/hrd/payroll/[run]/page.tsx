@@ -84,8 +84,29 @@ export default function PayrollRunPage({ params }: { params: { run: string } }) 
       ),
     },
     {
-      key: "base", header: "Base", align: "right",
+      key: "base", header: "Pokok", align: "right",
       render: (l) => <span className="whitespace-nowrap tabular-nums text-slate-800">{formatIDR(l.base_pay)}</span>,
+    },
+    {
+      key: "allowance", header: "Tunjangan", align: "right",
+      render: (l) => (
+        <div className="whitespace-nowrap text-right">
+          <span className={cn("tabular-nums", l.allowance_pay > 0 ? "text-slate-800" : "text-slate-300")}>
+            {formatIDR(l.allowance_pay)}
+          </span>
+          {l.allowance_rate > 0 && (
+            <p className="text-[11px] text-slate-500">{formatNumber(l.allowance_days)} hari hadir</p>
+          )}
+          {/* The days HRD took it off, counted here and explained on the slip
+              (D250) — a smaller number with no reason beside it is the one
+              somebody comes back about. */}
+          {l.allowance_withheld_days > 0 && (
+            <p className="text-[11px] text-amber-700">
+              −{formatNumber(l.allowance_withheld_days)} hari ditahan
+            </p>
+          )}
+        </div>
+      ),
     },
     {
       key: "ot", header: "Overtime", align: "right",

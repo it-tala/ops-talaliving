@@ -15,16 +15,25 @@ import { ATTACHMENTS, ATTACHMENT_LINKS } from "./documents";
 import { CASH_COMPONENTS, CASH_OVERRIDES, CASH_SETTLEMENTS } from "./cash";
 import {
   EMPLOYEES, ATTENDANCE_SCANS, DAY_MARKS, OVERTIME_SHEETS, OVERTIME_LINES,
-  PAYROLL_RUNS, PAYROLL_ADJUSTMENTS,
+  PAYROLL_RUNS, PAYROLL_ADJUSTMENTS, ALLOWANCE_WITHHOLDINGS,
 } from "./hr";
 import { WORK_ORDERS, PRODUCTION_PROGRESS } from "./production";
-import { PRODUCTS, BOM_COMPONENTS } from "./products";
-import { LOG_PURCHASES, LOG_PIECES, SAWN_BOARDS } from "./timber";
+import { PRODUCTS, BOM_COMPONENTS, BOM_REVISIONS } from "./products";
+import { APP_SETTINGS } from "./settings";
+import { LOG_PURCHASES, LOG_PIECES, SAWN_BOARDS, BOARD_MOVES } from "./timber";
+import {
+  DELIVERIES, DELIVERY_LINES, INSTALLATIONS, INSTALLATION_LINES, SNAGS, HANDOVERS,
+} from "./delivery";
+import { PACKING_BOXES, BOX_LINES } from "./boxes";
 import { STOCK_LOCATIONS, STOCK_SETTINGS, STOCK_MOVES } from "./stock";
 import { PAY_RULE_SETS } from "./payrules";
+import { CONTRIBUTION_RATES, ENROLMENTS } from "./contributions";
+import { TASKS } from "./tasks";
 import { EMPLOYEE_DOCUMENTS, LEAVE_REQUESTS } from "./hrfiles";
 import { DESIGN_TASKS, DESIGN_REVISIONS, DESIGN_QUESTIONS } from "./design";
 import { BANK_STATEMENTS, STATEMENT_LINES } from "./statements";
+import { MARKETS, PROPERTIES, PROPERTY_AGENTS, SALES_REPS, REFERRALS, SCRAPE_ROWS } from "./marketing";
+import { AUDIT_SEED, ACTIVITY_EVENTS, ACTIVITY_DAILY } from "./activity";
 
 export * from "./reference";
 
@@ -44,7 +53,7 @@ export * from "./reference";
  *  changes every count, and their own work is exactly what the snapshot is
  *  for. A version somebody types when they edit the fixtures separates "the
  *  demo data moved" from "somebody used the demo". */
-export const FIXTURE_VERSION = "2026-09-11.21";
+export const FIXTURE_VERSION = "2026-09-14.1";
 
 export function stateSignature(state: DemoState): string {
   return [
@@ -104,6 +113,10 @@ export function initialState(): DemoState {
     overtime_lines: OVERTIME_LINES,
     payroll_runs: PAYROLL_RUNS,
     payroll_adjustments: PAYROLL_ADJUSTMENTS,
+    allowance_withholdings: ALLOWANCE_WITHHOLDINGS,
+    contribution_rates: CONTRIBUTION_RATES,
+    enrolments: ENROLMENTS,
+    tasks: TASKS,
     pay_rule_sets: PAY_RULE_SETS,
     employee_documents: EMPLOYEE_DOCUMENTS,
     leave_requests: LEAVE_REQUESTS,
@@ -113,23 +126,44 @@ export function initialState(): DemoState {
     bank_statements: BANK_STATEMENTS,
     statement_lines: STATEMENT_LINES,
 
+    markets: MARKETS,
+    properties: PROPERTIES,
+    property_agents: PROPERTY_AGENTS,
+    sales_reps: SALES_REPS,
+    referrals: REFERRALS,
+    scrape_rows: SCRAPE_ROWS,
+
     work_orders: WORK_ORDERS,
     production_progress: PRODUCTION_PROGRESS,
     products: PRODUCTS,
     bom_components: BOM_COMPONENTS,
+    bom_revisions: BOM_REVISIONS,
 
     stock_locations: STOCK_LOCATIONS,
     stock_settings: STOCK_SETTINGS,
+    app_settings: APP_SETTINGS,
+    assistant_turns: [],
     stock_moves: STOCK_MOVES,
 
     log_purchases: LOG_PURCHASES,
     log_pieces: LOG_PIECES,
+    deliveries: DELIVERIES,
+    delivery_lines: DELIVERY_LINES,
+    packing_boxes: PACKING_BOXES,
+    box_lines: BOX_LINES,
+    installations: INSTALLATIONS,
+    installation_lines: INSTALLATION_LINES,
+    snags: SNAGS,
+    handovers: HANDOVERS,
     sawn_boards: SAWN_BOARDS,
+    board_moves: BOARD_MOVES,
 
     attachments: ATTACHMENTS,
     attachment_links: ATTACHMENT_LINKS,
 
-    audit_log: [],
+    audit_log: AUDIT_SEED,
+    activity_events: ACTIVITY_EVENTS,
+    activity_daily: ACTIVITY_DAILY,
     outbox: [],
 
     /* Seeded past the fixtures so a newly minted number never collides with

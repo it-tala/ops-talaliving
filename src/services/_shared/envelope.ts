@@ -28,6 +28,10 @@ export type ServiceName =
   /** The eighth (D153): timber bought as logs, used as boards, and the gap
    *  between the two that no invoice shows. */
   | "inventory"
+  /** The ninth (D183): the Package programme. Recruiting agents who introduce
+   *  condo owners, and then working with the ones who agreed — two funnels
+   *  joined at the point where an agent becomes a representative. */
+  | "marketing"
   | "documents"
   | "events";
 

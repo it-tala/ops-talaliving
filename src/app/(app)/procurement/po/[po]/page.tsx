@@ -7,6 +7,7 @@ import {
   Check, MessageCircle, Printer, Truck,
 } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
+import { QrCode } from "@/components/ui/qr";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { formatIDR, formatNumber } from "@/lib/format";
@@ -102,7 +103,21 @@ export default function PoDetailPage({ params }: { params: { po: string } }) {
       key: "trigger",
       header: "When",
       className: "whitespace-normal",
-      render: (t) => <span className="text-[12px] text-slate-600">{t.trigger}</span>,
+      render: (t) => (
+        <div>
+          <span className="text-[12px] text-slate-600">{t.trigger}</span>
+          {/* Jatuh tempo = tanggal ekspektasi pengiriman (D234). Tanggal yang
+              belum terjadi ditandai ± supaya janji tidak terbaca sebagai fakta. */}
+          {t.expected_on && t.expected_basis !== "stated" && (
+            <span className={cn(
+              "block whitespace-nowrap text-[11px] tabular-nums",
+              t.expected_basis === "expected" ? "text-amber-700" : "text-slate-400",
+            )}>
+              {t.expected_basis === "expected" ? "± " : ""}{t.expected_on}
+            </span>
+          )}
+        </div>
+      ),
     },
     {
       key: "amount",
@@ -211,12 +226,22 @@ export default function PoDetailPage({ params }: { params: { po: string } }) {
                   <span>
                     Confirmed by {d.approved_by_name ?? "leadership"} on {d.approved_at.slice(0, 10)} —
                     it can be issued and sent to the supplier.
+                    {/* Which road it came down is recorded, not inferred. A
+                        rubber stamp that looks like a second pair of eyes is
+                        worse than no stamp, so a self-confirmation says so on
+                        its face (D267). */}
+                    {d.self_confirmed && (
+                      <strong> Ditulis dan dikonfirmasi dalam satu tindakan — pembuatnya sendiri yang
+                      memegang wewenangnya, jadi tidak ada pihak kedua yang memeriksanya.</strong>
+                    )}
                   </span>
                 ) : d.approval_asked_at ? (
                   <span>
                     Waiting on leadership since {d.approval_asked_at.slice(0, 16).replace("T", " ")}
-                    {d.approval_asked_by_name ? `, asked by ${d.approval_asked_by_name}` : ""}. Nothing
-                    goes to the supplier until they answer.
+                    {d.approval_asked_by_name ? `, asked by ${d.approval_asked_by_name}` : ""}
+                    {d.approval_sent_to ? `, sent to ${d.approval_sent_to}` : ""}. Nothing
+                    goes to the supplier until they answer — from their own account, not from whoever&apos;s
+                    laptop the meeting is running on.
                   </span>
                 ) : (
                   <span>
@@ -303,6 +328,33 @@ export default function PoDetailPage({ params }: { params: { po: string } }) {
                 )}
               </p>
             </div>
+
+            {/* The QR that works today, and the honest note about the one that
+                does not. Scanning this opens the order for somebody who is
+                already signed in — the receiving clerk at the gate with a
+                lorry in front of them, which is the scan that actually happens
+                here. The vendor-facing version, where the supplier scans the
+                paper and sees the status of their own order, needs a public
+                read route and a token per order; until that exists it is
+                deliberately NOT printed on the PDF the vendor receives, because
+                a QR that fails for the person holding it is worse than no QR
+                (W3, F82). */}
+            <Card className="mb-4">
+              <div className="flex items-start gap-4 p-5">
+                <QrCode path={`/procurement/po/${encodeURIComponent(d.po_no)}`} title={d.po_no} size={88} className="shrink-0 rounded ring-1 ring-slate-200" />
+                <div className="min-w-0 text-[13px]">
+                  <p className="font-medium text-slate-800">Scan untuk membuka order ini</p>
+                  <p className="mt-0.5 text-slate-500">
+                    Mengarah ke halaman PO <span className="font-mono">{d.po_no}</span> di sistem ini — untuk tim
+                    kita sendiri yang sudah punya login, misalnya saat barang datang di gerbang.
+                  </p>
+                  <p className="mt-1.5 text-[12px] text-amber-700">
+                    Belum dicetak di PDF yang diterima vendor. Vendor tidak punya akun di sini, jadi QR itu
+                    baru berguna kalau ada halaman publik dan token per order — itu bagian Fase 2.
+                  </p>
+                </div>
+              </div>
+            </Card>
 
             <Card className="mb-4">
               <CardHeader

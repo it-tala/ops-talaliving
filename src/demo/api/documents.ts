@@ -10,12 +10,19 @@ import type {
 } from "@/services/documents/contracts";
 import { getState, apply, newId, writeAudit, writeOutbox } from "../store";
 import { latency, actingUser, conflict, replayed, remember } from "./_kit";
+import { settingNumber } from "../settings";
 
 const SERVICE = "documents" as const;
 
 /** Below the framework's own body limit on purpose, so an oversized file gets
  *  an error that names the limit instead of a connection that dies. */
+/** Default 15 MB, and a setting (D216) — how big a scan this office needs to
+ *  file is not a thing code should decide. */
 export const MAX_BYTES = 15 * 1024 * 1024;
+
+function maxBytes(): number {
+  return settingNumber(getState(), "ops.max_upload_mb", 15) * 1024 * 1024;
+}
 
 function view(att: Attachment): AttachmentView {
   const links = getState().attachment_links.filter((l) => l.attachment_id === att.id);
@@ -30,11 +37,11 @@ export async function upload(
   const cached = replayed<AttachmentView>(SERVICE, "upload", idempotencyKey);
   if (cached) return cached;
 
-  if (input.bytes > MAX_BYTES) {
+  if (input.bytes > maxBytes()) {
     return invalid(
       SERVICE, "file_too_large",
-      `File is ${(input.bytes / 1024 / 1024).toFixed(1)} MB, over the 15 MB limit.`,
-      { field: "bytes", limit: MAX_BYTES },
+      `File is ${(input.bytes / 1024 / 1024).toFixed(1)} MB, over the ${(maxBytes() / 1024 / 1024).toFixed(0)} MB limit.`,
+      { field: "bytes", limit: maxBytes() },
     );
   }
 
@@ -184,6 +191,19 @@ export async function byEntity(entity: LinkEntity, entityNo: string): Promise<Re
     .filter((l) => l.entity === entity && l.entity_no === entityNo)
     .map((l) => l.attachment_id);
   return ok(SERVICE, state.attachments.filter((a) => ids.includes(a.id)).map(view));
+}
+
+/** One document, by id. Exists because a screen that *names* evidence should
+ *  be able to *show* it: a chip reading "photo of the goods" that nobody can
+ *  open is a label about evidence rather than a way to the evidence (B2, B3,
+ *  D268). */
+export async function getAttachment(id: string): Promise<Result<AttachmentView>> {
+  await latency();
+  const found = getState().attachments.find((a) => a.id === id);
+  if (!found) {
+    return notFound(SERVICE, "attachment_not_found", "Dokumen itu tidak ada — mungkin sudah dilepas dari catatan ini.");
+  }
+  return ok(SERVICE, view(found));
 }
 
 export async function listAttachments(): Promise<Result<AttachmentView[]>> {

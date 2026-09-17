@@ -24,7 +24,7 @@
 --                   ever, which is a bug that looks exactly like the validation
 --                   being wrong.
 
-create table core.idempotency_keys (
+create table ops_core.idempotency_keys (
   service     text not null,
   endpoint    text not null,
   key         text not null,
@@ -33,7 +33,7 @@ create table core.idempotency_keys (
   -- everything downstream — including the screen, which gets the same row back
   -- and renders the same way.
   response    jsonb not null,
-  actor_id    uuid references core.users(id),
+  actor_id    uuid references ops_core.users(id),
   created_at  timestamptz not null default now(),
   primary key (service, endpoint, key)
 );
@@ -41,9 +41,9 @@ create table core.idempotency_keys (
 -- Claims are worth keeping for as long as a retry is plausible and no longer;
 -- the index is here so a sweep can find the old ones without a sequential scan
 -- over a table that only ever grows.
-create index idem_created_idx on core.idempotency_keys (created_at);
+create index idem_created_idx on ops_core.idempotency_keys (created_at);
 
-alter table core.idempotency_keys enable row level security;
+alter table ops_core.idempotency_keys enable row level security;
 -- No policy at all. This table is written and read only by the seams, which run
 -- as definer. A client that could read it could read other people's responses,
 -- and a client that could write it could make a seam return an answer it never
@@ -55,16 +55,16 @@ alter table core.idempotency_keys enable row level security;
 -- `src/lib/api/_kit.ts` turns into `replay()` — "you already did this, here is
 -- the same answer again". A stored 409 comes back unchanged, because it was
 -- already the right answer and re-labelling it would lose its status.
-create or replace function core.idem_replay(
+create or replace function ops_core.idem_replay(
   p_service text, p_endpoint text, p_key text)
 returns jsonb
-language plpgsql security definer set search_path = core, pg_temp as $$
+language plpgsql security definer set search_path = ops_core, pg_temp as $$
 declare stored jsonb;
 begin
   if p_key is null or p_key = '' then return null; end if;
 
   select response into stored
-    from core.idempotency_keys
+    from ops_core.idempotency_keys
    where service = p_service and endpoint = p_endpoint and key = p_key;
 
   if stored is null then return null; end if;
@@ -75,16 +75,16 @@ begin
     '{status}', '200'::jsonb);
 end $$;
 
-create or replace function core.idem_remember(
+create or replace function ops_core.idem_remember(
   p_service text, p_endpoint text, p_key text, p_response jsonb)
 returns jsonb
-language plpgsql security definer set search_path = core, pg_temp as $$
+language plpgsql security definer set search_path = ops_core, pg_temp as $$
 declare oc text := p_response ->> 'outcome';
 begin
   if p_key is null or p_key = '' then return p_response; end if;
   if oc not in ('ok','noop','duplicate') then return p_response; end if;
 
-  insert into core.idempotency_keys (service, endpoint, key, response, actor_id)
+  insert into ops_core.idempotency_keys (service, endpoint, key, response, actor_id)
   values (p_service, p_endpoint, p_key, p_response, auth.uid())
   -- Two requests racing with the same key: the first one to commit wins and
   -- the second's insert is a no-op. Both callers get a correct answer, and the
@@ -94,5 +94,5 @@ begin
   return p_response;
 end $$;
 
-revoke execute on function core.idem_replay(text, text, text) from public;
-revoke execute on function core.idem_remember(text, text, text, jsonb) from public;
+revoke execute on function ops_core.idem_replay(text, text, text) from public;
+revoke execute on function ops_core.idem_remember(text, text, text, jsonb) from public;

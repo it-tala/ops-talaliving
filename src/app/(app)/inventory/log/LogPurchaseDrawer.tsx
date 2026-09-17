@@ -12,6 +12,7 @@ import { inventory } from "@/demo/api";
 import { LOG_MEASURE_LABEL, type LogPurchaseView } from "@/services/inventory/contracts";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
+import { officeToday } from "@/lib/office";
 
 /** One delivery of logs: every stick measured, every board that came out.
  *
@@ -36,7 +37,7 @@ export function LogPurchaseDrawer({
   const [log, setLog] = useState({ tag: "", d: 40, l: 300 });
   const [board, setBoard] = useState({
     tag: "", t: 30, w: 200, len: 3000, qty: 1,
-    date: new Date(Date.now() + 8 * 3_600_000).toISOString().slice(0, 10),
+    date: officeToday(),
   });
 
   async function addLog(p: LogPurchaseView) {

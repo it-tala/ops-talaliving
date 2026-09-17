@@ -486,7 +486,7 @@ table because they fail differently.
 |---|---|---|---|
 | **`core.audit_log`** — changes | who changed what, from what, to what, and was it refused | the same transaction as the change itself | **High.** Not the table — the *seam*. Retrofitting means finding every write path and hoping none was missed |
 | **session events** | who was in the system, when, and as whom | the identity service | Low. A handful of call sites, all in one service |
-| **`core.activity_log`** — reads | who *looked at* the ledger, HR records, a salary | the request layer, gated and sampled | Low to add, but it is the one with a real policy question attached: how long is it kept, and who may read the log of who read what |
+| **`core.activity_events` + `core.activity_daily`** — reads | who *looked at* the ledger, HR records, a salary — and what a person did with their whole day | the request layer, gated; the recap by a nightly roll-up | Low to add. The policy question attached to it is now half answered: retention is set (D188), readership is not — it defaults to `it.read` |
 
 **Only the first has to be early**, and it is early for a reason that is not
 about storage: an audit row written *after* the fact is a story, and an audit
@@ -497,12 +497,177 @@ definition of done and is enforced today across every write in the demo layer.
 **Sessions are recorded from M2**, because a trail that cannot say who was
 signed in cannot answer the first question anyone asks it.
 
-**Reads are not logged yet, deliberately.** It is the only trail that grows
-without bound, the only one that costs something on every request, and the only
-one where retention is a policy the owner has to set rather than a default we
-can pick (§10.2 q8 leaves exactly this open). It is a middleware concern, not a
-schema one, so building it later costs a middleware and a table — not a hunt
-through the codebase.
+**Reads are logged from M34, under the retention the owner set** (Q22, D188).
+The third trail is now two tables, because thirty days of detail and six months
+of recap are two different lifetimes:
+
+```
+core.activity_events                       -- the detail. 30 days.
+  id, at timestamptz, user_id, module,
+  action text,                             -- view | export | print | search | open
+  entity text, entity_id text,
+  summary text                             -- what it was, in words, for when the row outlives the thing
+  -- retention: deleted past DETAIL_DAYS, and only for a day already rolled up
+
+core.activity_daily                        -- the recap. 6 months.
+  day date, user_id,                       -- primary key (day, user_id)
+  events int, modules text[],
+  changes int, refusals int,               -- taken from core.audit_log, not from the events
+  first_at timestamptz, last_at timestamptz,
+  headline text,
+  rolled_up_at timestamptz
+  -- retention: deleted past RECAP_MONTHS
+```
+
+`activity_daily` is **the one stored derived figure in this system**, and the
+exception is deliberate (D188): its source rows are gone at day 31, so
+computing it on read would answer *0 aktivitas* for every day older than a
+month — not a missing number, a wrong one. `changes` and `refusals` come from
+`audit_log`, which is never purged, so a recap can always be checked against
+the trail that outlives it.
+
+**Purging is the only deletion in the schema** (D189). Everything else voids
+(D9). It is fenced three ways: it touches `activity_events` only, only past the
+retention edge, and only for days that already have a recap row — a day without
+one is refused **by name**, never skipped quietly.
+
+**Reads that live in the audit log, not the activity log.** Opening somebody's
+identity number is a read, and it is written to `core.audit_log` with
+`action = 'reveal'` — because *who looked at my KTP* is asked months later and
+the activity log keeps detail for thirty days (D197). Two constraints belong on
+it in Phase 2, and both are about what the row must **not** contain:
+
+- the `detail` of a `reveal` row carries whose document and which kind, never
+  the number — an audit table nobody may delete from is the worst place to keep
+  a national ID;
+- `activity_daily.reveals` counts these separately from `changes`, because a
+  reveal changes nothing and folding it in would inflate every recap.
+
+**`inv.board_moves`** — what happened to the boards after the saw: `issue`,
+`return`, `scrap`, `adjust`, signed, each with the work order or the reason
+behind it. **There is no `sawn` row in this table**: the incoming side is
+derived from `inv.sawn_boards`, which the yield figures already divide, so the
+rack and the rendemen read the same rows and cannot drift (D203). `purchase_id`
+is nullable on purpose — it decides what an issue cost, and a load guessed to
+fill the column is a wrong number in a costing report (D204).
+
+`inv.log_purchases.nota_attachment_id` links the load to the paper it was
+entered from (D201). Nullable only for loads recorded before that rule.
+
+`hr.pay_rule_sets` carries the business's **working patterns** as rows —
+`schedules` plus `schedule_by_unit` — and `hr.employees.schedule_code` names
+the one a person is on (D274). It was a `day_start_by_unit` map for exactly one
+day: the owner's fuller answer has five patterns, a Friday that differs, an end
+time, a twelve-hour shift and a start time nobody has fixed, and a map of one
+number per unit can hold none of them (F91). `start_minutes`, `end_minutes` and
+`break_minutes` are all **nullable, and null means unstated** — a schedule
+without a start cannot measure lateness, which reads as *tidak terukur* rather
+than as nobody ever being late. The selector that reads the book orders by
+`effective_from` **and then `version`**: sorting by date alone was fine until
+two books shared a date, which happens the first time a correction is dated to
+the version it corrects, and a dated rule book whose answer depends on row
+order is not a dated rule book (F89).
+
+`effective_days_per_month` is **not a column**. It is
+`effective_days_per_year / 12`, computed where it is shown (D271): two stored
+numbers that must agree is exactly how bruto and diterima drifted apart (F73).
+
+`hr` timesheet days carry `notes` beside `issues`. An entry in `issues` means
+the reader could not describe the day, so it cannot be paid until a person
+opens it (D141); `notes` is for a day the rule read perfectly well that still
+has something worth saying — a break that ran past its 45 minutes. Folding the
+two together stopped somebody's wages over five minutes (F90).
+
+`procure.purchase_orders` carries `approval_sent_to` and `approval_token` for
+the chat road, and **`self_confirmed` as a stored column** (D267). It is not
+derived from `created_by = approved_by`: *approved by Evin* and *written and
+approved by Evin in one act* are different facts about how a decision was
+taken, and reconstructing the second from the first later would be a guess
+about history in the one table that exists to be trusted.
+
+`inv.stock_moves.ref_no` is a **text reference, not a foreign key** across the
+service seam (ADR-004) — and that is exactly why nine seeded issues pointed at
+two work orders that had never existed for six milestones (F86). Nothing
+dereferenced the column until D266, so nothing checked it. It stays text, and
+the check is now done on read: `ref_missing` follows any `spk-` reference and
+the screen marks it. A key nothing follows is a key nothing checks.
+
+`prod.production_progress` carries **two** columns for who did the work and
+they are not redundant (D264). `worked_by` is the name as the mandor wrote it,
+kept verbatim for ever, because a record that rewrites itself when somebody is
+later linked answers the wrong question in an argument.
+`worked_by_employee_id` is the link a **person** made afterwards — the system
+suggests and never matches, since matching people by name into a performance
+record is how the wrong review lands on the wrong person.
+`worked_by_not_a_person` is the third state and it is genuinely third: *Tim
+potong* and a vendor's crew are **resolved**, not missing, and they count
+towards coverage exactly as a linked name does.
+
+The two are never read raw. `attributionOf()` derives one of three values from
+them and everything downstream reads that, so the invariant — never both set —
+cannot drift apart in a caller's hands (F75's rule). The API refuses a name
+declared both at once rather than preferring one, because either preference
+would be the software deciding who did the work.
+
+`prod.design_tasks` carries the same pair, on the same terms: a freelance
+drafter is a legitimate answer.
+
+**Schema `dlv`** — the last leg (D209): `deliveries` + `delivery_lines`,
+`packing_boxes` + `box_lines`, `installations` + `installation_lines`, `snags`,
+`handovers`. Four things about it are load-bearing:
+
+- **nothing stores a quantity delivered or installed.** Both are sums over the
+  line tables, filtered by the parent's status — and `delivered` (left the
+  yard) and `arrived` (signed for) are **different filters over the same rows**
+  (F62);
+- `handovers.open_snags_at_handover` and `open_snag_nos` are **stored, not
+  derived**, for the same reason `activity_daily` is (D188): the snags will be
+  closed, and a derived count would rewrite a signature-with-notes into a clean
+  one (D212);
+- `handovers.bast_attachment_id` is **NOT NULL**. It is the only evidence
+  column in this schema that is, because it is the only one backing a claim
+  about what somebody else agreed to (D211).
+
+`dlv.packing_boxes` is what physically leaves the yard, and it exists because a
+delivery line and a crate are not the same object: *2 set meja makan* arrives as
+four boxes, and a dining table whose top arrived and whose legs did not is worth
+nothing (D262). Four columns carry the weight:
+
+- **`destination` is NOT NULL** — where the crate goes *inside the building*.
+  It is the one fact `delivery_lines` structurally cannot hold, and it is the
+  whole reason the table exists. A box row with a blank destination is a label
+  that moves the job of opening the crate to the site;
+- **`problem_note` is required to set `status = 'PROBLEM'`**, enforced at the
+  API rather than by a constraint, because the check is conditional on a value
+  and the message matters more than the rejection. A red flag with nothing
+  written on it cannot be acted on by anybody in the workshop;
+- **`delivery_id` is nullable.** A box is packed and labelled before anybody
+  books a lorry, and that gap is a state the workshop is in every day, not a
+  missing foreign key;
+- **there is no `position` column.** *3 dari 5* is computed from the
+  consignment on read: it changes the moment another box joins the same lorry,
+  and a number printed on a label that is no longer true is worse than none.
+
+`box_lines.project_line_id` is nullable for the same reason `dlv` is careful
+elsewhere: a box of handles and screws belongs to no line the client ordered by
+name, and forcing it onto one would make the fitted count wrong. A consignment
+that predates the labels has **no** box rows at all, and that is read as *no
+boxes recorded* rather than *nol peti* (F60's rule again).
+
+**Schema `asst`** — `assistant_turns`: the prompt verbatim, what it was
+understood as, the tools it ran, the facts it returned, and the draft plus its
+outcome. Kept because *what did John Lau tell me on Tuesday* is asked after
+somebody has acted on the answer (D217). Two constraints matter:
+
+- a turn's **figures live in their own column**, never inside the prose, so a
+  number cannot be paraphrased on its way into a sentence;
+- the **tool catalogue is code, not rows.** A list of what an assistant may
+  reach is a security boundary, and a boundary stored as data somebody can
+  edit at runtime is a boundary with an UPDATE statement in it (D218).
+
+`core.audit_log` has no retention at all. It is the evidence behind every
+figure the system prints, and a purged audit row is a past number nobody can
+explain.
 
 `core.audit_log` is append-only and has **no** hash chain in v1. §10.2 q8
 records that the audit triggers were written and never run because they touch
@@ -1211,6 +1376,9 @@ retention rule.
 erDiagram
     employees ||--o{ attendance_scans : "tapped"
     employees ||--o{ day_marks : "marked for"
+    employees ||--o{ allowance_withholdings : "lost a day of it"
+    employees ||--o{ enrolments : "registered in"
+    employees ||--o{ tasks : "asked to do"
     employees ||--o{ overtime_lines : "worked"
     overtime_sheets ||--o{ overtime_lines : "lists"
     attendance_imports ||--o{ attendance_scans : "brought in"
@@ -1223,13 +1391,60 @@ erDiagram
         text position
         text unit
         pay_basis_t pay_basis "monthly|daily|hourly"
-        bigint base_rate "per month, day or hour"
+        bigint base_rate "POKOK only - per month, day or hour"
+        bigint allowance_rate "TUNJANGAN - per day present, whatever the basis (D250)"
         numeric daily_hours "standard day"
         date joined_on
         int paid_leave_days "per person - the owner was explicit"
         boolean active
         date left_on "records stay (A5)"
         text note
+    }
+    tasks {
+        uuid id PK
+        text task_no UK "tgs-26-09-13_01"
+        text title
+        uuid assignee_id FK "a REAL employee link; production links beside the name instead (D264)"
+        uuid assigned_by FK
+        date due_date "required - a task that cannot be late is one nobody can tell is late"
+        task_ref_t ref_kind "none|work_order|project|purchase_request"
+        text ref_no "public code, validated at the seam"
+        task_status_t status "OPEN|DONE|CANCELLED"
+        timestamptz done_at
+        text blocked_reason "set = out of the assignee's score entirely (D261)"
+        text cancelled_reason
+    }
+    contribution_rates {
+        uuid id PK
+        contribution_scheme_t scheme "BPJS_KESEHATAN|JHT|JP|JKK|JKM|PPH21"
+        date effective_from "dated like the pay rules (D173)"
+        numeric employer_percent
+        numeric employee_percent
+        bigint wage_ceiling "NULL = none. BPJS resets these annually"
+        boolean confirmed "false = a stand-in this system chose, not a checked figure (Q49)"
+        text note "where the number comes from - required"
+    }
+    enrolments {
+        uuid id PK
+        uuid employee_id FK
+        contribution_scheme_t scheme
+        text member_no "masked on read (D196)"
+        date enrolled_on
+        date ended_on "NULL = still covered. The row NEVER goes (A5)"
+        text ended_reason "required - read when the name is still on next month's bill"
+        bigint declared_base "the wage BPJS was registered against, where it differs"
+        uuid by FK
+    }
+    allowance_withholdings {
+        uuid id PK
+        uuid employee_id FK
+        date work_date
+        text reason "NOT NULL - a deduction with no sentence is unarguable (D155)"
+        uuid by FK
+        timestamptz at
+        uuid restored_by FK "nullable - putting it back is a second decision, not an erasure"
+        timestamptz restored_at
+        text restored_reason
     }
     attendance_imports {
         uuid id PK
@@ -1463,6 +1678,87 @@ to argue (D139).
 
 ---
 
+## Schema `mkt` — the Package programme
+
+```mermaid
+erDiagram
+    markets ||--o{ properties : "sits in"
+    markets ||--o{ scrape_rows : "targets"
+    scrape_rows ||--o| properties : "promoted to"
+    properties ||--o{ property_agents : "three, in order"
+    property_agents ||--o| sales_reps : "onboarded as"
+    sales_reps ||--o{ referrals : "introduces"
+    markets {
+        uuid id PK
+        text code UK "AU-QLD-GOLDCOAST-SPNORTH"
+        text country_code "ISO-3166 alpha-2"
+        text region "state, province — null where a country has none"
+        text city
+        text area_label "the local label, verbatim: SP NORTH, SEMINYAK"
+        text currency "ISO-4217, for the ADR quoted here"
+        text timezone "IANA — what time it is THERE"
+        text language
+    }
+    properties {
+        uuid id PK
+        text ref UK "TL-0001 — the tracker's own numbering"
+        text market_code FK "country → city → district (D187)"
+        text name
+        text status "QUALIFIED | DISQUALIFIED — <reason>"
+        boolean is_condo
+        int rooms
+        numeric adr
+        text adr_flag "CHECK when one source only"
+        int score "0-5, from the enrichment"
+        boolean validated "a person agreed with the score (D184)"
+    }
+    property_agents {
+        uuid id PK
+        uuid property_id FK
+        int slot "1,2,3 — the order they are approached"
+        text name
+        text phone
+        outreach_stage_t stage
+        date sent_on "the clock starts here"
+        date replied_on "and stops here"
+        date next_action_on
+        uuid rep_id FK "set when they agreed"
+    }
+    sales_reps {
+        uuid id PK
+        text rep_no UK
+        text name
+        numeric commission_percent "per person, 0-20"
+        date onboarded_on
+    }
+    referrals {
+        uuid id PK
+        text referral_no UK
+        uuid rep_id FK
+        text owner_name
+        text unit
+        referral_status_t status "LEAD|SURVEYED|QUOTED|WON|LOST"
+        text project_code "required on WON"
+        numeric contract_value "required on WON"
+        text commission_trx_no "the ledger row that paid it"
+    }
+```
+
+**`move_on` is not a column.** Seven days of silence since `sent_on` is a
+predicate, computed on read (D183) — the sheet's own MOVE ON column is one
+somebody has to maintain, and a column somebody has to maintain is wrong by
+Friday.
+
+| Constraint | Why |
+|---|---|
+| `property_agents` UNIQUE `(property_id, slot)` | three agents, in a fixed order |
+| `property_agents` CHECK `stage = 'DEAL' → rep_id IS NOT NULL` | a deal against nobody is a commission nobody can compute (D185) |
+| `sales_reps` CHECK `commission_percent > 0 AND <= 20` | a number that will be paid many times |
+| `referrals` CHECK `status = 'WON' → project_code IS NOT NULL AND contract_value IS NOT NULL` | commission comes from a contract that exists, never from a quotation (D186) |
+| `scrape_rows` UNIQUE `(market_code, lower(name))` | re-importing the scrape adds nothing |
+| `markets.code` is `COUNTRY[-REGION]-CITY-AREA` | every filter is a **prefix** of it, so one query serves country, city and district (D187) |
+| no figure mixes two `markets.currency` values | an ADR of 106 and one of 1.850.000 are not addable, and no rate is invented to make them so (D181) |
+
 ## Schema `prod` — work orders, stages, progress
 
 A seventh service (D148). The overtime sheet demanded it: each production line
@@ -1490,6 +1786,12 @@ erDiagram
         text uom
         text project_code "public code, validated at the seam"
         date due_date "the promise, not the plan"
+        route_t route "IN_HOUSE|SUBCON - a list of stages, not a flag (D254)"
+        uuid subcon_vendor_id FK "the vendor who builds it, at the seam"
+        date subcon_sent_on "three dates and no status field: at_vendor is derived"
+        date subcon_expected_back "the vendor's PROMISE - prints with a +/-"
+        date subcon_returned_on
+        text subcon_note
         wo_status_t status "OPEN|DONE|CANCELLED"
         uuid created_by FK
         text note
@@ -1497,10 +1799,12 @@ erDiagram
     progress_entries {
         uuid id PK
         uuid wo_id FK
-        text stage FK
+        text stage FK "four stages since D253; the seven old codes stay and roll up on read (A5, F74)"
         numeric qty "may be negative - a correction is an entry"
         date work_date "the office day it happened"
         text worked_by "a name: a subcontractor is a valid answer"
+        uuid worked_by_employee_id FK "the link BESIDE the name, never instead of it (D264)"
+        boolean worked_by_not_a_person "confirmed: a team or a vendor crew. Resolved, not missing"
         progress_source_t source "manual|overtime_sheet"
         text source_ref "the lembur sheet number - the idempotency claim"
         text note
@@ -1527,7 +1831,10 @@ finished, four sanded.
 
 ```mermaid
 erDiagram
+    products ||--o{ bom_revisions : "versioned as"
+    bom_revisions ||--o{ bom_components : "holds"
     products ||--o{ bom_components : "made of"
+    work_orders }o--|| bom_revisions : "pinned to (bom_rev)"
 
     products {
         uuid id PK
@@ -1541,12 +1848,24 @@ erDiagram
         int height_mm
         text dimension_note "diameter, thickness, anything not an axis"
         int lead_time_days "a hint; the work order carries the promise"
+        bigint labour_cost "TYPED by a person, never derived (D239). NULL = nobody has worked it out"
+        text labour_note "the working behind it - required with the figure"
         boolean active
         text note
+    }
+    bom_revisions {
+        uuid id PK
+        uuid product_id FK
+        int rev "1, 2, 3 - per product"
+        timestamptz released_at "NULL = draft. Set once, never cleared (D256)"
+        uuid released_by FK
+        text note "required to release"
+        uuid created_by FK
     }
     bom_components {
         uuid id PK
         uuid product_id FK
+        int rev "the revision this line belongs to - never moved between them"
         bom_ref_t kind "material|product"
         text ref_code "procure.items.code, or another product_code"
         numeric qty "per ONE unit of the parent"

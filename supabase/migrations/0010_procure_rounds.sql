@@ -13,15 +13,15 @@
 -- `v_pr_line_status`. Two different questions; the old system had one column
 -- for both and it was wrong for one of them at all times.
 
-create table procure.payment_rounds (
+create table ops_procure.payment_rounds (
   id          uuid primary key default gen_random_uuid(),
   round_no    text not null unique,        -- `fund-26-09-11_01`
-  status      procure.round_status_t not null default 'OPEN',
+  status      ops_procure.round_status_t not null default 'OPEN',
   opened_at   timestamptz not null default now(),
-  opened_by   uuid not null references core.users(id),
-  approved_by uuid references core.users(id),
+  opened_by   uuid not null references ops_core.users(id),
+  approved_by uuid references ops_core.users(id),
   approved_at timestamptz,
-  closed_by   uuid references core.users(id),
+  closed_by   uuid references ops_core.users(id),
   closed_at   timestamptz,
   /* What was transferred does not live here: a round is funded in as many
      instalments as it takes, so the record is the list of them (D82). A column
@@ -30,10 +30,10 @@ create table procure.payment_rounds (
   constraint closed_together   check ((closed_at is null) = (closed_by is null))
 );
 
-create table procure.payment_round_lines (
+create table ops_procure.payment_round_lines (
   id               uuid primary key default gen_random_uuid(),
-  round_id         uuid not null references procure.payment_rounds(id) on delete restrict,
-  line_id          uuid not null references procure.pr_lines(id) on delete restrict,
+  round_id         uuid not null references ops_procure.payment_rounds(id) on delete restrict,
+  line_id          uuid not null references ops_procure.pr_lines(id) on delete restrict,
   -- Frozen when the round is approved: the record of a decision. While the round
   -- is OPEN this is recomputed from what is still owed, which is why the view
   -- and not this column is what an open round reports.
@@ -45,8 +45,8 @@ create table procure.payment_round_lines (
   unique (round_id, line_id)
 );
 
-create unique index round_lines_one_round_idx on procure.payment_round_lines (line_id);
-create index round_lines_round_idx on procure.payment_round_lines (round_id);
+create unique index round_lines_one_round_idx on ops_procure.payment_round_lines (line_id);
+create index round_lines_round_idx on ops_procure.payment_round_lines (round_id);
 
 -- One transfer into the paying account against one round.
 --
@@ -55,16 +55,16 @@ create index round_lines_round_idx on procure.payment_round_lines (round_id);
 -- amount. Each instalment carries **its own proof**, because each is its own
 -- claim about the bank (D80, D82). A funded round with no proof is somebody's
 -- word for it.
-create table procure.round_transfers (
+create table ops_procure.round_transfers (
   id                  uuid primary key default gen_random_uuid(),
-  round_id            uuid not null references procure.payment_rounds(id) on delete restrict,
+  round_id            uuid not null references ops_procure.payment_rounds(id) on delete restrict,
   amount              numeric not null check (amount > 0),
   -- The ledger row the money arrived on, by public code (ADR-004). Validated at
-  -- the seam against `acct.transactions`, never joined across the service.
+  -- the seam against `ops_acct.transactions`, never joined across the service.
   trx_no              text not null,
   -- Not nullable. The whole point of the table.
-  proof_attachment_id uuid not null references core.attachments(id),
-  recorded_by         uuid not null references core.users(id),
+  proof_attachment_id uuid not null references ops_core.attachments(id),
+  recorded_by         uuid not null references ops_core.users(id),
   recorded_by_email   citext not null,
   recorded_at         timestamptz not null default now(),
   -- The same ledger row cannot fund the same round twice. A repeat is a mistake
@@ -73,7 +73,7 @@ create table procure.round_transfers (
   unique (round_id, trx_no)
 );
 
-create index round_transfers_round_idx on procure.round_transfers (round_id, recorded_at);
+create index round_transfers_round_idx on ops_procure.round_transfers (round_id, recorded_at);
 
 -- A human decision that a line is finished even though the money that reached it
 -- is short of what was approved.
@@ -82,60 +82,60 @@ create index round_transfers_round_idx on procure.round_transfers (round_id, rec
 -- a thousand small shortfalls become a number nobody can explain (A12). A named
 -- person said this one was close enough, on a date, for a reason somebody can
 -- read back to them.
-create table procure.line_settlements (
+create table ops_procure.line_settlements (
   id         uuid primary key default gen_random_uuid(),
-  line_id    uuid not null references procure.pr_lines(id) on delete restrict,
+  line_id    uuid not null references ops_procure.pr_lines(id) on delete restrict,
   shortfall  numeric not null,
   reason     text not null check (length(btrim(reason)) > 0),
-  decided_by uuid not null references core.users(id),
+  decided_by uuid not null references ops_core.users(id),
   decided_at timestamptz not null default now(),
   -- Settled once. A second settlement on a line is either a duplicate or a
   -- second opinion, and neither should overwrite the first quietly.
   unique (line_id)
 );
 
-alter table procure.payment_rounds      enable row level security;
-alter table procure.payment_round_lines enable row level security;
-alter table procure.round_transfers     enable row level security;
-alter table procure.line_settlements    enable row level security;
+alter table ops_procure.payment_rounds      enable row level security;
+alter table ops_procure.payment_round_lines enable row level security;
+alter table ops_procure.round_transfers     enable row level security;
+alter table ops_procure.line_settlements    enable row level security;
 
-create policy rounds_read on procure.payment_rounds
-  for select to authenticated using (core.has_permission('procurement.read'));
-create policy round_lines_read on procure.payment_round_lines
-  for select to authenticated using (core.has_permission('procurement.read'));
-create policy transfers_read on procure.round_transfers
-  for select to authenticated using (core.has_permission('procurement.read'));
-create policy settlements_read on procure.line_settlements
-  for select to authenticated using (core.has_permission('procurement.read'));
+create policy rounds_read on ops_procure.payment_rounds
+  for select to authenticated using (ops_core.has_permission('procurement.read'));
+create policy round_lines_read on ops_procure.payment_round_lines
+  for select to authenticated using (ops_core.has_permission('procurement.read'));
+create policy transfers_read on ops_procure.round_transfers
+  for select to authenticated using (ops_core.has_permission('procurement.read'));
+create policy settlements_read on ops_procure.line_settlements
+  for select to authenticated using (ops_core.has_permission('procurement.read'));
 
 -- Opening a round and putting lines in it is procurement's ordinary work:
 -- somebody gathers what is owed and asks. Approving it, funding it and closing
 -- it is `approve_funds`, and it is the same authority for all three because they
 -- are the same decision seen at three moments — money leaving the company.
-create policy rounds_new on procure.payment_rounds
-  for insert to authenticated with check (core.has_permission('procurement.update'));
-create policy rounds_decide on procure.payment_rounds
+create policy rounds_new on ops_procure.payment_rounds
+  for insert to authenticated with check (ops_core.has_permission('procurement.update'));
+create policy rounds_decide on ops_procure.payment_rounds
   for update to authenticated
-  using (core.has_authority('approve_funds'))
-  with check (core.has_authority('approve_funds'));
+  using (ops_core.has_authority('approve_funds'))
+  with check (ops_core.has_authority('approve_funds'));
 
-create policy round_lines_write on procure.payment_round_lines
-  for insert to authenticated with check (core.has_permission('procurement.update'));
-create policy round_lines_freeze on procure.payment_round_lines
+create policy round_lines_write on ops_procure.payment_round_lines
+  for insert to authenticated with check (ops_core.has_permission('procurement.update'));
+create policy round_lines_freeze on ops_procure.payment_round_lines
   for update to authenticated
-  using (core.has_authority('approve_funds'))
-  with check (core.has_authority('approve_funds'));
+  using (ops_core.has_authority('approve_funds'))
+  with check (ops_core.has_authority('approve_funds'));
 
-create policy transfers_new on procure.round_transfers
-  for insert to authenticated with check (core.has_authority('approve_funds'));
+create policy transfers_new on ops_procure.round_transfers
+  for insert to authenticated with check (ops_core.has_authority('approve_funds'));
 
 -- Settling short is a money decision, and the one on this page most worth
 -- guarding: it is the act of writing off a difference. `approve_funds`.
-create policy settlements_new on procure.line_settlements
-  for insert to authenticated with check (core.has_authority('approve_funds'));
+create policy settlements_new on ops_procure.line_settlements
+  for insert to authenticated with check (ops_core.has_authority('approve_funds'));
 
-grant select on procure.payment_rounds, procure.payment_round_lines,
-                procure.round_transfers, procure.line_settlements to authenticated;
-grant insert on procure.payment_rounds, procure.payment_round_lines,
-                procure.round_transfers, procure.line_settlements to authenticated;
-grant update on procure.payment_rounds, procure.payment_round_lines to authenticated;
+grant select on ops_procure.payment_rounds, ops_procure.payment_round_lines,
+                ops_procure.round_transfers, ops_procure.line_settlements to authenticated;
+grant insert on ops_procure.payment_rounds, ops_procure.payment_round_lines,
+                ops_procure.round_transfers, ops_procure.line_settlements to authenticated;
+grant update on ops_procure.payment_rounds, ops_procure.payment_round_lines to authenticated;

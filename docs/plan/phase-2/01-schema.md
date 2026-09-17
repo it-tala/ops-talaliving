@@ -125,6 +125,24 @@ view and the seam are all suspects.
 | `prod.work_order_status_t` | + `IN_PROGRESS` | `OPEN`, `DONE`, `CANCELLED` | how far along it is comes from the progress entries (A3) |
 | `core.doc_kind_t` | 13 | 14 | `laporan_lembur` was missing; a staff session's own report is a kind the screens already file (D146), and a kind the database cannot store is evidence that lands under `other` |
 
+### Link entities the later schemas will need
+
+`ops_core.link_entity_t` covers what `core`, `procure` and `acct` attach to.
+M32–M57 added screens that file evidence against parents whose schemas do not
+exist yet — `design_task`, `packing_box`, `delivery`, `snag`, `installation`,
+`handover`, `enrolment`, `statement_line`, `employee_document`,
+`leave_request`, `bom`, `board_move`, `stock_move`.
+
+Each belongs with the migration that creates its table, not here: an enum value
+for a parent that cannot exist is a value nothing can point at. The session
+that builds `hr`, `prod`, `delivery` or `marketing` adds its own.
+
+**Most of what looks like a link entity is not one.** `activity`, `session`,
+`setting`, `user`, `vendor`, `item` and thirty others are
+`ops_core.audit_log.entity`, which is `text` and deliberately unconstrained —
+the trail has to be able to name anything that happened, including a thing
+whose table was dropped afterwards.
+
 ### The one derivation that is a function, not a view
 
 Everything derived in this system is a view, with one exception: the payment
@@ -242,3 +260,5 @@ The build session appends here; the design session applies them to
 | C6 | `createPr` and `quickAddLine` take `project_id` | the seams take `project_code` | the code is what crosses every seam (ADR-004) and what a caller already has. `project_id` stays accepted by the demo; the real client sends the code |
 | C7 | `createPo` takes `vendor_id` | `procure.create_po()` takes `vendor_code` | same reason. Also the reason `mergeVendor` now takes two codes rather than two uuids |
 | C8 | `createReceipt` takes `DocKind` display strings | `core.doc_kind_t` codes — `goods_photo`, `delivery_note` | C1, applied at the one call site that passes kinds in rather than reading them out |
+| C9 | `attachment_links` fixtures write `entity: "overtime"` | `ops_core.link_entity_t` says `overtime_sheet` | every other value in that enum names its table — `pr_line`, `receipt`, `purchase_order`. `overtime` is the one outlier, and two names for one parent is how a strip ends up half empty. Nothing breaks today: `hr` is not built yet |
+| C10 | `LinkEntity` lists `"po"` and `"overtime"` | the code writes `purchase_order` (12×) and `overtime_sheet` (5×) | the **type** is stale against its own call sites, not the schema. No schema change; the type is what needs correcting |

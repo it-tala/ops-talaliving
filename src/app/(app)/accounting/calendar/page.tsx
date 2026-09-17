@@ -32,7 +32,10 @@ export default function CalendarPage() {
   const [adding, setAdding] = useState(false);
   const [cell, setCell] = useState<{ row: CashRow; cell: CashCell } | null>(null);
   const [openMonth, setOpenMonth] = useState<string | null>(null);
-  const mayEdit = can("accounting.create");
+  /* Q24 (D233): the estimate belongs to leadership. Accounting reads this
+     screen in full and books real payments against it; the plan figure itself
+     is `plan_cash`, which only `accounting: admin` carries. */
+  const mayEdit = can("accounting.plan_cash");
 
   return (
     <div>
@@ -53,7 +56,9 @@ export default function CalendarPage() {
             <Card className="mb-4">
               <CardHeader
                 title="Twelve months"
-                subtitle="Planned on top, what actually happened underneath. Click a month to open it day by day, a line to change the estimate, a cell to change one month."
+                subtitle={mayEdit
+                  ? "Planned on top, what actually happened underneath. Click a month to open it day by day, a line to change the estimate, a cell to change one month."
+                  : "Planned on top, what actually happened underneath. Click a month to open it day by day. The estimates themselves are set by leadership (Q24) — everything else on this screen is yours to read."}
                 icon={CalendarDays}
                 action={<SourceBadge state={plan} />}
               />

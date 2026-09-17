@@ -50,6 +50,12 @@ export function DayDrawer({
   const suratRef = useRef<HTMLInputElement>(null);
   const [otHours, setOtHours] = useState(0);
   const [otReason, setOtReason] = useState("");
+  const [holdOpen, setHoldOpen] = useState(false);
+  const [holdReason, setHoldReason] = useState("");
+  const [holds, reloadHolds] = useLoad(
+    () => hr.listWithholdings({ employee_no: employeeNo, from: workDate, to: workDate }),
+    [employeeNo, workDate],
+  );
 
   const mayEdit = can("hrd.update");
   const mayClaim = can("hrd.create");
@@ -85,6 +91,33 @@ export function DayDrawer({
     setBusy(false);
     if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", "Not removed", res.error.message); return; }
     after("Mark removed", `${workDate} is back to what the machine recorded.`);
+  }
+
+  /* HRD deciding the day earns no tunjangan, and saying why. A separate act
+     from marking the day (D250): WFH is a worked day with a right timesheet
+     and no allowance, and making the mark carry that would falsify the day to
+     get the money right. */
+  async function hold() {
+    setBusy(true);
+    const res = await hr.withholdAllowance({
+      employee_no: employeeNo, work_date: workDate, reason: holdReason,
+    });
+    setBusy(false);
+    if (res.error) { toast("warning", "Tidak tersimpan", res.error.message); return; }
+    setHoldOpen(false); setHoldReason("");
+    reloadHolds();
+    after("Tunjangan ditahan", `${workDate} · ${res.data.reason}`);
+  }
+
+  async function release(id: string) {
+    const why = window.prompt("Kenapa dikembalikan? Biasanya karena yang pertama salah baca.");
+    if (!why?.trim()) return;
+    setBusy(true);
+    const res = await hr.restoreAllowance({ id, reason: why });
+    setBusy(false);
+    if (res.error) { toast("warning", "Tidak bisa dikembalikan", res.error.message); return; }
+    reloadHolds();
+    after("Tunjangan dikembalikan", res.data.restored_reason ?? "");
   }
 
   /** The surat dokter is what turns a sick day into a paid one (D144), so it
@@ -190,6 +223,23 @@ export function DayDrawer({
                 <ul className="mt-1 space-y-0.5 text-[12px] text-amber-900">
                   {d.issues.map((i) => <li key={i}>· {i}</li>)}
                 </ul>
+              </div>
+            )}
+
+            {/* Read fine, and still worth saying. Its own box, in slate rather
+                than amber, because *the rule could not fit the taps* and
+                *something here is worth a look* are different sentences and
+                only the first one stops the day being paid (D270). */}
+            {d.notes.length > 0 && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-[13px] font-semibold text-slate-700">Catatan hari ini</p>
+                <ul className="mt-1 space-y-0.5 text-[12px] text-slate-600">
+                  {d.notes.map((n) => <li key={n}>· {n}</li>)}
+                </ul>
+                <p className="mt-1.5 text-[11px] text-slate-400">
+                  Tidak memengaruhi pembayaran hari ini. Istirahat yang lewat jatah dilaporkan, tidak
+                  pernah dipotong — sama seperti keterlambatan, sampai ada yang memutuskan sebaliknya.
+                </p>
               </div>
             )}
 
@@ -317,6 +367,73 @@ export function DayDrawer({
                     )}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* The tunjangan for this one day — its own decision, its own reason
+                (D250). Shown for everybody so *this day earned it* is as
+                visible as *this day did not*. */}
+            {mayEdit && (
+              <div className="rounded-xl border border-slate-200 px-4 py-3">
+                <p className="flex items-center gap-2 text-[13px] font-medium text-slate-800">
+                  <Wallet className="h-4 w-4 text-slate-400" /> Tunjangan hari ini
+                </p>
+                <Loaded state={holds} onRetry={reloadHolds}>
+                  {(rows) => {
+                    const active = rows.find((w) => w.restored_by === null);
+                    const restored = rows.filter((w) => w.restored_by !== null);
+                    return (
+                      <>
+                        {active ? (
+                          <div className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-[12px] text-amber-900">
+                            <strong className="font-medium">Ditahan</strong> — {active.reason}
+                            <span className="mt-0.5 block text-[11px] text-amber-700">
+                              {active.by_name}, {active.at.slice(0, 10)}
+                            </span>
+                            <Button size="sm" variant="outline" icon={Undo2} className="mt-2"
+                              disabled={busy} onClick={() => release(active.id)}>
+                              Kembalikan
+                            </Button>
+                          </div>
+                        ) : holdOpen ? (
+                          <div className="mt-1.5 rounded-lg border border-slate-200 px-3 py-2">
+                            <input
+                              value={holdReason} onChange={(e) => setHoldReason(e.target.value)}
+                              placeholder="WFH · setengah hari · tidak masuk — alasannya"
+                              className="h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                            />
+                            <p className="mt-1 text-[11px] text-slate-500">
+                              Terlambat <strong>bukan</strong> alasan di sini: terlambat dipotong per jam,
+                              tunjangannya tetap dibayar kalau orangnya hadir.
+                            </p>
+                            <div className="mt-2 flex justify-end gap-2">
+                              <Button size="sm" variant="ghost" disabled={busy}
+                                onClick={() => setHoldOpen(false)}>Batal</Button>
+                              <Button size="sm" disabled={busy || !holdReason.trim()} onClick={hold}>
+                                Tahan tunjangan
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <p className="mt-0.5 text-[12px] text-slate-500">
+                              Dibayar — hari ini tercatat hadir.
+                            </p>
+                            <Button size="sm" variant="outline" className="mt-2"
+                              onClick={() => setHoldOpen(true)}>
+                              Tahan tunjangan hari ini
+                            </Button>
+                          </>
+                        )}
+                        {restored.map((w) => (
+                          <p key={w.id} className="mt-1.5 text-[11px] text-slate-400">
+                            Pernah ditahan ({w.reason}) — dikembalikan {w.restored_by_name}: {w.restored_reason}
+                          </p>
+                        ))}
+                      </>
+                    );
+                  }}
+                </Loaded>
               </div>
             )}
 

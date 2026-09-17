@@ -9,13 +9,18 @@ import { ok, noop, invalid, notFound, type Result } from "@/services/_shared/env
 import type {
   LogPurchaseView, LogMeasure, TimberVendorSummary,
   StockItemView, StockItemDetail, StockLocation, StockMove, StockMoveView,
+  BoardStockView, BoardMoveView, BoardMoveKind, NotaScan,
 } from "@/services/inventory/contracts";
 import type { DemoState } from "../state";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
 import {
   logPurchaseView, logPurchaseViews, timberVendorSummaries,
   stockItems, stockItemDetail, stockMoveViews,
+  boardStock, boardMoveViews,
 } from "../inventory-derive";
+import { materialPlan } from "../production-derive";
+import type { MaterialPlan } from "@/services/production/contracts";
+import { scanNota } from "../nota-kayu";
 import { STOCKED_CATEGORIES } from "../fixtures/reference";
 import { latency, actingUser, requireModule, conflict, replayed, remember } from "./_kit";
 
@@ -58,7 +63,12 @@ export async function receiveLogs(
     measure?: LogMeasure;
     trx_no?: string | null;
     pr_line_no?: string | null;
+    nota_attachment_id?: string | null;
     note?: string | null;
+    /** Board rows read off the nota, already confirmed by a person. They are
+     *  filed as boards here and **never as transaction lines** (D200). */
+    boards?: { thickness_mm: number; width_mm: number; length_mm: number; qty: number; grade?: string | null }[];
+    logs?: { tag?: string; diameter_cm: number; length_cm: number }[];
   },
   idempotencyKey?: string,
 ): Promise<Result<LogPurchaseView>> {
@@ -98,13 +108,40 @@ export async function receiveLogs(
       total_cost: Math.round(input.total_cost),
       claimed_m3: input.claimed_m3 ?? null,
       measure: input.measure ?? "round",
+      nota_attachment_id: input.nota_attachment_id ?? null,
       note: input.note?.trim() || null,
       created_at: new Date().toISOString(), created_by: user.id,
     });
+    const purchaseId = draft.log_purchases[draft.log_purchases.length - 1].id;
+    for (const l of input.logs ?? []) {
+      draft.log_pieces.push({
+        id: newId("lgs"), purchase_id: purchaseId,
+        tag: l.tag?.trim() || `#${draft.log_pieces.length + 1}`,
+        diameter_cm: l.diameter_cm, length_cm: l.length_cm,
+        sawn_on: null, note: null,
+      });
+    }
+    for (const b of input.boards ?? []) {
+      draft.sawn_boards.push({
+        id: newId("swb"), purchase_id: purchaseId, log_id: null,
+        thickness_mm: b.thickness_mm, width_mm: b.width_mm, length_mm: b.length_mm,
+        qty: b.qty, sawn_on: input.received_on,
+        grade: b.grade ?? null,
+        note: "Dari nota.",
+      });
+    }
     writeAudit(draft, {
       service: SERVICE, entity: "log_purchase", entity_no: no,
       action: "receive", outcome: "ok", reason: null,
-      detail: { vendor: input.vendor_id, cost: input.total_cost, claimed_m3: input.claimed_m3 ?? null, by: user.email },
+      detail: {
+        vendor: input.vendor_id, cost: input.total_cost,
+        claimed_m3: input.claimed_m3 ?? null,
+        nota: input.nota_attachment_id ?? null,
+        /* What the nota contributed, and where it went. The point of the row:
+           these sizes became boards, not ledger lines (D200). */
+        from_nota: { boards: (input.boards ?? []).length, logs: (input.logs ?? []).length },
+        by: user.email,
+      },
     });
   });
   const view = await getLogPurchase(no);
@@ -588,4 +625,253 @@ export function stockFromReceipt(
     reason: null,
   }, userId, userEmail);
   return { stocked: true };
+}
+
+/* ── The rack: boards as stock, and what leaves it ────────────────────────
+ *
+ *  Q40 answered (D203). Until now the board list only ever grew, and the
+ *  screen said so plainly rather than pretend it was stock. The owner has
+ *  asked for the other half, so here it is: what is on the rack is the sum of
+ *  what came off the saw and everything that happened afterwards.
+ */
+
+export async function listBoardStock(): Promise<Result<BoardStockView[]>> {
+  await latency();
+  return ok(SERVICE, boardStock(getState()));
+}
+
+export async function listBoardMoves(
+  filter: { board_key?: string; ref_no?: string; limit?: number } = {},
+): Promise<Result<BoardMoveView[]>> {
+  await latency();
+  const rows = boardMoveViews(getState(), filter);
+  return ok(SERVICE, rows.slice(0, filter.limit ?? 300));
+}
+
+/** Taking boards to the floor, bringing them back, scrapping them, or counting
+ *  them and finding something else.
+ *
+ *  One function for all four because they differ in one field. What they share
+ *  is the part worth guarding: **the rack is not allowed to go negative** on
+ *  an issue or a scrap. Elsewhere this system warns rather than blocks (A6),
+ *  and here it refuses — a stack that reads −4 is not a warning anybody can
+ *  act on, it is a count nobody can use again until somebody works out which
+ *  of the last twenty movements was wrong. An opname is the way a real
+ *  surplus gets recorded, and it carries a reason.
+ */
+export async function moveBoards(
+  input: {
+    board_key: string;
+    kind: BoardMoveKind;
+    qty: number;
+    ref_no?: string | null;
+    purchase_no?: string | null;
+    reason?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<BoardStockView[]>> {
+  await latency();
+  const cached = replayed<BoardStockView[]>(SERVICE, "moveBoards", idempotencyKey);
+  if (cached) return cached;
+
+  const denied = requireModule(SERVICE, "inventory");
+  if (denied) return denied;
+  if (input.kind === "sawn") {
+    return invalid(
+      SERVICE, "sawn_is_reported",
+      "Papan masuk lewat laporan gergajian, bukan lewat sini — supaya rendemen dan isi rak tidak pernah berbeda.",
+      { field: "kind" },
+    );
+  }
+
+  const state = getState();
+  const stack = boardStock(state).find((b) => b.board_key === input.board_key);
+  if (!stack) return notFound(SERVICE, "board_not_found", "Ukuran itu tidak ada di rak.");
+  if (!input.qty || input.qty <= 0) {
+    return invalid(SERVICE, "qty_required", "Berapa lembar?", { field: "qty" });
+  }
+
+  const outward = input.kind === "issue" || input.kind === "scrap";
+  if (outward && input.qty > stack.qty) {
+    return conflict(
+      SERVICE, "not_enough_boards",
+      `Di rak ada ${stack.qty} lembar ${stack.size} ${stack.species}, diminta ${input.qty}. Kalau fisiknya memang ada, catat sebagai penyesuaian opname dengan alasannya — bukan dengan mengeluarkan lebih dari yang tercatat.`,
+      { on_hand: stack.qty, asked: input.qty },
+    );
+  }
+  if (input.kind === "issue" && !input.ref_no?.trim()) {
+    return invalid(
+      SERVICE, "ref_required",
+      "Dipakai untuk pekerjaan yang mana? Papan yang keluar tanpa tujuan tidak bisa dibandingkan dengan BOM-nya.",
+      { field: "ref_no" },
+    );
+  }
+  if ((input.kind === "adjust" || input.kind === "scrap") && !input.reason?.trim()) {
+    return invalid(
+      SERVICE, "reason_required",
+      "Tulis alasannya. Selisih tanpa keterangan adalah selisih yang ditemukan lagi bulan depan.",
+      { field: "reason" },
+    );
+  }
+
+  const purchase = input.purchase_no
+    ? state.log_purchases.find((p) => p.purchase_no === input.purchase_no)
+    : null;
+  if (input.purchase_no && !purchase) {
+    return notFound(SERVICE, "purchase_not_found", `Tidak ada kiriman ${input.purchase_no}.`);
+  }
+
+  const user = actingUser();
+  let no = "";
+  apply((draft) => {
+    no = nextDocNumber(draft, "ppn");
+    draft.board_moves.push({
+      id: newId("bmv"), move_no: no, at: new Date().toISOString(),
+      board_key: input.board_key,
+      species: stack.species,
+      thickness_mm: stack.thickness_mm, width_mm: stack.width_mm, length_mm: stack.length_mm,
+      qty: outward ? -Math.abs(input.qty) : Math.abs(input.qty),
+      kind: input.kind,
+      /* Left null when nobody knows which load — it decides what the issue
+         cost, and a load picked to make the arithmetic work is a wrong number
+         in a costing report (D204). */
+      purchase_id: purchase?.id ?? null,
+      ref_no: input.ref_no?.trim() || null,
+      reason: input.reason?.trim() || null,
+      by: user.id,
+    });
+    writeAudit(draft, {
+      service: SERVICE, entity: "board_move", entity_no: no,
+      action: input.kind, outcome: "ok", reason: input.reason?.trim() || null,
+      detail: {
+        board: `${stack.species} ${stack.size}`, qty: input.qty,
+        ref: input.ref_no ?? null, purchase: input.purchase_no ?? null, by: user.email,
+      },
+    });
+  });
+
+  const rows = boardStock(getState());
+  remember(SERVICE, "moveBoards", idempotencyKey, rows);
+  return ok(SERVICE, rows);
+}
+
+/** Reading a nota, without writing anything.
+ *
+ *  Deliberately a read: the answer to *is this a timber nota* is a proposal
+ *  that a person accepts or rejects, and a reader that filed as it read would
+ *  be the thing this whole design exists to prevent (D200).
+ */
+export async function readNota(text: string): Promise<Result<NotaScan>> {
+  await latency();
+  return ok(SERVICE, scanNota(text));
+}
+
+/* ── Issuing a whole run's material against its SPK ────────────────────
+ *
+ *  The gap S1 left open since M27: nothing draws stock down from a BOM, so an
+ *  issue was recorded item by item and never against the list it came from.
+ *
+ *  What this endpoint deliberately is **not** is automatic. Stock does not
+ *  move when somebody types a progress entry, and the BOM does not deduct
+ *  itself. The list is a **proposal**; the storeman edits it to what he
+ *  actually carried out and confirms (D266). Stock that moves because a form
+ *  was submitted somewhere else is stock nobody counted, and the rack then
+ *  disagrees with the screen in a way only a stock-take can find.
+ *
+ *  Issuing more than the record shows stays allowed and flagged, exactly as
+ *  the single-item endpoint does (A6): the wood is off the rack or it is not,
+ *  and refusing to record what somebody just carried teaches him to stop
+ *  recording. The response names every line that went negative.
+ */
+export async function issueForWorkOrder(
+  input: {
+    wo_no: string;
+    location: string;
+    lines: { item_code: string; qty: number }[];
+    note?: string | null;
+    idempotency_key?: string;
+  },
+): Promise<Result<{
+  wo_no: string;
+  move_nos: string[];
+  issued: number;
+  negative: { item_code: string; item_name: string; on_hand_after: number }[];
+}>> {
+  await latency();
+  const cached = replayed<{
+    wo_no: string; move_nos: string[]; issued: number;
+    negative: { item_code: string; item_name: string; on_hand_after: number }[];
+  }>(SERVICE, "issueForWorkOrder", input.idempotency_key);
+  if (cached) return cached;
+
+  const denied = requireModule(SERVICE, "inventory");
+  if (denied) return denied;
+
+  const state = getState();
+  const wo = state.work_orders.find((w) => w.wo_no === input.wo_no);
+  if (!wo) return notFound(SERVICE, "wo_not_found", `Tidak ada SPK ${input.wo_no}.`);
+  if (wo.status === "CANCELLED") {
+    return conflict(SERVICE, "wo_cancelled", `${wo.wo_no} sudah dibatalkan.`, {});
+  }
+  if (!state.stock_locations.some((l) => l.code === input.location && l.is_active)) {
+    return invalid(SERVICE, "location_required", "Bahan ini keluar dari lokasi mana?", { field: "location" });
+  }
+
+  const wanted = (input.lines ?? []).filter((l) => l.qty > 0);
+  if (wanted.length === 0) {
+    return invalid(
+      SERVICE, "nothing_to_issue",
+      "Tidak ada barang yang dikeluarkan. Isi jumlah yang benar-benar dibawa ke bengkel — daftar dari BOM hanya usulan.",
+      { field: "lines" },
+    );
+  }
+
+  /* Every line is checked before any is written: half an issue posted and half
+     refused would leave the rack describing a trip that did not happen. */
+  const bad = wanted.map((l) => ({ l, check: stockable(state, l.item_code) })).filter((r) => !r.check.ok);
+  if (bad.length > 0) {
+    return invalid(
+      SERVICE, "not_stocked",
+      bad.map((b) => b.check.ok ? "" : b.check.why).join(" "),
+      { field: "lines", items: bad.map((b) => b.l.item_code) },
+    );
+  }
+
+  const before = new Map(stockItems(state).map((r) => [r.item_code, r.on_hand]));
+  const user = actingUser();
+  const moveNos: string[] = [];
+  const negative: { item_code: string; item_name: string; on_hand_after: number }[] = [];
+
+  apply((draft) => {
+    for (const l of wanted) {
+      const item = draft.items.find((i) => i.code === l.item_code)!;
+      const move = writeMove(draft, {
+        item_code: l.item_code, location: input.location, kind: "issue",
+        qty: -Math.abs(l.qty), uom: item.base_uom,
+        ref_no: wo.wo_no, reason: input.note?.trim() || null,
+      }, user.id, user.email);
+      moveNos.push(move.move_no);
+
+      const after = Math.round(((before.get(l.item_code) ?? 0) - l.qty) * 1000) / 1000;
+      if (after < 0) negative.push({ item_code: l.item_code, item_name: item.name, on_hand_after: after });
+    }
+    writeOutbox(draft, {
+      service: SERVICE, event_type: "inventory.stock.issued_for_wo",
+      payload: { wo_no: wo.wo_no, lines: wanted.length, location: input.location },
+    });
+  });
+
+  const result = { wo_no: wo.wo_no, move_nos: moveNos, issued: wanted.length, negative };
+  remember(SERVICE, "issueForWorkOrder", input.idempotency_key, result);
+  return ok(SERVICE, result);
+}
+
+/** The list beside the record: what the run should take, what has gone out,
+ *  and what is left — read from the order's **own** pinned BOM revision. */
+export async function materialForWorkOrder(woNo: string): Promise<Result<MaterialPlan>> {
+  await latency();
+  const state = getState();
+  const wo = state.work_orders.find((w) => w.wo_no === woNo);
+  if (!wo) return notFound(SERVICE, "wo_not_found", `Tidak ada SPK ${woNo}.`);
+  return ok(SERVICE, materialPlan(state, wo));
 }

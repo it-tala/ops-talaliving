@@ -67,10 +67,18 @@ export function NewPo({ onClose, onCreated }: { onClose: () => void; onCreated: 
       toast(res.error.status === 403 ? "critical" : "warning", "Not created", res.error.message);
       return;
     }
+    /* Which road it took is read off the answer, never assumed from the form.
+       The message said *ask leadership to confirm it* for every order, which
+       became wrong the moment leadership could confirm their own on creation
+       (D267) — one fact, described in two places, and only one of them
+       updated. Read the result instead (F87). */
+    const value = formatIDR(res.data.lines.reduce((s, l) => s + l.line_total, 0));
     toast(
       "success",
-      `${res.data.po_no} drafted`,
-      `${res.data.vendor_name} · ${formatIDR(res.data.lines.reduce((s, l) => s + l.line_total, 0))} — ask leadership to confirm it before it goes to the supplier`,
+      res.data.self_confirmed ? `${res.data.po_no} dibuat dan dikonfirmasi` : `${res.data.po_no} drafted`,
+      res.data.self_confirmed
+        ? `${res.data.vendor_name} · ${value} — Anda memegang wewenangnya, jadi konfirmasinya tercatat sekaligus. Tinggal dikirim ke pemasok.`
+        : `${res.data.vendor_name} · ${value} — ask leadership to confirm it before it goes to the supplier`,
     );
     onCreated();
   }

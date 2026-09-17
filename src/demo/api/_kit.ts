@@ -8,7 +8,7 @@
 import {
   ok, refused, conflict, replay, type Result, type ServiceName,
 } from "@/services/_shared/envelope";
-import type { Authority } from "@/services/identity/contracts";
+import type { Authority, ModuleLevel } from "@/services/identity/contracts";
 import { getState, apply } from "../store";
 import type { DemoState, DemoUser } from "../state";
 
@@ -43,6 +43,29 @@ export function requireAuthority(service: ServiceName, authority: Authority) {
     "authority_required",
     `This decision belongs to ${AUTHORITY_HOLDER[authority]} — logged, not applied.`,
     { required: authority, acting_as: user.email },
+  );
+}
+
+/** The same check, but at a level.
+ *
+ *  `requireModule` asks only whether a door is open at all, which is the right
+ *  question almost everywhere. It is the wrong one for the IT module: the
+ *  owner's answer to Q22 is that **IT and leadership may read it** — read, not
+ *  administer. Leadership holding `it: read` must not be able to purge the
+ *  activity log because the guard never looked past the module name.
+ */
+export function requireLevel(service: ServiceName, module: string, level: ModuleLevel) {
+  const user = actingUser();
+  const held = user.modules.find((m) => m.module === module);
+  const rank = { read: 0, write: 1, admin: 2 } as const;
+  if (held && rank[held.level] >= rank[level]) return null;
+  return refused(
+    service,
+    held ? "level_required" : "module_required",
+    held
+      ? `This needs ${level} access to ${module}; your account has ${held.level}.`
+      : `Your account has no access to the ${module} module.`,
+    { required: module, required_level: level, held: held?.level ?? null, acting_as: user.email },
   );
 }
 

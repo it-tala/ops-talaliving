@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Package, Banknote, FileText, Camera, Link2 } from "lucide-react";
+import { Package, Banknote, Camera, Link2 } from "lucide-react";
+import { EvidenceChip } from "@/components/ui/evidence-chip";
 import { Badge, Button, Card, CardHeader } from "@/components/ui/primitives";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { useLoad } from "@/components/ui/loaded";
@@ -117,13 +118,13 @@ export function VendorBlock({
               key: "proof",
               header: "Proof",
               align: "center",
-              render: (p) => p.proof_filename
-                ? (
-                  <span className="inline-flex items-center gap-1 rounded bg-violet-50 px-2 py-0.5 text-[11px] text-violet-800" title={p.proof_filename}>
-                    <FileText className="h-3 w-3" /> on file
-                  </span>
-                )
-                : <span className="text-[11px] text-amber-700">missing</span>,
+              render: (p) => (
+                <EvidenceChip
+                  attachmentId={p.proof_attachment_id}
+                  present="on file" missing="missing"
+                  title={`${p.trx_no} — payment proof`}
+                />
+              ),
             },
           ] as Column<VendorPayment>[]}
           rows={payments.status === "ready" ? payments.data : []}
@@ -333,18 +334,16 @@ function OrderBlock({ po, onChanged }: { po: PoJourney; onChanged: () => void })
                     the tanda terima says we acknowledged it (D101) — and a
                     report is allowed to have only the first one (D131). */}
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
-                  <span className={cn(
-                    "rounded px-2 py-0.5",
-                    r.has_photo ? "bg-violet-50 text-violet-800" : "bg-amber-50 text-amber-800",
-                  )}>
-                    {r.has_photo ? "photo of the goods" : "no photo"}
-                  </span>
-                  <span className={cn(
-                    "rounded px-2 py-0.5",
-                    r.has_delivery_note ? "bg-violet-50 text-violet-800" : "bg-amber-50 text-amber-800",
-                  )}>
-                    {r.has_delivery_note ? "tanda terima" : "no tanda terima"}
-                  </span>
+                  <EvidenceChip
+                    attachmentId={r.photo_attachment_id}
+                    present="photo of the goods" missing="no photo"
+                    title={`${r.receipt_no} — photo of the goods`}
+                  />
+                  <EvidenceChip
+                    attachmentId={r.delivery_note_attachment_id}
+                    present="tanda terima" missing="no tanda terima"
+                    title={`${r.receipt_no} — tanda terima`}
+                  />
                   {r.note && <span className="text-slate-500">{r.note}</span>}
                 </div>
               </li>

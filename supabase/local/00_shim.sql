@@ -18,7 +18,7 @@ create schema auth;
 
 -- `raw_user_meta_data` is where Supabase puts whatever the identity provider
 -- said about the person — the display name, mostly. `0007` provisions
--- `core.users` from it, so the shim has to carry the column or the trigger
+-- `ops_core.users` from it, so the shim has to carry the column or the trigger
 -- cannot be exercised locally, which would leave the one piece of auth wiring
 -- that runs on every sign-in as the one piece nothing tests.
 create table if not exists auth.users (

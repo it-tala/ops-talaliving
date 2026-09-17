@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { LOCALE } from "@/lib/format";
+import { getActiveLocale } from "@/lib/format";
 import { cn } from "@/lib/cn";
 
 /** Rupiah in, rupiah out.
@@ -38,7 +38,7 @@ export function MoneyInput({
   className?: string;
   size?: "sm" | "md";
 }) {
-  const group = (n: number) => n.toLocaleString(LOCALE);
+  const group = (n: number) => n.toLocaleString(getActiveLocale());
   const [text, setText] = useState(() => group(value ?? 0));
 
   /* Re-sync when the value is changed from outside — a form reset, or the

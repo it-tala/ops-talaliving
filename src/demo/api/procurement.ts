@@ -5,13 +5,13 @@ import type {
   PrDocument, PrLine, PrLineView, PaymentRound, RoundSummary,
   PurchaseOrder, PoLine, PoStatusView, Receipt, ReceiptCondition, PrCategory, UomCode,
   VendorView, ItemView, VarianceReason, PrApproval, VendorJourney,
-  ApprovalRequestView, ApprovalBatchView, PoDetail,
+  ApprovalRequestView, ApprovalBatchView, PoDetail, PoApprovalView,
 } from "@/services/procurement/contracts";
 import type { PrLine as PrLineRow } from "@/services/procurement/contracts";
 import { PROBLEM_CONDITIONS, COUNTING_CONDITIONS, VARIANCE_REASON_LABEL } from "@/services/procurement/contracts";
 import type { DocKind } from "@/services/documents/contracts";
 import { REQUEST_SUPPORT_KINDS } from "@/services/documents/contracts";
-import { LOCALE } from "@/lib/format";
+import { getActiveLocale } from "@/lib/format";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
 /* The one cross-service call in this module, and it is deliberate: confirming
    a delivery puts the goods on a rack (D170). Written as a function the
@@ -918,7 +918,7 @@ export async function answerFromChat(
   const req = state.approval_requests.find((r) => r.token === input.token);
   if (!req) return notFound(SERVICE, "request_not_found", "That approval card does not match anything — it may have been withdrawn.");
   if (req.answered_at) {
-    return conflict(SERVICE, "already_answered", `Answered already, at ${new Date(req.answered_at).toLocaleString(LOCALE)}. Nothing changed.`);
+    return conflict(SERVICE, "already_answered", `Answered already, at ${new Date(req.answered_at).toLocaleString(getActiveLocale())}. Nothing changed.`);
   }
   if (input.answered_by_email !== req.sent_to_email) {
     apply((draft) => {
@@ -1118,7 +1118,7 @@ export async function removeLine(
   if (covered > 0) {
     return conflict(
       SERVICE, "money_already_allocated",
-      `This line has already received Rp ${covered.toLocaleString(LOCALE)}. What applies now is a return, a vendor credit, or voiding the transaction — not removal.`,
+      `This line has already received Rp ${covered.toLocaleString(getActiveLocale())}. What applies now is a return, a vendor credit, or voiding the transaction — not removal.`,
       { covered },
     );
   }
@@ -1479,6 +1479,7 @@ export async function createPo(
   }
 
   const user = actingUser();
+  const selfConfirm = user.authorities.includes("approve_goods");
   let poNo = "";
   apply((draft) => {
     poNo = nextDocNumber(draft, "po");
@@ -1496,7 +1497,23 @@ export async function createPo(
       note: input.note?.trim() || null,
       expected_delivery: input.expected_delivery || null,
       approval_asked_at: null, approval_asked_by: null,
-      approved_at: null, approved_by: null, approval_note: null,
+      approval_sent_to: null, approval_token: null,
+      /* The second road (D267): when the person writing the order already
+         holds the authority to confirm it, the order is confirmed in the same
+         act. Sending them a chat card asking themselves is theatre — and
+         theatre in an approval trail is worse than nothing, because it makes a
+         rubber stamp look like a second pair of eyes.
+
+         It stays a DRAFT and still has to be issued deliberately, and the
+         confirmation still falls away the moment a line is edited (D135), so
+         this removes a click and never a decision. `self_confirmed` is
+         **stored**: *approved by Evin* and *written and approved by Evin in
+         one act* are different facts about how a decision was taken, and the
+         second is the one an auditor asks about. */
+      self_confirmed: selfConfirm,
+      approved_at: selfConfirm ? now : null,
+      approved_by: selfConfirm ? user.id : null,
+      approval_note: null,
       revision: 0, sent_revision: 0,
     });
     lines.forEach((l, i) => {
@@ -1522,6 +1539,17 @@ export async function createPo(
       action: "create", outcome: "ok", reason: null,
       detail: { lines: lines.length, expected_delivery: input.expected_delivery ?? null },
     });
+    if (selfConfirm) {
+      /* Its own audit row, not a field on the creation row: the confirmation
+         is a separate act with its own consequences, and it has to be findable
+         by somebody reading the approval trail rather than the creation one. */
+      writeAudit(draft, {
+        service: SERVICE, entity: "purchase_order", entity_no: poNo,
+        action: "approve", outcome: "ok",
+        reason: "dikonfirmasi sendiri saat dibuat — pembuatnya memegang approve_goods",
+        detail: { by: user.email, self_confirmed: true, contract_value: lines.reduce((t, l) => t + Math.round(l.qty * l.unit_price), 0) },
+      });
+    }
   });
 
   const view = (await getPo(poNo));
@@ -1915,7 +1943,7 @@ export async function updateLine(
   if (covered > 0) {
     return conflict(
       SERVICE, "already_paid",
-      `${covered.toLocaleString(LOCALE)} has already been paid against ${lineNo}. Past that point the words are return, credit or void — never an edit.`,
+      `${covered.toLocaleString(getActiveLocale())} has already been paid against ${lineNo}. Past that point the words are return, credit or void — never an edit.`,
     );
   }
 
@@ -2502,6 +2530,12 @@ export async function requestPoApproval(
     if (!row) return;
     row.approval_asked_at = new Date().toISOString();
     row.approval_asked_by = user.id;
+    /* The other half of D267: the question goes out with a token, and the
+       answer comes back from the approver's **own** account. Same rule a
+       request batch already follows (D69) — a leadership meeting runs on one
+       laptop, and ticking a box there records the wrong person. */
+    row.approval_sent_to = approver.email;
+    row.approval_token = newId("potok");
     writeAudit(draft, {
       service: SERVICE, entity: "purchase_order", entity_no: input.po_no,
       action: "request_approval", outcome: "ok", reason: `→ ${approver.email}`,
@@ -2636,4 +2670,130 @@ export async function markPoResent(poNo: string): Promise<Result<PoDetail>> {
     });
   });
   return getPoDetail(poNo);
+}
+
+/* ── The second road to a confirmed order (D267) ───────────────────────
+ *
+ *  W2 named two roads and only one of them existed. When leadership write the
+ *  order themselves it is confirmed in the same act — `createPo` does that,
+ *  and `self_confirmed` records that it happened that way. When anybody else
+ *  writes it, the question goes out on chat **exactly as a request batch
+ *  does**, and this is the half that was missing: the card, not the plumbing.
+ *
+ *  The rule that makes the road worth having is the one D69 already
+ *  established: the answer is recorded against the account that gave it. A
+ *  leadership meeting runs on one laptop; ticking a box there records the
+ *  wrong person, in the one place this system is meant to be trustworthy.
+ */
+
+export async function listPoApprovals(
+  opts: { for_email?: string; pending?: boolean } = {},
+): Promise<Result<PoApprovalView[]>> {
+  await latency();
+  const state = getState();
+  const rows = state.purchase_orders
+    .filter((po) => po.approval_token !== null && po.approval_asked_at !== null)
+    .filter((po) => !opts.for_email || po.approval_sent_to === opts.for_email)
+    .filter((po) => !opts.pending || po.approved_at === null)
+    .map((po) => {
+      const lines = state.po_lines.filter((l) => l.po_id === po.id && l.superseded_by === null);
+      const vendor = state.vendors.find((v) => v.id === po.vendor_id);
+      return {
+        po_no: po.po_no,
+        vendor_name: vendor?.name ?? po.vendor_id,
+        vendor_pic: vendor?.pic_name ?? null,
+        contract_value: lines.reduce((t, l) => t + l.line_total, 0),
+        line_count: lines.length,
+        expected_delivery: po.expected_delivery,
+        /* The work orders the requests behind this order came from, where
+           there are any — so *what is this for* is answerable from the card
+           rather than by opening the app (D151). */
+        project_codes: [...new Set(
+          state.pr_lines
+            .filter((l) => lines.some((pl) => pl.id === l.po_line_id))
+            .map((l) => l.source_wo_no)
+            .filter((c): c is string => !!c),
+        )],
+        asked_at: po.approval_asked_at!,
+        asked_by_email: state.users.find((u) => u.id === po.approval_asked_by)?.email ?? "—",
+        sent_to_email: po.approval_sent_to ?? "—",
+        token: po.approval_token!,
+        answered: po.approved_at !== null,
+      };
+    })
+    .sort((a, b) => b.asked_at.localeCompare(a.asked_at));
+  return ok(SERVICE, rows);
+}
+
+/** Leadership's answer, arriving from the chat card rather than the app.
+ *
+ *  Deliberately **not** `requireAuthority`: the acting session is the chat
+ *  worker, not the approver. What stands in for it is the token plus the
+ *  addressee check — which is a stronger claim, because it names the one
+ *  person the card went to rather than anybody holding a grant.
+ */
+export async function answerPoFromChat(
+  input: {
+    token: string;
+    answered_by_email: string;
+    approved: boolean;
+    note?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<PoDetail>> {
+  await latency();
+  const endpoint = `answerPoFromChat:${input.token}`;
+  const cached = replayed<PoDetail>(SERVICE, endpoint, idempotencyKey);
+  if (cached) return cached;
+
+  const state = getState();
+  const po = state.purchase_orders.find((p) => p.approval_token === input.token);
+  if (!po) {
+    return notFound(SERVICE, "request_not_found", "Kartu persetujuan ini tidak cocok dengan apa pun — mungkin sudah ditarik.");
+  }
+  if (input.answered_by_email !== po.approval_sent_to) {
+    apply((draft) => {
+      writeAudit(draft, {
+        service: SERVICE, entity: "purchase_order", entity_no: po.po_no,
+        action: "answer_from_chat", outcome: "refused", reason: input.answered_by_email,
+      });
+    });
+    return refused(
+      SERVICE, "not_the_addressee",
+      `Kartu ini dikirim ke ${po.approval_sent_to}. Jawaban dari ${input.answered_by_email} bukan keputusan orang itu, dan mencatatnya seolah-olah begitu adalah kesalahan yang justru dihindari oleh jalur ini.`,
+    );
+  }
+  if (po.approved_at) {
+    return conflict(SERVICE, "already_answered", `${po.po_no} sudah dikonfirmasi. Tidak ada yang berubah.`);
+  }
+  if (po.status !== "DRAFT") {
+    return conflict(SERVICE, "not_a_draft", `${po.po_no} sekarang ${po.status} — sudah lewat tahap ini.`);
+  }
+  if (!input.approved && !input.note?.trim()) {
+    return invalid(
+      SERVICE, "reason_required",
+      "Menolak sebuah pesanan perlu satu kalimat — ada orang yang harus menyampaikan sesuatu ke pemasoknya.",
+      { field: "note" },
+    );
+  }
+
+  const answerer = state.users.find((u) => u.email === input.answered_by_email);
+  apply((draft) => {
+    const row = draft.purchase_orders.find((p) => p.id === po.id)!;
+    /* Against the answerer, never against the acting session — that is the
+       entire point of this road. */
+    row.approved_at = input.approved ? new Date().toISOString() : null;
+    row.approved_by = input.approved ? (answerer?.id ?? null) : null;
+    row.approval_note = input.note?.trim() || null;
+    writeAudit(draft, {
+      service: SERVICE, entity: "purchase_order", entity_no: po.po_no,
+      action: input.approved ? "approve" : "decline", outcome: "ok",
+      reason: input.note?.trim() ?? null,
+      detail: { by: input.answered_by_email, via: "chat" },
+    });
+  });
+
+  const detail = await getPoDetail(po.po_no);
+  if (detail.data) remember(SERVICE, endpoint, idempotencyKey, detail.data);
+  return detail;
 }

@@ -26,28 +26,28 @@
 -- `distinct on` with an explicit tiebreak: two approvals can share a timestamp
 -- when a batch is answered in one transaction, and without the id in the sort a
 -- tie would resolve differently between two runs of the same query.
-create or replace view procure.v_line_approval as
+create or replace view ops_procure.v_line_approval as
   select distinct on (a.line_id, a.step)
          a.line_id, a.step, a.approved, a.approved_qty, a.approved_amount,
          a.recorded_by, a.recorded_by_email, a.recorded_at, a.channel, a.id
-    from procure.pr_approvals a
+    from ops_procure.pr_approvals a
    order by a.line_id, a.step, a.recorded_at desc, a.id desc;
 
-create or replace view procure.v_line_note as
+create or replace view ops_procure.v_line_note as
   select distinct on (n.line_id)
          n.line_id, n.id, n.instructions, n.remark,
          n.recorded_by, n.recorded_by_email, n.recorded_at
-    from procure.line_notes n
+    from ops_procure.line_notes n
    order by n.line_id, n.recorded_at desc, n.id desc;
 
 -- Sent to the approver and not answered. Answered means answered — a line the
 -- approver decided in the app instead leaves the card standing, and the chat
 -- screen marks it stale rather than pretending the question is still open (D69).
-create or replace view procure.v_pending_request as
+create or replace view ops_procure.v_pending_request as
   select distinct on (r.line_id)
          r.line_id, r.id, r.batch_id, r.token, r.sent_to, r.sent_to_email,
          r.sent_by, r.sent_by_email, r.sent_at, r.channel, r.meeting_note
-    from procure.approval_requests r
+    from ops_procure.approval_requests r
    where r.answered_at is null
    order by r.line_id, r.sent_at desc, r.id desc;
 
@@ -55,19 +55,19 @@ create or replace view procure.v_pending_request as
 -- Allocations count only while the transaction behind them still exists and has
 -- not been voided. "A stamp pointing at nothing is not paid" (A10), and a voided
 -- payment must pull its coverage back with it — which is the whole reason this
--- is a join to `acct.transactions` and not a sum over the allocation table.
-create or replace view procure.v_line_funding as
+-- is a join to `ops_acct.transactions` and not a sum over the allocation table.
+create or replace view ops_procure.v_line_funding as
   select al.pr_line_no,
          sum(al.amount)                                   as covered,
          array_agg(t.trx_no order by t.trx_date, t.trx_no) as trx_nos
-    from acct.payment_allocations al
-    join acct.transactions t on t.id = al.trx_id
+    from ops_acct.payment_allocations al
+    join ops_acct.transactions t on t.id = al.trx_id
    where al.superseded_by is null
      and al.pr_line_no is not null
      and t.status <> 'VOID'
    group by al.pr_line_no;
 
-create or replace view procure.v_line_coverage as
+create or replace view ops_procure.v_line_coverage as
   select l.id as line_id,
          l.line_no_full,
          -- The fallback is load-bearing. A line with no approved amount is
@@ -93,13 +93,13 @@ create or replace view procure.v_line_coverage as
               >= (case when ap.approved is true
                        then coalesce(ap.approved_amount, l.item_total, 0)
                        else coalesce(l.item_total, 0)
-                  end) - core.money_tolerance())
+                  end) - ops_core.money_tolerance())
          or s.line_id is not null as settled,
          coalesce(f.trx_nos, '{}') as trx_nos
-    from procure.pr_lines l
-    left join procure.v_line_approval ap on ap.line_id = l.id and ap.step = 'GOODS'
-    left join procure.v_line_funding  f  on f.pr_line_no = l.line_no_full
-    left join procure.line_settlements s on s.line_id = l.id;
+    from ops_procure.pr_lines l
+    left join ops_procure.v_line_approval ap on ap.line_id = l.id and ap.step = 'GOODS'
+    left join ops_procure.v_line_funding  f  on f.pr_line_no = l.line_no_full
+    left join ops_procure.line_settlements s on s.line_id = l.id;
 
 -- ── receiving ─────────────────────────────────────────────────────────────
 -- Two tests, and both have to pass, in one definition used everywhere a receipt
@@ -110,28 +110,28 @@ create or replace view procure.v_line_coverage as
 --   status    — only CONFIRMED counts. An arrival reported at night and not yet
 --               acknowledged in writing is a fact worth recording and not yet a
 --               thing we owe for (D131)
-create or replace function procure.receipt_counts(
-  p_condition procure.receipt_condition_t,
-  p_status    procure.receipt_status_t)
+create or replace function ops_procure.receipt_counts(
+  p_condition ops_procure.receipt_condition_t,
+  p_status    ops_procure.receipt_status_t)
 returns boolean language sql immutable as $$
   select p_status = 'CONFIRMED' and p_condition in ('GOOD','PARTIALLY DAMAGED')
 $$;
 
-create or replace function procure.receipt_is_problem(p_condition procure.receipt_condition_t)
+create or replace function ops_procure.receipt_is_problem(p_condition ops_procure.receipt_condition_t)
 returns boolean language sql immutable as $$
   select p_condition in ('WRONG ITEM','RETURN TO SENDER','DAMAGED','MISSING PARTS')
 $$;
 
-create or replace view procure.v_line_receiving as
+create or replace view ops_procure.v_line_receiving as
   select r.line_id,
          sum(r.qty_received) filter (
-           where procure.receipt_counts(r.condition, r.status))          as received_qty,
+           where ops_procure.receipt_counts(r.condition, r.status))          as received_qty,
          -- Reported against this line and not yet confirmed — shown, never
          -- counted. "It is here but the paperwork has not caught up" is a real
          -- state somebody has to chase every morning.
          sum(r.qty_received) filter (where r.status = 'REPORTED')        as reported_qty,
-         bool_or(procure.receipt_is_problem(r.condition))                as has_problem
-    from procure.receipts r
+         bool_or(ops_procure.receipt_is_problem(r.condition))                as has_problem
+    from ops_procure.receipts r
    where r.line_id is not null
    group by r.line_id;
 
@@ -140,20 +140,20 @@ create or replace view procure.v_line_receiving as
 -- a transaction that funded it. The second path is what makes a receiving photo
 -- visible on every ledger row that paid for the line, and a payment proof
 -- visible on the line it settled.
-create or replace view procure.v_line_evidence as
+create or replace view ops_procure.v_line_evidence as
   with direct as (
     select l.id as line_id, k.kind, 1 as counts_as_own
-      from procure.pr_lines l
-      join core.attachment_links k
+      from ops_procure.pr_lines l
+      join ops_core.attachment_links k
         on k.entity = 'pr_line' and k.entity_no = l.line_no_full
        and k.unlinked_at is null
   ), via_money as (
     select l.id as line_id, k.kind, 0 as counts_as_own
-      from procure.pr_lines l
-      join acct.payment_allocations al
+      from ops_procure.pr_lines l
+      join ops_acct.payment_allocations al
         on al.pr_line_no = l.line_no_full and al.superseded_by is null
-      join acct.transactions t on t.id = al.trx_id and t.status <> 'VOID'
-      join core.attachment_links k
+      join ops_acct.transactions t on t.id = al.trx_id and t.status <> 'VOID'
+      join ops_core.attachment_links k
         on k.entity = 'transaction' and k.entity_no = t.trx_no
        and k.unlinked_at is null
   ), all_kinds as (
@@ -185,7 +185,7 @@ create or replace view procure.v_line_evidence as
 -- A line with no quantity that is not a service — a PO deposit, say — cannot
 -- reach COMPLETED here at all, and should not: the goods arrive against the
 -- purchase order, whose two axes carry delivery separately (A1).
-create or replace view procure.v_pr_line_status as
+create or replace view ops_procure.v_pr_line_status as
   select l.id as line_id,
          l.line_no_full,
          case
@@ -206,7 +206,7 @@ create or replace view procure.v_pr_line_status as
            -- why the second status was removed rather than renamed (D126).
            when ap.approved is true then 'APPROVED'
            else 'WAITING FOR APPROVAL'
-         end::procure.line_status_t as status,
+         end::ops_procure.line_status_t as status,
          -- Approved-or-not against paid-or-not: two independent facts, four
          -- combinations. The interesting one is the corner where money moved
          -- without a yes, which a single "in progress" status would hide (A1).
@@ -215,14 +215,14 @@ create or replace view procure.v_pr_line_status as
            when ap.approved is true                     then 'approved_unpaid'
            when cov.covered > 0                         then 'paid_unapproved'
            else 'neither'
-         end::procure.meeting_state_t as meeting_state
-    from procure.pr_lines l
-    join procure.pr_documents d on d.id = l.doc_id
-    join procure.v_line_coverage cov on cov.line_id = l.id
-    left join procure.v_line_approval  ap on ap.line_id = l.id and ap.step = 'GOODS'
-    left join procure.v_line_receiving rc on rc.line_id = l.id
-    left join procure.v_line_evidence  ev on ev.line_id = l.id
-    left join procure.items i on i.id = l.item_id;
+         end::ops_procure.meeting_state_t as meeting_state
+    from ops_procure.pr_lines l
+    join ops_procure.pr_documents d on d.id = l.doc_id
+    join ops_procure.v_line_coverage cov on cov.line_id = l.id
+    left join ops_procure.v_line_approval  ap on ap.line_id = l.id and ap.step = 'GOODS'
+    left join ops_procure.v_line_receiving rc on rc.line_id = l.id
+    left join ops_procure.v_line_evidence  ev on ev.line_id = l.id
+    left join ops_procure.items i on i.id = l.item_id;
 
 -- ── the variance ──────────────────────────────────────────────────────────
 -- Three numbers that are allowed to differ, and the two gaps between them.
@@ -234,7 +234,7 @@ create or replace view procure.v_pr_line_status as
 -- approved → paid is the gap leadership is asking about. Under means still owed,
 -- or settled cheaper. **Over means money left beyond the yes** — the direction
 -- that matters, and the one a "paid" flag would have hidden entirely.
-create or replace view procure.v_line_variance as
+create or replace view ops_procure.v_line_variance as
   select l.id as line_id,
          l.item_total as requested,
          cov.approved,
@@ -244,36 +244,36 @@ create or replace view procure.v_line_variance as
            when cov.covered - cov.approved = 0 then 'none'
            when cov.covered - cov.approved > 0 then 'over'
            else 'under'
-         end::procure.variance_kind_t as kind,
+         end::ops_procure.variance_kind_t as kind,
          -- Below the tolerance it is rounding, not a variance. Reporting
          -- arithmetic as an exception is how people learn to ignore exceptions.
          (cov.covered > 0
-          and abs(cov.covered - cov.approved) > core.money_tolerance()) as material,
+          and abs(cov.covered - cov.approved) > ops_core.money_tolerance()) as material,
          v.id          as explanation_id,
          v.reason      as explanation_reason,
          v.note        as explanation_note,
          v.amount_at_time as explanation_amount_at_time,
          v.recorded_by_email as explanation_by,
          v.recorded_at as explanation_at
-    from procure.pr_lines l
-    join procure.v_line_coverage cov on cov.line_id = l.id
+    from ops_procure.pr_lines l
+    join ops_procure.v_line_coverage cov on cov.line_id = l.id
     left join lateral (
-      select * from procure.line_variances lv
+      select * from ops_procure.line_variances lv
        where lv.line_id = l.id
        order by lv.recorded_at desc, lv.id desc limit 1
     ) v on true;
 
 -- ── the round a line sits in ──────────────────────────────────────────────
-create or replace view procure.v_line_round as
+create or replace view ops_procure.v_line_round as
   select rl.line_id, r.round_no, r.status as round_status
-    from procure.payment_round_lines rl
-    join procure.payment_rounds r on r.id = rl.round_id;
+    from ops_procure.payment_round_lines rl
+    join ops_procure.payment_rounds r on r.id = rl.round_id;
 
 -- ── the board ─────────────────────────────────────────────────────────────
 -- What `listOpenLines`, `listAllLines` and the approval queue all read. One
 -- object per line with everything derived already on it, so nothing is computed
 -- twice and no screen can compute it differently.
-create or replace view procure.v_pr_line as
+create or replace view ops_procure.v_pr_line as
   select l.id, l.doc_id, l.line_no, l.line_no_full, l.item_id, l.description,
          l.qty, l.uom, l.unit_price, l.item_total, l.vendor_id, l.po_line_id,
          l.category, l.purpose, l.need_by, l.source_wo_no,
@@ -337,21 +337,21 @@ create or replace view procure.v_pr_line as
          ap.recorded_by_email as approval_by,
          ap.recorded_at    as approval_at,
          ap.channel        as approval_channel
-    from procure.pr_lines l
-    join procure.pr_documents d on d.id = l.doc_id
-    join procure.v_pr_line_status st on st.line_id = l.id
-    join procure.v_line_coverage cov on cov.line_id = l.id
-    join procure.v_line_variance var on var.line_id = l.id
-    join core.users u on u.id = d.requested_by
-    left join procure.projects p   on p.id = d.project_id
-    left join procure.vendors ven  on ven.id = l.vendor_id
-    left join procure.items it     on it.id = l.item_id
-    left join procure.v_line_receiving rc on rc.line_id = l.id
-    left join procure.v_line_evidence  ev on ev.line_id = l.id
-    left join procure.v_line_note    note on note.line_id = l.id
-    left join procure.v_pending_request req on req.line_id = l.id
-    left join procure.v_line_round    rnd on rnd.line_id = l.id
-    left join procure.v_line_approval ap on ap.line_id = l.id and ap.step = 'GOODS';
+    from ops_procure.pr_lines l
+    join ops_procure.pr_documents d on d.id = l.doc_id
+    join ops_procure.v_pr_line_status st on st.line_id = l.id
+    join ops_procure.v_line_coverage cov on cov.line_id = l.id
+    join ops_procure.v_line_variance var on var.line_id = l.id
+    join ops_core.users u on u.id = d.requested_by
+    left join ops_procure.projects p   on p.id = d.project_id
+    left join ops_procure.vendors ven  on ven.id = l.vendor_id
+    left join ops_procure.items it     on it.id = l.item_id
+    left join ops_procure.v_line_receiving rc on rc.line_id = l.id
+    left join ops_procure.v_line_evidence  ev on ev.line_id = l.id
+    left join ops_procure.v_line_note    note on note.line_id = l.id
+    left join ops_procure.v_pending_request req on req.line_id = l.id
+    left join ops_procure.v_line_round    rnd on rnd.line_id = l.id
+    left join ops_procure.v_line_approval ap on ap.line_id = l.id and ap.step = 'GOODS';
 
 -- Every line that is still someone's problem, across every document.
 --
@@ -363,8 +363,8 @@ create or replace view procure.v_pr_line as
 -- was approved and carries nobody's explanation is **not finished**, whatever
 -- its status ladder says. Letting it drop off the board because the goods
 -- arrived is precisely how an overpayment stops being anyone's problem.
-create or replace view procure.v_open_lines as
-  select * from procure.v_pr_line
+create or replace view ops_procure.v_open_lines as
+  select * from ops_procure.v_pr_line
    where doc_status not in ('DRAFT','CANCELLED')
      and removed_at is null
      and (status <> 'COMPLETED'
@@ -375,25 +375,25 @@ create or replace view procure.v_open_lines as
 -- list either way, which is why there is no urgency column. Oldest first, so a
 -- line that has waited a week is not below one filed this morning just because
 -- the list happens to be built in table order.
-create or replace view procure.v_approval_queue as
-  select * from procure.v_pr_line
+create or replace view ops_procure.v_approval_queue as
+  select * from ops_procure.v_pr_line
    where doc_status not in ('DRAFT','CANCELLED')
      and removed_at is null
      and approval_approved is distinct from true;
 
 -- ── rounds ────────────────────────────────────────────────────────────────
-create or replace view procure.v_round_summary as
+create or replace view ops_procure.v_round_summary as
   select r.id as round_id, r.round_no, r.status, r.opened_at,
          -- An OPEN round is recomputed from what is still owed; an APPROVED one
          -- keeps the numbers it froze, because they are the record of a
          -- decision and the lines behind them have moved on since.
          case when r.status = 'OPEN'
               then coalesce((select sum(cov.remaining)
-                               from procure.payment_round_lines rl
-                               join procure.v_line_coverage cov on cov.line_id = rl.line_id
+                               from ops_procure.payment_round_lines rl
+                               join ops_procure.v_line_coverage cov on cov.line_id = rl.line_id
                               where rl.round_id = r.id), 0)
               else coalesce((select sum(rl.requested_amount)
-                               from procure.payment_round_lines rl
+                               from ops_procure.payment_round_lines rl
                               where rl.round_id = r.id), 0)
          end as requested_total,
          coalesce(tr.transferred_total, 0) as transferred_total,
@@ -403,21 +403,21 @@ create or replace view procure.v_round_summary as
          greatest(
            case when r.status = 'OPEN'
                 then coalesce((select sum(cov.remaining)
-                                 from procure.payment_round_lines rl
-                                 join procure.v_line_coverage cov on cov.line_id = rl.line_id
+                                 from ops_procure.payment_round_lines rl
+                                 join ops_procure.v_line_coverage cov on cov.line_id = rl.line_id
                                 where rl.round_id = r.id), 0)
                 else coalesce((select sum(rl.requested_amount)
-                                 from procure.payment_round_lines rl
+                                 from ops_procure.payment_round_lines rl
                                 where rl.round_id = r.id), 0)
            end - coalesce(tr.transferred_total, 0), 0) as transfer_shortfall
-    from procure.payment_rounds r
+    from ops_procure.payment_rounds r
     left join (
       select round_id, sum(amount) as transferred_total
-        from procure.round_transfers group by round_id
+        from ops_procure.round_transfers group by round_id
     ) tr on tr.round_id = r.id
     left join (
       select round_id, count(*) as line_count
-        from procure.payment_round_lines group by round_id
+        from ops_procure.payment_round_lines group by round_id
     ) lc on lc.round_id = r.id;
 
 -- Which lines belong in a payment round: approved, not settled, and not
@@ -427,21 +427,21 @@ create or replace view procure.v_round_summary as
 -- that has frozen its numbers stays where it is. That rule is a derivation, so
 -- it lives here rather than inside `sync_round()` — which means the screen can
 -- show what the next round *would* pick up before anybody presses the button.
-create or replace view procure.v_round_eligible as
+create or replace view ops_procure.v_round_eligible as
   select l.id as line_id, l.line_no_full, cov.remaining
-    from procure.pr_lines l
-    join procure.v_line_coverage cov on cov.line_id = l.id
-    join procure.v_line_approval  ap on ap.line_id = l.id and ap.step = 'GOODS'
+    from ops_procure.pr_lines l
+    join ops_procure.v_line_coverage cov on cov.line_id = l.id
+    join ops_procure.v_line_approval  ap on ap.line_id = l.id and ap.step = 'GOODS'
    where l.removed_at is null
      and ap.approved is true
      and not cov.settled
      and not exists (
-       select 1 from procure.payment_round_lines rl
-         join procure.payment_rounds r on r.id = rl.round_id
+       select 1 from ops_procure.payment_round_lines rl
+         join ops_procure.payment_rounds r on r.id = rl.round_id
         where rl.line_id = l.id and r.status <> 'CLOSED');
 
 -- ── purchase orders: two axes, never collapsed ────────────────────────────
-create or replace view procure.v_po_line_delivery as
+create or replace view ops_procure.v_po_line_delivery as
   select pl.id as po_line_id, pl.po_id, pl.line_no, pl.description,
          pl.qty, pl.uom, pl.unit_price, pl.line_total,
          coalesce(rc.received, 0) as received,
@@ -456,21 +456,21 @@ create or replace view procure.v_po_line_delivery as
            when coalesce(rc.received, 0) > pl.qty then 'OVER'
            when coalesce(rc.received, 0) < pl.qty then 'PARTIAL'
            else 'GOOD'
-         end::procure.po_line_condition_t as condition,
+         end::ops_procure.po_line_condition_t as condition,
          -- Capped at what was ordered. A vendor who ships two sheets more than
          -- the order has given us a credit, not sold us more — we owe for what
          -- we asked for, and the extra is theirs to apply to a later order
          -- (D98). Counting it here would quietly turn an unasked-for delivery
          -- into money they can invoice.
          least(coalesce(rc.received, 0), pl.qty) * pl.unit_price as value_received
-    from procure.po_lines pl
+    from ops_procure.po_lines pl
     left join (
       select r.po_line_id,
              sum(r.qty_received) filter (
-               where procure.receipt_counts(r.condition, r.status)) as received,
+               where ops_procure.receipt_counts(r.condition, r.status)) as received,
              sum(r.qty_received) filter (where r.status = 'REPORTED') as reported,
-             bool_or(procure.receipt_is_problem(r.condition))        as has_problem
-        from procure.receipts r
+             bool_or(ops_procure.receipt_is_problem(r.condition))        as has_problem
+        from ops_procure.receipts r
        where r.po_line_id is not null
        group by r.po_line_id
     ) rc on rc.po_line_id = pl.id
@@ -479,7 +479,7 @@ create or replace view procure.v_po_line_delivery as
 -- Payment and delivery are computed apart and stay apart. "Everything follows
 -- from refusing to collapse them" — a PO can be fully paid and empty, or full
 -- and unpaid, and one progress bar says neither (A1).
-create or replace view procure.v_po_status as
+create or replace view ops_procure.v_po_status as
   select po.id as po_id, po.po_no, po.status, po.vendor_id, po.issued_at,
          po.expected_delivery, po.revision, po.sent_revision, po.note,
          coalesce(ln.contract_value, 0) as contract_value,
@@ -496,18 +496,18 @@ create or replace view procure.v_po_status as
          case
            when coalesce(pd.paid_to_date, 0) <= 0 then 'UNPAID'
            when coalesce(pd.paid_to_date, 0)
-                >= coalesce(ln.contract_value, 0) - core.money_tolerance() then 'SETTLED'
+                >= coalesce(ln.contract_value, 0) - ops_core.money_tolerance() then 'SETTLED'
            else 'PARTIAL'
-         end::procure.po_payment_state_t as payment_state,
+         end::ops_procure.po_payment_state_t as payment_state,
          case
            when coalesce(ln.value_received, 0) <= 0 then 'PENDING'
            when coalesce(ln.fully_delivered, false) then 'COMPLETE'
            else 'PARTIAL'
-         end::procure.po_delivery_state_t as delivery_state,
+         end::ops_procure.po_delivery_state_t as delivery_state,
          coalesce(ln.fully_delivered, false) as fully_delivered,
          coalesce(ln.any_delivered, false)   as any_delivered,
          dp.basis_value as dp_percent
-    from procure.purchase_orders po
+    from ops_procure.purchase_orders po
     left join (
       select po_id,
              sum(line_total)    as contract_value,
@@ -515,17 +515,17 @@ create or replace view procure.v_po_status as
              sum(over * unit_price) as credit,
              bool_and(received >= qty) as fully_delivered,
              bool_or(received > 0)     as any_delivered
-        from procure.v_po_line_delivery
+        from ops_procure.v_po_line_delivery
        group by po_id
     ) ln on ln.po_id = po.id
     left join (
       select al.po_no, sum(al.amount) as paid_to_date
-        from acct.payment_allocations al
-        join acct.transactions t on t.id = al.trx_id
+        from ops_acct.payment_allocations al
+        join ops_acct.transactions t on t.id = al.trx_id
        where al.superseded_by is null and al.po_no is not null and t.status <> 'VOID'
        group by al.po_no
     ) pd on pd.po_no = po.po_no
-    left join procure.po_schedule dp
+    left join ops_procure.po_schedule dp
       on dp.po_id = po.id and dp.kind = 'DP' and dp.basis = 'percent';
 
 -- What a vendor could honestly invoice today.
@@ -545,14 +545,14 @@ create or replace view procure.v_po_status as
 --
 -- A DRAFT order is a document nobody has sent, so nothing on it is billable,
 -- however large the contract.
-create or replace view procure.v_po_journey as
+create or replace view ops_procure.v_po_journey as
   select s.*,
          greatest(round(
            case when s.issued_at is null then 0
                 else s.contract_value * (coalesce(s.dp_percent, 0) / 100.0)
                    + s.value_received * (1 - coalesce(s.dp_percent, 0) / 100.0)
            end - s.paid_to_date), 0) as billable_now
-    from procure.v_po_status s;
+    from ops_procure.v_po_status s;
 
 -- The payment schedule, with the money that reached this order applied to it in
 -- order (D128).
@@ -563,7 +563,7 @@ create or replace view procure.v_po_journey as
 -- earlier one is still unpaid is BLOCKED, and the view **names the term holding
 -- it up** rather than saying "not allowed". That guard is the reason somebody
 -- once paid a final instalment on an order whose deposit had never gone out.
-create or replace view procure.v_po_terms as
+create or replace view ops_procure.v_po_terms as
   with ordered as (
     select t.*, s.contract_value, s.paid_to_date, s.status as po_status,
            s.fully_delivered, s.any_delivered,
@@ -572,8 +572,8 @@ create or replace view procure.v_po_terms as
                 else t.basis_value
            end as amount,
            row_number() over (partition by t.po_id order by t.term_no) as seq
-      from procure.po_schedule t
-      join procure.v_po_status s on s.po_id = t.po_id
+      from ops_procure.po_schedule t
+      join ops_procure.v_po_status s on s.po_id = t.po_id
   ), running as (
     select o.*,
            -- What the money covers before this term: the sum of every earlier
@@ -591,14 +591,14 @@ create or replace view procure.v_po_terms as
                                           then r.fully_delivered
                                           else r.any_delivered end
              else r.due_date is not null
-                  and r.due_date <= core.office_day()
+                  and r.due_date <= ops_core.office_day()
            end as fired
       from running r
   )
   select s.id, s.po_id, s.term_no, s.kind, s.basis, s.basis_value,
          s.due_rule, s.due_date, s.amount, s.covered, s.fired,
          case
-           when s.amount > 0 and s.covered >= s.amount - core.money_tolerance() then 'PAID'
+           when s.amount > 0 and s.covered >= s.amount - ops_core.money_tolerance() then 'PAID'
            when s.covered > 0 then 'PARTIAL'
            when not s.fired   then 'NOT DUE'
            -- Blocked by the first earlier term that is not fully paid. Computed
@@ -608,13 +608,13 @@ create or replace view procure.v_po_terms as
            when exists (
              select 1 from stated e
               where e.po_id = s.po_id and e.seq < s.seq
-                and e.covered < e.amount - core.money_tolerance()
+                and e.covered < e.amount - ops_core.money_tolerance()
            ) then 'BLOCKED'
            else 'PAYABLE'
-         end::procure.po_term_state_t as state,
+         end::ops_procure.po_term_state_t as state,
          (select e.term_no from stated e
            where e.po_id = s.po_id and e.seq < s.seq
-             and e.covered < e.amount - core.money_tolerance()
+             and e.covered < e.amount - ops_core.money_tolerance()
            order by e.seq limit 1) as blocked_by,
          -- Why the trigger has or has not fired, in words. On the row because
          -- "NOT DUE" on its own sends somebody to ask a person what it is
@@ -639,7 +639,7 @@ create or replace view procure.v_po_terms as
 -- paid, what has actually arrived, and what they could invoice next. A vendor
 -- with three open orders and one transfer covering all three cannot be read
 -- order by order (D97).
-create or replace view procure.v_vendor_journey as
+create or replace view ops_procure.v_vendor_journey as
   select v.id as vendor_id, v.name as vendor_name,
          count(j.po_id)                        as orders,
          coalesce(sum(j.contract_value), 0)    as contract_value,
@@ -649,8 +649,8 @@ create or replace view procure.v_vendor_journey as
          coalesce(sum(j.value_received), 0)    as value_received,
          coalesce(sum(j.billable_now), 0)      as billable_now,
          coalesce(sum(j.credit), 0)            as credit
-    from procure.vendors v
-    left join procure.v_po_journey j
+    from ops_procure.vendors v
+    left join ops_procure.v_po_journey j
       on j.vendor_id = v.id and j.status <> 'CANCELLED'
    group by v.id, v.name;
 
@@ -665,7 +665,7 @@ create or replace view procure.v_vendor_journey as
 -- A merged vendor's history stays on its own row (D41), and readers follow the
 -- pointer — so the fact is reported under the surviving name while the row it
 -- came from is unchanged.
-create or replace view procure.v_purchase_facts as
+create or replace view ops_procure.v_purchase_facts as
   select l.item_id,
          i.name as item_name,
          i.category_code,
@@ -675,11 +675,11 @@ create or replace view procure.v_purchase_facts as
          l.uom,
          coalesce(d.submitted_at, d.created_at) as at,
          'pr'::text as source
-    from procure.pr_lines l
-    join procure.pr_documents d on d.id = l.doc_id
-    join procure.items   i on i.id = l.item_id
-    join procure.vendors v on v.id = l.vendor_id
-    left join procure.vendors vm on vm.id = v.merged_into
+    from ops_procure.pr_lines l
+    join ops_procure.pr_documents d on d.id = l.doc_id
+    join ops_procure.items   i on i.id = l.item_id
+    join ops_procure.vendors v on v.id = l.vendor_id
+    left join ops_procure.vendors vm on vm.id = v.merged_into
    where l.removed_at is null
   union all
   select tl.item_id,
@@ -689,44 +689,44 @@ create or replace view procure.v_purchase_facts as
          tl.unit_price, tl.uom,
          t.posted_at,
          'ledger'
-    from acct.transaction_lines tl
-    join acct.transactions t on t.id = tl.trx_id and t.status <> 'VOID'
-    join procure.items   i on i.id = tl.item_id
-    join procure.vendors v on v.id = t.vendor_id
-    left join procure.vendors vm on vm.id = v.merged_into;
+    from ops_acct.transaction_lines tl
+    join ops_acct.transactions t on t.id = tl.trx_id and t.status <> 'VOID'
+    join ops_procure.items   i on i.id = tl.item_id
+    join ops_procure.vendors v on v.id = t.vendor_id
+    left join ops_procure.vendors vm on vm.id = v.merged_into;
 
 -- Who we buy an item from, newest first. The answer to "we need thinner — where
 -- do we get it?", derived rather than maintained.
-create or replace view procure.v_item_sources as
+create or replace view ops_procure.v_item_sources as
   select f.item_id, f.vendor_id, f.vendor_name,
          v.is_curated, v.pic_name, v.pic_phone,
          (array_agg(f.unit_price order by f.at desc))[1] as last_price,
          (array_agg(f.uom        order by f.at desc))[1] as uom,
          max(f.at) as last_date,
          count(*)  as times
-    from procure.v_purchase_facts f
-    join procure.vendors v on v.id = f.vendor_id
+    from ops_procure.v_purchase_facts f
+    join ops_procure.vendors v on v.id = f.vendor_id
    group by f.item_id, f.vendor_id, f.vendor_name, v.is_curated, v.pic_name, v.pic_phone;
 
-create or replace view procure.v_vendor_view as
+create or replace view ops_procure.v_vendor_view as
   select v.*,
          coalesce(f.transaction_count, 0) as transaction_count,
          f.last_purchase,
          coalesce(op.open_pr_lines, 0)    as open_pr_lines
-    from procure.vendors v
+    from ops_procure.vendors v
     left join (
       select vendor_id, count(*) as transaction_count, max(at) as last_purchase
-        from procure.v_purchase_facts group by vendor_id
+        from ops_procure.v_purchase_facts group by vendor_id
     ) f on f.vendor_id = v.id
     left join (
       select l.vendor_id, count(*) as open_pr_lines
-        from procure.v_pr_line l
+        from ops_procure.v_pr_line l
        where l.removed_at is null and l.status <> 'COMPLETED'
          and l.doc_status not in ('DRAFT','CANCELLED')
        group by l.vendor_id
     ) op on op.vendor_id = v.id;
 
-create or replace view procure.v_item_view as
+create or replace view ops_procure.v_item_view as
   select i.*,
          c.name as category_name,
          lv.name as last_vendor_name,
@@ -734,12 +734,12 @@ create or replace view procure.v_item_view as
          -- otherwise the last price paid. A hint, never a price list.
          coalesce(i.standard_price, i.last_price) as suggested_price,
          coalesce(pf.purchase_count, 0) as purchase_count
-    from procure.items i
-    join procure.item_categories c on c.code = i.category_code
-    left join procure.vendors lv on lv.id = i.last_vendor_id
+    from ops_procure.items i
+    join ops_procure.item_categories c on c.code = i.category_code
+    left join ops_procure.vendors lv on lv.id = i.last_vendor_id
     left join (
       select item_id, count(*) as purchase_count
-        from procure.v_purchase_facts group by item_id
+        from ops_procure.v_purchase_facts group by item_id
     ) pf on pf.item_id = i.id;
 
 -- Views run with the caller's rights by default in Postgres 15+, which is what
@@ -747,32 +747,32 @@ create or replace view procure.v_item_view as
 -- say who may see the rows, and a `security definer` view would quietly hand a
 -- reader past them. Stated rather than assumed, because the default changed and
 -- somebody reading this on an older server should not have to guess.
-alter view procure.v_line_approval    set (security_invoker = on);
-alter view procure.v_line_note        set (security_invoker = on);
-alter view procure.v_pending_request  set (security_invoker = on);
-alter view procure.v_line_funding     set (security_invoker = on);
-alter view procure.v_line_coverage    set (security_invoker = on);
-alter view procure.v_line_receiving   set (security_invoker = on);
-alter view procure.v_line_evidence    set (security_invoker = on);
-alter view procure.v_pr_line_status   set (security_invoker = on);
-alter view procure.v_line_variance    set (security_invoker = on);
-alter view procure.v_line_round       set (security_invoker = on);
-alter view procure.v_pr_line          set (security_invoker = on);
-alter view procure.v_open_lines       set (security_invoker = on);
-alter view procure.v_approval_queue   set (security_invoker = on);
-alter view procure.v_round_summary    set (security_invoker = on);
-alter view procure.v_round_eligible   set (security_invoker = on);
-alter view procure.v_po_line_delivery set (security_invoker = on);
-alter view procure.v_po_status        set (security_invoker = on);
-alter view procure.v_po_journey       set (security_invoker = on);
-alter view procure.v_po_terms         set (security_invoker = on);
-alter view procure.v_vendor_journey   set (security_invoker = on);
-alter view procure.v_purchase_facts   set (security_invoker = on);
-alter view procure.v_item_sources     set (security_invoker = on);
-alter view procure.v_vendor_view      set (security_invoker = on);
-alter view procure.v_item_view        set (security_invoker = on);
+alter view ops_procure.v_line_approval    set (security_invoker = on);
+alter view ops_procure.v_line_note        set (security_invoker = on);
+alter view ops_procure.v_pending_request  set (security_invoker = on);
+alter view ops_procure.v_line_funding     set (security_invoker = on);
+alter view ops_procure.v_line_coverage    set (security_invoker = on);
+alter view ops_procure.v_line_receiving   set (security_invoker = on);
+alter view ops_procure.v_line_evidence    set (security_invoker = on);
+alter view ops_procure.v_pr_line_status   set (security_invoker = on);
+alter view ops_procure.v_line_variance    set (security_invoker = on);
+alter view ops_procure.v_line_round       set (security_invoker = on);
+alter view ops_procure.v_pr_line          set (security_invoker = on);
+alter view ops_procure.v_open_lines       set (security_invoker = on);
+alter view ops_procure.v_approval_queue   set (security_invoker = on);
+alter view ops_procure.v_round_summary    set (security_invoker = on);
+alter view ops_procure.v_round_eligible   set (security_invoker = on);
+alter view ops_procure.v_po_line_delivery set (security_invoker = on);
+alter view ops_procure.v_po_status        set (security_invoker = on);
+alter view ops_procure.v_po_journey       set (security_invoker = on);
+alter view ops_procure.v_po_terms         set (security_invoker = on);
+alter view ops_procure.v_vendor_journey   set (security_invoker = on);
+alter view ops_procure.v_purchase_facts   set (security_invoker = on);
+alter view ops_procure.v_item_sources     set (security_invoker = on);
+alter view ops_procure.v_vendor_view      set (security_invoker = on);
+alter view ops_procure.v_item_view        set (security_invoker = on);
 
-grant select on all tables in schema procure to authenticated;
-grant execute on function procure.receipt_counts(procure.receipt_condition_t, procure.receipt_status_t),
-                          procure.receipt_is_problem(procure.receipt_condition_t)
+grant select on all tables in schema ops_procure to authenticated;
+grant execute on function ops_procure.receipt_counts(ops_procure.receipt_condition_t, ops_procure.receipt_status_t),
+                          ops_procure.receipt_is_problem(ops_procure.receipt_condition_t)
   to authenticated;

@@ -9,7 +9,7 @@ import { Paged } from "@/components/ui/pager";
 import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { hr } from "@/demo/api";
-import type { PayRules, UndertimeMode, OvertimeMode } from "@/services/hr/contracts";
+import type { PayRules, UndertimeMode, OvertimeMode, HourlyBasis, LateMode } from "@/services/hr/contracts";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 
@@ -38,11 +38,28 @@ const OVERTIME_MODE_LABEL: Record<OvertimeMode, string> = {
   form_only: "Hanya yang tertulis di form",
 };
 
+const HOURLY_BASIS_LABEL: Record<HourlyBasis, string> = {
+  company: "Setahun gaji ÷ hari kerja efektif ÷ jam sehari (hitungan perusahaan)",
+  statutory: "Gaji sebulan ÷ 173 (angka peraturan)",
+};
+
+const LATE_MODE_LABEL: Record<LateMode, string> = {
+  manual: "Dicatat saja — rupiahnya diketik orang",
+  pro_rata: "Dipotong per jam terlambat, di luar toleransi",
+};
+
 const UNDERTIME_MODE_LABEL: Record<UndertimeMode, string> = {
   off: "Tidak dipotong",
   pro_rata: "Dipotong per jam kurang",
   half_day_step: "Kurang lebih dari setengah hari → potong ½ hari",
 };
+
+/** Minutes from midnight as a clock face, and **an honest blank** where the
+ *  business has not stated one — never 00.00, which would read as midnight. */
+function clock(minutes: number | null): string {
+  if (minutes == null) return "belum ditetapkan";
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}.${String(minutes % 60).padStart(2, "0")}`;
+}
 
 export default function PayRulesPage() {
   const { can } = useSession();
@@ -53,7 +70,10 @@ export default function PayRulesPage() {
   const [note, setNote] = useState("");
   const [preview, setPreview] = useState<Awaited<ReturnType<typeof hr.previewPayRules>>["data"] | null>(null);
   const [busy, setBusy] = useState(false);
-  const mayEdit = can("payroll.run");
+  /* HRD reads, IT changes (owner, D193). Two different rights on one screen:
+     the people whose payslips these rules compute are not the people who can
+     change them alone. HRD proposes; IT writes the version, with the note. */
+  const mayEdit = can("it.update");
 
   async function runPreview() {
     if (!draft) return;
@@ -83,7 +103,7 @@ export default function PayRulesPage() {
   return (
     <div>
       <PageHeader
-        breadcrumb="IT"
+        breadcrumb="Payroll"
         title="Aturan penggajian"
         description="Skema upah, lembur dan undertime — angkanya kebijakan, bukan kode. Mengubahnya menulis versi baru mulai tanggal tertentu; versi lama tetap ada supaya slip lama masih bisa dihitung ulang."
         actions={<SourceBadge state={sets} />}
@@ -97,6 +117,15 @@ export default function PayRulesPage() {
 
           return (
             <>
+              {!mayEdit && (
+                <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">
+                  <strong className="font-medium">Lihat saja.</strong> Aturan gaji diubah oleh IT, bukan
+                  dari layar ini — bukan karena angkanya tidak Anda kuasai, tapi karena satu aturan di sini
+                  mengubah semua slip sekaligus. Kalau ada yang perlu diganti, sampaikan ke IT: perubahan
+                  ditulis sebagai versi baru dengan alasannya, dan versi lama tetap bisa dihitung ulang.
+                </div>
+              )}
+
               <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-[13px] shadow-card">
                 <Badge tone="brand">v{current.version}</Badge>
                 <span className="text-slate-700">
@@ -111,18 +140,64 @@ export default function PayRulesPage() {
                 <div className="space-y-4">
                   <Card>
                     <CardHeader
-                      title="Situasi 1 & 2 — upah harian dan upah per jam"
-                      subtitle="Tarifnya ada di data karyawan, satu per orang. Yang diatur di sini adalah cara mengubah gaji bulanan menjadi tarif per jam, karena lembur staff dihitung dari sana."
+                      title="Situasi 1 & 2 — komposisi upah dan harga satu jam"
+                      subtitle="Upah dibaca sebagai pokok + tunjangan. Tarifnya ada di data karyawan, satu per orang; yang diatur di sini adalah cara mengubah upah menjadi harga satu jam, karena lembur dan potongan dihitung dari sana."
                       icon={Scale}
                     />
                     <div className="space-y-3 px-5 py-3 text-[13px]">
+                      <label className="block">
+                        <span className="block text-[12px] text-slate-500">Harga satu jam dihitung dari</span>
+                        <select
+                          value={rules.hourly_basis}
+                          onChange={(e) => set({ hourly_basis: e.target.value as HourlyBasis })}
+                          disabled={!mayEdit}
+                          className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                        >
+                          {(Object.keys(HOURLY_BASIS_LABEL) as HourlyBasis[]).map((m) => (
+                            <option key={m} value={m}>{HOURLY_BASIS_LABEL[m]}</option>
+                          ))}
+                        </select>
+                      </label>
+
                       <Field
-                        label="Pembagi gaji bulanan"
-                        hint="Gaji sebulan dibagi angka ini = upah satu jam. 173 adalah angka yang dipakai peraturan (40 jam × 52 minggu ÷ 12)."
+                        label="Hari kerja efektif setahun"
+                        hint={`Enam hari seminggu = 312 hari, dikurangi tanggal merah dan cuti bersama. Angkanya milik perusahaan, bukan hitungan layar ini — IT yang mengisi, HRD dan payroll membacanya (Q45). Rata-rata per bulan: ${(rules.effective_days_per_year / 12).toFixed(1)} hari, diturunkan dari angka setahun dan tidak pernah disimpan terpisah.`}
+                        value={rules.effective_days_per_year}
+                        onChange={(v) => set({ effective_days_per_year: v })}
+                        disabled={!mayEdit}
+                      />
+
+                      <Field
+                        label="Pembagi gaji bulanan (peraturan)"
+                        hint="173 = 40 jam × 52 minggu ÷ 12. Angka Kepmenaker, dipakai tangga lembur nasional. Tetap disimpan walau bukan dasar yang dipilih, supaya selisihnya kelihatan."
                         value={rules.monthly_divisor}
                         onChange={(v) => set({ monthly_divisor: v })}
                         disabled={!mayEdit}
                       />
+
+                      <label className="flex items-start gap-2 text-[12px] text-slate-600">
+                        <input
+                          type="checkbox"
+                          checked={rules.hourly_includes_allowance}
+                          onChange={(e) => set({ hourly_includes_allowance: e.target.checked })}
+                          disabled={!mayEdit}
+                          className="mt-0.5"
+                        />
+                        <span>
+                          <span className="block font-medium text-slate-700">
+                            Tunjangan ikut dihitung ke harga satu jam
+                          </span>
+                          Sesuai instruksi pemilik: pokok + tunjangan untuk perhitungan semua.
+                          <span className="mt-0.5 block text-[11px] text-slate-400">
+                            Catatan, bukan keputusan: perusahaan mungkin nanti memakai pokok saja untuk
+                            lembur dan perhitungan dasar. Kalau itu terjadi, matikan kotak ini — jangan
+                            ubah tarif orangnya.
+                          </span>
+                        </span>
+                      </label>
+
+                      <HourlyExample rules={rules} />
+
                       <p className="text-[12px] text-slate-500">
                         Harian: tarif per hari ÷ jam kerja kontrak orang itu. Per jam: tarifnya memang
                         sudah per jam. Keduanya tidak diatur di sini — itu data orang, bukan kebijakan.
@@ -210,7 +285,7 @@ export default function PayRulesPage() {
                   <Card>
                     <CardHeader
                       title="Situasi 4 — undertime & keterlambatan"
-                      subtitle="Keduanya mati secara default: berapa nilainya belum pernah ditetapkan, dan potongan yang dikarang sistem sampai ke kantong orang."
+                      subtitle="Aturan keterlambatan sekarang ada — toleransi 15 menit, potongan per jam — dan tetap mati sampai seseorang menyalakannya setelah melihat dampaknya per orang. Undertime masih belum pernah ditetapkan nilainya."
                       icon={AlertTriangle}
                     />
                     <div className="space-y-3 px-5 py-3 text-[13px]">
@@ -234,17 +309,126 @@ export default function PayRulesPage() {
                         onChange={(v) => set({ undertime_grace_minutes: v })}
                         disabled={!mayEdit}
                       />
-                      <Field
-                        label="Terlambat setelah (menit dari tengah malam)"
-                        hint="480 = jam 08.00. Menitnya ditampilkan di slip sebagai bukti; rupiahnya diketik orang dengan alasan."
-                        value={rules.late_after_minutes}
-                        onChange={(v) => set({ late_after_minutes: v })}
-                        disabled={!mayEdit}
-                      />
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <Field
+                          label="Jam masuk perusahaan (menit dari tengah malam)"
+                          hint="480 = jam 08.00. Dipakai hanya untuk unit yang tidak punya jadwal kerja sendiri di bawah."
+                          value={rules.day_starts_minutes}
+                          onChange={(v) => set({ day_starts_minutes: v })}
+                          disabled={!mayEdit}
+                        />
+
+                        <Field
+                          label="Toleransi terlambat (menit)"
+                          hint="Pemilik menetapkan 15. Di bawah ini tidak dihitung terlambat sama sekali."
+                          value={rules.late_grace_minutes}
+                          onChange={(v) => set({ late_grace_minutes: v })}
+                          disabled={!mayEdit}
+                        />
+                      </div>
+
+                      {/* Five patterns, not a start time per unit (Q44, D274).
+                          What a schedule does not say is left blank and named
+                          as unstated — the guard's twelve hours begin at a time
+                          nobody has fixed, and a number invented here becomes a
+                          lateness figure that looks measured. */}
+                      <div>
+                        <p className="mb-1 text-[12px] font-medium text-slate-700">Jadwal kerja</p>
+                        <div className="overflow-x-auto">
+                          <table className="w-full min-w-[520px] text-[12px]">
+                            <thead>
+                              <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400">
+                                <th className="py-1 pr-3 font-medium">Pola</th>
+                                <th className="py-1 pr-3 font-medium">Masuk</th>
+                                <th className="py-1 pr-3 font-medium">Pulang</th>
+                                <th className="py-1 pr-3 font-medium">Istirahat</th>
+                                <th className="py-1 pr-3 font-medium">Jumat</th>
+                                <th className="py-1 font-medium">Unit</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {(rules.schedules ?? []).map((sc) => {
+                                const units = Object.entries(rules.schedule_by_unit ?? {})
+                                  .filter(([, code]) => code === sc.code).map(([u]) => u);
+                                return (
+                                  <tr key={sc.code} className="align-top">
+                                    <td className="py-1.5 pr-3 text-slate-800">
+                                      {sc.name}
+                                      {sc.note && (
+                                        <span className="block max-w-[260px] whitespace-normal text-[11px] text-amber-700">
+                                          {sc.note}
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="py-1.5 pr-3 tabular-nums text-slate-700">{clock(sc.start_minutes)}</td>
+                                    <td className="py-1.5 pr-3 tabular-nums text-slate-700">{clock(sc.end_minutes)}</td>
+                                    <td className="py-1.5 pr-3 tabular-nums text-slate-700">
+                                      {sc.break_minutes == null ? "belum ditetapkan" : `${sc.break_minutes} menit`}
+                                    </td>
+                                    <td className="py-1.5 pr-3 tabular-nums text-slate-700">
+                                      {sc.friday_break_minutes == null ? "—" : `${sc.friday_break_minutes} menit`}
+                                    </td>
+                                    <td className="py-1.5 text-slate-500">
+                                      {units.length > 0 ? units.join(", ") : "belum ada yang dipasang"}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                              {(rules.schedules ?? []).length === 0 && (
+                                <tr><td colSpan={6} className="py-2 text-slate-500">
+                                  Buku aturan ini belum punya jadwal kerja; semua unit memakai jam masuk perusahaan di atas.
+                                </td></tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          Jadwal yang jam masuknya belum ditetapkan tidak bisa dipakai menilai ketepatan waktu —
+                          orang di jadwal itu terbaca <strong>tidak terukur</strong>, bukan tepat waktu. Istirahat
+                          dibandingkan dengan tap dan dilaporkan kalau lewat, tidak pernah dipotong.
+                        </p>
+                      </div>
+                      <p className="rounded-lg bg-slate-50 px-3 py-2 text-[12px] text-slate-600">
+                        Dua angka, bukan satu. Sebelumnya keduanya satu kolom bernama
+                        <em> terlambat setelah 480 menit</em>, yang sebenarnya berarti
+                        <em> terlambat setelah jam 08.00</em> — dan toleransi yang pemilik tetapkan tidak
+                        punya tempat untuk ditulis (F70).
+                      </p>
+                      <label className="block">
+                        <span className="block text-[12px] text-slate-500">Potongan keterlambatan</span>
+                        <select
+                          value={rules.late_mode}
+                          onChange={(e) => set({ late_mode: e.target.value as LateMode })}
+                          disabled={!mayEdit}
+                          className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                        >
+                          {(Object.keys(LATE_MODE_LABEL) as LateMode[]).map((m) => (
+                            <option key={m} value={m}>{LATE_MODE_LABEL[m]}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="flex items-start gap-2 text-[12px] text-slate-600">
+                        <input
+                          type="checkbox"
+                          checked={rules.late_forfeits_allowance}
+                          onChange={(e) => set({ late_forfeits_allowance: e.target.checked })}
+                          disabled={!mayEdit}
+                          className="mt-0.5"
+                        />
+                        <span>
+                          <span className="block font-medium text-slate-700">
+                            Terlambat juga menghanguskan tunjangan hari itu
+                          </span>
+                          Mati, dan pemilik yang mematikannya sendiri: <em>potongannya jam saja,
+                          allowance masih diberikan jika hadir</em>. Tunjangan hilang karena keputusan
+                          HRD dengan alasannya sendiri — WFH, setengah hari — bukan sebagai hukuman
+                          kedua atas kejadian yang sama.
+                        </span>
+                      </label>
                       <p className="text-[12px] text-slate-500">
-                        Potongan keterlambatan tetap manual (D155). Sistem menunjukkan menitnya, orang
-                        yang menentukan nilainya — karena berapa harga satu menit di sini belum pernah
-                        dinyatakan siapa pun (Q41).
+                        Aturannya sekarang ada; menyalakannya keputusan terpisah. Selama masih
+                        <em> dicatat saja</em>, slip tetap mencetak menitnya <strong>dan</strong> berapa
+                        rupiah yang tidak dipotong — supaya keterlambatan tidak terbaca gratis (D174).
                       </p>
                     </div>
                   </Card>
@@ -455,6 +639,56 @@ function Example({ rules }: { rules: PayRules }) {
           <p className="mt-0.5 font-semibold text-slate-800">Dibayar {formatIDR(Math.round(total))}</p>
         </>
       )}
+    </div>
+  );
+}
+
+/** The divisor, as arithmetic on one real salary.
+ *
+ *  The owner's question was *dari mana pembagian 173 itu?* — so the screen that
+ *  holds the answer shows both sums rather than naming the winner. They differ
+ *  by about a tenth on this office's own numbers, which is the whole reason
+ *  the question was worth asking.
+ */
+function HourlyExample({ rules }: { rules: PayRules }) {
+  /* Putri, accounting: pokok Rp 6.900.000 + tunjangan Rp 25.000/hari. */
+  const pokok = 6_900_000;
+  const tunjangan = 25_000;
+  const hoursPerDay = 8;
+  const days = Math.max(rules.effective_days_per_year, 1);
+  const allowance = rules.hourly_includes_allowance ? tunjangan : 0;
+
+  const annual = pokok * 12 + allowance * days;
+  const company = Math.round(annual / days / hoursPerDay);
+  const monthly = pokok + (allowance * days) / 12;
+  const statutory = Math.round(monthly / Math.max(rules.monthly_divisor, 1));
+  const chosen = rules.hourly_basis === "statutory" ? statutory : company;
+  const other = rules.hourly_basis === "statutory" ? company : statutory;
+  const gap = other === 0 ? 0 : Math.round(((chosen - other) / other) * 100);
+
+  return (
+    <div className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-[12px] text-slate-600">
+      <p className="font-medium text-slate-700">
+        Contoh: staf kantor, pokok {formatIDR(pokok)}/bulan + tunjangan {formatIDR(tunjangan)}/hari,
+        {" "}{hoursPerDay} jam sehari
+      </p>
+      <p className="mt-1">
+        <strong className="text-slate-700">Hitungan perusahaan:</strong>{" "}
+        ({formatIDR(pokok)} × 12{rules.hourly_includes_allowance && <> + {formatIDR(tunjangan)} × {formatNumber(days)}</>})
+        {" "}= {formatIDR(annual)} setahun ÷ {formatNumber(days)} hari ÷ {hoursPerDay} jam ={" "}
+        <span className="font-semibold text-slate-800">{formatIDR(company)}</span>
+      </p>
+      <p className="mt-0.5">
+        <strong className="text-slate-700">Hitungan peraturan:</strong>{" "}
+        {formatIDR(Math.round(monthly))} sebulan ÷ {formatNumber(rules.monthly_divisor)} ={" "}
+        <span className="font-semibold text-slate-800">{formatIDR(statutory)}</span>
+      </p>
+      <p className="mt-1 text-slate-500">
+        Yang dipakai: <strong className="text-slate-700">{formatIDR(chosen)}</strong> per jam
+        {gap !== 0 && <> — {Math.abs(gap)}% {gap > 0 ? "lebih tinggi" : "lebih rendah"} dari yang satunya</>}.
+        Selisihnya bukan pembulatan: 173 mengandaikan minggu 40 jam, dan kantor ini tidak bekerja 40 jam
+        seminggu.
+      </p>
     </div>
   );
 }

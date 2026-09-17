@@ -1,14 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, CalendarClock, Hammer, Plus } from "lucide-react";
+import { AlertTriangle, CalendarClock, Factory, Hammer, Plus } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { Paged } from "@/components/ui/pager";
 import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { production } from "@/demo/api";
-import { PROCESS_STAGES, type WorkOrderView } from "@/services/production/contracts";
+import { PROCESS_STAGES, ROUTES, STAGE_NAME, type WorkOrderView } from "@/services/production/contracts";
 import { useSession } from "@/store/session";
 import { NewWorkOrder } from "./NewWorkOrder";
 import { WorkOrderDrawer } from "./WorkOrderDrawer";
@@ -93,12 +93,26 @@ export default function ProductionSchedulePage() {
                     </ul>
                   )}
                 </Paged>
-                <p className="flex flex-wrap items-center gap-3 border-t border-slate-100 px-5 py-2 text-[11px] text-slate-500">
-                  Tahap:
-                  {PROCESS_STAGES.map((s) => (
-                    <span key={s.code}>{s.seq}. {s.name}</span>
-                  ))}
-                </p>
+                <div className="space-y-1 border-t border-slate-100 px-5 py-2 text-[11px] text-slate-500">
+                  <p className="flex flex-wrap items-center gap-3">
+                    Tahap:
+                    {PROCESS_STAGES.map((s) => (
+                      <span key={s.code}>
+                        {s.seq}. {s.name}{" "}
+                        <span className="text-slate-400">({s.covers})</span>
+                      </span>
+                    ))}
+                  </p>
+                  <p className="flex flex-wrap items-center gap-3">
+                    Rute:
+                    {ROUTES.map((r) => (
+                      <span key={r.code}>
+                        <strong className="font-medium text-slate-600">{r.name}</strong>{" "}
+                        {r.stages.map((c) => STAGE_NAME(c)).join(" → ")}
+                      </span>
+                    ))}
+                  </p>
+                </div>
               </Card>
             </>
           );
@@ -131,8 +145,19 @@ function Row({ wo, onOpen }: { wo: WorkOrderView; onOpen: () => void }) {
             {formatNumber(wo.completed)}/{formatNumber(wo.qty)} {wo.uom}
           </span>
           <span className="whitespace-nowrap text-[12px] text-slate-500">{wo.current_stage_name}</span>
+          {wo.route === "SUBCON" && (
+            <Badge tone={wo.at_vendor ? "violet" : "slate"}>
+              <Factory className="mr-1 h-3 w-3" />
+              {wo.at_vendor ? `di vendor ${wo.days_at_vendor} hari` : "lewat vendor"}
+            </Badge>
+          )}
           {wo.status === "DONE" ? (
             <Badge tone="slate">selesai</Badge>
+          ) : wo.subcon_overdue ? (
+            /* The vendor is late, not the workshop. Two different sentences,
+               and putting the workshop's badge on this row would blame the
+               wrong people (D254). */
+            <Badge tone="red" dot>vendor telat</Badge>
           ) : wo.late ? (
             <Badge tone="red" dot>terlambat {Math.abs(wo.days_left)} hari</Badge>
           ) : wo.days_left <= 3 ? (
@@ -146,7 +171,9 @@ function Row({ wo, onOpen }: { wo: WorkOrderView; onOpen: () => void }) {
           </span>
         </div>
 
-        {/* One cell per stage: how many of the order have passed through it. */}
+        {/* One cell per stage **on this order's route**. A subcontracted order
+            has three cells, not four with an empty one: a stage the route does
+            not contain is absent, never zero (D254). */}
         <div className="mt-2 flex gap-1">
           {wo.stages.map((s) => (
             <span

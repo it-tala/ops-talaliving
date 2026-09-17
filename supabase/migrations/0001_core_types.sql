@@ -15,7 +15,7 @@
 -- had drifted from what the application actually stores: the status ladder
 -- still had the eight values D28 and D126 removed, `channel_t` said
 -- `app/chat/meeting` where the running value is `web/chat/sheet/script/api`,
--- and `acct.direction_t` was lower-case where every row in the demo says `IN`
+-- and `ops_acct.direction_t` was lower-case where every row in the demo says `IN`
 -- and `OUT`. Each one would have surfaced as a failed insert on the day the
 -- matching screen was swapped, which is the most expensive moment to find it.
 -- The drift list is in `docs/plan/phase-2/01-schema.md` under *Enums the
@@ -26,23 +26,23 @@
 -- person, and finding that out through a duplicate payslip is expensive.
 create extension if not exists citext;
 
-create schema if not exists core;     -- identity, audit, numbering, files
-create schema if not exists procure;  -- reference data, PR chain, PO
-create schema if not exists acct;     -- accounts, ledger, allocations, calendar
-create schema if not exists hr;       -- people, taps, marks, overtime, payroll
-create schema if not exists prod;     -- products, BOM, work orders, progress
-create schema if not exists inv;      -- timber: logs and boards
+create schema if not exists ops_core;     -- identity, audit, numbering, files
+create schema if not exists ops_procure;  -- reference data, PR chain, PO
+create schema if not exists ops_acct;     -- accounts, ledger, allocations, calendar
+create schema if not exists ops_hr;       -- people, taps, marks, overtime, payroll
+create schema if not exists ops_prod;     -- products, BOM, work orders, progress
+create schema if not exists ops_inv;      -- timber: logs and boards
 
 -- ── access ────────────────────────────────────────────────────────────────
 -- Two separate things, never fused (D24): a module grant says which screens
 -- open, an authority says which decisions you may take.
-create type core.module_t as enum (
+create type ops_core.module_t as enum (
   'dashboard','hrd','payroll','procurement','inventory','accounting',
   'marketing','project','production','it','settings');
 
-create type core.module_level_t as enum ('read','write','admin');
+create type ops_core.module_level_t as enum ('read','write','admin');
 
-create type core.authority_t as enum (
+create type ops_core.authority_t as enum (
   'approve_goods','approve_funds','approve_overtime','post_ledger','resolve_inbox');
 
 -- ── documents and evidence ────────────────────────────────────────────────
@@ -57,7 +57,7 @@ create type core.authority_t as enum (
 -- rows exist at all (D180); and a personnel file is a strip of evidence on the
 -- same road as everything else rather than a folder on somebody's laptop
 -- (D177).
-create type core.doc_kind_t as enum (
+create type ops_core.doc_kind_t as enum (
   'nota','transfer_proof','goods_photo','delivery_note','purchase_order',
   'quotation','invoice','surat_jalan','rekening_koran',
   'surat_dokter','surat_lembur','laporan_lembur',
@@ -70,7 +70,7 @@ create type core.doc_kind_t as enum (
 -- row in this database, and there are parents here the demo never needed to
 -- attach to. Wider is safe — an entity nobody links to costs nothing, and an
 -- entity somebody needs and cannot name costs an upload.
-create type core.link_entity_t as enum (
+create type ops_core.link_entity_t as enum (
   'pr_line','transaction','receipt','purchase_order','payment_round',
   'overtime_sheet','day_mark','work_order','product','log_purchase','project',
   -- Somebody's own file: KTP, ijazah, the contract they signed (D177).
@@ -91,16 +91,16 @@ create type core.link_entity_t as enum (
 -- **Nothing stores this type.** Status is computed on read (A3) and this enum
 -- exists to give `v_pr_line_status` a column type that cannot return a word
 -- nobody has defined.
-create type procure.line_status_t as enum (
+create type ops_procure.line_status_t as enum (
   'DRAFT','WAITING FOR APPROVAL','APPROVED','PAID','PARTIAL','COMPLETED','REMOVED');
 
 -- Approved-or-not against paid-or-not: two independent facts, four
 -- combinations. The interesting corner is `paid_unapproved` — money that left
 -- before anybody said yes — which a single "in progress" status hides (A1).
-create type procure.meeting_state_t as enum (
+create type ops_procure.meeting_state_t as enum (
   'settled','approved_unpaid','paid_unapproved','neither');
 
-create type procure.approval_step_t as enum ('GOODS','FUNDS');
+create type ops_procure.approval_step_t as enum ('GOODS','FUNDS');
 
 -- Where the answer came from. `meeting` is not one of these: a meeting is a
 -- room, not a channel, and what the record has to carry is which system
@@ -108,148 +108,148 @@ create type procure.approval_step_t as enum ('GOODS','FUNDS');
 -- by procurement while the CEO says it across the table is `web` and is signed
 -- by procurement — which is why the answer leaves the room and comes back
 -- through `chat`.
-create type procure.channel_t as enum ('web','chat','sheet','script','api');
+create type ops_procure.channel_t as enum ('web','chat','sheet','script','api');
 
-create type procure.round_status_t as enum ('OPEN','APPROVED','TRANSFERRED','CLOSED');
+create type ops_procure.round_status_t as enum ('OPEN','APPROVED','TRANSFERRED','CLOSED');
 
 -- No `PARTIAL`: an order is a document with a lifecycle, and how much of it has
 -- arrived is a different axis that is computed, never stored (A1).
-create type procure.po_status_t as enum ('DRAFT','ISSUED','CLOSED','CANCELLED');
+create type ops_procure.po_status_t as enum ('DRAFT','ISSUED','CLOSED','CANCELLED');
 
 -- Seven conditions, spelled as the running system spells them, spaces and all.
 -- Only GOOD and the received part of PARTIALLY DAMAGED count toward
 -- completion; the rest leave the line open (A18).
-create type procure.receipt_condition_t as enum (
+create type ops_procure.receipt_condition_t as enum (
   'GOOD','DAMAGED','PARTIALLY DAMAGED','MISSING PARTS','WRONG ITEM',
   'RETURN TO SENDER','WAITING FOR CONFIRMATION');
 
 -- Two, not three. A dispute is a condition on the receipt, not a status of it:
 -- `WRONG ITEM` is what is wrong, and inventing a `DISPUTED` status would give
 -- the same fact two homes (D131).
-create type procure.receipt_status_t as enum ('REPORTED','CONFIRMED');
+create type ops_procure.receipt_status_t as enum ('REPORTED','CONFIRMED');
 
 -- Two, not four. What separates a line that can be COMPLETED by payment alone
 -- from one that needs a delivery is whether anything was ever going to be
 -- delivered (D25). `consumable` and `asset` are ways of spending, which is what
 -- `item_categories` is for.
-create type procure.item_kind_t as enum ('goods','service');
+create type ops_procure.item_kind_t as enum ('goods','service');
 
-create type procure.due_rule_t as enum ('on_issue','on_delivery','date');
+create type ops_procure.due_rule_t as enum ('on_issue','on_delivery','date');
 
-create type procure.uom_dimension_t as enum ('count','mass','length','area','volume');
+create type ops_procure.uom_dimension_t as enum ('count','mass','length','area','volume');
 
-create type procure.pr_doc_type_t as enum ('PR','FUND');
-create type procure.pr_doc_status_t as enum (
+create type ops_procure.pr_doc_type_t as enum ('PR','FUND');
+create type ops_procure.pr_doc_status_t as enum (
   'DRAFT','SUBMITTED','APPROVED','CLOSED','CANCELLED');
 
 -- Spelled verbatim, spaces included: these are the values in the running
 -- system's own data, and tidying them is how an import stops matching.
-create type procure.pr_category_t as enum (
+create type ops_procure.pr_category_t as enum (
   'RAW MATERIAL','MACHINING','FINISHING','SANDING','PACKING','OTHER');
 
-create type procure.fund_category_t as enum (
+create type ops_procure.fund_category_t as enum (
   'PAYROLL','RECURRING','INVOICE','TOPUP','OFFICE','WAREHOUSE','OTHER');
 
 -- A closed list rather than free text. No application can judge whether one
 -- Rp 200.000 gap was a typo or carelessness — but twelve tagged
 -- `price_changed` against the same vendor is a supplier who quotes badly, and
 -- counting the kinds is what makes the question answerable at all.
-create type procure.variance_reason_t as enum (
+create type ops_procure.variance_reason_t as enum (
   'price_changed','quantity_changed','rounding','input_error',
   'partial_payment','overpaid','other');
 
-create type procure.variance_kind_t as enum ('none','under','over');
+create type ops_procure.variance_kind_t as enum ('none','under','over');
 
-create type procure.request_outcome_t as enum ('approved','declined');
+create type ops_procure.request_outcome_t as enum ('approved','declined');
 
-create type procure.po_payment_kind_t as enum ('DP','PROGRESS','FINAL');
-create type procure.schedule_basis_t  as enum ('percent','amount');
+create type ops_procure.po_payment_kind_t as enum ('DP','PROGRESS','FINAL');
+create type ops_procure.schedule_basis_t  as enum ('percent','amount');
 
 -- A term is a trigger plus a share, so its state has two halves: has the
 -- trigger fired, and has the money that reached this order already covered the
 -- terms before it. `BLOCKED` is the guard the old system never had — the
 -- reason somebody once paid a final instalment on an order whose deposit had
 -- never gone out (D128).
-create type procure.po_term_state_t as enum (
+create type ops_procure.po_term_state_t as enum (
   'PAID','PARTIAL','PAYABLE','BLOCKED','NOT DUE');
 
 -- Payment and delivery are computed apart and stay apart. A PO can be fully
 -- paid and empty, or full and unpaid, and one progress bar says neither (A1).
-create type procure.po_payment_state_t  as enum ('UNPAID','PARTIAL','SETTLED');
-create type procure.po_delivery_state_t as enum ('PENDING','PARTIAL','COMPLETE');
+create type ops_procure.po_payment_state_t  as enum ('UNPAID','PARTIAL','SETTLED');
+create type ops_procure.po_delivery_state_t as enum ('PENDING','PARTIAL','COMPLETE');
 
-create type procure.po_line_condition_t as enum (
+create type ops_procure.po_line_condition_t as enum (
   'GOOD','OVER','NOT ARRIVED','PARTIAL','PROBLEM');
 
 -- ── accounting ────────────────────────────────────────────────────────────
 -- Upper case, because that is what the rows say. A lower-case enum here would
 -- have failed on the first insert of real data and on every imported row.
-create type acct.direction_t as enum ('IN','OUT');
+create type ops_acct.direction_t as enum ('IN','OUT');
 
 -- No `DRAFT`: a transaction that has not been posted is not a row (D85 — no
 -- document, no row). `COMPLETED` is the chain being whole, `UNTRACKED` is money
 -- that legitimately names no request (payroll, the electricity bill — D83), and
 -- `VOID` keeps the row and its amount, with a reason, beside the correction
 -- (A5, D84).
-create type acct.trx_status_t as enum ('POSTED','COMPLETED','UNTRACKED','VOID');
+create type ops_acct.trx_status_t as enum ('POSTED','COMPLETED','UNTRACKED','VOID');
 
 -- **How** the money moved, not what it was applied to. The first cut had
 -- `line/order/round/manual`, which is the allocation's *target* — and the
 -- target is already carried by `pr_line_no` and `po_no` being null or not.
 -- Storing it twice is storing a disagreement.
-create type acct.alloc_method_t as enum ('transfer','cash','other');
+create type ops_acct.alloc_method_t as enum ('transfer','cash','other');
 
 -- The exception road only (ADR-010). Two doors, because there are two:
 -- somebody sends a photo to chat, or uploads it on the web. `email` and `bank`
 -- are roads nobody has built.
-create type acct.inbox_origin_t as enum ('chat','web');
+create type ops_acct.inbox_origin_t as enum ('chat','web');
 
 -- Six roads out, none of which delete (F26, D94). `CANCELLED` is the one the
 -- first cut missed — whoever sent it withdrew it, which is not the same act as
 -- accounting rejecting it, and the difference is who to ask about it.
-create type acct.inbox_status_t as enum (
+create type ops_acct.inbox_status_t as enum (
   'PENDING','CONFIRMED','ATTACHED','REJECTED','CANCELLED','NOTED');
 
-create type acct.account_custody_t as enum ('accounting','leadership');
-create type acct.statement_status_t as enum ('PENDING','BOOKED','ABANDONED');
+create type ops_acct.account_custody_t as enum ('accounting','leadership');
+create type ops_acct.statement_status_t as enum ('PENDING','BOOKED','ABANDONED');
 -- `once`, not `one_off` — the contract's spelling. Three shapes because the
 -- business has three: `monthly` is the electricity bill, `weekly` is payroll
 -- (four runs in most months and five in some, which is a real difference in
 -- what a month costs), `once` is a bill that is certain but not repeating
 -- (D113).
-create type acct.cash_frequency_t as enum ('weekly','monthly','once');
+create type ops_acct.cash_frequency_t as enum ('weekly','monthly','once');
 
 -- What a planned line is doing in a given month. Derived, never stored.
-create type acct.cash_cell_state_t as enum (
+create type ops_acct.cash_cell_state_t as enum (
   'PAID','PARTIAL','OVERDUE','DUE','PLANNED','SKIPPED');
 
 -- How an actual was arrived at: somebody's link, or a category match the
 -- screen is honest about being a guess (D110).
-create type acct.cash_match_t as enum ('linked','category');
+create type ops_acct.cash_match_t as enum ('linked','category');
 
 -- ── HR ────────────────────────────────────────────────────────────────────
-create type hr.pay_basis_t as enum ('monthly','daily','hourly');
-create type hr.scan_source_t as enum ('import','manual');
-create type hr.day_mark_t as enum ('holiday','half_day','absent','sick','leave','permit');
-create type hr.overtime_kind_t as enum ('production','staff');
-create type hr.payroll_status_t as enum ('DRAFT','APPROVED','PAID');
+create type ops_hr.pay_basis_t as enum ('monthly','daily','hourly');
+create type ops_hr.scan_source_t as enum ('import','manual');
+create type ops_hr.day_mark_t as enum ('holiday','half_day','absent','sick','leave','permit');
+create type ops_hr.overtime_kind_t as enum ('production','staff');
+create type ops_hr.payroll_status_t as enum ('DRAFT','APPROVED','PAID');
 -- What a person adds to or takes off a payslip by hand (D155). The system
 -- computes none of these: it does not know what a minute of lateness costs
 -- here (Q41), and a plausible invented number is a wage dispute.
-create type hr.adjustment_kind_t as enum (
+create type ops_hr.adjustment_kind_t as enum (
   'late','sp','carry_over','advance','bonus','other');
 
 -- ── HR, derived ───────────────────────────────────────────────────────────
 -- None of these is stored either; they are what the timesheet and overtime
 -- views return, declared here so a view cannot invent a word (A3).
-create type hr.scan_slot_t as enum ('in','break_out','break_in','out','ot_start','ot_end');
-create type hr.day_state_t as enum ('complete','review','marked','off');
-create type hr.overtime_stage_t as enum (
+create type ops_hr.scan_slot_t as enum ('in','break_out','break_in','out','ot_start','ot_end');
+create type ops_hr.day_state_t as enum ('complete','review','marked','off');
+create type ops_hr.overtime_stage_t as enum (
   'waiting_hrd','waiting_surat','waiting_leader','approved',
   'paid_default','paid_checked','unpaid','declined');
 
 -- ── production and inventory ──────────────────────────────────────────────
 -- No `IN_PROGRESS`: how far along a work order is comes from its progress
 -- entries, and a column saying so is a column that disagrees with them (A3).
-create type prod.work_order_status_t as enum ('OPEN','DONE','CANCELLED');
-create type inv.log_measure_t as enum ('round','square');
+create type ops_prod.work_order_status_t as enum ('OPEN','DONE','CANCELLED');
+create type ops_inv.log_measure_t as enum ('round','square');

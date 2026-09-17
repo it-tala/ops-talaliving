@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Database, ShieldAlert, Wallet, ListChecks, FileStack, GitBranch, RotateCcw, Footprints,
@@ -12,7 +12,8 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { formatIDR } from "@/lib/format";
 import { useDemo, useDemoReset, useActingUser } from "@/demo/provider";
 import { accountBalances, prLineView, poStatus, inboxHealth } from "@/demo/derive";
-import { procurement, accounting, identity, isOk } from "@/demo/api";
+import { procurement, accounting, identity, production, hr, delivery, inventory, isOk } from "@/demo/api";
+import { officeToday } from "@/lib/office";
 import type { LineStatus } from "@/services/procurement/contracts";
 import { useToast } from "@/store/toast";
 import { FLOW_B, tourHref } from "@/lib/tour";
@@ -65,7 +66,21 @@ export default function DemoDiagnosticsPage() {
 
   /* Every one of these is a rule from `00-context.md` §A or a decision from
    * `06-decisions.md`, exercised against the demo API rather than described. */
+  /** The probes switch the acting user as they go, so **two of them running at
+   *  once corrupt each other**: one run's `actAs(original)` lands in the middle
+   *  of the other's, and a check that expected the CEO gets refused for not
+   *  being the CEO. It happens because `reactStrictMode` invokes the mount
+   *  effect twice in development — so the self-check ran twice, raced itself,
+   *  and reported a failure that was not there, intermittently (F79).
+   *
+   *  The guard is a **ref, not the `running` state**: state updates land on the
+   *  next render, and the second caller is already inside the function by
+   *  then. */
+  const inFlight = useRef(false);
+
   async function runProbes() {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setRunning(true);
     const results: Probe[] = [];
     const original = state.session_user_id;
@@ -133,9 +148,255 @@ export default function DemoDiagnosticsPage() {
       pass: badLine.error?.code === "pr_line_not_found",
     });
 
+    /* The two the production routes added (D254, D255). Both are about a
+       **place**, not a number, which is why they refuse where the rest of
+       production merely warns: nobody sanded ten shelves that are in somebody
+       else's workshop. */
+    await identity.actAs("usr_made");
+    const offRoute = await production.recordProgress({
+      /* `PEMBUATAN` is a retired stage since D275 — the business buys its rough
+         pieces in, so it is on no route at all now. The guard is the same one
+         and still the only thing standing between a board and work reported
+         against a step nobody does. */
+      wo_no: "spk-26-09-02_01", stage: "PEMBUATAN", qty: 1, work_date: officeToday(),
+    });
+    results.push({
+      /* `stage_not_on_route` is unreachable since D275 — both routes carry the
+         same four stages now — so what this probe reaches is the guard one
+         step earlier, and that is the one worth proving: a board must refuse
+         work reported against a step the business no longer has. */
+      name: "D254/D275 — reporting work against a step the business no longer has",
+      expect: "422 unknown_stage",
+      got: offRoute.error ? `${offRoute.error.status} ${offRoute.error.code}` : "accepted",
+      pass: offRoute.error?.status === 422 && offRoute.error.code === "unknown_stage",
+    });
+
+    const atVendor = await production.recordProgress({
+      wo_no: "spk-26-09-01_01", stage: "FINISHING", qty: 1, work_date: officeToday(),
+    });
+    results.push({
+      name: "D255 — reporting work on goods still at the vendor",
+      expect: "409 still_at_vendor",
+      got: atVendor.error ? `${atVendor.error.status} ${atVendor.error.code}` : "accepted",
+      pass: atVendor.error?.status === 409 && atVendor.error.code === "still_at_vendor",
+    });
+
+    /* The revision rules (D256). Both are about a version that must stay
+       exactly as it was released, because a work order points at it. */
+    const editReleased = await production.saveBomComponent({
+      product_code: "PRD-KR-STD", component_id: "bom_011", kind: "material",
+      ref_code: "ITM-0006", qty: 99, uom: "lembar",
+    });
+    results.push({
+      name: "D256 — editing a line on a released BOM revision",
+      expect: "409 revision_released",
+      got: editReleased.error ? `${editReleased.error.status} ${editReleased.error.code}` : "accepted",
+      pass: editReleased.error?.status === 409 && editReleased.error.code === "revision_released",
+    });
+
+    const emptyRelease = await production.releaseBom({
+      product_code: "PRD-MJ-220", note: "",
+    });
+    results.push({
+      name: "D256 — releasing a revision with no reason for it",
+      expect: "422 note_required",
+      got: emptyRelease.error ? `${emptyRelease.error.status} ${emptyRelease.error.code}` : "accepted",
+      pass: emptyRelease.error?.status === 422 && emptyRelease.error.code === "note_required",
+    });
+
+    /* The layered BOM (D257). A wardrobe contains drawer boxes; a drawer box
+       cannot contain the wardrobe, and the walk must terminate on data that
+       says otherwise. */
+    const cycle = await production.saveBomComponent({
+      product_code: "PRD-SUB-LACI", kind: "product",
+      ref_code: "PRD-LM-3P", qty: 1, uom: "unit",
+    });
+    results.push({
+      name: "D257 — a BOM component that would close a loop",
+      expect: "422 bom_cycle",
+      got: cycle.error ? `${cycle.error.status} ${cycle.error.code}` : "accepted",
+      pass: cycle.error?.status === 422 && cycle.error.code === "bom_cycle",
+    });
+
+    /* And the walk itself: the wardrobe's materials must contain the plywood
+       its drawer boxes are made of, which a one-level read never returned. */
+    const walked = await production.materialsFor({ product_code: "PRD-LM-3P", qty: 1 });
+    const hasSubMaterial = !walked.error
+      && walked.data.lines.some((l) => l.via.length > 0 && l.via.some((v) => v.includes("PRD-SUB-LACI")));
+    results.push({
+      name: "D257 — a run's materials include what its sub-assemblies are made of",
+      expect: "lines reached through PRD-SUB-LACI",
+      got: walked.error
+        ? `${walked.error.status} ${walked.error.code}`
+        : `${walked.data.lines.length} baris, ${walked.data.sub_assemblies.length} sub-rakitan`,
+      pass: hasSubMaterial,
+    });
+
+    /* The enrolment register (D259). HRD's to write; the register refuses a
+       second open row for the same person and scheme, because two would make
+       *is he covered* ambiguous. */
+    await identity.actAs("usr_wulan");
+    const twice = await hr.enrol({
+      employee_no: "K-004", scheme: "BPJS_KESEHATAN", enrolled_on: "2026-09-01",
+    });
+    results.push({
+      name: "D259 — enrolling somebody who is already in that scheme",
+      expect: "409 already_enrolled",
+      got: twice.error ? `${twice.error.status} ${twice.error.code}` : "accepted",
+      pass: twice.error?.status === 409 && twice.error.code === "already_enrolled",
+    });
+
+    const noReason = await hr.endEnrolment({ id: "enr_001", ended_on: "2026-09-30", reason: "" });
+    results.push({
+      name: "D259 — ending an enrolment with no reason",
+      expect: "422 reason_required",
+      got: noReason.error ? `${noReason.error.status} ${noReason.error.code}` : "accepted",
+      pass: noReason.error?.status === 422 && noReason.error.code === "reason_required",
+    });
+
+    /* The rule the whole KPI module rests on (D261): blocking a task lifts it
+       out of the assignee's score, so something that removes a penalty has to
+       say why. */
+    const blockBlind = await hr.updateTask({ task_no: "tgs-26-09-06_01", action: "block", reason: "" });
+    results.push({
+      name: "D261 — blocking a task without saying what it waits on",
+      expect: "422 reason_required",
+      got: blockBlind.error ? `${blockBlind.error.status} ${blockBlind.error.code}` : "accepted",
+      pass: blockBlind.error?.status === 422 && blockBlind.error.code === "reason_required",
+    });
+
+    const noDate = await hr.createTask({
+      assignee_no: "K-004", title: "Tugas tanpa tanggal", due_date: "",
+    });
+    results.push({
+      name: "D260 — a task nobody can tell is late",
+      expect: "422 due_date_required",
+      got: noDate.error ? `${noDate.error.status} ${noDate.error.code}` : "accepted",
+      pass: noDate.error?.status === 422 && noDate.error.code === "due_date_required",
+    });
+
+    /* Back to the workshop manager: the box endpoints sit behind the `project`
+       module, and a 403 from the guard would hide the rule underneath it. */
+    await identity.actAs("usr_made");
+
+    /* D267 — the whole reason the chat road exists: a leadership meeting runs
+       on one laptop, and an answer given from somebody else's account recorded
+       as theirs is the mistake this route was built to prevent (D69, one level
+       up from a request line). */
+    const wrongHands = await procurement.answerPoFromChat({
+      token: "potok_seed_02",
+      answered_by_email: "putri@talaliving.com",
+      approved: true,
+    });
+    results.push({
+      name: "D267 — confirming a purchase order from somebody else's chat account",
+      expect: "403 not_the_addressee",
+      got: wrongHands.error ? `${wrongHands.error.status} ${wrongHands.error.code}` : "accepted",
+      pass: wrongHands.error?.status === 403 && wrongHands.error.code === "not_the_addressee",
+    });
+
+    /* Turning an order down needs a sentence: somebody has to tell the
+       supplier something. */
+    const blindDecline = await procurement.answerPoFromChat({
+      token: "potok_seed_02",
+      answered_by_email: "evin@talaliving.com",
+      approved: false,
+    });
+    results.push({
+      name: "D267 — declining a purchase order with nothing to tell the supplier",
+      expect: "422 reason_required",
+      got: blindDecline.error ? `${blindDecline.error.status} ${blindDecline.error.code}` : "accepted",
+      pass: blindDecline.error?.status === 422 && blindDecline.error.code === "reason_required",
+    });
+
+    /* D266 — the BOM proposes and the storeman disposes, so an issue with
+       every line at zero is a trip nobody made. Refused rather than posted as
+       an empty document. */
+    const emptyIssue = await inventory.issueForWorkOrder({
+      wo_no: "spk-26-08-28_01", location: "GUDANG",
+      lines: [{ item_code: "ITM-0007", qty: 0 }],
+    });
+    results.push({
+      name: "D266 — issuing a work order's material with every line at zero",
+      expect: "422 nothing_to_issue",
+      got: emptyIssue.error ? `${emptyIssue.error.status} ${emptyIssue.error.code}` : "accepted",
+      pass: emptyIssue.error?.status === 422 && emptyIssue.error.code === "nothing_to_issue",
+    });
+
+    /* Every line is checked before any is written: half an issue posted and
+       half refused would leave the rack describing a trip that did not happen. */
+    const notStocked = await inventory.issueForWorkOrder({
+      wo_no: "spk-26-08-28_01", location: "GUDANG",
+      lines: [{ item_code: "ITM-0007", qty: 1 }, { item_code: "ITM-0039", qty: 1 }],
+    });
+    results.push({
+      name: "D266 — issuing a mixed list where one line is a service, not stock",
+      expect: "422 not_stocked",
+      got: notStocked.error ? `${notStocked.error.status} ${notStocked.error.code}` : "accepted",
+      pass: notStocked.error?.status === 422 && notStocked.error.code === "not_stocked",
+    });
+
+    /* D264 — one name cannot be both a person and not a person. Refused rather
+       than silently preferring one, because either choice would be the software
+       deciding who did the work. */
+    const bothAnswers = await production.resolveWorkName({
+      name: "Pranowo", employee_id: "emp_w015", not_a_person: true,
+    });
+    results.push({
+      name: "D264 — resolving a name as an employee AND as not-a-person at once",
+      expect: "422 one_answer_only",
+      got: bothAnswers.error ? `${bothAnswers.error.status} ${bothAnswers.error.code}` : "accepted",
+      pass: bothAnswers.error?.status === 422 && bothAnswers.error.code === "one_answer_only",
+    });
+
+    /* And neither is not an answer either: the row stays unresolved, which is
+       a state somebody has to leave on purpose rather than by submitting. */
+    const noAnswer = await production.resolveWorkName({ name: "Pranowo" });
+    results.push({
+      name: "D264 — resolving a name without saying who it is",
+      expect: "422 answer_required",
+      got: noAnswer.error ? `${noAnswer.error.status} ${noAnswer.error.code}` : "accepted",
+      pass: noAnswer.error?.status === 422 && noAnswer.error.code === "answer_required",
+    });
+
+    /* D262 — a box cannot be fitted before anybody has seen it. The same rule
+       the installation endpoint holds one level up, and the one refusal in the
+       whole box flow: everything else about a box warns. */
+    const notSeen = await delivery.markBoxInstalled({ box_no: "kol-26-09-08_01" });
+    results.push({
+      name: "D262 — marking a box installed that nobody has scanned on site",
+      expect: "409 not_on_site",
+      got: notSeen.error ? `${notSeen.error.status} ${notSeen.error.code}` : "accepted",
+      pass: notSeen.error?.status === 409 && notSeen.error.code === "not_on_site",
+    });
+
+    /* A red flag with no sentence on it cannot be acted on by anybody in the
+       workshop, and the person who saw the problem is the only one who knows. */
+    const blindFlag = await delivery.flagBoxProblem({ box_no: "kol-26-09-08_01", problem_note: "" });
+    results.push({
+      name: "D262 — flagging a box as a problem with nothing written on it",
+      expect: "422 problem_note_required",
+      got: blindFlag.error ? `${blindFlag.error.status} ${blindFlag.error.code}` : "accepted",
+      pass: blindFlag.error?.status === 422 && blindFlag.error.code === "problem_note_required",
+    });
+
+    /* A label with no room on it moves the job of opening the crate to the
+       site, which is the entire thing this record exists to stop. */
+    const noRoom = await delivery.packBox({
+      project_code: "25009", destination: "",
+      lines: [{ description: "Nakas jati kecil", qty: 1, uom: "unit" }],
+    });
+    results.push({
+      name: "D262 — packing a box with no destination inside the building",
+      expect: "422 destination_required",
+      got: noRoom.error ? `${noRoom.error.status} ${noRoom.error.code}` : "accepted",
+      pass: noRoom.error?.status === 422 && noRoom.error.code === "destination_required",
+    });
+
     await identity.actAs(original);
     setProbes(results);
     setRunning(false);
+    inFlight.current = false;
     const failed = results.filter((r) => !r.pass).length;
     if (failed === 0) toast("success", "Every refusal behaved correctly", `${results.length} checks passed.`);
     else toast("critical", `${failed} check(s) failed`, "See the table below.");

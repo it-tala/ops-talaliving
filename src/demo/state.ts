@@ -1,4 +1,7 @@
-import type { Session, User, ModuleGrant, Authority } from "@/services/identity/contracts";
+import type {
+  Session, User, ModuleGrant, Authority, ActivityEvent, ActivityDaily, AppSetting,
+} from "@/services/identity/contracts";
+import type { AssistantTurn } from "@/services/assistant/contracts";
 import type {
   Vendor, Uom, UomConversion, ItemCategory, Item, Project, ProjectLine,
   PrDocument, PrLine, PrApproval, PaymentRound, PaymentRoundLine,
@@ -12,17 +15,24 @@ import type {
 } from "@/services/accounting/contracts";
 import type { Attachment, AttachmentLink } from "@/services/documents/contracts";
 import type {
-  LogPurchase, LogPiece, SawnBoard,
+  Market, Property, PropertyAgent, SalesRep, Referral, ScrapeRow,
+} from "@/services/marketing/contracts";
+import type {
+  LogPurchase, LogPiece, SawnBoard, BoardMove,
   StockLocation, StockMove, StockSetting,
 } from "@/services/inventory/contracts";
 import type {
   Employee, AttendanceScan, DayMark, OvertimeSheet, OvertimeLine, PayrollRun,
   PayrollAdjustment, PayRuleSet, EmployeeDocument, LeaveRequest,
+  AllowanceWithholding, ContributionRate, Enrolment, Task,
 } from "@/services/hr/contracts";
 import type {
-  WorkOrder, ProgressEntry, Product, BomComponent,
+  WorkOrder, ProgressEntry, Product, BomComponent, BomRevision,
   DesignTask, DesignRevision, DesignQuestion,
 } from "@/services/production/contracts";
+import type {
+  Delivery, DeliveryLine, PackingBox, BoxLine, Installation, InstallationLine, Snag, Handover,
+} from "@/services/delivery/contracts";
 
 export interface DemoUser extends User {
   modules: ModuleGrant[];
@@ -136,6 +146,18 @@ export interface DemoState {
   pay_rule_sets: PayRuleSet[];
   /** Added or taken off a payslip by a person, with a reason (D155). */
   payroll_adjustments: PayrollAdjustment[];
+  /** One person, one day, no tunjangan — HRD's decision, kept apart from what
+   *  the day itself was (D250). */
+  allowance_withholdings: AllowanceWithholding[];
+  /** The public percentages, dated — a contribution recomputed for March uses
+   *  March's rate (D259). */
+  contribution_rates: ContributionRate[];
+  /** Who is in which scheme, from when. HRD's to enter, accounting's to audit
+   *  (owner, D259). Append-only: ending an enrolment sets `ended_on`. */
+  enrolments: Enrolment[];
+  /** What one person is expected to do, by a date — the record a KPI over
+   *  deliverables has to be built on (D260). */
+  tasks: Task[];
 
   /* --- production ------------------------------------------------- */
   /** What is being made, in what quantity, by when (D148). */
@@ -145,6 +167,9 @@ export interface DemoState {
   /** What we sell and make, and what each one is made of (D149). */
   products: Product[];
   bom_components: BomComponent[];
+  /** One dated version of a BOM. A draft is edited; a released one is frozen,
+   *  and the work orders written against it keep pointing at it (D256). */
+  bom_revisions: BomRevision[];
   /** The drafters' queue: what has to be drawn, which revision the floor may
    *  cut from, and what is stuck on an answer (D179). */
   design_tasks: DesignTask[];
@@ -156,6 +181,12 @@ export interface DemoState {
    *  the quantity is the sum of the moves (D170). */
   stock_locations: StockLocation[];
   stock_settings: StockSetting[];
+  /* The inventory of numbers somebody might think are theirs to change, with
+     what each one does to figures that already exist (D214). */
+  app_settings: AppSetting[];
+  /* John Lau's conversations. Kept because *what did it tell me on Tuesday*
+     is asked after somebody acted on the answer (D217). */
+  assistant_turns: AssistantTurn[];
   /** Append-only. A mistake is another move with a reason (A5, D171). */
   stock_moves: StockMove[];
 
@@ -164,9 +195,43 @@ export interface DemoState {
    *  saw between them (D153). */
   log_purchases: LogPurchase[];
   log_pieces: LogPiece[];
+  /* The last leg: what left the yard, what was fitted, what was found wrong,
+     and the one record that says a job is finished (D209). */
+  deliveries: Delivery[];
+  /** One packed box, labelled with a code the crew scans on site (D262). */
+  packing_boxes: PackingBox[];
+  box_lines: BoxLine[];
+  delivery_lines: DeliveryLine[];
+  installations: Installation[];
+  installation_lines: InstallationLine[];
+  snags: Snag[];
+  handovers: Handover[];
+
   sawn_boards: SawnBoard[];
+  /* What happened to the boards after the saw — issues, returns, scrap,
+     opname. The `sawn` side is derived from `sawn_boards` rather than copied
+     here, so no fact is stored twice (D203). */
+  board_moves: BoardMove[];
+
+  /* --- marketing: the Package programme ---------------------------- */
+  /** Scraped, enriched, scored — then three agents each, approached in order
+   *  until one agrees (D183). */
+  /** Country → region → city → the local label, so a figure can roll up once
+   *  the scrape leaves one coast (D187). */
+  markets: Market[];
+  properties: Property[];
+  property_agents: PropertyAgent[];
+  /** The agent who agreed, and what they have introduced since (D185). */
+  sales_reps: SalesRep[];
+  referrals: Referral[];
+  /** What the scrape found, before it is a property. */
+  scrape_rows: ScrapeRow[];
 
   audit_log: AuditRow[];
+  /** What people *did*, as opposed to what changed: kept 30 days in detail,
+   *  rolled up daily, and those recaps kept six months (D188, Q22). */
+  activity_events: ActivityEvent[];
+  activity_daily: ActivityDaily[];
   outbox: OutboxRow[];
 
   /** The `core.doc_numbers` table: prefix + office day -> sequence.

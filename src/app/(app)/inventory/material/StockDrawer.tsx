@@ -251,7 +251,15 @@ export function StockDrawer({
                       {m.qty > 0 ? "+" : ""}{formatNumber(m.qty)}
                     </span>
                     <span className="text-[11px] text-slate-500">{m.location_name}</span>
-                    {m.ref_no && <span className="font-mono text-[10px] text-slate-400">{m.ref_no}</span>}
+                    {m.ref_no && (
+                      <span className={cn("font-mono text-[10px]", m.ref_missing ? "text-amber-700" : "text-slate-400")}>
+                        {m.ref_no}
+                        {/* A reference nothing follows is a reference nothing
+                            checks — which is how nine seeded issues pointed at
+                            work orders that had never existed (F86). */}
+                        {m.ref_missing && <span className="ml-1">· SPK ini tidak ada</span>}
+                      </span>
+                    )}
                     <span className="min-w-[160px] flex-1 text-[11px] text-slate-500">
                       {m.reason ?? (m.unit_cost != null ? `${formatIDR(m.unit_cost)} / ${m.uom}` : "—")}
                     </span>

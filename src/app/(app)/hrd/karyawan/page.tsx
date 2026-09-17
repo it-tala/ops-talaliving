@@ -55,10 +55,15 @@ export default function EmployeesPage() {
         <div className="whitespace-nowrap text-right">
           <span className="tabular-nums font-medium text-slate-800">{formatIDR(e.base_rate)}</span>
           <p className="text-[11px] text-slate-500">
-            {e.pay_basis === "monthly" ? "per month"
+            pokok · {e.pay_basis === "monthly" ? "per month"
               : e.pay_basis === "daily" ? `per day · ${formatNumber(e.daily_hours)}h`
                 : "per hour"}
           </p>
+          {e.allowance_rate > 0 && (
+            <p className="text-[11px] text-slate-500">
+              + {formatIDR(e.allowance_rate)} tunjangan / hari hadir
+            </p>
+          )}
         </div>
       ),
     },
@@ -102,8 +107,15 @@ export default function EmployeesPage() {
           const left = all.filter((e) => !e.active);
           const monthly = active.filter((e) => e.pay_basis === "monthly");
           const daily = active.filter((e) => e.pay_basis !== "monthly");
+          /* Pokok and tunjangan kept apart in the tiles for the same reason
+             they are kept apart on the slip: one is owed whatever happens and
+             the other is earned by turning up, and a single total would hide
+             which of the two a month's wage bill actually is (D250). */
           const monthlyCost = monthly.reduce((s, e) => s + e.base_rate, 0);
-          const dailyCost = daily.reduce((s, e) => s + e.base_rate, 0);
+          const monthlyAllowance = monthly.reduce((s, e) => s + e.allowance_rate, 0);
+          /* A full day of the workshop **does** include the allowance: everybody
+             in is exactly the condition that earns it. */
+          const dailyCost = daily.reduce((s, e) => s + e.base_rate + e.allowance_rate, 0);
 
           return (
             <>
@@ -111,8 +123,10 @@ export default function EmployeesPage() {
                 <dl className="grid divide-y divide-slate-100 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x">
                   {([
                     ["People", String(active.length), `${monthly.length} on salary, ${daily.length} on a rate`],
-                    ["Salaries", formatIDR(monthlyCost), "every month, whatever the machine says"],
-                    ["A full day of the workshop", formatIDR(dailyCost), `${daily.length} people, if everybody is in`],
+                    ["Salaries", formatIDR(monthlyCost), monthlyAllowance > 0
+                      ? `pokok setiap bulan · + ${formatIDR(monthlyAllowance)} tunjangan per hari hadir`
+                      : "every month, whatever the machine says"],
+                    ["A full day of the workshop", formatIDR(dailyCost), `${daily.length} people, if everybody is in — pokok + tunjangan`],
                     ["Left", String(left.length), "records kept — a payslip from March is still a fact"],
                   ] as [string, string, string][]).map(([k, v, note]) => (
                     <div key={k} className="px-4 py-3.5">

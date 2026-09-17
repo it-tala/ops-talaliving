@@ -22,6 +22,11 @@ export const USERS: DemoUser[] = [
       { module: "inventory", level: "read" },
       { module: "project", level: "read" },
       { module: "settings", level: "read" },
+      /* Read, not admin. The owner's answer to Q22: the IT module is open to
+       * IT and to leadership, and what leadership was given is the right to
+       * **read** it. Purging the activity log and moving people's grants stay
+       * with IT, which is what the level split enforces (D190). */
+      { module: "it", level: "read" },
     ],
     /* The Direktur holds both leadership decisions: goods, and now overtime
      * (D145). Which person should hold `approve_overtime` is the owner's to
@@ -73,6 +78,13 @@ export const USERS: DemoUser[] = [
       { module: "inventory", level: "write" },
       { module: "production", level: "write" },
       { module: "procurement", level: "read" },
+      /* The last leg is his too (D209). He is already the workshop's own hand
+       * on the production board; delivery, installation and the handover
+       * record are the same person reporting what happened, one step further
+       * down the line. Building those screens found that **nobody in the seed
+       * could use them at all** — the only `project` grant was leadership's,
+       * at read (F61). */
+      { module: "project", level: "write" },
     ],
     authorities: [],
   },
@@ -327,6 +339,19 @@ export const VENDORS: Vendor[] = [
   { id: "vnd_12", code: "V-0012", name: "CV KAYU MANIS SELATAN", aka: [], is_curated: false,
     phone: null, address: null, pic_name: null, pic_phone: null,
     bank_account: null, bank_account_secondary: null, npwp: null, supplied_categories: ["kayu", "panel"] },
+  /* The two statutory bodies. Counterparties rather than suppliers — they are
+     named here so the BPJS calendar lines can claim their own payments before
+     the plain payroll category sweeps them up (D110, D259). */
+  { id: "vnd_50", code: "V-0050", name: "BPJS KESEHATAN", aka: ["BPJS KES"], is_curated: true,
+    phone: "1500400", address: "Kantor Cabang Denpasar",
+    pic_name: null, pic_phone: null,
+    bank_account: null, bank_account_secondary: null,
+    npwp: null, supplied_categories: [] },
+  { id: "vnd_51", code: "V-0051", name: "BPJS KETENAGAKERJAAN", aka: ["BPJS TK", "BPJSTK"], is_curated: true,
+    phone: "175", address: "Kantor Cabang Denpasar",
+    pic_name: null, pic_phone: null,
+    bank_account: null, bank_account_secondary: null,
+    npwp: null, supplied_categories: [] },
 ];
 
 type ItemSeed = [string, string, string, Item["base_uom"], number | null, number | null, string | null, boolean, Item["kind"]];

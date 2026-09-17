@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { Loaded, useLoad } from "@/components/ui/loaded";
 import { formatIDR, formatNumber } from "@/lib/format";
 import { procurement } from "@/demo/api";
-import { BRAND } from "@/lib/brand";
+import { useBrand } from "@/lib/brand";
 
 /** The order as the supplier sees it.
  *
@@ -19,6 +19,7 @@ import { BRAND } from "@/lib/brand";
  *  not what we have paid, not who approved it internally.
  */
 export default function PoPrintPage({ params }: { params: { po: string } }) {
+  const brand = useBrand();
   const poNo = decodeURIComponent(params.po);
   const [detail] = useLoad(() => procurement.getPoDetail(poNo), [poNo]);
 
@@ -41,8 +42,8 @@ export default function PoPrintPage({ params }: { params: { po: string } }) {
           <>
             <div className="flex items-start justify-between border-b-2 border-slate-900 pb-4">
               <div>
-                <p className="text-lg font-bold tracking-tight">{BRAND.tagline}</p>
-                <p className="text-[12px] text-slate-500">{BRAND.name}</p>
+                <p className="text-lg font-bold tracking-tight">{brand.tagline}</p>
+                <p className="text-[12px] text-slate-500">{brand.name}</p>
               </div>
               <div className="text-right">
                 <p className="text-lg font-bold tracking-tight">PURCHASE ORDER</p>
@@ -121,7 +122,7 @@ export default function PoPrintPage({ params }: { params: { po: string } }) {
               <div>
                 <p className="text-slate-500">Hormat kami,</p>
                 <div className="mt-12 border-t border-slate-400 pt-1">
-                  {d.issued_at ? `${BRAND.tagline}` : "—"}
+                  {d.issued_at ? `${brand.tagline}` : "—"}
                 </div>
               </div>
               <div>

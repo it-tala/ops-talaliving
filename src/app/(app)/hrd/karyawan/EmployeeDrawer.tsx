@@ -32,17 +32,20 @@ export function EmployeeDrawer({
   const [unit, setUnit] = useState(employee?.unit ?? "Workshop");
   const [basis, setBasis] = useState<PayBasis>(employee?.pay_basis ?? "daily");
   const [rate, setRate] = useState(employee?.base_rate ?? 0);
+  const [allowance, setAllowance] = useState(employee?.allowance_rate ?? 0);
   const [hours, setHours] = useState(employee?.daily_hours ?? 8);
   const [leave, setLeave] = useState(employee?.paid_leave_days ?? 12);
   const [busy, setBusy] = useState(false);
 
   const changed = employee && rate !== employee.base_rate;
+  const allowanceChanged = employee && allowance !== employee.allowance_rate;
 
   async function save() {
     setBusy(true);
     const res = await hr.saveEmployee({
       employee_no: no, full_name: name, position, unit,
-      pay_basis: basis, base_rate: rate, daily_hours: hours, paid_leave_days: leave,
+      pay_basis: basis, base_rate: rate, allowance_rate: allowance,
+      daily_hours: hours, paid_leave_days: leave,
     });
     setBusy(false);
     if (res.error) {
@@ -123,6 +126,24 @@ export function EmployeeDrawer({
             {changed && (
               <p className="mt-1 text-[11px] text-amber-700">
                 {formatIDR(employee!.base_rate)} → {formatIDR(rate)} · both figures go on the audit row.
+              </p>
+            )}
+          </div>
+          <div>
+            {/* Per day for everybody, whatever the pokok is quoted in — that is
+                how the owner described it, and how it is paid (D250). */}
+            <label htmlFor="e-allowance" className="block text-xs text-slate-500">
+              Tunjangan, per hari hadir
+            </label>
+            <MoneyInput id="e-allowance" value={allowance} onChange={setAllowance} className="mt-1" />
+            {allowanceChanged ? (
+              <p className="mt-1 text-[11px] text-amber-700">
+                {formatIDR(employee!.allowance_rate)} → {formatIDR(allowance)} · dicatat di baris audit.
+              </p>
+            ) : (
+              <p className="mt-1 text-[11px] text-slate-500">
+                Dibayar per hari orangnya hadir. Nol berarti gajinya memang belum dipisah — dan selama
+                nol, tidak ada angka orang ini yang berubah.
               </p>
             )}
           </div>

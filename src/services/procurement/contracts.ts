@@ -524,10 +524,24 @@ export interface PurchaseOrder {
    *  question went out; the decision is the pair below it. */
   approval_asked_at: string | null;
   approval_asked_by: string | null;
+  /** Who the question went to, and the token that lets them answer it from
+   *  chat **as themselves** (D267). Same rule as a request batch (D69): the
+   *  decision is recorded against the account that answered, never against
+   *  whoever's laptop the meeting is running on. */
+  approval_sent_to: string | null;
+  approval_token: string | null;
   approved_at: string | null;
   approved_by: string | null;
   /** What leadership said when they confirmed it, if anything. */
   approval_note: string | null;
+  /** True where the person who created the order **already held**
+   *  `approve_goods`, so it was confirmed in the same act (D267).
+   *
+   *  Recorded rather than inferred. *Approved by Evin* and *created and
+   *  approved by Evin in one act* are different facts about how a decision was
+   *  taken, and the second one is the one an auditor asks about — deriving it
+   *  later from `created_by === approved_by` would be a guess about history. */
+  self_confirmed: boolean;
   /** Bumped every time an issued order is amended. The vendor holds a piece of
    *  paper; this is what lets two of them be told apart (D135). */
   revision: number;
@@ -617,9 +631,16 @@ export interface PoLineJourney {
     qc_by: string;
     note: string | null;
     /** Both halves of the evidence, tracked separately: the photo of what
-     *  arrived, and the signed tanda terima. */
-    has_photo: boolean;
-    has_delivery_note: boolean;
+     *  arrived, and the signed tanda terima.
+     *
+     *  These are **ids, not booleans** (D268). They were booleans, and a chip
+     *  reading *photo of the goods* that nobody could open was a label about
+     *  evidence rather than a way to the evidence (B2) — which is the same
+     *  failure B3 found on the verification queue. Presence is derived from
+     *  the id at the point it is rendered, so the chip and the link can never
+     *  disagree about whether there is a file. */
+    photo_attachment_id: string | null;
+    delivery_note_attachment_id: string | null;
     status: ReceiptStatus;
   }[];
 }
@@ -918,6 +939,21 @@ export interface PoTermView {
   blocked_by: string | null;
   /** Why the trigger has or has not fired, in words. */
   trigger: string;
+  /** The date this term is expected to fall due — the owner's answer to Q26
+   *  (D234): **jatuh tempo adalah tanggal ekspektasi pengiriman**. An
+   *  `on_delivery` term that nothing has arrived against still has a date
+   *  somebody can plan cash around, and that date is the delivery the vendor
+   *  promised. Null where no promise exists: a term with no expected delivery
+   *  date is undated, not due today. */
+  expected_on: string | null;
+  /** Where `expected_on` came from. `fired` is the day the thing actually
+   *  happened — the order went out, the goods landed. `expected` is the
+   *  vendor's promise and can still move, so a screen must mark it. `stated`
+   *  is a term written with a fixed date in the contract, which is neither a
+   *  promise nor an event and is already printed in `trigger`. A screen must
+   *  be able to tell the three apart; rendering them alike would put a guess
+   *  and a fact in one column in one font. */
+  expected_basis: "fired" | "expected" | "stated" | null;
 }
 
 export interface PoDocument {
@@ -930,6 +966,25 @@ export interface PoDocument {
 
 /** Everything about one order, in one call — a drawer that needs three is a
  *  drawer that renders in three stages. */
+/** A purchase order waiting for leadership's yes, as the chat card sees it
+ *  (D267). The shape mirrors an approval batch deliberately: it is the same
+ *  question arriving by the same road, and a second shape for it would be a
+ *  second thing to keep right. */
+export interface PoApprovalView {
+  po_no: string;
+  vendor_name: string;
+  vendor_pic: string | null;
+  contract_value: number;
+  line_count: number;
+  expected_delivery: string | null;
+  project_codes: string[];
+  asked_at: string;
+  asked_by_email: string;
+  sent_to_email: string;
+  token: string;
+  answered: boolean;
+}
+
 export interface PoDetail {
   po_no: string;
   vendor_id: string;
@@ -947,6 +1002,12 @@ export interface PoDetail {
   approval_asked_by_name: string | null;
   approved_at: string | null;
   approved_by_name: string | null;
+  /** Which of the two roads this confirmation came down (D267): written and
+   *  confirmed in one act by somebody who already held the authority, or asked
+   *  for and answered from the approver's own account. */
+  self_confirmed: boolean;
+  /** Who the question went to, where it went out at all. */
+  approval_sent_to: string | null;
   approval_note: string | null;
   note: string | null;
   created_at: string;

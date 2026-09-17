@@ -6,7 +6,7 @@ import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { hr } from "@/demo/api";
 import type { PayrollLine, PayslipDay } from "@/services/hr/contracts";
-import { BRAND } from "@/lib/brand";
+import { useBrand } from "@/lib/brand";
 
 /** Payslips, several to a sheet of A4.
  *
@@ -176,6 +176,7 @@ function Slip({
   from: string;
   to: string;
 }) {
+  const brand = useBrand();
   const showDays = !dense && l.days.length > 0;
   const deductions = l.adjustments.filter((a) => a.amount < 0);
   const additions = l.adjustments.filter((a) => a.amount > 0);
@@ -189,7 +190,7 @@ function Slip({
     <section className="slip border border-slate-400 p-3 text-[10px] leading-tight">
       <div className="flex items-start justify-between border-b border-slate-400 pb-1.5">
         <div>
-          <p className="text-[11px] font-bold tracking-tight">{BRAND.tagline}</p>
+          <p className="text-[11px] font-bold tracking-tight">{brand.tagline}</p>
           <p className="text-[9px] text-slate-500">SLIP GAJI · {runNo}</p>
         </div>
         <div className="text-right">
@@ -262,6 +263,25 @@ function Slip({
             </td>
             <td className="py-0.5 text-right tabular-nums">{formatIDR(l.base_pay)}</td>
           </tr>
+          {/* Tunjangan is its own line, never folded into the pokok (D250). A
+              person knows what they were told they earn; a single total that
+              silently contains both is one they cannot check it against. */}
+          {l.allowance_rate > 0 && (
+            <tr>
+              <td className="py-0.5">
+                Tunjangan — {formatNumber(l.allowance_days)} hari × {formatIDR(l.allowance_rate)}
+                {l.allowance_withheld_days > 0 && (
+                  <span className="block text-[8px] leading-snug text-slate-500">
+                    {formatNumber(l.allowance_withheld_days)} hari tidak dapat:{" "}
+                    {l.allowance_withheld.map((w, i) => (
+                      <span key={i}>{i > 0 ? " · " : ""}{w.work_date.slice(8)}/{w.work_date.slice(5, 7)} {w.reason}</span>
+                    ))}
+                  </span>
+                )}
+              </td>
+              <td className="py-0.5 text-right tabular-nums">{formatIDR(l.allowance_pay)}</td>
+            </tr>
+          )}
           {l.overtime_pay > 0 && (
             <tr>
               <td className="py-0.5">
@@ -294,6 +314,17 @@ function Slip({
               <td className="py-0.5 text-right tabular-nums">({formatIDR(l.undertime_amount)})</td>
             </tr>
           )}
+          {l.late_deduction > 0 && (
+            <tr>
+              <td className="py-0.5">
+                Terlambat — {formatNumber(l.late_minutes)} menit di {formatNumber(l.late_days)} hari
+                <span className="block text-[8px] text-slate-500">
+                  Di luar toleransi, dihitung per jam. Tunjangan hari itu tetap dibayar.
+                </span>
+              </td>
+              <td className="py-0.5 text-right tabular-nums">({formatIDR(l.late_deduction)})</td>
+            </tr>
+          )}
           <tr className="border-t border-slate-300">
             <td className="py-0.5 font-medium">Bruto</td>
             <td className="py-0.5 text-right font-semibold tabular-nums">{formatIDR(l.gross)}</td>
@@ -305,6 +336,12 @@ function Slip({
               <td className="py-0.5">
                 {a.label}
                 <span className="block text-[8px] text-slate-500">{a.reason}</span>
+                {/* The contradiction, said on the line that causes it. */}
+                {a.kind === "late" && a.amount < 0 && l.late_minutes === 0 && (
+                  <span className="block text-[8px] text-amber-700">
+                    Absensi periode ini tidak mencatat keterlambatan di luar toleransi.
+                  </span>
+                )}
               </td>
               <td className={cn(
                 "py-0.5 text-right tabular-nums",
@@ -315,16 +352,52 @@ function Slip({
             </tr>
           ))}
 
+          {/* The statutory half, and **only** where HRD registered this person
+              (D259). Nothing appears here because software was updated. */}
+          {/* Only the schemes that actually take something out of this wage.
+              JKK and JKM are paid entirely by the company, and printing them as
+              a deduction of *(Rp 0)* reads as a deduction rather than as cover
+              that costs the person nothing. They are named underneath instead. */}
+          {l.contributions.filter((c) => c.employee > 0).map((c) => (
+            <tr key={c.scheme}>
+              <td className="py-0.5">
+                {c.label}
+                <span className="block text-[8px] text-slate-500">
+                  Dari dasar upah {formatIDR(c.base)} · bagian perusahaan {formatIDR(c.employer)}
+                </span>
+              </td>
+              <td className="py-0.5 text-right tabular-nums">({formatIDR(c.employee)})</td>
+            </tr>
+          ))}
           <tr className="border-t-2 border-slate-900">
             <td className="py-1 text-[11px] font-bold">Diterima</td>
-            <td className="py-1 text-right text-[12px] font-bold tabular-nums">{formatIDR(l.net)}</td>
+            <td className="py-1 text-right text-[12px] font-bold tabular-nums">{formatIDR(l.take_home)}</td>
           </tr>
         </tbody>
       </table>
 
       <p className="mt-1 text-[8px] leading-snug text-slate-500">
-        Bruto sebelum potongan BPJS dan PPh 21, yang belum dihitung di sistem ini.
+        {l.contributions.length === 0
+          ? "Belum ada potongan iuran wajib: orang ini belum terdaftar di register BPJS. Yang belum ada kelihatan di slip; yang salah ditemukan karyawan yang uangnya kurang."
+          : "PPh 21 belum dihitung di sistem ini — tercatat sebagai pendaftaran saja."}
+        {/* What the company pays on this person's behalf and never takes off
+            their wage. Worth printing: it is part of what the job is worth, and
+            most people have never been told it exists. */}
+        {l.contributions.some((c) => c.employee === 0) && (
+          ` Perusahaan juga membayar ${l.contributions.filter((c) => c.employee === 0)
+            .map((c) => `${c.label.replace("BPJS TK — ", "")} ${formatIDR(c.employer)}`)
+            .join(" dan ")} — tidak dipotong dari gaji.`
+        )}
         {l.days_unpaid > 0 && ` ${formatNumber(l.days_unpaid)} hari tercatat tanpa dibayar.`}
+        {" "}Satu jam biasa {formatIDR(l.hourly)} —{" "}
+        {l.hourly_basis === "company"
+          ? `${formatIDR(l.annual_pay)} setahun dibagi hari kerja efektif dan jam sehari`
+          : "gaji sebulan dibagi 173, angka peraturan"}.
+        {/* Lateness that costs nothing must still be visible as lateness that
+            costs nothing — otherwise the slip reads as though there was none. */}
+        {l.late_deduction === 0 && l.late_minutes > 0 && (
+          ` Terlambat ${formatNumber(l.late_minutes)} menit di luar toleransi, tidak dipotong.`
+        )}
       </p>
 
       <div className="mt-2 flex justify-between gap-2 text-[8px] text-slate-500">

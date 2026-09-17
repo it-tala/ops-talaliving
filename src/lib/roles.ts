@@ -35,16 +35,22 @@ export const PERMISSION_CATALOG: Record<ModuleName, readonly string[]> = {
   payroll: ["read", "run"],
   procurement: ["read", "create", "update"],
   inventory: ["read", "create", "update", "adjust"],
-  accounting: ["read", "create", "update"],
+  accounting: ["read", "create", "update", "plan_cash"],
   marketing: ["read", "create", "update"],
   project: ["read", "create", "update", "handover"],
   production: ["read", "create", "update", "schedule"],
-  it: ["read", "update", "manage_users", "manage_roles"],
+  it: ["read", "update", "manage_users", "manage_roles", "purge_activity"],
   settings: ["read", "update"],
 } as const;
 
-/** Reserved for `admin`. Everything else a module offers comes with `write`. */
-const ADMIN_ONLY = new Set(["manage_users", "manage_roles"]);
+/** Reserved for `admin`. Everything else a module offers comes with `write`.
+ *
+ *  `plan_cash` is here because of Q24 (D233): the estimates on the twelve-month
+ *  cash calendar belong to leadership alone. Accounting keeps `write`, which is
+ *  every other thing accounting does — reading the plan included, and booking
+ *  the real payments that land against it. Moving the *estimate* is the one
+ *  verb it does not carry. */
+const ADMIN_ONLY = new Set(["manage_users", "manage_roles", "purge_activity", "plan_cash"]);
 
 export const LEVELS: ModuleLevel[] = ["read", "write", "admin"];
 
@@ -77,6 +83,24 @@ export function expandPermissions(grants: readonly ModuleGrant[]): string[] {
   return [...out];
 }
 
+/** Who may open the IT module at all — the owner's answer to Q22, kept as one
+ *  sentence in one place so the screens that show it cannot drift from each
+ *  other.
+ *
+ *  It is **stated, not enforced by a flag on the user**, and that is a choice:
+ *  the only honest way to enforce it would be to decide in code who counts as
+ *  leadership, and the two candidates for deriving that — holding
+ *  `approve_funds` or `approve_goods` — are exactly what D24 forbids. A
+ *  stand-in appointed to approve payments for a week would silently gain the
+ *  right to read everyone's activity log. So the grant remains the only door,
+ *  and this sentence sits beside it where the grant is made.
+ *
+ *  What *is* enforced is the verb the owner used: **baca**. Leadership holds
+ *  `it: read` and administration stays at `admin` — see `requireLevel`.
+ */
+export const IT_ACCESS_RULE =
+  "Modul IT hanya boleh dibuka IT dan pimpinan. Pimpinan membaca (read); mengelola pengguna, peran, dan menghapus log aktivitas tetap di IT (admin).";
+
 export function hasPermission(permissions: readonly string[], code?: string): boolean {
   if (!code) return true;
   return permissions.includes(code);
@@ -97,6 +121,8 @@ const VERB_LABEL: Record<string, string> = {
   handover: "hand over",
   manage_users: "manage users",
   manage_roles: "manage roles",
+  purge_activity: "purge the activity log",
+  plan_cash: "set the cash estimates",
 };
 
 export function describeGrant(module: ModuleName, level: ModuleLevel): string {

@@ -1,21 +1,29 @@
 /** Implements `/api/v1/hr` from `03-api.md`. */
-import { ok, invalid, notFound, type Result } from "@/services/_shared/envelope";
+import { ok, invalid, notFound, noop, refused, type Result } from "@/services/_shared/envelope";
 import type {
   Employee, AttendanceScan, TimesheetDay, DayMark, DayMarkKind,
   OvertimeSheet, OvertimeLine, OvertimeSheetView, OvertimeKind,
   PayrollRun, PayrollView, PayBasis,
   AdjustmentKind, PayrollAdjustmentView,
   PayRules, PayRuleSet, PayRuleSetView,
-  EmployeeDocKind, EmployeeFileView, LeaveBalance, LeaveKind, LeaveRequestView, LeaveStatus,
+  EmployeeDocKind, EmployeeFileView, DocNoSource, LeaveBalance, LeaveKind, LeaveRequestView, LeaveStatus,
+  AllowanceWithholding, AllowanceWithholdingView,
+  ContributionScheme, ContributionRate, ContributionRoll, Enrolment,
+  Task, TaskView, TaskRefKind, KpiView,
 } from "@/services/hr/contracts";
+import { SENSITIVE_DOC_KINDS, SCHEME_LABEL, maskDocNo } from "@/services/hr/contracts";
 import type { DocKind } from "@/services/documents/contracts";
+import type { DemoState } from "../state";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
 import {
   timesheet, timesheetDay, payrollView, overtimeStage, overtimePayable, sheetEvidence,
   activePayRules, payrollLine, payrollLineWith,
   employeeFile, leaveBalance, leaveRequestView, datesBetween,
+  contributionRoll, allRolls,
+  taskView, taskViews, kpiView, kpiViews,
 } from "../hr-derive";
-import { latency, actingUser, requireModule, requireAuthority, conflict, replayed, remember } from "./_kit";
+import { latency, actingUser, requireModule, requireLevel, requireAuthority, conflict, replayed, remember } from "./_kit";
+import { officeToday as sharedOfficeToday } from "@/lib/office";
 
 const SERVICE = "hr" as const;
 
@@ -71,6 +79,10 @@ export async function saveEmployee(
     unit: string;
     pay_basis: PayBasis;
     base_rate: number;
+    /** Tunjangan harian. Optional, and **absent means unchanged** rather than
+     *  zero: a save that forgot this field must not quietly stop paying
+     *  somebody's allowance (D250). */
+    allowance_rate?: number;
     daily_hours?: number;
     paid_leave_days?: number;
     joined_on?: string;
@@ -94,6 +106,9 @@ export async function saveEmployee(
   if (!input.base_rate || input.base_rate <= 0) {
     return invalid(SERVICE, "rate_required", "A rate of zero is not a rate. Put what they are actually paid.", { field: "base_rate" });
   }
+  if (input.allowance_rate != null && input.allowance_rate < 0) {
+    return invalid(SERVICE, "allowance_negative", "Tunjangan tidak bisa negatif. Potongan ditulis sebagai potongan, dengan alasannya.", { field: "allowance_rate" });
+  }
 
   const state = getState();
   const existing = state.employees.find((e) => e.employee_no === input.employee_no.trim());
@@ -104,13 +119,14 @@ export async function saveEmployee(
     if (existing) {
       const row = draft.employees.find((e) => e.employee_no === existing.employee_no);
       if (!row) return;
-      const before = { base_rate: row.base_rate, pay_basis: row.pay_basis, position: row.position };
+      const before = { base_rate: row.base_rate, allowance_rate: row.allowance_rate, pay_basis: row.pay_basis, position: row.position };
       Object.assign(row, {
         full_name: input.full_name.trim(),
         position: input.position.trim() || row.position,
         unit: input.unit.trim() || row.unit,
         pay_basis: input.pay_basis,
         base_rate: Math.round(input.base_rate),
+        allowance_rate: input.allowance_rate != null ? Math.round(input.allowance_rate) : row.allowance_rate,
         daily_hours: input.daily_hours ?? row.daily_hours,
         paid_leave_days: input.paid_leave_days ?? row.paid_leave_days,
         note: input.note?.trim() ?? row.note,
@@ -119,7 +135,7 @@ export async function saveEmployee(
       writeAudit(draft, {
         service: SERVICE, entity: "employee", entity_no: row.employee_no,
         action: "update", outcome: "ok", reason: null,
-        detail: { before, after: { base_rate: row.base_rate, pay_basis: row.pay_basis, position: row.position }, by: user.email },
+        detail: { before, after: { base_rate: row.base_rate, allowance_rate: row.allowance_rate, pay_basis: row.pay_basis, position: row.position }, by: user.email },
       });
     } else {
       const row: Employee = {
@@ -130,6 +146,7 @@ export async function saveEmployee(
         unit: input.unit.trim() || "Workshop",
         pay_basis: input.pay_basis,
         base_rate: Math.round(input.base_rate),
+        allowance_rate: Math.round(input.allowance_rate ?? 0),
         daily_hours: input.daily_hours ?? 8,
         paid_leave_days: input.paid_leave_days ?? 12,
         joined_on: input.joined_on ?? new Date().toISOString().slice(0, 10),
@@ -142,7 +159,7 @@ export async function saveEmployee(
       writeAudit(draft, {
         service: SERVICE, entity: "employee", entity_no: row.employee_no,
         action: "create", outcome: "ok", reason: null,
-        detail: { pay_basis: row.pay_basis, base_rate: row.base_rate, by: user.email },
+        detail: { pay_basis: row.pay_basis, base_rate: row.base_rate, allowance_rate: row.allowance_rate, by: user.email },
       });
     }
   });
@@ -396,6 +413,166 @@ export async function markDay(
 
 /** Taking a mark off. It happens — the holiday was the Tuesday, not the
  *  Monday — and it is an act with a name on it like any other. */
+/** HRD saying one person does not get one day's tunjangan, and why (D250).
+ *
+ *  Deliberately **not** a day mark. A mark says what the day was; this says
+ *  what somebody decided about the money, and the two come apart on the case
+ *  the owner named first: a WFH day was worked, the timesheet is right, and
+ *  the allowance is still not paid. Folding it into the mark would make the
+ *  timesheet lie about the day in order to get the pay right.
+ *
+ *  It refuses on a day already inside an approved run, for the reason every
+ *  refusal in this module gives: that figure has been signed.
+ */
+export async function withholdAllowance(
+  input: { employee_no: string; work_date: string; reason: string },
+  idempotencyKey?: string,
+): Promise<Result<AllowanceWithholdingView>> {
+  await latency();
+  const cached = replayed<AllowanceWithholdingView>(SERVICE, "withholdAllowance", idempotencyKey);
+  if (cached) return cached;
+
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+
+  if (!input.reason.trim()) {
+    return invalid(
+      SERVICE, "reason_required",
+      "Tunjangan yang hilang tanpa alasan tertulis adalah pertanyaan yang tidak bisa dijawab tiga bulan lagi. Tulis sebabnya — WFH, setengah hari, apa pun.",
+      { field: "reason" },
+    );
+  }
+
+  const state = getState();
+  const emp = state.employees.find((e) => e.employee_no === input.employee_no);
+  if (!emp) return notFound(SERVICE, "employee_not_found", `No employee ${input.employee_no}.`);
+
+  const locked = state.payroll_runs.find(
+    (r) => r.status === "APPROVED" && input.work_date >= r.period_start && input.work_date <= r.period_end,
+  );
+  if (locked) {
+    return conflict(
+      SERVICE, "run_approved",
+      `${input.work_date} sudah masuk run ${locked.run_no} yang disetujui. Angkanya sudah ditandatangani — koreksinya lewat penyesuaian di run berikutnya, bukan dengan mengubah yang lalu.`,
+    );
+  }
+
+  const already = state.allowance_withholdings.find(
+    (w) => w.employee_id === emp.id && w.work_date === input.work_date && w.restored_by === null,
+  );
+  if (already) {
+    return conflict(
+      SERVICE, "already_withheld",
+      `Tunjangan ${emp.full_name} tanggal ${input.work_date} sudah ditahan: ${already.reason}`,
+    );
+  }
+
+  const user = actingUser();
+  let row: AllowanceWithholding | null = null;
+  apply((draft) => {
+    row = {
+      id: newId("awh"),
+      employee_id: emp.id,
+      work_date: input.work_date,
+      reason: input.reason.trim(),
+      by: user.id,
+      at: new Date().toISOString(),
+      restored_by: null, restored_at: null, restored_reason: null,
+    };
+    draft.allowance_withholdings.push(row);
+    writeAudit(draft, {
+      service: SERVICE, entity: "allowance_withholding", entity_no: `${input.work_date}/${emp.employee_no}`,
+      action: "withhold", outcome: "ok", reason: input.reason.trim(),
+      detail: { amount: emp.allowance_rate, by: user.email },
+    });
+  });
+  const result = ok(SERVICE, viewWithholding(getState(), row as unknown as AllowanceWithholding));
+  remember(SERVICE, "withholdAllowance", idempotencyKey, result);
+  return result;
+}
+
+/** Putting it back. The row stays — restoring is a second decision, not an
+ *  erasure, and *why was this not paid* must stay answerable after somebody
+ *  changes their mind (A5). */
+export async function restoreAllowance(
+  input: { id: string; reason: string },
+): Promise<Result<AllowanceWithholdingView>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+
+  if (!input.reason.trim()) {
+    return invalid(
+      SERVICE, "reason_required",
+      "Mengembalikan tunjangan juga sebuah keputusan. Tulis kenapa — biasanya karena yang pertama salah baca.",
+      { field: "reason" },
+    );
+  }
+
+  const state = getState();
+  const found = state.allowance_withholdings.find((w) => w.id === input.id);
+  if (!found) return notFound(SERVICE, "withholding_not_found", `No withholding ${input.id}.`);
+  if (found.restored_by) {
+    /* Already put back. Nothing to do and nothing to complain about — the
+       answer is the row itself, marked `noop`. */
+    return noop(SERVICE, viewWithholding(state, found));
+  }
+
+  const user = actingUser();
+  apply((draft) => {
+    const row = draft.allowance_withholdings.find((w) => w.id === input.id);
+    if (!row) return;
+    row.restored_by = user.id;
+    row.restored_at = new Date().toISOString();
+    row.restored_reason = input.reason.trim();
+    const emp = draft.employees.find((e) => e.id === row.employee_id);
+    writeAudit(draft, {
+      service: SERVICE, entity: "allowance_withholding",
+      entity_no: `${row.work_date}/${emp?.employee_no ?? row.employee_id}`,
+      action: "restore", outcome: "ok", reason: input.reason.trim(),
+      detail: { by: user.email },
+    });
+  });
+  const after = getState().allowance_withholdings.find((w) => w.id === input.id)!;
+  return ok(SERVICE, viewWithholding(getState(), after));
+}
+
+/** Every decision, restored ones included — the list is the record. */
+export async function listWithholdings(
+  opts: { employee_no?: string; from?: string; to?: string } = {},
+): Promise<Result<AllowanceWithholdingView[]>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+  const state = getState();
+  const emp = opts.employee_no
+    ? state.employees.find((e) => e.employee_no === opts.employee_no)
+    : null;
+  const rows = state.allowance_withholdings
+    .filter((w) => (!emp || w.employee_id === emp.id)
+      && (!opts.from || w.work_date >= opts.from)
+      && (!opts.to || w.work_date <= opts.to))
+    .map((w) => viewWithholding(state, w))
+    .sort((a, b) => b.work_date.localeCompare(a.work_date));
+  return ok(SERVICE, rows);
+}
+
+function viewWithholding(state: DemoState, w: AllowanceWithholding): AllowanceWithholdingView {
+  const emp = state.employees.find((e) => e.id === w.employee_id);
+  const name = (id: string | null) => id ? state.users.find((u) => u.id === id)?.full_name ?? id : null;
+  return {
+    ...w,
+    employee_no: emp?.employee_no ?? "—",
+    full_name: emp?.full_name ?? "—",
+    by_name: name(w.by) ?? w.by,
+    restored_by_name: name(w.restored_by),
+    /* The person's rate **as it stands**, not as it stood. Said in the contract
+       and worth repeating: this is context for the decision, not a stored
+       amount, and a rate that has since changed will move it. */
+    amount: emp?.allowance_rate ?? 0,
+  };
+}
+
 export async function unmarkDay(markId: string): Promise<Result<{ removed: string }>> {
   await latency();
   const denied = requireModule(SERVICE, "hrd");
@@ -988,6 +1165,7 @@ export async function saveEmployeeDocument(
   input: {
     employee_no: string; kind: EmployeeDocKind;
     attachment_id?: string | null; doc_no?: string | null;
+    doc_no_source?: DocNoSource;
     issued_on?: string | null; expires_on?: string | null; note?: string | null;
   },
 ): Promise<Result<EmployeeFileView>> {
@@ -1005,6 +1183,18 @@ export async function saveEmployeeDocument(
       { field: "doc_no" },
     );
   }
+  /* A number cannot have been read out of a file that is not there. The demo
+     seeds made exactly this claim before it was caught (F57) — seventeen rows
+     saying *terbaca dari berkas* beside *berkas belum dipindai*. It reads as a
+     detail and it is not: the whole point of recording provenance is that
+     somebody later trusts a number because of where it came from. */
+  if (input.doc_no_source === "extracted" && !input.attachment_id) {
+    return invalid(
+      SERVICE, "extracted_without_file",
+      "Nomor tidak bisa ditandai terbaca dari berkas kalau berkasnya tidak ada. Lampirkan berkasnya, atau tandai diketik.",
+      { field: "doc_no_source" },
+    );
+  }
   if (input.expires_on && input.issued_on && input.expires_on < input.issued_on) {
     return invalid(SERVICE, "expiry_before_issue", "Tanggal berakhir mendahului tanggal terbit.", { field: "expires_on" });
   }
@@ -1017,6 +1207,12 @@ export async function saveEmployeeDocument(
       kind: input.kind,
       attachment_id: input.attachment_id ?? null,
       doc_no: input.doc_no?.trim() || null,
+      /* Where the number came from, recorded at the moment it arrives. A scan
+         filed with no number is **pending**, not blank-because-nobody-cared:
+         the difference is whether anybody is expected to come back to it. */
+      doc_no_source: input.doc_no?.trim()
+        ? (input.doc_no_source ?? "typed")
+        : (input.attachment_id ? "pending" : null),
       issued_on: input.issued_on || null,
       expires_on: input.expires_on || null,
       note: input.note?.trim() || null,
@@ -1034,10 +1230,66 @@ export async function saveEmployeeDocument(
     writeAudit(draft, {
       service: SERVICE, entity: "employee_document", entity_no: emp.employee_no,
       action: "file", outcome: "ok", reason: null,
-      detail: { kind: input.kind, doc_no: input.doc_no ?? null, expires_on: input.expires_on ?? null, by: user.email },
+      /* Same rule as the reveal: the trail says a number was filed, never what
+         it is. An audit row nobody may delete is the worst place to keep one. */
+      detail: {
+        kind: input.kind,
+        doc_no: SENSITIVE_DOC_KINDS.has(input.kind)
+          ? (input.doc_no ? "(disamarkan)" : null)
+          : (input.doc_no ?? null),
+        expires_on: input.expires_on ?? null, by: user.email,
+      },
     });
   });
   return getEmployeeFile(emp.employee_no);
+}
+
+/** Reading somebody's identity number — the one act on this screen that is a
+ *  **read** and still belongs in the audit trail.
+ *
+ *  Two rules hold it together, and the second is the one that is easy to get
+ *  wrong:
+ *
+ *  1. **It is written to `audit_log`, not to the activity log.** The activity
+ *     log keeps detail for thirty days (D188), and *who looked at Karjo's KTP*
+ *     is a question asked months later, usually by Karjo. The audit trail is
+ *     never deleted, so that is where it goes — and D188's line between the two
+ *     is amended accordingly: the audit log holds **acts**, of which changing a
+ *     row is the commonest, not changes alone (D197).
+ *
+ *  2. **The audit row must not contain the number.** A log of who read a
+ *     secret that stores the secret has multiplied the thing it was protecting
+ *     — and the audit trail is the one table nobody may ever delete from. What
+ *     it records is whose document, which kind, and who looked.
+ */
+export async function revealEmployeeDocNo(
+  docId: string,
+): Promise<Result<{ doc_id: string; doc_no: string; revealed_at: string }>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+
+  const state = getState();
+  const doc = state.employee_documents.find((d) => d.id === docId);
+  if (!doc) return notFound(SERVICE, "document_not_found", "Dokumen tidak ada.");
+  if (!doc.doc_no) {
+    return invalid(SERVICE, "no_number", "Dokumen ini belum punya nomor untuk dibuka.", { field: "doc_no" });
+  }
+  const emp = state.employees.find((e) => e.id === doc.employee_id);
+  const user = actingUser();
+  const at = new Date().toISOString();
+
+  apply((draft) => {
+    writeAudit(draft, {
+      service: SERVICE, entity: "employee_document", entity_no: emp?.employee_no ?? doc.employee_id,
+      action: "reveal", outcome: "ok",
+      reason: null,
+      /* Whose, and which kind. Never the number itself. */
+      detail: { kind: doc.kind, employee: emp?.full_name ?? doc.employee_id, by: user.email },
+    });
+  });
+
+  return ok(SERVICE, { doc_id: doc.id, doc_no: doc.doc_no, revealed_at: at });
 }
 
 /** Which document kind a personnel record travels under on the evidence road.
@@ -1220,9 +1472,10 @@ export async function decideLeave(
   });
 }
 
-/** The office day, WITA. Not the browser's day (F17). */
+/** The office day, WITA. Not the browser's day (F17); one definition for the
+ *  whole system (F63). */
 function officeToday(): string {
-  return new Date(Date.now() + 8 * 3_600_000).toISOString().slice(0, 10);
+  return sharedOfficeToday();
 }
 
 /* ── Pay rules ────────────────────────────────────────────────────────────
@@ -1231,10 +1484,439 @@ function officeToday(): string {
  *  read the rule book and write the next version of it. What the rules *do* is
  *  in `payrollLine`, which is the only place that should know.
  */
+/* ── Tugas dan penilaian ──────────────────────────────────────────────────── */
+
+export async function listTasks(
+  filter: { assignee_no?: string; status?: Task["status"] } = {},
+): Promise<Result<TaskView[]>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+  return ok(SERVICE, taskViews(getState(), filter));
+}
+
+/** Asking somebody to do something, by a date.
+ *
+ *  Both required, and both for the same reason: a task with no owner is a note,
+ *  and a task with no date is one nobody can tell is late (D260).
+ */
+export async function createTask(
+  input: {
+    assignee_no: string;
+    title: string;
+    due_date: string;
+    detail?: string | null;
+    ref_kind?: TaskRefKind;
+    ref_no?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<TaskView>> {
+  await latency();
+  const cached = replayed<TaskView>(SERVICE, "createTask", idempotencyKey);
+  if (cached) return cached;
+
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+
+  const state = getState();
+  const emp = state.employees.find((e) => e.employee_no === input.assignee_no);
+  if (!emp) return notFound(SERVICE, "employee_not_found", `No employee ${input.assignee_no}.`);
+  if (!emp.active) {
+    return conflict(SERVICE, "employee_left", `${emp.full_name} sudah tidak aktif.`);
+  }
+  if (!input.title.trim()) {
+    return invalid(SERVICE, "title_required", "Tugasnya apa?", { field: "title" });
+  }
+  if (!input.due_date) {
+    return invalid(
+      SERVICE, "due_date_required",
+      "Tugas tanpa tanggal tidak bisa terlambat, yang berarti tidak ada yang bisa tahu kapan ia terlambat.",
+      { field: "due_date" },
+    );
+  }
+
+  const user = actingUser();
+  let no = "";
+  apply((draft) => {
+    no = nextDocNumber(draft, "tgs");
+    draft.tasks.push({
+      id: newId("tsk"), task_no: no,
+      title: input.title.trim(),
+      detail: input.detail?.trim() || null,
+      assignee_id: emp.id,
+      assigned_by: user.id,
+      assigned_at: new Date().toISOString(),
+      due_date: input.due_date,
+      ref_kind: input.ref_kind ?? "none",
+      ref_no: input.ref_no?.trim() || null,
+      status: "OPEN",
+      done_at: null, done_by: null,
+      blocked_reason: null, blocked_at: null,
+      cancelled_reason: null,
+    });
+    writeAudit(draft, {
+      service: SERVICE, entity: "task", entity_no: no,
+      action: "create", outcome: "ok", reason: null,
+      detail: { assignee: emp.employee_no, due: input.due_date, by: user.email },
+    });
+  });
+  const state2 = getState();
+  const row = state2.tasks.find((t) => t.task_no === no)!;
+  const view = taskView(state2, row);
+  remember(SERVICE, "createTask", idempotencyKey, view);
+  return ok(SERVICE, view);
+}
+
+/** Done, blocked, unblocked or cancelled — the four things that happen to a
+ *  task, each carrying what it needs.
+ *
+ *  **Blocking requires a reason**, because a blocked task is removed from the
+ *  assignee's score (D261) and something that lifts a penalty has to say why.
+ *  It is also the sentence somebody else reads when they are the blocker.
+ */
+export async function updateTask(
+  input: {
+    task_no: string;
+    action: "done" | "block" | "unblock" | "cancel";
+    reason?: string | null;
+    done_on?: string | null;
+  },
+): Promise<Result<TaskView>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+
+  const state = getState();
+  const t = state.tasks.find((x) => x.task_no === input.task_no);
+  if (!t) return notFound(SERVICE, "task_not_found", `No task ${input.task_no}.`);
+  if (t.status !== "OPEN" && input.action !== "done") {
+    return conflict(SERVICE, "task_closed", `${t.task_no} sudah ${t.status}.`);
+  }
+  if ((input.action === "block" || input.action === "cancel") && !input.reason?.trim()) {
+    return invalid(
+      SERVICE, "reason_required",
+      input.action === "block"
+        ? "Tertahan menunggu apa? Tugas yang tertahan dikeluarkan dari penilaian orangnya — yang menghapus beban harus menyebut alasannya, dan kalimat ini juga yang dibaca pihak yang menahannya."
+        : "Kenapa dibatalkan? Tugas yang dibatalkan tidak dihitung sebagai berhasil maupun gagal, jadi alasannya adalah satu-satunya jejak yang tersisa.",
+      { field: "reason" },
+    );
+  }
+  if (input.action === "unblock" && t.blocked_reason === null) {
+    return noop(SERVICE, taskView(state, t));
+  }
+  if (input.action === "done" && t.status === "DONE") {
+    return noop(SERVICE, taskView(state, t));
+  }
+
+  const user = actingUser();
+  apply((draft) => {
+    const row = draft.tasks.find((x) => x.task_no === input.task_no);
+    if (!row) return;
+    if (input.action === "done") {
+      row.status = "DONE";
+      /* The day it was finished, not the day it was typed — the same rule the
+         production board follows (D148). */
+      row.done_at = input.done_on
+        ? `${input.done_on}T12:00:00+08:00`
+        : new Date().toISOString();
+      row.done_by = user.id;
+      row.blocked_reason = null;
+      row.blocked_at = null;
+    } else if (input.action === "block") {
+      row.blocked_reason = input.reason!.trim();
+      row.blocked_at = new Date().toISOString();
+    } else if (input.action === "unblock") {
+      row.blocked_reason = null;
+      row.blocked_at = null;
+    } else {
+      row.status = "CANCELLED";
+      row.cancelled_reason = input.reason!.trim();
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "task", entity_no: row.task_no,
+      action: input.action, outcome: "ok", reason: input.reason?.trim() || null,
+      detail: { by: user.email },
+    });
+  });
+  const after = getState();
+  return ok(SERVICE, taskView(after, after.tasks.find((x) => x.task_no === input.task_no)!));
+}
+
+/** The analyzer. **Payroll-level**, like the payslips: this is the most
+ *  personal reading the system produces about anybody. */
+export async function getKpi(
+  input: { period_start: string; period_end: string; employee_no?: string },
+): Promise<Result<KpiView[]>> {
+  await latency();
+  const denied = requireModule(SERVICE, "payroll");
+  if (denied) return denied;
+  const state = getState();
+  if (input.employee_no) {
+    const emp = state.employees.find((e) => e.employee_no === input.employee_no);
+    if (!emp) return notFound(SERVICE, "employee_not_found", `No employee ${input.employee_no}.`);
+    return ok(SERVICE, [kpiView(state, emp, input.period_start, input.period_end)]);
+  }
+  return ok(SERVICE, kpiViews(state, input.period_start, input.period_end));
+}
+
+/* ── Iuran wajib ──────────────────────────────────────────────────────────── */
+
+/** The roll of names for one scheme and month — HRD's register, read. */
+export async function getContributionRoll(
+  input: { scheme: ContributionScheme; month: string },
+): Promise<Result<ContributionRoll>> {
+  await latency();
+  const denied = requireModule(SERVICE, "payroll");
+  if (denied) return denied;
+  return ok(SERVICE, contributionRoll(getState(), input.scheme, input.month));
+}
+
+/** Every computed scheme for a month, for the screen that shows them together.
+ *  **Accounting may read this**, because auditing the invoice against the roll
+ *  is the whole point (owner, D259) — and what it gets back carries masked
+ *  member numbers and no pay figures beyond the contribution base, which is
+ *  what the invoice is computed on anyway. */
+export async function listContributionRolls(
+  month: string,
+): Promise<Result<ContributionRoll[]>> {
+  await latency();
+  const user = actingUser();
+  const mayRead = user.modules.some((m) => m.module === "payroll" || m.module === "hrd" || m.module === "accounting");
+  if (!mayRead) {
+    return refused(
+      SERVICE, "module_required",
+      "Daftar iuran dibaca HRD, payroll dan akunting. Akunting ada di sini karena memeriksa tagihan terhadap daftar namanya memang tugasnya.",
+      { required: "payroll|hrd|accounting", acting_as: user.email },
+    );
+  }
+  return ok(SERVICE, allRolls(getState(), month));
+}
+
+export async function listEnrolments(
+  opts: { employee_no?: string; scheme?: ContributionScheme } = {},
+): Promise<Result<(Enrolment & { employee_no: string; full_name: string; member_no_masked: string | null })[]>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+  const state = getState();
+  const emp = opts.employee_no
+    ? state.employees.find((e) => e.employee_no === opts.employee_no)
+    : null;
+  const rows = state.enrolments
+    .filter((en) => (!emp || en.employee_id === emp.id) && (!opts.scheme || en.scheme === opts.scheme))
+    .map((en) => {
+      const e = state.employees.find((x) => x.id === en.employee_id);
+      return {
+        ...en,
+        /* Masked on read, like every other card number (D196). The full number
+           needs an explicit reveal and the reveal is logged. */
+        member_no: null,
+        member_no_masked: en.member_no ? maskDocNo(en.member_no) : null,
+        employee_no: e?.employee_no ?? "—",
+        full_name: e?.full_name ?? "—",
+      };
+    })
+    .sort((a, b) => a.full_name.localeCompare(b.full_name) || a.scheme.localeCompare(b.scheme));
+  return ok(SERVICE, rows);
+}
+
+/** Registering somebody. **HRD's act** (owner, D259). */
+export async function enrol(
+  input: {
+    employee_no: string;
+    scheme: ContributionScheme;
+    member_no?: string | null;
+    enrolled_on: string;
+    declared_base?: number | null;
+    note?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<Enrolment>> {
+  await latency();
+  const cached = replayed<Enrolment>(SERVICE, "enrol", idempotencyKey);
+  if (cached) return cached;
+
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+
+  const state = getState();
+  const emp = state.employees.find((e) => e.employee_no === input.employee_no);
+  if (!emp) return notFound(SERVICE, "employee_not_found", `No employee ${input.employee_no}.`);
+  if (!input.enrolled_on) {
+    return invalid(
+      SERVICE, "date_required",
+      "Sejak kapan dia terdaftar? Tanpa tanggal, tidak ada yang bisa menjawab apakah bulan Maret dia sudah ditanggung.",
+      { field: "enrolled_on" },
+    );
+  }
+  if (input.enrolled_on < emp.joined_on) {
+    return invalid(
+      SERVICE, "before_joining",
+      `${emp.full_name} baru masuk ${emp.joined_on}; tidak bisa terdaftar sejak ${input.enrolled_on}.`,
+      { field: "enrolled_on" },
+    );
+  }
+  if (input.declared_base != null && input.declared_base <= 0) {
+    return invalid(SERVICE, "base_invalid", "Upah yang didaftarkan harus lebih dari nol.", { field: "declared_base" });
+  }
+  const open = state.enrolments.find(
+    (en) => en.employee_id === emp.id && en.scheme === input.scheme && en.ended_on === null,
+  );
+  if (open) {
+    return conflict(
+      SERVICE, "already_enrolled",
+      `${emp.full_name} sudah terdaftar di ${SCHEME_LABEL[input.scheme]} sejak ${open.enrolled_on}. Akhiri dulu yang lama kalau memang didaftarkan ulang.`,
+    );
+  }
+
+  const user = actingUser();
+  let row: Enrolment | null = null;
+  apply((draft) => {
+    row = {
+      id: newId("enr"),
+      employee_id: emp.id, scheme: input.scheme,
+      member_no: input.member_no?.trim() || null,
+      enrolled_on: input.enrolled_on,
+      ended_on: null, ended_reason: null,
+      declared_base: input.declared_base ?? null,
+      note: input.note?.trim() || null,
+      by: user.id, at: new Date().toISOString(),
+    };
+    draft.enrolments.push(row);
+    writeAudit(draft, {
+      service: SERVICE, entity: "enrolment", entity_no: `${emp.employee_no}/${input.scheme}`,
+      action: "enrol", outcome: "ok", reason: input.note?.trim() || null,
+      detail: { from: input.enrolled_on, declared_base: input.declared_base ?? null, by: user.email },
+    });
+  });
+  const saved = row as unknown as Enrolment;
+  remember(SERVICE, "enrol", idempotencyKey, saved);
+  return ok(SERVICE, saved);
+}
+
+/** Taking somebody off. **The row stays** — *was he covered in July* is the
+ *  question this register exists to answer (A5) — and the reason is required,
+ *  because an invoice that keeps charging for somebody who came off the roll is
+ *  the leak the owner described and the sentence is how it gets traced. */
+export async function endEnrolment(
+  input: { id: string; ended_on: string; reason: string },
+): Promise<Result<Enrolment>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+
+  if (!input.reason.trim()) {
+    return invalid(
+      SERVICE, "reason_required",
+      "Kenapa berhenti? Ini kalimat yang dibaca akunting waktu tagihan bulan depan ternyata masih memuat namanya.",
+      { field: "reason" },
+    );
+  }
+  const state = getState();
+  const found = state.enrolments.find((en) => en.id === input.id);
+  if (!found) return notFound(SERVICE, "enrolment_not_found", `No enrolment ${input.id}.`);
+  if (found.ended_on) {
+    return noop(SERVICE, found);
+  }
+  if (input.ended_on < found.enrolled_on) {
+    return invalid(
+      SERVICE, "before_enrolment",
+      `Tanggal berhenti ${input.ended_on} lebih awal dari tanggal daftar ${found.enrolled_on}.`,
+      { field: "ended_on" },
+    );
+  }
+
+  const user = actingUser();
+  apply((draft) => {
+    const row = draft.enrolments.find((en) => en.id === input.id);
+    if (!row) return;
+    row.ended_on = input.ended_on;
+    row.ended_reason = input.reason.trim();
+    const emp = draft.employees.find((e) => e.id === row.employee_id);
+    writeAudit(draft, {
+      service: SERVICE, entity: "enrolment",
+      entity_no: `${emp?.employee_no ?? row.employee_id}/${row.scheme}`,
+      action: "end", outcome: "ok", reason: input.reason.trim(),
+      detail: { ended_on: input.ended_on, by: user.email },
+    });
+  });
+  return ok(SERVICE, getState().enrolments.find((en) => en.id === input.id)!);
+}
+
+export async function listContributionRates(): Promise<Result<ContributionRate[]>> {
+  await latency();
+  const denied = requireModule(SERVICE, "payroll");
+  if (denied) return denied;
+  return ok(SERVICE, [...getState().contribution_rates]
+    .sort((a, b) => a.scheme.localeCompare(b.scheme) || b.effective_from.localeCompare(a.effective_from)));
+}
+
+/** A new dated rate. **IT writes, HRD reads** — the same split as the pay rule
+ *  book (D193), for the same reason: one number here moves every payslip and
+ *  every invoice at once. */
+export async function saveContributionRate(
+  input: {
+    scheme: ContributionScheme;
+    effective_from: string;
+    employer_percent: number;
+    employee_percent: number;
+    wage_ceiling?: number | null;
+    note: string;
+    confirmed?: boolean;
+  },
+): Promise<Result<ContributionRate>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "it", "write");
+  if (denied) return denied;
+
+  if (!input.note.trim()) {
+    return invalid(SERVICE, "note_required", "Dari mana angkanya? Tarif tanpa sumber tidak bisa diperiksa.", { field: "note" });
+  }
+  if (input.employer_percent < 0 || input.employee_percent < 0) {
+    return invalid(SERVICE, "percent_invalid", "Persentase tidak bisa negatif.", { field: "employer_percent" });
+  }
+  const state = getState();
+  const latest = state.contribution_rates
+    .filter((r) => r.scheme === input.scheme)
+    .sort((a, b) => b.effective_from.localeCompare(a.effective_from))[0];
+  if (latest && input.effective_from <= latest.effective_from) {
+    return conflict(
+      SERVICE, "not_forward",
+      `Versi terakhir ${SCHEME_LABEL[input.scheme]} berlaku sejak ${latest.effective_from}. Versi baru harus mulai setelahnya — iuran bulan lalu dihitung dengan tarif bulan lalu.`,
+    );
+  }
+
+  const user = actingUser();
+  let row: ContributionRate | null = null;
+  apply((draft) => {
+    row = {
+      id: newId("crt"), scheme: input.scheme,
+      effective_from: input.effective_from,
+      employer_percent: input.employer_percent,
+      employee_percent: input.employee_percent,
+      wage_ceiling: input.wage_ceiling ?? null,
+      note: input.note.trim(),
+      confirmed: input.confirmed ?? false,
+      created_by: user.id, created_at: new Date().toISOString(),
+    };
+    draft.contribution_rates.push(row);
+    writeAudit(draft, {
+      service: SERVICE, entity: "contribution_rate", entity_no: input.scheme,
+      action: "create_version", outcome: "ok", reason: input.note.trim(),
+      detail: {
+        from: input.effective_from,
+        employer: input.employer_percent, employee: input.employee_percent,
+        by: user.email,
+      },
+    });
+  });
+  return ok(SERVICE, row as unknown as ContributionRate);
+}
+
 export async function listPayRules(): Promise<Result<PayRuleSetView[]>> {
   await latency();
   const state = getState();
-  const today = new Date(Date.now() + 8 * 3_600_000).toISOString().slice(0, 10);
+  const today = sharedOfficeToday();
   const current = activePayRules(state, today);
   return ok(SERVICE, [...state.pay_rule_sets]
     .sort((a, b) => b.effective_from.localeCompare(a.effective_from))
@@ -1261,7 +1943,13 @@ export async function savePayRules(
   const cached = replayed<PayRuleSetView>(SERVICE, "savePayRules", idempotencyKey);
   if (cached) return cached;
 
-  const denied = requireModule(SERVICE, "payroll");
+  /* HRD reads the rule book; **IT changes it** (owner, D193). Not because HRD
+     is not trusted with the numbers — they are the ones who know them — but
+     because a pay rule is the one piece of configuration that reaches every
+     payslip at once, and the people whose pay it computes should not be the
+     people who can change it without a second pair of hands. The proposal
+     comes from HRD; the change is made by IT, with the note attached. */
+  const denied = requireLevel(SERVICE, "it", "write");
   if (denied) return denied;
   if (!input.note?.trim()) {
     return invalid(
@@ -1283,7 +1971,7 @@ export async function savePayRules(
   /* Never into the past. Days that have already been worked were worked under
      a rule somebody could have read at the time; changing what they are worth
      afterwards is the one thing a pay system must not do quietly (D173). */
-  const today = new Date(Date.now() + 8 * 3_600_000).toISOString().slice(0, 10);
+  const today = sharedOfficeToday();
   if (input.effective_from < today) {
     return invalid(
       SERVICE, "effective_from_in_past",
@@ -1369,6 +2057,18 @@ export async function previewPayRules(
     }
     if (proposed.undertime_amount !== current.undertime_amount) {
       notes.push(`undertime ${formatDelta(-current.undertime_amount, -proposed.undertime_amount)}`);
+    }
+    /* The three the pay split introduced. Each named separately rather than
+       rolled into one delta: *your wage changed* is not a sentence anybody can
+       check, and these are exactly the changes people will argue about. */
+    if (proposed.allowance_pay !== current.allowance_pay) {
+      notes.push(`tunjangan ${formatDelta(current.allowance_pay, proposed.allowance_pay)}`);
+    }
+    if (proposed.late_deduction !== current.late_deduction) {
+      notes.push(`potongan terlambat ${formatDelta(-current.late_deduction, -proposed.late_deduction)}`);
+    }
+    if (proposed.hourly !== current.hourly) {
+      notes.push(`upah/jam ${formatDelta(current.hourly, proposed.hourly)}`);
     }
     return {
       employee_no: e.employee_no,

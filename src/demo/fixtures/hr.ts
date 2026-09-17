@@ -1,6 +1,6 @@
 import type {
   Employee, AttendanceScan, DayMark, OvertimeSheet, OvertimeLine, PayrollRun,
-  PayrollAdjustment,
+  PayrollAdjustment, AllowanceWithholding,
 } from "@/services/hr/contracts";
 
 /** The office, and the workshop.
@@ -11,6 +11,13 @@ import type {
  *  (D141). Names and machine numbers are the business's own; the daily rates
  *  are demo figures, because the export does not carry money.
  *
+ *  **The pokok/tunjangan split is demo data** (D250). The owner has the real
+ *  figures and this system does not; what is seeded keeps every person's total
+ *  at full attendance **exactly where it was** — Rp 25.000 a day for office
+ *  staff and Rp 15.000 for the workshop, taken out of the rate that was there
+ *  before, not added on top. So the split changes nobody's money and changes
+ *  what a missed day costs, which is the whole point of it.
+ *
  *  It is deliberately not tidied. Twenty-nine taps are the same finger twice
  *  inside a minute, and after those are folded away **48 days still have an
  *  odd number of taps** — a missing *istirahat masuk*, a second tap eleven
@@ -18,46 +25,46 @@ import type {
  *  fortnight looks like, and it is the entire reason the timesheet exists.
  */
 export const EMPLOYEES: Employee[] = [
-  { id: "emp_01", employee_no: "K-001", full_name: "Evin Jonathan", position: "Direktur", unit: "Leadership", pay_basis: "monthly", base_rate: 25_000_000, daily_hours: 8, joined_on: "2019-02-01", paid_leave_days: 12, active: true, left_on: null, note: null },
-  { id: "emp_02", employee_no: "K-004", full_name: "Putri Handayani", position: "Accounting", unit: "Office", pay_basis: "monthly", base_rate: 7_500_000, daily_hours: 8, joined_on: "2021-06-14", paid_leave_days: 12, active: true, left_on: null, note: null },
-  { id: "emp_03", employee_no: "K-007", full_name: "Anggun Lestari", position: "Finance", unit: "Office", pay_basis: "monthly", base_rate: 7_000_000, daily_hours: 8, joined_on: "2022-01-10", paid_leave_days: 12, active: true, left_on: null, note: null },
-  { id: "emp_04", employee_no: "K-011", full_name: "Andi Prasetyo", position: "Procurement", unit: "Office", pay_basis: "monthly", base_rate: 6_500_000, daily_hours: 8, joined_on: "2022-08-01", paid_leave_days: 12, active: true, left_on: null, note: null },
-  { id: "emp_05", employee_no: "K-014", full_name: "Made Suparta", position: "Kepala Gudang", unit: "Warehouse", pay_basis: "monthly", base_rate: 6_000_000, daily_hours: 8, joined_on: "2020-03-16", paid_leave_days: 12, active: true, left_on: null, note: null },
-  { id: "emp_w006", employee_no: "B-006", full_name: "Sumiati", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 135_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
-  { id: "emp_w009", employee_no: "B-009", full_name: "Karjo", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 140_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 12, active: true, left_on: null, note: null },
-  { id: "emp_w011", employee_no: "B-011", full_name: "Roni", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 145_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 5, active: true, left_on: null, note: "Hak cuti 5 hari, sudah terpakai di bulan Maret." },
-  { id: "emp_w012", employee_no: "B-012", full_name: "Trisno", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 150_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
-  { id: "emp_w015", employee_no: "B-015", full_name: "Pranowo", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 155_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 0, active: true, left_on: null, note: null },
-  { id: "emp_w016", employee_no: "B-016", full_name: "Sakirin", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 160_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
-  { id: "emp_w019", employee_no: "B-019", full_name: "Siti", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 165_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 12, active: true, left_on: null, note: null },
-  { id: "emp_w020", employee_no: "B-020", full_name: "Utami", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 170_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 3, active: true, left_on: null, note: null },
-  { id: "emp_w026", employee_no: "B-026", full_name: "Padi", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 175_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 9, active: true, left_on: null, note: null },
-  { id: "emp_w027", employee_no: "B-027", full_name: "Thohari", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 185_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
-  { id: "emp_w031", employee_no: "B-031", full_name: "Niam", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 135_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
-  { id: "emp_w036", employee_no: "B-036", full_name: "Andi", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 140_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 12, active: true, left_on: null, note: null },
-  { id: "emp_w060", employee_no: "B-060", full_name: "Putra", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 145_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 0, active: true, left_on: null, note: null },
-  { id: "emp_w061", employee_no: "B-061", full_name: "Hendi", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 150_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 9, active: true, left_on: null, note: null },
-  { id: "emp_w072", employee_no: "B-072", full_name: "Deni", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 155_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
-  { id: "emp_w074", employee_no: "B-074", full_name: "Irfan", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 160_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 3, active: true, left_on: null, note: null },
-  { id: "emp_w099", employee_no: "B-099", full_name: "Nur Aisah", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 165_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 12, active: true, left_on: null, note: null },
-  { id: "emp_w106", employee_no: "B-106", full_name: "Muntholib", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 170_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
-  { id: "emp_w109", employee_no: "B-109", full_name: "Sandi", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 175_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 9, active: true, left_on: null, note: null },
-  { id: "emp_w110", employee_no: "B-110", full_name: "Adit", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 185_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
-  { id: "emp_w113", employee_no: "B-113", full_name: "Sumi", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 135_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
-  { id: "emp_w114", employee_no: "B-114", full_name: "Solekhan", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 140_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 12, active: true, left_on: null, note: null },
-  { id: "emp_w116", employee_no: "B-116", full_name: "Rofiati", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 145_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 9, active: true, left_on: null, note: null },
-  { id: "emp_w117", employee_no: "B-117", full_name: "Siti Amsah", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 150_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
-  { id: "emp_w122", employee_no: "B-122", full_name: "Syahrul", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 155_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 0, active: true, left_on: null, note: null },
-  { id: "emp_w125", employee_no: "B-125", full_name: "Khosiun", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 160_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
-  { id: "emp_w126", employee_no: "B-126", full_name: "Radit", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 165_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 12, active: true, left_on: null, note: null },
-  { id: "emp_w127", employee_no: "B-127", full_name: "Muslikatun", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 170_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 3, active: true, left_on: null, note: null },
-  { id: "emp_w128", employee_no: "B-128", full_name: "Yoga", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 175_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 9, active: true, left_on: null, note: null },
-  { id: "emp_w129", employee_no: "B-129", full_name: "Firmansyah", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 185_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
-  { id: "emp_w130", employee_no: "B-130", full_name: "Rondiyah", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 135_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
-  { id: "emp_w131", employee_no: "B-131", full_name: "Fitria", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 140_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 12, active: true, left_on: null, note: null },
-  { id: "emp_w136", employee_no: "B-136", full_name: "Nursih", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 145_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 0, active: true, left_on: null, note: null },
-  { id: "emp_w137", employee_no: "B-137", full_name: "Musamah", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 150_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 9, active: true, left_on: null, note: null },
-  { id: "emp_w138", employee_no: "B-138", full_name: "Painah", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 155_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
+  { id: "emp_01", employee_no: "K-001", full_name: "Evin Jonathan", position: "Direktur", unit: "Leadership", pay_basis: "monthly", base_rate: 24_400_000, allowance_rate: 25_000, daily_hours: 8, joined_on: "2019-02-01", paid_leave_days: 12, active: true, left_on: null, note: null },
+  { id: "emp_02", employee_no: "K-004", full_name: "Putri Handayani", position: "Accounting", unit: "Office", pay_basis: "monthly", base_rate: 6_900_000, allowance_rate: 25_000, daily_hours: 8, joined_on: "2021-06-14", paid_leave_days: 12, active: true, left_on: null, note: null },
+  { id: "emp_03", employee_no: "K-007", full_name: "Anggun Lestari", position: "Finance", unit: "Office", pay_basis: "monthly", base_rate: 6_400_000, allowance_rate: 25_000, daily_hours: 8, joined_on: "2022-01-10", paid_leave_days: 12, active: true, left_on: null, note: null },
+  { id: "emp_04", employee_no: "K-011", full_name: "Andi Prasetyo", position: "Procurement", unit: "Office", pay_basis: "monthly", base_rate: 5_900_000, allowance_rate: 25_000, daily_hours: 8, joined_on: "2022-08-01", paid_leave_days: 12, active: true, left_on: null, note: null },
+  { id: "emp_05", employee_no: "K-014", full_name: "Made Suparta", position: "Kepala Gudang", unit: "Warehouse", pay_basis: "monthly", base_rate: 5_400_000, allowance_rate: 25_000, daily_hours: 8, joined_on: "2020-03-16", paid_leave_days: 12, active: true, left_on: null, note: null },
+  { id: "emp_w006", employee_no: "B-006", full_name: "Sumiati", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 120_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
+  { id: "emp_w009", employee_no: "B-009", full_name: "Karjo", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 125_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 12, active: true, left_on: null, note: null },
+  { id: "emp_w011", employee_no: "B-011", full_name: "Roni", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 130_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 5, active: true, left_on: null, note: "Hak cuti 5 hari, sudah terpakai di bulan Maret." },
+  { id: "emp_w012", employee_no: "B-012", full_name: "Trisno", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 135_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
+  { id: "emp_w015", employee_no: "B-015", full_name: "Pranowo", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 140_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 0, active: true, left_on: null, note: null },
+  { id: "emp_w016", employee_no: "B-016", full_name: "Sakirin", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 145_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
+  { id: "emp_w019", employee_no: "B-019", full_name: "Siti", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 150_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 12, active: true, left_on: null, note: null },
+  { id: "emp_w020", employee_no: "B-020", full_name: "Utami", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 155_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 3, active: true, left_on: null, note: null },
+  { id: "emp_w026", employee_no: "B-026", full_name: "Padi", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 160_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 9, active: true, left_on: null, note: null },
+  { id: "emp_w027", employee_no: "B-027", full_name: "Thohari", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 170_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
+  { id: "emp_w031", employee_no: "B-031", full_name: "Niam", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 120_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
+  { id: "emp_w036", employee_no: "B-036", full_name: "Andi", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 125_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 12, active: true, left_on: null, note: null },
+  { id: "emp_w060", employee_no: "B-060", full_name: "Putra", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 130_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 0, active: true, left_on: null, note: null },
+  { id: "emp_w061", employee_no: "B-061", full_name: "Hendi", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 135_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 9, active: true, left_on: null, note: null },
+  { id: "emp_w072", employee_no: "B-072", full_name: "Deni", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 140_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
+  { id: "emp_w074", employee_no: "B-074", full_name: "Irfan", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 145_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 3, active: true, left_on: null, note: null },
+  { id: "emp_w099", employee_no: "B-099", full_name: "Nur Aisah", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 150_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 12, active: true, left_on: null, note: null },
+  { id: "emp_w106", employee_no: "B-106", full_name: "Muntholib", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 155_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
+  { id: "emp_w109", employee_no: "B-109", full_name: "Sandi", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 160_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 9, active: true, left_on: null, note: null },
+  { id: "emp_w110", employee_no: "B-110", full_name: "Adit", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 170_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
+  { id: "emp_w113", employee_no: "B-113", full_name: "Sumi", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 120_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
+  { id: "emp_w114", employee_no: "B-114", full_name: "Solekhan", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 125_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 12, active: true, left_on: null, note: null },
+  { id: "emp_w116", employee_no: "B-116", full_name: "Rofiati", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 130_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 9, active: true, left_on: null, note: null },
+  { id: "emp_w117", employee_no: "B-117", full_name: "Siti Amsah", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 135_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
+  { id: "emp_w122", employee_no: "B-122", full_name: "Syahrul", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 140_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 0, active: true, left_on: null, note: null },
+  { id: "emp_w125", employee_no: "B-125", full_name: "Khosiun", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 145_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
+  { id: "emp_w126", employee_no: "B-126", full_name: "Radit", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 150_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 12, active: true, left_on: null, note: null },
+  { id: "emp_w127", employee_no: "B-127", full_name: "Muslikatun", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 155_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 3, active: true, left_on: null, note: null },
+  { id: "emp_w128", employee_no: "B-128", full_name: "Yoga", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 160_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 9, active: true, left_on: null, note: null },
+  { id: "emp_w129", employee_no: "B-129", full_name: "Firmansyah", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 170_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
+  { id: "emp_w130", employee_no: "B-130", full_name: "Rondiyah", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 120_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
+  { id: "emp_w131", employee_no: "B-131", full_name: "Fitria", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 125_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 12, active: true, left_on: null, note: null },
+  { id: "emp_w136", employee_no: "B-136", full_name: "Nursih", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 130_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 0, active: true, left_on: null, note: null },
+  { id: "emp_w137", employee_no: "B-137", full_name: "Musamah", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 135_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 9, active: true, left_on: null, note: null },
+  { id: "emp_w138", employee_no: "B-138", full_name: "Painah", position: "Daily worker", unit: "Workshop", pay_basis: "daily", base_rate: 140_000, allowance_rate: 15_000, daily_hours: 8, joined_on: "2024-01-02", paid_leave_days: 6, active: true, left_on: null, note: null },
 ];
 
 /** The machine's own export, unedited. One row per tap. */
@@ -1235,5 +1242,43 @@ export const PAYROLL_ADJUSTMENTS: PayrollAdjustment[] = [
     kind: "carry_over", amount: 85_000,
     reason: "Kekurangan upah periode 24–28 Agustus, satu hari belum terbayar.",
     created_by: "usr_wulan", created_at: "2026-09-07T09:40:00+08:00",
+  },
+];
+
+/** HRD taking one day's tunjangan off one person, with the sentence beside it
+ *  (D250).
+ *
+ *  Three, and they are three different reasons on purpose, because the shape of
+ *  the decision is the thing worth seeding: one WFH day where the work
+ *  happened and the allowance is simply not what WFH earns; one company half
+ *  day, which **earns** the allowance by default because the person was here
+ *  and only HRD's decision takes it away; and one that was withheld and then
+ *  **put back** — the row stays, with who restored it and why, so *kenapa
+ *  tunjangan saya kurang* has an answer either way.
+ *
+ *  The first version of the middle one sat on 2 September, which is a company
+ *  holiday: nobody earns the allowance that day, so the decision did nothing
+ *  and demonstrated nothing. A seeded example that cannot fire is a test that
+ *  passes for the wrong reason.
+ */
+export const ALLOWANCE_WITHHOLDINGS: AllowanceWithholding[] = [
+  {
+    id: "awh_01", employee_id: "emp_02", work_date: "2026-09-03",
+    reason: "WFH — mengurus BPJS di kantor cabang, pekerjaan tetap jalan dari rumah.",
+    by: "usr_wulan", at: "2026-09-04T08:15:00+08:00",
+    restored_by: null, restored_at: null, restored_reason: null,
+  },
+  {
+    id: "awh_02", employee_id: "emp_w012", work_date: "2026-09-04",
+    reason: "Setengah hari kantor, tapi yang bersangkutan tidak ikut acaranya dan pulang duluan.",
+    by: "usr_wulan", at: "2026-09-05T09:00:00+08:00",
+    restored_by: null, restored_at: null, restored_reason: null,
+  },
+  {
+    id: "awh_03", employee_id: "emp_w009", work_date: "2026-09-01",
+    reason: "Tercatat tidak masuk.",
+    by: "usr_wulan", at: "2026-09-02T08:40:00+08:00",
+    restored_by: "usr_wulan", restored_at: "2026-09-02T14:20:00+08:00",
+    restored_reason: "Salah baca — mesin tidak merekam tap pagi, orangnya hadir. Tunjangan dikembalikan.",
   },
 ];

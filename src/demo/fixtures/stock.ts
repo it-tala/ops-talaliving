@@ -65,18 +65,33 @@ const SEEDS: Seed[] = [
   ["stk-26-09-02_01", "ITM-0007", "GUDANG", "receipt", 8, "lembar", null, "rcv-26-09-02_01", "Kiriman campuran, harga per lembar tidak dirinci di PR.", "usr_made", "2026-09-02T15:30:00+08:00"],
 
   /* ── what went out to the floor ────────────────────────────────────── */
-  ["stk-26-09-01_01", "ITM-0007", "GUDANG", "issue", -24, "lembar", null, "spk-26-08-12_01", "Body lemari 6 unit.", "usr_made", "2026-09-01T08:15:00+08:00"],
-  ["stk-26-09-01_02", "ITM-0008", "GUDANG", "issue", -12, "lembar", null, "spk-26-08-12_01", "Backing lemari.", "usr_made", "2026-09-01T08:16:00+08:00"],
-  ["stk-26-09-01_03", "ITM-0024", "GUDANG", "issue", -96, "pcs", null, "spk-26-08-12_01", "Engsel pintu lemari.", "usr_made", "2026-09-01T08:20:00+08:00"],
-  ["stk-26-09-02_02", "ITM-0010", "GUDANG", "issue", -14, "lembar", null, "spk-26-08-12_01", "HPL putih, 6 unit lemari.", "usr_made", "2026-09-02T09:10:00+08:00"],
-  ["stk-26-09-03_01", "ITM-0018", "FINISHING", "issue", -34, "ltr", null, "spk-26-08-05_01", "Pengencer duco meja BABY ISLAND.", "usr_made", "2026-09-03T13:25:00+08:00"],
-  ["stk-26-09-03_02", "ITM-0017", "FINISHING", "issue", -18, "ltr", null, "spk-26-08-05_01", "Duco putih meja.", "usr_made", "2026-09-03T13:26:00+08:00"],
-  ["stk-26-09-03_03", "ITM-0014", "FINISHING", "issue", -68, "lembar", null, "spk-26-08-05_01", "Amplas halus sebelum finishing.", "usr_made", "2026-09-03T13:30:00+08:00"],
-  ["stk-26-09-04_01", "ITM-0013", "FINISHING", "issue", -85, "lembar", null, "spk-26-08-05_01", "Amplas 120 rangka meja.", "usr_made", "2026-09-04T08:05:00+08:00"],
-  ["stk-26-09-04_02", "ITM-0022", "WORKSHOP", "issue", -9, "pack", null, "spk-26-08-12_01", "Lem body lemari.", "usr_made", "2026-09-04T08:20:00+08:00"],
+  /* These referenced `spk-26-08-05_01` and `spk-26-08-12_01` until 2026-09-13
+     — **two work orders that have never existed** (F86). Nothing joined a
+     stock move to a work order until D266, so nine issues and one return
+     pointed at nothing and no screen could say so.
+
+     Repointed at the real orders they describe: the lemari issues to
+     `spk-26-08-28_01` (6 unit) and the meja finishing issues to
+     `spk-26-08-24_01` (4 set). **The quantities are unchanged on purpose.**
+     They were written in M27 as plausible workshop activity, with no BOM to
+     check them against — and now that there is one, the comparison says they
+     do not match: 85 sheets of amplas against a list calling for 32, engsel at
+     96 against 36. That is not a defect of the seed, it is what this business
+     will see on its first day with a BOM behind the rack, and the panel is
+     careful to call it *in progress* rather than *overrun* until the run is
+     actually finished (D266). */
+  ["stk-26-09-01_01", "ITM-0007", "GUDANG", "issue", -24, "lembar", null, "spk-26-08-28_01", "Body lemari 6 unit.", "usr_made", "2026-09-01T08:15:00+08:00"],
+  ["stk-26-09-01_02", "ITM-0008", "GUDANG", "issue", -12, "lembar", null, "spk-26-08-28_01", "Backing lemari.", "usr_made", "2026-09-01T08:16:00+08:00"],
+  ["stk-26-09-01_03", "ITM-0024", "GUDANG", "issue", -96, "pcs", null, "spk-26-08-28_01", "Engsel pintu lemari.", "usr_made", "2026-09-01T08:20:00+08:00"],
+  ["stk-26-09-02_02", "ITM-0010", "GUDANG", "issue", -14, "lembar", null, "spk-26-08-28_01", "HPL putih, 6 unit lemari.", "usr_made", "2026-09-02T09:10:00+08:00"],
+  ["stk-26-09-03_01", "ITM-0018", "FINISHING", "issue", -34, "ltr", null, "spk-26-08-24_01", "Pengencer duco meja BABY ISLAND.", "usr_made", "2026-09-03T13:25:00+08:00"],
+  ["stk-26-09-03_02", "ITM-0017", "FINISHING", "issue", -18, "ltr", null, "spk-26-08-24_01", "Duco putih meja.", "usr_made", "2026-09-03T13:26:00+08:00"],
+  ["stk-26-09-03_03", "ITM-0014", "FINISHING", "issue", -68, "lembar", null, "spk-26-08-24_01", "Amplas halus sebelum finishing.", "usr_made", "2026-09-03T13:30:00+08:00"],
+  ["stk-26-09-04_01", "ITM-0013", "FINISHING", "issue", -85, "lembar", null, "spk-26-08-24_01", "Amplas 120 rangka meja.", "usr_made", "2026-09-04T08:05:00+08:00"],
+  ["stk-26-09-04_02", "ITM-0022", "WORKSHOP", "issue", -9, "pack", null, "spk-26-08-28_01", "Lem body lemari.", "usr_made", "2026-09-04T08:20:00+08:00"],
 
   /* ── what came back ────────────────────────────────────────────────── */
-  ["stk-26-09-04_03", "ITM-0007", "GUDANG", "return", 3, "lembar", null, "spk-26-08-12_01", "Sisa potongan utuh, dikembalikan ke rak.", "usr_made", "2026-09-04T16:40:00+08:00"],
+  ["stk-26-09-04_03", "ITM-0007", "GUDANG", "return", 3, "lembar", null, "spk-26-08-28_01", "Sisa potongan utuh, dikembalikan ke rak.", "usr_made", "2026-09-04T16:40:00+08:00"],
 
   /* ── what a count found ────────────────────────────────────────────── */
   ["stk-26-09-05_01", "ITM-0024", "GUDANG", "adjust", -18, "pcs", null, null, "Opname 5 September: fisik 186, sistem 204. Selisih 18 pcs belum ketemu — dugaan terpakai di perbaikan tanpa dicatat.", "usr_made", "2026-09-05T17:00:00+08:00"],

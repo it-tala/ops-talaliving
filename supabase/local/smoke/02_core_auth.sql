@@ -23,7 +23,7 @@ insert into auth.users (id, email, raw_user_meta_data) values
 do $$
 declare uid uuid;
 begin
-  uid := core.bootstrap_admin('it@talaliving.com');
+  uid := ops_core.bootstrap_admin('it@talaliving.com');
   assert uid = 'aaaaaaaa-0000-0000-0000-000000000001',
          'the bootstrap should name the person it promoted';
 end $$;
@@ -32,7 +32,7 @@ end $$;
 do $$
 begin
   begin
-    perform core.bootstrap_admin('budi@talaliving.com');
+    perform ops_core.bootstrap_admin('budi@talaliving.com');
     assert false, 'the bootstrap must refuse once an administrator exists';
   exception when insufficient_privilege then
     null;  -- correct
@@ -46,14 +46,14 @@ set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000001';
 do $$
 declare r jsonb;
 begin
-  r := core.set_modules('aaaaaaaa-0000-0000-0000-000000000002',
+  r := ops_core.set_modules('aaaaaaaa-0000-0000-0000-000000000002',
     '[{"module":"procurement","level":"write"},{"module":"accounting","level":"read"}]'::jsonb);
-  assert core.said_ok(r), format('IT should be allowed to grant, got %s', r);
+  assert ops_core.said_ok(r), format('IT should be allowed to grant, got %s', r);
   assert jsonb_array_length(r -> 'data' -> 'modules') = 2, 'two grants were asked for';
 
-  r := core.set_authorities('aaaaaaaa-0000-0000-0000-000000000002',
+  r := ops_core.set_authorities('aaaaaaaa-0000-0000-0000-000000000002',
     array['approve_goods']);
-  assert core.said_ok(r), format('IT should be allowed to grant, got %s', r);
+  assert ops_core.said_ok(r), format('IT should be allowed to grant, got %s', r);
   assert r -> 'data' -> 'authorities' = '["approve_goods"]'::jsonb,
          format('expected approve_goods, got %s', r);
 end $$;
@@ -64,7 +64,7 @@ do $$
 declare before_v jsonb; after_v jsonb;
 begin
   select before, after into before_v, after_v
-    from core.audit_log
+    from ops_core.audit_log
    where entity_no = 'budi@talaliving.com' and action = 'modules.set' and outcome = 'ok'
    order by id desc limit 1;
   assert before_v = '[]'::jsonb, format('Budi held nothing before, log says %s', before_v);
@@ -76,7 +76,7 @@ end $$;
 do $$
 declare r jsonb;
 begin
-  r := core.set_authorities('aaaaaaaa-0000-0000-0000-000000000001',
+  r := ops_core.set_authorities('aaaaaaaa-0000-0000-0000-000000000001',
     array['approve_funds']);
   assert r ->> 'outcome' = 'refused',
          format('a person must never grant themselves an authority, got %s', r);
@@ -87,13 +87,13 @@ end $$;
 do $$
 declare n int;
 begin
-  select count(*) into n from core.user_authorities
+  select count(*) into n from ops_core.user_authorities
    where user_id = 'aaaaaaaa-0000-0000-0000-000000000001';
   assert n = 0, 'the refused grant must not have been written';
 
   -- A refusal is recorded, not silent (A7). This is the row that answers
   -- "has anybody been trying?".
-  select count(*) into n from core.audit_log
+  select count(*) into n from ops_core.audit_log
    where action = 'authorities.set' and outcome = 'refused';
   assert n = 1, format('the refusal should be in the trail once, saw %s', n);
 end $$;
@@ -106,7 +106,7 @@ set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000002';
 do $$
 declare r jsonb;
 begin
-  r := core.set_modules('aaaaaaaa-0000-0000-0000-000000000003',
+  r := ops_core.set_modules('aaaaaaaa-0000-0000-0000-000000000003',
     '[{"module":"it","level":"admin"}]'::jsonb);
   assert r ->> 'outcome' = 'refused',
          format('granting without it.manage_roles must refuse, got %s', r);
@@ -116,7 +116,7 @@ end $$;
 do $$
 declare n int;
 begin
-  select count(*) into n from core.user_modules
+  select count(*) into n from ops_core.user_modules
    where user_id = 'aaaaaaaa-0000-0000-0000-000000000003';
   assert n = 0, 'Sari must still hold nothing';
 end $$;
@@ -129,7 +129,7 @@ end $$;
 do $$
 declare perms jsonb; mods jsonb;
 begin
-  select permissions, modules into perms, mods from core.v_my_access;
+  select permissions, modules into perms, mods from ops_core.v_my_access;
 
   assert mods @> '[{"module":"procurement","level":"write"}]'::jsonb,
          format('the grant should be on the session, got %s', mods);
@@ -145,7 +145,7 @@ begin
 
   -- Derived, so it moves when the grant moves. A stored list is one that
   -- disagrees with the rows behind it.
-  assert (select authorities from core.v_my_access) = '["approve_goods"]'::jsonb,
+  assert (select authorities from ops_core.v_my_access) = '["approve_goods"]'::jsonb,
          'the authority list is read from the grant table';
 end $$;
 
@@ -155,10 +155,10 @@ end $$;
 do $$
 declare n int;
 begin
-  select count(*) into n from core.v_user_access;
+  select count(*) into n from ops_core.v_user_access;
   assert n = 0, format('the access directory is it.read; Budi saw %s rows', n);
 
-  select count(*) into n from core.users;
+  select count(*) into n from ops_core.users;
   assert n = 3, format('names stay readable to everybody signed in, saw %s', n);
 end $$;
 
@@ -167,7 +167,7 @@ set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000001';
 do $$
 declare n int;
 begin
-  select count(*) into n from core.v_user_access;
+  select count(*) into n from ops_core.v_user_access;
   assert n = 3, format('IT should see all three, saw %s', n);
 end $$;
 

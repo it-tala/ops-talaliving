@@ -8,6 +8,8 @@ import { NumberInput } from "@/components/ui/number-input";
 import { procurement, production } from "@/demo/api";
 import { Loaded, useLoad } from "@/components/ui/loaded";
 import { useToast } from "@/store/toast";
+import { cn } from "@/lib/cn";
+import { ROUTES, STAGE_NAME, type RouteCode } from "@/services/production/contracts";
 
 /** Putting something on the floor.
  *
@@ -32,6 +34,7 @@ export function NewWorkOrder({
   const [uom, setUom] = useState("unit");
   const [project, setProject] = useState("");
   const [due, setDue] = useState("");
+  const [route, setRoute] = useState<RouteCode>("IN_HOUSE");
   const [busy, setBusy] = useState(false);
 
   async function save() {
@@ -39,7 +42,7 @@ export function NewWorkOrder({
     const res = await production.createWorkOrder({
       product_code: productCode || null,
       item_name: item, description, qty, uom,
-      project_code: project || null, due_date: due,
+      project_code: project || null, due_date: due, route,
     });
     setBusy(false);
     if (res.error) {
@@ -123,6 +126,38 @@ export function NewWorkOrder({
             />
           </div>
         </div>
+        {/* Which stages this order goes through. Chosen, never inferred: a
+            subcontracted order is a different route, not five skipped stages
+            (D254). */}
+        <div>
+          <span className="block text-xs text-slate-500">Cara dikerjakan</span>
+          <div className="mt-1 grid gap-2 sm:grid-cols-2">
+            {ROUTES.map((r) => (
+              <button
+                key={r.code} type="button" onClick={() => setRoute(r.code)}
+                className={cn(
+                  "rounded-lg border px-3 py-2 text-left",
+                  route === r.code
+                    ? "border-brand-400 bg-brand-50/60"
+                    : "border-slate-200 hover:border-slate-300",
+                )}
+              >
+                <span className="block text-[13px] font-medium text-slate-800">{r.name}</span>
+                <span className="block text-[11px] text-slate-500">{r.description}</span>
+                <span className="mt-0.5 block text-[11px] text-slate-400">
+                  {r.stages.map((c) => STAGE_NAME(c)).join(" → ")}
+                </span>
+              </button>
+            ))}
+          </div>
+          {route === "SUBCON" && (
+            <p className="mt-1 text-[11px] text-slate-500">
+              Vendor dan tanggal kirimnya dicatat nanti, di pesanan ini — bukan di sini, karena
+              biasanya belum ditentukan saat SPK dibuat.
+            </p>
+          )}
+        </div>
+
         <Loaded state={projects} skeletonRows={1}>
           {(prjs) => (
             <div>

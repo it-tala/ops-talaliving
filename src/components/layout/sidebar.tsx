@@ -5,11 +5,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronDown, Factory, X } from "lucide-react";
 import { NAV } from "@/lib/nav";
-import { BRAND } from "@/lib/brand";
+import { useBrand } from "@/lib/brand";
+import { useT } from "@/lib/i18n";
+import { MESSAGES } from "@/lib/messages";
 import { useSession } from "@/store/session";
 import { cn } from "@/lib/cn";
 
 export function Sidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClose: () => void }) {
+  const brand = useBrand();
+  const t = useT();
   const pathname = usePathname();
   const { can } = useSession();
 
@@ -29,8 +33,8 @@ export function Sidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClose:
           <Factory className="h-5 w-5" strokeWidth={2.5} />
         </div>
         <div className="min-w-0">
-          <p className="truncate text-sm font-bold tracking-tight text-white">{BRAND.name}</p>
-          <p className="truncate text-[10px] uppercase tracking-wider text-brand-300">{BRAND.tagline}</p>
+          <p className="truncate text-sm font-bold tracking-tight text-white">{brand.name}</p>
+          <p className="truncate text-[10px] uppercase tracking-wider text-brand-300">{brand.tagline}</p>
         </div>
         <button
           onClick={onClose}
@@ -45,7 +49,7 @@ export function Sidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClose:
         {NAV.map((section) => {
           // Item yang tidak diizinkan tidak dirender sama sekali; seksi yang
           // jadi kosong ikut hilang, bukan tampil sebagai judul tanpa isi.
-          const visibleItems = section.items.filter((i) => can(i.permission));
+          const visibleItems = section.items.filter((i) => can(i.permission) || (i.orPermission ? can(i.orPermission) : false));
           if (visibleItems.length === 0) return null;
 
           const isOpen = openSections.includes(section.title);
@@ -62,7 +66,7 @@ export function Sidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClose:
                 )}
               >
                 <SectionIcon className="h-4 w-4 shrink-0" />
-                <span className="flex-1 text-left">{section.title}</span>
+                <span className="flex-1 text-left">{section.titleKey ? t(MESSAGES.nav[section.titleKey]) : section.title}</span>
                 <ChevronDown className={cn("h-4 w-4 transition-transform", isOpen && "rotate-180")} />
               </button>
 
@@ -84,7 +88,7 @@ export function Sidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClose:
                         )}
                       >
                         <ItemIcon className="h-4 w-4 shrink-0" />
-                        <span className="flex-1 truncate">{item.label}</span>
+                        <span className="flex-1 truncate">{item.labelKey ? t(MESSAGES.nav[item.labelKey]) : item.label}</span>
                         {item.badge === "core" && (
                           <span
                             className={cn(
@@ -106,7 +110,7 @@ export function Sidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClose:
       </nav>
 
       <div className="border-t border-white/10 px-5 py-3">
-        <p className="text-[11px] text-brand-300">{BRAND.name}</p>
+        <p className="text-[11px] text-brand-300">{brand.name}</p>
       </div>
     </div>
   );

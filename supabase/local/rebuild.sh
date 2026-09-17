@@ -71,12 +71,12 @@ else
 fi
 
 q -q -c "
-  drop schema if exists inv cascade;
-  drop schema if exists prod cascade;
-  drop schema if exists hr cascade;
-  drop schema if exists acct cascade;
-  drop schema if exists procure cascade;
-  drop schema if exists core cascade;" >/dev/null
+  drop schema if exists ops_inv cascade;
+  drop schema if exists ops_prod cascade;
+  drop schema if exists ops_hr cascade;
+  drop schema if exists ops_acct cascade;
+  drop schema if exists ops_procure cascade;
+  drop schema if exists ops_core cascade;" >/dev/null
 
 if [ "$REAL_SUPABASE" = "0" ]; then
   q -q -v ON_ERROR_STOP=1 -f "$HERE/00_shim.sql" 2>&1 | grep -v NOTICE || true
@@ -99,5 +99,5 @@ done
 q -Atc "
   select table_schema || ': ' || count(*)
     from information_schema.tables
-   where table_schema in ('core','procure','acct','hr','prod','inv')
+   where table_schema in ('ops_core','ops_procure','ops_acct','ops_hr','ops_prod','ops_inv')
    group by table_schema order by 1;"

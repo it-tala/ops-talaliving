@@ -1,15 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, Scale, TreePine } from "lucide-react";
+import { AlertTriangle, Scale, TreePine, Layers, History, FileSearch } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { usePaged } from "@/components/ui/pager";
 import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
-import { inventory } from "@/demo/api";
+import { inventory, procurement } from "@/demo/api";
 import { LOG_MEASURE_LABEL } from "@/services/inventory/contracts";
 import { LogPurchaseDrawer } from "./LogPurchaseDrawer";
+import { BoardStock } from "./BoardStock";
+import { BoardUsage } from "./BoardUsage";
+import { NotaImport } from "./NotaImport";
 
 /** Timber: what came in as logs, what came out as boards, and what the wood
  *  actually costs.
@@ -24,8 +27,20 @@ import { LogPurchaseDrawer } from "./LogPurchaseDrawer";
  *  So the vendor table is sorted by **rupiah per cubic metre of board**, and
  *  the invoice price sits beside it as the number that misleads.
  */
+type Tab = "beli" | "rak" | "pakai";
+
+const TABS: { id: Tab; label: string; icon: typeof Scale }[] = [
+  { id: "beli", label: "Pembelian & kubikasi", icon: Scale },
+  { id: "rak", label: "Stok papan", icon: Layers },
+  { id: "pakai", label: "Pemakaian", icon: History },
+];
+
 export default function TimberPage() {
+  const [tab, setTab] = useState<Tab>("beli");
+  const [bump, setBump] = useState(0);
+  const [adding, setAdding] = useState(false);
   const [purchases, reload] = useLoad(() => inventory.listLogPurchases(), []);
+  const [vendorList] = useLoad(() => procurement.listVendors(), []);
   const [vendors, reloadVendors] = useLoad(() => inventory.timberByVendor(), []);
   const [open, setOpen] = useState<string | null>(null);
   /* Pembelian log bertambah terus; daftarnya dipaginasi (D157). */
@@ -38,9 +53,43 @@ export default function TimberPage() {
     <div>
       <PageHeader
         breadcrumb="Inventory"
-        title="Kayu log &amp; kubikasi"
-        description="Dari log ke papan: kubikasi masuk, kubikasi keluar, rendemen, dan harga per m³ kayu yang benar-benar bisa dipakai."
+        title="Kayu"
+        description="Satu modul untuk tiga hal: kubikasi lawan harga, isi rak papan, dan ke mana papannya pergi. Log dan papan tidak lagi dipisah — mereka kayu yang sama, sebelum dan sesudah gergaji."
+        actions={
+          <Button size="sm" variant={adding ? "primary" : "outline"} icon={FileSearch} onClick={() => setAdding(!adding)}>
+            {adding ? "Tutup" : "Kiriman dari nota"}
+          </Button>
+        }
       />
+
+      {adding && (
+        <div className="mb-4">
+          <NotaImport
+            vendors={vendorList.status === "ready"
+              ? vendorList.data.map((v) => ({ id: v.id, name: v.name }))
+              : []}
+            onCreated={() => { setAdding(false); reload(); reloadVendors(); setBump((n) => n + 1); }}
+          />
+        </div>
+      )}
+
+      <div className="mb-4 flex flex-wrap gap-1.5">
+        {TABS.map((t) => (
+          <Button
+            key={t.id} size="sm" icon={t.icon}
+            variant={tab === t.id ? "primary" : "outline"}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+          </Button>
+        ))}
+      </div>
+
+      {tab === "rak" && <BoardStock onUsed={() => setBump((n) => n + 1)} />}
+      {tab === "pakai" && <BoardUsage reloadKey={bump} />}
+
+      {tab === "beli" && (
+      <>
 
       <Loaded state={vendors} onRetry={reloadVendors}>
         {(rows) => {
@@ -203,6 +252,9 @@ export default function TimberPage() {
           </Card>
         )}
       </Loaded>
+
+      </>
+      )}
 
       {open && (
         <LogPurchaseDrawer

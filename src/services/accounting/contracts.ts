@@ -131,6 +131,115 @@ export interface PaymentAllocation {
   allocated_at: string;
 }
 
+/* ── What one document is holding up ──────────────────────────────────────
+ *
+ *  Verification is not one document, one row. Three shapes are ordinary here
+ *  and all three break the assumption (owner):
+ *
+ *  1. **One document, several transactions.** A nota covering a delivery that
+ *     was paid in two goes. Already possible — `attachment_links` is
+ *     many-to-many from the start — but never *shown*, which is the same as
+ *     not existing to the person deciding.
+ *
+ *  2. **One transfer proof, several purchases.** One screenshot of a transfer
+ *     settling four request lines at once. The arithmetic that matters is the
+ *     gap: the transfer says Rp 5.000.000 and the rows under it add to
+ *     Rp 4.200.000, and the Rp 800.000 has to be somewhere.
+ *
+ *  3. **One purchase paid twice — part cash, part transfer.** Two ledger rows
+ *     on two different accounts, both allocating to the same request line.
+ *     The ledger is right to hold two rows; what was missing is a screen that
+ *     shows them as one payment (D206).
+ *
+ *  None of these needed a model change. All three needed to be visible before
+ *  somebody books the same nota a second time.
+ */
+
+/** One ledger row a document stands as evidence for. */
+export interface CoverageTransaction {
+  trx_no: string;
+  trx_date: string;
+  account_code: string;
+  account_name: string;
+  direction: Direction;
+  amount_idr: number;
+  status: TrxStatus;
+  description: string;
+  /** How many other documents also stand behind this row. More than one is
+   *  normal — a nota and its transfer proof. */
+  other_documents: number;
+}
+
+/** One payment against one request line, from one transaction. Several of
+ *  these on one line **is** the split payment. */
+export interface CoveragePayment {
+  trx_no: string;
+  account_code: string;
+  method: AllocMethod;
+  amount: number;
+  /** True when this transaction is one of the ones the document covers — the
+   *  other half of a split may have been paid against a document filed
+   *  elsewhere, and saying so is the point. */
+  from_this_document: boolean;
+}
+
+/** One request line the document reaches, through the transactions on it. */
+export interface CoverageLine {
+  line_no_full: string;
+  description: string;
+  approved: number;
+  covered: number;
+  remaining: number;
+  settled: boolean;
+  payments: CoveragePayment[];
+}
+
+export interface DocumentCoverage {
+  attachment_id: string;
+  /** What the document itself says it is worth, when anybody has read it.
+   *  Null is a real answer and the screen says so rather than assuming zero. */
+  document_amount: number | null;
+  transactions: CoverageTransaction[];
+  lines: CoverageLine[];
+  /** The ledger rows this document stands behind, added up. */
+  covered_total: number;
+  /** `document_amount − covered_total`. **Null when the document's own value
+   *  was never read** — a gap computed against an unknown is not a gap, it is
+   *  the whole amount dressed as one. */
+  gap: number | null;
+  /** More than one ledger row leans on this one piece of paper. Not a problem;
+   *  a thing to know before booking it again. */
+  shared: boolean;
+}
+
+/** The same three questions asked from the other end — of a ledger row you
+ *  are about to attach a document to.
+ *
+ *  This is where the check actually bites. A document sitting in the queue is
+ *  attached to nothing yet, so its own coverage is empty and tells nobody
+ *  anything. What decides whether *link* is the right road is the state of the
+ *  **row being linked to**: what paper it already has, what it already pays,
+ *  and whether it is already fully proven (D207).
+ */
+export interface TransactionCoverage {
+  trx_no: string;
+  amount_idr: number;
+  status: TrxStatus;
+  account_code: string;
+  description: string;
+  /** Paper already standing behind this row. Two is ordinary — a nota and a
+   *  transfer proof — and a third is worth a second look. */
+  documents: { attachment_id: string; filename: string; kind: string }[];
+  /** Every request line and order this row was allocated to, with the method.
+   *  One transfer across four purchases is this list with four entries. */
+  allocations: { target: string; kind: "line" | "po"; amount: number; method: AllocMethod }[];
+  /** Allocated out of `amount_idr`; the remainder is money on this row that is
+   *  not yet pointed at anything. */
+  allocated_total: number;
+  unallocated: number;
+  lines: CoverageLine[];
+}
+
 export interface EvidenceInboxRow {
   id: string;
   ref_id: string;
@@ -435,6 +544,10 @@ export interface FundingSpendRow {
   decided: boolean;
   /** Whether this kind of spending is expected to carry one at all (D83). */
   expects_link: boolean;
+  /** Money that left with nothing approved behind it, **above the limit the
+   *  owner set** (D231). Below the limit the row is still undecided and still
+   *  listed — the limit changes what is worth chasing, not what is true. */
+  over_no_approval_limit: boolean;
   status: TrxStatus;
 }
 
@@ -491,6 +604,19 @@ export interface CashComponent {
   type_code: TransactionTypeCode | null;
   vendor_id: string | null;
   account_id: string | null;
+  /** The statutory schemes this line pays — **a list**, because one BPJS
+   *  Ketenagakerjaan invoice covers JHT, JP, JKK and JKM at once (D259).
+   *  Modelling it as one scheme made the other three read *no cash line tied to
+   *  this scheme* while their money was plainly going out on the line next to
+   *  them.
+   *
+   *  It is what lets accounting hold **the roll of names against the money**:
+   *  the expected figure comes from HR's enrolment register, the paid figure
+   *  from this line's own actuals, and the two screens cannot disagree about
+   *  what was paid because there is one calculation seen twice (D228). A
+   *  public code, resolved at the seam — accounting does not reach into HR's
+   *  tables (ADR-004). */
+  scheme_codes: string[];
   /** `YYYY-MM`, inclusive. `ends_on` null means it keeps going. */
   starts_on: string;
   ends_on: string | null;
@@ -663,3 +789,74 @@ export interface CashMonthDetail {
 /** One bill about to fall due — the reminder half of the calendar. Built from
  *  the same events as the month expansion, so the two cannot drift (D116). */
 export type CashDue = CashEvent & { days_away: number };
+
+
+/* ── The month's bills, as a worklist ────────────────────────────────────
+ *
+ *  The cash calendar is twelve months wide and it belongs to leadership: it
+ *  answers *when does the money run out*. Accounting opening it has to walk
+ *  the whole grid to find the only question they have — **what do I have to
+ *  pay this month, and what have I already paid** (owner, D227).
+ *
+ *  Same components, same events, same arithmetic as the calendar. Nothing new
+ *  is computed: a second figure for the same obligation is a figure that will
+ *  disagree with the first one within a month. What changes is the shape — one
+ *  month, in date order, with what is done separated from what is not.
+ */
+export interface MonthlyBill {
+  component_id: string;
+  name: string;
+  date: string;
+  direction: Direction;
+  planned: number;
+  actual: number;
+  /** `planned − actual`, floored at zero. What is still to go out. */
+  outstanding: number;
+  state: CashCellState;
+  /** Negative once the date has passed. */
+  days_away: number;
+  vendor_name: string | null;
+  account_code: AccountCode | null;
+  trx_nos: string[];
+  /** How the payment was recognised — a link somebody made, or a category
+   *  match the system inferred. Worth showing: an inferred match is a guess
+   *  that happens to be right most of the time. */
+  matched_by: "linked" | "category" | null;
+  reason: string | null;
+  /** What this **line** amounts to across the whole month, and how many rows
+   *  it has here. The comparison below is against these, not against this one
+   *  row: a weekly payday is one fifth of a payroll, and measuring it against
+   *  last month's whole payroll reports −80% five times a month for nothing
+   *  (F68). One rule decides both months — a month that has ended is worth
+   *  what it cost, a month still running is worth what it is expected to
+   *  cost — so the two sides of every percentage are the same kind of
+   *  number. */
+  month_total: number;
+  occurrences: number;
+  /** The same figure for the previous month, and by how much this one differs.
+   *  **Null when there was no such line last month** — a first occurrence is
+   *  not a hundred-per-cent increase (D228). */
+  last_month: number | null;
+  delta: number | null;
+  delta_percent: number | null;
+  /** Set when the difference is large enough to be worth a look. Never blocks,
+   *  and the threshold is a setting rather than a number in the code. */
+  unusual: boolean;
+}
+
+export interface MonthlyBills {
+  month: string;
+  label: string;
+  bills: MonthlyBill[];
+  /** Out only — what leaves. The `IN` lines are shown but excluded from the
+   *  totals, because *what must I pay* is not answered by money arriving. */
+  total_planned: number;
+  total_paid: number;
+  total_outstanding: number;
+  overdue_count: number;
+  overdue_amount: number;
+  due_this_week: number;
+  unusual_count: number;
+  /** The same month a year of components ago, for the header comparison. */
+  last_month_total: number | null;
+}

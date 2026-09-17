@@ -1,14 +1,17 @@
 /** Implements `/api/v1/production` from `03-api.md`. */
-import { refused, ok, invalid, notFound, type Result } from "@/services/_shared/envelope";
+import { refused, ok, invalid, notFound, noop, type Result } from "@/services/_shared/envelope";
 import {
-  PROCESS_STAGES, DESIGN_KIND_LABEL,
+  PROCESS_STAGES, RETIRED_STAGES, DESIGN_KIND_LABEL, ROUTE, STAGE_NAME, goodsOnSite,
   type WorkOrder, type WorkOrderView, type ProgressEntry, type ProductView,
-  type DesignKind, type DesignTaskView,
+  type DesignKind, type DesignTaskView, type RouteCode, type BomExplosion,
+  type WorkAttribution,
 } from "@/services/production/contracts";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
 import {
   workOrderView, workOrderViews, productView, productViews,
+  currentBomRev, draftBomRev, bomAt, bomDiff, bomRevisions, bomRepinnable, explodeBom, bomWouldCycle,
   designQueue, designTaskView, designGaps, officeToday,
+  unresolvedNames, workAttribution, type UnresolvedName,
 } from "../production-derive";
 import {
   latency, actingUser, requireModule, requireAuthority, conflict, replayed, remember,
@@ -54,6 +57,10 @@ export async function createWorkOrder(
     uom: string;
     project_code?: string | null;
     due_date: string;
+    /** Which stages this order goes through (D254). Defaults to in-house,
+     *  which is what most orders are; a subcontracted one is chosen, never
+     *  inferred. */
+    route?: RouteCode;
     note?: string | null;
   },
   idempotencyKey?: string,
@@ -80,18 +87,36 @@ export async function createWorkOrder(
   }
 
   const user = actingUser();
+  const productCode = input.product_code?.trim().toUpperCase() || null;
+  if (productCode && !getState().products.some((p) => p.product_code === productCode)) {
+    return invalid(
+      SERVICE, "product_not_found",
+      `Tidak ada produk ${productCode} di katalog. Kosongkan kalau ini barang sekali buat.`,
+      { field: "product_code" },
+    );
+  }
   let woNo = "";
   apply((draft) => {
     woNo = nextDocNumber(draft, "spk");
     draft.work_orders.push({
       id: newId("wo"), wo_no: woNo,
-      product_code: input.product_code?.trim().toUpperCase() || null,
+      product_code: productCode,
       item_name: input.item_name.trim(),
       description: input.description?.trim() || null,
       qty: input.qty,
       uom: input.uom.trim() || "unit",
       project_code: input.project_code?.trim() || null,
       due_date: input.due_date,
+      /* The BOM this order is written against, pinned **now** (D256). Null
+         where the product has no released revision — and null means exactly
+         that, never "whatever the current one turns out to be". */
+      bom_rev: productCode
+        ? currentBomRev(draft, draft.products.find((p) => p.product_code === productCode)!)
+        : null,
+      route: input.route ?? "IN_HOUSE",
+      subcon_vendor_id: null,
+      subcon_sent_on: null, subcon_expected_back: null, subcon_returned_on: null,
+      subcon_note: null,
       status: "OPEN",
       created_at: new Date().toISOString(), created_by: user.id,
       cancelled_reason: null,
@@ -100,12 +125,134 @@ export async function createWorkOrder(
     writeAudit(draft, {
       service: SERVICE, entity: "work_order", entity_no: woNo,
       action: "create", outcome: "ok", reason: null,
-      detail: { item: input.item_name.trim(), qty: input.qty, due: input.due_date, by: user.email },
+      detail: { item: input.item_name.trim(), qty: input.qty, due: input.due_date, route: input.route ?? "IN_HOUSE", by: user.email },
     });
   });
   const view = await getWorkOrder(woNo);
   if (view.data) remember(SERVICE, "createWorkOrder", idempotencyKey, view.data);
   return view;
+}
+
+/** Sending a subcontracted order out, and taking it back (D254).
+ *
+ *  Two acts, two dates, no status field. *Di vendor* is `sent && !returned`,
+ *  derived on read like every other state here — a stored flag is one somebody
+ *  forgets to move while the lorry is still on the road.
+ *
+ *  `expected_back` is the **vendor's promise**, the same shape as a purchase
+ *  order's expected delivery (D234) and marked as a promise wherever it is
+ *  printed. What it buys is the thing a subcontracted order otherwise has no
+ *  way to say: *this is late, and it is not the workshop that is late*.
+ */
+export async function sendToSubcon(
+  input: { wo_no: string; vendor_id: string; expected_back?: string | null; note?: string | null },
+  idempotencyKey?: string,
+): Promise<Result<WorkOrderView>> {
+  await latency();
+  const cached = replayed<WorkOrderView>(SERVICE, "sendToSubcon", idempotencyKey);
+  if (cached) return cached;
+
+  const denied = requireModule(SERVICE, "production");
+  if (denied) return denied;
+
+  const state = getState();
+  const wo = state.work_orders.find((w) => w.wo_no === input.wo_no);
+  if (!wo) return notFound(SERVICE, "wo_not_found", `No work order ${input.wo_no}.`);
+  if (wo.route !== "SUBCON") {
+    return invalid(
+      SERVICE, "not_a_subcon_order",
+      `${wo.wo_no} dikerjakan sendiri. Kalau memang dilempar ke vendor, rutenya yang diubah dulu — bukan tanggal kirimnya yang ditambahkan ke pesanan yang bilang dibuat di sini.`,
+      { field: "route" },
+    );
+  }
+  if (wo.status !== "OPEN") {
+    return conflict(SERVICE, "wo_not_open", `${wo.wo_no} is ${wo.status}.`);
+  }
+  if (wo.subcon_sent_on && !wo.subcon_returned_on) {
+    return conflict(
+      SERVICE, "already_at_vendor",
+      `${wo.wo_no} sudah di vendor sejak ${wo.subcon_sent_on}.`,
+    );
+  }
+  /* Validated at the seam, by public id, never by reaching into another
+     service's tables (ADR-004). */
+  const vendor = state.vendors.find((v) => v.id === input.vendor_id);
+  if (!vendor) {
+    return invalid(SERVICE, "vendor_not_found", `No vendor ${input.vendor_id}.`, { field: "vendor_id" });
+  }
+
+  const user = actingUser();
+  apply((draft) => {
+    const row = draft.work_orders.find((w) => w.wo_no === input.wo_no);
+    if (!row) return;
+    row.subcon_vendor_id = input.vendor_id;
+    row.subcon_sent_on = officeToday();
+    row.subcon_expected_back = input.expected_back || null;
+    /* A second trip clears the first return, and keeps the note. */
+    row.subcon_returned_on = null;
+    row.subcon_note = input.note?.trim() || row.subcon_note;
+    writeAudit(draft, {
+      service: SERVICE, entity: "work_order", entity_no: row.wo_no,
+      action: "send_to_subcon", outcome: "ok", reason: input.note?.trim() || null,
+      detail: { vendor: vendor.name, expected_back: row.subcon_expected_back, by: user.email },
+    });
+  });
+  const view = await getWorkOrder(input.wo_no);
+  if (view.data) remember(SERVICE, "sendToSubcon", idempotencyKey, view.data);
+  return view;
+}
+
+/** The goods are back in the building, and the stages on the route open up. */
+export async function receiveFromSubcon(
+  input: { wo_no: string; returned_on?: string; note?: string | null },
+): Promise<Result<WorkOrderView>> {
+  await latency();
+  const denied = requireModule(SERVICE, "production");
+  if (denied) return denied;
+
+  const state = getState();
+  const wo = state.work_orders.find((w) => w.wo_no === input.wo_no);
+  if (!wo) return notFound(SERVICE, "wo_not_found", `No work order ${input.wo_no}.`);
+  if (wo.route !== "SUBCON" || !wo.subcon_sent_on) {
+    return conflict(
+      SERVICE, "never_sent",
+      `${wo.wo_no} tidak pernah dikirim ke vendor, jadi tidak ada yang kembali.`,
+    );
+  }
+  if (wo.subcon_returned_on) {
+    /* Already back. Nothing to do, and nothing wrong — the answer is the
+       order as it stands, marked `noop`. */
+    return noop(SERVICE, workOrderView(state, wo));
+  }
+  const returned = input.returned_on || officeToday();
+  if (returned < wo.subcon_sent_on) {
+    return invalid(
+      SERVICE, "returned_before_sent",
+      `Tanggal kembali ${returned} lebih awal dari tanggal kirim ${wo.subcon_sent_on}.`,
+      { field: "returned_on" },
+    );
+  }
+
+  const user = actingUser();
+  apply((draft) => {
+    const row = draft.work_orders.find((w) => w.wo_no === input.wo_no);
+    if (!row) return;
+    row.subcon_returned_on = returned;
+    if (input.note?.trim()) row.subcon_note = input.note.trim();
+    writeAudit(draft, {
+      service: SERVICE, entity: "work_order", entity_no: row.wo_no,
+      action: "receive_from_subcon", outcome: "ok", reason: input.note?.trim() || null,
+      detail: {
+        returned_on: returned,
+        promised: row.subcon_expected_back,
+        late_days: row.subcon_expected_back && returned > row.subcon_expected_back
+          ? Math.round((Date.parse(`${returned}T00:00:00+08:00`) - Date.parse(`${row.subcon_expected_back}T00:00:00+08:00`)) / 86_400_000)
+          : 0,
+        by: user.email,
+      },
+    });
+  });
+  return getWorkOrder(input.wo_no);
 }
 
 /** Reporting work done.
@@ -127,6 +274,11 @@ export async function recordProgress(
     qty: number;
     work_date: string;
     worked_by?: string | null;
+    /** Optional, and deliberately so (D264): a subcontractor is a legitimate
+     *  answer to *who did it*, so the link may be absent. What it may not be is
+     *  a guess — the form offers a picker, the picker fills the name, and a
+     *  name typed by hand is left unlinked for somebody to resolve. */
+    worked_by_employee_id?: string | null;
     note?: string | null;
     source?: "manual" | "overtime_sheet";
     source_ref?: string | null;
@@ -151,10 +303,65 @@ export async function recordProgress(
   const wo = state.work_orders.find((w) => w.wo_no === input.wo_no);
   if (!wo) return notFound(SERVICE, "wo_not_found", `No work order ${input.wo_no}.`);
   if (!PROCESS_STAGES.some((s) => s.code === input.stage)) {
-    return invalid(SERVICE, "unknown_stage", `No stage called ${input.stage}.`, { field: "stage" });
+    /* Retired stages get their own sentence. `POTONG` is not a typo — it is a
+       step this business had until it started buying rough pieces in (D275),
+       and somebody typing it is describing work that used to happen here. The
+       message says that rather than "no such stage", because the two send a
+       person to different places. */
+    const retired = RETIRED_STAGES.find((r) => r.code === input.stage);
+    return invalid(
+      SERVICE, "unknown_stage",
+      retired
+        ? `${retired.name} bukan lagi tahap di sini — barang mentah sekarang dibeli jadi, jadi yang dicatat di bengkel mulai dari ${STAGE_NAME(PROCESS_STAGES[0].code)}. Catatan lama dengan tahap ini tetap tersimpan.`
+        : `No stage called ${input.stage}.`,
+      { field: "stage", retired: !!retired },
+    );
+  }
+  /* A stage this order's route does not contain (D254).
+   *
+   *  **Currently unreachable, and kept anyway.** Since D275 both routes carry
+   *  the same four stages — what separates a subcontracted order is who held
+   *  the piece, not which steps it passes — so nothing can be in the catalogue
+   *  and off a route at the same time. The guard stays because a guard deleted
+   *  for being unreachable is a guard nobody reinstates when the routes
+   *  diverge again, and W6 is likely to diverge them. */
+  const route = ROUTE(wo.route);
+  if (!route.stages.includes(input.stage)) {
+    return invalid(
+      SERVICE, "stage_not_on_route",
+      `${wo.wo_no} berjalan lewat rute "${route.name}" — tahap ${STAGE_NAME(input.stage)} tidak ada di rute itu. Tahapnya: ${route.stages.map(STAGE_NAME).join(" → ")}.`,
+      { field: "stage", route: wo.route, stages: route.stages },
+    );
+  }
+  /* Work reported on goods that are physically at the vendor.
+   *
+   *  Refused, not warned, and this is the line where warn-don't-block stops:
+   *  every other refusal here is about a number that cannot be true, and this
+   *  one is about a **place**. Nobody sanded eight window frames that are in
+   *  somebody else's workshop. The fix is one click and the refusal names it,
+   *  so nothing goes unrecorded — the work simply gets recorded after the fact
+   *  it depends on (D255). */
+  if (!goodsOnSite(wo)) {
+    return wo.subcon_sent_on
+      ? conflict(
+        SERVICE, "still_at_vendor",
+        `${wo.wo_no} masih di vendor sejak ${wo.subcon_sent_on} — barangnya belum ada di bengkel, jadi tahap ${STAGE_NAME(input.stage)} belum bisa dikerjakan. Catat dulu barangnya kembali, baru laporkan pekerjaannya.`,
+      )
+      : conflict(
+        SERVICE, "not_sent_yet",
+        `${wo.wo_no} dibuat vendor dan belum pernah dikirim ke sana. Barangnya belum ada.`,
+      );
   }
   if (!input.qty) {
     return invalid(SERVICE, "qty_required", "Nothing to report.", { field: "qty" });
+  }
+  if (input.worked_by_employee_id
+    && !state.employees.some((emp) => emp.id === input.worked_by_employee_id)) {
+    return invalid(
+      SERVICE, "employee_not_found",
+      "Karyawan yang dipilih tidak ada di data kepegawaian.",
+      { field: "worked_by_employee_id" },
+    );
   }
   if (input.qty < 0 && !input.note?.trim()) {
     return invalid(
@@ -203,6 +410,8 @@ export async function recordProgress(
       id: newId("prg"), wo_id: wo.id, stage: input.stage, qty: input.qty,
       work_date: input.work_date,
       worked_by: input.worked_by?.trim() || null,
+      worked_by_employee_id: input.worked_by_employee_id || null,
+      worked_by_not_a_person: false,
       source: input.source ?? "manual",
       source_ref: input.source_ref ?? null,
       note: input.note?.trim() || null,
@@ -368,6 +577,7 @@ export async function saveProduct(
         height_mm: input.height_mm ?? null,
         dimension_note: input.dimension_note?.trim() || null,
         lead_time_days: input.lead_time_days ?? null,
+        labour_cost: null, labour_note: null,
         active: input.active ?? true,
         note: input.note?.trim() || null,
       });
@@ -411,6 +621,14 @@ export async function saveBomComponent(
   const product = state.products.find((p) => p.product_code === input.product_code);
   if (!product) return notFound(SERVICE, "product_not_found", `No product ${input.product_code}.`);
 
+  /* Edits land on the **draft**, and there is never more than one (D256). If
+     none is open, this call opens it — copying the current released revision,
+     so editing starts from what is actually being built rather than from
+     nothing. The copy is what keeps the released lines frozen: a draft that
+     pointed back at them would edit a released revision by the back door. */
+  const draftRev = draftBomRev(state, product);
+  const targetRev = draftRev ?? (currentBomRev(state, product) ?? 0) + 1;
+
   const ref = input.ref_code.trim().toUpperCase();
   if (!ref) {
     return invalid(SERVICE, "ref_required", "Komponennya apa?", { field: "ref_code" });
@@ -418,15 +636,24 @@ export async function saveBomComponent(
   if (!input.qty || input.qty <= 0) {
     return invalid(SERVICE, "qty_required", "Jumlah per unit harus lebih dari nol.", { field: "qty" });
   }
-  if (input.kind === "product" && ref === product.product_code) {
-    return invalid(
-      SERVICE, "self_reference",
-      "Sebuah produk tidak bisa menjadi komponen dirinya sendiri.",
-      { field: "ref_code" },
-    );
+  if (input.kind === "product") {
+    /* Not just *itself* — anywhere in the loop (D257). A contains B and B
+       contains A is a cycle nobody typed in one place, and neither edit looks
+       wrong on its own. The message names where the loop closes, because
+       *invalid BOM* is not something anybody can act on. */
+    const loop = bomWouldCycle(state, product, ref);
+    if (loop) {
+      return invalid(
+        SERVICE, "bom_cycle",
+        loop.length === 2
+          ? "Sebuah produk tidak bisa menjadi komponen dirinya sendiri."
+          : `Ini membuat lingkaran: ${loop.join(" → ")}. Sebuah rakitan yang memuat dirinya sendiri tidak punya kebutuhan bahan yang terhingga.`,
+        { field: "ref_code", cycle: loop },
+      );
+    }
   }
-  const dup = state.bom_components.find(
-    (b) => b.product_id === product.id && b.ref_code === ref && b.id !== input.component_id,
+  const dup = bomAt(state, product, targetRev).find(
+    (b) => b.ref_code === ref && b.id !== input.component_id,
   );
   if (dup) {
     return conflict(
@@ -435,8 +662,41 @@ export async function saveBomComponent(
     );
   }
 
+  /* Editing a line that belongs to a released revision. Refused rather than
+     silently redirected: somebody who opened rev 1 and typed into it means to
+     change rev 1, and quietly writing their edit into rev 2 would be worse
+     than saying no. The message names the way forward. */
+  if (input.component_id) {
+    const existing = state.bom_components.find((b) => b.id === input.component_id);
+    if (existing && existing.rev !== targetRev) {
+      return conflict(
+        SERVICE, "revision_released",
+        `Baris itu milik rev ${existing.rev}, yang sudah dirilis dan tidak bisa diubah lagi — pesanan kerja yang dibuat dengan rev itu harus tetap terbaca seperti apa adanya. Perubahannya masuk ke rev ${targetRev}.`,
+      );
+    }
+  }
+
   const user = actingUser();
+  const openingDraft = draftRev === null;
   apply((draft) => {
+    if (openingDraft) {
+      /* A copy of the released revision, then the edit on top. */
+      draft.bom_revisions.push({
+        id: newId("bmr"), product_id: product.id, rev: targetRev,
+        released_at: null, released_by: null, note: null,
+        created_at: new Date().toISOString(), created_by: user.id,
+      });
+      for (const b of draft.bom_components.filter(
+        (x) => x.product_id === product.id && x.rev === targetRev - 1,
+      )) {
+        draft.bom_components.push({ ...b, id: newId("bom"), rev: targetRev });
+      }
+      writeAudit(draft, {
+        service: SERVICE, entity: "bom", entity_no: product.product_code,
+        action: "open_draft", outcome: "ok", reason: null,
+        detail: { rev: targetRev, copied_from: targetRev - 1, by: user.email },
+      });
+    }
     const row = input.component_id
       ? draft.bom_components.find((b) => b.id === input.component_id)
       : null;
@@ -449,7 +709,7 @@ export async function saveBomComponent(
       });
     } else {
       draft.bom_components.push({
-        id: newId("bom"), product_id: product.id,
+        id: newId("bom"), product_id: product.id, rev: targetRev,
         kind: input.kind, ref_code: ref, qty: input.qty,
         uom: input.uom.trim() || "pcs",
         waste_percent: input.waste_percent ?? 0,
@@ -460,7 +720,7 @@ export async function saveBomComponent(
       service: SERVICE, entity: "bom", entity_no: product.product_code,
       action: row ? "update_component" : "add_component", outcome: "ok",
       reason: input.note?.trim() ?? null,
-      detail: { ref: ref, qty: input.qty, waste: input.waste_percent ?? 0, by: user.email },
+      detail: { rev: targetRev, ref: ref, qty: input.qty, waste: input.waste_percent ?? 0, by: user.email },
     });
   });
   return getProduct(product.product_code);
@@ -482,6 +742,15 @@ export async function removeBomComponent(
   const row = state.bom_components.find((b) => b.id === input.component_id);
   if (!row) return notFound(SERVICE, "component_not_found", "Komponen itu tidak ada.");
 
+  const draftRev = draftBomRev(state, product);
+  const targetRev = draftRev ?? (currentBomRev(state, product) ?? 0) + 1;
+  if (row.rev !== targetRev) {
+    return conflict(
+      SERVICE, "revision_released",
+      `Baris itu milik rev ${row.rev}, yang sudah dirilis. Buka rev ${targetRev} dan hapus di sana — yang lama harus tetap seperti waktu dipakai.`,
+    );
+  }
+
   const user = actingUser();
   apply((draft) => {
     draft.bom_components = draft.bom_components.filter((b) => b.id !== input.component_id);
@@ -494,6 +763,185 @@ export async function removeBomComponent(
   return getProduct(product.product_code);
 }
 
+/** Freezing a draft revision (D256).
+ *
+ *  After this the lines cannot be touched, and that is the whole point: a work
+ *  order pinned to rev 2 must read in June exactly as it read in March. The
+ *  next edit opens rev 3 as a copy.
+ *
+ *  Two refusals, both about a revision that would be noise in a history
+ *  somebody later has to read: an **empty** one, and an **identical** one.
+ */
+export async function releaseBom(
+  input: { product_code: string; note: string },
+  idempotencyKey?: string,
+): Promise<Result<ProductView>> {
+  await latency();
+  const cached = replayed<ProductView>(SERVICE, "releaseBom", idempotencyKey);
+  if (cached) return cached;
+
+  const denied = requireModule(SERVICE, "production");
+  if (denied) return denied;
+
+  const state = getState();
+  const product = state.products.find((p) => p.product_code === input.product_code);
+  if (!product) return notFound(SERVICE, "product_not_found", `No product ${input.product_code}.`);
+
+  const rev = draftBomRev(state, product);
+  if (rev === null) {
+    return conflict(
+      SERVICE, "no_draft",
+      `BOM ${product.product_code} tidak punya draft yang terbuka. Ubah satu komponen dan drafnya terbuka sendiri.`,
+    );
+  }
+  if (!input.note.trim()) {
+    return invalid(
+      SERVICE, "note_required",
+      "Kenapa versi ini ada? *Rev 3* tanpa satu kalimat pun adalah angka yang nanti harus ditebak orang dari selisihnya.",
+      { field: "note" },
+    );
+  }
+  if (bomAt(state, product, rev).length === 0) {
+    return invalid(
+      SERVICE, "empty_revision",
+      "BOM tanpa komponen tidak bisa dirilis — permintaan pembelian yang dibangun darinya akan kosong.",
+      { field: "components" },
+    );
+  }
+  const diff = bomDiff(state, product, currentBomRev(state, product), rev);
+  if (diff.identical) {
+    return invalid(
+      SERVICE, "nothing_changed",
+      `Rev ${rev} sama persis dengan rev ${diff.from_rev}. Nomor versi untuk perubahan yang tidak ada hanya menambah baris yang harus dibaca orang nanti.`,
+      { field: "components" },
+    );
+  }
+
+  const user = actingUser();
+  apply((draft) => {
+    const row = draft.bom_revisions.find((r) => r.product_id === product.id && r.rev === rev);
+    if (!row) return;
+    row.released_at = new Date().toISOString();
+    row.released_by = user.id;
+    row.note = input.note.trim();
+    writeAudit(draft, {
+      service: SERVICE, entity: "bom", entity_no: product.product_code,
+      action: "release_revision", outcome: "ok", reason: input.note.trim(),
+      detail: { rev, changes: diff.lines.length, from_rev: diff.from_rev, by: user.email },
+    });
+    writeOutbox(draft, {
+      service: SERVICE, event_type: "production.bom.released",
+      payload: { product_code: product.product_code, rev, changes: diff.lines.length },
+    });
+  });
+  const view = await getProduct(product.product_code);
+  if (view.data) remember(SERVICE, "releaseBom", idempotencyKey, view.data);
+  return view;
+}
+
+/** What changed between two revisions. `to` defaults to the draft, `from` to
+ *  the released revision before it — which is the comparison somebody about to
+ *  release is actually asking for. */
+export async function getBomDiff(
+  input: { product_code: string; from?: number | null; to?: number },
+): Promise<Result<ReturnType<typeof bomDiff>>> {
+  await latency();
+  const state = getState();
+  const product = state.products.find((p) => p.product_code === input.product_code);
+  if (!product) return notFound(SERVICE, "product_not_found", `No product ${input.product_code}.`);
+  const to = input.to ?? draftBomRev(state, product) ?? currentBomRev(state, product);
+  if (to === null) {
+    return notFound(SERVICE, "no_revision", `BOM ${product.product_code} belum punya versi apa pun.`);
+  }
+  const from = input.from !== undefined
+    ? input.from
+    : state.bom_revisions
+      .filter((r) => r.product_id === product.id && r.released_at !== null && r.rev < to)
+      .reduce<number | null>((a, r) => (a === null || r.rev > a ? r.rev : a), null);
+  return ok(SERVICE, bomDiff(state, product, from, to));
+}
+
+export async function listBomRevisions(
+  productCode: string,
+): Promise<Result<ReturnType<typeof bomRevisions>>> {
+  await latency();
+  const state = getState();
+  const product = state.products.find((p) => p.product_code === productCode);
+  if (!product) return notFound(SERVICE, "product_not_found", `No product ${productCode}.`);
+  return ok(SERVICE, bomRevisions(state, product));
+}
+
+/** Moving an open work order onto a newer BOM revision.
+ *
+ *  A decision, not a refresh, so it carries a reason and an audit row: the
+ *  order's projection is what its actual spend is measured against, and moving
+ *  it changes whether the job reads as over or under. Refused once anything has
+ *  been built — at that point the old list is what was **actually** consumed,
+ *  and re-pinning would measure real spend against a list nobody used.
+ */
+export async function repinBom(
+  input: { wo_no: string; reason: string },
+): Promise<Result<WorkOrderView>> {
+  await latency();
+  const denied = requireModule(SERVICE, "production");
+  if (denied) return denied;
+
+  const state = getState();
+  const wo = state.work_orders.find((w) => w.wo_no === input.wo_no);
+  if (!wo) return notFound(SERVICE, "wo_not_found", `No work order ${input.wo_no}.`);
+  if (!input.reason.trim()) {
+    return invalid(
+      SERVICE, "reason_required",
+      "Memindahkan pesanan ke BOM versi lain mengubah angka pembandingnya. Tulis kenapa.",
+      { field: "reason" },
+    );
+  }
+  const product = wo.product_code
+    ? state.products.find((p) => p.product_code === wo.product_code)
+    : undefined;
+  if (!product) {
+    return conflict(
+      SERVICE, "no_product",
+      `${wo.wo_no} tidak menunjuk produk di katalog, jadi tidak ada BOM untuk disematkan.`,
+    );
+  }
+  const current = currentBomRev(state, product);
+  if (current === null) {
+    return conflict(SERVICE, "no_released_revision", `${product.product_code} belum punya BOM yang dirilis.`);
+  }
+  if (current === wo.bom_rev) {
+    return noop(SERVICE, workOrderView(state, wo));
+  }
+  if (!bomRepinnable(state, wo)) {
+    /* By here the earlier checks have ruled out *no product*, *no released
+       revision* and *already on it*, so the predicate can only be refusing for
+       one of two reasons — and they deserve different sentences. */
+    return wo.status !== "OPEN"
+      ? conflict(
+        SERVICE, "wo_not_open",
+        `${wo.wo_no} sudah ${wo.status}. Angka pembandingnya adalah bagian dari catatan pesanan yang selesai.`,
+      )
+      : conflict(
+        SERVICE, "already_started",
+        `${wo.wo_no} sudah ada pekerjaan yang dilaporkan. Bahan yang dipakai adalah bahan rev ${wo.bom_rev ?? "—"}; memindahkannya ke rev ${current} berarti membandingkan belanja yang nyata dengan daftar yang tidak pernah dipakai.`,
+      );
+  }
+
+  const user = actingUser();
+  apply((draft) => {
+    const row = draft.work_orders.find((w) => w.wo_no === input.wo_no);
+    if (!row) return;
+    const before = row.bom_rev;
+    row.bom_rev = current;
+    writeAudit(draft, {
+      service: SERVICE, entity: "work_order", entity_no: row.wo_no,
+      action: "repin_bom", outcome: "ok", reason: input.reason.trim(),
+      detail: { before, after: current, by: user.email },
+    });
+  });
+  return getWorkOrder(input.wo_no);
+}
+
 /** What one production run of this product needs, in materials.
  *
  *  The bridge between the master data and the thing somebody actually does
@@ -502,14 +950,16 @@ export async function removeBomComponent(
  *  different numbers (D149).
  */
 export async function materialsFor(
-  input: { product_code: string; qty: number },
-): Promise<Result<{
-  product_code: string;
-  qty: number;
-  lines: { ref_code: string; ref_name: string | null; kind: string; qty: number; uom: string; subtotal: number | null }[];
-  total: number | null;
-  unpriced: number;
-}>> {
+  input: {
+    product_code: string;
+    qty: number;
+    /** Which BOM revision to project from. A work order passes **its own
+     *  pinned one** (D256); the catalogue screen passes nothing and gets the
+     *  draft or the current released version, which is what somebody editing
+     *  it wants to see. */
+    rev?: number | null;
+  },
+): Promise<Result<BomExplosion>> {
   await latency();
   const state = getState();
   const product = state.products.find((p) => p.product_code === input.product_code);
@@ -517,26 +967,62 @@ export async function materialsFor(
   if (!input.qty || input.qty <= 0) {
     return invalid(SERVICE, "qty_required", "Berapa unit?", { field: "qty" });
   }
-
-  const view = productView(state, product);
-  const lines = view.components.map((c) => ({
-    ref_code: c.ref_code,
-    ref_name: c.ref_name,
-    kind: c.kind,
-    qty: Math.round(c.qty_with_waste * input.qty * 10_000) / 10_000,
-    uom: c.uom,
-    subtotal: c.subtotal == null ? null : c.subtotal * input.qty,
-  }));
-  const priced = lines.filter((l) => l.subtotal != null);
-  return ok(SERVICE, {
-    product_code: product.product_code,
-    qty: input.qty,
-    lines,
-    total: priced.length > 0 ? priced.reduce((a, l) => a + (l.subtotal ?? 0), 0) : null,
-    unpriced: lines.length - priced.length,
-  });
+  /* The walk, not the flat list (D257): a purchase request needs the plywood a
+     drawer box is made of, not a line reading "2 drawer boxes". */
+  return ok(SERVICE, explodeBom(state, product, input.qty, input.rev));
 }
 
+/** The workshop's own time on one unit, **typed by a person** (D239).
+ *
+ *  Its own endpoint rather than a field on `saveProduct`, because it is a
+ *  different kind of act: the rest of a product record describes the thing,
+ *  and this is a costing somebody worked out and is answerable for. The note is
+ *  required with the figure for the same reason a deduction needs a sentence —
+ *  a labour cost with no working behind it is one the next person can neither
+ *  check nor update.
+ *
+ *  Nothing here derives it. Not from the pay rules, not from recorded hours,
+ *  not from a rate times a guess. The owner said *perumusan manual*, and labour
+ *  is where an invented figure does the most damage: it flows straight into a
+ *  quoted price.
+ */
+export async function setLabourCost(
+  input: { product_code: string; labour_cost: number | null; note?: string | null },
+): Promise<Result<ProductView>> {
+  await latency();
+  const denied = requireModule(SERVICE, "production");
+  if (denied) return denied;
+
+  const state = getState();
+  const product = state.products.find((p) => p.product_code === input.product_code);
+  if (!product) return notFound(SERVICE, "product_not_found", `No product ${input.product_code}.`);
+
+  if (input.labour_cost != null && input.labour_cost < 0) {
+    return invalid(SERVICE, "negative_cost", "Biaya tenaga kerja tidak bisa negatif.", { field: "labour_cost" });
+  }
+  if (input.labour_cost != null && !input.note?.trim()) {
+    return invalid(
+      SERVICE, "note_required",
+      "Tulis dari mana angkanya. Biaya tenaga kerja tanpa perhitungan di belakangnya adalah angka yang tidak bisa diperiksa maupun diperbarui orang berikutnya — dan angka inilah yang masuk ke harga penawaran.",
+      { field: "note" },
+    );
+  }
+
+  const user = actingUser();
+  apply((draft) => {
+    const row = draft.products.find((p) => p.product_code === input.product_code);
+    if (!row) return;
+    const before = row.labour_cost;
+    row.labour_cost = input.labour_cost == null ? null : Math.round(input.labour_cost);
+    row.labour_note = input.labour_cost == null ? null : (input.note?.trim() ?? null);
+    writeAudit(draft, {
+      service: SERVICE, entity: "product", entity_no: row.product_code,
+      action: "set_labour_cost", outcome: "ok", reason: row.labour_note,
+      detail: { before, after: row.labour_cost, by: user.email },
+    });
+  });
+  return getProduct(product.product_code);
+}
 
 /** Filing a drawing against a product.
  *
@@ -640,6 +1126,8 @@ export async function createDesignTask(
       product_code: input.product_code, kind: input.kind,
       status: "BELUM",
       assignee: input.assignee?.trim() || null,
+      assignee_employee_id: null,
+      assignee_not_a_person: false,
       due_date: input.due_date || null,
       note: input.note?.trim() || null,
       created_by: user.id, created_at: new Date().toISOString(),
@@ -873,4 +1361,177 @@ export async function answerDesignQuestion(
     });
   });
   return getDesignTask(input.task_no);
+}
+
+/* ── Resolving who did the work ────────────────────────────────────────
+ *
+ *  The link is added beside the name, never instead of it, and **a person
+ *  makes it** — the system may offer a suggestion and may never apply one
+ *  (D264). Everything here is written around that: the endpoint takes a name
+ *  and an answer, applies it to every unresolved entry carrying that name, and
+ *  leaves `worked_by` exactly as the mandor wrote it.
+ */
+
+export async function listUnresolvedNames(
+  range: { from: string; to: string },
+): Promise<Result<{ names: UnresolvedName[]; attribution: ReturnType<typeof workAttribution> }>> {
+  await latency();
+  const state = getState();
+  return ok(SERVICE, {
+    names: unresolvedNames(state, range.from, range.to),
+    attribution: workAttribution(state, range.from, range.to),
+  });
+}
+
+/** One answer for one name, applied to every unresolved entry carrying it.
+ *
+ *  Asked once per name rather than once per entry, because *Pranowo* is the
+ *  same Pranowo on all six and a screen that asks six times is one somebody
+ *  abandons halfway, leaving the record half-resolved — which is worse than
+ *  leaving it alone, because a partial record looks like a complete one.
+ *
+ *  Already-resolved entries are **not** touched. A link somebody made on
+ *  purpose is not overwritten by a later bulk answer.
+ */
+export async function resolveWorkName(
+  input: {
+    name: string;
+    /** Exactly one of these. */
+    employee_id?: string | null;
+    not_a_person?: boolean;
+    from?: string;
+    to?: string;
+    idempotency_key?: string;
+  },
+): Promise<Result<{ name: string; updated: number; attribution: WorkAttribution }>> {
+  await latency();
+  const denied = requireModule(SERVICE, "production");
+  if (denied) return denied;
+  const dup = replayed<{ name: string; updated: number; attribution: WorkAttribution }>(
+    SERVICE, "resolveWorkName", input.idempotency_key);
+  if (dup) return dup;
+
+  const state = getState();
+  const name = input.name?.trim();
+  if (!name) {
+    return invalid(SERVICE, "name_required", "Nama mana yang mau ditautkan?", { field: "name" });
+  }
+
+  /* The invariant behind `attributionOf`, enforced where it can be: a name
+     cannot be both a person and not a person. Refused rather than silently
+     preferring one, because either choice would be the software deciding. */
+  if (input.employee_id && input.not_a_person) {
+    return invalid(
+      SERVICE, "one_answer_only",
+      "Satu nama tidak bisa sekaligus seorang karyawan dan bukan satu orang. Pilih salah satu.",
+      { field: "employee_id" },
+    );
+  }
+  if (!input.employee_id && !input.not_a_person) {
+    return invalid(
+      SERVICE, "answer_required",
+      "Pilih karyawannya, atau tandai bahwa nama ini bukan satu orang — tim atau subkon.",
+      { field: "employee_id" },
+    );
+  }
+
+  const employee = input.employee_id
+    ? state.employees.find((e) => e.id === input.employee_id)
+    : undefined;
+  if (input.employee_id && !employee) {
+    return notFound(SERVICE, "employee_not_found", "Karyawan itu tidak ada di data kepegawaian.");
+  }
+  if (employee && !employee.active) {
+    /* Not a refusal: somebody who has left did the work, and that is history,
+       not an error. It is only worth saying out loud. */
+    return conflict(
+      SERVICE, "employee_inactive",
+      `${employee.full_name} sudah tidak aktif. Kalau memang dia yang mengerjakannya, catat lewat data kepegawaian dulu supaya riwayatnya utuh.`,
+      { employee_no: employee.employee_no },
+    );
+  }
+
+  const key = name.toLowerCase().replace(/\s+/g, " ");
+  const targets = state.production_progress.filter((p) =>
+    p.worked_by != null
+    && p.worked_by.trim().toLowerCase().replace(/\s+/g, " ") === key
+    && p.worked_by_employee_id === null
+    && !p.worked_by_not_a_person
+    && (!input.from || p.work_date >= input.from)
+    && (!input.to || p.work_date <= input.to));
+
+  if (targets.length === 0) {
+    return noop(SERVICE, {
+      name,
+      updated: 0,
+      attribution: (input.not_a_person ? "not_a_person" : "employee") as WorkAttribution,
+    });
+  }
+
+  const user = actingUser();
+  apply((draft) => {
+    for (const t of targets) {
+      const row = draft.production_progress.find((p) => p.id === t.id)!;
+      row.worked_by_employee_id = employee?.id ?? null;
+      row.worked_by_not_a_person = !!input.not_a_person;
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "progress_name", entity_no: name,
+      action: "resolve", outcome: "ok", reason: null,
+      detail: {
+        entries: targets.length,
+        employee_no: employee?.employee_no ?? null,
+        not_a_person: !!input.not_a_person,
+        by: user.email,
+      },
+    });
+  });
+
+  const result = ok(SERVICE, {
+    name,
+    updated: targets.length,
+    attribution: (input.not_a_person ? "not_a_person" : "employee") as WorkAttribution,
+  });
+  remember(SERVICE, "resolveWorkName", input.idempotency_key, result.data);
+  return result;
+}
+
+/** Undoing one. A link made in error is a link somebody has to be able to take
+ *  back — and it returns the entries to `unknown`, not to *not a person*,
+ *  because *we were wrong* is not the same answer as *it is a team*. */
+export async function unresolveWorkName(
+  input: { name: string; from?: string; to?: string },
+): Promise<Result<{ name: string; updated: number }>> {
+  await latency();
+  const denied = requireModule(SERVICE, "production");
+  if (denied) return denied;
+
+  const state = getState();
+  const name = input.name?.trim();
+  if (!name) {
+    return invalid(SERVICE, "name_required", "Nama mana?", { field: "name" });
+  }
+  const key = name.toLowerCase().replace(/\s+/g, " ");
+  const targets = state.production_progress.filter((p) =>
+    p.worked_by != null
+    && p.worked_by.trim().toLowerCase().replace(/\s+/g, " ") === key
+    && (p.worked_by_employee_id !== null || p.worked_by_not_a_person)
+    && (!input.from || p.work_date >= input.from)
+    && (!input.to || p.work_date <= input.to));
+  if (targets.length === 0) return noop(SERVICE, { name, updated: 0 });
+
+  const user = actingUser();
+  apply((draft) => {
+    for (const t of targets) {
+      const row = draft.production_progress.find((p) => p.id === t.id)!;
+      row.worked_by_employee_id = null;
+      row.worked_by_not_a_person = false;
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "progress_name", entity_no: name,
+      action: "unresolve", outcome: "ok", reason: null,
+      detail: { entries: targets.length, by: user.email },
+    });
+  });
+  return ok(SERVICE, { name, updated: targets.length });
 }

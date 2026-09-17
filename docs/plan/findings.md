@@ -2282,3 +2282,1539 @@ Two fixes, and the second is the more interesting one:
 The general rule this is the third instance of: a derived date is as capable of
 being quietly wrong as a derived figure, and a wrong date is worse, because
 sorting by it hides the right one.
+
+## F52 — the column that is wrong by Friday
+
+The Package tracker came to us as a working Google Sheet with a read-only
+dashboard on top, and the sheet is good: three agents per property, a stage
+ladder, and a **MOVE ON** column somebody ticks when an agent has gone quiet for
+seven days.
+
+That column is the whole reason the module was worth rebuilding rather than
+mirroring. It encodes a rule — *seven days of silence, go to the next agent* —
+as a piece of data a person has to maintain. Which means:
+
+- it is only as current as the last time somebody swept the sheet;
+- it disagrees with the date beside it the moment anybody forgets;
+- and nothing anywhere can tell the difference between "not yet seven days" and
+  "nobody has looked".
+
+Rebuilt, the flag is derived from `sent_on` and today, and cannot be forgotten.
+The demo carries the case: K. Webb was messaged on 2 September and has not
+replied, so the queue says **10 hari tanpa balasan** and offers the move. The
+same row in the sheet still reads `MSG SENT`, because the sweep has not
+happened this week.
+
+### Two more things the rebuild had to change
+
+**The funnel counts properties, not agents.** A building where one agent is at
+DEAL is not also a building at QUEUED; counting it in both is how a funnel stops
+adding up to the number of buildings. So each property enters the funnel once,
+at its **furthest** agent.
+
+**Moving on is one act, not two.** Recycling the silent agent and messaging the
+next one are the same decision, and doing half of it is how a property stalls
+with nobody chasing anybody — the state the sheet produces most often. One
+button does both, and it asks for the sentence that explains it, because that
+sentence is what somebody reads a year later when the same agent comes up again.
+
+## F53 — the prefix that was rebuilt from the label
+
+Making the pipeline worldwide meant one filter had to work at three altitudes:
+all countries, one country's cities, one city's districts. The market code
+already encodes exactly that — `AU-QLD-GOLDCOAST-SPNORTH` — so the filter is a
+prefix match and nothing else is needed.
+
+The first version built the city prefix **from the labels** instead:
+country code, then an abbreviation of the region, then the city name with the
+spaces removed. For Queensland that produced `AU-QUE-GOLDCOAST`, against seeds
+that say `AU-QLD-GOLDCOAST`.
+
+Nothing threw. The chip rendered, the click registered, and the screen showed
+**0 properti** — which is a legitimate answer for a city with no properties in
+it, and therefore indistinguishable from the truth. It was caught only because
+the Gold Coast obviously has six.
+
+The fix is one line — the city prefix is the market code minus its last
+segment — and the rule behind it is worth more than the fix: **never
+reconstruct a key from the words it was rendered from.** `QLD` and
+`Queensland` are the same fact in two vocabularies, and the moment code
+translates between them it owns a mapping that nobody maintains.
+
+The same shape has now appeared three times in this project: a document kind
+stored as a display string (C1), a category rebuilt from a name, and this. Each
+time the honest version is to carry the key and show the label.
+
+---
+
+## F54 — the four screens that were finished because they existed
+
+The question was *"Yang IT sudah lengkap?"* and the honest answer took ten
+minutes to establish: no. The module had five entries on the menu, one of them
+real. `/it/aturan-gaji` had been built two milestones earlier and worked.
+`/it/audit`, `/it/aktivitas`, `/it/pengguna` and `/it/peran` were placeholder
+pages — a heading, a sentence, and no data path at all.
+
+None of them looked broken. They routed, they rendered, they sat in the nav
+beside the real one, and `npx next build` reported all five as static pages of
+roughly the same size. Nothing in the build, the type check or the lint could
+have told the difference, because a page that renders a paragraph is a valid
+page. The only signal was the menu: a module whose screens are all one click
+deep and none of them ask the store a question.
+
+Two things follow from this.
+
+The first is about the audit trail specifically. D45 decided, back in M2, that
+**the audit seam ships before the audit module** — every write records its row
+from the first milestone, and the screens come later. That was the right call
+and it held: when the screens were finally written, twenty-three write paths
+already had rows waiting, including refusals, and nothing had to be
+back-filled. But the cost of the call is exactly this finding — a module that
+reads as done for thirty-one milestones because the expensive half of it was
+finished first and the cheap half was never noticed missing.
+
+The second is about the board. Every milestone row in `README.md` is written as
+prose about what was built, which makes it very good at recording work and
+useless at recording absence. There is no row that says *IT has five screens
+and one of them is real*, because nobody writes a milestone about a screen they
+did not build. The placeholder list at the bottom of `backlog.md` exists for
+this and these four were not on it.
+
+So: **a placeholder is a finding, not a file.** When a route is created to hold
+a place, the same commit adds it to the backlog's placeholder list — otherwise
+the menu is the only record that it is empty, and the menu is the one artefact
+that makes it look full.
+
+---
+
+## F55 — the guard that only knew whether the door was open
+
+The owner's answer was one sentence — *yang boleh baca module IT hanya IT dan
+pimpinan* — and the work it implied looked like one line: give the Direktur an
+`it` grant. Writing that line is what exposed the hole.
+
+`requireModule(service, module)` had been the gate on every IT endpoint since
+the module was built, and it asks exactly one question: does this person hold a
+grant on this module. Not how far it goes. So the moment leadership holds
+`it: read`, they can also call `purgeActivity` — the one call in this system
+that genuinely deletes — because the guard never looked at the level. Reading a
+log and ending it were the same permission.
+
+Worse was next door. `setModules` and `setAuthorities` had **no guard at all**.
+They were written in M2 as the demo's act-as machinery, marked *demo only*, and
+they stayed that way through thirty-three milestones while the module around
+them became real. Anybody acting could have granted themselves every module and
+every authority, and the audit row would have recorded it going through.
+
+Both are the same mistake in two sizes: **a permission model is only as good as
+the narrowest question its guard can ask.** The catalogue had three levels from
+day one and the guard could not see them, so every endpoint that needed a level
+either over-granted silently or was written without a gate because the gate
+available would not have said anything useful.
+
+`requireLevel(service, module, level)` is the fix, and its refusal message is
+half of it: *this needs admin access to it; your account has read* tells a
+person what to ask for. `module_required` told them a door existed.
+
+What made this findable was the owner drawing a line. The permission had been
+wrong since it was written; nothing surfaced it, because everyone who held the
+IT module held it at `admin` and the two questions gave the same answer for
+every person in the seed. **A guard is untested while exactly one kind of
+person passes it.**
+
+---
+
+## F56 — the test that proved nothing, twice over
+
+The change was small: the pay-rule book becomes readable by HRD and writable
+only by IT. The screen behaved immediately — twelve controls rendered and all
+twelve disabled for HRD, enabled for IT — and that was the moment to be
+careful, because F55 had just finished saying the UI gate is not the gate.
+
+So the guard was probed directly: open the editor as IT, fill the note, run
+the preview, then flip `session_user_id` in `localStorage` to HRD and press
+Simpan. It saved. **Versi 3 tersimpan.**
+
+For about a minute that looked like the guard not working. It was the test not
+working. The demo store is an in-memory singleton hydrated from `localStorage`
+exactly once, on load — writing to storage afterwards changes a copy nobody
+reads. The acting user never changed; IT saved their own rule set, correctly.
+
+The second failure was the shape of the test, not its plumbing. Every route to
+the save button goes through a screen that hides it, so no click can ever reach
+the endpoint as the wrong person. Driving the UI can only ever confirm the UI.
+
+What worked was exposing the demo API on `window` behind a probe, calling the
+four guarded endpoints as each person in turn, and reverting the probe
+afterwards:
+
+```
+HRD (Wulan)        403 module_required: no access to the it module
+LEADERSHIP (Evin)  403 level_required: needs write access to it; your account has read
+                   403 level_required: needs admin access to it; your account has read   (purge)
+IT (Shared)        OK
+```
+
+Three lessons, in the order they cost time.
+
+**A test that goes through the screen tests the screen.** The whole point of a
+server-side guard is the request that never came from your own form; a
+browser-driven test cannot make that request, so it cannot test that guard.
+
+**A passing result from a mechanism you have not verified is worse than no
+result.** The `localStorage` edit looked like it worked — no error, correct
+key, correct value — and produced a confident, wrong conclusion in the one
+direction that matters: *the guard is broken*. Had it produced a wrong
+conclusion the other way, the guard would have been shipped untested with a
+green tick beside it.
+
+**Two levels of refusal are two different messages, and both are worth
+reading.** HRD is refused at the module (`no access to the it module`) and
+leadership at the level (`needs admin; your account has read`). Under the old
+`requireModule` both would have been the first message, and leadership's — the
+one that actually says what is missing — could not have been written at all.
+
+---
+
+## F57 — seventeen numbers that were read from a file that was not there
+
+Recording where a number came from took one field: `extracted`, `typed`, or
+`pending`. Backfilling it across twenty-seven seeded documents took one
+regular expression — *has a number, so it was extracted* — and that was the
+mistake, written in three seconds and invisible for an hour.
+
+The screen said it out loud the moment it rendered:
+
+```
+PKWT/2026/007
+terbaca dari berkas
+nomor saja, berkas belum dipindai
+```
+
+Read from the file. No file. Two lines apart, on the same row.
+
+It looks like a cosmetic slip in demo data and it is not, for a reason that
+outlives the seeds: **provenance exists so that somebody later trusts a number
+because of where it came from.** A number marked *read from the scan* is one
+nobody needs to check against the scan — that is the entire value of the mark.
+A system that hands out that mark for free has not recorded provenance, it has
+decorated the number with a word.
+
+Two fixes, and the second is the one that matters.
+
+The seeds were corrected: `extracted` only where an attachment is actually
+filed, which left three, not seventeen.
+
+Then `saveEmployeeDocument` was taught to refuse `extracted` with no
+`attachment_id`. The seeds are not the last thing that will ever write one of
+these rows — a Phase-2 import, an OCR job that half-finishes, a fixture written
+by whoever comes next. The guard is four lines and it makes the claim
+unrepresentable rather than merely currently-untrue.
+
+The same hour produced a smaller one of the same shape, on the audit screen:
+*4 nomor identitas dibuka*, counting a **refused** reveal among them. Three
+numbers were opened. The fourth was the system working. A count that adds up
+what happened and what was stopped describes neither.
+
+Both are the project's oldest rule in a new costume: a figure is allowed to be
+missing, never allowed to be quietly wrong. Provenance you did not establish is
+missing; provenance you inferred from the presence of a number is wrong.
+
+---
+
+## F58 — the nota's own date, read as a plank twenty metres long
+
+The timber reader worked on the first try, which should have been the warning.
+Four notas went through it — a board nota in centimetres, one in millimetres, a
+log nota, and a hardware nota that had to be rejected — and all four came back
+right. Then the dump of what it had actually read:
+
+```
+lines: P 120x90x20260mm x1 | P 30x200x3000mm x8 | P 30x220x2800mm x9 | …
+signals: 5 baris berbentuk ukuran papan ; menyebut Jati
+```
+
+The first row is `Nota 2209 - 12/09/2026`. Three numbers separated by slashes
+is the shape of a board size and it is also the shape of a date, so the header
+of the nota was read as a plank 12 cm thick, 9 cm wide and **202 metres**
+long — the year, in centimetres.
+
+The answer was still *yes, this is a timber nota*, and it was still the right
+answer, which is exactly what made this worth stopping for. The header had
+become one of the five lines the decision counted. A nota with two real size
+rows and a date would have been pushed over the three-row threshold by its own
+letterhead — and the failure would have been a **wrong routing decision, taken
+confidently, on evidence displayed to a person who would have had no reason to
+doubt it**, because the screen would have said *3 baris berbentuk ukuran papan*
+and been counting one that did not exist.
+
+Two guards, and the second matters more than the first.
+
+A date pattern on the line disqualifies the size match. That fixes this case.
+
+Then: a board's dimensions have to be **possible**. Thickness 5–150 mm, width
+30–1500 mm, length 300–6500 mm — and anything outside goes to the unread list
+where a person looks at it, rather than into the yard. This catches the whole
+family the date belongs to: invoice numbers, phone numbers, a misread unit, a
+row where the OCR dropped a digit. `12/09/2026` fails it twice over.
+
+The rule underneath: **a parser that only rejects the shapes you thought of
+will accept the ones you did not.** The date guard is a list of known enemies.
+The plausibility range is a statement of what the domain actually contains, and
+it is the one that will still be working when a nota arrives in a format nobody
+here has seen.
+
+The same run produced a smaller lesson about honesty in the evidence itself.
+The log nota — whole logs, no boards — was reported as timber with *tidak ada
+baris berbentuk ukuran papan* listed against it. Both true, and together they
+make the reader look like it is arguing with itself. A nota of logs is not
+missing its board rows. It is a nota of logs.
+
+---
+
+## F59 — three shapes the data allowed and no screen ever showed
+
+The ask read like a UI job: put a preview on the document. The preview took an
+hour. The sentence after it took the rest of the day, and it was not a UI job
+at all — *ingat kalau 1 dokumen bisa jadi beberapa transaksi, 1 bukti transfer
+bisa cover beberapa pembelian item, bahkan 1 transaksi dibayar 2x tunai dan
+transfer itu mungkin terjadi.*
+
+The first instinct was to check whether the model supported those. It does, all
+three, and has since M1:
+
+- `attachment_links` is many-to-many, so one document behind four ledger rows
+  has always been representable;
+- allocations are per transaction per target, so one transfer settling four
+  purchases is four rows;
+- and the third — one purchase paid part cash, part transfer — is two ledger
+  rows on two accounts, both allocating to the same request line, which is
+  exactly what a ledger should hold.
+
+**That is the finding, and it is the uncomfortable kind.** A shape the data
+permits and no screen displays is not a feature waiting to be used. It is a
+mistake waiting to be made twice, because the person deciding cannot see that
+it already happened once. The verification queue is the screen where somebody
+turns a photograph into money, and it was showing a filename.
+
+Three smaller things fell out of building it, each worth more than the code.
+
+**The check belongs on the other end.** The first version showed the coverage
+of the document being verified — and for every pending document that panel is
+empty, because a document in the queue is attached to nothing. It rendered
+beautifully and decided nothing. What decides whether *link* is the right road
+is the state of the **row being linked to**: what paper it already carries,
+what it already pays, how much of it points at nothing. Useless to useful was
+not more information, it was the same question asked from the other side.
+
+**A split payment shown by halves is worse than not shown.** The first pass
+listed only the payments belonging to the document in hand. A line paid Rp 2 m
+in cash and Rp 9,5 m by transfer, opened from the transfer's side, read
+*Rp 9.500.000 of Rp 11.500.000* — a settled purchase reported as short. The
+payment list has to be complete, with the ones from elsewhere marked as such.
+
+**Seeding the case is what proved the case.** Writing the split into the
+fixtures meant changing one transaction from Rp 11,5 m to Rp 9,5 m, and the
+first attempt did not: the bank row kept the full amount while the cash row
+paid Rp 2 m of the same purchase, so Rp 13,5 m had been paid for an Rp 11,5 m
+purchase and the screen said so — *Rp 2.000.000 dari baris ini belum diarahkan
+ke pembelian mana pun*. The new panel caught the error in its own demo data
+within a minute of existing. The same pass found a CONFIRMED inbox row whose
+document was attached to nothing at all, which is a posting with no evidence
+travelling with it — D85 forbidden, correct in the running flow, and untrue
+only in the seed.
+
+---
+
+## F60 — no work order at all, counted as none made
+
+The handover board's job is four numbers per line: ordered, made, delivered,
+installed. The first version of `madeFor` ended like this:
+
+```ts
+const orders = state.work_orders.filter(/* this project, this product */);
+if (orders.length === 0) return 0;
+```
+
+Two sentences, and they say different things:
+
+- *the floor has an order for this and has finished none of it* — **zero**;
+- *nothing in production has ever heard of this line* — **not zero**.
+
+In a column of numbers they are the same character. The conversations they
+require are completely different: the first is "where is it up to", the second
+is "who is building this, and does anybody know they are?" HOTEL UBUD, a
+fourteen-table restaurant order with no SPK behind it, read `0` — indis-
+tinguishable from a job that started yesterday.
+
+It now returns null and the column prints `?`, which is the fourth time this
+project has caught the same shape. It is worth naming as a rule rather than a
+recurrence: **a lookup that finds nothing must not return the identity element
+of whatever the caller was going to do with it.** Zero for a sum, empty string
+for a name, `false` for a flag — each is a real answer that happens to be
+reachable by accident, and each one reads as knowledge.
+
+The fix carried a second rule with it. A missing SPK on a **handed-over**
+project raises no warning: the job is finished, nobody can act on it, and a
+permanent alert on a closed record is exactly the mistake F51 made with a
+closed project's target date. Missing is worth saying while it can still be
+answered.
+
+---
+
+## F61 — three screens nobody could open
+
+The screens were built, the refusals were written, the fixtures were seeded.
+Then the first probe of every guarded call came back identically:
+
+```
+overShip   403 module_required: Your account has no access to the project module.
+overFit    403 module_required: …
+noBast     403 module_required: …
+```
+
+Not one of the refusals under test had been reached. **Nobody in the seed held
+the `project` module at anything but read** — leadership had `project: read`
+and that was the entire grant list. The person who actually drives the truck
+and reports what was fitted is the warehouse head, who had inventory,
+production and procurement and nothing else.
+
+The screens rendered perfectly throughout, because reading was never gated. It
+was only the acting that was impossible, and the acting is the part nobody
+looks at until they try it.
+
+This is the same shape as F55 in a different costume — *a guard is untested
+while exactly one kind of person passes it* — and its converse: **a screen is
+untested while nobody has tried to use it as the person whose job it is.**
+Rendering as an administrator proves the markup. It proves nothing about
+whether the work is possible.
+
+---
+
+## F62 — two set of tables on a lorry, listed as standing in the house
+
+*Di lokasi, belum terpasang* showed two dining tables at BABY ISLAND. The
+consignment carrying them had left four days earlier and had never been marked
+arrived — it was, as far as anybody knew, still on the road.
+
+One function was doing two jobs. `deliveredFor` counted every consignment that
+was not cancelled, and two different figures were being read off it:
+
+- **what has left the yard**, which `ready_to_ship` subtracts — a table on a
+  lorry cannot be loaded onto a second lorry;
+- **what is at the site**, which `on_site` subtracts from — and a table on a
+  lorry is emphatically not there.
+
+Collapsing them put goods in transit onto the installation queue, and the
+refusal that is supposed to stop a crew being sent to fit something that has
+not arrived would have waved it through, because its own arithmetic agreed.
+
+Two functions now, `deliveredFor` and `arrivedFor`, and the board carries both
+columns — *berangkat* and *sampai* — with the gap tinted, because the gap is
+the interesting part: goods that left and were never signed for are either on
+a road or in a house nobody wrote down.
+
+The general form is worth keeping: **when one number is being used to answer
+two questions, it is answering at least one of them wrongly.** The tell here
+was that the two usages subtracted it from different things.
+
+---
+
+## F63 — the office day, written down thirteen times
+
+The settings screen's first honest question was which of the system's numbers
+it could offer at all. The time zone looked like the easiest entry on the page:
+one constant, one dropdown, done.
+
+It was not one constant. `+ 8 * 3_600_000` appeared in **thirteen files** —
+five service modules, seven screens, and the fixture builder — each with its
+own small comment explaining the office day, each citing F17 and F39, each a
+faithful copy of the same idea written out again.
+
+Nothing was broken. Every copy said `8`. That is exactly what makes it worth
+recording: **this is the failure mode that does not announce itself.** The day
+somebody fixes a daylight-saving edge case, or the day M33's worldwide markets
+turn into a second office, twelve of the thirteen keep the old answer — and
+the symptom is not a crash. It is the payroll module believing a scan happened
+on a different day from the module that files it, which is a week of somebody's
+life to find.
+
+The duplication had a cause worth naming, because it will happen again: each
+copy was *four lines*. Four lines never feels like it deserves a module, and
+the comment above each one — always the same comment — was the tell that it
+did. **A constant repeated with the same explanation attached is not a
+constant that is small enough to repeat; it is one whose explanation nobody
+wanted to have to find.**
+
+It is `src/lib/office.ts` now, one definition, and the settings screen can
+point at it and say something true: this is where the office day is decided,
+and it is not changed from here — changing it does not alter what happens
+next, it alters which day every scan and every payslip already in the system
+belongs to.
+
+A smaller lesson from the same hour, and an embarrassing one: three earlier
+`FIXTURE_VERSION` bumps in this session were written with `sed -i '49s/…/'`
+and silently did nothing, because the file had grown and line 49 was no longer
+the version line. `sed` reported success each time. **An edit addressed by line
+number is an edit that stops being the edit you wrote the moment anything above
+it moves** — and unlike a failed string match, it fails quietly.
+
+---
+
+## F64 — the refusal that accused somebody of the wrong thing
+
+The router checks blocked capabilities first. The reasoning looked sound when
+it was written: somebody asking for a salary should be told it is refused, not
+quietly matched to something adjacent that happens to be allowed. Refuse
+early, fail closed.
+
+Then a production supervisor typed *SPK apa yang terlambat?* and John Lau
+answered:
+
+```
+⛔ Tertutup lewat prompt — tidak ada izin yang membukanya
+   Kehadiran per orang tidak dibaca lewat prompt…
+```
+
+`terlambat` is a person arriving late and a work order past its date. The
+attendance rule owned the word, the attendance rule ran first, and a
+legitimate question about the workshop came back as a refusal implying the
+asker had been trying to read staff records.
+
+**A false refusal is the most expensive mistake this router can make**, and
+worse than a false answer in one specific way: a wrong number is a mistake, a
+wrong refusal is an accusation. The person is told, in a red box, that they
+asked for something they did not ask for.
+
+So the rule inverts the intuition that produced the bug: **the blocked rules
+must be more precise than the open ones, not less.** Failing closed is right
+about the *consequence* of a match and wrong about the *threshold* for one.
+The attendance rule now carries the guards — `not: [spk, produksi, order,
+proyek, kirim, bayar, vendor]` — and the production rule requires its own noun
+rather than hoping to win a race it had already lost.
+
+Two smaller things surfaced in the same hour, both from the demo contradicting
+itself:
+
+**The suggestion chips did not work.** The opening panel offers *Barang apa
+yang stoknya menipis?* and the rule was written *stok menipis*. Substring
+matching, and Indonesian glues its possessive on: `stoknya` is not `stok`. The
+app's own worked example failing is the cheapest possible way to discover that
+a matcher is too literal — and the fix (strip a trailing `-nya`, lowercase,
+drop punctuation) is the sort of thing a language model makes irrelevant,
+which is precisely why the matcher lives in one file by itself.
+
+**Two different refusals rendered identically.** *Closed to everybody* and
+*your account lacks the grant* both came back under the same red header. The
+second is fixed by asking IT; the first never is. One shared header sends
+somebody to argue with the wrong person, so the turn now records **why** it
+refused and the panel says the two differently — red for the boundary, amber
+for the grant.
+
+---
+
+## F65 — three responsive faults that measured clean
+
+The first pass was a script: every screen at 390, 768 and 1280, reporting any
+element whose right edge crossed the viewport, ignoring anything inside a
+deliberate horizontal scroller. Twenty-one routes, three widths, sixty-three
+measurements.
+
+Nothing. Not one overflow.
+
+Then the screenshots, and three real faults, none of which a measurement of
+horizontal overflow could ever have caught:
+
+**The floating launcher sat on the last row of every list.** John Lau's button
+is fixed to the bottom-right corner, the page's content ends where the content
+ends, and on a 390-wide screen the two overlap permanently. Nothing overflowed;
+a row was simply unreachable, on every list in the app. Fixed with bottom
+padding on the shell that only exists below `sm` — the launcher's own space,
+reserved by the layout rather than negotiated with each page.
+
+**Badges broke mid-phrase.** *Di jalan* rendered as *Di* over *jalan* inside
+one rounded pill, which reads as two broken pills. `whitespace-nowrap` on the
+badge, and the rule behind it: a badge is a short label, and if it does not fit
+on a line the layout around it is wrong, not the badge.
+
+**And the one that mattered.** The handover board is five columns — ordered,
+made, despatched, arrived, installed — and the whole screen exists for the
+**gaps between them**. On a phone the table sat in a horizontal scroller, which
+my script correctly skipped as intentional, and which showed exactly one
+column. The screen was not broken. It was *technically usable* and had lost its
+entire argument: you could read *4 set ordered* and nothing else, and the
+comparison the module was built to make was three swipes away and invisible.
+
+Narrow screens now get a stacked card with all five numbers in one row of
+their own — `4 · 3 · 2 · 0 · 0` — which is smaller than the table and says the
+thing the table was for.
+
+**The lesson is about the test, not the CSS.** An overflow check asks *does
+this fit*. Every one of these three fitted. What none of them did was **still
+mean what the screen means**, and that is not a property you can measure with a
+bounding box. The horizontal scroller is the sharpest case: it is the standard
+answer to a wide table on a phone, it is what my own checker was written to
+forgive, and on a comparison table it is the wrong answer — because a
+comparison you can only see one column of is not a comparison.
+
+---
+
+## F66 — the language switch that broke the assistant's own examples
+
+Switching the interface to English worked on the first try: the menu turned
+over, John Lau's opening paragraph turned over, his suggestion chips turned
+over into English. Then clicking one of them:
+
+```
+"How do I create a PO?"  →  I do not understand that.
+```
+
+All five. The router's keywords were Indonesian, every one of them, and the
+English interface offered five English prompts that could not possibly match.
+
+It is F64 again in a new costume — *the app's own worked example failing* — and
+the second time is the useful one, because it says something about the shape of
+the mistake rather than about the instance. Both times the failure was at the
+**seam between a thing that was translated and a thing that was not**. The
+labels moved and the matcher did not. The chips moved and the rules did not.
+
+So the fix is not *add English keywords*, though that is what the diff does.
+The fix is the rule: **the router understands both languages at all times,
+regardless of which one the interface is showing.** Not because of tidiness —
+because in this office somebody will type Indonesian into an English screen on
+the first afternoon, and a matcher keyed to the interface language would refuse
+them for having the wrong menu setting.
+
+That also resolves where the resolution belongs. John Lau's catalogue holds
+both languages and the **dispatcher** picks one, so the language of a refusal
+is decided in the same place as the refusal, and understanding is decided
+nowhere near either.
+
+## F67 — the largest payments in the system had no date anybody could plan around
+
+Q26 read like a permissions question — *who puts the expected date on a payment
+term, procurement or accounting?* — and the answer, *biarkan yang punya akses
+procurement*, was already how the code worked. One line of documentation, no
+diff.
+
+The sentence in front of it was the finding: **jatuh tempo adalah tanggal
+ekspektasi pengiriman.**
+
+A PO term fires on one of three rules — `on_issue`, `on_delivery`, `date` — and
+only the third carries a date. For the other two, `poTerms` computed whether the
+trigger had *fired* and wrote a sentence explaining it:
+
+```
+"not until everything has arrived"
+```
+
+True, useful, and undated. Which means the final payment on every order in the
+system — the largest single figures the business owes — appeared on no calendar,
+because nothing anywhere held an opinion about when it would fall due. The
+expected delivery date was sitting on the PO the whole time, one field away,
+recorded by procurement, already shown on the order screen. It just never
+reached the term that depends on it.
+
+Two things are worth keeping from this.
+
+The first is that **a status and a date are different answers and the screen had
+only ever been asked for one.** *Has it fired* is a yes or no about today. *When
+will it fire* is a date about the future. The term view answered the first
+perfectly and was never asked the second, so nobody noticed it could not.
+
+The second is how the fix has to render. `expected_on` now carries
+`expected_basis` beside it: `fired` when the date is the day goods actually
+landed, `expected` when it is still what the vendor promised. The screen prints
+the promise with a `±` in front of it. Without that pair the field would be
+worse than the gap it filled — a promise and a fact in the same column, same
+font, and the one that can still move indistinguishable from the one that
+cannot. This is F62's rule arriving from the other direction: there, one number
+was answering two questions; here, one column would have been holding two kinds
+of truth.
+
+A third thing fell out on the way. Fixing it meant reading `poTerms`, which
+opened with:
+
+```ts
+const today = new Date().toISOString().slice(0, 10);
+```
+
+UTC. F63 consolidated the office day into `src/lib/office.ts` after finding the
+offset copied into thirteen files, and two stragglers in `derive.ts` — `poTerms`
+and `poDetail`, the function that decides whether a delivery is **late** —
+survived it, because the sweep looked for the offset string `+08:00` and these
+two never spelled it. Between midnight and 08:00 WITA they read yesterday.
+Which is to say: a consolidation that searches for the *symptom* misses every
+copy that has the bug without the symptom.
+
+## F68 — a comparison column that could not work, and then compared the wrong things
+
+The monthly bills screen (D228) carries one column that is not a restatement of
+the cash calendar: **what this line cost last month**, and the percentage
+between the two. It took four tries to make that column true, and each wrong
+version rendered without complaint.
+
+**One — the column was structurally dead.** `cashPlan()` runs twelve months
+*forward* from today, so the previous month is never in it. `monthlyBills` went
+looking for last month's cell among those twelve, found nothing, every time,
+for every row. Every cell printed `—`. The anomaly banner never appeared. The
+rule I had been careful about — *a line that did not exist last month reads —,
+never +100%* — was doing all the work, because every line looked like it did
+not exist last month.
+
+It is the most comfortable kind of bug: the output was **exactly what the
+careful case is supposed to look like.** Nothing was red. A screenshot of it
+would have passed review. What caught it was reading the seed and knowing that
+August payroll certainly existed.
+
+**Two — the comparison was one week against one month.** Fixed by anchoring a
+second plan run at the previous month, the column filled in — with nonsense.
+Payroll runs weekly: five rows a month at Rp 30.000.000. Last month's figure
+was the whole component's month, Rp 150.000.000. So every payroll row in the
+system read **−80%**, five times a month, for ever, and the anomaly banner
+counted five anomalies where there was not one.
+
+The rule underneath: **a percentage is a claim that two numbers are the same
+kind of number.** One payday and one month are not. So the comparison moved to
+where the question actually lives — *did this line move this month* is a
+monthly question — and the row now shows `total bulan` beside the figure
+wherever the line runs more than once, because a number sitting next to a
+single Rp 30 juta payday will otherwise be read as that payday's own history.
+
+**Three — `actual || planned`, in both directions.** Taking a month's `actual`
+where the month is still running compared a half-paid September against a
+finished August and reported the materials bill as −82% when nothing had
+changed. Falling back to `planned` where a finished month had no payments read
+*we spent this* when the truth was *we spent nothing*. One rule replaced both:
+**a month that has ended is worth what it cost; a month still running is worth
+what it is expected to cost** — applied to both sides, so the two halves of
+every percentage are always measured the same way.
+
+**Four — and this is the one worth the entry.** Anchoring a plan at a past
+month worked, and re-dated the world. August opened with four unpaid paydays
+reading *belum jatuh tempo* and *jatuh tempo minggu ini*. The plan believed it
+was the first of August, because `cashPlan(state, now)` had always used its one
+argument for two different questions:
+
+- **when does the window start** — which month is at the left edge
+- **what is *now*** — which bills are overdue, due, still to come
+
+Those had never needed to differ, so nothing said they were two things. The fix
+is one extra parameter and a comment that will now outlive me: a month that has
+gone by has no bills that are *not yet due*.
+
+There is a general shape here. Three of these four are the same mistake at
+different sizes — **a parameter, a fallback, or a window doing double duty**,
+where the two duties agreed right up until the day something asked for the past.
+It is F62 again (`deliveredFor` answering two questions) and F60 again (a lookup
+returning the identity element). The tell is always the same: a value that is
+*usually* correct because the two meanings usually coincide.
+
+## F69 — the same bill in two lists
+
+The bills screen splits a month into *lewat tempo · belum dibayar · sudah
+dibayar*. A partly-paid bill satisfied two of those filters and appeared in
+both — the September payroll of Rp 30.000.000 sat under *belum dibayar* with
+Rp 200.000 still owing, and again under *sudah dibayar* with Rp 29.800.000
+against it.
+
+Both rows were true. Neither was wrong on its own. The screen was still lying,
+because a list of *what do I have to pay this month* that shows one obligation
+twice is a list somebody pays twice.
+
+Three lists over one month must **partition** it. The rule that settles which
+side a partial falls on is what the screen is for: it is a worklist, so
+anything with money still owing belongs to the work, and what has already gone
+out against it shows in its own column with `sisa` underneath. *Sudah dibayar*
+means finished.
+
+Worth pairing with F65: there the overflow test measured every screen and
+missed three faults because it asked *does this fit* rather than *does this
+still mean what the screen means*. Here a filter test would pass on both rows
+for the same reason. Neither list is wrong; the **set** of lists is.
+
+## F70 — one field called `late_after_minutes`, holding 480
+
+The owner's answer to Q41 set a fifteen-minute grace period. Writing it down
+meant finding where it goes, and the rule book already had a field that looked
+like exactly the right one:
+
+```ts
+late_after_minutes: 8 * 60,   // 480
+```
+
+Read as English, that field says *somebody is late after 480 minutes*. Read
+against the code, it says *somebody is late after 08:00* — `mins` on the other
+side of the comparison is minutes since midnight, not minutes since the day
+started.
+
+```ts
+return s + Math.max(mins - rules.late_after_minutes, 0);
+```
+
+So the field had never been a grace period at all. It was a start time wearing
+a grace period's name, and the owner's fifteen minutes had **nowhere to live**:
+setting it to 15 would have made everybody late from 00:15.
+
+The fix is two fields, `day_starts_minutes` and `late_grace_minutes`, and the
+general rule is the one this project keeps rediscovering: **when one number
+answers two questions it is answering at least one of them wrongly** (F62).
+What is new here is the tell. The name was a *description of the arithmetic*
+(`after_minutes`) rather than of the thing (`day_starts`), and a name like that
+cannot be wrong, which is precisely why it hid a conflation for thirty
+milestones. `late_after_minutes` is true of both meanings. `day_starts_minutes`
+is true of only one.
+
+There is a second finding sitting behind it, unresolved and written down rather
+than guessed at. With the day starting at 08:00 and the grace at 15 minutes,
+**nobody in the system is late.** The workshop taps in at 06:49, 06:55, 07:02 —
+they are an hour early against an office rule, because the fingerprint reader is
+a workshop device and 08:00 is when the office starts. One business, two
+schedules, one start time. That is a question for the owner, not a number to
+invent, and it is in the backlog as such.
+
+## F71 — the worked example that stopped running the rules
+
+The rule-book screen carries worked examples, on the principle that a multiplier
+is an abstraction until it is rupiah. The overtime one opened:
+
+```ts
+const hourly = 17_500; // upah harian Rp 140.000 ÷ 8 jam
+```
+
+Correct on the day it was written, and correct for thirty milestones, because
+Rp 140.000 a day was a real seeded rate. Then the pay split (D250) turned that
+rate into a pokok of Rp 125.000 plus a tunjangan of Rp 15.000 — the same money,
+now in two parts — and the example silently became a claim about a person who
+no longer exists, computed from a constant that no rule on the screen can move.
+
+Nobody would have noticed. The number was still Rp 17.500. It is *still*
+Rp 17.500 today, because the allowance is included by default and 125 + 15 is
+140. The example was right by coincidence, and it would have stayed right until
+the day somebody unticked *tunjangan ikut dihitung* and watched the example not
+move.
+
+**A worked example that does not run the rules is a screenshot.** It now derives
+its hourly from `rules.hourly_includes_allowance` like everything else, and
+prints which composition it used. This is the third time the app's own worked
+example has been the thing that was wrong — F64 (John Lau refusing his own
+subject), F66 (his English chips failing his Indonesian router), and now this —
+and the pattern across all three is worth stating: **the examples are written
+once and the rules keep moving**, so an example that holds its own copy of a
+figure is a copy that will drift. Derive, or delete.
+
+## F72 — the pay split that quietly cut five salaries
+
+The tunjangan is earned per day present. Presence comes from the timesheet. So
+the first version counted the days the timesheet says somebody was here, for
+everybody, which is what the owner described and what the code already had a
+helper for.
+
+The payroll run came out with five office staff on **Rp 0 tunjangan, 0 hari
+hadir** — Evin, Putri, Anggun, Andi, Made — every one of them Rp 600.000 a month
+worse off than the day before, from a change whose stated property was that it
+moved nobody's money.
+
+The fingerprint reader is a workshop device. The office does not use it. **No
+taps is not evidence of absence**, and treating it as such is the same class of
+error as F60's lookup returning zero: the absence of a record is not a record of
+absence.
+
+What is satisfying about the fix is that the system already contained it. Twenty
+lines above, `base_pay` makes exactly this split, with exactly this reasoning
+already written in a comment:
+
+> Monthly staff are paid the month whatever the machine says; a daily or hourly
+> person is paid for what they were here for. That difference is the only place
+> `pay_basis` is used, and it is why it exists.
+
+The allowance follows the same rule for the same reason — a monthly person earns
+it on the days the business works, a daily one on the days the timesheet
+counted — and loses it the way the owner said anybody loses it: HRD deciding,
+with a reason. So the comment is no longer the only place `pay_basis` is used,
+and the sentence it contains turns out to have been a general rule about this
+business rather than a note about one variable.
+
+## F73 — bruto and diterima, computed twice
+
+```ts
+gross: base_pay + allowance_pay + overtime_pay - under.amount - late_deduction,
+net:   base_pay + overtime_pay - under.amount + adjustment_total,
+```
+
+Two longhand sums of the same components, four lines apart, in one object
+literal. Adding the tunjangan to the first left the second behind, and the
+payroll run rendered a line with **no adjustments at all** showing a bruto of
+Rp 24.525.000 and a *diterima* of Rp 24.400.000.
+
+Net is gross plus what a person decided. It was never anything else. Written as
+`gross + adjustment_total`, the two cannot disagree; written out twice, they
+disagreed the first time anything was added to either.
+
+This is the cheapest finding in the file and the one most likely to recur,
+because the duplication is invisible at the point of editing: the two lines do
+not look like the same formula, they look like two correct formulas. The tell is
+that every component of the shorter one appears in the longer one. Where that is
+true, one of them is a definition and the other should be a reference.
+
+## F74 — a stage that is also one of the things collapsed into it
+
+Collapsing seven stages into four meant deciding what happens to the progress
+already recorded against the seven. The answer was easy and the arithmetic was
+not.
+
+**First mistake: summing.** Four chairs cut, four planed and four assembled
+became twelve chairs made, against an order for four. Obvious once seen, and
+the fix is obvious too — a piece has finished *Pembuatan* when it has finished
+every step inside it, so the count is the **minimum** of the steps, not their
+sum.
+
+**Second mistake, and the one worth the entry.** `FINISHING` is the name of one
+of the four new stages *and* the name of one of the seven old ones that
+collapsed into it. So the code tried to be careful:
+
+```ts
+const rolled = min(legacy sub-steps);          // AMPLAS
+const done   = total("FINISHING") + rolled;    // direct + rolled
+```
+
+Which reads as *the entries written against the new stage, plus the old ones
+rolled up* — and there is no such distinction. An entry reading `FINISHING` is
+the same string whether it was typed last year under the seven or last week
+under the four. The board printed **Finishing 7 of 4**: four sanded plus three
+finished, the same three pieces counted twice.
+
+It produced a second, quieter lie on top. The over-count tripped the existing
+*a stage cannot be ahead of the one before it* warning, so every order with any
+finishing on it carried a red sentence about a mis-keyed number that nobody had
+mis-keyed. A bug that manufactures warnings is worse than one that stays quiet:
+it teaches people that the warnings are noise.
+
+The fix removes the distinction instead of trying to guess it. Every stage has
+a list of **sources** — every code that counts towards it, its own included —
+and `done` is the minimum over the sources that actually carried a figure.
+`QC` has one source and is therefore itself. The rule generalises: **when a
+collapsed thing keeps one of its parts' names, the name is no longer a
+discriminator**, and any code that treats it as one is counting something
+twice.
+
+**Third, after the numbers were right.** The minimum silently *resolved* a
+disagreement the seed had deliberately planted — eleven doors reported finished
+where four had been sanded. The count 4 is the honest one; hiding the other 7 is
+not. So a later step overtaking an earlier one inside a stage now says so, in
+the units of the order, and says which number it used. But only overtaking:
+six cut and two assembled is four units on the bench, which is what a workshop
+looks like on a Tuesday, and warning about it would bury the real one.
+
+## F75 — the same rule, written twice, in two places that drifted
+
+The API refuses progress on a subcontracted order in two situations: the goods
+are at the vendor, or they were never sent. The drawer hid its reporting form
+when `at_vendor` — the first of those.
+
+So an order created and not yet given to the vendor showed a full reporting
+form, complete with a stage picker, that the API rejected on submit. The probe
+found it on the first order it created, which is the only kind of order that
+exhibits it: the seeded ones were all either already sent or in-house.
+
+Two conditions describing one rule will drift, and the drift is invisible
+because neither side is wrong on its own — `at_vendor` is a perfectly good flag,
+and the API's pair of refusals is right. What is wrong is that the screen asked
+a *similar* question instead of the *same* one.
+
+It is now one exported predicate, `goodsOnSite(wo)`, read by the API and by the
+screen. The general form is the rule this codebase already applies to figures
+and had not applied to conditions: **derive it once and reference it**, because
+the second hand-written copy is the one that will be a version behind. F73 was
+this with two sums; this is the same mistake with two booleans, found four
+hours apart.
+
+Worth noting what *found* it: not a test of the rule, but building a work order
+through the interface like a person would. The seeded data could not express
+the failing state, so nothing that read the seed could have caught it.
+
+## F76 — a sub-assembly priced at twice its cost, for one afternoon
+
+Adding revisions to the BOM meant every read of `bom_components` had to say
+*which revision*. Most of them were obvious. One was not:
+
+```ts
+function subAssemblyCost(state, product) {
+  const rows = state.bom_components.filter((b) => b.product_id === product.id);
+```
+
+That function prices a drawer box so a wardrobe's BOM can cost the drawer boxes
+inside it. Before revisions it was right: one product, one component list. After
+revisions it sums **every line ever written for that product** — rev 1 and the
+draft rev 2 that was copied from it — and a drawer box with a draft open costs
+roughly twice what it costs.
+
+Caught by reading rather than by running, because nothing in the seed had a
+draft on a sub-assembly. It would have appeared the first time somebody edited
+one, in a figure nobody would have questioned: a wardrobe is expensive, and
+being 40% more expensive than it should be does not look like a bug.
+
+The rule it teaches is about the shape of the change rather than the bug.
+**Adding a dimension to a table makes every existing query on that table
+ambiguous**, and the compiler cannot see it — `filter(b => b.product_id === id)`
+type-checks perfectly before and after. The only defence is to enumerate the
+readers: `grep` for the table, not for the error. Two readers, one already
+right, one silently wrong.
+
+## F77 — a diff that was one edit behind
+
+The BOM drawer showed what an open draft changes against the released revision.
+It fetched that diff through its own call:
+
+```ts
+const [diff, reloadDiff] = useLoad(() => production.getBomDiff({ product_code }), [productCode]);
+```
+
+Adding a component reloaded the product. It did not reload the diff. So the
+panel went on rendering the answer to a question about a state that no longer
+existed — and because the first edit is also what *opens* the draft, the stale
+answer was the diff from **before there was a draft at all**: `to` fell back to
+rev 1 and `from` to null, so the panel confidently listed all four of rev 1's
+components as newly added, and did not list the one component that had actually
+just been added.
+
+Every number on it was wrong and none of it looked wrong. It is exactly the
+shape of thing this project spends its refusals on, arriving through the back
+door — not an invented figure, but a **correct figure about the wrong moment**.
+
+The fix is not `reloadDiff()` in two more handlers. It is that a diff over a
+list should be derived from the list, not fetched alongside it: `draft_diff` is
+now computed inside `productView`, from the same components the table below it
+renders, so the two cannot describe different states. The separate endpoint
+stays for callers that want an arbitrary pair of revisions.
+
+Three findings in two days now share one sentence — F73 (two sums), F75 (two
+booleans), this (two reads of one state). **If two things must agree, one of
+them has to be derived from the other.** Keeping them in step by remembering to
+is not a design, it is a promise nobody can keep.
+
+## F78 — the purchase request that quietly left out half the wardrobe
+
+`Buat PR dari BOM` has existed since M23. It turns a work order's material
+projection into a draft purchase request, one line per thing to buy. It built
+those lines like this:
+
+```ts
+lines: needs.data.lines
+  .filter((l) => l.kind === "material")
+```
+
+Sensible-looking: a BOM line is either a purchased material or another product,
+and you cannot buy another product, so filter to the ones you can buy.
+
+Six wardrobes need twelve drawer boxes. A drawer box is 0,5 sheets of plywood
+and a set of runners. The request raised for those six wardrobes contained
+**none of that** — no plywood, no runners, no screws — and nothing anywhere
+said a line had been dropped. The workshop would have discovered it at the
+bench.
+
+The filter was not wrong when it was written. The BOM was flat in practice, and
+one level was a deliberate decision with a comment explaining it. What changed
+is the owner's answer to Q5 — *bom berlapis* — and the filter went on doing
+exactly what it always did.
+
+Two things worth keeping.
+
+**A filter that excludes a kind is a decision about that kind**, and it needs to
+say what happens to it. `filter(x => x.kind === "material")` says nothing about
+the products; `.map(explode)` would have. A dropped row and a handled row look
+identical downstream, which is why this survived.
+
+**The screen showed the total, not the lines.** *Proyeksi BOM Rp 3.338.600* was
+right — `material_cost` costed the drawer box through `subAssemblyCost`, one
+level down — so the summary agreed with the BOM while the request built from it
+did not. **A correct total is not evidence that the list behind it is
+complete**, and the summary is the thing everybody looks at.
+
+## F79 — the self-check that raced itself
+
+`/demo` proves the refusals are real by exercising them against the demo API:
+approve without the authority, allocate more than the transfer moved, and so
+on. Twelve checks, and one of them started failing about one run in four:
+
+```
+D125 — approving a request with no document behind it
+expected 422 support_required   got 403 authority_required
+```
+
+403 means *you are not the CEO*. The probe becomes the CEO on the line before.
+
+Polling the acting user through a run showed it:
+
+```
+run 1  putri → made → putri → evin → andi → …          12/12
+run 2  putri → made → putri → evin → putri → andi → …  FAIL
+```
+
+An extra `putri` between `evin` and `andi`. The only code that sets Putri is a
+run's own `actAs(original)` at the end — so **a second run was finishing while
+the first was still going**. `reactStrictMode` invokes the mount effect twice in
+development, and the probes mutate a single global acting user, so the two runs
+interleaved their `actAs` calls and stole the identity out from under each
+other.
+
+The guard has to be a **ref**, not the existing `running` state: a state update
+lands on the next render, and by then the second caller is already past the
+check.
+
+What makes this worth writing down is not the race. It is which thing broke.
+The failing check was **the mechanism that demonstrates the rules are
+enforced**, and it failed *intermittently* and *convincingly* — with a real
+status code, a real error code, and a message that reads like a genuine
+regression. Someone would reasonably have spent an hour looking for a bug in
+`approveLine`.
+
+That is F74's lesson arriving somewhere more expensive. There, a counting bug
+manufactured warnings about mis-keys nobody had made, and the risk was that
+people learn to ignore warnings. Here a test manufactures a failure, and the
+risk is that people learn to ignore the test — or worse, "fix" the thing it
+accuses. **A check that can be wrong about the system is worse than no check,
+because it spends the credibility of every check beside it.**
+
+## F80 — four red rows describing one healthy payment
+
+The contribution audit compares what the roll of names says a scheme should
+cost against what actually went out. Built per scheme, it read:
+
+```
+BPJS Kesehatan     3 orang   seharusnya Rp 1.225.000   dibayar Rp 1.525.000  +300.000
+Jaminan Hari Tua   5 orang   seharusnya Rp 2.671.020   dibayar Rp 3.310.689  +639.669
+Jaminan Pensiun    2 orang   seharusnya Rp   526.269   dibayar Rp 0          belum ada baris kas
+Jaminan Kecelakaan 2 orang   seharusnya Rp    72.900   dibayar Rp 0          belum ada baris kas
+Jaminan Kematian   2 orang   seharusnya Rp    40.500   dibayar Rp 0          belum ada baris kas
+```
+
+Five rows, four of them wrong, and the money was fine. **One BPJS
+Ketenagakerjaan invoice pays all four TK schemes.** Tying the cash line to a
+single scheme meant JHT claimed the whole payment and looked like an overcharge,
+while JP, JKK and JKM looked unpaid.
+
+The model was wrong in a specific and repeatable way: `scheme_code` was
+singular because each scheme has one rate, one roll and one expected figure —
+all true — and none of that is the unit the **money** moves in. The invoice is.
+
+So the audit groups by the cash line and the field became a list. What falls
+out of the regrouping is worth more than the fix: the unknowns had to be made
+to dominate. If any scheme on an invoice has no rate for the month, the
+invoice's expected total is **unknown**, not the sum of the ones that do have
+rates — because that sum is a confident figure missing a part of itself, and it
+would be compared against a payment that includes the missing part.
+
+The lesson generalises past this screen. **Group a comparison by the thing being
+compared, not by the thing being computed.** Contributions are computed per
+scheme; they are paid per invoice; the audit is about payment. Getting that
+backwards produces rows that are individually defensible and collectively a
+lie — the same shape as F69, where three lists each correct made one bill
+appear twice.
+
+## F81 — the module built to avoid scoring people on missing data did it twice, in opposite directions
+
+The KPI analyzer exists to measure people, so it was written defensively from
+the first line: *unmeasured is not zero*, in a comment, at the top. It then got
+the same question wrong twice on the way to the first screenshot.
+
+**First run: every office worker rated 4% present.** Attendance divided present
+days by scheduled working days. Present comes from the timesheet; the timesheet
+comes from taps; the office does not use the fingerprint reader. So Andi, who
+had worked every day of the month, was rated 4% — one day in twenty-five.
+
+This is F72 exactly. Two days earlier, the pay split cut five office salaries by
+Rp 600.000 for the same reason, and the finding was written up with the sentence
+*no taps is not evidence of absence*. Knowing the rule, and having written it
+down, was not enough to stop writing the code that violates it — because the
+violation does not look like the rule. It looks like a division.
+
+**Second run: everybody rated 100%.** The fix measured attendance over *days the
+system has a record for*:
+
+```ts
+const recorded = days.filter((d) => d.slots.in !== null || d.mark !== null);
+```
+
+`slots` is a `Partial<Record<ScanSlot, string>>`. An absent tap is `undefined`,
+not `null`. `undefined !== null` is true, so every calendar day counted as
+recorded, and all forty people scored 100% on a measure that had just been
+rated 4%. The same missing-data question, answered wrongly in the opposite
+direction, by a comparison operator.
+
+**Third pass: a figure over two days is not a figure.** With the operator fixed,
+office staff read *100%, 2 dari 2 hari yang tercatat* — true, and carrying a
+full 25% of a performance score on a two-day sample. A floor now marks a thin
+basis as unmeasured.
+
+Three things worth keeping.
+
+**A rule in a comment does not protect the code under it.** The file opens with
+*unmeasured is not zero* and then contains two ways of treating unmeasured as
+something. What would have caught it is not more care, it is the habit of
+looking at the output for a person the data does not cover — which is one probe.
+
+**`undefined` and `null` are the same fact and different values.** Everywhere
+missing data matters, `!= null` is the comparison that means *has a value*, and
+`!== null` is a trap that type-checks. This codebase has now been bitten by the
+missing/zero distinction in F60, F62, F72 and here.
+
+**And the seed could not demonstrate the module.** With a five-day floor, no
+calendar month in the data has enough taps — the real export covers ten days
+across a month boundary. The honest fix was not to lower the floor to flatter
+the seed; it was that **a calendar month is the wrong period for performance**.
+Attendance arrives in fortnights, and the payroll run already carries the period
+somebody was actually paid for. The screen now takes a date range and defaults
+to the last run's, and 24 of 40 people score over the window the data covers.
+A rule that makes a screen look broken is sometimes telling you the screen was
+asking the wrong question.
+
+---
+
+## F82 — half of "the QR work" was never waiting on a backend
+
+The QR work had sat in the backlog since Q29 as one item, filed under Phase 2
+with a clear reason: a QR is only useful if somebody can scan it and land
+somewhere, and landing somewhere needs a public read route and a token, which
+needs a backend.
+
+That is true of exactly half of it, and the half it is true of is the smaller
+half.
+
+The reason it needs a public route is that **a vendor has no account here**.
+Print a QR on the PO PDF, the supplier scans it, and they must reach a page
+that shows them the status of their own order without logging in — a public
+route, a token per order, scoped so one supplier cannot read another's. All of
+that is real, and all of it waits.
+
+But the other QR in the backlog is on a **packing box**, and the person who
+scans a packing box is our own installer. They have an account. They are
+already signed in on the phone in their hand. The scan opens a page inside the
+application, behind the ordinary login, exactly like every other page they use.
+There is nothing public about it and nothing to wait for.
+
+The two had been filed together because they are both "QR", which is a fact
+about the technology and not about the problem. **The question that separates
+them is not what the label is made of, it is who is holding it** — and that
+question was never asked, because the two items looked alike on the shelf.
+
+So the box half was built in this phase, and the vendor half is still Phase 2:
+the PO screen renders its QR with a note saying what it does and does not do,
+and it is deliberately **not** printed on the PDF the vendor receives. A QR
+that fails for the person holding it is worse than no QR — they photograph it
+three times before deciding the company is careless.
+
+---
+
+## F83 — the well-argued decision that never asked who was holding the phone
+
+The QR encoded the box code, `kol-26-09-02_01`, and the file said why at
+length: a label is glued to a wooden crate and travels for months, a URL
+printed on it is a promise about a hostname we would have to keep for ever, and
+the code is the thing that is true whatever the address turns out to be.
+
+Every sentence of that is correct. The conclusion was still wrong, and it took
+building the print sheet to see why.
+
+**The scanner is a stock phone camera.** Not our app — the camera the installer
+already has open, the way anybody scans anything. A camera that reads a URL
+opens the box's page. A camera that reads `kol-26-09-02_01` shows a line of
+text, and the person retypes it into a search box. The QR has then saved them
+nothing at all.
+
+The code-only design only pays off if we ship a camera scanner *inside* the
+app, and that is where it collapses: `BarcodeDetector` does not exist on iOS
+Safari, so an in-app scanner means a WASM decoder in the bundle. The simple
+design needed the complicated dependency to work, and the complicated design
+needed nothing.
+
+The hostname objection survives and is answered **by the label rather than by
+the QR**: the code is printed under it in mono, large enough to type. A moved
+domain degrades a label to exactly what the code-only design would have given
+us on its best day. And because the URL is built from whatever host the label
+is printed from, it is right for as long as that host is.
+
+Then it was measured rather than argued. At the 31.7 mm the label gives it, a
+URL on our own domain is 33 modules — 0.86 mm each, against the ~0.5 mm a phone
+needs at arm's length. Even an 84-character Vercel preview hostname stays at
+0.58 mm. **The thing the whole argument was protecting the label from costs it
+nothing.**
+
+Two things worth keeping. A decision can be internally sound and still wrong,
+because soundness is about the argument and correctness is about the world —
+and the way to tell is to name the person and the object in their hand. And
+when a trade-off is about a physical quantity, **measure it before writing the
+paragraph**: one script that prints millimetres per module would have settled
+this before the first doc comment was written.
+
+---
+
+## F84 — two seeded rows sharing a primary key, found by the feature that needed one
+
+The production seed had two rows with `id: "prg_23"` and two with
+`id: "prg_24"`: one pair on the pintu work order, another pair added later for
+the four-stage order, written by copying the block above and not renumbering.
+
+It had been there since M47 and nothing had gone wrong, because **nothing in
+the system had ever looked a progress entry up by its id.** Every reader of
+that table filters by work order, sums by stage, or groups by date. A duplicate
+id is invisible to all of them.
+
+W5 is the first feature that needs one: linking a name to a person writes to
+entries individually, and `draft.production_progress.find(p => p.id === t.id)`
+would have found the wrong row half the time — silently, and only on those
+four.
+
+Two things worth keeping.
+
+**An unused key is an unchecked key.** A primary key that nothing dereferences
+is not being validated by anything, and duplicates accumulate in it quietly. It
+had survived a typecheck, a build, and every probe run in six milestones.
+
+**And the thing that found it was reading the file, not running it.** It was
+spotted while working out what to attach the link to — the ids were on screen,
+next to each other, and the pattern was obvious once anybody was looking at ids
+rather than through them.
+
+---
+
+## F85 — the matcher was blind in the exact case it existed to protect
+
+The name-linking screen offers a suggestion when one active employee's name
+matches, and offers nothing when several do — because there is an *Andi* in the
+workshop (B-036) and an *Andi Prasetyo* in the office (K-011), and offering
+either one is worse than offering neither.
+
+The first version compared full names for equality. Run against the seed, the
+row for *Andi* came back with **one confident suggestion: B-036 · Andi**.
+
+Equality is exactly the wrong test here. *Andi* equals *Andi* and does not
+equal *Andi Prasetyo*, so the one name in the register with a genuine collision
+was the one name the code was certain about — and certainty is what gets
+clicked. The ambiguity guard was there, was correct, and never fired.
+
+A candidate is now somebody whose full name **is** the name or **begins with it
+as a whole word**: *Andi Prasetyo* is a candidate for *Andi*, and *Sumi* is not
+one for *Sumiati*. More than one candidate and there is no suggestion at all,
+exact match or not.
+
+The lesson is not about string matching. **A guard that never fires on the
+data it was written for has not been tested, it has been assumed** — and the
+way to find out is to look at what the screen actually says about the row you
+wrote the guard for, which took one probe and no reasoning at all.
+
+---
+
+## F86 — nine stock issues pointing at two work orders that never existed
+
+Every `issue` move in the seed carried `ref_no: "spk-26-08-05_01"` or
+`"spk-26-08-12_01"`. Neither is a work order. The seven that exist are
+`spk-26-08-10_01`, `-24_01`, `-24_02`, `-28_01`, `-30_01`, `spk-26-09-01_01`
+and `-09-02_01`.
+
+Nine issues and one return, written in M27, pointing at nothing for six
+milestones — and **no screen could have said so**, because until D266 nothing
+in the system ever joined a stock move to a work order. The column was
+displayed, never dereferenced. The stock drawer printed `spk-26-08-12_01` in
+grey mono next to the move and had no reason to ask whether it resolved.
+
+This is F84 again, two commits later and in a different table: a **key nothing
+follows is a key nothing checks.** F84 was two rows sharing a primary key,
+invisible because nothing looked entries up by id. This is a foreign key with
+no referent, invisible because nothing looked the referent up. Both survived
+typechecking, builds and every probe run, and both were found by the first
+feature that actually needed the reference to work.
+
+The seed is repointed — the lemari issues to `spk-26-08-28_01`, the meja
+finishing issues to `spk-26-08-24_01` — and **the quantities are deliberately
+unchanged.** They were written as plausible workshop activity with no BOM to
+check them against, and now that there is one the comparison says they do not
+match: 85 sheets of amplas against a list calling for 32, engsel at 96 against
+36. That is not a defect of the seed. It is exactly what this business will see
+on its first day with a BOM behind the rack, and the panel is careful to call
+it *in progress* rather than *overrun* until the run is actually finished.
+
+The cheap guard that comes with it: `StockMoveView.ref_missing` follows any
+`spk-` reference and the stock drawer marks it in amber. It has nothing to show
+in the demo now that the seed is clean, which is the point — a guard earns its
+place by what it would catch, not by what it currently displays.
+
+---
+
+## F87 — the message that described a road the order had not taken
+
+Creating a purchase order ended with a toast: *`po-26-09-13_01` drafted —
+HADI GLASS · Rp 6.000.000 — ask leadership to confirm it before it goes to the
+supplier.*
+
+Every word of it was correct until W2 shipped, and then it was wrong for
+exactly the orders W2 was built for. Leadership writing their own order now has
+it confirmed in the same act — the API says so, `self_confirmed` is true on the
+row, and the banner on the order itself says so. The toast, three lines away,
+still told them to go and ask.
+
+One fact — *has this been confirmed* — written in two places, and only one of
+them updated. That is F73 and F75 again in a third costume: there the two
+places were two sums and two booleans; here they are an API result and a
+sentence. The fix is the same shape it has been every time: **read the answer
+instead of assuming it.** The toast now branches on `res.data.self_confirmed`
+rather than on what the form knows about the world.
+
+What is worth noticing is how it was found. Not by reading the diff — the toast
+is in a different file from everything W2 touched, and nothing about it looked
+stale. It was found by **driving the feature end to end and reading what the
+screen actually said**, which is the same way F81 and F85 were found. A probe
+that stops at *the API returned 200* would have passed.
+
+---
+
+## F88 — a label nobody could open is a label nobody could check
+
+The vendor page carried a chip reading *photo of the goods* next to every
+delivery. B2 asked for it to be openable. Within a minute of it opening, the
+first one tried showed a file called **`tanda-terima-hadi-0708.jpg`** — a
+receipt acknowledgement, filed as the photo of the goods, on two seeded
+receipts.
+
+The link kind said `Receiving Item`, the filename said tanda terima, and the
+screen had been confidently printing *photo of the goods* over the top of it
+for however long. Nothing could have caught it: a boolean `has_photo` is true
+whether the file behind it is a photograph, a receipt, or a blank page.
+
+This is the same shape as F84 and F86 one level up. Those were keys nothing
+dereferenced; this is a **claim nothing opened**. In all three cases the data
+was displayed and never followed, and in all three the first feature that
+followed it found the error immediately.
+
+The corollary is worth stating as a rule, because it keeps recurring in this
+codebase: **anything a screen asserts about a file should be one tap from the
+file.** Not because users want to click, but because a claim that can be
+checked is a claim that gets checked — by whoever is reading the screen, for
+free, every day.
+
+---
+
+## F89 — a rule that changed mid-window was applied to the whole window
+
+The KPI screen takes a date range. Punctuality was computed like this:
+
+```ts
+const rules = activePayRules(state, from).rules;   // the book on the FIRST day
+```
+
+— and then every day in the range was judged against it. Correct for every
+window that sits inside one version of the rule book, which is every window
+anybody had tried, and wrong the moment one spans a change.
+
+It surfaced the same day Q44 was answered, because Q44 *is* a rule change: with
+the workshop's start time corrected from 1 September, a window of 29 August to
+7 September holds days under two different books. The screen read the September
+days against August's 08.00 and reported a workshop that was never late — which
+is the exact illusion F70 was raised about, arriving a second time through a
+different door.
+
+Each day is now judged by `activePayRules(state, d.work_date)`, and the basis
+line names **every** threshold it used rather than one: *5 dari 5 hari tepat
+waktu (masuk 08.00+0m dan 07.30+15m)*. A window spanning a change says so
+instead of averaging it invisibly.
+
+Two things came out of it.
+
+**This is F68's shape again.** There, `cashPlan(state, now)` used one argument
+for *where the window starts* and *what counts as today*; here one date decided
+*which window* and *which rule book*. Both were correct until something asked a
+question the second job had never been asked. When one value is doing two jobs,
+the bug is not in the value — it is in the day somebody needs the two to
+differ.
+
+**And the tie-break was undefined.** `activePayRules` sorted by
+`effective_from` alone and took the last: with two versions sharing a date —
+which happens the moment a correction is dated to the version it corrects — the
+winner depended on the order the rows happened to be written in. A dated rule
+book whose answer depends on array order is not a dated rule book. It now sorts
+by date **and version**.
+
+---
+
+## F90 — a note that stopped a day being paid
+
+The 45-minute break allowance was added to `issues`, which is the list a day
+carries when the reader could not describe it. An entry there sends the day to
+`review`, and a day in review cannot be paid until a person opens it.
+
+So a break that ran five minutes long stopped somebody's wages.
+
+`issues` and the new `notes` do different work and the difference is the whole
+point: *the rule could not fit the taps* is a blocker, *something here is worth
+a second look* is not. They had never needed separating because everything that
+had ever been written to `issues` genuinely was a reading failure — a missing
+pulang, a tap the rule could not place. The break is the first thing this
+system has wanted to say about a day it understood perfectly well.
+
+Worth noticing: **the count was the only symptom.** The screen's *days to read*
+went from 32 to 50 and nothing else looked different — no error, no wrong
+figure, just more amber. The number was the thing that asked the question, and
+it was worth chasing rather than accepting, which is also how the 50 turned out
+to be a mid-edit artifact once it was measured properly against the baseline.
+
+---
+
+## F91 — the answer that broke yesterday's answer
+
+Q44 was answered on 13 September as *produksi 07.30, kantor 08.00, istirahat 45
+menit*, and built the same day: `day_start_by_unit`, a start time per unit, in
+the dated rule book. It was right for the sentence it was given.
+
+The next day the same question came back with the rest of it. Production is
+**07.30–16.30** with 45 minutes. The office is **08.00–17.15** with an hour.
+**Friday has a longer break** than the other days. There is a guard on a
+**twelve-hour shift**. There is a house assistant who **starts at two in the
+afternoon**.
+
+A map of one number per unit cannot hold a single one of those beyond the first
+— not an end time, not a Friday, not a shift with no stated start, and not a
+person whose hours are their own rather than their unit's.
+
+What is worth keeping is not "ask better questions". The first answer was a
+true answer to the question asked, and the question was a reasonable one. What
+the second answer shows is that **the shape of a rule is a claim about the
+world, and a narrow shape asserts the world is simple.** `Record<string,
+number>` said: every unit has exactly one number, and that number is a start
+time. Nobody wrote that assertion down and nobody checked it, because it was
+carried in a type rather than a sentence.
+
+The replacement says less. A schedule may have no start time, no end time and
+no break, and each absence means *nobody has stated this* rather than zero. The
+guard's twelve hours begin at a time nobody has fixed, and a person on that
+pattern reads **tidak terukur** on punctuality — never *never late*, which is
+the exact illusion Q44 was raised about in the first place (F70).
+
+---
+
+## F92 — a stage nobody uses is not a stage at zero
+
+Adopting the owner's four stages put *Machinery / instalasi* third. Almost
+nothing in the seed has anything to install — a dining table has no lamps in it
+— so the column reads empty on nearly every order.
+
+The board then warned, on nearly every order, that **Packing had overtaken
+Machinery**: work that had jumped a step, a mis-keyed number, somebody should
+look. All of it manufactured, from one reading: `done: 0`.
+
+`done: 0` answers two different questions. *Nothing has passed this stage yet*
+and *this order does not go through this stage* are different facts, and the
+comparison that produces the warning is only meaningful against the first. An
+unknown cannot be overtaken.
+
+This is F74 one level out. There the error was adding a stage's direct entries
+to its rolled-up ones because the two could not be told apart; here it is
+comparing against a number that was never reported. Both times the fix is the
+same shape: **stop inferring the fact from the figure, and carry the fact.**
+`StageProgress.recorded` says whether anybody reported anything at all, and the
+overtaking check skips any comparison whose earlier stage nobody has written
+against.
+
+The thing to keep is that **a warning that fires on almost everything is a
+warning nobody reads**, and the cost is not the noise — it is the one real
+overtaking in the seed, which was sitting in the same list as thirty invented
+ones and would have been scrolled past with them.

@@ -27,9 +27,24 @@ export interface Employee {
   position: string;
   /** Which part of the business — used to group a payroll run, nothing more. */
   unit: string;
+  /** The working pattern this person is on, overriding whatever their unit
+   *  defaults to (Q44, D274). Null is the ordinary case and means *whatever my
+   *  unit is on*; it is set for the people whose hours are their own — the
+   *  guard on a twelve-hour shift, the house assistant who starts at two. */
+  schedule_code?: string | null;
   pay_basis: PayBasis;
-  /** Per month, per day or per hour, matching `pay_basis`. Whole rupiah. */
+  /** **Pokok only**, per month, per day or per hour, matching `pay_basis`.
+   *  Whole rupiah. */
   base_rate: number;
+  /** **Tunjangan, per day the person was actually here** — the same unit for
+   *  everybody regardless of `pay_basis`, because that is how the owner
+   *  described it: *allowance dibayar per hari* (D250).
+   *
+   *  Zero is the honest default and means exactly what it says: this person's
+   *  pay has not been split yet. Nothing about their figures changes while it
+   *  is zero, which is the property that let this field be added to a system
+   *  already paying people. */
+  allowance_rate: number;
   /** Standard hours in a working day. Overtime is what goes past it. */
   daily_hours: number;
   joined_on: string;
@@ -187,8 +202,19 @@ export interface TimesheetDay {
   day_value: number;
   /** Why it is worth that, and what would change it (D144). */
   pay: DayPay;
-  /** What a person has to resolve, in words. */
+  /** What a person has to **resolve**, in words. An entry here means the rule
+   *  could not describe the day, so it goes to `review` and cannot be paid
+   *  until somebody reads it (D141). */
   issues: string[];
+  /** What is worth **saying** about a day the rule read perfectly well.
+   *
+   *  Separate from `issues` because the two do different work, and folding
+   *  them together was caught the day the break allowance arrived (D270): a
+   *  break that ran five minutes long is a readable day with a note on it, and
+   *  putting it in `issues` sent it to review and stopped the day being paid.
+   *  *The rule could not fit the taps* and *something here is worth a second
+   *  look* are different sentences, and only the first one blocks. */
+  notes: string[];
 }
 
 /** Overtime arrives as a **sheet**, and there are two kinds of sheet.
@@ -268,6 +294,327 @@ export interface OvertimeLine {
    *  between the two is displayed rather than resolved: one of them is wrong
    *  and only a person knows which. */
   form_amount: number | null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Tasks, and measuring people — the one module that scores a person    */
+/* ------------------------------------------------------------------ */
+
+/** Something one person is expected to do, by a date (D260).
+ *
+ *  The owner asked for a **task tracker and a KPI analyzer**, and the tracker
+ *  has to come first, because a KPI over deliverables with no record of what
+ *  was asked of anybody is a score over opinions.
+ *
+ *  `assignee_id` is a **real employee link**, unlike `worked_by` on a
+ *  production entry or `assignee` on a design task — both of which are free
+ *  text, on purpose, because a subcontractor is a legitimate answer there. That
+ *  difference is why production work does **not** feed the score: matching
+ *  people by name into a performance record is the kind of cleverness that ends
+ *  with the wrong person's review (F81).
+ */
+export type TaskStatus = "OPEN" | "DONE" | "CANCELLED";
+
+/** What a task is for. A public reference, validated at the seam and never
+ *  joined across services (ADR-004). */
+export type TaskRefKind = "none" | "work_order" | "project" | "purchase_request";
+
+export interface Task {
+  id: string;
+  task_no: string;
+  title: string;
+  detail: string | null;
+  /** Who it belongs to. Required — a task with no owner is a note. */
+  assignee_id: string;
+  assigned_by: string;
+  assigned_at: string;
+  /** Required. A task that cannot be late is one nobody can tell is late —
+   *  the same rule the work order carries (D148). */
+  due_date: string;
+  ref_kind: TaskRefKind;
+  ref_no: string | null;
+  status: TaskStatus;
+  done_at: string | null;
+  done_by: string | null;
+  /** Waiting on something outside the person's hands, with what it is waiting
+   *  on.
+   *
+   *  **A blocked task never counts against the assignee**, and that is the
+   *  single load-bearing rule of this whole module (D261). A tracker that
+   *  punishes people for reporting blockers is a tracker that stops being told
+   *  about blockers, and then it measures nothing at all. */
+  blocked_reason: string | null;
+  blocked_at: string | null;
+  cancelled_reason: string | null;
+}
+
+export interface TaskView extends Task {
+  assignee_name: string;
+  assignee_no: string;
+  assigned_by_name: string;
+  /** Negative once the due date has passed. */
+  days_left: number;
+  /** Open, past its date, and not blocked. */
+  overdue: boolean;
+  /** Finished after its due date. */
+  late: boolean;
+  /** Days between the due date and completion; negative means early. Null
+   *  while it is open. */
+  days_early: number | null;
+}
+
+/** One measure of one person, over one period.
+ *
+ *  `value` is null when the data to compute it **does not exist** — and that is
+ *  not a zero. The office does not use the fingerprint reader, so punctuality
+ *  cannot be measured for office staff; scoring them 100% would be a
+ *  compliment nobody earned, and scoring them 0% would be a slander (D261).
+ */
+export interface KpiMeasure {
+  key: "punctuality" | "attendance" | "task_delivery";
+  label: string;
+  /** 0–100, or null where it could not be measured. */
+  value: number | null;
+  /** Why it could not be measured, in words. */
+  unmeasured_reason: string | null;
+  /** What the figure is over — *18 dari 20 hari*, so the number can be argued
+   *  with rather than only believed. */
+  basis: string;
+  /** Where it came from, named: a score whose source is not printed is one
+   *  nobody can check. */
+  source: string;
+  weight: number;
+}
+
+export interface KpiView {
+  employee_id: string;
+  employee_no: string;
+  full_name: string;
+  position: string;
+  unit: string;
+  period_start: string;
+  period_end: string;
+  measures: KpiMeasure[];
+  /** Weighted mean over the **measured** measures only. Null where too few of
+   *  them could be measured — a score over one axis out of three is not a
+   *  performance score, it is that one axis wearing a costume (D261). */
+  score: number | null;
+  measured_count: number;
+  measure_count: number;
+  score_reason: string | null;
+  /** Context, deliberately **not** scored: hours somebody worked late is a
+   *  fact about the month, and turning it into a number that goes up when
+   *  people stay late is how a business teaches itself the wrong thing. */
+  overtime_hours: number;
+  tasks_open: number;
+  tasks_blocked: number;
+  /** What this person actually **made** in the period, over the production
+   *  entries somebody has linked to them (D264). Null where none are — which
+   *  is *not attributed*, never zero.
+   *
+   *  Deliberately **not scored**, and for a different reason from the one that
+   *  kept it out before. The old reason was that production work was recorded
+   *  against a name and matching names is how the wrong review lands on the
+   *  wrong person; W5 fixes that. The reason it stays unscored is arithmetic:
+   *  **a piece is not a unit.** Eight nakas and four wardrobes do not add up,
+   *  and dividing them by anything produces a number that looks like a
+   *  performance figure and is not one. So it is shown as evidence — the
+   *  *deliverable* half of what the owner asked for — beside the scores, and
+   *  the card says why it is not in them. */
+  work: {
+    entries: number;
+    qty: number;
+    by_stage: { stage: string; name: string; qty: number }[];
+    work_orders: { wo_no: string; product_name: string; qty: number }[];
+    first: string;
+    last: string;
+  } | null;
+  /** How much of the period's reported work can be read as **anybody's**.
+   *
+   *  Coverage is a property of the record, not of the person, and it is what
+   *  makes the blank above legible: with 90% of entries resolved, no work
+   *  against a name means that person reported none; with 40%, it means
+   *  nothing at all. Without this figure the empty card is a silent accusation
+   *  (D264). */
+  work_attribution: {
+    employee: number;
+    not_a_person: number;
+    unknown: number;
+    /** 0–100. */
+    coverage: number;
+  };
+  /** Said plainly under the score, including what it could not see. */
+  notes: string[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Statutory contributions: who is enrolled, at what rate               */
+/* ------------------------------------------------------------------ */
+
+/** The schemes this business is in.
+ *
+ *  Q30 asked *which statutory deductions apply, and at what rate*. The owner's
+ *  answer redefined the question, and redefined it better: **HRD enters who is
+ *  enrolled, accounting audits it** — because the rates are public and the roll
+ *  of names is not, and the leak he described is people who have left still
+ *  being paid for (D259).
+ *
+ *  `PPH21` is here as an **enrolment only**. Recorded — who has an NPWP, which
+ *  PTKP bracket — and **not computed**: PPh 21 is progressive over TER tables
+ *  nobody has given us, and D140's rule holds exactly as it did. A missing
+ *  deduction is obvious on a payslip; a wrong one is discovered by an employee
+ *  who is short.
+ */
+export type ContributionScheme =
+  | "BPJS_KESEHATAN"
+  | "JHT"
+  | "JP"
+  | "JKK"
+  | "JKM"
+  | "PPH21";
+
+export const SCHEME_LABEL: Record<ContributionScheme, string> = {
+  BPJS_KESEHATAN: "BPJS Kesehatan",
+  JHT: "BPJS TK — Jaminan Hari Tua",
+  JP: "BPJS TK — Jaminan Pensiun",
+  JKK: "BPJS TK — Jaminan Kecelakaan Kerja",
+  JKM: "BPJS TK — Jaminan Kematian",
+  PPH21: "PPh 21",
+};
+
+/** Schemes whose contribution this system will compute. `PPH21` is not one of
+ *  them, and the screens say so rather than showing a blank column. */
+export const COMPUTED_SCHEMES: ContributionScheme[] = [
+  "BPJS_KESEHATAN", "JHT", "JP", "JKK", "JKM",
+];
+
+/** One dated version of a scheme's rate.
+ *
+ *  Dated for the same reason the pay rules are (D173): a contribution
+ *  recomputed for March must use March's percentage. The percentages are
+ *  public; the **risk class behind JKK is not** — it is set per employer by
+ *  BPJS between 0,24% and 1,74%, and the seed carries a class-II figure marked
+ *  as needing confirmation rather than a number presented as fact (Q49).
+ */
+export interface ContributionRate {
+  id: string;
+  scheme: ContributionScheme;
+  effective_from: string;
+  /** Percent of the base. The employer's share is a company cost; the
+   *  employee's is a deduction on the payslip. Kept apart because they are two
+   *  different facts, and the invoice is the sum of both. */
+  employer_percent: number;
+  employee_percent: number;
+  /** Upper limit on the base, where the regulation sets one. Null means none.
+   *  BPJS resets these annually, so the screen says when it was last set. */
+  wage_ceiling: number | null;
+  note: string;
+  /** Set where the figure is the published national one, false where it is a
+   *  stand-in this system chose and somebody has to confirm. The screen shows
+   *  the difference — a rate nobody has checked must not look like one that
+   *  has been. */
+  confirmed: boolean;
+  created_by: string;
+  created_at: string;
+}
+
+/** One person, in one scheme, from one date.
+ *
+ *  **HRD's to enter** (owner). Append-only like everything else that records
+ *  something that happened: ending an enrolment sets `ended_on`, it does not
+ *  delete the row, because *was he covered in March* is the question this
+ *  exists to answer (A5).
+ */
+export interface Enrolment {
+  id: string;
+  employee_id: string;
+  scheme: ContributionScheme;
+  /** The number on the card. Sensitive like the 201 documents, so it is
+   *  **masked on read** and revealing it is logged (D196). */
+  member_no: string | null;
+  enrolled_on: string;
+  ended_on: string | null;
+  ended_reason: string | null;
+  /** The wage the contribution is computed on, where it differs from what the
+   *  person is actually paid.
+   *
+   *  It differs more often than not, and that is the point of the field rather
+   *  than an edge case: BPJS is registered against a **declared** wage, and the
+   *  gap between the declared wage and the real one is a thing the business
+   *  should be able to see rather than discover. Null means *use the pay
+   *  record* — pokok + tunjangan (D250). */
+  declared_base: number | null;
+  note: string | null;
+  by: string;
+  at: string;
+}
+
+/** What one person costs one scheme in one month. Computed on read (A3). */
+export interface ContributionLine {
+  employee_id: string;
+  employee_no: string;
+  full_name: string;
+  scheme: ContributionScheme;
+  /** Masked. The full number needs an explicit reveal, which is logged. */
+  member_no_masked: string | null;
+  /** What the contribution was computed on, and whether a ceiling cut it. */
+  base: number;
+  base_source: "declared" | "pay_record";
+  capped_from: number | null;
+  employer: number;
+  employee: number;
+  total: number;
+  /** Enrolled part-way through the month, or ended part-way through it. The
+   *  contribution is **not** pro-rated — BPJS charges the month — and the line
+   *  says so rather than quietly showing a full month as though the person had
+   *  been there for all of it. */
+  partial_month: string | null;
+}
+
+/** One scheme, one month: the roll of names, and what it should come to. */
+export interface ContributionRoll {
+  scheme: ContributionScheme;
+  month: string;
+  /** Null when no rate version covers this month — and null is not zero. The
+   *  screen says the rate is missing rather than showing an invoice of nil. */
+  rate: ContributionRate | null;
+  lines: ContributionLine[];
+  headcount: number;
+  employer_total: number;
+  employee_total: number;
+  /** What the invoice should say: employer + employee. */
+  expected_total: number;
+  /** Last month's figure and the names behind the change — the audit the owner
+   *  actually described: *bandingkan dengan transaksi sebelumnya* (D259). */
+  last_month_total: number | null;
+  joined: string[];
+  left: string[];
+}
+
+/** One **invoice**, audited: the schemes it pays, what the roll of names says
+ *  they should come to, and what actually left.
+ *
+ *  Grouped by the cash line rather than by scheme, because one BPJS
+ *  Ketenagakerjaan invoice covers JHT, JP, JKK and JKM at once. Auditing per
+ *  scheme made the other three read *no cash line tied to this* while their
+ *  money was going out on the line beside them — four red rows describing one
+ *  healthy payment (D259).
+ */
+export interface ContributionAuditGroup {
+  /** Null for schemes with nobody's invoice behind them yet. */
+  component_id: string | null;
+  component_name: string | null;
+  schemes: ContributionScheme[];
+  expected: number | null;
+  planned: number | null;
+  paid: number;
+  difference: number | null;
+  unusual: boolean;
+  /** Distinct people across the schemes on this invoice — a person in JHT and
+   *  JP is one person, not two. */
+  headcount: number;
+  trx_nos: string[];
+  verdict: string;
 }
 
 /** Something added to or taken off a payslip by a person, with a reason.
@@ -416,6 +763,62 @@ export const EMPLOYEE_DOC_CHECKLIST: { kind: EmployeeDocKind; required: boolean;
   { kind: "sp", required: false, note: "Surat peringatan yang pernah diterbitkan." },
 ];
 
+/** The kinds whose number is an **identity number**, and the only ones masked.
+ *
+ *  A contract number, a certificate number and an ijazah number identify a
+ *  document. A NIK, a KK number, an NPWP and a BPJS membership number identify
+ *  a **person**, and are enough on their own to open an account somewhere in
+ *  their name. Masking the first group too would be ritual, and a screen full
+ *  of rituals stops being read — which is how the masking on the second group
+ *  would come to be clicked through without thinking.
+ */
+export const SENSITIVE_DOC_KINDS = new Set<EmployeeDocKind>([
+  "ktp", "kartu_keluarga", "npwp", "bpjs_kesehatan", "bpjs_tk",
+]);
+
+/** How many digits the number should have, where the format is fixed. Used to
+ *  say *this reading is wrong* without showing a single digit of it — a
+ *  fifteen-digit NIK is a failed extraction, and that is a fact about the
+ *  machine, not about the person. Null where the format is not fixed. */
+export const DOC_NO_DIGITS: Partial<Record<EmployeeDocKind, number>> = {
+  ktp: 16,
+  kartu_keluarga: 16,
+  npwp: 15,
+  bpjs_kesehatan: 13,
+  bpjs_tk: 11,
+};
+
+/** Where the number came from. The document goes to Drive and the number is
+ *  read out of it (owner) — so the number has a provenance, and a number
+ *  nobody has read yet is **absent**, never guessed. */
+export type DocNoSource =
+  /** Read out of the scan. */
+  | "extracted"
+  /** Somebody typed it. */
+  | "typed"
+  /** The scan is filed and the number has not been read from it yet. */
+  | "pending";
+
+export const DOC_NO_SOURCE_LABEL: Record<DocNoSource, string> = {
+  extracted: "terbaca dari berkas",
+  typed: "diketik",
+  pending: "menunggu dibaca",
+};
+
+/** Every character of a number, replaced — separators kept so the shape and
+ *  the **length** survive. Length is the one thing worth showing: it says
+ *  whether the reading is plausible without saying what it is.
+ *
+ *  The alternative offered was a visible prefix (`332006***********`). It is
+ *  rejected: the first six digits of a NIK are province, city and district, so
+ *  a prefix tells the room where every employee is from — and it buys nothing,
+ *  because there is one KTP per person and the row already says whose it is.
+ *  Nothing on this screen needs the digits to tell two rows apart (D195).
+ */
+export function maskDocNo(docNo: string): string {
+  return docNo.replace(/[0-9A-Za-z]/g, "•");
+}
+
 export interface EmployeeDocument {
   id: string;
   employee_id: string;
@@ -424,8 +827,15 @@ export interface EmployeeDocument {
    *  document with a number but no scan is still a record — the number is
    *  often what somebody actually needs. */
   attachment_id: string | null;
-  /** KTP number, contract number, BPJS membership number. */
+  /** KTP number, contract number, BPJS membership number.
+   *
+   *  **Never sent to a screen for a kind in `SENSITIVE_DOC_KINDS`.** The list
+   *  carries `doc_no_masked` and the real number comes back only from
+   *  `revealEmployeeDocNo`, which writes an audit row. If the view carried the
+   *  number and the screen merely hid it, the reveal log would be theatre —
+   *  the number would already be in the browser (D196). */
   doc_no: string | null;
+  doc_no_source: DocNoSource | null;
   issued_on: string | null;
   /** After this it is no longer true. Null where it never expires. */
   expires_on: string | null;
@@ -434,12 +844,28 @@ export interface EmployeeDocument {
   recorded_at: string;
 }
 
+/** What a screen is allowed to see. The sensitive number is **not here** —
+ *  only its mask, its length, and whether that length is what the kind wants. */
+export interface EmployeeDocumentView extends Omit<EmployeeDocument, "doc_no"> {
+  /** The plain number, for kinds that are not identity numbers. Null for the
+   *  sensitive ones — those come back only from a reveal. */
+  doc_no: string | null;
+  sensitive: boolean;
+  /** `••••••••••••••••`, or null where there is no number at all. */
+  doc_no_masked: string | null;
+  doc_no_length: number | null;
+  /** False when the length is not what this kind should have — a reading to
+   *  check, said without showing a digit. Null where the kind has no fixed
+   *  format, or there is no number. */
+  doc_no_length_ok: boolean | null;
+}
+
 export interface EmployeeDocSlot {
   kind: EmployeeDocKind;
   label: string;
   required: boolean;
   note: string;
-  documents: EmployeeDocument[];
+  documents: EmployeeDocumentView[];
   /** Days until the soonest expiry, negative when it has already passed. Null
    *  when nothing in this slot expires. */
   expires_in_days: number | null;
@@ -585,9 +1011,100 @@ export type UndertimeMode =
   /** Short by more than half a day costs half a day; less costs nothing. */
   | "half_day_step";
 
+/** What lateness costs.
+ *
+ *  The owner stated the rule at last (Q41, D251): past the grace period the
+ *  deduction is **hours, at the hourly rate** — *potongannya jam saja*. It
+ *  still ships `manual`, for D174's reason rather than for want of a rule: a
+ *  deduction that starts appearing on payslips because software was updated is
+ *  one nobody agreed to. The rule-book screen prices `pro_rata` against a real
+ *  week first, per person, and somebody turns it on having seen it. */
 export type LateMode = "manual" | "pro_rata";
 
+/** Which divisor turns a wage into an hour of it. */
+export type HourlyBasis =
+  /** The owner's own arithmetic (D249): a year of pay ÷ the days this business
+   *  actually works ÷ the hours in its day. */
+  | "company"
+  /** The Kepmenaker figure, 1/173 of a month. Correct for the statutory
+   *  overtime ladder and **not** an answer to *what is an hour worth here*,
+   *  because this office does not work a 40-hour week. */
+  | "statutory";
+
+/** HRD deciding that one person does not get one day's tunjangan, and saying
+ *  why (D250).
+ *
+ *  Its own record rather than a flag on the day mark, because the owner asked
+ *  for it that way and the reason is sound: a day mark says **what the day
+ *  was** — sakit, cuti, setengah hari, tanggal merah — and this says what
+ *  somebody **decided about the money**. WFH is the case that proves it: the
+ *  day was worked, the timesheet is right, nothing about it is exceptional,
+ *  and the allowance is still not paid because the allowance is for coming in.
+ *  Folding that into the mark would make the timesheet lie about the day in
+ *  order to get the pay right.
+ *
+ *  Append-only, like everything else here: restoring writes `restored_by`
+ *  rather than deleting the row, so *why was this not paid* stays answerable
+ *  after somebody changes their mind (A5).
+ */
+export interface AllowanceWithholding {
+  id: string;
+  employee_id: string;
+  work_date: string;
+  /** Required. A deduction with no sentence beside it is one nobody can argue
+   *  with three months later (D155). */
+  reason: string;
+  by: string;
+  at: string;
+  restored_by: string | null;
+  restored_at: string | null;
+  restored_reason: string | null;
+}
+
+export interface AllowanceWithholdingView extends AllowanceWithholding {
+  employee_no: string;
+  full_name: string;
+  by_name: string;
+  restored_by_name: string | null;
+  /** What this one day of tunjangan was worth when it was withheld. Computed
+   *  on read from the person's current rate, and labelled as such — it is
+   *  context for the decision, not a stored amount. */
+  amount: number;
+}
+
 /** The rule book, as it stands on one date. */
+/** One working pattern (Q44, D274).
+ *
+ *  Five of them in this business and no two alike, which is why this is a row
+ *  rather than a pair of numbers. What matters about the shape:
+ *
+ *  - **`start_minutes` is nullable.** The guard works twelve hours and nobody
+ *    has said from when. A schedule with no start cannot measure lateness, and
+ *    that reads as *tidak terukur* with the reason — never as *never late*,
+ *    which is the error Q44 was raised about in the first place (F70).
+ *  - **`end_minutes` is nullable** for the same reason and separately: 07.30
+ *    to 16.30 is nine hours with 45 minutes out of it; 08.00 to 17.15 is nine
+ *    and a quarter with an hour. Those are the same working day by different
+ *    arithmetic, and neither can be derived from the other.
+ *  - **Friday has its own break**, because it does here — a longer midday
+ *    break, the same for everybody who has one. Null means Friday is like any
+ *    other day for this schedule, which is a different fact from *nobody has
+ *    said*, and the seed distinguishes them.
+ */
+export interface WorkSchedule {
+  code: string;
+  name: string;
+  /** Minutes from midnight. Null where nobody has stated it. */
+  start_minutes: number | null;
+  end_minutes: number | null;
+  break_minutes: number | null;
+  /** Friday's break where it differs. Null = no separate Friday rule stated. */
+  friday_break_minutes: number | null;
+  /** What is known about it that the numbers do not say — a twelve-hour shift
+   *  that may or may not rotate, an end time nobody has fixed. */
+  note: string | null;
+}
+
 export interface PayRules {
   overtime_mode: OvertimeMode;
   /** Ordinary working day. */
@@ -597,8 +1114,31 @@ export interface PayRules {
   /** Used when `overtime_mode` is `flat`. */
   flat_multiplier: number;
   /** A monthly salary divided by this is an hour of it. 173 is the figure the
-   *  regulation uses (40 hours × 52 weeks ÷ 12). */
+   *  regulation uses (40 hours × 52 weeks ÷ 12). Used only when `hourly_basis`
+   *  is `statutory`; kept regardless, because it is what the overtime ladder
+   *  is written against and the two figures are worth seeing side by side. */
   monthly_divisor: number;
+  /** Which of the two the payslip actually uses (D249). */
+  hourly_basis: HourlyBasis;
+  /** Days this business actually works in a year — the denominator in the
+   *  owner's own formula, and a number nobody can derive for somebody else.
+   *  Six days a week is 312 before a single national holiday comes off it, and
+   *  what comes off it here is this company's own calendar. */
+  effective_days_per_year: number;
+  /** The same figure per month, and **derived, never stored** (Q45, D271):
+   *  `effective_days_per_year / 12`. The owner asked for the monthly average
+   *  because that is the number a person checks a payslip against, and two
+   *  stored figures that must agree are how F73 happened. It is computed
+   *  wherever it is shown. */
+  /** Whether the tunjangan counts towards an hour of somebody's time.
+   *
+   *  **True**, on the owner's instruction: *pakai pokok+allowance untuk
+   *  perhitungan semua*. The flag exists because of the sentence that followed
+   *  it — the business may one day price overtime off pokok alone — and the
+   *  owner was explicit that this is **a note, not a decision** (D250). So it
+   *  is a switch that is on, with the note beside it, rather than a second
+   *  scheme half-built against a change nobody has made. */
+  hourly_includes_allowance: boolean;
   /** Which days count as the weekly rest day: `6day` means Sunday only,
    *  `5day` means Saturday and Sunday. */
   week_pattern: "6day" | "5day";
@@ -608,11 +1148,50 @@ export interface PayRules {
   undertime_mode: UndertimeMode;
   /** Minutes short before undertime counts at all. */
   undertime_grace_minutes: number;
-  /** Minutes past the start of the office day before somebody is late. */
-  late_after_minutes: number;
+  /** When the office day starts, in minutes from midnight. 480 is 08:00.
+   *
+   *  This and the grace period below were **one field** until D251, called
+   *  `late_after_minutes` and holding 480 — which read as *late after 480
+   *  minutes* and meant *late after 08:00*. One number answering two questions
+   *  again (F62), and the one it was not answering is the one the owner
+   *  actually set: fifteen minutes. */
+  day_starts_minutes: number;
+  /** The working patterns this business actually runs (Q44, D274).
+   *
+   *  It was `day_start_by_unit` — a start time per unit — for one day, and the
+   *  owner's fuller answer broke it: there is not a start time per unit, there
+   *  are **shifts**, and they differ in more than when they begin. Production
+   *  is 07.30–16.30 with 45 minutes of break; the office 08.00–17.15 with an
+   *  hour; **Friday is a longer break for everybody**; the guard works a
+   *  twelve-hour shift; the house assistant starts at two in the afternoon. A
+   *  map of numbers cannot hold any of that.
+   *
+   *  Kept in the rule book rather than on the employee for the reason every
+   *  rule here is: it is versioned by date (D173), so changing the workshop's
+   *  hours next March must not rewrite what last March was measured against.
+   *  Which schedule a person is on **is** on the employee, because that is a
+   *  fact about the person and it changes when they move jobs. */
+  schedules: WorkSchedule[];
+  /** The schedule a unit is on when nobody has said otherwise. An employee's
+   *  own `schedule_code` wins over this, and this wins over nothing at all —
+   *  a unit with no schedule falls back to `day_starts_minutes` and says so. */
+  schedule_by_unit: Record<string, string>;
+  /** Minutes after the start of the day before lateness counts at all. The
+   *  owner's figure is 15 (Q41, D251) and it is a rule rather than a constant
+   *  precisely because he said *atau bisa di custom*. */
+  late_grace_minutes: number;
   /** `manual` means the minutes are shown and the rupiah is typed by a person
-   *  with a reason (D155, Q41). */
+   *  with a reason (D155). `pro_rata` prices them by the hour (D251). */
   late_mode: LateMode;
+  /** Whether being late also costs the day's tunjangan.
+   *
+   *  **False**, and this one is a correction the owner made to himself. The
+   *  first answer was that the allowance is lost when somebody is more than
+   *  fifteen minutes late; the second was sharper — *potongannya jam saja,
+   *  allowance masih diberikan jika hadir*. Being late costs hours. Losing the
+   *  allowance is a **separate decision, made by HRD, with its own reason**
+   *  (D250), not a second penalty riding on the same event. */
+  late_forfeits_allowance: boolean;
 }
 
 /** One dated version of the rule book. Never edited — a change writes the next
@@ -658,6 +1237,8 @@ export interface PayrollLine {
   position: string;
   pay_basis: PayBasis;
   base_rate: number;
+  /** Per day here, whatever the basis of the pokok is (D250). */
+  allowance_rate: number;
   /** Days present, and of those, how many are still open. */
   days_worked: number;
   days_open: number;
@@ -672,7 +1253,32 @@ export interface PayrollLine {
   /** Approved only — claimed-but-unapproved hours are listed apart. */
   overtime_hours: number;
   overtime_pending_hours: number;
+  /** **Pokok only.** The allowance is its own figure and its own line on the
+   *  slip: a total that silently contains both is one nobody can check against
+   *  what they were told they earn (D250). */
   base_pay: number;
+  /** Days that earned the tunjangan — present days, less whatever HRD
+   *  withheld. */
+  allowance_days: number;
+  allowance_pay: number;
+  /** Days HRD took it off, what that came to, and every reason. Listed on the
+   *  slip rather than netted into one number: *kenapa tunjangan saya kurang
+   *  dua hari* is the question this exists to answer. */
+  allowance_withheld_days: number;
+  allowance_withheld_amount: number;
+  allowance_withheld: { work_date: string; reason: string; by_name: string }[];
+  /** What one ordinary hour of this person is worth, which rule produced it,
+   *  and what the other rule would have produced. Both are carried because
+   *  they differ — 1/173 of a month is not a year of pay over the days this
+   *  business works — and a payslip that showed only the one in force would
+   *  make the choice invisible (D249). */
+  hourly: number;
+  hourly_basis: HourlyBasis;
+  company_hourly: number;
+  statutory_hourly: number;
+  /** What the hourly rate was computed over: a year of pay under the active
+   *  rules, allowance included or not. */
+  annual_pay: number;
   overtime_pay: number;
   /** The overtime sum, tier by tier — what makes the figure arguable (D173). */
   overtime_parts: OvertimePart[];
@@ -688,10 +1294,36 @@ export interface PayrollLine {
   /** `gross + adjustment_total`. Still before any statutory deduction, which
    *  this system does not compute (D140). */
   net: number;
-  /** Minutes late across the period, from the taps. Evidence for a
-   *  `late` adjustment, never itself a deduction: what a minute costs is a
-   *  policy nobody has stated (Q41). */
+  /** The statutory deductions — the **employee half only**, and only for the
+   *  schemes this person is actually enrolled in (D259). Empty where HRD has
+   *  entered no enrolment, which is the honest state of most of this payroll
+   *  and is said on the slip rather than left as a blank line.
+   *
+   *  D140 still stands where it applies: nothing here is invented. A person
+   *  with no enrolment row gets no deduction, and PPh 21 is recorded as an
+   *  enrolment and never computed. */
+  contributions: {
+    scheme: ContributionScheme;
+    label: string;
+    base: number;
+    employee: number;
+    employer: number;
+  }[];
+  contribution_total: number;
+  /** `net − contribution_total`. The figure that actually reaches a pocket,
+   *  and null-free: it is only different from `net` where a real enrolment
+   *  exists. */
+  take_home: number;
+  /** Minutes late across the period, from the taps — **past the grace period**,
+   *  not past the start of the day. */
   late_minutes: number;
+  /** Days with any lateness at all, and what the `pro_rata` rule would take
+   *  off for them. `late_deduction` is **zero while `late_mode` is manual**,
+   *  which is the shipped default: the figure is computed so the rule-book
+   *  screen can price it before anybody turns it on, and so a payslip can show
+   *  what is *not* being deducted (D174, D251). */
+  late_days: number;
+  late_deduction: number;
   /** Every day of the period, for the weekly recap on the payslip (D156). */
   days: PayslipDay[];
   /** Anything a person cannot resolve from the figures alone. */

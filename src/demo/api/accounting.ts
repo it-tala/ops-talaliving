@@ -1,5 +1,6 @@
 /** Implements `/api/v1/accounting` from `03-api.md`. */
 import { ok, invalid, notFound, type Result } from "@/services/_shared/envelope";
+import type { ContributionAuditGroup } from "@/services/hr/contracts";
 import type {
   Account, AccountBalance, Transaction, TransactionView, TransactionTypeCode,
   IncomingMoney, TransactionDetail, AllocationView, TransactionLine, TransactionType,
@@ -7,17 +8,19 @@ import type {
   CashPlan, CashDue, CashComponent, CashOverride, CashSettlement,
   CashFrequency, CashMonthDetail,
   Direction, PaymentAllocation, EvidenceInboxRow, InboxHealth, AllocMethod,
-  BankStatementView,
+  BankStatementView, DocumentCoverage, TransactionCoverage, MonthlyBills,
 } from "@/services/accounting/contracts";
-import { LOCALE } from "@/lib/format";
+import { getActiveLocale } from "@/lib/format";
+import { officeToday } from "@/lib/office";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
 import type { AuditRow } from "../state";
 import {
   accountBalances, transactionView, allocatedTotal, inboxHealth, lineCoverage,
   lineStatus, fundings, fundingView, cashPlan, cashDue, cashMonthDetail,
-  bankStatementView, bankStatementViews,
+  bankStatementView, bankStatementViews, documentCoverage, transactionCoverage,
+  monthlyBills, contributionAudit,
 } from "../derive";
-import { latency, actingUser, requireAuthority, requireModule, conflict, replayed, remember, paged } from "./_kit";
+import { latency, actingUser, requireAuthority, requireModule, requireLevel, conflict, replayed, remember, paged } from "./_kit";
 import { PRIMARY_DOC_KINDS, type DocKind } from "@/services/documents/contracts";
 import * as procurement from "./procurement";
 
@@ -192,7 +195,7 @@ export async function postTransaction(
     if (sum !== input.amount_idr) {
       return invalid(
         SERVICE, "lines_do_not_add_up",
-        `The detail adds up to ${sum.toLocaleString(LOCALE)} but the transaction is ${input.amount_idr.toLocaleString(LOCALE)}. One of the two is wrong, and the ledger will not guess which.`,
+        `The detail adds up to ${sum.toLocaleString(getActiveLocale())} but the transaction is ${input.amount_idr.toLocaleString(getActiveLocale())}. One of the two is wrong, and the ledger will not guess which.`,
         { field: "lines", lines_total: sum, amount: input.amount_idr },
       );
     }
@@ -371,7 +374,7 @@ export async function allocate(
   if (already + input.amount > trx.amount_idr) {
     return invalid(
       SERVICE, "over_allocated",
-      `This transaction only moved Rp ${trx.amount_idr.toLocaleString(LOCALE)}; Rp ${already.toLocaleString(LOCALE)} is already allocated. A transaction never funds more than it moved.`,
+      `This transaction only moved Rp ${trx.amount_idr.toLocaleString(getActiveLocale())}; Rp ${already.toLocaleString(getActiveLocale())} is already allocated. A transaction never funds more than it moved.`,
       { field: "amount", moved: trx.amount_idr, already, attempted: input.amount },
     );
   }
@@ -885,7 +888,13 @@ export async function addComponent(
   const cached = replayed<CashComponent>(SERVICE, "addComponent", idempotencyKey);
   if (cached) return cached;
 
-  const denied = requireModule(SERVICE, "accounting");
+  /* Q24 (D233): the estimates on the cash calendar belong to leadership alone.
+     Enforced at the module **level** rather than by an authority, for the same
+     reason D24 gives: who counts as leadership is a grant somebody made, not
+     something to infer in code from holding `approve_funds` — accounting holds
+     that too. Accounting keeps `write` and therefore keeps reading the plan and
+     booking real payments against it; only `admin` may move the estimate. */
+  const denied = requireLevel(SERVICE, "accounting", "admin");
   if (denied) return denied;
 
   const frequency: CashFrequency = input.frequency ?? "monthly";
@@ -949,6 +958,7 @@ export async function addComponent(
       type_code: input.type_code ?? null,
       vendor_id: input.vendor_id ?? null,
       account_id: input.account_id ?? null,
+      scheme_codes: [],
       starts_on: frequency === "once"
         ? (input.due_date ?? thisMonth).slice(0, 7)
         : input.starts_on ?? thisMonth,
@@ -986,7 +996,13 @@ export async function updateComponent(
   patch: { name?: string; amount?: number; due_day?: number; ends_on?: string | null; note?: string | null; active?: boolean },
 ): Promise<Result<CashComponent>> {
   await latency();
-  const denied = requireModule(SERVICE, "accounting");
+  /* Q24 (D233): the estimates on the cash calendar belong to leadership alone.
+     Enforced at the module **level** rather than by an authority, for the same
+     reason D24 gives: who counts as leadership is a grant somebody made, not
+     something to infer in code from holding `approve_funds` — accounting holds
+     that too. Accounting keeps `write` and therefore keeps reading the plan and
+     booking real payments against it; only `admin` may move the estimate. */
+  const denied = requireLevel(SERVICE, "accounting", "admin");
   if (denied) return denied;
 
   const state = getState();
@@ -1028,7 +1044,13 @@ export async function setOverride(
   input: { component_id: string; month: string; amount: number | null; due_day?: number | null; reason?: string | null },
 ): Promise<Result<CashOverride>> {
   await latency();
-  const denied = requireModule(SERVICE, "accounting");
+  /* Q24 (D233): the estimates on the cash calendar belong to leadership alone.
+     Enforced at the module **level** rather than by an authority, for the same
+     reason D24 gives: who counts as leadership is a grant somebody made, not
+     something to infer in code from holding `approve_funds` — accounting holds
+     that too. Accounting keeps `write` and therefore keeps reading the plan and
+     booking real payments against it; only `admin` may move the estimate. */
+  const denied = requireLevel(SERVICE, "accounting", "admin");
   if (denied) return denied;
 
   const state = getState();
@@ -1448,4 +1470,54 @@ export async function ignoreStatementLine(
     });
   });
   return getStatement(input.statement_no);
+}
+
+/** What one document is holding up — every ledger row it stands behind, every
+ *  request line those rows reach, and every payment against each of those
+ *  lines including the ones this document knows nothing about (D206).
+ *
+ *  A read, and a read that is worth making before every one of the five roads:
+ *  the commonest mistake this queue can produce is booking a nota that is
+ *  already booked, and the only thing that prevents it is seeing what the
+ *  paper already covers.
+ */
+export async function coverageForDocument(
+  attachmentId: string,
+  documentAmount: number | null = null,
+): Promise<Result<DocumentCoverage>> {
+  await latency();
+  return ok(SERVICE, documentCoverage(getState(), attachmentId, documentAmount));
+}
+
+/** What a ledger row already carries, before a document is attached to it. */
+export async function coverageForTransaction(trxNo: string): Promise<Result<TransactionCoverage>> {
+  await latency();
+  const c = transactionCoverage(getState(), trxNo);
+  if (!c) return notFound(SERVICE, "transaction_not_found", `Tidak ada transaksi ${trxNo}.`);
+  return ok(SERVICE, c);
+}
+
+/** The month's bills as a worklist (D227). The same computation the calendar
+ *  draws, in the shape the person paying them needs. */
+/** Accounting's audit of the statutory invoices (D259).
+ *
+ *  *Daftar nama terdaftar × biaya per orang*, against what actually left — the
+ *  owner's own sentence, built here because it spans two services: HR owns who
+ *  is enrolled, accounting owns what was paid, and neither reaches into the
+ *  other's tables (ADR-004).
+ */
+export async function getContributionAudit(month?: string): Promise<Result<ContributionAuditGroup[]>> {
+  await latency();
+  const denied = requireModule(SERVICE, "accounting");
+  if (denied) return denied;
+  const m = month || officeToday().slice(0, 7);
+  return ok(SERVICE, contributionAudit(getState(), m));
+}
+
+export async function getMonthlyBills(month?: string): Promise<Result<MonthlyBills>> {
+  await latency();
+  const denied = requireModule(SERVICE, "accounting");
+  if (denied) return denied;
+  const m = month || officeToday().slice(0, 7);
+  return ok(SERVICE, monthlyBills(getState(), m));
 }

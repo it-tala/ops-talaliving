@@ -9,7 +9,7 @@
 -- the same moment cannot mint the same number. The demo's retry loop exists
 -- only because a Map has no unique index.
 
-create table core.doc_numbers (
+create table ops_core.doc_numbers (
   prefix  text not null,
   day     date not null,
   seq     int  not null default 0,
@@ -19,23 +19,23 @@ create table core.doc_numbers (
 -- WITA, and deliberately not `current_date`: the office day is not the
 -- server's day, and a number minted at 08:05 Makassar must not carry
 -- yesterday's date because UTC has not caught up (F17, F39).
-create or replace function core.office_day(at timestamptz default now())
+create or replace function ops_core.office_day(at timestamptz default now())
 returns date language sql immutable as $$
   select (at at time zone 'Asia/Makassar')::date
 $$;
 
-create or replace function core.next_doc_number(p_prefix text, p_at timestamptz default now())
+create or replace function ops_core.next_doc_number(p_prefix text, p_at timestamptz default now())
 returns text
-language plpgsql security definer set search_path = core, pg_temp as $$
+language plpgsql security definer set search_path = ops_core, pg_temp as $$
 declare
-  d date := core.office_day(p_at);
+  d date := ops_core.office_day(p_at);
   n int;
   width int := case when p_prefix = 'trx' then 3 else 2 end;
 begin
-  insert into core.doc_numbers (prefix, day, seq)
+  insert into ops_core.doc_numbers (prefix, day, seq)
        values (p_prefix, d, 1)
   on conflict (prefix, day)
-    do update set seq = core.doc_numbers.seq + 1
+    do update set seq = ops_core.doc_numbers.seq + 1
     returning seq into n;
 
   return p_prefix || '-' || to_char(d, 'YY-MM-DD') || '_' || lpad(n::text, width, '0');
@@ -51,7 +51,7 @@ end $$;
 -- exactly what the local harness exists to rule out. `gen_random_uuid()` has
 -- been core since Postgres 13 and carries 122 bits of entropy; two of them is
 -- past any argument.
-create or replace function core.new_token(p_prefix text default 'tok')
+create or replace function ops_core.new_token(p_prefix text default 'tok')
 returns text language sql volatile as $$
   select p_prefix || '_'
       || replace(gen_random_uuid()::text, '-', '')
@@ -60,12 +60,12 @@ $$;
 
 -- Every prefix in use, so an unknown one is caught here rather than appearing
 -- in a document number nobody recognises.
-create table core.doc_prefixes (
+create table ops_core.doc_prefixes (
   prefix text primary key,
   what   text not null
 );
 
-insert into core.doc_prefixes (prefix, what) values
+insert into ops_core.doc_prefixes (prefix, what) values
   ('pr',   'purchase request'),
   ('fund', 'payment round'),
   ('trx',  'ledger transaction'),
@@ -82,11 +82,11 @@ insert into core.doc_prefixes (prefix, what) values
   -- table exists to prevent.
   ('rcv',  'receiving report');
 
-alter table core.doc_numbers   enable row level security;
-alter table core.doc_prefixes  enable row level security;
-create policy prefixes_read on core.doc_prefixes for select to authenticated using (true);
+alter table ops_core.doc_numbers   enable row level security;
+alter table ops_core.doc_prefixes  enable row level security;
+create policy prefixes_read on ops_core.doc_prefixes for select to authenticated using (true);
 -- No policy on doc_numbers: it is written only by the definer function above.
 
-grant select on core.doc_prefixes to authenticated;
-grant execute on function core.next_doc_number(text, timestamptz), core.new_token(text)
+grant select on ops_core.doc_prefixes to authenticated;
+grant execute on function ops_core.next_doc_number(text, timestamptz), ops_core.new_token(text)
   to authenticated;

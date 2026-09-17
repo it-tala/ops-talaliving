@@ -71,7 +71,11 @@ export function Badge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset",
+        /* `whitespace-nowrap`: a pill that breaks mid-phrase reads as two
+           broken pills — *Di* / *jalan* stacked inside one rounded box (F65).
+           A badge is a short label; if it does not fit on a line, the layout
+           around it is wrong, not the badge. */
+        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset",
         toneMap[tone],
         className,
       )}

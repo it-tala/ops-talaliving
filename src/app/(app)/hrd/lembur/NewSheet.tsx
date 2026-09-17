@@ -9,8 +9,9 @@ import { Loaded, useLoad } from "@/components/ui/loaded";
 import { formatNumber } from "@/lib/format";
 import { hr, production } from "@/demo/api";
 import { OVERTIME_KIND_LABEL, type OvertimeKind } from "@/services/hr/contracts";
-import { PROCESS_STAGES } from "@/services/production/contracts";
+import { STAGE_NAME } from "@/services/production/contracts";
 import { useToast } from "@/store/toast";
+import { officeToday } from "@/lib/office";
 
 /** Opening a sheet, and putting names on it.
  *
@@ -43,7 +44,7 @@ export function NewSheet({
   const { toast } = useToast();
   const [people] = useLoad(() => hr.listEmployees(), []);
   const [orders] = useLoad(() => production.listWorkOrders(), []);
-  const [workDate, setWorkDate] = useState(new Date(Date.now() + 8 * 3_600_000).toISOString().slice(0, 10));
+  const [workDate, setWorkDate] = useState(officeToday());
   const [purpose, setPurpose] = useState("");
   const [rows, setRows] = useState<Draft[]>([blank()]);
   const [busy, setBusy] = useState(false);
@@ -179,8 +180,14 @@ export function NewSheet({
                             className="h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
                           >
                             <option value="">Proses…</option>
-                            {PROCESS_STAGES.map((s) => (
-                              <option key={s.code} value={s.code}>{s.seq}. {s.name}</option>
+                            {/* The stages **of the order chosen on this row**.
+                                A subcontracted order has no Pembuatan, and
+                                offering it here would produce a sheet the
+                                production API refuses on the night leadership
+                                signs it — which is the worst possible moment
+                                to find out (D254). */}
+                            {(wos.find((w) => w.wo_no === r.wo_no)?.stages ?? []).map((s) => (
+                              <option key={s.stage} value={s.stage}>{s.seq}. {s.name}</option>
                             ))}
                           </select>
                           <NumberInput value={r.qty_done} min={0} max={9999} onChange={(v) => set(i, { qty_done: v })} />
@@ -188,7 +195,7 @@ export function NewSheet({
                       )}
                       {isProduction && r.wo_no && r.stage && r.qty_done > 0 && (
                         <p className="mt-1 text-[11px] text-slate-500">
-                          Masuk ke papan produksi sebagai {formatNumber(r.qty_done)} unit di tahap {PROCESS_STAGES.find((s) => s.code === r.stage)?.name} — setelah pimpinan tanda tangan.
+                          Masuk ke papan produksi sebagai {formatNumber(r.qty_done)} unit di tahap {STAGE_NAME(r.stage)} — setelah pimpinan tanda tangan.
                         </p>
                       )}
                     </div>

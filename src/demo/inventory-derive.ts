@@ -10,7 +10,7 @@
 import type { DemoState } from "./state";
 import type {
   LogPurchase, LogPurchaseView, LogPieceView, SawnBoardView, LogMeasure,
-  TimberVendorSummary,
+  TimberVendorSummary, BoardStockView, BoardMoveView,
 } from "@/services/inventory/contracts";
 
 const round4 = (n: number) => Math.round(n * 10_000) / 10_000;
@@ -91,7 +91,7 @@ export function logPurchaseView(state: DemoState, p: LogPurchase): LogPurchaseVi
   }
   if (yield_percent != null && yield_percent > 100) {
     warnings.push(`Papan ${sawn_m3} m³ melebihi log ${log_m3} m³ — salah ukur, atau ada papan dari log lain masuk ke sini.`);
-  } else if (yield_percent != null && yield_percent < 45) {
+  } else if (yield_percent != null && yield_percent < settingNumber(state, "ops.low_yield_percent", 45)) {
     warnings.push(`Rendemen ${yield_percent}% — di bawah yang biasa. Layak ditanyakan ke pemilik sawmill.`);
   }
 
@@ -192,6 +192,7 @@ import type {
   StockItemView, StockItemDetail, StockMoveView, StockMove,
 } from "@/services/inventory/contracts";
 import { STOCKED_CATEGORIES } from "./fixtures/reference";
+import { settingNumber } from "./settings";
 
 /** What one item's stock is worth, and how sure we are of it.
  *
@@ -225,6 +226,11 @@ function moveView(state: DemoState, m: StockMove): StockMoveView {
     item_name: state.items.find((i) => i.code === m.item_code)?.name ?? m.item_code,
     location_name: state.stock_locations.find((l) => l.code === m.location)?.name ?? m.location,
     by_name: state.users.find((u) => u.id === m.moved_by)?.full_name ?? "—",
+    /* Only SPK references are checked, because they are the only ones this
+       state can resolve: `rcv-…` and an opname reference live elsewhere. */
+    ref_missing: m.ref_no != null
+      && m.ref_no.startsWith("spk-")
+      && !state.work_orders.some((w) => w.wo_no === m.ref_no),
   };
 }
 
@@ -352,4 +358,201 @@ export function stockMoveViews(state: DemoState, filter: { item_code?: string; r
       && (!filter.ref_no || m.ref_no === filter.ref_no))
     .sort((a, b) => b.moved_at.localeCompare(a.moved_at))
     .map((m) => moveView(state, m));
+}
+
+/* ── Boards on the rack ───────────────────────────────────────────────────
+ *
+ *  The count is the sum of two things and neither of them stores it: what came
+ *  off the saw (`sawn_boards`, which is also what the yield figures divide),
+ *  and everything that happened to it afterwards (`board_moves`). Keeping the
+ *  sawn side where it already lived means no fact is written twice, and the
+ *  rack cannot disagree with the rendemen (D203).
+ */
+
+/** Species and size in millimetres. The one place this string is built — a key
+ *  rebuilt from the words that render it is F53 all over again. */
+export function boardKey(species: string, t: number, w: number, l: number): string {
+  return `${species}|${t}x${w}x${l}`;
+}
+
+export function boardSize(t: number, w: number, l: number): string {
+  return `${t / 10} × ${w / 10} × ${l / 10} cm`;
+}
+
+interface BoardBucket {
+  species: string; t: number; w: number; l: number;
+  sawn: number; issued: number; returned: number; scrapped: number; adjusted: number;
+  /** qty by purchase, for the weighted average. */
+  byPurchase: Map<string | null, number>;
+  last: string | null;
+}
+
+function buckets(state: DemoState): Map<string, BoardBucket> {
+  const out = new Map<string, BoardBucket>();
+  const bucket = (species: string, t: number, w: number, l: number) => {
+    const key = boardKey(species, t, w, l);
+    let b = out.get(key);
+    if (!b) {
+      b = { species, t, w, l, sawn: 0, issued: 0, returned: 0, scrapped: 0, adjusted: 0, byPurchase: new Map(), last: null };
+      out.set(key, b);
+    }
+    return b;
+  };
+
+  for (const sb of state.sawn_boards) {
+    const purchase = state.log_purchases.find((p) => p.id === sb.purchase_id);
+    const species = purchase?.species ?? "—";
+    const b = bucket(species, sb.thickness_mm, sb.width_mm, sb.length_mm);
+    b.sawn += sb.qty;
+    b.byPurchase.set(sb.purchase_id, (b.byPurchase.get(sb.purchase_id) ?? 0) + sb.qty);
+    if (!b.last || sb.sawn_on > b.last) b.last = sb.sawn_on;
+  }
+
+  for (const m of state.board_moves) {
+    const b = bucket(m.species, m.thickness_mm, m.width_mm, m.length_mm);
+    if (m.kind === "issue") b.issued += -m.qty;
+    else if (m.kind === "scrap") b.scrapped += -m.qty;
+    else if (m.kind === "return") b.returned += m.qty;
+    else if (m.kind === "adjust") b.adjusted += m.qty;
+    b.byPurchase.set(m.purchase_id, (b.byPurchase.get(m.purchase_id) ?? 0) + m.qty);
+    if (!b.last || m.at > b.last) b.last = m.at;
+  }
+  return out;
+}
+
+/** Cost per m³ of board, per load. Null where the load has not been costed —
+ *  nothing is bought at an average that was invented here (D172, D204). */
+function boardCostIndex(state: DemoState): {
+  costOf: Map<string, number | null>;
+  dearestOf: Map<string, number>;
+} {
+  const costOf = new Map<string, number | null>();
+  /* The dearest costed load **per species** is the fallback the owner chose for
+     boards whose own load is unknown or uncosted (D232, Q43): timber only gets
+     more expensive, so the dearest rate we have seen is close to today's and
+     errs against the job rather than in its favour. Per species, never across
+     them — jati at a mahoni rate would be worse than no rate at all. */
+  const dearestOf = new Map<string, number>();
+  for (const p of state.log_purchases) {
+    const c = logPurchaseView(state, p).cost_per_sawn_m3;
+    costOf.set(p.id, c);
+    if (c != null) dearestOf.set(p.species, Math.max(dearestOf.get(p.species) ?? 0, c));
+  }
+  return { costOf, dearestOf };
+}
+
+export function boardStock(state: DemoState): BoardStockView[] {
+  const { costOf, dearestOf } = boardCostIndex(state);
+
+  return [...buckets(state).values()]
+    .map((b) => {
+      const qty = b.sawn - b.issued - b.scrapped + b.returned + b.adjusted;
+      const m3Each = boardVolumeM3(b.t, b.w, b.l);
+
+      /* Weighted average across what is still represented on the rack, and the
+         boards whose load has no costed yield are counted but left out of the
+         value — the same shape as the material rack (D172). */
+      const dearest = dearestOf.get(b.species) ?? null;
+      let valued = 0;
+      let valuedQty = 0;
+      let estimated = 0;
+      let unpriced = 0;
+      for (const [purchaseId, n] of b.byPurchase) {
+        if (n <= 0) continue;
+        const c = purchaseId ? costOf.get(purchaseId) ?? null : null;
+        if (c == null) {
+          /* No rate of its own. Take the species' dearest (D232) — and where
+             not even that exists, leave it counted and unvalued. */
+          if (dearest == null) { unpriced += n; continue; }
+          estimated += n;
+          valued += dearest * m3Each * n;
+          valuedQty += n;
+          continue;
+        }
+        valued += c * m3Each * n;
+        valuedQty += n;
+      }
+      /* Scale the value of the priced share to what is actually left. */
+      const share = valuedQty > 0 ? Math.max(0, Math.min(qty, valuedQty)) / valuedQty : 0;
+
+      return {
+        board_key: boardKey(b.species, b.t, b.w, b.l),
+        species: b.species,
+        thickness_mm: b.t, width_mm: b.w, length_mm: b.l,
+        size: boardSize(b.t, b.w, b.l),
+        qty,
+        sawn_total: b.sawn,
+        issued_total: b.issued,
+        scrapped_total: b.scrapped,
+        m3_each: round4(m3Each),
+        m3: round4(m3Each * qty),
+        avg_cost_per_m3: valuedQty > 0 ? Math.round(valued / (m3Each * valuedQty)) : null,
+        value: valuedQty > 0 ? Math.round(valued * share) : null,
+        estimated_qty: Math.round(Math.min(estimated, Math.max(0, qty)) * 1000) / 1000,
+        estimate_per_m3: estimated > 0 ? dearest : null,
+        unpriced_qty: Math.min(unpriced, Math.max(0, qty)),
+        last_move_at: b.last,
+      };
+    })
+    .sort((a, b) => a.species.localeCompare(b.species) || a.thickness_mm - b.thickness_mm || a.width_mm - b.width_mm);
+}
+
+/** Every movement, sawing included, newest first. One timeline: *where did the
+ *  jati 3 × 20 × 200 go* is not answerable from two lists. */
+export function boardMoveViews(
+  state: DemoState,
+  filter: { board_key?: string; ref_no?: string } = {},
+): BoardMoveView[] {
+  const { costOf, dearestOf } = boardCostIndex(state);
+  /* The load's own rate where there is one, the species' dearest where there
+     is not, and null where neither exists (D232). */
+  const rateFor = (purchaseId: string | null, species: string): { rate: number | null; basis: "load" | "dearest" | null } => {
+    const own = purchaseId ? costOf.get(purchaseId) ?? null : null;
+    if (own != null) return { rate: own, basis: "load" };
+    const dearest = dearestOf.get(species) ?? null;
+    return dearest == null ? { rate: null, basis: null } : { rate: dearest, basis: "dearest" };
+  };
+  const name = (id: string) => state.users.find((u) => u.id === id)?.full_name ?? id;
+  const noOf = (id: string | null) => state.log_purchases.find((p) => p.id === id)?.purchase_no ?? null;
+
+  const fromSawing: BoardMoveView[] = state.sawn_boards.map((sb) => {
+    const purchase = state.log_purchases.find((p) => p.id === sb.purchase_id);
+    const species = purchase?.species ?? "—";
+    const m3Each = boardVolumeM3(sb.thickness_mm, sb.width_mm, sb.length_mm);
+    const { rate: c, basis } = rateFor(sb.purchase_id, species);
+    return {
+      id: sb.id, move_no: sb.id, at: `${sb.sawn_on}T12:00:00+08:00`,
+      board_key: boardKey(species, sb.thickness_mm, sb.width_mm, sb.length_mm),
+      species, thickness_mm: sb.thickness_mm, width_mm: sb.width_mm, length_mm: sb.length_mm,
+      qty: sb.qty, kind: "sawn" as const,
+      purchase_id: sb.purchase_id, ref_no: null,
+      reason: sb.grade ? `Grade ${sb.grade}` : null,
+      by: purchase?.created_by ?? "",
+      size: boardSize(sb.thickness_mm, sb.width_mm, sb.length_mm),
+      m3: round4(m3Each * sb.qty),
+      purchase_no: noOf(sb.purchase_id),
+      by_name: name(purchase?.created_by ?? ""),
+      value: c == null ? null : Math.round(c * m3Each * sb.qty),
+      value_basis: basis,
+    };
+  });
+
+  const rest: BoardMoveView[] = state.board_moves.map((m) => {
+    const m3Each = boardVolumeM3(m.thickness_mm, m.width_mm, m.length_mm);
+    const { rate: c, basis } = rateFor(m.purchase_id, m.species);
+    return {
+      ...m,
+      size: boardSize(m.thickness_mm, m.width_mm, m.length_mm),
+      m3: round4(m3Each * m.qty),
+      purchase_no: noOf(m.purchase_id),
+      by_name: name(m.by),
+      value: c == null ? null : Math.round(c * m3Each * m.qty),
+      value_basis: basis,
+    };
+  });
+
+  return [...fromSawing, ...rest]
+    .filter((m) => (!filter.board_key || m.board_key === filter.board_key)
+      && (!filter.ref_no || m.ref_no === filter.ref_no))
+    .sort((a, b) => b.at.localeCompare(a.at));
 }

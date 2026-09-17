@@ -14,7 +14,10 @@
               "@/services/events/*",
               "@/services/hr/*",
               "@/services/production/*",
-              "@/services/inventory/*"
+              "@/services/inventory/*",
+              "@/services/marketing/*",
+              "@/services/delivery/*",
+              "@/services/assistant/*"
             ],
             "message": "Services may not import each other. Cross-service data goes through the service's own API (ADR-004). This rule does not apply to screens or to src/demo, which are clients of every service."
           }

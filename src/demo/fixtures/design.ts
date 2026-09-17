@@ -21,18 +21,21 @@ export const DESIGN_TASKS: DesignTask[] = [
   {
     id: "dsg_01", task_no: "dsn-26-08-20_01", product_code: "PRD-MJ-220",
     kind: "gambar_kerja", status: "RILIS", assignee: "Rizal",
+    assignee_employee_id: null, assignee_not_a_person: false,
     due_date: "2026-08-24", note: null,
     created_by: "usr_shared", created_at: "2026-08-20T09:00:00+08:00",
   },
   {
     id: "dsg_02", task_no: "dsn-26-08-20_02", product_code: "PRD-MJ-220",
     kind: "gambar_jadi", status: "RILIS", assignee: "Rizal",
+    assignee_employee_id: null, assignee_not_a_person: false,
     due_date: "2026-08-24", note: null,
     created_by: "usr_shared", created_at: "2026-08-20T09:02:00+08:00",
   },
   {
     id: "dsg_03", task_no: "dsn-26-08-22_01", product_code: "PRD-LM-3P",
     kind: "gambar_kerja", status: "DIGAMBAR", assignee: "Rizal",
+    assignee_employee_id: null, assignee_not_a_person: false,
     due_date: "2026-09-02",
     note: "Revisi C: tarikan pintu diganti model panjang, permintaan klien 5 September.",
     created_by: "usr_shared", created_at: "2026-08-22T10:15:00+08:00",
@@ -40,18 +43,21 @@ export const DESIGN_TASKS: DesignTask[] = [
   {
     id: "dsg_04", task_no: "dsn-26-08-25_01", product_code: "PRD-PT-90",
     kind: "gambar_kerja", status: "TANYA", assignee: "Ayu",
+    assignee_employee_id: null, assignee_not_a_person: false,
     due_date: "2026-09-05", note: null,
     created_by: "usr_shared", created_at: "2026-08-25T08:40:00+08:00",
   },
   {
     id: "dsg_05", task_no: "dsn-26-09-01_01", product_code: "PRD-RK-DSP",
     kind: "gambar_kerja", status: "BELUM", assignee: null,
+    assignee_employee_id: null, assignee_not_a_person: false,
     due_date: null, note: null,
     created_by: "usr_shared", created_at: "2026-09-01T09:00:00+08:00",
   },
   {
     id: "dsg_06", task_no: "dsn-26-09-01_02", product_code: "PRD-NK-KCL",
     kind: "gambar_jadi", status: "BELUM", assignee: null,
+    assignee_employee_id: null, assignee_not_a_person: false,
     due_date: null, note: null,
     created_by: "usr_shared", created_at: "2026-09-01T09:05:00+08:00",
   },

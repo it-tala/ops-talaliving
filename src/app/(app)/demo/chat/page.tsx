@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { MessagesSquare, Check, X, Bot, CheckCheck, Landmark, Upload } from "lucide-react";
+import { MessagesSquare, Check, X, Bot, CheckCheck, Landmark, Upload, FileSignature } from "lucide-react";
 import { Badge, Button, Card, CardHeader, EmptyState, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { MoneyInput } from "@/components/ui/money-input";
@@ -69,6 +69,12 @@ export default function ChatSimulatorPage() {
 
       <SendProof asEmail={asEmail} />
 
+      {/* The second road W2 named and that did not exist until D267: an order
+          written by somebody without the authority to confirm it. The outbox
+          event was already being written on `requestPoApproval`; what was
+          missing was this card. */}
+      <PoApprovalCards asEmail={asEmail} toast={toast} />
+
       <Card>
         <CardHeader
           title="Waiting for an answer"
@@ -102,6 +108,130 @@ export default function ChatSimulatorPage() {
         </Loaded>
       </Card>
     </div>
+  );
+}
+
+function PoApprovalCards({
+  asEmail, toast,
+}: {
+  asEmail: string;
+  toast: (tone: "success" | "warning" | "critical", title: string, body?: string) => void;
+}) {
+  const [rows, reload] = useLoad(() => procurement.listPoApprovals({ pending: true }), []);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [declining, setDeclining] = useState<string | null>(null);
+  const [note, setNote] = useState("");
+
+  async function answer(token: string, poNo: string, approved: boolean, text: string | null) {
+    setBusy(token);
+    const res = await procurement.answerPoFromChat({
+      token, answered_by_email: asEmail, approved, note: text,
+    });
+    setBusy(null);
+    if (res.error) {
+      toast(res.error.status === 403 ? "critical" : "warning", "Not recorded", res.error.message);
+      return;
+    }
+    toast("success", approved ? `Confirmed ${poNo}` : `Declined ${poNo}`, `Recorded as ${asEmail}, via chat`);
+    setDeclining(null); setNote("");
+    reload();
+  }
+
+  return (
+    <Loaded state={rows} onRetry={reload}>
+      {(list) => list.length === 0 ? <></> : (
+        <Card className="mb-5">
+          <CardHeader
+            title="Purchase orders waiting to be confirmed"
+            subtitle="An order is a promise made to a supplier in the company's name (D132). When the person writing it already holds the authority it is confirmed in the same act — asking yourself is theatre. When they do not, the question arrives here."
+            icon={FileSignature}
+            action={<SourceBadge state={rows} />}
+          />
+          <div className="space-y-5 p-5">
+            {list.map((po) => (
+              <div key={po.token} className="rounded-xl border border-slate-200 bg-white shadow-card">
+                <div className="flex flex-wrap items-center gap-2.5 border-b border-slate-100 px-4 py-2.5">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-600 text-white">
+                    <Bot className="h-4 w-4" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13px] font-semibold text-slate-800">
+                      OPS TALALIVING · purchase order for confirmation
+                    </p>
+                    <p className="text-[11px] text-slate-400">
+                      {po.po_no} · to {po.sent_to_email} · sent by {po.asked_by_email} ·{" "}
+                      {new Date(po.asked_at).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+
+                <dl className="grid gap-x-6 gap-y-2 border-b border-slate-100 bg-slate-50/60 px-4 py-3 text-[13px] sm:grid-cols-3">
+                  <div>
+                    <dt className="text-[11px] uppercase tracking-wide text-slate-400">Vendor</dt>
+                    <dd className="font-medium text-slate-800">{po.vendor_name}</dd>
+                    {po.vendor_pic && <dd className="text-[11px] text-slate-500">{po.vendor_pic}</dd>}
+                  </div>
+                  <div>
+                    <dt className="text-[11px] uppercase tracking-wide text-slate-400">Contract value</dt>
+                    <dd className="tabular-nums font-medium text-slate-800">{formatIDR(po.contract_value)}</dd>
+                    <dd className="text-[11px] text-slate-500">{po.line_count} line{po.line_count === 1 ? "" : "s"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[11px] uppercase tracking-wide text-slate-400">Expected</dt>
+                    {/* Missing, never a guess: an order with no agreed date is
+                        the thing that makes a delivery merely absent (D134). */}
+                    <dd className="font-medium text-slate-800">{po.expected_delivery ?? "—"}</dd>
+                    {po.project_codes.length > 0 && (
+                      <dd className="text-[11px] text-slate-500">{po.project_codes.join(" · ")}</dd>
+                    )}
+                  </div>
+                </dl>
+
+                {declining === po.token ? (
+                  <div className="px-4 py-3">
+                    <input
+                      value={note}
+                      onChange={(e) => setNote(e.target.value)}
+                      placeholder="Why not? Somebody has to tell the supplier something."
+                      className="h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                    />
+                    <div className="mt-2 flex justify-end gap-2">
+                      <Button size="sm" variant="ghost" onClick={() => { setDeclining(null); setNote(""); }}>
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm" variant="danger" icon={X}
+                        disabled={busy !== null}
+                        onClick={() => answer(po.token, po.po_no, false, note)}
+                      >
+                        Decline
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap justify-end gap-2 px-4 py-3">
+                    <Button
+                      size="sm" variant="outline" icon={X}
+                      disabled={busy !== null}
+                      onClick={() => setDeclining(po.token)}
+                    >
+                      Decline
+                    </Button>
+                    <Button
+                      size="sm" icon={Check}
+                      disabled={busy !== null}
+                      onClick={() => answer(po.token, po.po_no, true, null)}
+                    >
+                      Confirm this order
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+    </Loaded>
   );
 }
 

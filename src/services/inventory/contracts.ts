@@ -36,6 +36,65 @@ export const LOG_MEASURE_LABEL: Record<LogMeasure, string> = {
   square: "Kubikasi persegi (d² × p)",
 };
 
+/* ── The nota, and why it must be recognised before it is parsed ──────────
+ *
+ *  The ordinary flow is the other way round from what a tidy system would
+ *  want: **the transaction is recorded first**, and the nota is attached to it
+ *  afterwards (owner). For almost every nota that is fine — the lines on the
+ *  paper are the things bought, and one line is one thing.
+ *
+ *  A **nota kayu is not shaped like that.** It lists thirty rows of board
+ *  sizes, and every one of them is a size, not a purchase. Parse it the way
+ *  every other nota is parsed and the ledger gains thirty transaction lines
+ *  for one load of wood, the spend report doubles, and somebody spends an
+ *  afternoon working out why.
+ *
+ *  So a timber nota has to be **recognised before it is read**, and what
+ *  follows from recognition is a routing decision: its total is one figure for
+ *  accounting, and its rows are boards for inventory. Same document, two
+ *  readers, one number each (D200).
+ */
+
+/** One row read off a nota that looks like timber. */
+export interface NotaTimberLine {
+  /** The line exactly as printed, kept so a wrong reading can be seen rather
+   *  than argued about. */
+  raw: string;
+  kind: "board" | "log";
+  species: string | null;
+  thickness_mm: number | null;
+  width_mm: number | null;
+  length_mm: number | null;
+  /** For a log: average diameter and length in centimetres. */
+  diameter_cm: number | null;
+  length_cm: number | null;
+  qty: number;
+  /** What the row itself was priced at, when the nota prices per row. Null on
+   *  the common nota that prices only the load. */
+  amount: number | null;
+}
+
+/** What reading a nota produced, **before anybody agreed to it**.
+ *
+ *  Every field here is a guess and the type says so. Nothing is written from
+ *  this until a person confirms it, and the signals are shown rather than
+ *  summarised into a confidence score — *thirty-one baris berbentuk ukuran
+ *  papan* is a reason somebody can check; *92%* is not.
+ */
+export interface NotaScan {
+  is_timber: boolean;
+  /** Why it reads as timber. Shown on the screen, in these words. */
+  signals: string[];
+  /** Why it does not, when it does not — equally worth saying. */
+  against: string[];
+  species_guess: string | null;
+  total_guess: number | null;
+  lines: NotaTimberLine[];
+  /** Rows the reader could not make sense of. Never dropped silently: a nota
+   *  with four unread rows is a nota somebody has to look at. */
+  unread: string[];
+}
+
 /** One delivery of logs from one vendor: the thing that has a price on it. */
 export interface LogPurchase {
   id: string;
@@ -59,6 +118,11 @@ export interface LogPurchase {
    *  (D153). */
   claimed_m3: number | null;
   measure: LogMeasure;
+  /** The nota itself. **A load is entered from its nota** (owner, D201): the
+   *  paper is what carries the price, the sizes and the date, and a load typed
+   *  without one is a figure whose source is somebody's memory. Null only on
+   *  loads recorded before this rule existed, which the screen names. */
+  nota_attachment_id: string | null;
   note: string | null;
   created_at: string;
   created_by: string;
@@ -139,6 +203,119 @@ export interface LogPurchaseView extends LogPurchase {
   /** Our measurement against the seller's, in m³. */
   measure_gap_m3: number | null;
   warnings: string[];
+}
+
+/* ── The rack: boards as stock, and what leaves it ────────────────────────
+ *
+ *  Q40 answered. The board list used to be *what came off the saw* — a figure
+ *  that only ever went up, which is why the screen said plainly that it was
+ *  not stock. The owner has now asked for the other half: **pencatatan
+ *  penggunaan**. So boards become a movement ledger like every other stock in
+ *  this system (D203), and what is on the rack is the sum of the moves.
+ *
+ *  A stack is identified by **species and size**, because that is what the
+ *  workshop asks for: *jati 3 × 20 × 200, berapa ada*. Which load it came out
+ *  of is carried on the move, not in the identity of the stack — it is what
+ *  the wood cost, not what the wood is.
+ */
+
+/** Why the board count moved. */
+export type BoardMoveKind =
+  /** Off the saw. The only kind that adds, and it is written by reporting a
+   *  sawing, never by hand. */
+  | "sawn"
+  /** Taken to the floor, against a work order. */
+  | "issue"
+  /** Came back unused. */
+  | "return"
+  /** Counted and found different — an opname, with a reason. */
+  | "adjust"
+  /** Split, warped, cut wrong. Gone, and not to a work order. */
+  | "scrap";
+
+export const BOARD_MOVE_LABEL: Record<BoardMoveKind, string> = {
+  sawn: "Hasil gergajian",
+  issue: "Dipakai",
+  return: "Dikembalikan",
+  adjust: "Penyesuaian opname",
+  scrap: "Rusak / terbuang",
+};
+
+/** One movement of boards of one size. Signed: `sawn` and `return` are
+ *  positive, `issue` and `scrap` negative, `adjust` either way. */
+export interface BoardMove {
+  id: string;
+  move_no: string;
+  at: string;
+  /** `Jati|30x200x2000` — species and size in millimetres. Built in one place
+   *  (`boardKey`) and never rebuilt from a label (F53). */
+  board_key: string;
+  species: string;
+  thickness_mm: number;
+  width_mm: number;
+  length_mm: number;
+  qty: number;
+  kind: BoardMoveKind;
+  /** Which load these came out of, when anybody knows.
+   *
+   *  On the way in it is always known. On the way out it is known only when
+   *  the yard kept the stacks apart, and **it is left null rather than
+   *  guessed** — it decides what the issue cost, and a load picked to make the
+   *  arithmetic work is a wrong number in a costing report (D204). */
+  purchase_id: string | null;
+  /** The work order it went to, for an issue. */
+  ref_no: string | null;
+  reason: string | null;
+  by: string;
+}
+
+export interface BoardMoveView extends BoardMove {
+  size: string;
+  m3: number;
+  purchase_no: string | null;
+  by_name: string;
+  /** What these boards cost. From the load's own cost per m³ of board where
+   *  the load is known and costed; otherwise from the **dearest** costed load
+   *  of the same species (D232, Q43) — the owner's rule, on the grounds that
+   *  timber only ever gets more expensive, so the dearest rate is close and
+   *  never flatters the job. Null only when the species has no costed load at
+   *  all: still missing rather than invented. */
+  value: number | null;
+  /** Which of the two the `value` came from, so a screen can say so rather
+   *  than presenting an estimate as a measurement. */
+  value_basis: "load" | "dearest" | null;
+}
+
+/** One size of one species on the rack. */
+export interface BoardStockView {
+  board_key: string;
+  species: string;
+  thickness_mm: number;
+  width_mm: number;
+  length_mm: number;
+  size: string;
+  /** Sum of the moves. Never stored (A3). */
+  qty: number;
+  sawn_total: number;
+  issued_total: number;
+  scrapped_total: number;
+  m3_each: number;
+  m3: number;
+  /** Weighted average cost per m³ of board across the loads still represented
+   *  on the rack — the same choice made for materials (D172, Q43): the rack is
+   *  valued, an individual issue is not costed unless its load is known. */
+  avg_cost_per_m3: number | null;
+  value: number | null;
+  /** Boards on the rack whose own load carries no costed yield, valued in
+   *  `value` at `estimate_per_m3` — the dearest costed load of this species
+   *  (D232, Q43). Counted separately so the rack can show how much of its
+   *  value is an estimate rather than a measurement. */
+  estimated_qty: number;
+  estimate_per_m3: number | null;
+  /** Boards whose species has no costed load anywhere, so no rate exists to
+   *  estimate from. Counted, and left out of `value`. */
+  unpriced_qty: number;
+  last_move_at: string | null;
 }
 
 /** One vendor's timber **of one species**, summed — the comparison the owner
@@ -243,6 +420,13 @@ export interface StockMoveView extends StockMove {
   item_name: string;
   location_name: string;
   by_name: string;
+  /** Set where `ref_no` names an SPK that **does not exist** (F86).
+   *
+   *  Nothing dereferenced this column until D266, so nine seeded issues
+   *  pointed at two work orders that had never been created and no screen
+   *  could say so. A reference nothing follows is a reference nothing checks,
+   *  and the cheapest guard is to follow it where it is already displayed. */
+  ref_missing: boolean;
 }
 
 /** What a storeman needs on top of the item itself: how low is too low. */

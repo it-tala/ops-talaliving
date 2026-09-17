@@ -26,6 +26,7 @@ export function FundingDrawer({ trxNo, onClose }: { trxNo: string; onClose: () =
     <Drawer open onClose={onClose} width="max-w-4xl" title={trxNo} subtitle="Where this transfer went">
       <Loaded state={detail} onRetry={reload}>
         {(f) => {
+          const overLimit = f.rows.filter((r) => r.over_no_approval_limit);
           const rowColumns: Column<FundingSpendRow>[] = [
             {
               key: "when",
@@ -65,7 +66,13 @@ export function FundingDrawer({ trxNo, onClose }: { trxNo: string; onClose: () =
                 )
                 /* Payroll and the electricity bill are not loose ends (D83). */
                 : r.expects_link
-                  ? <span className="text-[11px] text-amber-700">no line or order</span>
+                  /* Above the limit the owner set, "no approval" stops being a
+                   *  gap in the paperwork and becomes the thing to chase (D231).
+                   *  Below it the row is still listed and still undecided — the
+                   *  limit changes what is worth chasing, not what is true. */
+                  ? r.over_no_approval_limit
+                    ? <span className="text-[11px] font-medium text-rose-700">no approval · over limit</span>
+                    : <span className="text-[11px] text-amber-700">no line or order</span>
                   : <span className="text-[11px] text-slate-400">not expected</span>,
             },
             {
@@ -164,6 +171,11 @@ export function FundingDrawer({ trxNo, onClose }: { trxNo: string; onClose: () =
                   </Badge>
                   {f.undecided > 0 && (
                     <Badge tone="amber">{formatIDR(f.undecided)} of purchases with nothing behind them</Badge>
+                  )}
+                  {overLimit.length > 0 && (
+                    <Badge tone="red">
+                      {overLimit.length} of those above the no-approval limit
+                    </Badge>
                   )}
                   {f.proof_filename && (
                     <span className="inline-flex items-center gap-1 rounded bg-violet-50 px-2 py-0.5 text-[11px] text-violet-800">

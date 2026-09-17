@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { Factory, ArrowRight } from "lucide-react";
 import { Card, Badge } from "@/components/ui/primitives";
-import { BRAND } from "@/lib/brand";
+import { useBrand } from "@/lib/brand";
 import { useSession } from "@/store/session";
 import { useDemo } from "@/demo/provider";
 import { AUTHORITY_LABEL, MODULE_LABEL } from "@/lib/roles";
@@ -16,6 +16,7 @@ import { AUTHORITY_LABEL, MODULE_LABEL } from "@/lib/roles";
  *  `useSession` stays as it is.
  */
 export default function SignInPage() {
+  const brand = useBrand();
   const { actAs } = useSession();
   const state = useDemo();
   const router = useRouter();
@@ -28,8 +29,8 @@ export default function SignInPage() {
             <Factory className="h-5 w-5" strokeWidth={2.5} />
           </div>
           <div>
-            <p className="text-sm font-bold tracking-tight text-slate-800">{BRAND.name}</p>
-            <p className="text-[11px] uppercase tracking-wider text-slate-400">{BRAND.tagline}</p>
+            <p className="text-sm font-bold tracking-tight text-slate-800">{brand.name}</p>
+            <p className="text-[11px] uppercase tracking-wider text-slate-400">{brand.tagline}</p>
           </div>
           <Badge tone="amber" className="ml-auto">Demo</Badge>
         </div>

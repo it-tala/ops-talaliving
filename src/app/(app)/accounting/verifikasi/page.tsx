@@ -11,8 +11,11 @@ import { MoneyInput } from "@/components/ui/money-input";
 import { NumberInput } from "@/components/ui/number-input";
 import { formatIDR } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { officeToday } from "@/lib/office";
 import { accounting, documents, procurement } from "@/demo/api";
-import type { EvidenceInboxRow, TransactionTypeCode, Direction } from "@/services/accounting/contracts";
+import { DocumentPreview } from "@/components/ui/doc-preview";
+import type { EvidenceInboxRow, TransactionTypeCode, Direction, DocumentCoverage } from "@/services/accounting/contracts";
+import type { AttachmentView } from "@/services/documents/contracts";
 import { TRANSACTION_TYPE_CODES } from "@/services/accounting/contracts";
 import { UNITS, type UomCode } from "@/services/procurement/contracts";
 import { useToast } from "@/store/toast";
@@ -60,15 +63,39 @@ export default function InboxPage() {
   const [health, reloadHealth] = useLoad(() => accounting.getInboxHealth(), []);
   const [attachments] = useLoad(() => documents.listAttachments(), []);
   const [selected, setSelected] = useState<string | null>(null);
+  const [reviewing, setReviewing] = useState<string | null>(null);
   /* The queue and the history both page: an inbox is read from the top, and
      a year of decided evidence is not something to render at once (D157, B4). */
   const { shown: queue, pager: queuePager } = usePaged(
     rows.status === "ready" ? rows.data : [],
     12,
   );
-  const decided = everything.status === "ready"
+  /* B4's other half. Paging made the history usable; it never answered *how
+     far back is worth showing*, and a list that quietly stops somewhere is a
+     list that lies by omission.
+
+     The answer is a window with an honest edge: ninety days by default,
+     because the question this list gets asked — *what did we do with that
+     photo* — is an accounting-rhythm question and a quarter covers last month
+     and the month before. What makes the window safe rather than a hiding
+     place is that the card **always says what is outside it**, and names the
+     date the history actually starts, so nothing is invisible without being
+     counted (D269). */
+  const [windowDays, setWindowDays] = useState<number | null>(90);
+  const allDecided = everything.status === "ready"
     ? everything.data.filter((r) => r.status !== "PENDING")
     : [];
+  const cutoff = windowDays === null ? null : (() => {
+    const d = new Date(`${officeToday()}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - windowDays);
+    return d.toISOString().slice(0, 10);
+  })();
+  const decided = cutoff === null
+    ? allDecided
+    : allDecided.filter((r) => r.reported_at.slice(0, 10) >= cutoff);
+  const olderCount = allDecided.length - decided.length;
+  const oldest = allDecided.reduce<string | null>(
+    (acc, r) => (acc === null || r.reported_at < acc ? r.reported_at : acc), null);
   const { shown: decidedPage, pager: decidedPager } = usePaged(decided, 12);
   const mayResolve = hasAuthority("resolve_inbox");
 
@@ -174,9 +201,9 @@ export default function InboxPage() {
               ? (
                 <ResolvePanel
                   row={all.find((r) => r.ref_id === selected)!}
-                  filename={attachments.status === "ready"
-                    ? attachments.data.find((a) => a.id === all.find((r) => r.ref_id === selected)!.attachment_id)?.filename ?? ""
-                    : ""}
+                  file={attachments.status === "ready"
+                    ? attachments.data.find((a) => a.id === all.find((r) => r.ref_id === selected)!.attachment_id)
+                    : undefined}
                   mayResolve={mayResolve}
                   onDone={refresh}
                   toast={toast}
@@ -209,32 +236,106 @@ export default function InboxPage() {
             <Card className="mt-4">
               <CardHeader
                 title="Already decided"
-                subtitle="Kept, whichever road they took — including the ones that never reached the ledger."
+                subtitle={
+                  <>
+                    Kept, whichever road they took — including the ones that never reached the ledger.{" "}
+                    {windowDays === null
+                      ? `Semuanya: ${allDecided.length} keputusan${oldest ? `, sejak ${oldest.slice(0, 10)}` : ""}.`
+                      : <>
+                          {decided.length} dari {allDecided.length} keputusan, dalam {windowDays} hari terakhir.{" "}
+                          {olderCount > 0
+                            ? <span className="text-amber-700">
+                                {olderCount} lagi lebih lama dari itu{oldest ? `, yang tertua ${oldest.slice(0, 10)}` : ""} — belum ditampilkan.
+                              </span>
+                            : "Tidak ada yang lebih lama dari itu."}
+                        </>}
+                  </>
+                }
                 icon={StickyNote}
+                action={
+                  <div className="flex flex-wrap items-center gap-1">
+                    {([[30, "30 hari"], [90, "90 hari"], [365, "1 tahun"], [null, "Semua"]] as const).map(([d, label]) => (
+                      <button
+                        key={label}
+                        onClick={() => setWindowDays(d)}
+                        className={cn(
+                          "rounded-lg px-2.5 py-1 text-[12px] transition-colors",
+                          windowDays === d
+                            ? "bg-brand-600 text-white"
+                            : "border border-slate-200 text-slate-600 hover:bg-slate-50",
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                }
               />
               <ul className="divide-y divide-slate-100">
-                {decidedPage.map((r) => (
-                  <li key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2.5 text-[13px]">
-                    <Badge tone={
-                      r.status === "CONFIRMED" ? "green"
-                        : r.status === "ATTACHED" ? "violet"
-                          : r.status === "REJECTED" ? "red" : "slate"
-                    }>
-                      {r.status}
-                    </Badge>
-                    <span className="min-w-0 flex-1 text-slate-700">
-                      {r.extracted.note ?? r.extracted.vendor_name ?? r.attachment_id}
-                    </span>
-                    {r.extracted.amount_idr != null && (
-                      <span className="tabular-nums text-slate-500">{formatIDR(r.extracted.amount_idr)}</span>
-                    )}
-                    <span className="font-mono text-[11px] text-slate-400">
-                      {r.produced_pr_line_no ?? (r.produced_trx_id ? "posted" : "no ledger row")}
-                    </span>
-                    <span className="text-[11px] text-slate-400">{r.reported_at.slice(0, 10)}</span>
-                  </li>
-                ))}
+                {decidedPage.map((r) => {
+                  const on = reviewing === r.ref_id;
+                  const f = attachments.status === "ready"
+                    ? attachments.data.find((a) => a.id === r.attachment_id)
+                    : undefined;
+                  return (
+                    <li key={r.id}>
+                      {/* A decided document is the one most worth looking at
+                          again — *what did we do with that photo* is asked
+                          months later, and it was previously answerable only
+                          as a row of words (B3). */}
+                      <button
+                        onClick={() => setReviewing(on ? null : r.ref_id)}
+                        className={cn(
+                          "flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2.5 text-left text-[13px] hover:bg-slate-50",
+                          on && "bg-slate-50",
+                        )}
+                      >
+                        <Badge tone={
+                          r.status === "CONFIRMED" ? "green"
+                            : r.status === "ATTACHED" ? "violet"
+                              : r.status === "REJECTED" ? "red" : "slate"
+                        }>
+                          {r.status}
+                        </Badge>
+                        <span className="min-w-0 flex-1 text-slate-700">
+                          {r.extracted.note ?? r.extracted.vendor_name ?? r.attachment_id}
+                        </span>
+                        {r.extracted.amount_idr != null && (
+                          <span className="tabular-nums text-slate-500">{formatIDR(r.extracted.amount_idr)}</span>
+                        )}
+                        <span className="font-mono text-[11px] text-slate-400">
+                          {r.produced_pr_line_no ?? (r.produced_trx_id ? "posted" : "no ledger row")}
+                        </span>
+                        <span className="text-[11px] text-slate-400">{r.reported_at.slice(0, 10)}</span>
+                      </button>
+                      {on && (
+                        <div className="grid gap-3 bg-slate-50/70 px-5 pb-4 pt-1 lg:grid-cols-[320px_1fr]">
+                          {f && (
+                            <DocumentPreview
+                              height={230}
+                              doc={{
+                                id: f.id, filename: f.filename, mime: f.mime, bytes: f.bytes,
+                                url: f.url, uploaded_at: f.uploaded_at,
+                                kind: f.links[0]?.kind ?? null, read: r.extracted,
+                              }}
+                            />
+                          )}
+                          <DecidedCoverage
+                            attachmentId={r.attachment_id}
+                            amount={r.extracted.amount_idr ?? null}
+                          />
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
+              {decided.length === 0 && (
+                <p className="px-5 py-4 text-[13px] text-slate-500">
+                  Tidak ada keputusan dalam {windowDays} hari terakhir. {allDecided.length} keputusan lain
+                  ada di luar jendela ini — lebarkan jendelanya untuk melihatnya.
+                </p>
+              )}
               {decidedPager}
             </Card>
           );
@@ -245,10 +346,10 @@ export default function InboxPage() {
 }
 
 function ResolvePanel({
-  row, filename, mayResolve, onDone, toast,
+  row, file, mayResolve, onDone, toast,
 }: {
   row: EvidenceInboxRow;
-  filename: string;
+  file: AttachmentView | undefined;
   mayResolve: boolean;
   onDone: () => void;
   toast: (tone: "success" | "warning" | "critical" | "info", title: string, body?: string) => void;
@@ -256,6 +357,13 @@ function ResolvePanel({
   const [accounts] = useLoad(() => accounting.listAccounts(), []);
   const [vendors] = useLoad(() => procurement.listVendors({}), []);
   const [recent] = useLoad(() => accounting.listTransactions({ limit: 40 }), []);
+  const filename = file?.filename ?? row.attachment_id;
+  /* Re-read on every document, because *what does this paper already cover*
+     is the question that stops the same nota being booked twice (D206). */
+  const [coverage] = useLoad(
+    () => accounting.coverageForDocument(row.attachment_id, row.extracted.amount_idr ?? null),
+    [row.attachment_id, row.extracted.amount_idr],
+  );
 
   /* `Others` never reaches the ledger: it branches to notes before anything
      else is looked at (owner, 2026-08-27). */
@@ -382,13 +490,32 @@ function ResolvePanel({
   return (
     <Card>
       <CardHeader
-        title={filename}
+        title={file?.filename ?? row.attachment_id}
         subtitle={`${row.origin} · ${row.reported_at.slice(0, 16).replace("T", " ")} · read ${row.extracted.confidence ?? "—"}% sure`}
         icon={FileText}
         action={<Badge tone={row.money_direction === "IN" ? "green" : "slate"}>{row.money_direction ?? "OUT"}</Badge>}
       />
 
       <div className="space-y-4 px-5 py-4 text-sm">
+        {/* The picture first. Verification is comparing the paper with the
+            figures, and until now this screen asked for that from a filename
+            (B3). Clicking another document in the queue swaps this in place —
+            no modal, so the comparison survives the click. */}
+        {file && (
+          <DocumentPreview
+            doc={{
+              id: file.id, filename: file.filename, mime: file.mime, bytes: file.bytes,
+              url: file.url, uploaded_at: file.uploaded_at,
+              kind: file.links[0]?.kind ?? null,
+              read: row.extracted,
+            }}
+          />
+        )}
+
+        <Loaded state={coverage}>
+          {(c) => <Coverage c={c} />}
+        </Loaded>
+
         {/* What the reading proposed. A proposal, never a posting (A13). */}
         <dl className="grid gap-x-6 gap-y-2 rounded-lg bg-slate-50 px-3 py-2.5 sm:grid-cols-4">
           {([
@@ -557,6 +684,11 @@ function ResolvePanel({
             <p className="mt-1 text-[11px] text-slate-500">
               No new money: the row already exists and was missing its document.
             </p>
+            {/* The check that actually bites. The document in the queue is
+                attached to nothing, so its own coverage decides nothing; what
+                decides whether *link* is right is what the row already
+                carries (D207). */}
+            {trxNo && <TargetRow trxNo={trxNo} />}
           </div>
         )}
 
@@ -591,4 +723,185 @@ function ResolvePanel({
       </div>
     </Card>
   );
+}
+
+/** What this one piece of paper is already holding up.
+ *
+ *  Three shapes, and the screen has to be able to say all three out loud
+ *  before anybody presses one of the five roads (D206):
+ *
+ *  - **one document, several ledger rows** — booking it again is the mistake
+ *    this queue is most able to produce, and the only thing that prevents it
+ *    is seeing what is already there;
+ *  - **one transfer proof, several purchases** — where the figure that matters
+ *    is the gap between what the paper says and what the rows under it add to;
+ *  - **one purchase paid twice, cash and transfer** — two ledger rows on two
+ *    accounts, correctly, shown here as one payment in two parts.
+ *
+ *  The gap is **blank rather than zero** when nobody has read the document's
+ *  own value. A gap measured against an unknown is the whole amount wearing a
+ *  different name.
+ */
+function Coverage({ c }: { c: DocumentCoverage }) {
+  if (c.transactions.length === 0) {
+    return (
+      <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[12px] text-slate-600">
+        Dokumen ini belum menopang baris mana pun. Apa pun yang dipilih di bawah akan jadi
+        yang pertama.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-2 rounded-xl border border-brand-200 bg-brand-50/50 px-3 py-2.5">
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-slate-700">
+        <Link2 className="h-3.5 w-3.5 text-brand-600" />
+        <span>
+          Sudah menopang <strong>{c.transactions.length} baris buku besar</strong>
+          {c.lines.length > 0 && <> dan menyentuh <strong>{c.lines.length} baris permintaan</strong></>}
+        </span>
+        {c.shared && <Badge tone="amber">satu dokumen, banyak transaksi</Badge>}
+      </p>
+
+      <ul className="space-y-1">
+        {c.transactions.map((t) => (
+          <li key={t.trx_no} className="flex flex-wrap items-baseline gap-x-2 text-[12px]">
+            <span className="font-mono text-[11px] text-slate-600">{t.trx_no}</span>
+            <span className="text-slate-500">{t.account_code}</span>
+            <span className="tabular-nums font-medium text-slate-800">{formatIDR(t.amount_idr)}</span>
+            {t.status === "VOID" && <Badge tone="slate">VOID — nilainya nol</Badge>}
+            {t.other_documents > 0 && (
+              <span className="text-[11px] text-slate-400">
+                +{t.other_documents} dokumen lain di baris yang sama
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+
+      <div className="flex flex-wrap items-baseline gap-x-3 border-t border-brand-200/70 pt-1.5 text-[12px]">
+        <span className="text-slate-500">Jumlah yang ditopang</span>
+        <span className="tabular-nums font-semibold text-slate-900">{formatIDR(c.covered_total)}</span>
+        {c.document_amount == null ? (
+          <span className="text-amber-700">
+            nilai dokumennya belum terbaca — selisihnya tidak bisa dihitung, dan nol di sini akan
+            menyesatkan
+          </span>
+        ) : c.gap === 0 ? (
+          <span className="text-emerald-700">pas dengan nilai dokumennya</span>
+        ) : (
+          <span className="text-amber-800">
+            selisih {formatIDR(Math.abs(c.gap ?? 0))}{" "}
+            {(c.gap ?? 0) > 0 ? "belum tercatat di mana pun" : "lebih besar dari nilai dokumennya"}
+          </span>
+        )}
+      </div>
+
+      {c.lines.length > 0 && (
+        <ul className="space-y-1.5 border-t border-brand-200/70 pt-1.5">
+          {c.lines.map((l) => (
+            <li key={l.line_no_full} className="text-[12px]">
+              <span className="flex flex-wrap items-baseline gap-x-2">
+                <span className="font-mono text-[11px] text-slate-600">{l.line_no_full}</span>
+                <span className="min-w-0 flex-1 truncate text-slate-700">{l.description}</span>
+                <span className="tabular-nums text-slate-600">
+                  {formatIDR(l.covered)} / {formatIDR(l.approved)}
+                </span>
+                {l.settled
+                  ? <Badge tone="green">lunas</Badge>
+                  : <Badge tone="amber">sisa {formatIDR(l.remaining)}</Badge>}
+              </span>
+              {/* More than one payment on a line **is** the split: part cash,
+                  part transfer, two ledger rows, one purchase. */}
+              {l.payments.length > 1 && (
+                <span className="mt-0.5 block pl-2 text-[11px] text-slate-500">
+                  dibayar {l.payments.length}×:{" "}
+                  {l.payments.map((p, i) => (
+                    <span key={`${p.trx_no}-${i}`}>
+                      {i > 0 && " + "}
+                      <span className={p.from_this_document ? "font-medium text-slate-700" : ""}>
+                        {p.method} {formatIDR(p.amount)} ({p.account_code})
+                      </span>
+                      {!p.from_this_document && <span className="text-slate-400"> — dokumen lain</span>}
+                    </span>
+                  ))}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** What the row you are about to attach this document to already carries.
+ *
+ *  Read before pressing *link*, because the mistake this queue produces most
+ *  easily is proving a row that was already proven — and the one after that is
+ *  attaching a nota to a row whose money is pointed at four other purchases.
+ *  Neither is visible from the document's side (D207).
+ */
+function TargetRow({ trxNo }: { trxNo: string }) {
+  const [cov] = useLoad(() => accounting.coverageForTransaction(trxNo), [trxNo]);
+
+  return (
+    <Loaded state={cov}>
+      {(c) => (
+        <div className="mt-2 space-y-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[12px]">
+          <p className="flex flex-wrap items-baseline gap-x-2">
+            <span className="font-mono text-[11px] text-slate-600">{c.trx_no}</span>
+            <span className="text-slate-500">{c.account_code}</span>
+            <span className="tabular-nums font-medium text-slate-800">{formatIDR(c.amount_idr)}</span>
+            {c.status === "VOID" && <Badge tone="slate">VOID</Badge>}
+          </p>
+
+          {c.documents.length > 0 ? (
+            <p className="text-slate-600">
+              Sudah punya {c.documents.length} dokumen:{" "}
+              <span className="text-slate-500">{c.documents.map((d) => `${d.filename} (${d.kind})`).join(" · ")}</span>
+              {c.documents.length >= 2 && (
+                <span className="block text-amber-800">
+                  Dua dokumen di satu baris itu biasa — nota dan bukti transfernya. Yang ketiga
+                  layak dilihat dulu: pastikan ini bukan nota yang sama yang dibukukan lagi.
+                </span>
+              )}
+            </p>
+          ) : (
+            <p className="text-slate-500">Belum ada dokumen di baris ini.</p>
+          )}
+
+          {c.allocations.length > 0 && (
+            <p className="text-slate-600">
+              Uangnya menutup {c.allocations.length}{" "}
+              {c.allocations.length > 1 ? "pembelian" : "pembelian"}:{" "}
+              {c.allocations.map((a) => `${a.target} ${formatIDR(a.amount)} (${a.method})`).join(" · ")}
+              {c.unallocated !== 0 && (
+                <span className="block text-amber-800">
+                  {formatIDR(Math.abs(c.unallocated))}{" "}
+                  {c.unallocated > 0 ? "dari baris ini belum diarahkan ke pembelian mana pun" : "lebih banyak dialokasikan daripada nilai barisnya"}
+                </span>
+              )}
+            </p>
+          )}
+
+          {c.lines.filter((l) => l.payments.length > 1).map((l) => (
+            <p key={l.line_no_full} className="text-slate-600">
+              <span className="font-mono text-[11px]">{l.line_no_full}</span> dibayar{" "}
+              {l.payments.length}×:{" "}
+              {l.payments.map((pm) => `${pm.method} ${formatIDR(pm.amount)} (${pm.account_code})`).join(" + ")}
+              {l.settled && <> <Badge tone="green">lunas</Badge></>}
+            </p>
+          ))}
+        </div>
+      )}
+    </Loaded>
+  );
+}
+
+/** The coverage of a document that has already been decided. Same computation
+ *  as the queue's, read months later, which is when it is actually wanted. */
+function DecidedCoverage({ attachmentId, amount }: { attachmentId: string; amount: number | null }) {
+  const [cov] = useLoad(() => accounting.coverageForDocument(attachmentId, amount), [attachmentId, amount]);
+  return <Loaded state={cov}>{(c) => <Coverage c={c} />}</Loaded>;
 }
