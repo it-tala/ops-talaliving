@@ -181,10 +181,15 @@ export const ROUTE = (code: RouteCode) =>
  *  An in-house order is always on site: there is nowhere else for it to be.
  */
 export function goodsOnSite(
-  wo: Pick<WorkOrder, "route" | "subcon_sent_on" | "subcon_returned_on">,
+  wo: { route: RouteCode; at_vendor_qty: number; qty: number },
 ): boolean {
+  /* **One predicate, read by the API and the screen** — the rule written twice
+     was F75, and it is written once here. What changed with W6 is that it is
+     no longer all-or-nothing: six of twelve chairs at the upholsterer leaves
+     six in the building, and work reported on those six is legitimate. So the
+     question is not *has anything been sent* but *is anything still here*. */
   if (wo.route !== "SUBCON") return true;
-  return wo.subcon_sent_on !== null && wo.subcon_returned_on !== null;
+  return wo.qty - wo.at_vendor_qty > 0;
 }
 
 export type WorkOrderStatus = "OPEN" | "DONE" | "CANCELLED";
@@ -220,26 +225,142 @@ export interface WorkOrder {
    *  says so rather than showing today's list as though it were the one used.
    *  A figure may be missing; it may not be quietly wrong. */
   bom_rev: number | null;
-  /** The vendor building it, on a `SUBCON` order. A public id validated at the
-   *  seam, like every other cross-service reference (ADR-004). */
-  subcon_vendor_id: string | null;
-  /** When it left, when it was promised back, when it actually came back.
+  /** The vendor legs live in `vendor_legs`, not here (W6, D280).
    *
-   *  Three dates and not one status, for the reason every status ladder in
-   *  this system is derived: *at the vendor* is `sent && !returned`, and a
-   *  stored flag is a field somebody forgets to move while the goods sit in a
-   *  lorry. `subcon_expected_back` is the vendor's promise — the same shape as
-   *  a PO's expected delivery (D234), and marked as a promise wherever it is
-   *  printed. */
-  subcon_sent_on: string | null;
-  subcon_expected_back: string | null;
-  subcon_returned_on: string | null;
-  subcon_note: string | null;
+   *  There used to be four columns on this row — one vendor, one sent date,
+   *  one promised date, one returned date — and they could describe exactly one
+   *  trip. The business has **several vendors each doing one process**: barang
+   *  mentah, jok, amplas, packing, and a piece can visit more than one of them.
+   *  Four columns cannot hold two legs, let alone say which vendor had it for
+   *  which process.
+   *
+   *  The view still carries `subcon_*` fields so the board and the drawer read
+   *  the same way they always did — but they are **derived from the legs**,
+   *  not stored beside them, because one fact written twice is one fact that
+   *  drifts (F73, F75). */
   status: WorkOrderStatus;
   created_at: string;
   created_by: string;
   cancelled_reason: string | null;
   note: string | null;
+}
+
+/** What a vendor does to a piece (W6, D280).
+ *
+ *  **Not the same vocabulary as the four stages**, and that is the point. The
+ *  owner's list is *barang mentah, jok, amplas, packing* — two of those are
+ *  stages of ours, one (`JOK`) is not a stage at all, and `BARANG_MENTAH` is
+ *  the rough making that happens **before** our first stage. Forcing them onto
+ *  `PROCESS_STAGES` would have bent one of the two lists out of shape; they
+ *  are related and they are not the same thing.
+ */
+export const VENDOR_PROCESSES = [
+  { code: "BARANG_MENTAH", name: "Barang mentah", note: "Dibuat kasar oleh vendor, masuk bengkel untuk diamplas." },
+  { code: "JOK", name: "Jok", note: "Bukan salah satu dari empat tahap — pekerjaan sendiri." },
+  { code: "AMPLAS", name: "Amplas", note: "Tahap yang sama dengan di bengkel, dikerjakan di luar." },
+  { code: "FINISHING", name: "Finishing", note: null },
+  { code: "PACKING", name: "Packing", note: null },
+] as const;
+
+export type VendorProcessCode = (typeof VENDOR_PROCESSES)[number]["code"];
+
+export const VENDOR_PROCESS_NAME = (code: string) =>
+  VENDOR_PROCESSES.find((p) => p.code === code)?.name ?? code;
+
+/** One trip to one vendor for one process (W6, D280).
+ *
+ *  A **row per leg**, because a piece can go to the upholsterer and then to
+ *  the sander, and *where is my chair* is answerable only if each trip has its
+ *  own dates. `qty` is how many went; `returned_qty` is how many came back, and
+ *  it is **nullable and separate** rather than a flag, because six going out
+ *  and four coming back is the ordinary case and the two that stayed are the
+ *  question somebody has to ask the vendor.
+ *
+ *  Nothing here posts progress. A vendor returning six sanded pieces does not
+ *  record that six were sanded — a person does, the same way the BOM proposes
+ *  and the storeman disposes (D266). The leg says where the goods were; the
+ *  progress entry says what was done to them, and the two are written by
+ *  different people on different days.
+ */
+export interface VendorLeg {
+  id: string;
+  leg_no: string;
+  wo_id: string;
+  process: string;
+  /** A public vendor id, validated at the seam like every cross-service
+   *  reference (ADR-004). */
+  vendor_id: string;
+  qty: number;
+  sent_on: string;
+  /** The vendor's promise, marked as a promise wherever it is printed — the
+   *  same shape as a PO's expected delivery (D234). Null where none was
+   *  given, which is a different thing from *not yet due*. */
+  expected_back: string | null;
+  returned_on: string | null;
+  /** How many came back. Null while the leg is open; **less than `qty` is a
+   *  legitimate, closed answer** — the rest did not come back, and saying so
+   *  is the whole reason this is a number and not a tick. */
+  returned_qty: number | null;
+  note: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+export interface VendorLegView extends VendorLeg {
+  process_name: string;
+  vendor_name: string;
+  wo_no: string;
+  product_name: string;
+  /** Still out: `qty − (returned_qty ?? 0)`, and zero once it is closed. */
+  outstanding: number;
+  /** Days it has been away, or days it took. */
+  days_out: number;
+  /** Past the vendor's promise and not back. Null where no promise was given
+   *  — *late* is only meaningful against a date somebody agreed (D134). */
+  overdue_days: number | null;
+  /** Fewer came back than went. The sentence a foreman needs, not a flag. */
+  short_by: number | null;
+}
+
+/** How a vendor has actually behaved, over the legs we have (W6, D282).
+ *
+ *  The question this answers is the one the leg list cannot: *should we keep
+ *  using them.* A single late trip is a bad week; four late trips out of five
+ *  is a supplier decision, and the difference between those two readings is
+ *  the number of legs behind them.
+ *
+ *  So every rate here comes with its **basis**, and below a floor there is no
+ *  rate at all — `rated` is false and the screen says *belum cukup untuk
+ *  dinilai* rather than printing "0% tepat waktu" over one trip (D261's rule,
+ *  in a new place). A vendor judged on one leg is a vendor judged on a rumour.
+ */
+export interface VendorRecord {
+  vendor_id: string;
+  vendor_name: string;
+  /** Which processes they do for us, by name. */
+  processes: string[];
+  legs: number;
+  /** Closed legs are the only ones that can be judged on time. */
+  closed: number;
+  open: number;
+  /** Closed legs that had a promised date at all — the only ones where *on
+   *  time* means anything (D134). */
+  promised: number;
+  on_time: number;
+  /** Null below the floor, or where nothing was ever promised. */
+  on_time_percent: number | null;
+  /** Average days a trip actually took, over closed legs. */
+  avg_days_out: number | null;
+  /** Units that went out and never came back, across closed legs. */
+  short_units: number;
+  /** Units sitting there right now. */
+  out_now: number;
+  /** Open legs already past their promise. */
+  overdue_now: number;
+  /** False where there is not enough to say anything. */
+  rated: boolean;
+  /** What the figures are over, in words, so they can be argued with. */
+  basis: string;
 }
 
 /** Work done, one entry per report.
@@ -337,6 +458,12 @@ export interface WorkOrderView extends WorkOrder {
   /** **Only the stages on this order's route.** A stage the route does not
    *  contain is absent, not zero (D254). */
   stages: StageProgress[];
+  /** True where the **product** has no stage list, so this order is running on
+   *  its route's stages instead (D278). Not an error — a product nobody has
+   *  set up yet is the ordinary state of a catalogue — but it is the
+   *  difference between *this product does not go through Machinery* and
+   *  *nobody has said whether it does*, and the board must not blur them. */
+  stages_unset: boolean;
   /** Work reported against steps this business no longer has — the cutting and
    *  assembly it now buys in as *barang mentah* (D275). Deliberately **not**
    *  folded into one of the four: six pieces cut is not six pieces sanded. It
@@ -363,6 +490,12 @@ export interface WorkOrderView extends WorkOrder {
   bom_repinnable: boolean;
   /** Days since it left. Null when it has not been sent. */
   days_at_vendor: number | null;
+  /** Every trip this order has made to a vendor (W6, D280). */
+  legs: VendorLegView[];
+  /** How many units are at a vendor **right now**, across every open leg.
+   *  The reason `goodsOnSite` stopped being all-or-nothing: six of twelve at
+   *  the upholsterer leaves six on the bench, and work on those six is real. */
+  at_vendor_qty: number;
   /** Past the date the vendor promised, and still not back. The workshop is
    *  not late here; the vendor is, and the board must not say otherwise. */
   subcon_overdue: boolean;
@@ -420,6 +553,21 @@ export interface Product {
   /** Working days from start to finished, for promising a date. A hint, never
    *  a schedule: the work order carries the date that was actually promised. */
   lead_time_days: number | null;
+  /** Which of the four stages this product actually goes through (Q52, D278).
+   *
+   *  *Anggap per produk melewati setiap prosesnya* — so the stages belong to
+   *  the product, and a product goes through **all** of its own. A dining
+   *  table has no lamps or cables in it, and drawing it a *Machinery /
+   *  instalasi* column it will never fill made every later stage look like it
+   *  had jumped a step until `recorded` was added to paper over it (F92).
+   *  Naming the stages per product removes the column instead of explaining
+   *  it away.
+   *
+   *  **Null is not "all four".** It means nobody has said yet, and the board
+   *  falls back to the route's stages and marks the product as one somebody
+   *  should look at — the same rule the BOM and the size already follow
+   *  (D150): what is missing is named, never filled in by software. */
+  stages: string[] | null;
   /** What the workshop's own time on one unit costs, **typed by a person**
    *  (D239). Null until somebody types it, and null stays null: the owner was
    *  explicit that this comes from *perumusan manual*, and labour is where an

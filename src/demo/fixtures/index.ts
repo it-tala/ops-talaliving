@@ -17,7 +17,7 @@ import {
   EMPLOYEES, ATTENDANCE_SCANS, DAY_MARKS, OVERTIME_SHEETS, OVERTIME_LINES,
   PAYROLL_RUNS, PAYROLL_ADJUSTMENTS, ALLOWANCE_WITHHOLDINGS,
 } from "./hr";
-import { WORK_ORDERS, PRODUCTION_PROGRESS } from "./production";
+import { WORK_ORDERS, PRODUCTION_PROGRESS, VENDOR_LEGS } from "./production";
 import { PRODUCTS, BOM_COMPONENTS, BOM_REVISIONS } from "./products";
 import { APP_SETTINGS } from "./settings";
 import { LOG_PURCHASES, LOG_PIECES, SAWN_BOARDS, BOARD_MOVES } from "./timber";
@@ -53,7 +53,7 @@ export * from "./reference";
  *  changes every count, and their own work is exactly what the snapshot is
  *  for. A version somebody types when they edit the fixtures separates "the
  *  demo data moved" from "somebody used the demo". */
-export const FIXTURE_VERSION = "2026-09-14.1";
+export const FIXTURE_VERSION = "2026-09-17.3";
 
 export function stateSignature(state: DemoState): string {
   return [
@@ -135,6 +135,7 @@ export function initialState(): DemoState {
 
     work_orders: WORK_ORDERS,
     production_progress: PRODUCTION_PROGRESS,
+    vendor_legs: VENDOR_LEGS,
     products: PRODUCTS,
     bom_components: BOM_COMPONENTS,
     bom_revisions: BOM_REVISIONS,

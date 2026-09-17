@@ -5,7 +5,7 @@ import type {
   OvertimeSheet, OvertimeLine, OvertimeSheetView, OvertimeKind,
   PayrollRun, PayrollView, PayBasis,
   AdjustmentKind, PayrollAdjustmentView,
-  PayRules, PayRuleSet, PayRuleSetView,
+  PayRules, PayRuleSet, PayRuleSetView, WorkSchedule, ScheduleHours,
   EmployeeDocKind, EmployeeFileView, DocNoSource, LeaveBalance, LeaveKind, LeaveRequestView, LeaveStatus,
   AllowanceWithholding, AllowanceWithholdingView,
   ContributionScheme, ContributionRate, ContributionRoll, Enrolment,
@@ -17,7 +17,7 @@ import type { DemoState } from "../state";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
 import {
   timesheet, timesheetDay, payrollView, overtimeStage, overtimePayable, sheetEvidence,
-  activePayRules, payrollLine, payrollLineWith,
+  activePayRules, payrollLine, payrollLineWith, scheduleHours, scheduleFor,
   employeeFile, leaveBalance, leaveRequestView, datesBetween,
   contributionRoll, allRolls,
   taskView, taskViews, kpiView, kpiViews,
@@ -84,6 +84,9 @@ export async function saveEmployee(
      *  somebody's allowance (D250). */
     allowance_rate?: number;
     daily_hours?: number;
+    /** The working pattern this person is on (Q53, D279). Absent means
+     *  unchanged; null is a deliberate *unlink*. */
+    schedule_code?: string | null;
     paid_leave_days?: number;
     joined_on?: string;
     note?: string | null;
@@ -111,6 +114,16 @@ export async function saveEmployee(
   }
 
   const state = getState();
+  if (input.schedule_code) {
+    const known = activePayRules(state, sharedOfficeToday()).rules.schedules ?? [];
+    if (!known.some((sc) => sc.code === input.schedule_code)) {
+      return invalid(
+        SERVICE, "schedule_unknown",
+        `Tidak ada jadwal kerja bernama ${input.schedule_code} di buku aturan yang berlaku.`,
+        { field: "schedule_code" },
+      );
+    }
+  }
   const existing = state.employees.find((e) => e.employee_no === input.employee_no.trim());
   const user = actingUser();
   let saved: Employee | null = null;
@@ -119,7 +132,14 @@ export async function saveEmployee(
     if (existing) {
       const row = draft.employees.find((e) => e.employee_no === existing.employee_no);
       if (!row) return;
-      const before = { base_rate: row.base_rate, allowance_rate: row.allowance_rate, pay_basis: row.pay_basis, position: row.position };
+      /* The schedule is in here as well as in `setEmployeeSchedule`, because
+         HR can change it from either place and *when did his hours change*
+         must be answerable from whichever one they used (D281). */
+      const before = {
+        base_rate: row.base_rate, allowance_rate: row.allowance_rate,
+        pay_basis: row.pay_basis, position: row.position,
+        schedule_code: row.schedule_code ?? null,
+      };
       Object.assign(row, {
         full_name: input.full_name.trim(),
         position: input.position.trim() || row.position,
@@ -128,6 +148,7 @@ export async function saveEmployee(
         base_rate: Math.round(input.base_rate),
         allowance_rate: input.allowance_rate != null ? Math.round(input.allowance_rate) : row.allowance_rate,
         daily_hours: input.daily_hours ?? row.daily_hours,
+        schedule_code: input.schedule_code !== undefined ? input.schedule_code : row.schedule_code,
         paid_leave_days: input.paid_leave_days ?? row.paid_leave_days,
         note: input.note?.trim() ?? row.note,
       });
@@ -135,7 +156,15 @@ export async function saveEmployee(
       writeAudit(draft, {
         service: SERVICE, entity: "employee", entity_no: row.employee_no,
         action: "update", outcome: "ok", reason: null,
-        detail: { before, after: { base_rate: row.base_rate, allowance_rate: row.allowance_rate, pay_basis: row.pay_basis, position: row.position }, by: user.email },
+        detail: {
+          before,
+          after: {
+            base_rate: row.base_rate, allowance_rate: row.allowance_rate,
+            pay_basis: row.pay_basis, position: row.position,
+            schedule_code: row.schedule_code ?? null,
+          },
+          by: user.email,
+        },
       });
     } else {
       const row: Employee = {
@@ -148,6 +177,9 @@ export async function saveEmployee(
         base_rate: Math.round(input.base_rate),
         allowance_rate: Math.round(input.allowance_rate ?? 0),
         daily_hours: input.daily_hours ?? 8,
+        /* Null, never a guess: a new joiner whose pattern nobody has set is
+           counted as unlinked and named on the schedule screen (D279). */
+        schedule_code: input.schedule_code ?? null,
         paid_leave_days: input.paid_leave_days ?? 12,
         joined_on: input.joined_on ?? new Date().toISOString().slice(0, 10),
         active: true,
@@ -2239,3 +2271,109 @@ export async function approvePayroll(runNo: string): Promise<Result<PayrollView>
 }
 
 
+
+/* ── Working patterns, as HR maintains them (Q53, D279) ────────────────
+ *
+ *  *Setiap karyawan akan punya jadwal kerja tertaut. HR harus bisa setup dan
+ *  lihat total jam kerja per minggu dan bulannya.*
+ *
+ *  Two halves, and the second is the one that keeps it honest. HR assigns —
+ *  so the unassigned are **counted and named**, because a person with no
+ *  pattern is a person whose punctuality cannot be measured, and a silent
+ *  fall-back onto the office clock is exactly what Q44 was raised about (F70).
+ *  And the hours are **derived**: a schedule holds times, and the week and the
+ *  month are arithmetic over them, printed with their working.
+ */
+export async function listSchedules(): Promise<Result<{
+  schedules: (WorkSchedule & {
+    hours: ScheduleHours;
+    /** People HR has put on this pattern **by name**. */
+    assigned: number;
+    /** People on it only because their unit defaults to it — an assumption,
+     *  not a decision, and the difference is the point (D279). */
+    inherited: number;
+    units: string[];
+  })[];
+  /** Nobody has linked these, and their unit has no default either. */
+  unlinked: { employee_no: string; full_name: string; unit: string }[];
+  /** On a pattern by assumption. HR confirming one is one click, and until
+   *  somebody does, *setiap karyawan punya jadwal tertaut* is not yet true. */
+  inherited: { employee_no: string; full_name: string; unit: string; schedule_code: string }[];
+  week_pattern: string;
+}>> {
+  await latency();
+  const state = getState();
+  const rules = activePayRules(state, sharedOfficeToday()).rules;
+  const active = state.employees.filter((e) => e.active);
+
+  const schedules = (rules.schedules ?? []).map((sc) => ({
+    ...sc,
+    hours: scheduleHours(rules, sc),
+    assigned: active.filter((e) => e.schedule_code === sc.code).length,
+    inherited: active.filter((e) => !e.schedule_code && scheduleFor(rules, e)?.code === sc.code).length,
+    units: Object.entries(rules.schedule_by_unit ?? {})
+      .filter(([, code]) => code === sc.code).map(([u]) => u),
+  }));
+
+  return ok(SERVICE, {
+    schedules,
+    /* Nobody has linked these people to a pattern, and their unit has no
+       default either — so there is no clock to judge them against at all. */
+    unlinked: active
+      .filter((e) => scheduleFor(rules, e) === null)
+      .map((e) => ({ employee_no: e.employee_no, full_name: e.full_name, unit: e.unit })),
+    inherited: active
+      .filter((e) => !e.schedule_code && scheduleFor(rules, e) !== null)
+      .map((e) => ({
+        employee_no: e.employee_no, full_name: e.full_name, unit: e.unit,
+        schedule_code: scheduleFor(rules, e)!.code,
+      })),
+    week_pattern: rules.week_pattern,
+  });
+}
+
+/** Linking one person to a working pattern (Q53, D279).
+ *
+ *  Its own endpoint rather than a corner of `saveEmployee`, because it is its
+ *  own act: HR assigning somebody's hours is not the same decision as changing
+ *  their pay, and an audit trail that cannot tell the two apart is one nobody
+ *  can answer *when did his hours change* from.
+ */
+export async function setEmployeeSchedule(
+  input: { employee_no: string; schedule_code: string | null },
+): Promise<Result<Employee>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+
+  const state = getState();
+  const emp = state.employees.find((e) => e.employee_no === input.employee_no);
+  if (!emp) return notFound(SERVICE, "employee_not_found", `Tidak ada karyawan ${input.employee_no}.`);
+
+  const rules = activePayRules(state, sharedOfficeToday()).rules;
+  if (input.schedule_code && !(rules.schedules ?? []).some((sc) => sc.code === input.schedule_code)) {
+    return invalid(
+      SERVICE, "schedule_unknown",
+      `Tidak ada jadwal kerja bernama ${input.schedule_code} di buku aturan yang berlaku.`,
+      { field: "schedule_code" },
+    );
+  }
+  if (emp.schedule_code === input.schedule_code) {
+    return noop(SERVICE, emp);
+  }
+
+  const user = actingUser();
+  let saved: Employee | null = null;
+  apply((draft) => {
+    const row = draft.employees.find((e) => e.employee_no === input.employee_no)!;
+    const before = row.schedule_code ?? null;
+    row.schedule_code = input.schedule_code;
+    saved = row;
+    writeAudit(draft, {
+      service: SERVICE, entity: "employee", entity_no: row.employee_no,
+      action: "set_schedule", outcome: "ok", reason: null,
+      detail: { before, after: input.schedule_code, by: user.email },
+    });
+  });
+  return ok(SERVICE, saved!);
+}

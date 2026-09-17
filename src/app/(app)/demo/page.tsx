@@ -160,6 +160,44 @@ export default function DemoDiagnosticsPage() {
          against a step nobody does. */
       wo_no: "spk-26-09-02_01", stage: "PEMBUATAN", qty: 1, work_date: officeToday(),
     });
+    /* D280 — more coming back than went out is somebody else's goods. Twenty
+       frames out and eighteen back is the ordinary case; twenty-two back is a
+       number nobody can explain. */
+    const tooMany = await production.receiveFromVendor({
+      leg_no: "vnl-26-09-01_01", returned_qty: 99,
+    });
+    results.push({
+      name: "D280 — recording more back from a vendor than was sent",
+      expect: "422 over_sent",
+      got: tooMany.error ? `${tooMany.error.status} ${tooMany.error.code}` : "accepted",
+      pass: tooMany.error?.status === 422 && tooMany.error.code === "over_sent",
+    });
+
+    /* Sending more than the order is not a slow vendor, it is a number
+       somebody has to explain before the lorry leaves. */
+    const overOrder = await production.sendToVendor({
+      wo_no: "spk-26-09-01_01", vendor_id: "vnd_21", process: "JOK", qty: 99,
+    });
+    results.push({
+      name: "D280 — sending more units to a vendor than the order is for",
+      expect: "422 over_order",
+      got: overOrder.error ? `${overOrder.error.status} ${overOrder.error.code}` : "accepted",
+      pass: overOrder.error?.status === 422 && overOrder.error.code === "over_order",
+    });
+
+    /* D278 — the product's own stages. A dining table has no lamps in it, so
+       reporting *Machinery / instalasi* against one is not a mis-keyed number,
+       it is work on a step that does not exist for this thing. */
+    const notOnProduct = await production.recordProgress({
+      wo_no: "spk-26-08-24_01", stage: "MACHINERY", qty: 1, work_date: officeToday(),
+    });
+    results.push({
+      name: "D278 — reporting a stage the product does not go through",
+      expect: "422 stage_not_on_product",
+      got: notOnProduct.error ? `${notOnProduct.error.status} ${notOnProduct.error.code}` : "accepted",
+      pass: notOnProduct.error?.status === 422 && notOnProduct.error.code === "stage_not_on_product",
+    });
+
     results.push({
       /* `stage_not_on_route` is unreachable since D275 — both routes carry the
          same four stages now — so what this probe reaches is the guard one

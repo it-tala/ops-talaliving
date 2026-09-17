@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Truck, AlertTriangle, PackageCheck, Paperclip } from "lucide-react";
+import { Truck, AlertTriangle, PackageCheck, Paperclip, Factory } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { Paged } from "@/components/ui/pager";
@@ -79,6 +79,61 @@ export default function DeliveryPage() {
                         Buat surat jalan
                       </Button>
                     )}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          );
+        }}
+      </Loaded>
+
+      {/* Where the stuck numbers actually are (W6, D282). *Siap kirim* above
+          says what is made and waiting; this says what is not in the building
+          at all — which is the answer to *where are my twenty chairs* far more
+          often than anything on the production board. */}
+      <Loaded state={ful} onRetry={reloadFul}>
+        {(all) => {
+          const out = all
+            .map((f) => ({ f, lines: f.lines.filter((l) => (l.at_vendor ?? 0) > 0) }))
+            .filter((g) => g.lines.length > 0);
+          if (out.length === 0) return <></>;
+          return (
+            <Card className="mb-4">
+              <CardHeader
+                title="Sedang di vendor"
+                subtitle="Bukan di bengkel dan bukan di jalan — di tempat orang lain. Ini yang paling sering jadi jawaban waktu klien bertanya barangnya di mana."
+                icon={Factory}
+              />
+              <ul className="divide-y divide-slate-100">
+                {out.map(({ f, lines }) => (
+                  <li key={f.project_code} className="px-5 py-3">
+                    <span className="block text-[13px] font-medium text-slate-800">{f.project_name}</span>
+                    <span className="block text-[11px] text-slate-400">
+                      {f.client_name} · {f.location ?? "lokasi belum dicatat"}
+                    </span>
+                    <ul className="mt-1 space-y-0.5">
+                      {lines.map((l) => (
+                        <li key={l.project_line_id} className="text-[12px]">
+                          {/* **Not a fraction against `ordered`.** `at_vendor`
+                              counts units on the work order, `ordered` counts
+                              the client's line, and the seed has a line where
+                              they differ on purpose — 10 doors ordered, an SPK
+                              for 12 with two spare. Printing *12 dari 10*
+                              reads as a bug and is two denominators in one
+                              figure, which is F62's error in a new place. The
+                              quantity stands on its own. */}
+                          <span className="text-slate-700">
+                            {l.at_vendor} {l.uom} · {l.description}
+                          </span>
+                          {l.at_vendor_where.map((w) => (
+                            <span key={w} className={cn("block pl-3 text-[11px]",
+                              /lewat janji/.test(w) ? "text-rose-700" : "text-slate-500")}>
+                              {w}
+                            </span>
+                          ))}
+                        </li>
+                      ))}
+                    </ul>
                   </li>
                 ))}
               </ul>

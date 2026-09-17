@@ -24,6 +24,8 @@ export default function EmployeesPage() {
   const [editing, setEditing] = useState<Employee | null>(null);
   const [adding, setAdding] = useState(false);
   const mayEdit = can("hrd.update");
+  const [sched] = useLoad(() => hr.listSchedules(), []);
+  const schedules = sched.status === "ready" ? sched.data.schedules : [];
 
   const columns: Column<Employee>[] = [
     {
@@ -37,6 +39,30 @@ export default function EmployeesPage() {
           <p className="font-mono text-[10px] text-slate-400">{e.employee_no}</p>
         </div>
       ),
+    },
+    {
+      key: "schedule",
+      header: "Jadwal",
+      render: (e) => {
+        /* Which pattern, and **whether it is this person's or their unit's**.
+           The two look the same on a payslip and are different facts: one
+           follows them when they move units, the other does not (D281). */
+        const own = e.schedule_code
+          ? schedules.find((sc) => sc.code === e.schedule_code)
+          : undefined;
+        const viaUnit = schedules.find((sc) => sc.units.includes(e.unit));
+        const sc = own ?? viaUnit;
+        if (!sc) return <span className="text-[12px] text-amber-700">tanpa jadwal</span>;
+        return (
+          <div className="max-w-[190px]">
+            <p className="text-[12px] text-slate-700">{sc.name}</p>
+            <p className="text-[10px] text-slate-400">
+              {own ? "ditetapkan" : "ikut unit"}
+              {sc.hours.weekly_hours != null && ` · ${sc.hours.weekly_hours} jam/mg`}
+            </p>
+          </div>
+        );
+      },
     },
     {
       key: "basis",

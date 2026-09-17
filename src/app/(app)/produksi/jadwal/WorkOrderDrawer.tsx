@@ -11,7 +11,7 @@ import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { procurement, production, hr, inventory } from "@/demo/api";
 import { Combobox } from "@/components/ui/combobox";
-import { STAGE_NAME, attributionOf, ATTRIBUTION_LABEL, type WorkOrderView } from "@/services/production/contracts";
+import { STAGE_NAME, attributionOf, ATTRIBUTION_LABEL, VENDOR_PROCESSES, VENDOR_PROCESS_NAME, type WorkOrderView } from "@/services/production/contracts";
 import { UNITS, type UomCode } from "@/services/procurement/contracts";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
@@ -76,6 +76,9 @@ export function WorkOrderDrawer({
   const [expectBack, setExpectBack] = useState("");
   const [backOn, setBackOn] = useState(officeToday());
   const [subNote, setSubNote] = useState("");
+  const [process, setProcess] = useState("");
+  const [sendQty, setSendQty] = useState(1);
+  const [backQty, setBackQty] = useState<Record<string, number>>({});
   const [repinReason, setRepinReason] = useState("");
 
   /* Moving an open order onto a newer BOM revision. A decision with a reason,
@@ -93,15 +96,12 @@ export function WorkOrderDrawer({
     setRepinReason("");
     reload(); onChanged();
   }
-  const vendorName = wo.status === "ready" && wo.data.subcon_vendor_id
-    ? vendors.find((v) => v.id === wo.data.subcon_vendor_id)?.name ?? null
-    : null;
   const mayEdit = can("production.update");
 
   async function sendOut() {
     setBusy(true);
-    const res = await production.sendToSubcon({
-      wo_no: woNo, vendor_id: vendorId,
+    const res = await production.sendToVendor({
+      wo_no: woNo, vendor_id: vendorId, process, qty: sendQty,
       expected_back: expectBack || null, note: subNote || null,
     });
     setBusy(false);
@@ -109,22 +109,25 @@ export function WorkOrderDrawer({
       toast(res.error.status === 403 ? "critical" : "warning", "Tidak tercatat", res.error.message);
       return;
     }
-    toast("success", "Dikirim ke vendor", vendors.find((v) => v.id === vendorId)?.name ?? "");
-    setSubNote("");
+    toast("success", "Dikirim ke vendor",
+      `${vendors.find((v) => v.id === vendorId)?.name ?? ""} · ${VENDOR_PROCESS_NAME(process)}`);
+    setSubNote(""); setProcess(""); setVendorId("");
     reload(); onChanged();
   }
 
-  async function receiveBack() {
+  /** Per leg, because *what came back* is a question about one trip — and the
+   *  quantity is part of the answer, not a tick (W6, D280). */
+  async function receiveLeg(legNo: string, qtyBack: number) {
     setBusy(true);
-    const res = await production.receiveFromSubcon({
-      wo_no: woNo, returned_on: backOn, note: subNote || null,
+    const res = await production.receiveFromVendor({
+      leg_no: legNo, returned_qty: qtyBack, returned_on: backOn, note: subNote || null,
     });
     setBusy(false);
     if (res.error) {
       toast(res.error.status === 403 ? "critical" : "warning", "Tidak tercatat", res.error.message);
       return;
     }
-    toast("success", "Barang kembali", `Tahap finishing dan seterusnya sekarang bisa dicatat.`);
+    toast("success", "Barang kembali", `${formatNumber(qtyBack)} dicatat kembali dari vendor.`);
     setSubNote("");
     reload(); onChanged();
   }
@@ -285,80 +288,131 @@ export function WorkOrderDrawer({
               ))}
             </ul>
 
-            {/* The vendor leg. Present on every SUBCON order, editable while it
-                is open — where the goods physically are decides what may be
-                reported against them (D255). */}
-            {w.route === "SUBCON" && (
-              <div className={cn(
-                "rounded-xl border px-4 py-3",
-                w.subcon_overdue ? "border-rose-200 bg-rose-50/60" : "border-violet-200 bg-violet-50/50",
-              )}>
-                <p className="flex items-center gap-2 text-[13px] font-medium text-slate-800">
+            {/* Every trip this order has made to a vendor (W6, D280).
+                One block per leg, because a piece can go to the upholsterer
+                and then to the sander, and *where is my chair* is answerable
+                only if each trip has its own dates. */}
+            {(w.legs.length > 0 || w.route === "SUBCON") && (
+              <div className="rounded-xl border border-violet-200 bg-violet-50/40 px-4 py-3">
+                <p className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-slate-800">
                   <Factory className="h-4 w-4 text-violet-500" /> Dikerjakan vendor
-                </p>
-                <p className="mt-0.5 text-[12px] text-slate-600">
-                  {w.subcon_vendor_id
-                    ? vendorName ?? w.subcon_vendor_id
-                    : "Vendor belum ditentukan"}
-                  {w.subcon_sent_on && <> · dikirim {w.subcon_sent_on}</>}
-                  {w.subcon_expected_back && (
-                    <> · dijanjikan kembali <span className="text-amber-700">± {w.subcon_expected_back}</span></>
+                  {w.at_vendor_qty > 0 && (
+                    <Badge tone="violet">{formatNumber(w.at_vendor_qty)} {w.uom} di luar</Badge>
                   )}
-                  {w.subcon_returned_on
-                    ? <> · <span className="text-emerald-700">kembali {w.subcon_returned_on}</span></>
-                    : w.at_vendor && <> · sudah {w.days_at_vendor} hari di sana</>}
                 </p>
-                {w.subcon_note && <p className="mt-0.5 text-[12px] text-slate-500">{w.subcon_note}</p>}
-                {w.at_vendor && (
-                  <p className="mt-1 text-[12px] text-violet-900">
-                    Barangnya tidak ada di bengkel, jadi tidak ada tahap yang bisa dilaporkan sampai
-                    ia kembali.
+
+                {w.legs.length === 0 ? (
+                  <p className="mt-1 text-[12px] text-slate-600">
+                    Belum ada yang dikirim ke vendor untuk pesanan ini.
+                  </p>
+                ) : (
+                  <ul className="mt-2 space-y-1.5">
+                    {w.legs.map((l) => (
+                      <li key={l.id} className={cn(
+                        "rounded-lg border px-3 py-2 text-[12px]",
+                        l.overdue_days !== null ? "border-rose-200 bg-rose-50/70"
+                          : l.returned_on ? "border-slate-200 bg-white"
+                            : "border-violet-200 bg-white",
+                      )}>
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                          <span className="font-medium text-slate-800">{l.process_name}</span>
+                          <span className="text-slate-500">· {l.vendor_name}</span>
+                          <span className="text-slate-500">· {formatNumber(l.qty)} {w.uom}</span>
+                          <span className="font-mono text-[10px] text-slate-400">{l.leg_no}</span>
+                        </div>
+                        <div className="text-slate-600">
+                          dikirim {l.sent_on}
+                          {/* A promise, marked as one wherever it is printed (D234). */}
+                          {l.expected_back
+                            ? <> · dijanjikan kembali <span className="text-amber-700">± {l.expected_back}</span></>
+                            : <> · <span className="text-slate-400">tanpa janji tanggal kembali</span></>}
+                          {l.returned_on
+                            ? <> · <span className="text-emerald-700">kembali {l.returned_on}, {formatNumber(l.returned_qty ?? 0)} {w.uom}</span></>
+                            : <> · sudah {l.days_out} hari di sana</>}
+                        </div>
+                        {l.overdue_days !== null && (
+                          <p className="text-rose-800">Lewat janji {l.overdue_days} hari.</p>
+                        )}
+                        {/* Fewer came back than went. A question for the vendor,
+                            and a tick-box would have lost it. */}
+                        {l.short_by !== null && (
+                          <p className="text-amber-800">
+                            Kurang {formatNumber(l.short_by)} {w.uom} dari yang dikirim.
+                          </p>
+                        )}
+                        {l.note && <p className="text-slate-500">{l.note}</p>}
+                        {mayEdit && w.status === "OPEN" && l.returned_on === null && (
+                          <div className="mt-1.5 flex flex-wrap items-end gap-2">
+                            <label className="text-[11px] text-slate-500">
+                              Kembali
+                              <input
+                                type="date" value={backOn} onChange={(e) => setBackOn(e.target.value)}
+                                className="mt-0.5 block h-8 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                              />
+                            </label>
+                            <label className="text-[11px] text-slate-500">
+                              Jumlah
+                              <NumberInput
+                                value={backQty[l.leg_no] ?? l.qty} min={0} max={l.qty}
+                                onChange={(n) => setBackQty((q) => ({ ...q, [l.leg_no]: n }))}
+                              />
+                            </label>
+                            <Button
+                              size="sm" icon={PackageCheck} disabled={busy}
+                              onClick={() => receiveLeg(l.leg_no, backQty[l.leg_no] ?? l.qty)}
+                            >
+                              Catat kembali
+                            </Button>
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {w.at_vendor_qty >= w.qty && (
+                  <p className="mt-1.5 text-[12px] text-violet-900">
+                    Semuanya sedang di vendor, jadi tidak ada tahap yang bisa dilaporkan sampai ada
+                    yang kembali.
                   </p>
                 )}
+
                 {mayEdit && w.status === "OPEN" && (
-                  <div className="mt-2">
-                    {w.at_vendor ? (
-                      <div className="flex flex-wrap items-end gap-2">
-                        <label className="text-[11px] text-slate-500">
-                          Tanggal kembali
-                          <input
-                            type="date" value={backOn} onChange={(e) => setBackOn(e.target.value)}
-                            className="mt-0.5 block h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
-                          />
-                        </label>
-                        <input
-                          value={subNote} onChange={(e) => setSubNote(e.target.value)}
-                          placeholder="Catatan penerimaan — kondisi, kekurangan"
-                          className="h-9 min-w-[200px] flex-1 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
-                        />
-                        <Button size="sm" icon={PackageCheck} disabled={busy} onClick={receiveBack}>
-                          Catat barang kembali
-                        </Button>
-                      </div>
-                    ) : !w.subcon_sent_on && (
-                      <div className="flex flex-wrap items-end gap-2">
-                        <label className="text-[11px] text-slate-500">
-                          Vendor
-                          <select
-                            value={vendorId} onChange={(e) => setVendorId(e.target.value)}
-                            className="mt-0.5 block h-9 min-w-[200px] rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
-                          >
-                            <option value="">Pilih vendor…</option>
-                            {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                          </select>
-                        </label>
-                        <label className="text-[11px] text-slate-500">
-                          Dijanjikan kembali
-                          <input
-                            type="date" value={expectBack} onChange={(e) => setExpectBack(e.target.value)}
-                            className="mt-0.5 block h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
-                          />
-                        </label>
-                        <Button size="sm" icon={Factory} disabled={busy || !vendorId} onClick={sendOut}>
-                          Catat dikirim ke vendor
-                        </Button>
-                      </div>
-                    )}
+                  <div className="mt-2 flex flex-wrap items-end gap-2 border-t border-violet-200/70 pt-2">
+                    <label className="text-[11px] text-slate-500">
+                      Proses
+                      <select
+                        value={process} onChange={(e) => setProcess(e.target.value)}
+                        className="mt-0.5 block h-9 min-w-[150px] rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                      >
+                        <option value="">Pilih…</option>
+                        {VENDOR_PROCESSES.map((p) => <option key={p.code} value={p.code}>{p.name}</option>)}
+                      </select>
+                    </label>
+                    <label className="text-[11px] text-slate-500">
+                      Vendor
+                      <select
+                        value={vendorId} onChange={(e) => setVendorId(e.target.value)}
+                        className="mt-0.5 block h-9 min-w-[180px] rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                      >
+                        <option value="">Pilih vendor…</option>
+                        {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                      </select>
+                    </label>
+                    <label className="text-[11px] text-slate-500">
+                      Jumlah
+                      <NumberInput value={sendQty} min={1} max={w.qty} onChange={setSendQty} />
+                    </label>
+                    <label className="text-[11px] text-slate-500">
+                      Dijanjikan kembali
+                      <input
+                        type="date" value={expectBack} onChange={(e) => setExpectBack(e.target.value)}
+                        className="mt-0.5 block h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                      />
+                    </label>
+                    <Button size="sm" icon={Factory} disabled={busy || !vendorId || !process} onClick={sendOut}>
+                      Catat dikirim
+                    </Button>
                   </div>
                 )}
               </div>

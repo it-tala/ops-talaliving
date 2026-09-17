@@ -5,7 +5,7 @@ import {
   Megaphone, UserRound, Target, HandCoins, MessageSquare,
   FolderKanban, Hammer, Truck, Wrench, Stamp, Package,
   PencilRuler, ListTree, CalendarClock, CalendarRange, Link2,
-  Cpu, ScrollText, Activity, UserCog, KeyRound, Clock, Scale,
+  Cpu, ScrollText, Activity, UserCog, KeyRound, Clock, Scale, Factory,
   Settings, FlaskConical, MessagesSquare, Route, ShieldCheck, Gauge, type LucideIcon,
 } from "lucide-react";
 
@@ -60,6 +60,7 @@ export const NAV: NavSection[] = [
     icon: Users,
     items: [
       { label: "Employees", labelKey: "employees", href: "/hrd/karyawan", icon: Users, permission: "hrd.read", badge: "core" },
+      { label: "Work schedules", labelKey: "workSchedules", href: "/hrd/jadwal", icon: CalendarClock, permission: "hrd.read", badge: "new" },
       { label: "Attendance", labelKey: "attendance", href: "/hrd/absensi", icon: CalendarCheck, permission: "hrd.read" },
       { label: "Overtime", labelKey: "overtime", href: "/hrd/lembur", icon: Clock, permission: "hrd.read", badge: "new" },
       { label: "Employee Files", labelKey: "employeeFiles", href: "/hrd/berkas-201", icon: FileBadge, permission: "hrd.read", badge: "new" },
@@ -149,6 +150,7 @@ export const NAV: NavSection[] = [
     items: [
       { label: "Design", labelKey: "design", href: "/produksi/desain", icon: PencilRuler, permission: "production.read", badge: "new" },
       { label: "Who did the work", labelKey: "workAttribution", href: "/produksi/penautan", icon: Link2, permission: "production.read", badge: "new" },
+      { label: "Goods at vendors", labelKey: "vendorWork", href: "/produksi/vendor", icon: Factory, permission: "production.read", badge: "new" },
       { label: "Products & BOM", labelKey: "bom", href: "/produksi/bom", icon: ListTree, permission: "production.read", badge: "core" },
       { label: "Planning & Schedule", labelKey: "schedule", href: "/produksi/jadwal", icon: CalendarClock, permission: "production.read", badge: "new" },
     ],

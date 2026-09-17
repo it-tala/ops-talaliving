@@ -14,7 +14,7 @@ import type {
   Employee, TimesheetDay, DayState, ScanSlot, DayPay, DayMark,
   OvertimeSheet, OvertimeStage, PayrollLine, PayrollView, PayrollRun,
   PayslipDay, AdjustmentKind,
-  PayRules, PayRuleSet, WorkSchedule, OvertimeTier, OvertimePart, HourlyBasis,
+  PayRules, PayRuleSet, WorkSchedule, ScheduleHours, OvertimeTier, OvertimePart, HourlyBasis,
   AllowanceWithholding, AllowanceWithholdingView,
   ContributionScheme, ContributionRate, Enrolment, ContributionLine, ContributionRoll,
   Task, TaskView, KpiMeasure, KpiView,
@@ -802,6 +802,47 @@ export function dayStartFor(rules: PayRules, employee: Employee): number | null 
   /* No schedule at all: the company's stated start, which is what the rule
      book says when it says nothing more specific. */
   return rules.day_starts_minutes;
+}
+
+/** A schedule's week and month, worked out rather than stored (Q53, D279).
+ *
+ *  Null propagates deliberately. The guard's twelve hours have no start, so no
+ *  day, so no week, so no month — and every one of those is *belum ditetapkan*
+ *  rather than zero. A zero here would be a figure HR could plan against, and
+ *  it would be a figure about a person nobody has written the hours down for.
+ */
+export function scheduleHours(rules: PayRules, sc: WorkSchedule): ScheduleHours {
+  const days_per_week = rules.week_pattern === "5day" ? 5 : 6;
+  const missing: string[] = [];
+  if (sc.start_minutes == null) missing.push("jam masuk");
+  if (sc.end_minutes == null) missing.push("jam pulang");
+  if (sc.break_minutes == null) missing.push("istirahat");
+
+  if (missing.length > 0) {
+    return {
+      daily_hours: null, friday_hours: null, days_per_week,
+      weekly_hours: null, monthly_hours: null,
+      blocked_by: `Belum ada ${missing.join(", ")} — jamnya belum bisa dihitung.`,
+    };
+  }
+
+  const span = (sc.end_minutes as number) - (sc.start_minutes as number);
+  const daily_hours = Math.round(((span - (sc.break_minutes as number)) / 60) * 100) / 100;
+  const friday_hours = sc.friday_break_minutes == null
+    ? null
+    : Math.round(((span - sc.friday_break_minutes) / 60) * 100) / 100;
+
+  /* Friday counted at its own length where it has one: a longer break on one
+     day of six is not a rounding difference, it is most of an hour a week. */
+  const weekly_hours = friday_hours == null
+    ? Math.round(daily_hours * days_per_week * 100) / 100
+    : Math.round((daily_hours * (days_per_week - 1) + friday_hours) * 100) / 100;
+
+  return {
+    daily_hours, friday_hours, days_per_week, weekly_hours,
+    monthly_hours: Math.round((weekly_hours * 52 / 12) * 100) / 100,
+    blocked_by: null,
+  };
 }
 
 /** The break this schedule allows on this date — Friday differs here. Null

@@ -25,6 +25,7 @@ export const MESSAGES = {
     payrollWeek: m("Weekly payroll", "Gajian mingguan"),
     payRules: m("Pay rules", "Aturan penggajian"),
     contributions: m("Statutory contributions", "Iuran wajib"),
+    workSchedules: m("Work schedules", "Jadwal kerja"),
     performance: m("Performance & tasks", "Kinerja & tugas"),
 
     procurement: m("Procurement", "Pengadaan"),
@@ -66,6 +67,7 @@ export const MESSAGES = {
     production: m("Production", "Produksi"),
     design: m("Design", "Desain"),
     workAttribution: m("Who did the work", "Penautan nama"),
+    vendorWork: m("Goods at vendors", "Barang di vendor"),
     bom: m("Products & BOM", "Produk & BOM"),
     schedule: m("Planning & schedule", "Perencanaan & jadwal"),
 

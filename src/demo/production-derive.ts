@@ -10,6 +10,7 @@ import { officeDay } from "@/lib/office";
 import type { DemoState } from "./state";
 import {
   PROCESS_STAGES, STAGE_SOURCES, STAGE_NAME, RETIRED_STAGES, ROUTE, goodsOnSite,
+  VENDOR_PROCESS_NAME,
   type WorkOrder, type WorkOrderView, type StageProgress,
   type Product, type ProductView, type BomLineView, type ProductDrawing,
   type BomRevision, type BomRevisionView, type BomDiff, type BomDiffLine,
@@ -17,6 +18,7 @@ import {
   type BomComponent,
   type DesignTask, type DesignTaskView, type DesignKind,
   type WorkAttribution, type MaterialPlan, type MaterialLine,
+  type VendorLeg, type VendorLegView, type VendorRecord,
 } from "@/services/production/contracts";
 import { attributionOf } from "@/services/production/contracts";
 import { stockItems } from "./inventory-derive";
@@ -51,6 +53,103 @@ export function bomRepinnable(state: DemoState, wo: WorkOrder): boolean {
   return !state.production_progress.some((p) => p.wo_id === wo.id && p.qty > 0);
 }
 
+/** One vendor leg, with the two things a foreman actually asks: how long has
+ *  it been there, and did it all come back (W6, D280).
+ *
+ *  `overdue_days` is **null where no date was promised**, not zero. A leg with
+ *  no promise cannot be late — only absent — and a zero would put it in the
+ *  same column as one that came back on time (D134).
+ */
+export function vendorLegView(state: DemoState, l: VendorLeg, today: string): VendorLegView {
+  const wo = state.work_orders.find((w) => w.id === l.wo_id);
+  const outstanding = l.qty - (l.returned_qty ?? 0);
+  return {
+    ...l,
+    process_name: VENDOR_PROCESS_NAME(l.process),
+    vendor_name: state.vendors.find((v) => v.id === l.vendor_id)?.name ?? l.vendor_id,
+    wo_no: wo?.wo_no ?? l.wo_id,
+    product_name: state.products.find((p) => p.product_code === wo?.product_code)?.name
+      ?? wo?.product_code ?? "—",
+    outstanding: l.returned_on ? 0 : outstanding,
+    days_out: daysBetween(l.sent_on, l.returned_on ?? today),
+    overdue_days: l.returned_on === null && l.expected_back !== null && l.expected_back < today
+      ? Math.abs(daysBetween(today, l.expected_back))
+      : null,
+    /* Closed, and fewer came back than went. The two that stayed are a
+       question for the vendor, and a tick-box would have lost it. */
+    short_by: l.returned_on !== null && (l.returned_qty ?? 0) < l.qty
+      ? l.qty - (l.returned_qty ?? 0)
+      : null,
+  };
+}
+
+/** Every leg still open, worst first — the *where is my stuff* list. */
+export function openVendorLegs(state: DemoState, today: string): VendorLegView[] {
+  return state.vendor_legs
+    .filter((l) => l.returned_on === null)
+    .map((l) => vendorLegView(state, l, today))
+    .sort((a, b) => (b.overdue_days ?? -1) - (a.overdue_days ?? -1) || b.days_out - a.days_out);
+}
+
+/** What each vendor's record actually looks like (W6, D282).
+ *
+ *  Three refusals to overstate, all of them the same rule wearing different
+ *  clothes:
+ *
+ *  - **on time is measured only over legs that carried a promise.** A trip
+ *    with no agreed date cannot be early or late, so it is out of the
+ *    denominator rather than counted as a success (D134);
+ *  - **nothing is rated below a floor.** One late leg is a bad week; four of
+ *    five is a supplier decision, and printing a percentage over one trip
+ *    invites the second reading of the first fact (D261);
+ *  - **the basis is printed**, so the figure can be argued with rather than
+ *    only believed.
+ */
+export function vendorRecords(state: DemoState, today: string, minLegs = 3): VendorRecord[] {
+  const byVendor = new Map<string, VendorLeg[]>();
+  for (const l of state.vendor_legs) {
+    byVendor.set(l.vendor_id, [...(byVendor.get(l.vendor_id) ?? []), l]);
+  }
+
+  return [...byVendor.entries()].map(([vendor_id, legs]) => {
+    const closed = legs.filter((l) => l.returned_on !== null);
+    const open = legs.filter((l) => l.returned_on === null);
+    const promised = closed.filter((l) => l.expected_back !== null);
+    const on_time = promised.filter((l) => l.returned_on! <= l.expected_back!).length;
+    const rated = promised.length >= minLegs;
+
+    return {
+      vendor_id,
+      vendor_name: state.vendors.find((v) => v.id === vendor_id)?.name ?? vendor_id,
+      processes: [...new Set(legs.map((l) => VENDOR_PROCESS_NAME(l.process)))],
+      legs: legs.length,
+      closed: closed.length,
+      open: open.length,
+      promised: promised.length,
+      on_time,
+      on_time_percent: rated ? Math.round((on_time / promised.length) * 100) : null,
+      avg_days_out: closed.length === 0
+        ? null
+        : Math.round(closed.reduce((t, l) => t + daysBetween(l.sent_on, l.returned_on!), 0) / closed.length),
+      short_units: closed.reduce((t, l) => t + Math.max(l.qty - (l.returned_qty ?? 0), 0), 0),
+      out_now: open.reduce((t, l) => t + (l.qty - (l.returned_qty ?? 0)), 0),
+      overdue_now: open.filter((l) => l.expected_back !== null && l.expected_back < today).length,
+      rated,
+      basis: rated
+        ? `${on_time} dari ${promised.length} pengiriman yang ada janji tanggalnya kembali tepat waktu`
+        : promised.length === 0
+          ? `${legs.length} pengiriman, tidak ada yang punya janji tanggal — tepat waktu tidak bisa diukur tanpa tanggal yang disepakati`
+          : `baru ${promised.length} pengiriman berjanji tanggal, di bawah ambang ${minLegs} — satu keterlambatan itu minggu yang buruk, bukan rekam jejak`,
+    };
+  }).sort((a, b) => b.overdue_now - a.overdue_now || b.out_now - a.out_now);
+}
+
+export function vendorLegViews(state: DemoState, today: string): VendorLegView[] {
+  return state.vendor_legs
+    .map((l) => vendorLegView(state, l, today))
+    .sort((a, b) => b.sent_on.localeCompare(a.sent_on));
+}
+
 export function workOrderView(
   state: DemoState,
   wo: WorkOrder,
@@ -61,6 +160,11 @@ export function workOrderView(
     ? state.products.find((p) => p.product_code === wo.product_code)
     : undefined;
   const route = ROUTE(wo.route);
+  /* Which stages this product goes through, or the route's own list where
+     nobody has said (D278). Null is not "all of them" — it is a gap, and
+     `stages_unset` below is what the screen says about it. */
+  const productStages = state.products.find((pr) => pr.product_code === wo.product_code)?.stages ?? null;
+  const stageSet = productStages ?? route.stages;
   const total = (code: string) =>
     entries.filter((p) => p.stage === code).reduce((a, p) => a + p.qty, 0);
 
@@ -69,7 +173,13 @@ export function workOrderView(
      *nobody has started building this* about goods a vendor has already built
      (D254). */
   const stages: StageProgress[] = PROCESS_STAGES
-    .filter((s) => route.stages.includes(s.code))
+    /* Route **and** product. The route says what this order's path allows; the
+       product says which of those it actually goes through (D278) — a dining
+       table has no lamps in it, and drawing it a Machinery column it will
+       never fill is what made every later stage look like it jumped a step
+       (F92). A product that has not been told falls back to the route, and the
+       board says so rather than inventing a list. */
+    .filter((s) => route.stages.includes(s.code) && stageSet.includes(s.code))
     .map((s) => {
       /* **A minimum over every source that carried a figure, never a sum.**
          Four chairs cut, four planed and four assembled is four chairs made,
@@ -124,15 +234,24 @@ export function workOrderView(
   /* Where the goods physically are. `at_vendor` is derived from the two dates
      rather than stored, for the reason every status here is derived: a flag is
      a field somebody forgets to move while the lorry is still on the road. */
-  const at_vendor = wo.route === "SUBCON"
-    && wo.subcon_sent_on !== null
-    && wo.subcon_returned_on === null;
-  const days_at_vendor = wo.subcon_sent_on === null
+  /* From the **legs**, which is where the fact now lives (W6, D280). The four
+     `subcon_*` columns could describe one trip; this order may have several,
+     to different vendors, for different processes. */
+  const legs = state.vendor_legs.filter((l) => l.wo_id === wo.id);
+  const openLegs = legs.filter((l) => l.returned_on === null);
+  const at_vendor_qty = openLegs.reduce((t, l) => t + (l.qty - (l.returned_qty ?? 0)), 0);
+  const at_vendor = openLegs.length > 0;
+  const firstSent = legs.map((l) => l.sent_on).sort()[0] ?? null;
+  const lastBack = legs.every((l) => l.returned_on)
+    ? legs.map((l) => l.returned_on!).sort().pop() ?? null
+    : null;
+  const days_at_vendor = firstSent === null
     ? null
-    : daysBetween(wo.subcon_sent_on, wo.subcon_returned_on ?? today);
-  const subcon_overdue = at_vendor
-    && wo.subcon_expected_back !== null
-    && wo.subcon_expected_back < today;
+    : daysBetween(firstSent, lastBack ?? today);
+  /* Overdue against a promise, never against silence: a leg with no promised
+     date cannot be late, only absent (D134). */
+  const overdueLegs = openLegs.filter((l) => l.expected_back !== null && l.expected_back < today);
+  const subcon_overdue = overdueLegs.length > 0;
 
   /* Work recorded against steps the business no longer has.
    *
@@ -202,19 +321,19 @@ export function workOrderView(
   }
   if (wo.status === "OPEN" && started.length === 0 && !at_vendor) {
     warnings.push(
-      wo.route === "SUBCON" && wo.subcon_sent_on === null
+      wo.route === "SUBCON" && legs.length === 0
         ? "Belum dikirim ke vendor, dan belum ada tahap yang dikerjakan."
         : "Belum ada satu tahap pun yang dikerjakan.",
     );
   }
-  if (subcon_overdue) {
+  for (const l of overdueLegs) {
     warnings.push(
-      `Vendor menjanjikan kembali ${wo.subcon_expected_back}, sudah lewat ${
-        Math.abs(daysBetween(today, wo.subcon_expected_back!))
-      } hari dan barangnya belum sampai.`,
+      `${VENDOR_PROCESS_NAME(l.process)} di ${state.vendors.find((v) => v.id === l.vendor_id)?.name ?? l.vendor_id}: dijanjikan kembali ${l.expected_back}, sudah lewat ${
+        Math.abs(daysBetween(today, l.expected_back!))
+      } hari. ${l.qty - (l.returned_qty ?? 0)} ${wo.uom} masih di sana.`,
     );
   }
-  if (wo.route === "SUBCON" && wo.subcon_sent_on === null && days_left <= 3) {
+  if (wo.route === "SUBCON" && legs.length === 0 && days_left <= 3) {
     warnings.push("Tenggatnya dekat dan barangnya belum berangkat ke vendor.");
   }
 
@@ -222,9 +341,12 @@ export function workOrderView(
     ...wo,
     stages,
     retired,
+    /* Named, never filled in: a product whose stages nobody has set runs on
+       the route's list, and the board says which it is doing (D278, D150). */
+    stages_unset: productStages === null,
     route_name: route.name,
     at_vendor,
-    goods_on_site: goodsOnSite(wo),
+    goods_on_site: goodsOnSite({ route: wo.route, qty: wo.qty, at_vendor_qty }),
     /* What the product's BOM is on **now**, against what this order was
        written against. Different is not wrong — this order is deliberately
        measured against the list it was written from (D256) — but it is worth
@@ -235,6 +357,8 @@ export function workOrderView(
     bom_repinnable: bomRepinnable(state, wo),
     days_at_vendor,
     subcon_overdue,
+    legs: legs.map((l) => vendorLegView(state, l, today)),
+    at_vendor_qty,
     current_stage: current?.stage ?? null,
     current_stage_name: at_vendor
       ? "Di vendor"

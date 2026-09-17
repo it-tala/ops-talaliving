@@ -1,4 +1,4 @@
-import type { WorkOrder, ProgressEntry } from "@/services/production/contracts";
+import type { WorkOrder, ProgressEntry, VendorLeg } from "@/services/production/contracts";
 
 /** The workshop floor, as it would look on a Friday.
  *
@@ -25,8 +25,7 @@ export const WORK_ORDERS: WorkOrder[] = [
        (D256). `bom_rev: null` on wo_07 is the honest other case: no catalogue
        product, so nothing to pin. */
     bom_rev: 1,
-    route: "IN_HOUSE", subcon_vendor_id: null,
-    subcon_sent_on: null, subcon_expected_back: null, subcon_returned_on: null, subcon_note: null,
+    route: "IN_HOUSE",
     cancelled_reason: null, note: null,
   },
   {
@@ -40,8 +39,7 @@ export const WORK_ORDERS: WorkOrder[] = [
        (D256). `bom_rev: null` on wo_07 is the honest other case: no catalogue
        product, so nothing to pin. */
     bom_rev: 1,
-    route: "IN_HOUSE", subcon_vendor_id: null,
-    subcon_sent_on: null, subcon_expected_back: null, subcon_returned_on: null, subcon_note: null,
+    route: "IN_HOUSE",
     cancelled_reason: null, note: null,
   },
   {
@@ -55,8 +53,7 @@ export const WORK_ORDERS: WorkOrder[] = [
        (D256). `bom_rev: null` on wo_07 is the honest other case: no catalogue
        product, so nothing to pin. */
     bom_rev: 1,
-    route: "IN_HOUSE", subcon_vendor_id: null,
-    subcon_sent_on: null, subcon_expected_back: null, subcon_returned_on: null, subcon_note: null,
+    route: "IN_HOUSE",
     cancelled_reason: null, note: null,
   },
   {
@@ -70,10 +67,7 @@ export const WORK_ORDERS: WorkOrder[] = [
        Sudah lewat tanggal janji vendor — dan itu keterlambatan vendor, bukan
        keterlambatan bengkel, yang papan tidak boleh mencampuradukkannya. */
     bom_rev: 1,
-    route: "SUBCON", subcon_vendor_id: "vnd_06",
-    subcon_sent_on: "2026-09-01", subcon_expected_back: "2026-09-09",
-    subcon_returned_on: null,
-    subcon_note: "Rangka besi dilas di Karya Logam, kayunya ikut dikirim ke sana.",
+    route: "SUBCON",
     cancelled_reason: null, note: "Menunggu rangka besi dari Karya Logam Abadi.",
   },
   {
@@ -87,8 +81,7 @@ export const WORK_ORDERS: WorkOrder[] = [
        (D256). `bom_rev: null` on wo_07 is the honest other case: no catalogue
        product, so nothing to pin. */
     bom_rev: 1,
-    route: "IN_HOUSE", subcon_vendor_id: null,
-    subcon_sent_on: null, subcon_expected_back: null, subcon_returned_on: null, subcon_note: null,
+    route: "IN_HOUSE",
     cancelled_reason: null, note: null,
   },
   {
@@ -102,8 +95,7 @@ export const WORK_ORDERS: WorkOrder[] = [
        (D256). `bom_rev: null` on wo_07 is the honest other case: no catalogue
        product, so nothing to pin. */
     bom_rev: 1,
-    route: "IN_HOUSE", subcon_vendor_id: null,
-    subcon_sent_on: null, subcon_expected_back: null, subcon_returned_on: null, subcon_note: null,
+    route: "IN_HOUSE",
     cancelled_reason: null, note: null,
   },
   {
@@ -116,10 +108,7 @@ export const WORK_ORDERS: WorkOrder[] = [
     /* Sudah kembali, jadi finishing boleh dicatat. Selama masih di vendor,
        API menolak pencatatan tahap apa pun (D255). */
     bom_rev: null,
-    route: "SUBCON", subcon_vendor_id: "vnd_06",
-    subcon_sent_on: "2026-09-02", subcon_expected_back: "2026-09-08",
-    subcon_returned_on: "2026-09-08",
-    subcon_note: "Kembali tepat janji, satu unit lecet dan sudah diganti vendor.",
+    route: "SUBCON",
     cancelled_reason: null, note: null,
   },
 ];
@@ -204,3 +193,57 @@ PRODUCTION_PROGRESS.push(
   e("prg_30", "wo_04", "MACHINERY", 2, "2026-09-12", "Thohari", "Pasang lampu strip dan kabel.", "emp_w027"),
   e("prg_27", "wo_07", "QC", 3, "2026-09-11", "Made Suparta", null, "emp_05"),
 );
+
+/** Where things actually are, vendor by vendor (W6, D280).
+ *
+ *  The owner's own list of who does what: *vendor barang mentah, proses jok,
+ *  amplas, packing*. Four situations, because a board where every trip is on
+ *  time teaches nobody how to read it:
+ *
+ *  - **Out and overdue.** The rak display frames went to Karya Logam on 1
+ *    September, promised back on the 9th, and are still there. This is the leg
+ *    that used to be the work order's four `subcon_*` columns — one trip was
+ *    all they could hold.
+ *  - **A second leg on the same order.** The same rak display's timber went to
+ *    a different vendor for sanding. Two vendors, one order, which is the
+ *    thing the old shape could not say at all.
+ *  - **Came back short.** Twenty chair frames went for upholstery, eighteen
+ *    came back. The two that did not are a question somebody has to put to the
+ *    vendor, and a tick-box would have lost it.
+ *  - **Closed, on time, unremarkable.** Because a list where everything is
+ *    wrong is as useless as one where nothing is.
+ */
+export const VENDOR_LEGS: VendorLeg[] = [
+  {
+    id: "vlg_01", leg_no: "vnl-26-09-01_01", wo_id: "wo_04",
+    process: "BARANG_MENTAH", vendor_id: "vnd_06", qty: 10,
+    sent_on: "2026-09-01", expected_back: "2026-09-09",
+    returned_on: null, returned_qty: null,
+    note: "Rangka besi dilas di Karya Logam, kayunya ikut dikirim ke sana.",
+    created_by: "usr_made", created_at: "2026-09-01T08:30:00+08:00",
+  },
+  {
+    id: "vlg_02", leg_no: "vnl-26-09-03_01", wo_id: "wo_04",
+    process: "AMPLAS", vendor_id: "vnd_22", qty: 10,
+    sent_on: "2026-09-03", expected_back: "2026-09-08",
+    returned_on: "2026-09-08", returned_qty: 10,
+    note: null,
+    created_by: "usr_made", created_at: "2026-09-03T09:00:00+08:00",
+  },
+  {
+    id: "vlg_03", leg_no: "vnl-26-09-02_01", wo_id: "wo_02",
+    process: "JOK", vendor_id: "vnd_21", qty: 20,
+    sent_on: "2026-09-02", expected_back: "2026-09-10",
+    returned_on: "2026-09-11", returned_qty: 18,
+    note: "Dua rangka dikembalikan belum dijok — kainnya kurang, menunggu kiriman klien.",
+    created_by: "usr_made", created_at: "2026-09-02T10:15:00+08:00",
+  },
+  {
+    id: "vlg_04", leg_no: "vnl-26-09-10_01", wo_id: "wo_06",
+    process: "PACKING", vendor_id: "vnd_20", qty: 12,
+    sent_on: "2026-09-10", expected_back: null,
+    returned_on: null, returned_qty: null,
+    note: "Belum ada janji tanggal kembali — tidak bisa disebut terlambat sampai ada.",
+    created_by: "usr_made", created_at: "2026-09-10T14:00:00+08:00",
+  },
+];

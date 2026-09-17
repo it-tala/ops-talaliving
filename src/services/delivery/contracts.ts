@@ -284,6 +284,16 @@ export interface FulfilmentLine {
   ready_to_ship: number | null;
   /** At the site and not yet fitted — from `arrived`, never from `delivered`. */
   on_site: number;
+  /** Units of this line sitting at a vendor right now (W6, D282).
+   *
+   *  The board answers *how much has reached the client*, and had no word for
+   *  the most common reason a number is stuck: the goods are at the
+   *  upholsterer. Null where the line cannot be matched to a work order at
+   *  all — the same distinction `made` makes, for the same reason (F60). */
+  at_vendor: number | null;
+  /** Which vendors, for which process, and how late — the sentence somebody
+   *  reads out to a client who asked where their chairs are. */
+  at_vendor_where: string[];
   /** A line with nothing to build — a service, a fee. Shown as such rather
    *  than as a permanently unfinished item. */
   is_service: boolean;

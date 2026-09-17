@@ -1,9 +1,10 @@
 /** Implements `/api/v1/production` from `03-api.md`. */
-import { refused, ok, invalid, notFound, noop, type Result } from "@/services/_shared/envelope";
+import { refused, ok, invalid, notFound, noop, isOk, type Result } from "@/services/_shared/envelope";
 import {
-  PROCESS_STAGES, RETIRED_STAGES, DESIGN_KIND_LABEL, ROUTE, STAGE_NAME, goodsOnSite,
+  PROCESS_STAGES, RETIRED_STAGES, VENDOR_PROCESSES, VENDOR_PROCESS_NAME, DESIGN_KIND_LABEL, ROUTE, STAGE_NAME, goodsOnSite,
   type WorkOrder, type WorkOrderView, type ProgressEntry, type ProductView,
   type DesignKind, type DesignTaskView, type RouteCode, type BomExplosion,
+  type VendorLegView, type VendorRecord,
   type WorkAttribution,
 } from "@/services/production/contracts";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
@@ -11,11 +12,12 @@ import {
   workOrderView, workOrderViews, productView, productViews,
   currentBomRev, draftBomRev, bomAt, bomDiff, bomRevisions, bomRepinnable, explodeBom, bomWouldCycle,
   designQueue, designTaskView, designGaps, officeToday,
-  unresolvedNames, workAttribution, type UnresolvedName,
+  unresolvedNames, workAttribution, openVendorLegs, vendorLegViews, vendorRecords, type UnresolvedName,
 } from "../production-derive";
 import {
   latency, actingUser, requireModule, requireAuthority, conflict, replayed, remember,
 } from "./_kit";
+import { settingNumber } from "../settings";
 
 const SERVICE = "production" as const;
 
@@ -114,9 +116,7 @@ export async function createWorkOrder(
         ? currentBomRev(draft, draft.products.find((p) => p.product_code === productCode)!)
         : null,
       route: input.route ?? "IN_HOUSE",
-      subcon_vendor_id: null,
-      subcon_sent_on: null, subcon_expected_back: null, subcon_returned_on: null,
-      subcon_note: null,
+
       status: "OPEN",
       created_at: new Date().toISOString(), created_by: user.id,
       cancelled_reason: null,
@@ -144,12 +144,19 @@ export async function createWorkOrder(
  *  printed. What it buys is the thing a subcontracted order otherwise has no
  *  way to say: *this is late, and it is not the workshop that is late*.
  */
-export async function sendToSubcon(
-  input: { wo_no: string; vendor_id: string; expected_back?: string | null; note?: string | null },
+export async function sendToVendor(
+  input: {
+    wo_no: string;
+    vendor_id: string;
+    process: string;
+    qty: number;
+    expected_back?: string | null;
+    note?: string | null;
+  },
   idempotencyKey?: string,
 ): Promise<Result<WorkOrderView>> {
   await latency();
-  const cached = replayed<WorkOrderView>(SERVICE, "sendToSubcon", idempotencyKey);
+  const cached = replayed<WorkOrderView>(SERVICE, "sendToVendor", idempotencyKey);
   if (cached) return cached;
 
   const denied = requireModule(SERVICE, "production");
@@ -158,20 +165,14 @@ export async function sendToSubcon(
   const state = getState();
   const wo = state.work_orders.find((w) => w.wo_no === input.wo_no);
   if (!wo) return notFound(SERVICE, "wo_not_found", `No work order ${input.wo_no}.`);
-  if (wo.route !== "SUBCON") {
-    return invalid(
-      SERVICE, "not_a_subcon_order",
-      `${wo.wo_no} dikerjakan sendiri. Kalau memang dilempar ke vendor, rutenya yang diubah dulu — bukan tanggal kirimnya yang ditambahkan ke pesanan yang bilang dibuat di sini.`,
-      { field: "route" },
-    );
-  }
   if (wo.status !== "OPEN") {
     return conflict(SERVICE, "wo_not_open", `${wo.wo_no} is ${wo.status}.`);
   }
-  if (wo.subcon_sent_on && !wo.subcon_returned_on) {
-    return conflict(
-      SERVICE, "already_at_vendor",
-      `${wo.wo_no} sudah di vendor sejak ${wo.subcon_sent_on}.`,
+  if (!VENDOR_PROCESSES.some((p) => p.code === input.process)) {
+    return invalid(
+      SERVICE, "unknown_process",
+      `Tidak ada proses vendor bernama ${input.process}. Yang ada: ${VENDOR_PROCESSES.map((p) => p.name).join(", ")}.`,
+      { field: "process" },
     );
   }
   /* Validated at the seam, by public id, never by reaching into another
@@ -180,79 +181,133 @@ export async function sendToSubcon(
   if (!vendor) {
     return invalid(SERVICE, "vendor_not_found", `No vendor ${input.vendor_id}.`, { field: "vendor_id" });
   }
+  if (!input.qty || input.qty <= 0) {
+    return invalid(SERVICE, "qty_required", "Berapa banyak yang dikirim?", { field: "qty" });
+  }
+
+  /* Already out, plus this trip, cannot exceed the order. Sending fourteen
+     chairs from an order for twelve is not a slow vendor, it is a number
+     somebody has to explain before the lorry leaves (W6, D280). */
+  const out = state.vendor_legs
+    .filter((l) => l.wo_id === wo.id && l.returned_on === null)
+    .reduce((t, l) => t + (l.qty - (l.returned_qty ?? 0)), 0);
+  if (out + input.qty > wo.qty) {
+    return invalid(
+      SERVICE, "over_order",
+      `${wo.wo_no} untuk ${wo.qty} ${wo.uom}, dan ${out} sudah di vendor — ${input.qty} lagi jadi ${out + input.qty}.`,
+      { field: "qty", ordered: wo.qty, already_out: out },
+    );
+  }
 
   const user = actingUser();
+  let legNo = "";
   apply((draft) => {
-    const row = draft.work_orders.find((w) => w.wo_no === input.wo_no);
-    if (!row) return;
-    row.subcon_vendor_id = input.vendor_id;
-    row.subcon_sent_on = officeToday();
-    row.subcon_expected_back = input.expected_back || null;
-    /* A second trip clears the first return, and keeps the note. */
-    row.subcon_returned_on = null;
-    row.subcon_note = input.note?.trim() || row.subcon_note;
+    legNo = nextDocNumber(draft, "vnl");
+    draft.vendor_legs.push({
+      id: newId("vlg"), leg_no: legNo, wo_id: wo.id,
+      process: input.process, vendor_id: input.vendor_id, qty: input.qty,
+      sent_on: officeToday(),
+      expected_back: input.expected_back || null,
+      returned_on: null, returned_qty: null,
+      note: input.note?.trim() || null,
+      created_by: user.id, created_at: new Date().toISOString(),
+    });
     writeAudit(draft, {
-      service: SERVICE, entity: "work_order", entity_no: row.wo_no,
-      action: "send_to_subcon", outcome: "ok", reason: input.note?.trim() || null,
-      detail: { vendor: vendor.name, expected_back: row.subcon_expected_back, by: user.email },
+      service: SERVICE, entity: "vendor_leg", entity_no: legNo,
+      action: "send", outcome: "ok", reason: input.note?.trim() || null,
+      detail: {
+        wo_no: wo.wo_no, vendor: vendor.name, process: input.process,
+        qty: input.qty, expected_back: input.expected_back ?? null, by: user.email,
+      },
     });
   });
   const view = await getWorkOrder(input.wo_no);
-  if (view.data) remember(SERVICE, "sendToSubcon", idempotencyKey, view.data);
+  if (isOk(view)) remember(SERVICE, "sendToVendor", idempotencyKey, view.data);
   return view;
 }
 
-/** The goods are back in the building, and the stages on the route open up. */
-export async function receiveFromSubcon(
-  input: { wo_no: string; returned_on?: string; note?: string | null },
+/** The goods are back from one vendor, for one process.
+ *
+ *  `returned_qty` is a **number, not a tick**: twenty chair frames going out
+ *  and eighteen coming back is the ordinary case, and the two that stayed are
+ *  a question somebody has to put to the vendor rather than a rounding
+ *  difference. More coming back than went is refused — that is somebody else's
+ *  goods (W6, D280).
+ */
+export async function receiveFromVendor(
+  input: { leg_no: string; returned_qty: number; returned_on?: string; note?: string | null },
 ): Promise<Result<WorkOrderView>> {
   await latency();
   const denied = requireModule(SERVICE, "production");
   if (denied) return denied;
 
   const state = getState();
-  const wo = state.work_orders.find((w) => w.wo_no === input.wo_no);
-  if (!wo) return notFound(SERVICE, "wo_not_found", `No work order ${input.wo_no}.`);
-  if (wo.route !== "SUBCON" || !wo.subcon_sent_on) {
-    return conflict(
-      SERVICE, "never_sent",
-      `${wo.wo_no} tidak pernah dikirim ke vendor, jadi tidak ada yang kembali.`,
-    );
-  }
-  if (wo.subcon_returned_on) {
-    /* Already back. Nothing to do, and nothing wrong — the answer is the
-       order as it stands, marked `noop`. */
+  const leg = state.vendor_legs.find((l) => l.leg_no === input.leg_no);
+  if (!leg) return notFound(SERVICE, "leg_not_found", `Tidak ada pengiriman vendor ${input.leg_no}.`);
+  const wo = state.work_orders.find((w) => w.id === leg.wo_id);
+  if (!wo) return notFound(SERVICE, "wo_not_found", "Pesanan kerjanya tidak ada.");
+  if (leg.returned_on) {
     return noop(SERVICE, workOrderView(state, wo));
   }
+
   const returned = input.returned_on || officeToday();
-  if (returned < wo.subcon_sent_on) {
+  if (returned < leg.sent_on) {
     return invalid(
       SERVICE, "returned_before_sent",
-      `Tanggal kembali ${returned} lebih awal dari tanggal kirim ${wo.subcon_sent_on}.`,
+      `Tanggal kembali ${returned} lebih awal dari tanggal kirim ${leg.sent_on}.`,
       { field: "returned_on" },
+    );
+  }
+  if (input.returned_qty < 0) {
+    return invalid(SERVICE, "qty_negative", "Jumlah kembali tidak bisa negatif.", { field: "returned_qty" });
+  }
+  if (input.returned_qty > leg.qty) {
+    return invalid(
+      SERVICE, "over_sent",
+      `Yang dikirim ${leg.qty} ${wo.uom}, yang dicatat kembali ${input.returned_qty}. Kalau vendor mengembalikan lebih, itu barang pesanan lain — catat terpisah.`,
+      { field: "returned_qty", sent: leg.qty },
     );
   }
 
   const user = actingUser();
   apply((draft) => {
-    const row = draft.work_orders.find((w) => w.wo_no === input.wo_no);
-    if (!row) return;
-    row.subcon_returned_on = returned;
-    if (input.note?.trim()) row.subcon_note = input.note.trim();
+    const row = draft.vendor_legs.find((l) => l.id === leg.id)!;
+    row.returned_on = returned;
+    row.returned_qty = input.returned_qty;
+    if (input.note?.trim()) row.note = input.note.trim();
     writeAudit(draft, {
-      service: SERVICE, entity: "work_order", entity_no: row.wo_no,
-      action: "receive_from_subcon", outcome: "ok", reason: input.note?.trim() || null,
+      service: SERVICE, entity: "vendor_leg", entity_no: row.leg_no,
+      action: "receive", outcome: "ok", reason: input.note?.trim() || null,
       detail: {
-        returned_on: returned,
-        promised: row.subcon_expected_back,
-        late_days: row.subcon_expected_back && returned > row.subcon_expected_back
-          ? Math.round((Date.parse(`${returned}T00:00:00+08:00`) - Date.parse(`${row.subcon_expected_back}T00:00:00+08:00`)) / 86_400_000)
+        wo_no: wo.wo_no, sent: row.qty, returned: input.returned_qty,
+        short_by: row.qty - input.returned_qty,
+        promised: row.expected_back,
+        late_days: row.expected_back && returned > row.expected_back
+          ? Math.round((Date.parse(`${returned}T00:00:00+08:00`) - Date.parse(`${row.expected_back}T00:00:00+08:00`)) / 86_400_000)
           : 0,
         by: user.email,
       },
     });
   });
-  return getWorkOrder(input.wo_no);
+  return getWorkOrder(wo.wo_no);
+}
+
+/** How each vendor has actually behaved (W6, D282). */
+export async function listVendorRecords(): Promise<Result<VendorRecord[]>> {
+  await latency();
+  return ok(SERVICE, vendorRecords(getState(), officeToday(),
+    settingNumber(getState(), "vendor.min_legs_to_rate", 3)));
+}
+
+/** Everything still out at a vendor, worst first. */
+export async function listVendorLegs(
+  opts: { open_only?: boolean } = {},
+): Promise<Result<VendorLegView[]>> {
+  await latency();
+  const state = getState();
+  return ok(SERVICE, opts.open_only
+    ? openVendorLegs(state, officeToday())
+    : vendorLegViews(state, officeToday()));
 }
 
 /** Reporting work done.
@@ -326,6 +381,18 @@ export async function recordProgress(
    *  for being unreachable is a guard nobody reinstates when the routes
    *  diverge again, and W6 is likely to diverge them. */
   const route = ROUTE(wo.route);
+  /* The product's own stages, where it has them (D278). Refused rather than
+     warned about for the same reason the route check is: reporting *Machinery*
+     against a dining table is not a mis-keyed number, it is work on a step
+     that does not exist for this thing. */
+  const productStages = state.products.find((pr) => pr.product_code === wo.product_code)?.stages;
+  if (productStages && !productStages.includes(input.stage)) {
+    return invalid(
+      SERVICE, "stage_not_on_product",
+      `${STAGE_NAME(input.stage)} bukan tahap yang dilalui ${wo.product_code}. Tahapnya: ${productStages.map(STAGE_NAME).join(" → ")}.`,
+      { field: "stage", product_code: wo.product_code, stages: productStages },
+    );
+  }
   if (!route.stages.includes(input.stage)) {
     return invalid(
       SERVICE, "stage_not_on_route",
@@ -341,11 +408,17 @@ export async function recordProgress(
    *  somebody else's workshop. The fix is one click and the refusal names it,
    *  so nothing goes unrecorded — the work simply gets recorded after the fact
    *  it depends on (D255). */
-  if (!goodsOnSite(wo)) {
-    return wo.subcon_sent_on
+  /* Since W6 this is a **quantity**, not a flag: six of twelve chairs at the
+     upholsterer leaves six on the bench, and work reported on those six is
+     legitimate. The refusal now fires only when there is nothing here at all
+     (D280), and it names the legs so the fix is findable. */
+  const openLegs = state.vendor_legs.filter((l) => l.wo_id === wo.id && l.returned_on === null);
+  const atVendorQty = openLegs.reduce((t, l) => t + (l.qty - (l.returned_qty ?? 0)), 0);
+  if (!goodsOnSite({ route: wo.route, qty: wo.qty, at_vendor_qty: atVendorQty })) {
+    return openLegs.length > 0
       ? conflict(
         SERVICE, "still_at_vendor",
-        `${wo.wo_no} masih di vendor sejak ${wo.subcon_sent_on} — barangnya belum ada di bengkel, jadi tahap ${STAGE_NAME(input.stage)} belum bisa dikerjakan. Catat dulu barangnya kembali, baru laporkan pekerjaannya.`,
+        `Semua ${wo.qty} ${wo.uom} ${wo.wo_no} masih di vendor — ${openLegs.map((l) => `${l.qty} untuk ${VENDOR_PROCESS_NAME(l.process)} sejak ${l.sent_on}`).join(", ")}. Catat dulu yang kembali, baru laporkan pekerjaannya.`,
       )
       : conflict(
         SERVICE, "not_sent_yet",
@@ -521,6 +594,9 @@ export async function saveProduct(
     height_mm?: number | null;
     dimension_note?: string | null;
     lead_time_days?: number | null;
+    /** Which of the four this product goes through (D278). Omitted leaves it
+     *  as it was; null is a deliberate *nobody has said*. */
+    stages?: string[] | null;
     active?: boolean;
     note?: string | null;
   },
@@ -557,6 +633,7 @@ export async function saveProduct(
         height_mm: input.height_mm ?? row.height_mm,
         dimension_note: input.dimension_note?.trim() ?? row.dimension_note,
         lead_time_days: input.lead_time_days ?? row.lead_time_days,
+        stages: input.stages ?? row.stages,
         active: input.active ?? row.active,
         note: input.note?.trim() ?? row.note,
       });
@@ -577,6 +654,10 @@ export async function saveProduct(
         height_mm: input.height_mm ?? null,
         dimension_note: input.dimension_note?.trim() || null,
         lead_time_days: input.lead_time_days ?? null,
+        /* Null, not the four: nobody has said which stages this product goes
+           through, and that is a thing to be named rather than assumed (D278,
+           D150's rule). */
+        stages: input.stages ?? null,
         labour_cost: null, labour_note: null,
         active: input.active ?? true,
         note: input.note?.trim() || null,
