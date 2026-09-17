@@ -3869,3 +3869,61 @@ checks, and a module nothing imports is a module nothing exercises.
 The deployment brief now opens with all three, in `docs/plan/deploy/README.md`,
 because the first thing a fresh session needs to know is what it is actually
 shipping.
+
+## F94 — the mirror that was never held up to anything
+
+F93 found that nothing imports `src/lib/api`. The obvious next move was to write
+the swap — one line in `src/demo/api/index.ts`, the file this session owns, and
+the only thing standing between a finished backend and screens that use it.
+
+Before writing it, one question worth a minute: do the two implementations
+actually match? `src/lib/api/index.ts` answers in its own header —
+
+> The mirror of `src/demo/api/index.ts`, exporting the same module names with the
+> same function signatures. A screen imports one or the other and cannot tell
+> which it got, which is the entire design of the swap (ADR-009).
+
+That is a claim about two files, written inside one of them, and checked by
+nothing. Measured, it is false by **43 values**: 10 in identity, 12 in
+procurement, 21 in accounting. Every one is a function a screen calls today —
+`listDue`, `importStatement`, `getProject`, `listAudit` — and would not find
+after the swap. Thirteen more exist only on the real side, reachable by nothing.
+
+Throwing the switch would have compiled, linted, deployed, and then failed at
+the click, with `undefined is not a function`, on screens that look finished.
+The demo would have kept working perfectly, so every rehearsal would have passed.
+
+**Three things the measurement taught, each of which nearly went the other way.**
+
+*Grep would have lied, and cheerfully.* The first pass matched
+`^export (async )?function`, reported clean lists, and missed `RETENTION` —
+exported as `export const` in the same file. One regex, one export form, a
+silent undercount. The check now asks the TypeScript compiler for the export
+symbols, which also resolves `export { X } from "./contracts"` aliases that no
+regex was ever going to follow.
+
+*Counting the wrong things inflates the number that matters.* The first honest
+count said 48. Five of those were **type** aliases, and a missing type is a
+different animal: it stops the build — loud, early, free. A missing function
+reaches the user. Reporting one number for both would have made the dangerous
+figure look bigger while hiding which names were actually dangerous. They are
+counted apart now, and 43 is the number that can hurt somebody.
+
+*A wall gets bypassed; a ratchet gets watched.* Failing the build over 43
+functions that are already somebody's scheduled work would teach exactly one
+habit, and it is `--no-verify`. So today's gap is listed in `KNOWN_GAP` and
+passes, and **new** drift fails. The list shrinking is the swap's only honest
+progress bar — better than counting tables, because 46 tables and 69 functions
+were all present while the seam was 43 short.
+
+The check does not prove signatures — two functions can share a name and agree
+about nothing else — and it says so in its own header rather than implying it
+covered the rest. That proof is `tsc`'s, and it arrives free the moment the swap
+is written, because the two namespaces then have to be assignable. Naming the
+limit is the part worth keeping: **this file exists because a header claimed more
+than it had checked**, and replacing it with a check that quietly does the same
+thing would have been the same mistake with a better reputation.
+
+`npm run check:api`. Both of its branches were exercised before it was trusted —
+the failing one by `RETENTION`, the closing one by feeding it a name the real
+client already has.

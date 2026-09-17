@@ -26,6 +26,7 @@ the tree disagreed, the tree is recorded here.
 | Supabase client seam | `src/lib/api/` — identity, procurement, accounting only |
 | REST API | **none.** `src/app/api/` does not exist; there are zero route handlers |
 | Deployed anywhere | no. No Vercel config, no Dockerfile, no CI |
+| Seam conformance | `npm run check:api` — **43 values short** of what the screens call |
 
 ### Three corrections to carry in
 
@@ -55,6 +56,21 @@ marketing, delivery and the assistant exist as screens and contracts with no
 tables behind them. The flip is therefore not all-or-nothing across the app,
 and whoever throws the switch needs to know which screens go live and which
 must keep reading fixtures. **Resolve this before deploying, not after.**
+
+**d. And those three are not finished either — they are 43 functions short.**
+Measured, not estimated: `npm run check:api`. `src/lib/api/index.ts` describes
+itself as "the mirror … exporting the same module names with the same function
+signatures", and that claim was checked by nothing. It is false by 43 values —
+10 in identity, 12 in procurement, 21 in accounting — every one of them a
+function a screen calls today and would not find after the swap (F94). Another
+13 exist only on the real side and are unreachable through the seam.
+
+The check is a **ratchet**: today's gap is listed in `KNOWN_GAP` and passes, so
+the build stays green over work that is already scheduled; anything that drifts
+*newly* fails. **`KNOWN_GAP` shrinking is the real progress bar for the swap** —
+watch it rather than the table count. And it compares names only. Matching names
+do not prove matching signatures; `tsc` proves that, for free, the moment the
+swap is actually written.
 
 ---
 
@@ -198,7 +214,10 @@ the owner to decide — not as a migration already performed.
 5. Build the outbox worker. Proves system → Chat end to end.
 6. Build the inbound listener on the §2 road the owner chose.
 7. Only then discuss flipping the three backed services to real data — and name
-   explicitly which screens stay on fixtures.
+   explicitly which screens stay on fixtures. **Not before `npm run check:api`
+   reports a gap of zero**, because the swap cannot be thrown while 43 functions
+   are missing, and a half-swapped app is one where two screens disagree about
+   the same number with no obvious reason.
 
 ---
 
