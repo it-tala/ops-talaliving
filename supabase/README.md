@@ -16,6 +16,9 @@ local/        NEVER applied to Supabase
   smoke/        one per schema: each proves a refusal and a derivation
   check_shadowing.sh
                 PL/pgSQL locals that share a name with a column
+  check_schema_isolation.sh
+                any migration reaching outside `ops_*` — the guard that lets
+                this system share a database with the one it replaces
 ```
 
 ## Running the whole stack locally — free, and nothing touches production
@@ -111,12 +114,24 @@ Additive migrations may be applied after a clean run of `rebuild.sh`.
 production database holds the business's own records, and a correction there
 is a VOID with a reason, not a deletion.
 
-**Nothing in this folder has been applied to Supabase, and none of it can be
-yet.** The only project on the account is `john-lau-v01`, which is the running
-legacy system — 3.126 transactions, 285 vendors, 957 items — and it already has
-a `core` schema with a different `core.users`, a different `core.audit_log`, and
-an `hr` schema of 43 tables belonging to a different design. `0002` and `0003`
-would collide with live tables on their first statement. The options, and what
-each one costs, are set out in `docs/plan/phase-2/README.md` under *Where this
-ladder is supposed to land*; it is the owner's decision and it is not one to
-make by discovering it during a deployment.
+**Nothing in this folder has been applied to Supabase yet** — but the reason
+this file used to give for *why it never could be* is no longer true.
+
+It said the ladder would collide with `john-lau-v01`, the running legacy system,
+because both wanted `core` and `hr`. D265 renamed our six schemas `ops_*`, and
+the collision went with it: the live project holds `public`, `hr`, `core`, `ops`
+and `po_import`, and not one of those is a name we create. The owner's decision
+(2026-09-17) is **one project, both systems, separate schemas** — which also
+turns the data import from a network transfer into a join.
+
+What keeps that safe is `check_schema_isolation.sh`, beside this file. It reads
+every migration with comments blanked and refuses any that names a legacy
+schema, whether qualified (`public.vendors`) or bare (`drop schema ops`). It runs
+first in `smoke.sh` and again in CI, because the whole arrangement rests on one
+sentence — *our migrations touch nothing outside `ops_\*`* — and a sentence
+nobody checks is a sentence that has already drifted.
+
+The legacy system is **still live**: a Google Chat event landed at 03:21 UTC on
+2026-09-17, and 3.235 transactions sit behind it. Applying the ladder is a
+reviewed step in the cutover runbook, never something a session does because it
+happened to be nearby.

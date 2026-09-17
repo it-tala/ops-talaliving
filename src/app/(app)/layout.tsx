@@ -1,12 +1,14 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { useSession } from "@/store/session";
 import { TourBar } from "@/components/tour-bar";
 import { JohnLauDock } from "@/components/john-lau/dock";
+import { NotLive } from "@/components/not-live";
+import { isRouteLive } from "@/lib/live";
 
 /** The application shell.
  *
@@ -22,6 +24,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { ready, hasAnyModule } = useSession();
   const router = useRouter();
+  const pathname = usePathname();
+
+  /* Hiding the menu item is courtesy; this is the answer. A URL survives being
+   * bookmarked from the demo and pasted into a chat, and a screen whose service
+   * does not exist renders an empty table that reads as *there is nothing here*
+   * rather than *this is not connected yet*. Note it swaps the page and keeps
+   * the shell: the menu stays, so the modules that ARE live are one click away
+   * instead of a back button. */
+  const live = isRouteLive(pathname);
 
   useEffect(() => {
     /* An account with no modules lands somewhere that says so, rather than
@@ -52,7 +63,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {/* Extra room at the bottom on small screens: the John Lau launcher floats
               over the corner, and without this it sits permanently on top of the
               last row of every list (F65). */}
-          <div className="mx-auto max-w-[1400px] px-4 pb-24 pt-6 sm:pb-6 md:px-6 lg:px-8 print:max-w-none print:p-0">{children}</div>
+          <div className="mx-auto max-w-[1400px] px-4 pb-24 pt-6 sm:pb-6 md:px-6 lg:px-8 print:max-w-none print:p-0">
+            {live ? children : <NotLive module={pathname.split("/")[1]} />}
+          </div>
         </main>
       </div>
       {/* useSearchParams needs a boundary; the bar is absent until it resolves,

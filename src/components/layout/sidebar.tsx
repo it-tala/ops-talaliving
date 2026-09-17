@@ -9,6 +9,7 @@ import { useBrand } from "@/lib/brand";
 import { useT } from "@/lib/i18n";
 import { MESSAGES } from "@/lib/messages";
 import { useSession } from "@/store/session";
+import { isRouteLive } from "@/lib/live";
 import { cn } from "@/lib/cn";
 
 export function Sidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClose: () => void }) {
@@ -49,7 +50,14 @@ export function Sidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClose:
         {NAV.map((section) => {
           // Item yang tidak diizinkan tidak dirender sama sekali; seksi yang
           // jadi kosong ikut hilang, bukan tampil sebagai judul tanpa isi.
-          const visibleItems = section.items.filter((i) => can(i.permission) || (i.orPermission ? can(i.orPermission) : false));
+          //
+          // `isRouteLive` adalah saringan kedua dan jenisnya berbeda: izin
+          // menjawab *boleh atau tidak*, ini menjawab *sudah ada backend-nya
+          // atau belum*. Di mode demo ia selalu true, jadi
+          // `ops-talaliving.vercel.app` tetap membuka seluruh 52 layar.
+          const visibleItems = section.items.filter(
+            (i) => (can(i.permission) || (i.orPermission ? can(i.orPermission) : false)) && isRouteLive(i.href),
+          );
           if (visibleItems.length === 0) return null;
 
           const isOpen = openSections.includes(section.title);

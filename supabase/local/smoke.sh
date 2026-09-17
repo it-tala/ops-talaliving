@@ -36,15 +36,23 @@ ran=0
 # the function is created, and the failure waits for whichever branch reaches
 # that line. Five of those in one session is not five mistakes, it is a missing
 # check, so it runs here where nobody has to remember it.
+#
+# The second static check is about a different kind of blast radius. The new
+# system shares one Supabase project with the running legacy one, which is only
+# safe while our migrations stay inside `ops_*` — see
+# `check_schema_isolation.sh` for why that sentence carries the whole
+# arrangement.
 if [ -z "$ONLY" ]; then
-  printf '%-44s' "check_shadowing"
-  if out=$("$HERE/check_shadowing.sh" 2>&1); then
-    echo "ok"
-  else
-    echo "FAILED"
-    echo "$out" | sed 's/^/    /'
-    failed=$((failed + 1))
-  fi
+  for check in check_shadowing check_schema_isolation; do
+    printf '%-44s' "$check"
+    if out=$("$HERE/$check.sh" 2>&1); then
+      echo "ok"
+    else
+      echo "FAILED"
+      echo "$out" | sed 's/^/    /'
+      failed=$((failed + 1))
+    fi
+  done
 fi
 
 for f in "$HERE"/smoke/*.sql; do

@@ -180,14 +180,14 @@ for it.
 ### The one line this cannot change itself
 
 Screens import from `@/demo/api`. Pointing them here is **one re-export** in
-`src/demo/api/index.ts`, guarded by `useRealApi()` — and that file belongs to
+`src/demo/api/index.ts`, guarded by `isRealApi()` — and that file belongs to
 the design session. Per the protocol in `README.md`, the build session does not
 edit it; this is the request:
 
 ```ts
 // src/demo/api/index.ts
-import { useRealApi } from "@/lib/api";
-export * as procurement from useRealApi() ? "@/lib/api/procurement" : "./procurement";
+import { isRealApi } from "@/lib/api";
+export * as procurement from isRealApi() ? "@/lib/api/procurement" : "./procurement";
 ```
 
 — written as a real conditional rather than that pseudo-import, since ES modules

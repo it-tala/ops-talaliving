@@ -32,18 +32,4 @@ export * as accounting from "./accounting";
 export { isOk } from "@/services/_shared/envelope";
 export type { Result, ApiError, Outcome } from "@/services/_shared/envelope";
 
-export { isConfigured } from "@/lib/supabase/env";
-
-/** Which client should answer.
- *
- *  Two conditions, and both have to hold. `NEXT_PUBLIC_USE_SUPABASE` is somebody
- *  choosing; `isConfigured()` is there being something to choose. The order
- *  matters: demo mode is a **mode**, never a fallback for a misconfigured
- *  deployment. Falling back silently would mean a production app quietly serving
- *  fixtures, with every screen looking entirely correct.
- */
-export function useRealApi(): boolean {
-  return process.env.NEXT_PUBLIC_USE_SUPABASE === "1"
-    && Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL)
-    && Boolean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
-}
+export { isConfigured, isRealApi } from "@/lib/supabase/env";
