@@ -29,6 +29,7 @@ import type { VendorLegView } from "@/services/production/contracts";
 export default function VendorTrackingPage() {
   const [open, reloadOpen] = useLoad(() => production.listVendorLegs({ open_only: true }), []);
   const [all, reloadAll] = useLoad(() => production.listVendorLegs(), []);
+  const [records, reloadRecords] = useLoad(() => production.listVendorRecords(), []);
 
   return (
     <div>
@@ -114,6 +115,70 @@ export default function VendorTrackingPage() {
             </>
           );
         }}
+      </Loaded>
+
+      {/* The question the leg list cannot answer: should we keep using them
+          (W6, D282). Every rate carries its basis, and below the floor there is
+          no rate at all — a vendor judged on one trip is judged on a rumour. */}
+      <Loaded state={records} onRetry={reloadRecords}>
+        {(rows) => rows.length === 0 ? <></> : (
+          <Card className="mb-4">
+            <CardHeader
+              title="Rekam jejak vendor"
+              subtitle="Tepat waktu dihitung hanya atas pengiriman yang punya janji tanggal — tanpa tanggal yang disepakati, tidak ada yang bisa disebut terlambat."
+              icon={Clock}
+              action={<SourceBadge state={records} />}
+            />
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[680px] text-[13px]">
+                <thead>
+                  <tr className="border-b border-slate-100 text-left text-[10px] uppercase tracking-wide text-slate-400">
+                    <th className="px-5 py-2 font-medium">Vendor</th>
+                    <th className="px-3 py-2 font-medium">Proses</th>
+                    <th className="px-3 py-2 text-right font-medium">Tepat waktu</th>
+                    <th className="px-3 py-2 text-right font-medium">Rata-rata</th>
+                    <th className="px-3 py-2 text-right font-medium">Di luar</th>
+                    <th className="px-5 py-2 text-right font-medium">Tak kembali</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {rows.map((r) => (
+                    <tr key={r.vendor_id} className="align-top">
+                      <td className="px-5 py-2.5">
+                        <span className="block font-medium text-slate-800">{r.vendor_name}</span>
+                        <span className="block max-w-[240px] text-[11px] text-slate-400">{r.basis}</span>
+                      </td>
+                      <td className="px-3 py-2.5 text-[12px] text-slate-600">{r.processes.join(", ")}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        {/* Missing, never a zero: unrated is not badly rated. */}
+                        {r.on_time_percent === null
+                          ? <span className="text-[12px] text-slate-400">belum cukup</span>
+                          : <span className={cn("font-medium",
+                              r.on_time_percent >= 80 ? "text-emerald-700" : "text-amber-700")}>
+                              {r.on_time_percent}%
+                            </span>}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">
+                        {r.avg_days_out === null ? "—" : `${r.avg_days_out} hari`}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">
+                        {formatNumber(r.out_now)}
+                        {r.overdue_now > 0 && (
+                          <span className="block text-[11px] text-rose-700">{r.overdue_now} lewat janji</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-2.5 text-right tabular-nums">
+                        {r.short_units > 0
+                          ? <span className="text-amber-800">{formatNumber(r.short_units)}</span>
+                          : <span className="text-slate-400">—</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        )}
       </Loaded>
 
       <Loaded state={all} onRetry={reloadAll}>

@@ -12,6 +12,7 @@ import type {
 } from "@/services/delivery/contracts";
 import { BOX_STATUS_LABEL } from "@/services/delivery/contracts";
 import { workOrderView } from "./production-derive";
+import { VENDOR_PROCESS_NAME } from "@/services/production/contracts";
 
 const DAY = 86_400_000;
 
@@ -27,6 +28,37 @@ function daysBetween(from: string, to: string): number {
  *  a number under *sudah dibuat* that nobody can check — so it returns null
  *  and the screen says the line cannot be matched (D210, F53).
  */
+/** How many units of this line are sitting at a vendor right now, and where.
+ *
+ *  The fulfilment board answers *how much has reached the client*, and until
+ *  W6 it had no word for the most common reason a number is stuck: the goods
+ *  are at the upholsterer. A client asking *where are my twenty chairs* was
+ *  answerable only by opening the production board and reading the legs
+ *  (D282). Null where the line cannot be matched to a work order at all —
+ *  the same distinction `madeFor` makes, for the same reason (F60).
+ */
+function atVendorFor(
+  state: DemoState, projectCode: string, productCode: string | null, today: string,
+): { qty: number; where: string[] } | null {
+  if (!productCode) return null;
+  const orders = state.work_orders.filter(
+    (w) => w.project_code === projectCode && w.product_code === productCode && w.status !== "CANCELLED",
+  );
+  if (orders.length === 0) return null;
+  const ids = new Set(orders.map((w) => w.id));
+  const open = state.vendor_legs.filter((l) => ids.has(l.wo_id) && l.returned_on === null);
+  return {
+    qty: open.reduce((t, l) => t + (l.qty - (l.returned_qty ?? 0)), 0),
+    where: [...new Set(open.map((l) => {
+      const vendor = state.vendors.find((v) => v.id === l.vendor_id)?.name ?? l.vendor_id;
+      const late = l.expected_back !== null && l.expected_back < today
+        ? `, lewat janji ${Math.abs(daysBetween(today, l.expected_back))} hari`
+        : "";
+      return `${l.qty - (l.returned_qty ?? 0)} untuk ${VENDOR_PROCESS_NAME(l.process)} di ${vendor}${late}`;
+    }))],
+  };
+}
+
 function madeFor(state: DemoState, projectCode: string, productCode: string | null): number | null {
   if (!productCode) return null;
   const orders = state.work_orders.filter(
@@ -83,6 +115,7 @@ export function fulfilmentView(state: DemoState, projectCode: string, today: str
     .sort((a, b) => a.line_no - b.line_no)
     .map((l) => {
       const made = madeFor(state, projectCode, l.product_code);
+      const atVendor = atVendorFor(state, projectCode, l.product_code, today);
       const delivered = deliveredFor(state, l.id);
       const arrived = arrivedFor(state, l.id);
       const installed = installedFor(state, l.id);
@@ -99,6 +132,8 @@ export function fulfilmentView(state: DemoState, projectCode: string, today: str
         installed,
         ready_to_ship: made == null ? null : Math.max(0, made - delivered),
         on_site: Math.max(0, arrived - installed),
+        at_vendor: atVendor?.qty ?? null,
+        at_vendor_where: atVendor?.where ?? [],
         /* A line with no product code and nothing delivered against it is a
            service — installation labour, a delivery fee. It has nothing to
            build and should not sit on a board reading 0 of 1 for ever. */

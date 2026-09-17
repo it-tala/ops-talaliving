@@ -4,7 +4,7 @@ import {
   PROCESS_STAGES, RETIRED_STAGES, VENDOR_PROCESSES, VENDOR_PROCESS_NAME, DESIGN_KIND_LABEL, ROUTE, STAGE_NAME, goodsOnSite,
   type WorkOrder, type WorkOrderView, type ProgressEntry, type ProductView,
   type DesignKind, type DesignTaskView, type RouteCode, type BomExplosion,
-  type VendorLegView,
+  type VendorLegView, type VendorRecord,
   type WorkAttribution,
 } from "@/services/production/contracts";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
@@ -12,11 +12,12 @@ import {
   workOrderView, workOrderViews, productView, productViews,
   currentBomRev, draftBomRev, bomAt, bomDiff, bomRevisions, bomRepinnable, explodeBom, bomWouldCycle,
   designQueue, designTaskView, designGaps, officeToday,
-  unresolvedNames, workAttribution, openVendorLegs, vendorLegViews, type UnresolvedName,
+  unresolvedNames, workAttribution, openVendorLegs, vendorLegViews, vendorRecords, type UnresolvedName,
 } from "../production-derive";
 import {
   latency, actingUser, requireModule, requireAuthority, conflict, replayed, remember,
 } from "./_kit";
+import { settingNumber } from "../settings";
 
 const SERVICE = "production" as const;
 
@@ -289,6 +290,13 @@ export async function receiveFromVendor(
     });
   });
   return getWorkOrder(wo.wo_no);
+}
+
+/** How each vendor has actually behaved (W6, D282). */
+export async function listVendorRecords(): Promise<Result<VendorRecord[]>> {
+  await latency();
+  return ok(SERVICE, vendorRecords(getState(), officeToday(),
+    settingNumber(getState(), "vendor.min_legs_to_rate", 3)));
 }
 
 /** Everything still out at a vendor, worst first. */

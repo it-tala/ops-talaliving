@@ -8,6 +8,7 @@ import { MoneyInput } from "@/components/ui/money-input";
 import { NumberInput } from "@/components/ui/number-input";
 import { formatIDR } from "@/lib/format";
 import { hr } from "@/demo/api";
+import { useLoad } from "@/components/ui/loaded";
 import type { Employee, PayBasis } from "@/services/hr/contracts";
 import { useToast } from "@/store/toast";
 
@@ -35,7 +36,16 @@ export function EmployeeDrawer({
   const [allowance, setAllowance] = useState(employee?.allowance_rate ?? 0);
   const [hours, setHours] = useState(employee?.daily_hours ?? 8);
   const [leave, setLeave] = useState(employee?.paid_leave_days ?? 12);
+  const [schedule, setSchedule] = useState(employee?.schedule_code ?? "");
   const [busy, setBusy] = useState(false);
+
+  const [sched] = useLoad(() => hr.listSchedules(), []);
+  const schedules = sched.status === "ready" ? sched.data.schedules : [];
+  /* What this person's unit falls back to, named rather than implied: *ikut
+     bawaan unit* is only a usable option if the screen says what that is. */
+  const unitDefault = sched.status === "ready"
+    ? schedules.find((sc) => sc.units.includes(unit)) ?? null
+    : null;
 
   const changed = employee && rate !== employee.base_rate;
   const allowanceChanged = employee && allowance !== employee.allowance_rate;
@@ -46,6 +56,10 @@ export function EmployeeDrawer({
       employee_no: no, full_name: name, position, unit,
       pay_basis: basis, base_rate: rate, allowance_rate: allowance,
       daily_hours: hours, paid_leave_days: leave,
+      /* Empty means *follow the unit*, which is a real answer here and not an
+         omission — so it is sent as an explicit null rather than left out
+         (absent means unchanged on this endpoint). */
+      schedule_code: schedule || null,
     });
     setBusy(false);
     if (res.error) {
@@ -104,6 +118,39 @@ export function EmployeeDrawer({
               className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
             />
           </div>
+        </div>
+
+        {/* Which working pattern this person is on (Q53, D281).
+            
+            The unit's default **is** the decision — the owner ruled that after
+            M58 offered to confirm 39 of them one by one — so the first option
+            says what that default is rather than reading as *unset*. Choosing
+            a named pattern here overrides it for this person, which is what
+            the guard on a twelve-hour shift and the house assistant need: a
+            fact about them, not about their unit. */}
+        <div>
+          <label htmlFor="e-sched" className="block text-xs text-slate-500">Jadwal kerja</label>
+          <select
+            id="e-sched" value={schedule} onChange={(e) => setSchedule(e.target.value)}
+            className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+          >
+            <option value="">
+              Ikut bawaan unit{unitDefault ? ` — ${unitDefault.name}` : " (unitnya belum punya bawaan)"}
+            </option>
+            {schedules.map((sc) => (
+              <option key={sc.code} value={sc.code}>
+                {sc.name}
+                {sc.hours.weekly_hours != null ? ` · ${sc.hours.weekly_hours} jam/minggu` : " · jam belum ditetapkan"}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-[11px] text-slate-500">
+            {schedule
+              ? "Dipasang ke orang ini. Pindah unit tidak mengubahnya."
+              : unitDefault
+                ? "Mengikuti unitnya. Pindah unit, jamnya ikut pindah."
+                : "Unit ini belum punya jadwal bawaan, jadi tidak ada jam yang bisa dipakai menilai ketepatan waktunya."}
+          </p>
         </div>
 
         <div>

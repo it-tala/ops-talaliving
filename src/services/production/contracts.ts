@@ -322,6 +322,47 @@ export interface VendorLegView extends VendorLeg {
   short_by: number | null;
 }
 
+/** How a vendor has actually behaved, over the legs we have (W6, D282).
+ *
+ *  The question this answers is the one the leg list cannot: *should we keep
+ *  using them.* A single late trip is a bad week; four late trips out of five
+ *  is a supplier decision, and the difference between those two readings is
+ *  the number of legs behind them.
+ *
+ *  So every rate here comes with its **basis**, and below a floor there is no
+ *  rate at all — `rated` is false and the screen says *belum cukup untuk
+ *  dinilai* rather than printing "0% tepat waktu" over one trip (D261's rule,
+ *  in a new place). A vendor judged on one leg is a vendor judged on a rumour.
+ */
+export interface VendorRecord {
+  vendor_id: string;
+  vendor_name: string;
+  /** Which processes they do for us, by name. */
+  processes: string[];
+  legs: number;
+  /** Closed legs are the only ones that can be judged on time. */
+  closed: number;
+  open: number;
+  /** Closed legs that had a promised date at all — the only ones where *on
+   *  time* means anything (D134). */
+  promised: number;
+  on_time: number;
+  /** Null below the floor, or where nothing was ever promised. */
+  on_time_percent: number | null;
+  /** Average days a trip actually took, over closed legs. */
+  avg_days_out: number | null;
+  /** Units that went out and never came back, across closed legs. */
+  short_units: number;
+  /** Units sitting there right now. */
+  out_now: number;
+  /** Open legs already past their promise. */
+  overdue_now: number;
+  /** False where there is not enough to say anything. */
+  rated: boolean;
+  /** What the figures are over, in words, so they can be argued with. */
+  basis: string;
+}
+
 /** Work done, one entry per report.
  *
  *  Append-only, like every other record of something that happened (A5). A

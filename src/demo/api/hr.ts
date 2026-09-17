@@ -132,7 +132,14 @@ export async function saveEmployee(
     if (existing) {
       const row = draft.employees.find((e) => e.employee_no === existing.employee_no);
       if (!row) return;
-      const before = { base_rate: row.base_rate, allowance_rate: row.allowance_rate, pay_basis: row.pay_basis, position: row.position };
+      /* The schedule is in here as well as in `setEmployeeSchedule`, because
+         HR can change it from either place and *when did his hours change*
+         must be answerable from whichever one they used (D281). */
+      const before = {
+        base_rate: row.base_rate, allowance_rate: row.allowance_rate,
+        pay_basis: row.pay_basis, position: row.position,
+        schedule_code: row.schedule_code ?? null,
+      };
       Object.assign(row, {
         full_name: input.full_name.trim(),
         position: input.position.trim() || row.position,
@@ -149,7 +156,15 @@ export async function saveEmployee(
       writeAudit(draft, {
         service: SERVICE, entity: "employee", entity_no: row.employee_no,
         action: "update", outcome: "ok", reason: null,
-        detail: { before, after: { base_rate: row.base_rate, allowance_rate: row.allowance_rate, pay_basis: row.pay_basis, position: row.position }, by: user.email },
+        detail: {
+          before,
+          after: {
+            base_rate: row.base_rate, allowance_rate: row.allowance_rate,
+            pay_basis: row.pay_basis, position: row.position,
+            schedule_code: row.schedule_code ?? null,
+          },
+          by: user.email,
+        },
       });
     } else {
       const row: Employee = {

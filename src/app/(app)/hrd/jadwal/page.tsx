@@ -50,11 +50,14 @@ export default function SchedulePage() {
                 value={String(d.schedules.reduce((t, sc) => t + sc.assigned, 0))}
                 icon={Link2}
               />
+              {/* Not amber any more. The owner ruled that a unit's default **is**
+                  the decision (D281), so following it is an ordinary state and
+                  not a gap somebody has to close. What stays worth flagging is
+                  a person on no pattern at all, and that is the tile below. */}
               <StatCard
                 label="Ikut bawaan unit"
                 value={String(d.inherited.length)}
                 icon={Users}
-                tone={d.inherited.length > 0 ? "amber" : "slate"}
               />
               <StatCard
                 label="Pola belum lengkap"
@@ -107,7 +110,7 @@ export default function SchedulePage() {
                         <td className="px-5 py-2.5 text-right tabular-nums text-slate-600">
                           {sc.assigned + sc.inherited}
                           {sc.inherited > 0 && (
-                            <span className="block text-[11px] text-amber-700">{sc.inherited} ikut unit</span>
+                            <span className="block text-[11px] text-slate-400">{sc.inherited} ikut unit</span>
                           )}
                         </td>
                       </tr>
@@ -126,34 +129,6 @@ export default function SchedulePage() {
                 adalah cara paling mudah membuatnya tidak cocok.
               </p>
             </Card>
-
-            {/* On a pattern because their unit defaults to it — which is a
-                convenience, not a decision. The owner asked that every employee
-                have a linked schedule; until somebody confirms these, what they
-                have is an assumption that happens to be right (D279). */}
-            {d.inherited.length > 0 && (
-              <Card className="mb-4">
-                <CardHeader
-                  title={`${d.inherited.length} karyawan ikut bawaan unitnya`}
-                  subtitle="Jamnya benar, tapi belum ada yang menetapkannya per orang. Pindah unit, dan jamnya ikut berubah tanpa ada yang memutuskan."
-                  icon={Users}
-                />
-                <ul className="divide-y divide-slate-100">
-                  {d.inherited.slice(0, 8).map((e) => (
-                    <AssignRow
-                      key={e.employee_no} row={e} mayEdit={mayEdit} suggestion={e.schedule_code}
-                      options={d.schedules.map((sc) => ({ value: sc.code, label: sc.name, sublabel: `${hours(sc.hours.weekly_hours)} jam/minggu` }))}
-                      onDone={reload}
-                    />
-                  ))}
-                </ul>
-                {d.inherited.length > 8 && (
-                  <p className="border-t border-slate-100 px-5 py-2 text-[12px] text-slate-500">
-                    …dan {d.inherited.length - 8} orang lagi.
-                  </p>
-                )}
-              </Card>
-            )}
 
             {d.unlinked.length > 0 ? (
               <Card>

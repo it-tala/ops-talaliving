@@ -18,7 +18,7 @@ import {
   type BomComponent,
   type DesignTask, type DesignTaskView, type DesignKind,
   type WorkAttribution, type MaterialPlan, type MaterialLine,
-  type VendorLeg, type VendorLegView,
+  type VendorLeg, type VendorLegView, type VendorRecord,
 } from "@/services/production/contracts";
 import { attributionOf } from "@/services/production/contracts";
 import { stockItems } from "./inventory-derive";
@@ -89,6 +89,59 @@ export function openVendorLegs(state: DemoState, today: string): VendorLegView[]
     .filter((l) => l.returned_on === null)
     .map((l) => vendorLegView(state, l, today))
     .sort((a, b) => (b.overdue_days ?? -1) - (a.overdue_days ?? -1) || b.days_out - a.days_out);
+}
+
+/** What each vendor's record actually looks like (W6, D282).
+ *
+ *  Three refusals to overstate, all of them the same rule wearing different
+ *  clothes:
+ *
+ *  - **on time is measured only over legs that carried a promise.** A trip
+ *    with no agreed date cannot be early or late, so it is out of the
+ *    denominator rather than counted as a success (D134);
+ *  - **nothing is rated below a floor.** One late leg is a bad week; four of
+ *    five is a supplier decision, and printing a percentage over one trip
+ *    invites the second reading of the first fact (D261);
+ *  - **the basis is printed**, so the figure can be argued with rather than
+ *    only believed.
+ */
+export function vendorRecords(state: DemoState, today: string, minLegs = 3): VendorRecord[] {
+  const byVendor = new Map<string, VendorLeg[]>();
+  for (const l of state.vendor_legs) {
+    byVendor.set(l.vendor_id, [...(byVendor.get(l.vendor_id) ?? []), l]);
+  }
+
+  return [...byVendor.entries()].map(([vendor_id, legs]) => {
+    const closed = legs.filter((l) => l.returned_on !== null);
+    const open = legs.filter((l) => l.returned_on === null);
+    const promised = closed.filter((l) => l.expected_back !== null);
+    const on_time = promised.filter((l) => l.returned_on! <= l.expected_back!).length;
+    const rated = promised.length >= minLegs;
+
+    return {
+      vendor_id,
+      vendor_name: state.vendors.find((v) => v.id === vendor_id)?.name ?? vendor_id,
+      processes: [...new Set(legs.map((l) => VENDOR_PROCESS_NAME(l.process)))],
+      legs: legs.length,
+      closed: closed.length,
+      open: open.length,
+      promised: promised.length,
+      on_time,
+      on_time_percent: rated ? Math.round((on_time / promised.length) * 100) : null,
+      avg_days_out: closed.length === 0
+        ? null
+        : Math.round(closed.reduce((t, l) => t + daysBetween(l.sent_on, l.returned_on!), 0) / closed.length),
+      short_units: closed.reduce((t, l) => t + Math.max(l.qty - (l.returned_qty ?? 0), 0), 0),
+      out_now: open.reduce((t, l) => t + (l.qty - (l.returned_qty ?? 0)), 0),
+      overdue_now: open.filter((l) => l.expected_back !== null && l.expected_back < today).length,
+      rated,
+      basis: rated
+        ? `${on_time} dari ${promised.length} pengiriman yang ada janji tanggalnya kembali tepat waktu`
+        : promised.length === 0
+          ? `${legs.length} pengiriman, tidak ada yang punya janji tanggal — tepat waktu tidak bisa diukur tanpa tanggal yang disepakati`
+          : `baru ${promised.length} pengiriman berjanji tanggal, di bawah ambang ${minLegs} — satu keterlambatan itu minggu yang buruk, bukan rekam jejak`,
+    };
+  }).sort((a, b) => b.overdue_now - a.overdue_now || b.out_now - a.out_now);
 }
 
 export function vendorLegViews(state: DemoState, today: string): VendorLegView[] {
