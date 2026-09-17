@@ -3927,3 +3927,67 @@ thing would have been the same mistake with a better reputation.
 `npm run check:api`. Both of its branches were exercised before it was trusted —
 the failing one by `RETENTION`, the closing one by feeding it a name the real
 client already has.
+
+## F95 — the badge that was right by coincidence
+
+F94 stopped the swap from being written. The next question was what the app
+*says* about itself, because F93's sentence — deploying `main` today ships the
+demo — is only safe if somebody looking at the screen can tell.
+
+The shell already had the answer: an amber badge in the topbar reading
+**Demo · data is not real**, placed where it cannot be missed. It has been
+correct for sixty-two milestones. It is also a hardcoded string, with nothing
+connecting it to the data it describes, and it has been correct for exactly one
+reason: the demo is the only client that has ever answered.
+
+Over a live database it would have gone on saying *data is not real*. That is
+the worse of the two failures by a distance. A demo labelled demo is honest; a
+production system labelled *not real* teaches everybody who uses it that the
+label means nothing — and the lesson holds on the day the label is the only
+thing between somebody and a decision made on fixtures. **A warning that is
+wrong once is a warning that is ignored afterwards.**
+
+Looking for the badge's siblings found three more, none of them cosmetic:
+
+- **Reset**, in the topbar, which throws the fixtures away and starts over.
+  Against a real database that is either meaningless or a very bad afternoon.
+- **The grant picker**, also in the topbar, which is `actAs` — impersonation.
+  `src/lib/api/index.ts` puts it plainly: against a real database this is "not a
+  feature with a guard missing, it is the absence of authentication".
+- **`/signin` itself**, which is the account picker. A front door that hands out
+  any identity for no password, and it was rendered unconditionally.
+
+Four demo affordances, no condition on any of them, one environment variable
+away from being served over live data.
+
+The fix is the rule this project keeps arriving at: **if two things must agree,
+one of them has to be derived from the other.** `DATA_MODE` is now derived in
+`src/demo/api/index.ts`, beside the swap itself, from the same constant that
+will choose between the two clients — so the mode cannot flip without the chrome
+flipping with it, and there is no second place to forget. The badge reads it;
+Reset and the grant picker read `DEMO_AFFORDANCES`; `/signin` refuses in live
+mode and says why; the guided tour, which would otherwise narrate somebody's
+actual work back at them, stops mounting.
+
+Live mode shows **nothing** where the amber badge was, rather than a green
+*Live*. Chrome that decorates the ordinary case is chrome people stop reading,
+and the exceptional state is the one worth the pixels.
+
+Two things this deliberately does **not** do. It does not build a real sign-in
+or a real user menu — the grant picker was also the only way to sign out — so
+live mode currently has no door and no exit. Those are recorded as **S3** rather
+than invented against an API that cannot be run yet, because a login form nobody
+can test is a login form nobody should trust. And `REAL` is a literal `false`
+rather than `useRealApi()`: while the seam is 43 values short, reading the
+environment would let a variable select a mode that breaks at the first click,
+and **a flag that can select a broken mode is not a flag, it is a trap.**
+
+Both branches of all four guards were exercised before being trusted, by
+flipping `REAL` and measuring — and that caught the testing mistake twice over.
+The first tour-bar check counted `div.pointer-events-none.fixed` and reported the
+guard working in neither direction, because it was counting the **toaster**,
+which carries the same classes. The second reported nothing in either mode,
+because `TourBar` only mounts with a `?tour=` parameter. Only the third check —
+`/dashboard?tour=flow-b` — actually asked the question. F94's lesson, one day
+old and already needed again: **a check that has never failed for the right
+reason has not been checked.**

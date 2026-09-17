@@ -6,6 +6,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { useSession } from "@/store/session";
 import { TourBar } from "@/components/tour-bar";
+import { DEMO_AFFORDANCES } from "@/demo/api";
 import { JohnLauDock } from "@/components/john-lau/dock";
 
 /** The application shell.
@@ -58,7 +59,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {/* useSearchParams needs a boundary; the bar is absent until it resolves,
           which is the right absence — nothing on the page depends on it. */}
       <Suspense fallback={null}>
-        <TourBar />
+        {/* The guided tour explains the sandbox. Over live data it would be
+            narrating somebody's actual work back at them. */}
+        {DEMO_AFFORDANCES && <TourBar />}
       </Suspense>
       {/* In the shell, not on a page: the point of it is to keep reading the
           steps while you move to the screen they describe (D223). */}

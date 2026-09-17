@@ -208,9 +208,17 @@ the owner to decide — not as a migration already performed.
 2. Put the §2 identity question and the §3 one-bot-or-two question to the owner.
 3. Stand up the Supabase project; apply `0001…0022` to a **fresh** project.
    Run `supabase/local/rebuild.sh` and `smoke.sh` locally first.
-4. Deploy the frontend **in demo mode** (`NEXT_PUBLIC_USE_SUPABASE` unset). It
-   is honest, it is useful to the owner immediately, and it decouples hosting
-   problems from database problems.
+4. Deploy the frontend **in demo mode**. It is honest, it is useful to the owner
+   immediately, and it decouples hosting problems from database problems. The
+   app now says which mode it is in, derived from the same constant that chooses
+   the client (M63/F95), so the amber badge is evidence rather than decoration.
+   Note that demo mode is currently the *only* mode: `REAL` in
+   `src/demo/api/index.ts` is a literal `false`, not an environment variable,
+   because a flag that can select a mode that breaks at the first click is a
+   trap rather than a flag. Flipping it is one edit, and it belongs with §5.7.
+   **Live mode has no sign-in and no sign-out** (backlog S3) — the account picker
+   and the grant picker were the demo's, and are now correctly refused in live
+   mode. That is work, not a bug.
 5. Build the outbox worker. Proves system → Chat end to end.
 6. Build the inbound listener on the §2 road the owner chose.
 7. Only then discuss flipping the three backed services to real data — and name

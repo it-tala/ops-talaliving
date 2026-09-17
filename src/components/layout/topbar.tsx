@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/primitives";
 import { GrantPicker, GrantPickerButton } from "./grant-picker";
 import { useSession } from "@/store/session";
 import { useDemoReset } from "@/demo/provider";
+import { DATA_MODE, DEMO_AFFORDANCES } from "@/demo/api";
 import { consumeResetNotice } from "@/demo/store";
 import { useToast } from "@/store/toast";
 
@@ -47,25 +48,50 @@ export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
 
         {/* Says what this is, once, where it cannot be missed and cannot be
             mistaken for production. Watermarking every card would only make the
-            workflow harder to judge, which defeats the point of building it. */}
-        <span className="rounded-md bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-amber-700 ring-1 ring-inset ring-amber-200">
-          Demo · data is not real
-        </span>
+            workflow harder to judge, which defeats the point of building it.
+
+            Read from `DATA_MODE` rather than written here (F95). This badge was
+            a hardcoded string for sixty-two milestones and right by coincidence,
+            because the demo is the only client that has ever answered. Over a
+            live database it would have gone on saying *data is not real* — and a
+            production system wearing that label teaches everyone to ignore it,
+            which costs most on the day it is the only warning anybody gets.
+
+            Live mode shows nothing rather than a green *Live* badge: a chrome
+            that decorates the ordinary case is a chrome people stop reading, and
+            the exceptional state is the one worth the pixels. */}
+        {DATA_MODE === "demo" && (
+          <span className="rounded-md bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-amber-700 ring-1 ring-inset ring-amber-200">
+            Demo · data is not real
+          </span>
+        )}
 
         <div className="ml-auto flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={RotateCcw}
-            onClick={() => {
-              reset();
-              toast("info", "Demo data reset", "The sandbox is back to its starting state.");
-            }}
-          >
-            <span className="hidden md:inline">Reset</span>
-          </Button>
+          {/* Both of these belong to the sandbox and to nothing else.
 
-          <GrantPickerButton onOpen={() => setPickerOpen(true)} />
+              Reset throws the fixtures away and starts over, which against a real
+              database is either meaningless or a very bad afternoon. The grant
+              picker is impersonation — it is how the demo *shows* that permissions
+              work, and it is the absence of authentication anywhere else. Neither
+              had a condition on it; both were one environment variable away from
+              being rendered over live data. */}
+          {DEMO_AFFORDANCES && (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={RotateCcw}
+                onClick={() => {
+                  reset();
+                  toast("info", "Demo data reset", "The sandbox is back to its starting state.");
+                }}
+              >
+                <span className="hidden md:inline">Reset</span>
+              </Button>
+
+              <GrantPickerButton onOpen={() => setPickerOpen(true)} />
+            </>
+          )}
 
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-100 text-sm font-semibold text-brand-700">
             {session?.user.full_name.charAt(0) ?? "?"}
@@ -74,7 +100,9 @@ export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
 
       </header>
 
-      <GrantPicker open={pickerOpen} onClose={() => setPickerOpen(false)} />
+      {DEMO_AFFORDANCES && (
+        <GrantPicker open={pickerOpen} onClose={() => setPickerOpen(false)} />
+      )}
     </>
   );
 }

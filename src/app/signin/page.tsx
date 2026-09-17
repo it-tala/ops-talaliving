@@ -6,6 +6,7 @@ import { Card, Badge } from "@/components/ui/primitives";
 import { useBrand } from "@/lib/brand";
 import { useSession } from "@/store/session";
 import { useDemo } from "@/demo/provider";
+import { DATA_MODE } from "@/demo/api";
 import { AUTHORITY_LABEL, MODULE_LABEL } from "@/lib/roles";
 
 /** Sign in.
@@ -14,12 +15,37 @@ import { AUTHORITY_LABEL, MODULE_LABEL } from "@/lib/roles";
  *  and the page says so rather than staging a login that verifies nothing.
  *  Phase 2 replaces the list with Supabase Auth and everything downstream of
  *  `useSession` stays as it is.
+ *
+ *  Until it does, this page is guarded (F95). The account picker calls `actAs`,
+ *  and a front door that hands out any identity for no password is the whole of
+ *  authentication missing, not a rough edge. It was rendered unconditionally.
+ *  In live mode it now says what is true — there is no sign-in yet — because a
+ *  door that refuses is recoverable and a door that opens for anybody is not.
  */
 export default function SignInPage() {
   const brand = useBrand();
   const { actAs } = useSession();
   const state = useDemo();
   const router = useRouter();
+
+  if (DATA_MODE === "live") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4 py-10">
+        <Card className="w-full max-w-md p-6">
+          <h1 className="text-base font-semibold text-slate-800">Sign-in is not built yet</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            This deployment is reading a real database, and real sign-in (Supabase Auth)
+            has not been connected to this screen. The demo account picker is deliberately
+            not shown here: it checks no password, and over live data that is not a
+            shortcut, it is the absence of authentication.
+          </p>
+          <p className="mt-3 text-sm text-slate-500">
+            Backlog S3. Until it lands, use this deployment in demo mode.
+          </p>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4 py-10">

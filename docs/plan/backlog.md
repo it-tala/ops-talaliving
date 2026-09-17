@@ -21,6 +21,7 @@ that only shows what is left teaches nobody anything.
 | # | What | Note |
 |---|---|---|
 | S1 | ~~**Stock: materials and hardware, properly categorised**~~ | **built 2026-09-11 (M27)**, D169–D172; **the other half of Q40 closed 2026-09-13 (M54)**, D266. Confirming a receipt stocks the goods; issuing draws them down against the SPK, from a list the BOM proposes and a person confirms. Nothing deducts automatically, and that is the decision rather than an omission |
+| S3 | **Live mode has no door and no exit** — `/signin` is the demo account picker (`actAs`, no password) and the grant picker was also the only way to sign out. Both are now demo-only (M63), so a live deployment needs a real Supabase Auth sign-in screen and a real user menu. `src/lib/api/identity` already has `signIn`/`signOut`/`recordSignIn`; nothing renders them | Raised 2026-09-17 (M63, F95). Deliberately not built: a login form that cannot be run against a database is one nobody should trust. The screens are **design**'s by the ownership table, the API behind them is **build**'s, so this one needs both — schedule it with the swap, not before |
 | S2 | ~~**Berkas 201 and Cuti & Izin**~~ | **built 2026-09-11 (M29)** — D177, D178. Compliance removed from the menu |
 | S3 | ~~**Desain, for the drafters**~~ | **built 2026-09-11 (M30)** — `/produksi/desain`, D179 |
 | S4 | ~~**Pay schemes as configuration**~~ | **built 2026-09-11 (M28)** — `/it/aturan-gaji`, D173–D176. Overtime now follows the national ladder (Q31 answered); undertime is built and off by default |
