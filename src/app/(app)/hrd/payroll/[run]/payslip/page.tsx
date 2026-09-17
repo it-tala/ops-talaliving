@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { use, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Loaded, useLoad } from "@/components/ui/loaded";
 import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
@@ -36,8 +36,12 @@ import { useBrand } from "@/lib/brand";
  */
 const DAY_LABEL = ["", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"];
 
-export default function PayslipsPage({ params }: { params: { run: string } }) {
-  const runNo = decodeURIComponent(params.run);
+export default function PayslipsPage({ params }: { params: Promise<{ run: string }> }) {
+  /* Next 15 hands route params to the page as a promise, so it can start
+     rendering before the segment is resolved. `use` unwraps it here — the
+     rest of the component reads the same plain string it always did. */
+  const { run } = use(params);
+  const runNo = decodeURIComponent(run);
   const [detail] = useLoad(() => hr.getPayroll(runNo), [runNo]);
   /* Four with the week, eight without. The dense one is for staff on a salary,
      whose slip is three numbers and a signature. */

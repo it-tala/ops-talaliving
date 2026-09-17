@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { use, useEffect } from "react";
 import { Loaded, useLoad } from "@/components/ui/loaded";
 import { formatIDR, formatNumber } from "@/lib/format";
 import { procurement } from "@/demo/api";
@@ -18,9 +18,13 @@ import { useBrand } from "@/lib/brand";
  *  what price, when it is expected, and the payment terms. Not our exposure,
  *  not what we have paid, not who approved it internally.
  */
-export default function PoPrintPage({ params }: { params: { po: string } }) {
+export default function PoPrintPage({ params }: { params: Promise<{ po: string }> }) {
+  /* Next 15 hands route params to the page as a promise, so it can start
+     rendering before the segment is resolved. `use` unwraps it here — the
+     rest of the component reads the same plain string it always did. */
+  const { po } = use(params);
   const brand = useBrand();
-  const poNo = decodeURIComponent(params.po);
+  const poNo = decodeURIComponent(po);
   const [detail] = useLoad(() => procurement.getPoDetail(poNo), [poNo]);
 
   useEffect(() => {

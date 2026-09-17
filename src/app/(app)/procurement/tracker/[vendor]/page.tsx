@@ -1,5 +1,6 @@
 "use client";
 
+import { use } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/ui/primitives";
@@ -16,8 +17,11 @@ import { VendorBlock } from "../VendorBlock";
  *  actually read on. A page of its own also gives the vendor a URL somebody
  *  can paste into chat, which is how half of these questions arrive.
  */
-export default function VendorTrackerPage({ params }: { params: { vendor: string } }) {
-  const vendor = params.vendor;
+export default function VendorTrackerPage({ params }: { params: Promise<{ vendor: string }> }) {
+  /* Next 15 hands route params to the page as a promise, so it can start
+     rendering before the segment is resolved. `use` unwraps it here — the
+     rest of the component reads the same plain string it always did. */
+  const { vendor } = use(params);
   const [journey, reload] = useLoad(() => procurement.getVendorJourney(vendor), [vendor]);
 
   return (

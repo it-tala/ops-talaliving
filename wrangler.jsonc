@@ -1,0 +1,35 @@
+{
+  // The Cloudflare Worker `opennextjs-cloudflare build` produces.
+  //
+  // Vercel still deploys `main` to `ops.talaliving.com` (see `.github/workflows/ci.yml`).
+  // This file does not change that — it is the second target, so a Next build
+  // that only ever worked on one host cannot quietly become the only thing we
+  // can ship. CI builds it on every pull request; deploying is still a
+  // deliberate `npm run cf:deploy`, never a push.
+  //
+  // Deliberately small. There is no R2 incremental cache, no self-reference
+  // service binding and no Images binding, because this application has
+  // nothing that would use them: every screen is a client component reading
+  // browser-held fixtures or Supabase from the browser, there are no route
+  // handlers, no middleware, no `next/image`, and no ISR to cache. A binding
+  // pointing at a bucket nobody created is a deploy that fails at the worst
+  // moment; add them here the day a server route actually needs one.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ops-talaliving",
+  "main": ".open-next/worker.js",
+
+  // `nodejs_compat` is required by the adapter — Next's server runtime reaches
+  // for node builtins regardless of how little of it this app uses.
+  // `global_fetch_strictly_public` makes `fetch()` inside the worker go out to
+  // the public internet rather than looping back into this same worker, which
+  // is what Next assumes when it fetches its own routes.
+  "compatibility_date": "2026-09-17",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+
+  // The static half of the build — everything under `.open-next/assets` is
+  // served from Cloudflare's edge without waking the worker at all.
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  }
+}

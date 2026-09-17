@@ -196,7 +196,10 @@ function DocSlot({
   value: Slot;
   icon: typeof Camera;
   onPick: (f: File) => void;
-  inputRef: React.RefObject<HTMLInputElement>;
+  /* React 19 types `useRef<T>(null)` as `RefObject<T | null>` — the ref is
+     null until the input mounts, and the type now says so. The prop has to
+     admit that null, or no ref a caller actually holds will fit it. */
+  inputRef: React.RefObject<HTMLInputElement | null>;
   capture?: boolean;
 }) {
   return (

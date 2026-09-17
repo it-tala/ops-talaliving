@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { use, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Check, Printer, AlertTriangle, Clock, ChevronLeft, ChevronRight } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
@@ -28,8 +28,12 @@ function shiftDate(key: string, days: number): string {
   return new Date(Date.UTC(y, m - 1, d) + days * 86_400_000).toISOString().slice(0, 10);
 }
 
-export default function PayrollRunPage({ params }: { params: { run: string } }) {
-  const runNo = decodeURIComponent(params.run);
+export default function PayrollRunPage({ params }: { params: Promise<{ run: string }> }) {
+  /* Next 15 hands route params to the page as a promise, so it can start
+     rendering before the segment is resolved. `use` unwraps it here — the
+     rest of the component reads the same plain string it always did. */
+  const { run } = use(params);
+  const runNo = decodeURIComponent(run);
   const { hasAuthority } = useSession();
   const { toast } = useToast();
   const [detail, reload] = useLoad(() => hr.getPayroll(runNo), [runNo]);
