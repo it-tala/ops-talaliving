@@ -4500,3 +4500,43 @@ somebody's shorthand inside the view that owns it, and the borrowing service
 cannot see the shorthand. This is F104's lesson in a different register: there
 the wrong answer was a plausible null, here it is a plausible number, and the
 number is worse because nothing about it looks unset.
+
+## F114 · 2026-09-18 · 0080 — one project, four modules, four visibility flags
+
+**What we assumed.** `v_project_cost` answers one question — what is this job
+costing — so it should read as one row. 0066 gave it two visibility flags,
+which felt like a detail of that migration. Adding marketing's commission made
+it four, and four is not a detail.
+
+**What the row now says.** `cost_visible` — may you be told what making it
+costs, which is really *may you read `procure.items`*, and the predicate
+mirrors the three `items_read*` policies exactly (F111 again, from the inside
+this time). `procurement_visible` — the request side. `ledger_visible` — what
+has actually gone out. `marketing_visible` — what the introduction owes. No
+role in the business holds all four, so no reader ever sees the whole row.
+
+**What surprised us.** Every one of the four is *necessary*, and each was found
+the same way: a figure summed over rows the reader could not see came back as
+nought, and nought is a sentence. *Nobody is owed anything on this job* is not
+*you may not see what is owed*. Writing the flag is the only honest fix
+available from inside a view, and it is why a fifth additive policy was not
+added (F111).
+
+**What this implies, and it is not a small thing.** A view whose completeness
+depends on who is asking is a view that will be screenshotted and passed
+around, and the four booleans will not survive the screenshot. The shape this
+probably wants is the opposite: **one gated question** — a per-project figure
+that only somebody who may see all four quarters can ask at all, refused rather
+than partially answered for everybody else. That is a change to a contract
+0066's smoke already pins, so it is not something to do mid-session on a
+judgement call; it is the owner's, or the next session's, and it is written
+here so the fifth flag does not get added quietly instead.
+
+**A second thing this migration decided on its own.** `sales_reps` carries one
+`commission_percent`, as the tracker does. That holds until a rate is
+renegotiated, at which point every commission already computed restates —
+including the ones the ledger has paid, so the module stops agreeing with the
+bank. The rate is therefore frozen once anything has been paid against it, and
+ordinary editing before that. If rates really do move mid-relationship, the
+answer is the dated shape `ops_hr.pay_rule_sets` already has, and one rate per
+rep is the wrong table.

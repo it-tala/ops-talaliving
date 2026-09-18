@@ -1769,11 +1769,17 @@ erDiagram
         text owner_name
         text unit
         referral_status_t status "LEAD|SURVEYED|QUOTED|WON|LOST"
-        text project_code "required on WON"
-        numeric contract_value "required on WON"
+        text project_code "required on WON - and the value is read THROUGH it (C15)"
         text commission_trx_no "the ledger row that paid it"
+        text lost_reason "required on LOST"
     }
 ```
+
+**Built so far: the second funnel only** (0080). `sales_reps` and `referrals`
+are real; markets, properties, the three agents per property and the scrape are
+a migration of their own, and nothing about the commission needs them. That is
+why `referrals.property_ref` is a **code** with nothing behind it yet rather
+than a foreign key — the seam holds while one side is missing (ADR-004).
 
 **`move_on` is not a column.** Seven days of silence since `sent_on` is a
 predicate, computed on read (D183) — the sheet's own MOVE ON column is one
@@ -1785,7 +1791,11 @@ Friday.
 | `property_agents` UNIQUE `(property_id, slot)` | three agents, in a fixed order |
 | `property_agents` CHECK `stage = 'DEAL' → rep_id IS NOT NULL` | a deal against nobody is a commission nobody can compute (D185) |
 | `sales_reps` CHECK `commission_percent > 0 AND <= 20` | a number that will be paid many times |
-| `referrals` CHECK `status = 'WON' → project_code IS NOT NULL AND contract_value IS NOT NULL` | commission comes from a contract that exists, never from a quotation (D186) |
+| `referrals` CHECK `status = 'WON' → project_code IS NOT NULL`, plus a trigger that the project **exists and carries a contract value** | commission comes from a contract that exists, never from a quotation (D186). The second half was a `contract_value` column on the referral until 0080: two places holding one number, and the first revision makes them disagree. The value is read from `procure.projects` and the refusal is now something the database can check rather than something it trusts the typist for (C15) |
+| `referrals` UNIQUE `(project_code) WHERE status = 'WON'` | one job pays one commission; a second would double it with nothing saying so |
+| `referrals` CHECK `commission_trx_no IS NULL OR status = 'WON'` | nothing is paid on an introduction that never became a job |
+| `referrals` CHECK `status = 'LOST' → lost_reason IS NOT NULL` | the reason **is** the record; there is no DELETE, because that is how a conversion rate improves by forgetting (A2) |
+| `sales_reps.commission_percent` frozen once a commission has been **paid** against it | one rate per rep is the tracker's shape and holds until somebody renegotiates: every commission already computed silently restates, the settled ones included, and the module stops agreeing with the bank. A rep who genuinely renegotiates mid-relationship needs the **dated** rate `hr.pay_rule_sets` already has — F114 |
 | `scrape_rows` UNIQUE `(market_code, lower(name))` | re-importing the scrape adds nothing |
 | `markets.code` is `COUNTRY[-REGION]-CITY-AREA` | every filter is a **prefix** of it, so one query serves country, city and district (D187) |
 | no figure mixes two `markets.currency` values | an ADR of 106 and one of 1.850.000 are not addable, and no rate is invented to make them so (D181) |
@@ -1952,7 +1962,7 @@ numbers and a workshop that conflates them runs out on a Saturday.
 
 | View | Answers |
 |---|---|
-| `v_project_cost` | per project: **projected** material cost (BOM × ordered qty), **asked · approved · paid** over the request lines whose `source_wo_no` belongs to that project's work orders, and separately the ledger's whole project spend. Materials against materials; labour is in neither, and the wider ledger figure is never subtracted from the narrower one (D151) |
+| `v_project_cost` | per project: the **projection** (BOM × ordered qty), **asked · approved · paid** over the request lines whose `source_wo_no` belongs to that project's work orders, the ledger's whole project spend, and — since 0080 — what the job was **sold** for and the **commission** its introduction owes. Materials against materials; labour is in neither, the wider ledger figure is never subtracted from the narrower one, and there is **no margin column** for the same reason (D151). Four modules answer one question and no single reader may see all four, so `cost_visible`, `procurement_visible`, `ledger_visible` and `marketing_visible` say which quarters the reader was allowed to be shown — the figures they govern come back **null, never nought** |
 | `v_wo_materials` | per work order: the **projection** — the explosion of the revision the order was pinned to, its unpriced and unexplodable counts, and a `projected_cost` that is null while anything is unpriced — beside the **actual**: how many requests were raised from it and what they asked, had approved and had paid. `procurement_visible` says whether the reader was allowed to see that second half at all, because the sums come back empty either way and a nought would read as *nobody has asked yet* (0066) |
 | `v_product_bom` | per product: each component resolved to a name and a price — the catalogue's **standard price**, falling back to the **last price paid**, and the view says which — plus `qty_with_waste`, a subtotal, the material cost per unit, and how many components could not be priced. Computed on read, never stored (A3, D149) |
 | `v_work_order` | per order: `done` per stage, `current_stage` (the furthest with anything finished), `completed` (through the last stage), `percent` — counted as **stages finished across the quantity**, not as the furthest stage reached — `days_left`, `late`, and the warnings in words |
