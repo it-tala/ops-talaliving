@@ -4187,3 +4187,36 @@ duplicate kept correct by a script is still a duplicate.
 
 Until somebody answers that: **read the contract, not the chapter, and update
 the chapter in the same commit.** That is what these four did.
+
+---
+
+## F106 — the test passed, the mutation passed, and only one of those was good news
+
+`62_prod_progress` asserts that `POTONG` is never folded into Sanding: the
+business buys barang mentah now, so pieces that were *cut* are not pieces that
+were *sanded*, and the two counts must stay apart (D275).
+
+The test passed. Then the mutation that adds `POTONG → AMPLAS` to
+`stage_sources` — the exact bug the assertion is about — **also passed.**
+
+The fixture recorded `POTONG 4` and `AMPLAS 4`. The roll-up is a minimum over
+the sources that carried a figure (F74), and `min(4, 4)` is 4 either way. The
+assertion was reading a number that two different rules produce, so it could
+not tell them apart. Changing the fixture to `POTONG 2` makes the folded answer
+2 and the correct one 4, and the mutation now fails by name.
+
+Two things worth keeping.
+
+**A passing assertion proves nothing about a rule whose inputs coincide.** The
+figures in a fixture are usually chosen for realism or convenience, and
+`4` twice looked like both. Every number in a fixture is also a choice about
+which wrong answers remain visible, and that is not a property anybody checks
+when writing it.
+
+**This is the argument for mutation-testing stated precisely.** F95 says a
+check that has never failed for the right reason has not been checked, and
+every derivation in this branch has been mutated since. That practice is what
+found this: not a review, not a second reader, but deliberately breaking the
+rule and noticing that nothing complained. The cost is a few minutes per view;
+this one bought back an assertion that would have gone on passing while the
+behaviour it names quietly regressed.
