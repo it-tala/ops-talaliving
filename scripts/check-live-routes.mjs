@@ -64,16 +64,34 @@ function liveServices() {
   return ALL_SERVICES.filter((s) => new RegExp(`export \\* as ${s} from`).test(src));
 }
 
+/* Functions the real client exports but has not made match the contract.
+   Read from `src/lib/api/_pending.ts`, which `scripts/check-api-parity.mjs`
+   keeps honest in both directions. */
+function pendingParity() {
+  const src = readFileSync(join(ROOT, "src/lib/api/_pending.ts"), "utf8");
+  const block = src.match(/PENDING_PARITY: readonly string\[\] = \[([\s\S]*?)\n\];/);
+  if (!block) throw new Error("PENDING_PARITY not found in src/lib/api/_pending.ts");
+  return new Set([...block[1].matchAll(/"([a-z]+\.[a-zA-Z]+)"/g)].map((m) => m[1]));
+}
+
+const PENDING = pendingParity();
+
 /* What each live service actually implements, by name. Read from the module
    rather than listed here, for the same reason as above: a list is correct on
-   the day it is written. */
+   the day it is written.
+
+   **Exported is not the same as implemented.** A function that answers a
+   different shape from the demo the screens were written against is a gap
+   wearing a name that makes it look closed — `approvePo` returning `unknown`
+   where the screen redraws a `PoDetail` renders nothing and reports no error.
+   `swap()` refuses those at run time, so counting them here would list a route
+   as live that is guaranteed to refuse. They are subtracted. */
 function implementedFunctions(service) {
   const f = join(ROOT, `src/lib/api/${service}.ts`);
   if (!existsSync(f)) return new Set();
-  return new Set(
-    [...readFileSync(f, "utf8").matchAll(/^export (?:async )?function ([A-Za-z0-9_]+)/gm)]
-      .map((m) => m[1]),
-  );
+  const names = [...readFileSync(f, "utf8")
+    .matchAll(/^export (?:async )?function ([A-Za-z0-9_]+)/gm)].map((m) => m[1]);
+  return new Set(names.filter((n) => !PENDING.has(`${service}.${n}`)));
 }
 
 /* Functions that exist in the demo and deliberately never will in `src/lib/api`.

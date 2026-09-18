@@ -123,7 +123,7 @@ begin
   -- Deliberately no audit row and no outbox. This *is* a trail; writing a
   -- trail of writing the trail is how a table grows without ever being read.
   return jsonb_build_object('outcome','ok','status',200,
-                            'data', jsonb_build_object('event_id', v_id));
+                            'data', jsonb_build_object('id', v_id));
 end $$;
 
 -- ── the recap ─────────────────────────────────────────────────────────────

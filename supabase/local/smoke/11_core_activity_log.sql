@@ -53,7 +53,7 @@ declare r jsonb; n int;
 begin
   r := ops_core.record_activity_event('view','/procurement/tracker','Pelacakan');
   assert r ->> 'outcome' = 'ok', format('got %s', r);
-  assert (r #>> '{data,event_id}') is not null, format('it says which row, got %s', r);
+  assert (r #>> '{data,id}') is not null, format('it says which row, got %s', r);
 
   -- Blank is not an act.
   r := ops_core.record_activity_event('view','   ','Kosong');

@@ -293,22 +293,25 @@ export async function purgeActivity(
 
 /** Record one thing somebody did.
  *
- *  **Its answer is ignored on purpose, and the seam is built for that.** A
+ *  **The answer is meant to be ignored, and the caller is what ignores it.** A
  *  screen that could not log the fact it was opened must still open: refusing
  *  the page because the trail is unavailable turns an observability feature
- *  into an outage. So this returns nothing and swallows what the seam said —
- *  the same shape as `recordSignIn` above, for the same reason.
+ *  into an outage.
+ *
+ *  That is a rule about the **call site**, not about this signature. The first
+ *  version of this returned `void` and swallowed everything, which made it a
+ *  different function from the demo's under the same name — so the swap in
+ *  `src/demo/api/index.ts` would not type, and a screen would have got one
+ *  shape in demo mode and another against the database. The envelope comes
+ *  back; whoever calls it drops it.
  */
 export async function recordActivity(
-  kind: string, target: string, label?: string,
-): Promise<void> {
-  try {
-    await supabaseBrowser().rpc("record_activity_event", {
-      p_kind: kind, p_target: target, p_label: label ?? target,
-    });
-  } catch {
-    /* Deliberately silent. See above. */
-  }
+  input: { kind: string; target: string; label: string },
+): Promise<Result<{ id: string }>> {
+  const { data, error } = await supabaseBrowser().rpc("record_activity_event", {
+    p_kind: input.kind, p_target: input.target, p_label: input.label,
+  });
+  return fromSeam<{ id: string }>(SERVICE, data, error);
 }
 
 /* ------------------------------------------------------------------ */
