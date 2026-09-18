@@ -25,7 +25,16 @@
  *  `scripts/check-live-routes.mjs` derives `LIVE_ROUTES` from what each route
  *  actually imports, and CI fails when this file disagrees with the code. The
  *  list below is therefore evidence, not intent: to make a route live, give its
- *  service a real implementation, then run the script.
+ *  service the functions that route calls, then run the script.
+ *
+ *  **Functions, not services.** The check used to ask only whether the service
+ *  existed, which passed a screen calling a function nobody had written —
+ *  `/accounting/rekening-koran` reaching for `accounting.importStatement()`
+ *  against a client that has never had one. That is the same silent failure
+ *  described above, one level down, and it was true of seven of the seventeen
+ *  routes this list used to carry. They are gone from it until B2 and B3 give
+ *  them the views and seams they call; the script names which ones when it
+ *  refuses.
  *
  *  ## What this is not
  *
@@ -42,7 +51,9 @@ import { isRealApi } from "@/lib/supabase/env";
  *
  *  Mirrors the exports of `src/lib/api/index.ts`. Adding a service here without
  *  writing it is how a screen ships pointing at nothing, so the check script
- *  reads that file rather than trusting this comment.
+ *  reads that file rather than trusting this comment — and, since the check
+ *  counts functions, a service being listed here no longer implies that every
+ *  function of it exists.
  */
 export const LIVE_SERVICES = ["identity", "procurement", "accounting"] as const;
 
@@ -50,16 +61,9 @@ export const LIVE_SERVICES = ["identity", "procurement", "accounting"] as const;
  *  Regenerate with `node scripts/check-live-routes.mjs --write`.
  */
 export const LIVE_ROUTES: readonly string[] = [
-  "/accounting/calendar",
-  "/accounting/liquidation",
-  "/accounting/rekening-koran",
-  "/accounting/tagihan",
-  "/dashboard",
-  "/it/aktivitas",
   "/it/audit",
   "/it/pengguna",
   "/it/peran",
-  "/pengaturan",
   "/procurement/catalog",
   "/procurement/po",
   "/procurement/po/[po]",
