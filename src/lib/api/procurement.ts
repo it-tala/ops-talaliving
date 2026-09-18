@@ -298,13 +298,12 @@ export async function listLinesForWorkOrder(woNo: string): Promise<Result<PrLine
  *  10:18, un-approved at 14:07" is a fact about how the decision was made and
  *  the screen has no business hiding it behind the current value (D28). */
 export async function lineHistory(lineNo: string): Promise<Result<PrApproval[]>> {
-  const sb = supabaseBrowser();
-  const { data: line, error: e1 } = await sb
+  const { data: line, error: e1 } = await db()
     .from("pr_lines").select("id").eq("line_no_full", lineNo).maybeSingle();
   if (e1) return fail(SERVICE, e1);
   if (!line) return ok(SERVICE, []);
 
-  const { data, error } = await sb
+  const { data, error } = await db()
     .from("pr_approvals").select("*")
     .eq("line_id", (line as { id: string }).id)
     .order("recorded_at", { ascending: true });
@@ -883,11 +882,11 @@ export async function listReported(): Promise<Result<unknown[]>> {
 
 export async function listVariancesRaw(lineNo: string): Promise<Result<LineVariance[]>> {
   const sb = supabaseBrowser();
-  const { data: line, error: e1 } = await sb
+  const { data: line, error: e1 } = await db()
     .from("pr_lines").select("id").eq("line_no_full", lineNo).maybeSingle();
   if (e1) return fail(SERVICE, e1);
   if (!line) return ok(SERVICE, []);
-  const { data, error } = await sb
+  const { data, error } = await db()
     .from("line_variances").select("*")
     .eq("line_id", (line as { id: string }).id)
     .order("recorded_at", { ascending: true });
@@ -895,12 +894,11 @@ export async function listVariancesRaw(lineNo: string): Promise<Result<LineVaria
 }
 
 export async function listNotes(lineNo: string): Promise<Result<LineNote[]>> {
-  const sb = supabaseBrowser();
-  const { data: line, error: e1 } = await sb
+  const { data: line, error: e1 } = await db()
     .from("pr_lines").select("id").eq("line_no_full", lineNo).maybeSingle();
   if (e1) return fail(SERVICE, e1);
   if (!line) return ok(SERVICE, []);
-  const { data, error } = await sb
+  const { data, error } = await db()
     .from("line_notes").select("*")
     .eq("line_id", (line as { id: string }).id)
     .order("recorded_at", { ascending: true });
