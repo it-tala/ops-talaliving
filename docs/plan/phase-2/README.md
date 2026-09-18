@@ -91,7 +91,7 @@ What the arrangement costs, and how each cost is paid:
 | a migration reaches into the legacy schemas | `supabase/local/check_schema_isolation.sh`, run by `smoke.sh` and by CI, refuses any migration naming `core` `hr` `ops` `po_import` `public` |
 | a `security definer` function resolves a name into the wrong schema | `set search_path` explicit on every one of them |
 | `rebuild.sh` pointed at production | it already refuses a non-local `PGHOST`, and refuses any database with accounts in it |
-| the legacy system is still writing | it is — a Google Chat event landed at 03:21 UTC on 2026-09-17. The import is idempotent by `legacy_ref`, and a pg_cron mirror keeps new events flowing to both sides until cutover |
+| the legacy system is still writing | it is — a Google Chat event landed at 03:21 UTC on 2026-09-17. The import has to be idempotent and a pg_cron mirror has to keep new events flowing to both sides until cutover. **Neither exists yet**: `04-data-migration.md` records that there is no `legacy_ref` column in the ladder, and that `ops_acct.transactions.source_ref` is the only unique legacy key any target table has. Writing that column is a prerequisite of B8, not a detail inside it |
 
 **Still true, and not softened:** nothing in `supabase/migrations/` has been
 applied to `john-lau-v01` yet. Applying it is a reviewed step in the cutover
@@ -113,11 +113,16 @@ in writing where they were not obvious.
    already exists (D155) — but **a payslip cannot be given to an employee
    until it is answered.** This blocks the payroll *cutover*, not the payroll
    *build*.
-2. **The data migration inventory.** Nothing has been written down about what
-   has to come across from Google Sheets and `john-lau`, in what state, and
-   who decides when a messy row is good enough to import. This is the largest
-   unknown in the whole of Phase 2 and the only item in `03-estimate.md` with
-   an open-ended range.
+2. **The data migration inventory.** ~~Nothing has been written down~~ —
+   **`04-data-migration.md` now measures it**, against the live database on
+   2026-09-18. The ledger turns out to be a single financial year (3.235 rows,
+   all 2026, no null dates), vendors and items are clean enough to import
+   blunt (1 collision in 296, 3 in 1.020), and accounts resolve perfectly.
+   Three structural problems are named there, and one question genuinely
+   remains: **who rules on the 68 unresolved vendor names and the 2.409
+   transactions that are not `COMPLETED`.** That person has to exist before B8
+   starts. The range in `03-estimate.md` is narrower than it was, but it is not
+   closed until that name is filled in.
 
 Everything else that is open (Q35–Q41) carries a default that is already
 running, is visible on screen, and is a one-line change when answered.
