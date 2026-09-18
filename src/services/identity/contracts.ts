@@ -120,12 +120,18 @@ export interface Session extends UserAccess {
  *  opened, what they looked at. It is evidence about **people**, and that is
  *  why it does not live for ever (owner, answering Q22):
  *
- *  - the detail is kept **30 days**;
- *  - every day is rolled up into a **per-person recap**, kept **6 months**;
+ *  - the detail is kept **120 days** (D283, superseding D188's 30);
+ *  - every day is rolled up into a **per-person recap**, kept **120 rows per
+ *    person** — six months in the owner's own arithmetic, *6 bulan itu
+ *    maksudnya 120 hari kerja*;
  *  - after that, both are gone.
  *
- *  The recap is **stored, not derived** — the one place in this system where
- *  that is right, because it has to outlive the rows it was computed from.
+ *  The recap is counted **per person, not by date**, so somebody away for three
+ *  weeks comes back to their history rather than to a hole.
+ *
+ *  The recap is **stored, not derived** — one of the two places in this system
+ *  where that is right (the other is `activity_daily`, the machine record),
+ *  because it has to outlive the rows it was computed from.
  */
 
 /** One thing somebody did. Coarse on purpose: a screen opened, a document
@@ -136,7 +142,7 @@ export interface ActivityEvent {
   at: string;
   actor_id: string;
   actor_email: string;
-  /** `view`, `export`, `print`, `sign_in`, `sign_out`. */
+  /** `view`, `export`, `print`, `reveal`, `sign_in`, `sign_out`. */
   kind: string;
   /** The screen or object: `/hrd/payroll/pyr-26-09-06_01`. */
   target: string;
@@ -145,7 +151,7 @@ export interface ActivityEvent {
 }
 
 /** One person, one day, in numbers. Written at the end of the day and kept
- *  six months — long after the events behind it are gone. */
+ *  120 working days per person — long after the events behind it are gone. */
 export interface ActivityDaily {
   id: string;
   day: string;
@@ -174,11 +180,12 @@ export interface ActivityDaily {
 }
 
 export interface RetentionStatus {
-  /** The two rules, in days, as the owner set them (Q22). */
+  /** The two rules as the owner set them (Q22, D283). The first is a horizon
+   *  in days; the second is a **count per person**, not a date. */
   detail_days: number;
-  recap_months: number;
+  recap_rows: number;
   events_total: number;
-  /** Events past the 30-day line: due to be deleted, and still here. */
+  /** Events past the detail horizon: due to be deleted, and still here. */
   events_expiring: number;
   oldest_event: string | null;
   recaps_total: number;

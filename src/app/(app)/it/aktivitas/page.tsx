@@ -17,14 +17,18 @@ import { useToast } from "@/store/toast";
  *  surveillance of your own staff, and picking a retention rule quietly is how
  *  that decision gets made by accident. The owner's answer (D188):
  *
- *  - **detail for 30 days** — screen by screen, so a specific question about a
- *    specific day can be answered;
- *  - **a daily recap per person, kept 6 months** — what somebody did all day,
- *    long after the individual rows are gone.
+ *  - **detail for 120 days** (D188 said 30; D283 is the owner's later answer)
+ *    — screen by screen, so a specific question about a specific day can be
+ *    answered;
+ *  - **a daily recap per person, 120 rows each** — six months in the owner's
+ *    own arithmetic, *6 bulan itu maksudnya 120 hari kerja* — what somebody did
+ *    all day, long after the individual rows are gone. Counted per person, so
+ *    three weeks of leave costs nobody three weeks of history.
  *
  *  Two consequences the screen makes visible rather than hiding. The recap is
- *  **stored**, which nothing else in this system is, because it has to outlive
- *  its own source. And the sweep **deletes** — the only deletion here, and it
+ *  **stored**, which only one other thing in this system is — `activity_daily`,
+ *  the machine record, for the same reason — because it has to outlive its own
+ *  source. And the sweep **deletes** — the only deletion here, and it
  *  is a rule rather than a correction (A2).
  */
 export default function ActivityPage() {
@@ -43,6 +47,13 @@ export default function ActivityPage() {
 
   function reloadAll() { reloadEvents(); reloadDaily(); reloadRetention(); }
 
+  /* The two horizons, once the panel has them. Read from the answer rather
+     than written into the labels, because the rule lives in `ops_core.settings`
+     and a literal here would keep printing yesterday's number long after
+     somebody changed it — the screen would be confidently wrong about its own
+     policy, which is the failure this whole screen exists to avoid. */
+  const rule = retention.status === "ready" ? retention.data : null;
+
   async function rollUp() {
     setBusy(true);
     const res = await identity.rollUpActivity({});
@@ -53,7 +64,13 @@ export default function ActivityPage() {
   }
 
   async function purge() {
-    if (!window.confirm("Hapus detail yang lewat 30 hari dan rekap yang lewat 6 bulan? Ini penghapusan, bukan koreksi — dan tidak bisa dibatalkan.")) return;
+    /* The numbers come from the answer, not from a literal: the rule lives in
+       `ops_core.settings` and a hard-coded "30 hari" here would keep saying so
+       long after somebody changed it. */
+    const what = rule
+      ? `detail yang lewat ${rule.detail_days} hari dan rekap di atas ${rule.recap_rows} baris per orang`
+      : "detail dan rekap yang lewat batas retensi";
+    if (!window.confirm(`Hapus ${what}? Ini penghapusan, bukan koreksi — dan tidak bisa dibatalkan.`)) return;
     setBusy(true);
     const res = await identity.purgeActivity();
     setBusy(false);
@@ -72,7 +89,7 @@ export default function ActivityPage() {
       <PageHeader
         breadcrumb="IT"
         title="Activity log"
-        description="Siapa membuka apa. Detailnya disimpan 30 hari; rekap harian per orang disimpan 6 bulan. Setelah itu hilang — memang begitu aturannya."
+        description="Siapa membuka apa. Detailnya disimpan 120 hari; rekap harian disimpan 120 baris per orang. Setelah itu hilang — memang begitu aturannya."
         actions={
           <div className="flex items-center gap-2">
             <SourceBadge state={events} />
@@ -102,7 +119,7 @@ export default function ActivityPage() {
                   ["Detail tersimpan", String(r.events_total), `aturan: ${r.detail_days} hari`],
                   ["Detail lewat batas", String(r.events_expiring),
                     r.events_expiring > 0 ? "akan dihapus saat retensi dijalankan" : "tidak ada"],
-                  ["Rekap harian", String(r.recaps_total), `aturan: ${r.recap_months} bulan`],
+                  ["Rekap harian", String(r.recaps_total), `aturan: ${r.recap_rows} baris per orang`],
                   ["Rekap lewat batas", String(r.recaps_expiring),
                     r.recaps_expiring > 0 ? "akan dihapus" : "tidak ada"],
                 ] as [string, string, string][]).map(([k, v, note]) => (
@@ -120,8 +137,10 @@ export default function ActivityPage() {
               </dl>
               <p className="border-t border-slate-100 px-4 py-2 text-[12px] text-slate-500">
                 <strong className="text-slate-700">Rekap harian disimpan, bukan dihitung ulang.</strong>{" "}
-                Satu-satunya angka di sistem ini yang begitu — karena ia harus hidup lebih lama
-                daripada baris yang membentuknya.
+                Salah satu dari dua angka di sistem ini yang begitu — karena ia harus hidup lebih
+                lama daripada baris yang membentuknya. Batas rekap dihitung{" "}
+                <strong className="text-slate-700">per orang</strong>, bukan per tanggal: orang yang
+                cuti tiga minggu kembali ke riwayatnya, bukan ke lubang.
               </p>
             </div>
 
@@ -130,8 +149,8 @@ export default function ActivityPage() {
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>
                   {r.days_unrolled} hari punya detail tapi belum punya rekap. Kalau detailnya keburu
-                  lewat 30 hari, harinya hilang seluruhnya — retensi menolak menghapus hari seperti itu
-                  sampai direkap dulu.
+                  lewat {r.detail_days} hari, harinya hilang seluruhnya — retensi menolak menghapus
+                  hari seperti itu sampai direkap dulu.
                 </span>
               </div>
             )}
@@ -141,10 +160,10 @@ export default function ActivityPage() {
 
       <div className="mb-3 flex gap-1.5">
         <Button size="sm" variant={tab === "detail" ? "primary" : "outline"} onClick={() => setTab("detail")}>
-          Detail 30 hari
+          Detail {rule ? `${rule.detail_days} hari` : "harian"}
         </Button>
         <Button size="sm" variant={tab === "recap" ? "primary" : "outline"} onClick={() => setTab("recap")}>
-          Rekap harian 6 bulan
+          Rekap harian{rule ? ` ${rule.recap_rows} hari` : ""}
         </Button>
       </div>
 
