@@ -12,7 +12,8 @@
 import type {
   Account, AccountBalance, TransactionView, TransactionDetail,
   TransactionType, Direction, AllocMethod, InboxStatus, InboxHealth,
-  TrxStatus,
+  TrxStatus, BankStatementView, StatementLineView, StatementMatch,
+  TransactionTypeCode,
 } from "@/services/accounting/contracts";
 import type { DocKind } from "@/services/documents/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -406,4 +407,168 @@ export async function suggestionsFor(statementLineId: string): Promise<Result<un
     .from("v_statement_suggestion").select("*")
     .eq("statement_line_id", statementLineId).order("days_apart");
   return fromRows<unknown[]>(SERVICE, data as unknown[], error);
+}
+
+/* ------------------------------------------------------------------ */
+/* Rekening koran                                                      */
+/* ------------------------------------------------------------------ */
+
+/** One statement, its lines, and what the ledger already has that looks like
+ *  each of them.
+ *
+ *  Three reads rather than one: the statement, its lines, and every suggestion
+ *  for those lines in a single `in (…)`. Never one suggestion query per line —
+ *  a month of a busy account is sixty lines, and sixty round trips is the
+ *  difference between a screen that opens and a screen somebody waits for.
+ */
+export async function getStatement(statementNo: string): Promise<Result<BankStatementView>> {
+  const sb = supabaseBrowser();
+
+  const { data: head, error: headErr } = await sb
+    .from("v_bank_statement").select("*").eq("statement_no", statementNo).maybeSingle();
+  if (headErr) return fail(SERVICE, headErr);
+  if (!head) {
+    return notFound(SERVICE, "statement_not_found", `No statement ${statementNo}.`);
+  }
+
+  const { data: lines, error: lineErr } = await sb
+    .from("v_statement_line").select("*").eq("statement_no", statementNo).order("line_no");
+  if (lineErr) return fail(SERVICE, lineErr);
+
+  const rows = (lines ?? []) as StatementLineView[];
+  let suggestions: (StatementMatch & { statement_line_id: string })[] = [];
+  if (rows.length > 0) {
+    const { data: sug, error: sugErr } = await sb
+      .from("v_statement_suggestion").select("*")
+      .in("statement_line_id", rows.map((l) => l.id))
+      .order("days_apart");
+    if (sugErr) return fail(SERVICE, sugErr);
+    suggestions = (sug ?? []) as (StatementMatch & { statement_line_id: string })[];
+  }
+
+  const byLine = new Map<string, StatementMatch[]>();
+  for (const { statement_line_id, ...m } of suggestions) {
+    const list = byLine.get(statement_line_id) ?? [];
+    list.push(m);
+    byLine.set(statement_line_id, list);
+  }
+
+  return ok(SERVICE, {
+    ...(head as BankStatementView),
+    lines: rows.map((l) => ({ ...l, suggestions: byLine.get(l.id) ?? [] })),
+  });
+}
+
+/** A statement, its lines, and the period it covers.
+ *
+ *  The refusal that matters is the seam's: the same period twice is a
+ *  re-upload, not a second statement, and booking one movement twice is the
+ *  most expensive mistake this screen offers.
+ */
+export async function importStatement(
+  input: {
+    account_code: string;
+    period_start: string;
+    period_end: string;
+    opening_balance: number;
+    closing_balance: number;
+    currency: string;
+    filename: string;
+    attachment_id?: string | null;
+    note?: string | null;
+    rows: {
+      value_date: string; direction: Direction; amount: number;
+      raw_description: string; balance_after?: number | null;
+    }[];
+  },
+  idempotencyKey?: string,
+): Promise<Result<BankStatementView>> {
+  const { data, error } = await supabaseBrowser().rpc("import_statement", {
+    p_account_code: input.account_code,
+    p_period_start: input.period_start,
+    p_period_end: input.period_end,
+    p_opening: input.opening_balance,
+    p_closing: input.closing_balance,
+    p_currency: input.currency,
+    p_filename: input.filename,
+    p_rows: input.rows,
+    p_attachment_id: input.attachment_id ?? null,
+    p_note: input.note ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const res = fromSeam<{ statement_no: string }>(SERVICE, data, error);
+  if (res.error) return res;
+  return getStatement(res.data.statement_no);
+}
+
+/** The rate for one foreign line. Typed, never looked up (D181). */
+export async function setStatementRate(
+  input: { statement_no: string; line_id: string; fx_rate: number },
+): Promise<Result<BankStatementView>> {
+  const { data, error } = await supabaseBrowser().rpc("set_statement_rate", {
+    p_line_id: input.line_id,
+    p_fx_rate: input.fx_rate,
+    p_key: null,
+  });
+  const res = fromSeam<unknown>(SERVICE, data, error);
+  if (res.error) return res;
+  return getStatement(input.statement_no);
+}
+
+/** Saying this line **is** a row the ledger already has. */
+export async function matchStatementLine(
+  input: { statement_no: string; line_id: string; trx_no: string },
+): Promise<Result<BankStatementView>> {
+  const { data, error } = await supabaseBrowser().rpc("match_statement_line", {
+    p_line_id: input.line_id,
+    p_trx_no: input.trx_no,
+    p_key: null,
+  });
+  const res = fromSeam<unknown>(SERVICE, data, error);
+  if (res.error) return res;
+  return getStatement(input.statement_no);
+}
+
+/** Booking a line the ledger does not have yet.
+ *
+ *  It does not write a ledger row: the seam hands the line to
+ *  `post_transaction`, which is the one write seam for money (ADR-006). Every
+ *  refusal that road has — the authority, the evidence, a purchase with no
+ *  detail — comes back from here unchanged.
+ */
+export async function bookStatementLine(
+  input: {
+    statement_no: string; line_id: string;
+    type_code: TransactionTypeCode; description: string;
+    vendor_id?: string | null; project_id?: string | null;
+  },
+): Promise<Result<BankStatementView>> {
+  const { data, error } = await supabaseBrowser().rpc("book_statement_line", {
+    p_line_id: input.line_id,
+    p_type_code: input.type_code,
+    p_description: input.description,
+    /* The seam resolves by public code, like every other cross-reference
+       (ADR-004). The screen holds ids today; passing them through would make
+       this the one place that addresses a vendor by uuid. */
+    p_vendor_code: input.vendor_id ?? null,
+    p_project_code: input.project_id ?? null,
+    p_key: null,
+  });
+  const res = fromSeam<unknown>(SERVICE, data, error);
+  if (res.error) return res;
+  return getStatement(input.statement_no);
+}
+
+/** Leaving a line out, with a reason (D182). */
+export async function ignoreStatementLine(
+  input: { statement_no: string; line_id: string; note: string },
+): Promise<Result<BankStatementView>> {
+  const { data, error } = await supabaseBrowser().rpc("ignore_statement_line", {
+    p_line_id: input.line_id,
+    p_note: input.note,
+    p_key: null,
+  });
+  const res = fromSeam<unknown>(SERVICE, data, error);
+  if (res.error) return res;
+  return getStatement(input.statement_no);
 }
