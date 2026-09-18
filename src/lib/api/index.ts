@@ -28,6 +28,11 @@
 export * as identity from "./identity";
 export * as procurement from "./procurement";
 export * as accounting from "./accounting";
+/* Reading and writing are here; `upload` and `uploadToInbox` are not, and wait
+   on B6. Listing the service is still right: the check script counts functions,
+   so every screen that needs an upload stays dark and says which call it is
+   waiting for, while the screens that only read evidence open. */
+export * as documents from "./documents";
 
 export { isOk } from "@/services/_shared/envelope";
 export type { Result, ApiError, Outcome } from "@/services/_shared/envelope";
