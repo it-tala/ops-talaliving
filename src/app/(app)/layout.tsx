@@ -9,6 +9,7 @@ import { TourBar } from "@/components/tour-bar";
 import { JohnLauDock } from "@/components/john-lau/dock";
 import { NotLive } from "@/components/not-live";
 import { isRouteLive } from "@/lib/live";
+import { ActivityRecorder } from "@/components/activity-recorder";
 
 /** The application shell.
  *
@@ -76,6 +77,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {/* In the shell, not on a page: the point of it is to keep reading the
           steps while you move to the screen they describe (D223). */}
       <JohnLauDock />
+      {/* Below `ready`, so nothing is recorded before there is somebody to
+          record it against. Renders nothing and blocks nothing — if the trail
+          is unavailable the screen still opens, because an observability
+          feature that can take a page down is an outage with a nice name. */}
+      <ActivityRecorder />
     </div>
   );
 }

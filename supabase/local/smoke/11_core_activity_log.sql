@@ -14,8 +14,9 @@
 --   an unsigned caller is refused, and a blank kind or target is invalid
 --   the recap counts `changes` and `refusals` from the **audit log**, not from
 --     here, so the two trails cannot disagree
---   `reveals` comes from here, because a reveal changes nothing and the audit
---     log never sees it
+--   `reveals` comes from the audit log too, and **`changes` excludes it** — a
+--     reveal is an `outcome = 'ok'` audit row, so counting every ok row as a
+--     change counted every reveal twice (D197, in the recap that quotes it)
 --   `top_screens` has one entry per screen, not one per visit — `10` found
 --     that bug in the other roll-up and it is the same shape of mistake
 --   rolling up twice is rolling up once, and a late event corrects its day
@@ -95,16 +96,24 @@ insert into ops_core.activity_events (at, actor_id, kind, target, label) values
   ('2026-09-16 09:40+07','bbbb2222-0000-0000-0000-000000000001','view','/procurement/tracker','Pelacakan'),
   ('2026-09-16 10:00+07','bbbb2222-0000-0000-0000-000000000001','view','/accounting/tagihan','Tagihan'),
   ('2026-09-16 11:00+07','bbbb2222-0000-0000-0000-000000000001','print','/hrd/payroll/pyr-1','Slip gaji'),
-  ('2026-09-16 11:30+07','bbbb2222-0000-0000-0000-000000000001','reveal','/hrd/karyawan/emp-1','NIK Budi'),
-  ('2026-09-16 11:40+07','bbbb2222-0000-0000-0000-000000000001','reveal','/hrd/karyawan/emp-2','NIK Sari'),
+  ('2026-09-16 11:30+07','bbbb2222-0000-0000-0000-000000000001','view','/hrd/karyawan/emp-1','Karyawan Budi'),
+  ('2026-09-16 11:40+07','bbbb2222-0000-0000-0000-000000000001','view','/hrd/karyawan/emp-2','Karyawan Sari'),
   ('2026-09-16 09:00+07','bbbb2222-0000-0000-0000-000000000002','view','/dashboard','Dasbor');
 
--- Two writes and a refusal, in the audit log where they belong. The recap must
--- read them from there; counting them here would be a second number.
+-- Two writes, a refusal and two reveals, in the audit log where all five
+-- belong. `hr.revealEmployeeDocNo` has written `action = 'reveal'` there since
+-- the eye button shipped, and `/it/audit` reads exactly these rows.
+--
+-- **The two reveals are the assertion that matters.** They carry
+-- `outcome = 'ok'`, so a recap counting `changes` as *every* ok row counts them
+-- as changes as well — which is what the first version of `0027` did, while
+-- carrying a comment claiming it had avoided precisely that (D197).
 insert into ops_core.audit_log (at, actor_id, service, entity, action, outcome) values
   ('2026-09-16 09:10+07','bbbb2222-0000-0000-0000-000000000001','procurement','pr','create','ok'),
   ('2026-09-16 09:50+07','bbbb2222-0000-0000-0000-000000000001','procurement','pr','approve','ok'),
-  ('2026-09-16 10:10+07','bbbb2222-0000-0000-0000-000000000001','accounting','payment','post','refused');
+  ('2026-09-16 10:10+07','bbbb2222-0000-0000-0000-000000000001','accounting','payment','post','refused'),
+  ('2026-09-16 11:30+07','bbbb2222-0000-0000-0000-000000000001','hr','employee_document','reveal','ok'),
+  ('2026-09-16 11:40+07','bbbb2222-0000-0000-0000-000000000001','hr','employee_document','reveal','ok');
 
 set local role authenticated;
 
@@ -131,12 +140,12 @@ begin
   assert c.first_at = '2026-09-16 09:00+07', format('got %s', c.first_at);
   assert c.last_at  = '2026-09-16 11:40+07', format('got %s', c.last_at);
 
-  -- From the audit log, not from the events above.
-  assert c.changes  = 2, format('two writes, saw %s', c.changes);
+  -- All three from the audit log, and `changes` must NOT include the reveals:
+  -- five ok-or-refused rows, of which two are reveals, so two changes and not
+  -- four. This is the assertion the first version of `0027` would have failed.
+  assert c.changes  = 2, format('two writes — a reveal is not a change — saw %s', c.changes);
   assert c.refusals = 1, format('one refusal, saw %s', c.refusals);
-
-  -- From here, because the audit log never sees a reveal.
-  assert c.reveals = 2, format('two reveals, saw %s', c.reveals);
+  assert c.reveals  = 2, format('two reveals, saw %s', c.reveals);
 
   -- One entry per screen, not one per visit — `10` found this exact bug in the
   -- other roll-up, through a lateral join that counted intervals.
@@ -222,9 +231,9 @@ begin
   assert v.full_name = 'Budi', format('got %s', v.full_name);
 
   select * into v from ops_core.v_activity_event
-   where target = '/hrd/karyawan/emp-1' limit 1;
+   where target = '/hrd/payroll/pyr-1' limit 1;
   assert v.actor_email = 'budi@talaliving.com', format('got %s', v.actor_email);
-  assert v.kind = 'reveal', format('got %s', v.kind);
+  assert v.kind = 'print', format('got %s', v.kind);
 end $$;
 
 -- The views are `security_invoker`, so they are the policy and not a way past

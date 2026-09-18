@@ -23,23 +23,36 @@
 -- would return zero for every day older than that — a figure that is not
 -- missing but **wrong**, which is the one thing this project forbids.
 --
--- ── Why `changes`, `refusals` and `reveals` are not columns on the event ──
+-- ── Why `changes`, `refusals` and `reveals` all come from `audit_log` ─────
 --
--- They are counted in the recap from two sources. `changes` and `refusals`
--- come from `audit_log` — a write that succeeded and a write that was refused
--- are already recorded there, and copying them here would be a second number
--- that can disagree with the first. `reveals` is this table's own: a reveal
--- changes nothing, so the audit log never sees it, and folding it into
--- `changes` would have quietly inflated every recap the day the eye button
--- shipped (D197).
+-- All three are counted from the audit log and none from this table, because
+-- all three are already facts there and a second count is a second number free
+-- to disagree with the first.
+--
+-- **An earlier version of this file got `reveals` wrong, and said so in a
+-- comment.** It claimed a reveal changes nothing so the audit log never sees
+-- it, and counted reveals from `activity_events` instead. That is not what the
+-- system does: `hr.revealEmployeeDocNo` has written `action = 'reveal'` to the
+-- audit log since the eye button shipped, and `/it/audit` reads exactly those
+-- rows to say *N nomor identitas dibuka*.
+--
+-- The cost of the mistake was the bug the comment was written to prevent.
+-- `changes` counts every audit row with `outcome = 'ok'` — which **includes
+-- the reveals** — so every reveal was counted twice: once as a reveal and
+-- again as a change. D197's warning, in the recap that quotes it.
+--
+-- So `changes` now excludes them explicitly, and `reveals` is taken from the
+-- same place the audit screen takes it.
 
 create table ops_core.activity_events (
   id         bigserial primary key,
   at         timestamptz not null default now(),
   actor_id   uuid not null references ops_core.users(id),
-  -- `view` `export` `print` `reveal` `sign_in` `sign_out`. Text rather than an
-  -- enum: a new kind of act is a thing the frontend learns to send, and a
-  -- migration to add `download` would be a migration nobody should need.
+  -- `view` `export` `print` `sign_in` `sign_out`. **Not `reveal`**: opening an
+  -- identity number is a write the audit log already records, and sending it
+  -- here as well is how the recap counted every one of them twice. Text rather
+  -- than an enum: a new kind of act is a thing the frontend learns to send, and
+  -- a migration to add `download` would be a migration nobody should need.
   kind       text not null,
   -- The screen or the object: `/hrd/payroll/pyr-26-09-06_01`.
   target     text not null,
@@ -167,8 +180,7 @@ begin
   with ev as (
     select actor_id, ops_core.office_day(at) as day,
            count(*) as events,
-           min(at) as first_at, max(at) as last_at,
-           count(*) filter (where kind = 'reveal') as reveals
+           min(at) as first_at, max(at) as last_at
       from ops_core.activity_events
      where ops_core.office_day(at) between v_from and v_to
      group by actor_id, ops_core.office_day(at)
@@ -187,13 +199,15 @@ begin
       ) p
      group by actor_id, day
   ),
-  -- From the audit log, not from here. A write that succeeded and a write that
-  -- was refused are already facts there; counting them again in this table
-  -- would be a second number free to disagree with the first.
+  -- From the audit log, all three of them. `changes` excludes reveals rather
+  -- than counting them as well: opening a KTP is not a change, and the two
+  -- figures sit side by side on the same screen, where a reveal appearing in
+  -- both is a person's day reading busier than it was.
   aud as (
     select actor_id, ops_core.office_day(at) as day,
-           count(*) filter (where outcome = 'ok')      as changes,
-           count(*) filter (where outcome = 'refused') as refusals
+           count(*) filter (where outcome = 'ok' and action <> 'reveal') as changes,
+           count(*) filter (where outcome = 'refused')                   as refusals,
+           count(*) filter (where outcome = 'ok' and action =  'reveal') as reveals
       from ops_core.audit_log
      where actor_id is not null
        and ops_core.office_day(at) between v_from and v_to
@@ -203,7 +217,7 @@ begin
     (day, actor_id, events, first_at, last_at, top_screens, changes, refusals, reveals, rolled_at)
   select e.day, e.actor_id, e.events, e.first_at, e.last_at,
          coalesce(s.top_screens, '[]'::jsonb),
-         coalesce(a.changes, 0), coalesce(a.refusals, 0), e.reveals, now()
+         coalesce(a.changes, 0), coalesce(a.refusals, 0), coalesce(a.reveals, 0), now()
     from ev e
     left join screens s on s.actor_id = e.actor_id and s.day = e.day
     left join aud a     on a.actor_id = e.actor_id and a.day = e.day
