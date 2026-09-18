@@ -25,11 +25,11 @@ create table ops_procure.approval_batches (
   -- could reuse.
   token         text not null unique,
   sent_to       text not null,
-  sent_to_email citext not null,
+  sent_to_email ops_core.citext not null,
   -- Whoever pressed send — usually not the approver. Kept because "who chased
   -- this" is a different question from "who decided it".
   sent_by       uuid not null references ops_core.users(id),
-  sent_by_email citext not null,
+  sent_by_email ops_core.citext not null,
   sent_at       timestamptz not null default now(),
   channel       ops_procure.channel_t not null default 'chat'
 );
@@ -40,9 +40,9 @@ create table ops_procure.approval_requests (
   batch_id      uuid not null references ops_procure.approval_batches(id) on delete restrict,
   token         text not null unique,
   sent_to       text not null,
-  sent_to_email citext not null,
+  sent_to_email ops_core.citext not null,
   sent_by       uuid not null references ops_core.users(id),
-  sent_by_email citext not null,
+  sent_by_email ops_core.citext not null,
   sent_at       timestamptz not null default now(),
   channel       ops_procure.channel_t not null default 'chat',
 

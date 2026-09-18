@@ -275,7 +275,7 @@ end $$;
 -- somebody's phone is worse than sending nothing: they cannot check it there,
 -- so they either say yes blind or put the phone down (D125).
 create or replace function ops_procure.request_approval(
-  p_line_nos text[], p_to_email citext default null,
+  p_line_nos text[], p_to_email ops_core.citext default null,
   p_notes jsonb default '{}'::jsonb, p_key text default null)
 returns jsonb
 language plpgsql security definer set search_path = ops_procure, ops_core, pg_temp as $$
@@ -907,7 +907,7 @@ grant execute on function
   ops_procure.quick_add_line(jsonb, text, text),
   ops_procure.add_draft_line(text, jsonb),
   ops_procure.update_line(text, jsonb),
-  ops_procure.request_approval(text[], citext, jsonb, text),
+  ops_procure.request_approval(text[], ops_core.citext, jsonb, text),
   ops_procure.sync_round(),
   ops_procure.close_round(text, text),
   ops_procure.create_po(text, jsonb, numeric, text, date, text),
