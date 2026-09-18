@@ -20,12 +20,25 @@ insert into auth.users (id, email, raw_user_meta_data) values
   ('aaaaaaaa-0000-0000-0000-000000000003','sari@talaliving.com',  '{"full_name":"Sari Dewi"}');
 
 -- ── the bootstrap ─────────────────────────────────────────────────────────
+-- **Called with the address in a different case, on purpose.** `email` is
+-- `ops_core.citext` and the seam looks somebody up with `where email =
+-- p_email`, so this asserts the case-insensitive comparison actually happens
+-- *inside a function that pins `search_path = ops_core, pg_temp`*.
+--
+-- It is written this way because the other arrangement fails silently. With
+-- the extension installed anywhere off that path — `extensions`, which is
+-- where Supabase keeps pgcrypto and where the obvious `with schema` would put
+-- it — Postgres does not raise. It compares the two values as text instead,
+-- so this returns *no such user* about a user sitting in the table, and the
+-- first administrator cannot be created. Measured before the ladder was first
+-- applied to Supabase; `0001` carries the reasoning.
 do $$
 declare uid uuid;
 begin
-  uid := ops_core.bootstrap_admin('it@talaliving.com');
+  uid := ops_core.bootstrap_admin('IT@TalaLiving.com');
   assert uid = 'aaaaaaaa-0000-0000-0000-000000000001',
-         'the bootstrap should name the person it promoted';
+         'the bootstrap should name the person it promoted — and find them '
+         'whatever case the address was typed in';
 end $$;
 
 -- And then closes. A bootstrap that stays open is a back door.

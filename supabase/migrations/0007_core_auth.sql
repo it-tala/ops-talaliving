@@ -234,7 +234,7 @@ create or replace view ops_core.v_user_access
 -- it and no envelope carries its answer. It is typed into psql by somebody
 -- setting up a database, and for them a loud error is the right answer — a JSON
 -- object saying `refused` scrolling past in a deployment log is not.
-create or replace function ops_core.bootstrap_admin(p_email citext)
+create or replace function ops_core.bootstrap_admin(p_email ops_core.citext)
 returns uuid
 language plpgsql security definer set search_path = ops_core, pg_temp as $$
 declare uid uuid;
@@ -260,7 +260,7 @@ end $$;
 
 -- Never `authenticated`: the bootstrap runs from a deployment step or a
 -- psql session, by somebody who already has the keys to the database.
-revoke execute on function ops_core.bootstrap_admin(citext) from public;
+revoke execute on function ops_core.bootstrap_admin(ops_core.citext) from public;
 
 grant select on ops_core.v_user_access to authenticated;
 grant execute on function ops_core.record_sign_in() to authenticated;
