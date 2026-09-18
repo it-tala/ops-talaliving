@@ -171,7 +171,7 @@ export async function setAuthorities(
  *  rebuilding it here keeps one definition of what a grant unlocks. */
 async function readBack(userId: string): Promise<Result<Session>> {
   const sb = supabaseBrowser();
-  const { data, error } = await sb
+  const { data, error } = await db()
     .from("v_user_access").select("*").eq("id", userId).maybeSingle();
   if (error) return fail(SERVICE, error);
   if (!data) return notFound(SERVICE, "user_not_found", "User not found.");
@@ -268,7 +268,6 @@ export async function listActivity(
 export async function listActivityDaily(
   opts: { actor?: string; limit?: number } = {},
 ): Promise<Result<ActivityDaily[]>> {
-  const sb = supabaseBrowser();
   let q = db().from("v_activity_recap").select("*");
   if (opts.actor) q = q.ilike("actor_email", `%${opts.actor}%`);
 

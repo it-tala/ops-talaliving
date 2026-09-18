@@ -510,23 +510,22 @@ export async function suggestionsFor(statementLineId: string): Promise<Result<un
  *  difference between a screen that opens and a screen somebody waits for.
  */
 export async function getStatement(statementNo: string): Promise<Result<BankStatementView>> {
-  const sb = supabaseBrowser();
 
-  const { data: head, error: headErr } = await sb
+  const { data: head, error: headErr } = await db()
     .from("v_bank_statement").select("*").eq("statement_no", statementNo).maybeSingle();
   if (headErr) return fail(SERVICE, headErr);
   if (!head) {
     return notFound(SERVICE, "statement_not_found", `No statement ${statementNo}.`);
   }
 
-  const { data: lines, error: lineErr } = await sb
+  const { data: lines, error: lineErr } = await db()
     .from("v_statement_line").select("*").eq("statement_no", statementNo).order("line_no");
   if (lineErr) return fail(SERVICE, lineErr);
 
   const rows = (lines ?? []) as StatementLineView[];
   let suggestions: (StatementMatch & { statement_line_id: string })[] = [];
   if (rows.length > 0) {
-    const { data: sug, error: sugErr } = await sb
+    const { data: sug, error: sugErr } = await db()
       .from("v_statement_suggestion").select("*")
       .in("statement_line_id", rows.map((l) => l.id))
       .order("days_apart");

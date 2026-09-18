@@ -138,13 +138,34 @@ for (const file of readdirSync(API).sort()) {
   if (!bound) continue;
   const fallback = bound[1];
 
-  /* Each call, with the schema it names: an inline `.schema("x")` immediately
-     before it wins, otherwise the module's. */
-  const CALL = /(?:\.schema\("(ops_[a-z]+)"\)\s*\n?\s*)?\.(from|rpc)\("([a-z_][a-z0-9_]*)"\)/g;
+  /* Each call, with **what it was called on**.
+   *
+   *  The first version of this matched `.from("x")` and assumed the module's
+   *  bound schema, which made it blind to the one thing it exists to catch: a
+   *  call that never went through the helper at all. Fifteen did — `const sb =
+   *  supabaseBrowser()` on one line and `.from(…)` on the next — and the guard
+   *  passed them while `/it/pengguna` answered *Could not find the table
+   *  'public.v_user_access'*. The receiver is the whole question, so it is what
+   *  is matched.
+   *
+   *  `[\s\S]*?` rather than `\s*` between the receiver and the call: a chained
+   *  builder wraps across lines, and a pattern that stops at a newline is
+   *  exactly how the fifteen got through in the first place. */
+  const CALL =
+    /(db\(\)|\.schema\("(ops_[a-z]+)"\)|supabaseBrowser\(\)|\bsb\b)\s*\n?\s*\.(from|rpc)\("([a-z_][a-z0-9_]*)"\)/g;
   for (const m of src.matchAll(CALL)) {
-    const named = m[1] ?? fallback;
-    const name = m[3];
+    const receiver = m[1];
+    const name = m[4];
     checked++;
+
+    if (receiver === "supabaseBrowser()" || receiver === "sb") {
+      problems.push(
+        `  ${mod}.ts  .${m[3]}("${name}")  — called on an unbound client;`
+        + ` PostgREST will look in \`public\`.`,
+      );
+      continue;
+    }
+    const named = m[2] ?? fallback;
 
     const lives = home.get(name);
     if (!lives) {

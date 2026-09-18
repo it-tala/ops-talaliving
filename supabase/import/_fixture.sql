@@ -66,3 +66,29 @@ insert into public.vendors (vendor_id, name, aka, active, created_at, address, p
      null, false, '2026-01-03', null, '', ''),
   ('aaaa0000-0000-0000-0000-000000000003', '  CV ANUGERAH  ',
      '[]'::jsonb, true, '2026-01-04', null, null, null);
+
+drop table if exists public.items cascade;
+create table public.items (
+  item_id uuid primary key default gen_random_uuid(),
+  name text, category text, unit text, aka jsonb, active boolean,
+  created_at timestamptz default now(), details text,
+  last_price numeric, last_vendor text, last_purchase date,
+  price numeric, kind text
+);
+
+-- One of each shape the unit mapping has to handle, and one the category
+-- mapping has to: a unit that matches once lower-cased, one that folds onto an
+-- existing code, one that needs a code `0031` added, one that names two units
+-- at once, and one that is simply absent.
+insert into public.items
+  (item_id, name, category, unit, aka, kind, created_at, last_vendor, price) values
+  ('bbbb0000-0000-0000-0000-000000000001', 'SEKRUP 3 INCI', 'hardware', 'PCS',
+     '["skrup 3"]'::jsonb, 'goods', '2026-01-02', 'UD SUMBER REJEKI', 1500),
+  ('bbbb0000-0000-0000-0000-000000000002', 'TINER SUPER',   'finishing', 'Liter',
+     null, 'goods', '2026-01-03', null, 32000),
+  ('bbbb0000-0000-0000-0000-000000000003', 'TUKANG AMPLAS', 'service',  'orang',
+     null, 'service', '2026-01-04', null, 150000),
+  ('bbbb0000-0000-0000-0000-000000000004', 'CAT DASAR',     'non-item', 'pail/drum',
+     null, 'goods', '2026-01-05', 'VENDOR YANG TIDAK ADA', 890000),
+  ('bbbb0000-0000-0000-0000-000000000005', 'PAKU BETON',    'hardware', null,
+     null, 'goods', '2026-01-06', null, 25000);
