@@ -1,6 +1,16 @@
-"use client";
-
 import { useDemo } from "@/demo/provider";
+
+/* No `"use client"` here, deliberately.
+ *
+ * This module holds two different things: `BRAND`, a plain constant, and
+ * `useBrand`, a hook. Marking the whole file client turned the constant into a
+ * client reference, so the server components that read it — `app/layout.tsx`
+ * for `metadata.title`, and the 404 page — got `undefined` and every tab in
+ * the application was titled "undefined" (F97).
+ *
+ * The directive was never needed. A hook does not require it; the components
+ * that CALL the hook do, and all of them already declare it. Leaving it off
+ * lets the constant stay a constant on both sides of the boundary. */
 
 /** Identity — ONE place.
  *

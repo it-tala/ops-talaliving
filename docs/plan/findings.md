@@ -3818,3 +3818,46 @@ The thing to keep is that **a warning that fires on almost everything is a
 warning nobody reads**, and the cost is not the noise — it is the one real
 overtaking in the seed, which was sitting in the same list as thirty invented
 ones and would have been scrolled past with them.
+
+---
+
+## F97 — the tab that said `undefined`, on every screen we have
+
+*(F93–F96 are reserved: they exist on `claude/serene-euler-eq2qef`, which is
+not merged. Numbering around them costs nothing and keeps that branch
+harvestable without a renumber.)*
+
+Adding a 404 page meant giving it a `<title>`, which meant reading `BRAND`
+from a server component. It came back `undefined`. So did the one in
+`app/layout.tsx`, which has read it the same way since the layout was written:
+**every tab in this application has been titled `undefined`** — sign-in,
+dashboard, all fifty-nine routes — and nobody noticed, because nobody reads a
+tab title twice. The comment on `BRAND.documentTitle` says exactly that, and it
+was right for the wrong reason: the title was never being read at all.
+
+The cause is one line. `src/lib/brand.ts` opened with `"use client"`, and the
+module holds two unlike things behind it — `BRAND`, a plain constant, and
+`useBrand`, a hook over `DemoProvider`. The directive was there for the hook,
+but it applies to the module: across the boundary the constant stops being a
+constant and becomes a client reference, so a server component reading
+`BRAND.documentTitle` gets `undefined` rather than an error. The build stays
+green. Nothing anywhere says the value did not arrive.
+
+The directive was never needed. A hook does not require `"use client"` — the
+components that *call* it do, and all five already declare it. Removing the
+line fixes the constant on the server and changes nothing on the client.
+
+Two things to keep from this.
+
+**A value that degrades to `undefined` instead of throwing will not be caught
+by a build.** `metadata.title` accepts `undefined` and renders no tag at all,
+so the failure mode is an *absent* element — and every check we have looks at
+things that are present. The 404 only exposed it because it was the first
+server component written since the layout, and the first time anyone diffed
+rendered HTML against what the source said should be in it.
+
+**`"use client"` is a property of a module, not of the export you had in
+mind.** A file mixing a constant and a hook will hand the constant to the
+client graph on the strength of the hook alone. The split we now rely on is
+implicit; if `brand.ts` grows anything that genuinely needs the directive, the
+constant has to move to its own file rather than the directive coming back.
