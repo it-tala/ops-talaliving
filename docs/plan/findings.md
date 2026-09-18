@@ -4465,3 +4465,38 @@ that produces them, correctly, for everybody else. A null price is the right
 answer often enough that it can never be read as a fault on its own — which is
 the argument for asserting the *reason* a figure is missing, not just that it
 is.
+
+## F113 · 2026-09-18 · 0066 — `v_line_coverage.approved` is not what was approved
+
+**What we assumed.** Building `v_wo_materials`, the *actual* half of D151's
+comparison wanted three sums over a work order's request lines: asked, approved,
+paid. Procurement already has a per-line view with an `approved` column and a
+`covered` column, so the first draft read both straight off it.
+
+**What surprised us.** A brand-new draft request, approved by nobody, reported
+`approved = 7.311.000` — exactly what it asked. The column means *the amount
+still to be covered*:
+
+```sql
+case when ap.approved is true then coalesce(ap.approved_amount, l.item_total, 0)
+     else coalesce(l.item_total, 0) end as approved
+```
+
+Inside `v_line_coverage` that is right and useful — it is the funding target,
+and the fallback to `item_total` is what lets an unapproved line still be
+matched against a payment. Read from outside as *how much has been approved*,
+it is silently the opposite of the truth, and it fails in the worst direction:
+a project that nobody has approved a rupiah of reads as fully approved.
+
+**What this implies.** The figure has to come from the approval itself —
+`v_line_approval.approved is true`, summing `coalesce(approved_amount,
+item_total)` over those lines only, and nought over the rest. That is what the
+view does now, with the reason written above it and a mutation that puts the
+old column back.
+
+**The general shape.** A column name that is a verb in the past tense reads as
+a fact and may be a target. `approved`, `received`, `settled` — each one is
+somebody's shorthand inside the view that owns it, and the borrowing service
+cannot see the shorthand. This is F104's lesson in a different register: there
+the wrong answer was a plausible null, here it is a plausible number, and the
+number is worse because nothing about it looks unset.

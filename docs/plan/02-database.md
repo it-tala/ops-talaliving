@@ -1674,7 +1674,7 @@ sheet is paid on `paid`, which ships `true`: HRD's decision is whether to turn
 it off, and doing so writes `unpaid_reason`. Its evidence is a
 `Laporan Lembur` — the screenshot of the work.
 
-**A closed day overrides both, and spends nothing** (D283, owner 2026-09-18).
+**A closed day overrides both, and spends nothing** (D285, owner 2026-09-18).
 When an office-wide `holiday` and somebody's own mark fall on the same date,
 the holiday governs: the day is worth nothing to anybody, a `sick` mark on it
 needs no letter because there is no payment for a letter to unlock, and a
@@ -1953,6 +1953,7 @@ numbers and a workshop that conflates them runs out on a Saturday.
 | View | Answers |
 |---|---|
 | `v_project_cost` | per project: **projected** material cost (BOM × ordered qty), **asked · approved · paid** over the request lines whose `source_wo_no` belongs to that project's work orders, and separately the ledger's whole project spend. Materials against materials; labour is in neither, and the wider ledger figure is never subtracted from the narrower one (D151) |
+| `v_wo_materials` | per work order: the **projection** — the explosion of the revision the order was pinned to, its unpriced and unexplodable counts, and a `projected_cost` that is null while anything is unpriced — beside the **actual**: how many requests were raised from it and what they asked, had approved and had paid. `procurement_visible` says whether the reader was allowed to see that second half at all, because the sums come back empty either way and a nought would read as *nobody has asked yet* (0066) |
 | `v_product_bom` | per product: each component resolved to a name and a price — the catalogue's **standard price**, falling back to the **last price paid**, and the view says which — plus `qty_with_waste`, a subtotal, the material cost per unit, and how many components could not be priced. Computed on read, never stored (A3, D149) |
 | `v_work_order` | per order: `done` per stage, `current_stage` (the furthest with anything finished), `completed` (through the last stage), `percent` — counted as **stages finished across the quantity**, not as the furthest stage reached — `days_left`, `late`, and the warnings in words |
 
