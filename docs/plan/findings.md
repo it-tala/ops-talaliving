@@ -4357,3 +4357,86 @@ code does*. Where the code and its own stated intent disagree, doing what the
 code does would carry the bug across and make it a database's answer instead
 of a screen's — harder to see and quoted more widely. The demo's screens should
 be corrected to match; that is the design session's file, not this one's.
+
+---
+
+## F110 — the demo's stock list and the database's catalogue are two vocabularies
+
+`stockItems` filters the catalogue by `STOCKED_CATEGORIES`, a hard-coded set in
+`src/demo/fixtures/reference.ts`:
+
+```
+kayu · panel · engsel-rel · handle · pengikat · cat · pelarut
+lem · abrasif · mesin · kemasan · kantor
+```
+
+`0006` seeded `ops_procure.item_categories` with a different list entirely:
+
+```
+production · sanding · finishing · packing · machining
+office · service · uncurated · raw-wood · hardware
+```
+
+Not one code appears in both. They are two answers to the same question,
+written months apart, and neither is wrong on its own — the demo's are the
+workshop's words, the ladder's are the ones the seed actually carries.
+
+**It is a swap hazard rather than a bug today.** Nothing is broken while the
+screens read fixtures; the moment `src/demo/api/inventory` re-exports from
+`src/lib/api`, the stock list filters live categories through a set that
+matches none of them and comes back **empty** — a rack with nothing on it,
+no error, and the same shape as F104's unpriced BOM.
+
+So the list is a table here, `ops_inv.stocked_categories`, seeded against the
+codes that exist. Two things follow.
+
+**A constant in the demo is a decision with no home in the database.** Every
+`Set` and `Record` in `src/demo/fixtures` that the logic branches on is a
+candidate for this, and the stock list is unlikely to be the only one. Worth a
+sweep before the swap rather than after.
+
+**Which of the two vocabularies is right is the owner's question, not this
+migration's.** The table is seeded from the ladder's codes because those are
+what items actually carry; if the workshop's words are the better list, that is
+a change to `0006`'s seed and to the demo together, in one commit, with
+somebody deciding — not a schema quietly preferring one.
+
+---
+
+## F111 — the fourth additive policy is the signal, not the fix
+
+`v_stock_item` returned no rows at all to somebody holding `inventory`. Same
+cause as F104 for the fourth time: the view reads a procurement table, carries
+`security_invoker`, and `items_read` in `0006` asks for `procurement.read`.
+
+The running count across this branch:
+
+| table | policy | for | migration |
+|---|---|---|---|
+| `items` | `items_read_production` | the BOM's names and prices | 0060 |
+| `vendors` | `vendors_read_production` | the vendor leg's name | 0063 |
+| `vendors` | `vendors_read_inventory` | the timber load's vendor | 0070 |
+| `items` | `items_read_inventory` | every name on the stock list | 0071 |
+
+Each one is defensible on its own and the argument is always procurement's own,
+from `0006`: *hiding the list would make every "which job is this for?"
+unanswerable.* Four of them is no longer a series of exceptions; it is a rule
+that has outgrown where it lives.
+
+It cannot be fixed from this branch. `items_read` and `vendors_read` are in
+`0006`, which has been applied (0028), so editing them is exactly what that
+migration forbids — and an additive policy is the only door left open.
+
+What the procurement session should write, in a migration they own: one
+`items_read` and one `vendors_read` that name every module which **references**
+the catalogue without owning it, then drop the four above. The predicate is one
+line — `has_permission('procurement.read') or has_permission('production.read')
+or has_permission('inventory.read')` — and having it in one place is the whole
+point, because the fifth module to need it will otherwise add a fifth policy
+and nobody will be counting.
+
+The general shape, which is worth more than the fix: **reference data owned by
+one module and read by three is not that module's private table, and a policy
+written as though it were will be patched from the outside until somebody
+notices.** The patches are cheap, which is why four of them accumulated without
+an argument.
