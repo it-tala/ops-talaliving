@@ -6,3 +6,5 @@ out/
 *.log
 .DS_Store
 tsconfig.tsbuildinfo
+.open-next/
+.wrangler/

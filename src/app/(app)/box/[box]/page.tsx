@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { use, useState } from "react";
 import Link from "next/link";
 import { PackageCheck, AlertTriangle, MapPin, ArrowLeft, Wrench } from "lucide-react";
 import { Badge, Button, Card, PageHeader } from "@/components/ui/primitives";
@@ -29,8 +29,12 @@ const TONE: Record<BoxStatus, "slate" | "amber" | "green" | "red" | "violet"> = 
  *  largest thing on the screen, the three actions are thumb-sized, and the
  *  only one that asks for typing is the one that must — *what is wrong*.
  */
-export default function BoxScanPage({ params }: { params: { box: string } }) {
-  const boxNo = decodeURIComponent(params.box);
+export default function BoxScanPage({ params }: { params: Promise<{ box: string }> }) {
+  /* Next 15 hands route params to the page as a promise, so it can start
+     rendering before the segment is resolved. `use` unwraps it here — the
+     rest of the component reads the same plain string it always did. */
+  const { box } = use(params);
+  const boxNo = decodeURIComponent(box);
   const { can } = useSession();
   const [state, reload] = useLoad(() => delivery.getBox(boxNo), [boxNo]);
   const mayEdit = can("project.update");

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { use, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft, Banknote, CalendarClock, FileText, Link2, Package, PenLine, Send, Lock,
@@ -37,8 +37,12 @@ const TERM_TONE: Record<PoTermState, string> = {
   "NOT DUE": "slate",
 };
 
-export default function PoDetailPage({ params }: { params: { po: string } }) {
-  const poNo = decodeURIComponent(params.po);
+export default function PoDetailPage({ params }: { params: Promise<{ po: string }> }) {
+  /* Next 15 hands route params to the page as a promise, so it can start
+     rendering before the segment is resolved. `use` unwraps it here — the
+     rest of the component reads the same plain string it always did. */
+  const { po } = use(params);
+  const poNo = decodeURIComponent(po);
   const { can, hasAuthority } = useSession();
   const { toast } = useToast();
   const [detail, reload] = useLoad(() => procurement.getPoDetail(poNo), [poNo]);
