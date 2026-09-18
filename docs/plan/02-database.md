@@ -1914,7 +1914,8 @@ numbers and a workshop that conflates them runs out on a Saturday.
 
 | Constraint | Why |
 |---|---|
-| `bom_components` UNIQUE `(product_id, ref_code)` | one line per component — change the quantity, don't add a second row |
+| `bom_components` UNIQUE `(product_id, rev, ref_code)` | one line per component **per revision** — change the quantity, don't add a second row. The key in this table said `(product_id, ref_code)`, which predates `bom_revisions` (D256) and would have allowed one line across every version of a BOM |
+| `bom_components` and `bom_revisions` writable **only while the revision is a draft** | a released revision is what a June work order is pinned to. Editing or deleting a line out of it silently rewrites what that wardrobe was made of, and no foreign key would complain |
 | `bom_components` CHECK `qty > 0`, `waste_percent BETWEEN 0 AND 90` | |
 | `bom_components` CHECK `NOT (kind = 'product' AND ref_code = parent code)` | a product cannot be a component of itself |
 | `ref_code` **not** a foreign key | the workshop knows it needs a steel frame before procurement has a code for one. Unresolved codes are shown, not refused (A6) |

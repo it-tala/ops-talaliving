@@ -4103,3 +4103,46 @@ ordinary column can be handed a red build in a module it has never opened, and
 the right response is to fix what the tool names rather than to rename the
 column. A convention is only cheap while everybody is actually following it;
 the arrears fall due the first time somebody grows the namespace.
+
+---
+
+## F104 — a view that priced nothing, because the reader could not see the other schema
+
+`v_product_bom` resolves each BOM line to a name and a price out of
+`ops_procure.items`. Its smoke asserted a plank at Rp 150.000 and got null.
+
+Not a fixture bug. The view carries `security_invoker`, so it reads
+`ops_procure.items` as whoever is looking, and `items_read` in `0006` requires
+`procurement.read`. A workshop user holds `production`. Every line of every
+bill of material came back **unnamed and unpriced** — no error, no refusal, a
+table of plausible nulls that reads as *nobody has priced any of this*.
+
+That is the same failure as F97's `undefined` title and F100's swept-in
+`unpaid`: the wrong answer is a well-formed value, so nothing downstream has
+anything to complain about.
+
+The fix is an additive policy on their table, `items_read_production`, scoped
+to `production.read`. Policies are OR'd, so procurement's own is untouched.
+The argument for it is procurement's own, written in `0006` about projects —
+*read by everybody who can open any module that spends against them; hiding the
+list would make every "which job is this for?" unanswerable*. A BOM line whose
+item cannot be named makes *what is this component* unanswerable in the same
+way. It is scoped rather than `true` on purpose: vendors, orders and what was
+paid stay where they were.
+
+Three things worth keeping.
+
+**`security_invoker` turns an access question into a data question.** Without
+it the view would have priced everything for everybody, which is worse; with
+it, a missing grant looks exactly like missing data. The cost is real and the
+alternative is not better — it just moves the failure somewhere nobody checks.
+
+**A cross-schema join is a permission the design never wrote down.** Nothing in
+`02-database.md` says *production reads the item catalogue*, and the view it
+specifies cannot work without that. The permission was implied by a view
+definition, three documents away from the policy that decides it.
+
+**The assertion that caught it printed nothing.** `'got ' || b.unit_price` is
+null when the value is, so the failure read `assertion failed` with no detail —
+at the exact moment the detail was the whole point. Every message in that smoke
+is `coalesce`d now, and the one for the price says what to suspect.
