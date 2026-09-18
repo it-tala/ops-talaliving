@@ -1486,6 +1486,7 @@ erDiagram
     }
     day_marks {
         uuid id PK
+        text mark_no UK "dmk-26-09-18_01 - the evidence road needs a public code (ADR-004)"
         uuid employee_id FK "NULL = the whole office"
         date work_date
         day_mark_t kind "holiday|half_day|absent|sick|leave|permit"
@@ -1553,6 +1554,8 @@ slots are computed, never stored.
 | `attendance_scans` CHECK `source = 'manual' → reason IS NOT NULL` | a time somebody typed says why the machine missed it (D137) |
 | `day_marks` UNIQUE `(work_date, employee_id)` incl. NULL | one mark per person per day, one office-wide mark per day. Postgres needs `NULLS NOT DISTINCT` here |
 | `day_marks.reason` NOT NULL | *setengah hari* with no reason is a decision nobody can check in six months (D142) |
+| `day_marks.mark_no` NOT NULL UNIQUE, from `next_doc_number('dmk')` | a *sakit* day is paid when a `Surat Dokter` is linked, and `core.attachment_links.entity_no` is a public code and never a uuid (ADR-004). Without it the one mark that can be worth money is the one that cannot carry evidence |
+| `day_marks` CHECK `employee_id IS NOT NULL OR kind = 'holiday'` | an office-wide mark is a holiday or nothing. *sakit* for everybody is not something that happens; it is a mis-click that silently pays the whole company a day |
 | `overtime_lines` UNIQUE `(sheet_id, employee_id)` | one line per person per sheet — a second entry for the same night is a second sheet |
 | `overtime_sheets` CHECK `leader_approved_at IS NULL OR hrd_checked_at IS NOT NULL` | leadership signs **after** HRD, not instead of it (D145) |
 | `overtime_sheets` CHECK `kind = 'staff' → leader_approved_at IS NULL` | a staff session never waits on leadership (D146) |

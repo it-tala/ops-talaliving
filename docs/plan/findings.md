@@ -3861,3 +3861,77 @@ mind.** A file mixing a constant and a hook will hand the constant to the
 client graph on the strength of the hook alone. The split we now rely on is
 implicit; if `brand.ts` grows anything that genuinely needs the directive, the
 constant has to move to its own file rather than the directive coming back.
+
+---
+
+## F98 — the plan counts a system that has since doubled
+
+Picking up Phase 2 meant reading `03-estimate.md` to see what was left, and two
+of the figures it reasons from no longer describe this repository.
+
+**Services: the documents say eight, `src/lib/live.ts` implies eleven, and
+there are ten.** `phase-2/README.md` opens with "52 screens, 8 services"; the
+comment in `live.ts` says `src/lib/api` implements "three of the eleven" and
+calls the remainder "the eight unimplemented services". `src/demo/api/index.ts`
+exports ten, and it is the list by construction — it is what screens import.
+Three are built, so **seven** are outstanding, not eight.
+
+**Service functions: the estimate says 154, and there are 280.** That figure
+was measured at the end of Phase 1, at M26. M27–M64 added the pay split, the
+schedules, the KPI board, vendor legs, the BOM revisions and the rest, and
+nobody re-counted. B2 is sized as "2.583 lines of TS logic" and B3 as "~25
+functions" — both anchored to the smaller surface.
+
+The consequence is not that the estimate is wrong. It is that **20–33 sessions
+is a floor rather than a range**, and the two items that grow are the two the
+document already calls the largest and the most load-bearing. Anybody planning
+against 3–5 weeks should know the denominator moved under it.
+
+The thing worth keeping: **a number in a planning document is a measurement
+with a date on it, and this one had neither.** The counts above are one command
+each against the code (`grep -c '^export \* as' src/demo/api/index.ts`,
+`grep -c '^export \(async \)\?function' src/demo/api/*.ts`). A figure that can
+be re-derived in a second and is quoted from memory for thirty milestones is a
+figure that will be wrong by the time it decides anything.
+
+---
+
+## F99 — the one mark that can be worth money was the one that could carry no evidence
+
+`hr.day_marks` transcribed almost mechanically from `02-database.md`, and then
+stopped on *sakit*. The rule is that a sick day is paid when a `Surat Dokter`
+is linked to the mark, on the same evidence road as every nota and receiving
+photo (D144, ADR-010). The road is `core.attachment_links`, and its
+`entity_no` is **a public code, never a uuid** (ADR-004).
+
+`day_marks` had no public code. The design's diagram gives it `id` and nothing
+else, so the single mark that can reach a payslip was the single one that could
+not be attached to.
+
+It survived design review because in the demo the distinction does not exist.
+There a mark's id *is* `dmk_03` — readable, stable, quotable — so
+`entity_no: mark.id` is both a uuid-shaped key and a public code at once, and
+the fixture and the derivation agree with each other. Against a database they
+come apart: `id` becomes `gen_random_uuid()`, and an `entity_no` holding it
+breaks the one rule that makes the evidence road survive a service being split
+out.
+
+The fix is `mark_no`, from `next_doc_number('dmk')`, and the precedent was
+already written down: `rcv` was added to `doc_prefixes` during procurement for
+this same reason, with the comment *a prefix nobody has registered is a number
+nobody recognises*.
+
+Two things to keep.
+
+**A fixture id that reads like a public code hides whether the code exists.**
+Every demo id in this project is human-readable, which is what makes fixtures
+reviewable — and it means no screen, no derivation and no review can tell a
+public code from a primary key. The places that will bite are exactly the ones
+where the two are different columns in Postgres, and there is no way to find
+them by reading the demo. They are found by writing the table.
+
+**The audit trail was right to disagree.** `writeAudit` records a mark as
+`work_date/employee_no` — `2026-09-03/B-009` — while the link records the
+mark's id. That looked like a drift worth reconciling and it is not: one is a
+key a person reads in a trail, the other is a key a row points at. Making them
+the same string would have been the tidy answer and the wrong one.

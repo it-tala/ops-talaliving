@@ -58,14 +58,30 @@ saying why.
 | 0020 | `acct_views` | `v_account_balance`, `v_transaction`, `v_transaction_detail`, `v_allocation`, `v_vendor_payment`, `v_inbox_health`, `v_bank_statement`, `v_statement_suggestion` | **Done.** The database owns the balance (D9); the leadership figure is *locked, not hidden* (D87) |
 | 0021 | `acct_seams` | `post_transaction`, `void_transaction`, `allocate_payment`, `supersede_allocation`, `resolve_inbox` | **Done.** The two money seams (ADR-006), `post_ledger` or 403 |
 | 0022 | `acct_calendar` | `cash_components`, `cash_overrides`, `cash_settlements`, `cash_events()`, `v_cash_cell`, `v_cash_row`, `v_cash_position`, `v_cash_unplanned` | **Done.** Three tables and **no projection stored** (D109–D115). The engine is a set-returning function rather than a view, because claiming is sequential — see below |
-| 00xx | `hr_people` | `employees` | `paid_leave_days` per person (D144); nobody is deleted, `left_on` retires |
-| 00xx | `hr_attendance` | `attendance_imports`, `attendance_scans`, `day_marks` | one row per **tap** (D141); a mark never overrides a scan (D142); re-upload is a no-op (D143) |
+| 0040 | `hr_people` | `employees`, `pay_rule_sets` | **Done.** `paid_leave_days` per person (D144); nobody is deleted, `left_on` retires. The rule book came here rather than into its own file because `employees` is the only table that reads it and a version is written once |
+| 0041 | `hr_attendance` | `attendance_imports`, `attendance_scans`, `day_marks` | **Done.** One row per **tap** (D141); a mark never overrides a scan (D142); re-upload is a no-op (D143). `day_marks` gained `mark_no` — see C11 |
+| 0042 | `hr_views` | `v_leave_used`, `v_day_mark_value` | **Done.** Where the marks reach the money (D144): the letter pays the day the moment it is linked, the entitlement is spent in date order, and neither is a column |
 | 00xx | `hr_overtime` | `overtime_sheets`, `overtime_lines` | two kinds of sheet (D146); leadership signs **after** HRD (D145); `form_amount` is the GAJI column of the paper (D154) |
 | 00xx | `hr_payroll` | `payroll_runs`, `payroll_adjustments` | payroll lines are **not a table** — they are a view over days and approved overtime (A3); adjustments are typed, signed, reasoned, and frozen once the run leaves DRAFT (D155) |
 | 00xx | `prod_master` | `products`, `bom_components` | products are *made*, items are *bought* — different tables (D149); size is three numbers (D150); an unpriced component marks the total incomplete, never zero |
 | 00xx | `prod_orders` | `process_stages` (seed), `work_orders` | seven stages as **data** (Q35); late-first ordering is a view, not a column |
 | 00xx | `prod_progress` | `progress_entries` | append-only; a correction is a negative entry (A5); signing an overtime sheet posts progress (D147) |
 | 00xx | `inv_timber` | `log_purchases`, `log_pieces`, `sawn_boards` | two volumes with a saw between them (D153); the seller's claimed m³ is kept **beside** ours, never replacing it; yield only over logs actually sawn (F46) |
+
+HR starts at **0040**, not 0023. Two build sessions are running against one
+ladder — accounting and procurement are being taken to production and own the
+numbers from 0023 — and two sessions choosing one filename is a merge conflict
+in the single place where the resolution is not obvious: the order the ladder
+applies in. `rebuild.sh` applies in lexical order and never asks why 0023 is
+missing, so the gap costs nothing.
+
+**Three HR tables are still unbuildable, and it is not a design gap.**
+`tasks`, `enrolments` and `contribution_rates` need `task_status_t`,
+`task_ref_t` and `contribution_scheme_t`. All three are in
+`src/services/hr/contracts.ts`, none is in `0001_core_types.sql`: they arrived
+with M50 and M51, after the ladder's type file was written. They are added
+with the tables that need them, so neither migration is a file of loose types
+waiting for its tables.
 
 The numbers past `0019` are left open on purpose. Each remaining schema takes
 its tables, its views and its seams together, and how many files that is depends
@@ -262,3 +278,4 @@ The build session appends here; the design session applies them to
 | C8 | `createReceipt` takes `DocKind` display strings | `core.doc_kind_t` codes — `goods_photo`, `delivery_note` | C1, applied at the one call site that passes kinds in rather than reading them out |
 | C9 | `attachment_links` fixtures write `entity: "overtime"` | `ops_core.link_entity_t` says `overtime_sheet` | every other value in that enum names its table — `pr_line`, `receipt`, `purchase_order`. `overtime` is the one outlier, and two names for one parent is how a strip ends up half empty. Nothing breaks today: `hr` is not built yet |
 | C10 | `LinkEntity` lists `"po"` and `"overtime"` | the code writes `purchase_order` (12×) and `overtime_sheet` (5×) | the **type** is stale against its own call sites, not the schema. No schema change; the type is what needs correcting |
+| C11 | `DayMark` has an `id` and no public code; the demo links a `Surat Dokter` with `entity_no: mark.id` | `ops_hr.day_marks.mark_no`, `dmk-26-09-18_01`, from `next_doc_number()` | `attachment_links.entity_no` is a **public code, never a uuid** (ADR-004). In the demo `dmk_03` is both; against a database they are different things, and a mark that can be paid has to carry the code. `rcv` was added to `doc_prefixes` for exactly this reason. The audit trail keeps writing `work_date/employee_no` — that is a key for people to read, and a different job |
