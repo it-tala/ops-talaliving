@@ -122,7 +122,7 @@ function toLink(l: LinkRow): AttachmentLink {
 async function withLinks(rows: AttachmentRow[]): Promise<Result<AttachmentView[]>> {
   if (rows.length === 0) return ok(SERVICE, []);
   const sb = supabaseBrowser();
-  const { data, error } = await sb
+  const { data, error } = await db()
     .from("v_attachment_link")
     .select("*")
     .in("attachment_id", rows.map((r) => r.id));
@@ -146,7 +146,7 @@ async function withLinks(rows: AttachmentRow[]): Promise<Result<AttachmentView[]
  */
 export async function byEntity(entity: LinkEntity, entityNo: string): Promise<Result<AttachmentView[]>> {
   const sb = supabaseBrowser();
-  const { data, error } = await sb
+  const { data, error } = await db()
     .from("v_attachment_link")
     .select("attachment_id")
     .eq("entity", entity)
@@ -156,7 +156,7 @@ export async function byEntity(entity: LinkEntity, entityNo: string): Promise<Re
   const ids = [...new Set((data ?? []).map((l) => (l as { attachment_id: string }).attachment_id))];
   if (ids.length === 0) return ok(SERVICE, []);
 
-  const { data: atts, error: attErr } = await sb
+  const { data: atts, error: attErr } = await db()
     .from("v_attachment").select("*").in("id", ids).order("uploaded_at", { ascending: false });
   if (attErr) return fail(SERVICE, attErr);
   return withLinks((atts ?? []) as AttachmentRow[]);
@@ -183,7 +183,7 @@ export async function getAttachment(id: string): Promise<Result<AttachmentView>>
 
 export async function listAttachments(): Promise<Result<AttachmentView[]>> {
   const sb = supabaseBrowser();
-  const { data, error } = await sb
+  const { data, error } = await db()
     .from("v_attachment").select("*").order("uploaded_at", { ascending: false }).limit(300);
   if (error) return fail(SERVICE, error);
   return withLinks((data ?? []) as AttachmentRow[]);
@@ -237,7 +237,7 @@ export async function link(
      returns the id of the link that already existed — with the `linked_by` and
      `linked_at` of whoever filed it first, which is the answer to "why is this
      file on this row" and is not the caller. */
-  const { data: row, error: readErr } = await sb
+  const { data: row, error: readErr } = await db()
     .from("v_attachment_link").select("*").eq("id", res.data.link_id).maybeSingle();
   if (readErr) return fail(SERVICE, readErr);
   if (!row) return notFound(SERVICE, "link_not_found", "Link not found.");
@@ -250,7 +250,6 @@ export async function link(
  *  demo returns is kept, so the screens that call it do not change.
  */
 export async function unlink(linkId: string): Promise<Result<{ removed: string }>> {
-  const sb = supabaseBrowser();
   const { data, error } = await db().rpc("attach_unlink", {
     p_link_id: linkId,
     p_key: null,

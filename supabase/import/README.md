@@ -32,7 +32,7 @@ Each file ends by printing what it did. Read that, not the exit code.
 | 2 | `accounts` → `ops_acct.accounts` | 6 | `01_reference.sql` |
 | 3 | `projects` → `ops_procure.projects` | 5 | `01_reference.sql` |
 | 4 | `vendors` → `ops_procure.vendors` | 296 | `01_reference.sql` |
-| 5 | `items` → `ops_procure.items` | 1.020 | **held** — needs a decision, see below |
+| 5 | `items` → `ops_procure.items` | 1.020 | `02_items.sql` |
 
 ### Step 1 is not an `insert … select`
 
@@ -50,40 +50,37 @@ honest order is *invite, then they arrive*, not *insert, then hope*.
 
 Held out of `01_reference.sql` rather than half-done.
 
-### Step 5 needs a decision, and it is the owner's
+### Step 5 — answered, 2026-09-18
 
-`04-data-migration.md` says steps 1–5 "resolve cleanly". Measured against the
-live database on 2026-09-18, items do not:
+`04-data-migration.md` said steps 1–5 "resolve cleanly". Measured against the
+live database, items did not: **587 of 1.020 had no unit at all**, 288 matched
+only after a case fold, and 145 used 32 names the new vocabulary did not have —
+and most of those were not typos but units this business genuinely uses.
 
-| | items |
-|---|---:|
-| **`unit` blank** | **587** |
-| matches an `ops_procure.uom` code after lowercasing | 288 |
-| still unmatched, across 32 distinct values | 145 |
+The owner answered both halves:
 
-`ops_procure.items.base_uom` is `not null` and references `ops_procure.uom`, so
-none of the 732 can land without an answer. The 288 are free — a case fold.
-The other two groups are questions:
+> *import semuanya, tanpa satuan biarkan apa adanya*
+> *tambahkan satuan dalam bahasa inggris*
 
-**The 587 blanks.** There is no unit in the old system. Picking one here would
-be inventing a fact about a thing somebody buys.
+`0031` carries them. Twelve units were added in English — `person`, `pail`,
+`lot`, `carton`, `gallon`, `can`, `bottle`, `ream`, `drum`, `bale`, `bag`,
+`ml` — plus `day`, `week` and `month`, which needed a **time** dimension the
+type did not have: calling a day a `count` would let a conversion one day be
+asked how many days are in a kilogram.
 
-**The 32 unmatched values**, and most are not typos — they are units this
-business genuinely uses and the new vocabulary does not have:
+Six legacy names fold onto units that already existed (`liter`→`ltr`,
+`btg`→`batang`, `cbm`→`m3`, `pak`→`pack`, `dz`→`lusin`, `m`→`meter`), because
+two codes for one thing is a catalogue that disagrees with itself.
 
-```
-liter 25 · dus 24 · orang 22 · pail 16 · lot 10 · galon 5 · kaleng 4
-pail/drum 4 · dos 3 · pak 3 · botol 2 · ds 2 · l 2 · pax 2 · person 2
-rim 2 · roll/pcs 2 · and 15 more with one item each
-```
+And **`base_uom` is now nullable**, which is what *leave them as they are*
+requires: `not null` left only two options, inventing a unit for 587 things
+somebody buys or leaving 58% of the catalogue unimported. A null means nobody
+wrote one down — a question somebody can answer. A defaulted `pcs` would mean
+*one piece*, indistinguishable from the items that really are counted that way.
 
-Some fold (`l`, `liter` → `ltr`; `btg` → `batang`; `ds`, `dos` → `dus`). Some
-do not exist in `ops_procure.uom` at all — `orang`, `lot`, `galon`, `pail`,
-`drum`, `rim`, `botol`, `kaleng` — and forcing them into `pcs` would record a
-measurement the business does not use. `uom` is a table; adding rows to it is
-cheaper than losing the distinction.
-
-Neither question is one an import should answer on its own, so it does not.
+Nine items keep no unit for a different reason: `fil`, `gendel`, `ltrset`,
+`roll/pcs` and `pail/drum`. The last two name two units at once, which is not a
+unit. Their original text is kept in `legacy_map.note`.
 
 ## What the import must never do
 

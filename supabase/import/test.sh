@@ -97,21 +97,76 @@ A1=$(q -Atc "select count(*) from ops_acct.accounts")
 pass "accounts mapped, none inserted"
 
 echo
+echo "── items ───────────────────────────────────────────────────────────"
+q -q -f "$HERE/02_items.sql" >/dev/null
+pass "02_items (first run)"
+
+I1=$(q -Atc "select count(*) from ops_procure.items")
+[ "$I1" = "5" ] || fail "every item lands, unit or no unit" "saw $I1 of 5"
+pass "all 5 items imported"
+
+# The owner's ruling, made literal: an item with no unit is imported with none.
+# Getting this wrong is not a crash — it is a `pcs` nobody chose, which reads
+# exactly like a unit somebody did.
+U=$(q -Atc "select coalesce(base_uom,'(none)') from ops_procure.items where name='PAKU BETON'")
+[ "$U" = "(none)" ] || fail "no unit stays no unit" "saw '$U' — a unit was invented"
+pass "no unit stays no unit"
+
+# `pail/drum` names two units, which is not a unit. It must not silently become
+# one of the two.
+U=$(q -Atc "select coalesce(base_uom,'(none)') from ops_procure.items where name='CAT DASAR'")
+[ "$U" = "(none)" ] || fail "an ambiguous unit is not guessed" "saw '$U'"
+q -Atc "select note from ops_core.legacy_map
+         where source_table='public.items'
+           and target_id=(select id from ops_procure.items where name='CAT DASAR')" \
+  | grep -q "pail/drum" || fail "the original unit text is kept" "note lost it"
+pass "'pail/drum' refused, original kept"
+
+# Case fold, fold-onto-existing, and a code 0031 added.
+for pair in "SEKRUP 3 INCI:pcs" "TINER SUPER:ltr" "TUKANG AMPLAS:person"; do
+  n="${pair%%:*}"; want="${pair##*:}"
+  got=$(q -Atc "select coalesce(base_uom,'(none)') from ops_procure.items where name='$n'")
+  [ "$got" = "$want" ] || fail "$n maps to $want" "saw '$got'"
+done
+pass "PCS→pcs, Liter→ltr, orang→person"
+
+# `non-item` is not one of ours. It lands uncurated rather than guessed at.
+C=$(q -Atc "select category_code from ops_procure.items where name='CAT DASAR'")
+[ "$C" = "uncurated" ] || fail "an unmapped category lands uncurated" "saw '$C'"
+pass "unmapped category → uncurated"
+
+# A last-vendor name that resolves becomes a key; one that does not stays null
+# rather than creating a vendor from a name nobody checked.
+LV=$(q -Atc "select (last_vendor_id is not null)::text from ops_procure.items where name='SEKRUP 3 INCI'")
+[ "$LV" = "true" ] || fail "a known last vendor resolves" "saw $LV"
+LV=$(q -Atc "select (last_vendor_id is null)::text from ops_procure.items where name='CAT DASAR'")
+[ "$LV" = "true" ] || fail "an unknown last vendor stays null" "a vendor was invented"
+pass "last vendor resolved, never invented"
+
+# Re-read the map now that both files have run. Taken before `02_items` it
+# would be a count from a different moment, and comparing it with the second
+# run would report a failure that is only the measurement moving.
+M1=$(q -Atc "select count(*) from ops_core.legacy_map")
+
+echo
 echo "── second run — the one that matters ───────────────────────────────"
 q -q -f "$HERE/01_reference.sql" >/dev/null
-pass "01_reference (second run)"
+q -q -f "$HERE/02_items.sql" >/dev/null
+pass "01_reference + 02_items (second run)"
 
 V2=$(q -Atc "select count(*) from ops_procure.vendors")
 P2=$(q -Atc "select count(*) from ops_procure.projects")
 M2=$(q -Atc "select count(*) from ops_core.legacy_map")
 A2=$(q -Atc "select count(*) from ops_acct.accounts")
+I2=$(q -Atc "select count(*) from ops_procure.items")
 RUNS=$(q -Atc "select count(distinct run_id) from ops_core.legacy_map")
 
 [ "$V2" = "$V1" ] || fail "re-running imports no vendor twice"  "$V1 then $V2"
 [ "$P2" = "$P1" ] || fail "re-running imports no project twice" "$P1 then $P2"
 [ "$A2" = "$A1" ] || fail "re-running inserts no account"       "$A1 then $A2"
+[ "$I2" = "$I1" ] || fail "re-running imports no item twice"    "$I1 then $I2"
 [ "$M2" = "$M1" ] || fail "the map does not grow on a re-run"   "$M1 then $M2"
-[ "$RUNS" = "1" ] || fail "a no-op run records no second run"   "saw $RUNS run ids"
+[ "$RUNS" = "2" ] || fail "two files, two run ids on the first pass" "saw $RUNS"
 pass "second run changed nothing"
 
 echo
