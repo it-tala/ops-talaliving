@@ -63,6 +63,7 @@ export const LIVE_SERVICES = ["identity", "procurement", "accounting"] as const;
 export const LIVE_ROUTES: readonly string[] = [
   "/accounting/documents",
   "/accounting/rekening-koran",
+  "/it/aktivitas",
   "/it/audit",
   "/it/pengguna",
   "/it/peran",
