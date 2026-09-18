@@ -1567,6 +1567,9 @@ slots are computed, never stored.
 | `payroll_adjustments.reason` NOT NULL, non-empty | a deduction an employee cannot read is one they cannot dispute (D155) |
 | `payroll_adjustments` CHECK `amount <> 0` | a zero adjustment is a row that says nothing and prints a line on a payslip |
 | `payroll_adjustments` writable only while the run is `DRAFT` | an approved run is a figure somebody signed; moving money inside it afterwards is a new run, not an edit (D155) |
+| `payroll_runs` status moves `DRAFT → APPROVED → PAID` and never back | the freeze above is undone from the other end if a run can be reopened. Correcting an approved run is a new run (D155) |
+| `payroll_runs` CHECK `status = 'PAID' → paid_trx_no IS NOT NULL` | a run that says it was paid and names no ledger row is a payment nobody can find. The code is `acct`'s, quoted and never joined (ADR-004) |
+| `overtime_sheets` CHECK each signature is a person **and** a moment, or neither | a `leader_approved_at` with no `leader_approved_by` is a signature with no signatory, and the stage view would read it as approved |
 | `overtime_lines.form_amount` NULL-able | most nights have no figure on the paper; a nought there would mean *worked for free* rather than *not stated* (D154) |
 
 ### Berkas 201 and leave

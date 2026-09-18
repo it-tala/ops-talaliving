@@ -3935,3 +3935,43 @@ them by reading the demo. They are found by writing the table.
 mark's id. That looked like a drift worth reconciling and it is not: one is a
 key a person reads in a trail, the other is a key a row points at. Making them
 the same string would have been the tidy answer and the wrong one.
+
+---
+
+## F100 — "pending" defined as *not the other things* counted a decision as a queue
+
+`v_payroll_run` reports how many overtime hours in a period are still waiting
+on somebody. The first version said what waiting was **not**:
+
+```sql
+sum(c.hours) filter (where not c.payable and c.stage <> 'declined')
+```
+
+which reads perfectly and is wrong. `overtime_stage_t` has eight values, and
+two of them mean *decided against*: `declined` for a production sheet
+leadership refused, and `unpaid` for a staff sheet HRD turned off. The filter
+excluded the first and swept the second in, so a night HRD had already ruled on
+— with a written reason, on screen — came back to payroll as outstanding work.
+
+It was found by an assertion that was written before the view was run, and
+failed with `not pending, it is decided, got 2`. The two hours were Rina's
+tutup-buku session from the smoke's own staff branch, three blocks earlier.
+
+The fix is to name the waiting states instead:
+
+```sql
+filter (where c.stage in ('waiting_hrd','waiting_surat','waiting_leader'))
+```
+
+Same answer today, different behaviour tomorrow. **A negative filter over an
+enum grants membership by default**: the ninth stage anybody adds is pending
+unless they remember this line, and nothing will fail when they do not — the
+figure just quietly grows. A positive one refuses by default, and a stage that
+belongs in the queue has to be put there on purpose.
+
+The general form is the one this project keeps arriving at from different
+directions. F92 was a `done: 0` that answered two questions at once; C11 was a
+demo id that was a primary key and a public code at once. Here it is a filter
+that means *waiting* and computes *not yet resolved*. Each time the fix is the
+same: **stop inferring the category from the absence of the others, and state
+the category.**
