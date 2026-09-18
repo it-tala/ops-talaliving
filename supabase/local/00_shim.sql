@@ -30,9 +30,25 @@ create table if not exists auth.users (
 -- The signed-in user, as the API sets it. Supabase reads a JWT claim; locally
 -- a session GUC does the same job, which is also how a test impersonates
 -- somebody.
+-- **Copied from the running project, verbatim** (2026-09-18). It reads the
+-- identity from two places, and the second is the one that matters: PostgREST
+-- sets `request.jwt.claims` as a JSON object and has done for years, while the
+-- per-claim `request.jwt.claim.sub` GUC is the older form.
+--
+-- The shim used to read only the older one. Nothing in the ladder noticed,
+-- because every migration goes through `auth.uid()` and never touches the
+-- setting directly — checked, 14 files, zero direct reads. But it meant the
+-- whole smoke suite exercised a branch production may never take, and a
+-- harness that models the easy half of reality is a harness that agrees with
+-- you for the wrong reason. `12_auth_claims.sql` now proves both forms give
+-- the same answer.
 create or replace function auth.uid() returns uuid
 language sql stable as $$
-  select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+  select
+  coalesce(
+    nullif(current_setting('request.jwt.claim.sub', true), ''),
+    (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')
+  )::uuid
 $$;
 
 do $$ begin
@@ -40,3 +56,18 @@ do $$ begin
   if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated nologin; end if;
   if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role nologin bypassrls; end if;
 end $$;
+
+-- All three roles may reach `auth.uid()` on a real project — checked against
+-- `john-lau-v01`, 2026-09-18, where `has_schema_privilege` and
+-- `has_function_privilege` are true for every one of them.
+--
+-- The shim did not grant it, and that went unnoticed for eleven smoke files
+-- because every one of them reaches `auth.uid()` from *inside* a `security
+-- definer` seam, which runs as the owner. The first test to call it directly
+-- as `authenticated` — the way a policy does — failed with *permission denied
+-- for schema auth*, against a harness where nothing was actually wrong.
+--
+-- A harness that is stricter than production makes a passing test meaningless
+-- in one direction and a failing one meaningless in the other. It matches now.
+grant usage on schema auth to anon, authenticated, service_role;
+grant execute on function auth.uid() to anon, authenticated, service_role;
