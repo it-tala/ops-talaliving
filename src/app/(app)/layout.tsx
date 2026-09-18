@@ -23,7 +23,7 @@ import { ActivityRecorder } from "@/components/activity-recorder";
  */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { ready, hasAnyModule } = useSession();
+  const { ready, hasAnyModule, needsSignIn } = useSession();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -36,10 +36,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const live = isRouteLive(pathname);
 
   useEffect(() => {
-    /* An account with no modules lands somewhere that says so, rather than
-     * bouncing between pages it may not open. */
-    if (ready && !hasAnyModule) router.replace("/no-access");
-  }, [ready, hasAnyModule, router]);
+    if (!ready) return;
+
+    /* **Two different nothings, and they are not the same door.** Nobody signed
+     * in goes to the sign-in screen; somebody signed in with no grants goes to
+     * the page that says who to ask. Sending the first to `/no-access` tells
+     * them to contact IT about an account they have not used yet, and sending
+     * the second to `/signin` asks them to authenticate again when they already
+     * have — both are dead ends, and both look like the application is broken.
+     *
+     * The order matters: `hasAnyModule` is false for a visitor with no session
+     * at all, so the sign-in check has to come first or it never runs. */
+    if (needsSignIn) { router.replace("/signin"); return; }
+    if (!hasAnyModule) router.replace("/no-access");
+  }, [ready, hasAnyModule, needsSignIn, router]);
 
   if (!ready) {
     return (
