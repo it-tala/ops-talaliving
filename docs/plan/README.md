@@ -147,14 +147,14 @@ API inventory and the estimate.
 | # | Milestone | Sessions | Status | Note |
 |---|---|---|---|---|
 | B0 | Foundation: schemas, enums, identity, audit, numbering, evidence | 0,5 | **DONE** | `supabase/migrations/0001–0006`, applied from nothing against Postgres 16. `rebuild.sh` re-applies the ladder; `smoke.sql` proves the access model **refuses** — HRD cannot approve funds, `write` is not `admin`, an authority is never implied by a level |
-| B1 | The remaining 21 migrations | 3–5 | TODO | procure PR/rounds/PO/receipts · acct ledger/inbox/calendar · hr · prod · inv |
-| B2 | Derivations → views | 4–6 | TODO | 2.583 lines of TypeScript. The demo's figures are the test data: if `v_cash_plan` does not also say *November*, one of the two is wrong |
-| B3 | Write seams → RPCs | 3–4 | TODO | ~25 functions, each with audit + outbox + refusal + idempotency |
+| B1 | The remaining 21 migrations | 3–5 | **DONE for core · procure · acct** | `0001–0023`, 46 tables, applied from nothing against Postgres 16 with `smoke.sh` green. `ops_hr`, `ops_prod` and `ops_inv` still have no tables at all — which is what makes their screens safe to leave dark |
+| B2 | Derivations → views | 4–6 | **IN PROGRESS** | 42 views written. The demo's figures are the test data: if `v_cash_plan` does not also say *November*, one of the two is wrong. What is left is no longer a guess — `check-live-routes.mjs` names the exact functions each dark route is waiting on |
+| B3 | Write seams → RPCs | 3–4 | **IN PROGRESS** | 69 functions written, each with audit + outbox + refusal + idempotency |
 | B4 | `src/lib/api` and the swap, one service at a time | 2–3 | TODO | same signatures, so no screen changes |
 | B5 | Supabase Auth and real sessions | 1 | TODO | `actAs` goes; the persona picker becomes dev-only |
 | B6 | Storage: bucket, signed URLs, sha256 | 1 | TODO | the evidence road end to end |
 | B7 | Smoke + RLS matrix tests | 2 | TODO | one refusal and one derivation per schema |
-| B8 | Data migration from Sheets + `john-lau` | 2–8 | BLOCKED | the only open-ended item: nobody has yet written down what must come across and in what state |
+| B8 | Data migration from Sheets + `john-lau` | 2–8 | TODO | `phase-2/04-data-migration.md` measures it and the owner answered its gate. No longer the open-ended item |
 | B9 | Parallel run and cutover | 2–3 | TODO | both systems in use, figures reconciled daily |
 
 **The ordering rule.** Per **schema**, not per layer: finish `procure` from

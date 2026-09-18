@@ -11,10 +11,10 @@
  *  picker keeps working in demo mode, where there is nothing to impersonate.
  */
 import type {
-  Session, Authority, ModuleName, ModuleLevel, ModuleGrant,
+  Session, Authority, ModuleName, ModuleLevel, ModuleGrant, AuditRowView,
 } from "@/services/identity/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { fail, fromSeam, notFound, ok, type Result } from "./_kit";
+import { fail, fromRows, fromSeam, notFound, ok, type Result } from "./_kit";
 
 const SERVICE = "identity" as const;
 
@@ -127,6 +127,47 @@ async function readBack(userId: string): Promise<Result<Session>> {
   if (error) return fail(SERVICE, error);
   if (!data) return notFound(SERVICE, "user_not_found", "User not found.");
   return ok(SERVICE, toSession(data as AccessRow));
+}
+
+/* ------------------------------------------------------------------ */
+/* The trail                                                           */
+/* ------------------------------------------------------------------ */
+
+/** `GET /identity/audit`. Every filter is applied by the database.
+ *
+ *  The demo filters an array it already holds; doing the same here would mean
+ *  fetching the whole trail to show three rows of it. These are the same five
+ *  filters the screen offers, pushed down to `ops_core.v_audit` — and the
+ *  refusal for somebody without `it.read` is the base table's policy, not a
+ *  check repeated here. This function cannot be where that rule lives, because
+ *  a second caller would then have to remember it.
+ *
+ *  `entity_no` and `actor` match on a substring, case-insensitively, because
+ *  that is what the boxes above them do: somebody types `pr-26` or part of an
+ *  address, not an exact key.
+ */
+export async function listAudit(
+  opts: {
+    entity_no?: string; actor?: string; outcome?: string;
+    action?: string; service?: string; limit?: number;
+  } = {},
+): Promise<Result<AuditRowView[]>> {
+  const sb = supabaseBrowser();
+  let q = sb.from("v_audit").select("*");
+
+  if (opts.entity_no) q = q.ilike("entity_no", `%${opts.entity_no}%`);
+  if (opts.actor) q = q.ilike("actor_email", `%${opts.actor}%`);
+  if (opts.outcome) q = q.eq("outcome", opts.outcome);
+  if (opts.action) q = q.eq("action", opts.action);
+  if (opts.service) q = q.eq("service", opts.service);
+
+  /* Newest first, and capped. The same 300 the demo settles on: a trail is
+     read by scrolling back from now, never by paging to the beginning. */
+  const { data, error } = await q
+    .order("at", { ascending: false })
+    .limit(opts.limit ?? 300);
+
+  return fromRows<AuditRowView[]>(SERVICE, data as AuditRowView[] | null, error);
 }
 
 /* ------------------------------------------------------------------ */

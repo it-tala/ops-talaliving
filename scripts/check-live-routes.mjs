@@ -24,6 +24,20 @@
  *  graph from each `page.tsx` through everything under `src/` and collects the
  *  service calls of the whole reachable set.
  *
+ *  ## Why it counts functions and not services
+ *
+ *  It used to record only *which service* a screen called, and ask whether that
+ *  service was exported from `src/lib/api/index.ts`. That passed a screen whose
+ *  service exists but whose **function** does not — `/accounting/rekening-koran`
+ *  calling `accounting.importStatement()` against a client that has never
+ *  implemented it. The failure is the one described above, one level down: the
+ *  route stays in the list, the screen still renders, and it breaks when the
+ *  call runs. Eight of the seventeen routes listed live were in that state.
+ *
+ *  So a route is live when every `service.function` it reaches is exported by
+ *  `src/lib/api/<service>.ts`. That also makes the list a to-do: a route drops
+ *  out naming exactly which functions B2/B3 still owe it.
+ *
  *    node scripts/check-live-routes.mjs           # verify (CI)
  *    node scripts/check-live-routes.mjs --write   # regenerate the list
  */
@@ -50,6 +64,28 @@ function liveServices() {
   return ALL_SERVICES.filter((s) => new RegExp(`export \\* as ${s} from`).test(src));
 }
 
+/* What each live service actually implements, by name. Read from the module
+   rather than listed here, for the same reason as above: a list is correct on
+   the day it is written. */
+function implementedFunctions(service) {
+  const f = join(ROOT, `src/lib/api/${service}.ts`);
+  if (!existsSync(f)) return new Set();
+  return new Set(
+    [...readFileSync(f, "utf8").matchAll(/^export (?:async )?function ([A-Za-z0-9_]+)/gm)]
+      .map((m) => m[1]),
+  );
+}
+
+/* Functions that exist in the demo and deliberately never will in `src/lib/api`.
+   Not gaps, so they must not hold a route back — but named, with the reason,
+   because an unexplained exception is how a guard quietly stops guarding. */
+const DEMO_ONLY = {
+  "identity.actAs":
+    "demo-only by design: impersonation against a real database is not a feature "
+    + "with a guard missing, it is the absence of authentication. B5 removes the "
+    + "caller in src/store/session.tsx.",
+};
+
 /* ── the import graph ──────────────────────────────────────────────────── */
 
 function resolveImport(spec, fromFile) {
@@ -66,7 +102,62 @@ function resolveImport(spec, fromFile) {
 
 const IMPORT_RE = /(?:^|\n)\s*(?:import|export)[\s\S]*?from\s+["']([^"']+)["']/g;
 
-/** Every service called by this file or anything it imports, transitively. */
+/** Source with strings and comments blanked, for the call scan only.
+ *
+ *  Permission codes are spelled exactly like service calls — `can("accounting.
+ *  plan_cash")`, `can("procurement.update")` — and prose in this repository
+ *  discusses `accounting.listDue` at length on purpose. Both would read as
+ *  calls, so both have to go before the scan. Imports are matched against the
+ *  untouched source, since blanking strings would take their paths with them.
+ *
+ *  It is a scanner rather than a few `replace` calls, and that is not
+ *  fastidiousness. The first cut blanked strings with a regex and then
+ *  comments, which meant an apostrophe in ordinary English — `don't`,
+ *  `the system's` — opened a string that ran to the next apostrophe and
+ *  swallowed whatever code lay between. It ate five real calls in
+ *  `/it/aktivitas` and two in `/accounting/tagihan`, and it ate them
+ *  *silently*: the guard reported fewer gaps, which reads exactly like
+ *  progress. Blanking comments first only moves the hole, because `//` inside
+ *  a URL string then starts a comment. One pass that knows which state it is
+ *  in has no such ordering to get wrong.
+ */
+function blankNonCode(src) {
+  let out = "";
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    const d = src[i + 1];
+
+    if (c === "/" && d === "/") {                       // line comment
+      while (i < src.length && src[i] !== "\n") i++;
+      continue;
+    }
+    if (c === "/" && d === "*") {                       // block comment
+      i += 2;
+      while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) i++;
+      i += 2;
+      out += " ";
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") {          // string or template
+      const quote = c;
+      i++;
+      while (i < src.length && src[i] !== quote) {
+        if (src[i] === "\\") i++;                        // skip the escaped char
+        i++;
+      }
+      i++;
+      out += quote + quote;
+      continue;
+    }
+
+    out += c;
+    i++;
+  }
+  return out;
+}
+
+/** Every `service.function` called by this file or anything it imports. */
 function servicesReachableFrom(entry) {
   const seen = new Set();
   const found = new Set();
@@ -78,10 +169,13 @@ function servicesReachableFrom(entry) {
     seen.add(file);
 
     const src = readFileSync(file, "utf8");
+    const code = blankNonCode(src);
     for (const s of ALL_SERVICES) {
-      /* `accounting.listAccounts(` — a call, not the word. The negative
-         lookbehind keeps `procurement.accounting` and `foo.hr` out of it. */
-      if (new RegExp(`(?<![A-Za-z0-9_.])${s}\\.[a-zA-Z]`).test(src)) found.add(s);
+      /* `accounting.listAccounts` — the binding and the name it calls. The
+         negative lookbehind keeps `procurement.accounting` and `foo.hr` out. */
+      for (const m of code.matchAll(
+        new RegExp(`(?<![A-Za-z0-9_.])${s}\\.([a-zA-Z][A-Za-z0-9_]*)`, "g"),
+      )) found.add(`${s}.${m[1]}`);
     }
 
     for (const m of src.matchAll(IMPORT_RE)) {
@@ -137,14 +231,26 @@ const MODULE_OF = {
    reads only from those two. Everything else waits for its service. */
 const LIVE_MODULES = ["dashboard", "procurement", "accounting", "it", "settings"];
 
+const IMPL = Object.fromEntries(LIVE.map((s) => [s, implementedFunctions(s)]));
+
 const verdict = routes.map((r) => {
   const entry = join(APP, r.slice(1), "page.tsx");
-  const used = [...servicesReachableFrom(entry)].sort();
+  const calls = [...servicesReachableFrom(entry)].sort();
+  const used = [...new Set(calls.map((c) => c.split(".")[0]))].sort();
   const mod = MODULE_OF[r.split("/")[1]] ?? "unknown";
+
+  /* Two ways to not be live, and they read differently in the output because
+     they are different jobs: a whole service nobody has written, and a service
+     that exists missing the function this screen happens to call. */
   const missing = used.filter((s) => !LIVE.includes(s));
+  const unimplemented = calls.filter((c) => {
+    const [svc, fn] = c.split(".");
+    return LIVE.includes(svc) && !DEMO_ONLY[c] && !IMPL[svc].has(fn);
+  });
+
   return {
-    route: r, used, module: mod, missing,
-    live: missing.length === 0 && LIVE_MODULES.includes(mod),
+    route: r, used, calls, module: mod, missing, unimplemented,
+    live: missing.length === 0 && unimplemented.length === 0 && LIVE_MODULES.includes(mod),
   };
 });
 
@@ -177,6 +283,7 @@ if (missing.length || extra.length) {
     const v = verdict.find((x) => x.route === r);
     const why = !v ? "no longer a route"
       : v.missing.length ? `needs ${v.missing.join(", ")}`
+      : v.unimplemented.length ? `src/lib/api has no ${v.unimplemented.join(", ")}`
       : `module "${v.module}" is not live`;
     console.error(`  listed as live, but is not: ${r}  → ${why}`);
   }
