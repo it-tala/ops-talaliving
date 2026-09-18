@@ -693,7 +693,7 @@ end $$;
 create or replace function ops_procure.approve_round(p_round_no text, p_key text default null)
 returns jsonb
 language plpgsql security definer set search_path = ops_procure, ops_core, pg_temp as $$
-declare r ops_procure.payment_rounds; total numeric; replayed jsonb; res jsonb;
+declare r ops_procure.payment_rounds; v_total numeric; replayed jsonb; res jsonb;
 begin
   replayed := ops_core.idem_replay('procurement','approve_round:' || p_round_no, p_key);
   if replayed is not null then return replayed; end if;
@@ -719,10 +719,10 @@ begin
     from ops_procure.v_line_coverage cov
    where cov.line_id = rl.line_id and rl.round_id = r.id;
 
-  select coalesce(sum(requested_amount), 0) into total
+  select coalesce(sum(requested_amount), 0) into v_total
     from ops_procure.payment_round_lines where round_id = r.id;
 
-  if total <= 0 then
+  if v_total <= 0 then
     return ops_core.invalid('procurement','payment_round', p_round_no,'approve',
       'nothing_owed','Every line in this round has already been paid.');
   end if;
@@ -732,9 +732,9 @@ begin
    where id = r.id;
 
   perform ops_core.emit('procurement','procurement.round.approved', p_round_no,
-    jsonb_build_object('round_no', p_round_no, 'requested_total', total));
+    jsonb_build_object('round_no', p_round_no, 'requested_total', v_total));
   res := ops_core.ok('procurement','payment_round', p_round_no,'approve',
-    jsonb_build_object('round_no', p_round_no, 'status','APPROVED','requested_total', total));
+    jsonb_build_object('round_no', p_round_no, 'status','APPROVED','requested_total', v_total));
   return ops_core.idem_remember('procurement','approve_round:' || p_round_no, p_key, res);
 end $$;
 
@@ -746,7 +746,7 @@ create or replace function ops_procure.transfer_round(
   p_key text default null)
 returns jsonb
 language plpgsql security definer set search_path = ops_procure, ops_core, pg_temp as $$
-declare r ops_procure.payment_rounds; total numeric; v_requested numeric; replayed jsonb; res jsonb;
+declare r ops_procure.payment_rounds; v_total numeric; v_requested numeric; replayed jsonb; res jsonb;
 begin
   replayed := ops_core.idem_replay('procurement','transfer_round:' || p_round_no, p_key);
   if replayed is not null then return replayed; end if;
@@ -790,7 +790,7 @@ begin
     (round_id, amount, trx_no, proof_attachment_id, recorded_by, recorded_by_email)
   values (r.id, p_amount, p_trx_no, p_proof, auth.uid(), ops_procure.actor_email());
 
-  select coalesce(sum(amount), 0) into total
+  select coalesce(sum(amount), 0) into v_total
     from ops_procure.round_transfers where round_id = r.id;
   select requested_total into v_requested
     from ops_procure.v_round_summary where round_id = r.id;
@@ -799,11 +799,11 @@ begin
 
   perform ops_core.emit('procurement','procurement.round.transferred', p_round_no,
     jsonb_build_object('round_no', p_round_no, 'amount', p_amount,
-                       'transferred_total', total, 'requested_total', v_requested));
+                       'transferred_total', v_total, 'requested_total', v_requested));
   res := ops_core.ok('procurement','payment_round', p_round_no,'transfer',
     jsonb_build_object('round_no', p_round_no, 'status','TRANSFERRED',
-                       'transferred_total', total,
-                       'shortfall', greatest(v_requested - total, 0)));
+                       'transferred_total', v_total,
+                       'shortfall', greatest(v_requested - v_total, 0)));
   return ops_core.idem_remember('procurement','transfer_round:' || p_round_no, p_key, res);
 end $$;
 

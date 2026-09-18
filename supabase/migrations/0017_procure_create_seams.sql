@@ -668,7 +668,7 @@ returns jsonb
 language plpgsql security definer set search_path = ops_procure, ops_core, pg_temp as $$
 declare
   l ops_procure.pr_lines; rcv_no text; rcv_id uuid;
-  has_photo boolean; has_note boolean; confirmed boolean; notified boolean;
+  has_photo boolean; has_note boolean; v_confirmed boolean; notified boolean;
   replayed jsonb; res jsonb;
 begin
   replayed := ops_core.idem_replay('procurement',
@@ -712,7 +712,7 @@ begin
     return ops_core.not_found('procurement','receipt', null,'report','No such order line.');
   end if;
 
-  confirmed := coalesce(has_note, false);
+  v_confirmed := coalesce(has_note, false);
   notified  := ops_procure.receipt_is_problem(p_condition);
   rcv_no    := ops_core.next_doc_number('rcv');
 
@@ -721,11 +721,11 @@ begin
      received_by, qc_by, note, status, confirmed_by, confirmed_at)
   values (rcv_no, l.id, p_po_line_id, p_qty, p_condition,
           auth.uid(),
-          case when confirmed then coalesce(p_qc_by, auth.uid()) else null end,
+          case when v_confirmed then coalesce(p_qc_by, auth.uid()) else null end,
           nullif(btrim(p_note), ''),
-          case when confirmed then 'CONFIRMED' else 'REPORTED' end::ops_procure.receipt_status_t,
-          case when confirmed then auth.uid() else null end,
-          case when confirmed then now() else null end)
+          case when v_confirmed then 'CONFIRMED' else 'REPORTED' end::ops_procure.receipt_status_t,
+          case when v_confirmed then auth.uid() else null end,
+          case when v_confirmed then now() else null end)
   returning id into rcv_id;
 
   insert into ops_core.attachment_links (attachment_id, entity, entity_no, kind, linked_by)
@@ -736,13 +736,13 @@ begin
   perform ops_core.emit('procurement','procurement.receipt.recorded', rcv_no,
     jsonb_build_object('receipt_no', rcv_no, 'condition', p_condition,
                        'notified', notified,
-                       'status', case when confirmed then 'CONFIRMED' else 'REPORTED' end));
+                       'status', case when v_confirmed then 'CONFIRMED' else 'REPORTED' end));
 
   res := ops_core.ok('procurement','receipt', rcv_no,
-    case when confirmed then 'receive' else 'report' end,
+    case when v_confirmed then 'receive' else 'report' end,
     jsonb_build_object('receipt_no', rcv_no, 'qty', p_qty,
                        'condition', p_condition, 'notified', notified,
-                       'status', case when confirmed then 'CONFIRMED' else 'REPORTED' end));
+                       'status', case when v_confirmed then 'CONFIRMED' else 'REPORTED' end));
   return ops_core.idem_remember('procurement',
     format('create_receipt:%s:%s', coalesce(p_line_no, p_po_line_id::text), p_qty), p_key, res);
 end $$;

@@ -4061,3 +4061,45 @@ catch this is not more discipline; it is `attendance_scans` refusing a
 the table does not have and should. Raised here rather than added in passing:
 it would reject rows the demo's own fixtures may rely on, and that is a
 migration with a question in it rather than a line in this one.
+
+---
+
+## F103 — a linter that got stricter because a column was added somewhere else
+
+`check_shadowing.sh` went red on `0048`, and the two files it named were
+`0016_procure_seams.sql` and `0017_procure_create_seams.sql` — procurement,
+merged weeks earlier, green on every run since.
+
+Nothing in them had changed. What changed is the set they are checked against.
+The script asks Postgres for **every column name in all six `ops_*` schemas**
+and flags any PL/pgSQL local that matches one. `0048` created
+`ops_hr.contribution_rates.confirmed` and a `total` column on
+`contribution_lines()`, and two locals that had been unremarkable since the day
+they were written — `declare … total numeric` and `declare … confirmed
+boolean` — became findings.
+
+**Neither was actually ambiguous.** Postgres resolves an unqualified name
+against the tables in *that query*, and those functions never touch `ops_hr`.
+The script is deliberately broader than the hazard: its own comment says the
+convention it enforces is *prefix every local with `v_`*, and by that rule the
+two locals were always wrong and simply had not been caught.
+
+So the fix was theirs, not a workaround in mine: `total` → `v_total`,
+`confirmed` → `v_confirmed`, which is what the script prints. Two things made
+it worth doing carefully rather than with a global replace. `'requested_total'`
+and `'transferred_total'` are jsonb keys a screen reads, and survive `\btotal\b`
+only because `_` is a word character — luck, verified rather than assumed. And
+`format('%s is already confirmed.', …)` is a sentence somebody reads, which a
+blind rename turns into *is already v_confirmed*. Their own smokes
+(`04_procure_seams`, `05_procure_lifecycle`) prove the rename changed no
+behaviour.
+
+The thing to keep is about the shape of the check rather than the bug.
+**A global linter makes every schema addition a change to everybody else's
+code.** That is the cost of the broad version, and it is worth paying here —
+the narrow version would need to know which tables each function's queries can
+reach, which is most of a query planner. But it means a session adding an
+ordinary column can be handed a red build in a module it has never opened, and
+the right response is to fix what the tool names rather than to rename the
+column. A convention is only cheap while everybody is actually following it;
+the arrears fall due the first time somebody grows the namespace.
