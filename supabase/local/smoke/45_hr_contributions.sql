@@ -52,7 +52,7 @@ end $$;
 -- Two dated versions. The August figure is January's; September's is a later
 -- row and must not reach back.
 insert into ops_hr.contribution_rates
-  (scheme, effective_from, employer_percent, employee_percent, wage_ceiling, confirmed, note, created_by) values
+  (scheme, effective_from, employer_percent, employee_percent, wage_ceiling, rate_confirmed, note, created_by) values
   ('BPJS_KESEHATAN','2026-01-01', 4, 1, 12000000, true,
    'Perpres 64/2020 — 4% pemberi kerja, 1% pekerja, plafon 12 juta','ffffffff-0000-0000-0000-00000000aa01'),
   ('BPJS_KESEHATAN','2026-09-01', 5, 1, 12000000, true,

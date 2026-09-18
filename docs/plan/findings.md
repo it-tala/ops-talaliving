@@ -4262,3 +4262,48 @@ a count, in the same way `unpriced` sits beside a material cost in
 `v_product_cost` (F104's sibling). That is a one-line view change and a
 question for the owner in the same breath: **kalau dari enam yang dikirim cuma
 empat yang kembali, dua itu masih di vendor, hilang, atau harus dibuat ulang?**
+
+---
+
+## F108 — two rules that were each right, and could not both be obeyed
+
+`check_shadowing` compares every PL/pgSQL local against **every column name in
+all six `ops_*` schemas**. Its convention is *prefix every local with `v_`*, and
+it is deliberately broader than the hazard (F103).
+
+`0028` added a second rule, and a stronger one: **the ladder was applied to
+`john-lau-v01` on 2026-09-18, so a mistake in an applied migration is fixed by
+a new migration and never by editing the old one.** A file somebody has run is
+a record of what their database actually did.
+
+`0048` walked into both at once. Two of its columns — `contribution_rates
+.confirmed` and a roll-up's `total` — collided with locals in
+`0016_procure_seams` and `0017_procure_create_seams`, which are applied. The
+three ways out were each blocked:
+
+- **Rename their locals.** What the tool prints, and what F103 did. Now
+  forbidden: those files are the record.
+- **Fix them in a new migration.** What `0028` prescribes. Does not work here —
+  the checker reads *files*, so the old `declare` blocks stay flagged however
+  many later migrations redefine the functions.
+- **Leave it.** CI is red.
+
+So the fourth: **rename the columns in the unapplied migration.** It is the
+opposite of what F103 concluded a fortnight of commits earlier — *fix what the
+tool names rather than bend the schema around a linter* — and the reversal is
+correct, because the cost changed. When both files were unapplied, theirs was
+in arrears and cheap to fix. Once one side is a record of a real database, the
+side that has never run anywhere is always the cheaper one to move.
+
+Two things to keep.
+
+**A file-based checker cannot express "fixed in a later migration".** That is
+not a flaw to work around today; it is the thing to know before the next
+collision, because the obvious response — editing the old file — is now the one
+that must not happen, and nothing in the tool says so. The check's own message
+still reads `rename to v_total`, which is now advice that breaks a rule.
+
+**The rules did not conflict until the ladder shipped.** Both were right when
+written and neither anticipated the other. That is ordinary, and the useful
+habit is not to look for a rule that cannot be outgrown — it is to notice which
+of two rules is protecting something that already exists.

@@ -39,7 +39,12 @@ create table ops_hr.contribution_rates (
   -- percentages are public; the risk class behind JKK is not — BPJS sets it
   -- per employer between 0,24% and 1,74%, and a plausible number presented as
   -- fact is worse than one wearing a badge that says it is unconfirmed.
-  confirmed         boolean not null default false,
+  -- Renamed from `confirmed`. `check_shadowing` compares PL/pgSQL locals
+  -- against **every column name in all six schemas**, so a column called
+  -- `confirmed` turns a local of that name in an applied procurement
+  -- migration into a finding — and since 2026-09-18 an applied migration is
+  -- not editable (0028). The unapplied side yields. See C13 and F108.
+  rate_confirmed    boolean not null default false,
   -- Required: where the number came from. A rate nobody can source is one
   -- nobody can defend when the invoice disagrees with it.
   note              text not null check (length(btrim(note)) > 0),
@@ -136,7 +141,7 @@ returns table (
   employee_id uuid, employee_no text, full_name text,
   scheme ops_hr.contribution_scheme_t, member_no_masked text,
   base bigint, base_source text, capped_from bigint,
-  employer bigint, employee bigint, total bigint,
+  employer bigint, employee bigint, total_amount bigint,
   rate_confirmed boolean, partial_month text
 )
 language sql stable set search_path = ops_hr, pg_temp as $$
@@ -167,7 +172,7 @@ language sql stable set search_path = ops_hr, pg_temp as $$
       least(coalesce(en.declared_base, ops_hr.contribution_base(e, p_month)),
             coalesce(r.wage_ceiling, 9223372036854775807))
       * (r.employer_percent + r.employee_percent) / 100) end::bigint,
-    coalesce(r.confirmed, false),
+    coalesce(r.rate_confirmed, false),
     -- BPJS charges the month whole, so a part-month is a full charge with a
     -- sentence rather than a pro-rated figure nobody agreed to.
     case
@@ -198,7 +203,7 @@ select
   s.scheme,
   l.employee_id, l.employee_no, l.full_name,
   l.member_no_masked, l.base, l.base_source, l.capped_from,
-  l.employer, l.employee, l.total, l.rate_confirmed, l.partial_month
+  l.employer, l.employee, l.total_amount, l.rate_confirmed, l.partial_month
 from ops_hr.payroll_runs r
 cross join unnest(ops_hr.computed_schemes()) s(scheme)
 cross join lateral ops_hr.contribution_lines(s.scheme, r.period_start) l;
