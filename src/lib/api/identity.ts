@@ -19,6 +19,32 @@ import { fail, fromRows, fromSeam, notFound, ok, type Result } from "./_kit";
 
 const SERVICE = "identity" as const;
 
+/** Every object this module reads or calls lives in `ops_core`, and PostgREST
+ *  has to be told so on **every request**.
+ *
+ *  `.from("x")` and `.rpc("y")` resolve against the schema the request names —
+ *  its `Accept-Profile` / `Content-Profile` header. With none, PostgREST uses
+ *  the first of its exposed schemas, which is `public`, and ours holds nothing.
+ *  The symptom is exact, and was seen in production: *Could not find the table
+ *  'public.v_my_access' in the schema cache*.
+ *
+ *  **Supabase's "Extra search path" does not fix this, and believing it did cost
+ *  a deploy.** That setting adds schemas to the search_path so objects *inside*
+ *  an exposed schema can reference them unqualified; PostgREST is explicit that
+ *  those schemas get no API endpoints of their own. Exposing a schema says it
+ *  may be addressed; naming it on the request is what addresses it.
+ *
+ *  `.schema()` rather than a second client: a client per schema is an auth
+ *  listener and a token-refresh timer per schema, and those racing is how a
+ *  session appears to end halfway through a form. This is a query builder bound
+ *  to one schema, from the one client.
+ *
+ *  Called `db` and not `q` because several functions here already open with
+ *  `let q = …` to build a filter chain, and a helper of the same name would be
+ *  shadowed by it — silently, in exactly the branches that filter.
+ */
+const db = () => supabaseBrowser().schema("ops_core");
+
 /** The row shape of `core.v_my_access` / `core.v_user_access`. `permissions` is
  *  expanded in the view, on read, never stored (A3, C3) — so this is a mapping
  *  of names, not a computation. If it were a computation, the frontend's `can()`
@@ -75,7 +101,7 @@ export async function me(): Promise<Result<Session>> {
     };
   }
 
-  const { data, error } = await sb.from("v_my_access").select("*").maybeSingle();
+  const { data, error } = await db().from("v_my_access").select("*").maybeSingle();
   if (error) return fail(SERVICE, error);
   if (!data) {
     /* Authenticated by Supabase and unknown to `ops_core.users`. Provisioning in
@@ -97,13 +123,13 @@ export async function me(): Promise<Result<Session>> {
  */
 export async function recordSignIn(): Promise<void> {
   const sb = supabaseBrowser();
-  const { error } = await sb.rpc("record_sign_in");
+  const { error } = await db().rpc("record_sign_in");
   if (error) console.warn("sign-in not recorded:", error.message);
 }
 
 export async function listUsers(): Promise<Result<Session[]>> {
   const sb = supabaseBrowser();
-  const { data, error } = await sb.from("v_user_access").select("*").order("full_name");
+  const { data, error } = await db().from("v_user_access").select("*").order("full_name");
   if (error) return fail(SERVICE, error);
   return ok(SERVICE, (data as AccessRow[]).map(toSession));
 }
@@ -117,7 +143,7 @@ export async function setModules(
   modules: { module: ModuleName; level: ModuleLevel }[],
 ): Promise<Result<Session>> {
   const sb = supabaseBrowser();
-  const { data, error } = await sb.rpc("set_modules", {
+  const { data, error } = await db().rpc("set_modules", {
     p_user_id: userId,
     p_modules: modules,
   });
@@ -131,7 +157,7 @@ export async function setAuthorities(
   authorities: Authority[],
 ): Promise<Result<Session>> {
   const sb = supabaseBrowser();
-  const { data, error } = await sb.rpc("set_authorities", {
+  const { data, error } = await db().rpc("set_authorities", {
     p_user_id: userId,
     p_authorities: authorities,
   });
@@ -176,7 +202,7 @@ export async function listAudit(
   } = {},
 ): Promise<Result<AuditRowView[]>> {
   const sb = supabaseBrowser();
-  let q = sb.from("v_audit").select("*");
+  let q = db().from("v_audit").select("*");
 
   if (opts.entity_no) q = q.ilike("entity_no", `%${opts.entity_no}%`);
   if (opts.actor) q = q.ilike("actor_email", `%${opts.actor}%`);
@@ -216,7 +242,7 @@ export async function listActivity(
   opts: { actor?: string; day?: string; limit?: number } = {},
 ): Promise<Result<ActivityEvent[]>> {
   const sb = supabaseBrowser();
-  let q = sb.from("v_activity_event").select("*");
+  let q = db().from("v_activity_event").select("*");
 
   /* `actor` is one box on the screen and two columns here, the same way the
      audit filter works: somebody types a name or part of an address, never a
@@ -243,7 +269,7 @@ export async function listActivityDaily(
   opts: { actor?: string; limit?: number } = {},
 ): Promise<Result<ActivityDaily[]>> {
   const sb = supabaseBrowser();
-  let q = sb.from("v_activity_recap").select("*");
+  let q = db().from("v_activity_recap").select("*");
   if (opts.actor) q = q.ilike("actor_email", `%${opts.actor}%`);
 
   const { data, error } = await q
@@ -263,8 +289,7 @@ export async function listActivityDaily(
  *  state the wrong one the first time somebody changes it.
  */
 export async function getRetention(): Promise<Result<RetentionStatus>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_activity_log_retention").select("*").single();
+  const { data, error } = await db().from("v_activity_log_retention").select("*").single();
   return fromRows<RetentionStatus>(SERVICE, data as RetentionStatus | null, error);
 }
 
@@ -283,7 +308,7 @@ export async function rollUpActivity(
   input: { day?: string } = {},
   idempotencyKey?: string,
 ): Promise<Result<{ day: string; written: number; skipped: number }>> {
-  const { data, error } = await supabaseBrowser().rpc("roll_up_activity_log", {
+  const { data, error } = await db().rpc("roll_up_activity_log", {
     p_from: input.day ?? null,
     p_to: input.day ?? null,
     p_key: idempotencyKey ?? null,
@@ -306,7 +331,7 @@ export async function rollUpActivity(
 export async function purgeActivity(
   idempotencyKey?: string,
 ): Promise<Result<{ events_removed: number; recaps_removed: number; blocked_days: string[] }>> {
-  const { data, error } = await supabaseBrowser().rpc("purge_activity_log", {
+  const { data, error } = await db().rpc("purge_activity_log", {
     p_key: idempotencyKey ?? null,
   });
   return fromSeam<{ events_removed: number; recaps_removed: number; blocked_days: string[] }>(
@@ -330,7 +355,7 @@ export async function purgeActivity(
 export async function recordActivity(
   input: { kind: string; target: string; label: string },
 ): Promise<Result<{ id: string }>> {
-  const { data, error } = await supabaseBrowser().rpc("record_activity_event", {
+  const { data, error } = await db().rpc("record_activity_event", {
     p_kind: input.kind, p_target: input.target, p_label: input.label,
   });
   return fromSeam<{ id: string }>(SERVICE, data, error);
