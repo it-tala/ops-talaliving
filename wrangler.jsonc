@@ -31,6 +31,30 @@
   // pointing at a bucket nobody created is a deploy that fails at the worst
   // moment; add them here the day a server route actually needs one. That day
   // is more likely now that this is the production host, not less.
+  // ── Where the Supabase keys go, and why not here ────────────────────────
+  //
+  // Three variables decide whether this deployment talks to a database at all:
+  //
+  //   NEXT_PUBLIC_USE_SUPABASE=1     somebody choosing
+  //   NEXT_PUBLIC_SUPABASE_URL       \ something to choose
+  //   NEXT_PUBLIC_SUPABASE_ANON_KEY  /
+  //
+  // `isRealApi()` requires all three. Set only the two keys and the app stays
+  // in demo mode with no error and no warning — deliberate (demo is a mode, not
+  // a fallback), and a genuine trap: it looks configured and is not.
+  //
+  // **They belong in Settings → Builds → Build variables, NOT in Settings →
+  // Variables and Secrets.** `NEXT_PUBLIC_*` is not a naming convention: it is
+  // an instruction to Next.js to *inline the value into the client bundle at
+  // build time*. By the time the Worker runs, `process.env.NEXT_PUBLIC_…` in
+  // browser code is already a literal. A runtime variable arrives far too late
+  // and changes nothing, however correct it looks in the dashboard.
+  //
+  // Two consequences worth stating once. Setting a build variable does not
+  // rebuild anything, so a deploy has to follow — Retry deployment, or a push
+  // to `main`. And they are not `vars` in this file, because a value committed
+  // here is a value in the repository (A15), and because the anon key differs
+  // between a local stack and the project.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "ops-talaliving",
   "main": ".open-next/worker.js",
