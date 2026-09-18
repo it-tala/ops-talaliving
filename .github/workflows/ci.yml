@@ -77,6 +77,15 @@ jobs:
       - name: live routes match the code
         run: node scripts/check-live-routes.mjs
 
+      # The same catalogue is written down twice — `src/lib/roles.ts` for
+      # `can()`, `ops_core.permission_catalog` for `has_permission()` — because
+      # one is read by a browser and the other inside Postgres. Hand-kept lists
+      # drift, and these two already had: `accounting.plan_cash` was missing
+      # from the ladder, so the cash calendar was read-only for everybody with
+      # no error and no refusal, just buttons that were never drawn.
+      - name: permission catalogue agrees with itself
+        run: node scripts/check-permissions.mjs
+
       # No Supabase variables here, deliberately. The build has to succeed with
       # none set, because that is how the deployed app runs today — demo mode,
       # browser-held fixtures, no database. `useRealApi()` requires both the

@@ -85,4 +85,37 @@ begin
   assert right(a, 2)::int + 1 = right(b, 2)::int, 'document numbers must not collide';
 end $$;
 
+-- ── the trail, as `/it/audit` reads it (0023) ─────────────────────────────
+--
+-- The derivation this view exists for is `actor_id` → `actor_email`: the table
+-- can only hold the uuid, and the screen asks *who*. Proving it here rather
+-- than trusting the join means a rename in `ops_core.users` cannot quietly
+-- turn every row of the audit trail anonymous.
+
+reset role;
+set local request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+-- One row by a person, one by nothing — a scheduled job or an import, where
+-- `auth.uid()` is null. Both have to come back readable.
+insert into ops_core.audit_log (actor_id, service, entity, entity_no, action, outcome)
+values ('11111111-1111-1111-1111-111111111111','identity','setting','office_day','update','ok'),
+       (null,                                  'accounting','transaction',null,'post','ok');
+
+do $$
+declare who text; sys text; no_ text;
+begin
+  select actor_email into who from ops_core.v_audit where entity_no = 'office_day';
+  assert who = 'wulan@talaliving.com',
+         format('the trail must name the person, not the uuid; got %s', who);
+
+  select actor_email, entity_no into sys, no_
+    from ops_core.v_audit where service = 'accounting';
+  -- Not an empty string: a row nobody authored is a row the system authored,
+  -- and the two read very differently to whoever is asking what happened.
+  assert sys = 'system',
+         format('an actorless row is the system''s, got %s', sys);
+  assert no_ = '',
+         format('entity_no is never null to a screen, got %s', coalesce(no_,'<null>'));
+end $$;
+
 rollback;
