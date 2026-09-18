@@ -141,17 +141,22 @@ begin
   return ops_core.idem_remember('documents','attach_url', p_key, res);
 end $$;
 
--- Recording a file whose bytes have already landed in storage.
+-- Recording a file whose bytes have already landed in Google Drive.
 --
--- The upload itself is the client's: it puts the object there and then says
--- so here. Splitting it that way keeps large files off the database
--- connection, and it is why this function takes a path rather than bytes.
+-- `p_storage_path` is the **Drive file id** (see `docs/plan/phase-2/05-storage.md`).
+-- The link is derived from it and never stored, because a stored link is one
+-- more thing that can disagree with the id beside it (A3). `url` keeps its own
+-- meaning on this table: somebody else's address, filed as evidence (D125).
 --
--- The path is **not trusted to be well-formed and is not checked to exist** —
--- storage and Postgres are two systems, and a check here would be a lie the
--- moment an object is removed. What protects the row is that only the
--- uploader can write it (`attachments_write`), and what protects the object is
--- the bucket's own policy.
+-- The upload itself is the client's: it puts the file in the shared drive and
+-- then says so here. Splitting it that way keeps large files off the database
+-- connection, and it is why this function takes an id rather than bytes.
+--
+-- The id is **not checked to exist** — Drive and Postgres are two systems, and
+-- a check here would be a lie the moment somebody moves a file. What protects
+-- the row is that only the uploader can write it (`attachments_write`); what
+-- protects the file is membership of the shared drive it landed in, which
+-- Google checks against the reader's own Workspace account.
 create or replace function ops_core.attach_file(
   p_storage_path text,
   p_filename text,
@@ -169,7 +174,7 @@ begin
 
   if coalesce(btrim(p_storage_path), '') = '' then
     return ops_core.invalid('documents','attachment', null,'attach_file',
-      'path_required','A stored file needs its path.',
+      'path_required','A stored file needs the id Drive gave it.',
       jsonb_build_object('field','storage_path'));
   end if;
   if coalesce(btrim(p_filename), '') = '' then
