@@ -54,12 +54,34 @@ function toSession(row: AccessRow): Session {
  */
 export async function me(): Promise<Result<Session>> {
   const sb = supabaseBrowser();
+
+  /* **Asked before the query, not inferred from it.** Signed out, `auth.uid()`
+     is null, `v_my_access` returns no row, and the read below is
+     indistinguishable from an account that authenticated and has no profile.
+     They are not the same thing and they do not lead to the same place: one
+     person needs the sign-in screen, the other needs to ask IT. Guessing
+     between them is how somebody ends up staring at *ask IT* about an account
+     they never signed into. */
+  const { data: auth } = await sb.auth.getSession();
+  if (!auth.session) {
+    return {
+      error: {
+        code: "not_signed_in",
+        message: "Nobody is signed in.",
+        outcome: "refused",
+        status: 401,
+      },
+      meta: { request_id: "", service: SERVICE, version: "1", outcome: "refused" },
+    };
+  }
+
   const { data, error } = await sb.from("v_my_access").select("*").maybeSingle();
   if (error) return fail(SERVICE, error);
   if (!data) {
-    /* Authenticated by Supabase and unknown to `core.users`. Provisioning in
-       `0007` makes this close to impossible, and "close to" is why it is
-       handled: a 500 here would be a blank screen with nothing to act on. */
+    /* Authenticated by Supabase and unknown to `ops_core.users`. Provisioning in
+       `0007`, and the self-healing sign-in in `0029`, make this close to
+       impossible — and "close to" is why it is handled: a 500 here would be a
+       blank screen with nothing to act on. */
     return notFound(SERVICE, "no_profile",
       "You are signed in, but this workspace has no profile for your account. Ask IT.");
   }
