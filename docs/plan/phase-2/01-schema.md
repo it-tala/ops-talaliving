@@ -76,6 +76,17 @@ in the single place where the resolution is not obvious: the order the ladder
 applies in. `rebuild.sh` applies in lexical order and never asks why 0023 is
 missing, so the gap costs nothing.
 
+**Smoke files have the same problem and no reservation, so they collide.**
+HR's two landed as `08_hr` and `09_hr_payroll`; `main` had meanwhile taken
+`08_core_files`, `09_acct_statement` and `10_core_activity`. Git merged both
+sides without a word — the filenames differ, so there is nothing for it to
+conflict on — and the directory came out with two 08s and two 09s. Renumbered
+to `11_hr` and `12_hr_payroll` here, after theirs, because theirs reached
+`main` first. The rule that follows: **take the next free number at merge
+time, not at write time**, and check the directory against `origin/main`
+before pushing. `smoke.sh` runs whatever is in the folder, so a duplicate
+prefix costs no failure and buys real confusion.
+
 **Three HR tables are still unbuildable, and it is not a design gap.**
 `tasks`, `enrolments` and `contribution_rates` need `task_status_t`,
 `task_ref_t` and `contribution_scheme_t`. All three are in
