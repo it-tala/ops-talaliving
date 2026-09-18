@@ -101,11 +101,43 @@ export async function setAuthorities(
 
 /* ── Audit, activity, and the two retention rules ─────────────────────────
  *
- *  The owner's answer to Q22, as code (D188): **detail for 30 days, a daily
- *  recap per person kept 6 months.** Everything here follows from those two
- *  numbers, including the one thing this system otherwise never does — delete.
+ *  The owner's answer to Q22, as code (D188, amended by D283): **detail for 120
+ *  days, and 120 daily recap rows per person** — six months in the owner's own
+ *  arithmetic, *6 bulan itu maksudnya 120 hari kerja*. Everything here follows
+ *  from those two numbers, including the one thing this system otherwise never
+ *  does — delete.
+ *
+ *  The recap is trimmed **per person by count**, not by date, so somebody away
+ *  for three weeks comes back to their history rather than to a hole. That is
+ *  also what `ops_core.purge_activity_log` does, and the demo and the database
+ *  disagreeing about the rule the screen *prints* would be worse than either
+ *  rule being wrong.
  */
-export const RETENTION = { DETAIL_DAYS: 30, RECAP_MONTHS: 6 } as const;
+export const RETENTION = { DETAIL_DAYS: 120, RECAP_ROWS: 120 } as const;
+
+/** Which recap rows are past the horizon — **per person, newest kept**.
+ *
+ *  Not `daysAgo(...) >= 180`. The rule the owner set is a count, and the
+ *  difference shows up on exactly the person it was written for: somebody away
+ *  for three weeks has three weeks of nothing, and a date rule would delete
+ *  their oldest history to make room for days they did not work.
+ */
+function overflowRecapIds(recaps: ActivityDaily[]): Set<string> {
+  const byActor = new Map<string, ActivityDaily[]>();
+  for (const r of recaps) {
+    const list = byActor.get(r.actor_id) ?? [];
+    list.push(r);
+    byActor.set(r.actor_id, list);
+  }
+  const out = new Set<string>();
+  for (const list of byActor.values()) {
+    [...list]
+      .sort((a, b) => b.day.localeCompare(a.day))
+      .slice(RETENTION.RECAP_ROWS)
+      .forEach((r) => out.add(r.id));
+  }
+  return out;
+}
 
 /** The office day, WITA. A log that rolls over at UTC midnight cuts the
  *  workshop's afternoon in half (F17); one definition for the whole system
@@ -145,7 +177,7 @@ export async function listAudit(
     })));
 }
 
-/** The detail: who opened what, inside the thirty-day window.
+/** The detail: who opened what, inside the 120-day window.
  *
  *  Deliberately coarse — a screen, a print, an export. Keystroke-level
  *  watching is surveillance nobody asked for, and the question this answers is
@@ -164,7 +196,7 @@ export async function listActivity(
   return ok(SERVICE, rows.sort((a, b) => b.at.localeCompare(a.at)).slice(0, opts.limit ?? 200));
 }
 
-/** The recaps: one row per person per day, kept six months. */
+/** The recaps: one row per person per day, 120 rows per person (D283). */
 export async function listActivityDaily(
   opts: { actor?: string; limit?: number } = {},
 ): Promise<Result<ActivityDaily[]>> {
@@ -192,12 +224,14 @@ export async function getRetention(): Promise<Result<RetentionStatus>> {
 
   return ok(SERVICE, {
     detail_days: RETENTION.DETAIL_DAYS,
-    recap_months: RETENTION.RECAP_MONTHS,
+    recap_rows: RETENTION.RECAP_ROWS,
     events_total: events.length,
     events_expiring: events.filter((e) => daysAgo(e.at) >= RETENTION.DETAIL_DAYS).length,
     oldest_event: [...events].sort((a, b) => a.at.localeCompare(b.at))[0]?.at ?? null,
     recaps_total: recaps.length,
-    recaps_expiring: recaps.filter((r) => daysAgo(`${r.day}T12:00:00+08:00`) >= RETENTION.RECAP_MONTHS * 30).length,
+    /* Counted per person, like the trim itself: a row is expiring because that
+       person already has 120 newer ones, never because of the date on it. */
+    recaps_expiring: overflowRecapIds(recaps).size,
     oldest_recap: [...recaps].sort((a, b) => a.day.localeCompare(b.day))[0]?.day ?? null,
     /* A day whose events will expire with no recap behind them is the one
        failure this design can have: the detail goes and nothing is left. */
@@ -321,15 +355,14 @@ export async function purgeActivity(): Promise<Result<{ events_removed: number; 
     eventsRemoved = before - draft.activity_events.length;
 
     const beforeRecaps = draft.activity_daily.length;
-    draft.activity_daily = draft.activity_daily.filter(
-      (r) => daysAgo(`${r.day}T12:00:00+08:00`) < RETENTION.RECAP_MONTHS * 30,
-    );
+    const overflow = overflowRecapIds(draft.activity_daily);
+    draft.activity_daily = draft.activity_daily.filter((r) => !overflow.has(r.id));
     recapsRemoved = beforeRecaps - draft.activity_daily.length;
 
     writeAudit(draft, {
       service: SERVICE, entity: "activity", entity_no: officeDay(),
       action: "purge", outcome: eventsRemoved + recapsRemoved > 0 ? "ok" : "noop",
-      reason: `Retensi: detail ${RETENTION.DETAIL_DAYS} hari, rekap ${RETENTION.RECAP_MONTHS} bulan.`,
+      reason: `Retensi: detail ${RETENTION.DETAIL_DAYS} hari, rekap ${RETENTION.RECAP_ROWS} baris per orang.`,
       detail: { events_removed: eventsRemoved, recaps_removed: recapsRemoved, blocked_days: blocked, by: user.email },
     });
   });

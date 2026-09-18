@@ -12,6 +12,7 @@
  */
 import type {
   Session, Authority, ModuleName, ModuleLevel, ModuleGrant, AuditRowView,
+  ActivityEvent, ActivityDaily, RetentionStatus,
 } from "@/services/identity/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fail, fromRows, fromSeam, notFound, ok, type Result } from "./_kit";
@@ -168,6 +169,146 @@ export async function listAudit(
     .limit(opts.limit ?? 300);
 
   return fromRows<AuditRowView[]>(SERVICE, data as AuditRowView[] | null, error);
+}
+
+/* ------------------------------------------------------------------ */
+/* The activity log                                                    */
+/* ------------------------------------------------------------------ */
+
+/** The detail: who opened what.
+ *
+ *  Two things this does **not** do, and both are the database's job rather
+ *  than an omission here.
+ *
+ *  It does not check a permission. `activity_events` is readable only under
+ *  `it.read` (D190), and the policy is on the table — so a person without the
+ *  grant gets an empty list from PostgREST rather than a refusal invented in
+ *  the browser. Inventing it here would put the rule in two places, and the
+ *  one that mattered would be the one nobody could see.
+ *
+ *  And it does not filter *out* the caller's own rows. Unlike the machine
+ *  record in `activity_daily`, nobody reads their own here — a person who can
+ *  see exactly what was logged about them knows precisely what was not.
+ */
+export async function listActivity(
+  opts: { actor?: string; day?: string; limit?: number } = {},
+): Promise<Result<ActivityEvent[]>> {
+  const sb = supabaseBrowser();
+  let q = sb.from("v_activity_event").select("*");
+
+  /* `actor` is one box on the screen and two columns here, the same way the
+     audit filter works: somebody types a name or part of an address, never a
+     uuid they have never seen. */
+  if (opts.actor) q = q.ilike("actor_email", `%${opts.actor}%`);
+  /* The office day is WITA, and `at` is a timestamptz — so a day is the window
+     between its two boundaries, not a `date()` of a UTC instant, which would
+     cut the workshop's afternoon in half (F17, F63). */
+  if (opts.day) {
+    const next = new Date(`${opts.day}T00:00:00+08:00`);
+    next.setUTCDate(next.getUTCDate() + 1);
+    q = q.gte("at", `${opts.day}T00:00:00+08:00`).lt("at", next.toISOString());
+  }
+
+  const { data, error } = await q
+    .order("at", { ascending: false })
+    .limit(opts.limit ?? 200);
+
+  return fromRows<ActivityEvent[]>(SERVICE, data as ActivityEvent[] | null, error);
+}
+
+/** The recaps: one row per person per day. */
+export async function listActivityDaily(
+  opts: { actor?: string; limit?: number } = {},
+): Promise<Result<ActivityDaily[]>> {
+  const sb = supabaseBrowser();
+  let q = sb.from("v_activity_recap").select("*");
+  if (opts.actor) q = q.ilike("actor_email", `%${opts.actor}%`);
+
+  const { data, error } = await q
+    .order("day", { ascending: false })
+    .order("full_name", { ascending: true })
+    .limit(opts.limit ?? 200);
+
+  return fromRows<ActivityDaily[]>(SERVICE, data as ActivityDaily[] | null, error);
+}
+
+/** The two horizons, what is held against them, and the gap that would lose a
+ *  day entirely.
+ *
+ *  A one-row view, so `.single()`. The numbers come from `ops_core.settings`
+ *  rather than from a constant, because the screen prints them as *the rule* —
+ *  and a screen that states a policy it is not reading is a screen that will
+ *  state the wrong one the first time somebody changes it.
+ */
+export async function getRetention(): Promise<Result<RetentionStatus>> {
+  const { data, error } = await supabaseBrowser()
+    .from("v_activity_log_retention").select("*").single();
+  return fromRows<RetentionStatus>(SERVICE, data as RetentionStatus | null, error);
+}
+
+/** Roll a day up into the per-person recap.
+ *
+ *  A write, not a read: leadership's `it: read` does not reach it (D190). The
+ *  seam enforces that and this does not re-check — the refusal it returns names
+ *  what was required, which a check here could not.
+ *
+ *  **Recomputes rather than skips.** A day already rolled up is written again,
+ *  so a late event corrects its day instead of being lost to a row that
+ *  happened to exist first. `skipped` is therefore always 0, and the field
+ *  stays only because the screen and the demo share one shape.
+ */
+export async function rollUpActivity(
+  input: { day?: string } = {},
+  idempotencyKey?: string,
+): Promise<Result<{ day: string; written: number; skipped: number }>> {
+  const { data, error } = await supabaseBrowser().rpc("roll_up_activity_log", {
+    p_from: input.day ?? null,
+    p_to: input.day ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<{ day: string; written: number; skipped: number }>(SERVICE, data, error);
+}
+
+/** The sweep.
+ *
+ *  The only deletion in the system, and the only call here that destroys
+ *  anything. It is a rule rather than a correction (A2): a business record is
+ *  never deleted because somebody might need it; a log about a *person* is
+ *  deleted because keeping it for ever was never agreed to (Q22, D188).
+ *
+ *  `blocked_days` is the part worth reading. A day whose detail is about to
+ *  expire with no recap behind it would vanish entirely, so the seam skips it
+ *  and names it rather than reporting a clean sweep that quietly lost a
+ *  fortnight (D189).
+ */
+export async function purgeActivity(
+  idempotencyKey?: string,
+): Promise<Result<{ events_removed: number; recaps_removed: number; blocked_days: string[] }>> {
+  const { data, error } = await supabaseBrowser().rpc("purge_activity_log", {
+    p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<{ events_removed: number; recaps_removed: number; blocked_days: string[] }>(
+    SERVICE, data, error);
+}
+
+/** Record one thing somebody did.
+ *
+ *  **Its answer is ignored on purpose, and the seam is built for that.** A
+ *  screen that could not log the fact it was opened must still open: refusing
+ *  the page because the trail is unavailable turns an observability feature
+ *  into an outage. So this returns nothing and swallows what the seam said —
+ *  the same shape as `recordSignIn` above, for the same reason.
+ */
+export async function recordActivity(
+  kind: string, target: string, label?: string,
+): Promise<void> {
+  try {
+    await supabaseBrowser().rpc("record_activity_event", {
+      p_kind: kind, p_target: target, p_label: label ?? target,
+    });
+  } catch {
+    /* Deliberately silent. See above. */
+  }
 }
 
 /* ------------------------------------------------------------------ */

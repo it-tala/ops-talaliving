@@ -94,7 +94,7 @@ create or replace function ops_core.set_modules(
 ) returns jsonb
 language plpgsql security definer set search_path = ops_core, pg_temp as $$
 declare
-  target ops_core.users;
+  v_target ops_core.users;
   v_before jsonb;
   v_after  jsonb;
 begin
@@ -111,7 +111,7 @@ begin
       'Ask somebody else to change your own access.');
   end if;
 
-  select * into target from ops_core.users where id = p_user_id;
+  select * into v_target from ops_core.users where id = p_user_id;
   if not found then
     return ops_core.not_found('identity','user', p_user_id::text, 'modules.set',
       'No such user.');
@@ -137,10 +137,10 @@ begin
   select coalesce(jsonb_agg(jsonb_build_object('module', module, 'level', level) order by module), '[]'::jsonb)
     into v_after from ops_core.user_modules where user_id = p_user_id;
 
-  perform ops_core.emit('identity','access.changed', target.email,
+  perform ops_core.emit('identity','access.changed', v_target.email,
     jsonb_build_object('user_id', p_user_id, 'modules', v_after));
 
-  return ops_core.ok('identity','user', target.email, 'modules.set',
+  return ops_core.ok('identity','user', v_target.email, 'modules.set',
     jsonb_build_object('user_id', p_user_id, 'modules', v_after), v_before, v_after);
 end $$;
 
@@ -150,7 +150,7 @@ create or replace function ops_core.set_authorities(
 ) returns jsonb
 language plpgsql security definer set search_path = ops_core, pg_temp as $$
 declare
-  target ops_core.users;
+  v_target ops_core.users;
   v_before jsonb;
   v_after  jsonb;
 begin
@@ -170,7 +170,7 @@ begin
       'An authority is granted by somebody else, always.');
   end if;
 
-  select * into target from ops_core.users where id = p_user_id;
+  select * into v_target from ops_core.users where id = p_user_id;
   if not found then
     return ops_core.not_found('identity','user', p_user_id::text, 'authorities.set',
       'No such user.');
@@ -188,10 +188,10 @@ begin
   select coalesce(jsonb_agg(authority order by authority), '[]'::jsonb)
     into v_after from ops_core.user_authorities where user_id = p_user_id;
 
-  perform ops_core.emit('identity','access.changed', target.email,
+  perform ops_core.emit('identity','access.changed', v_target.email,
     jsonb_build_object('user_id', p_user_id, 'authorities', v_after));
 
-  return ops_core.ok('identity','user', target.email, 'authorities.set',
+  return ops_core.ok('identity','user', v_target.email, 'authorities.set',
     jsonb_build_object('user_id', p_user_id, 'authorities', v_after), v_before, v_after);
 end $$;
 

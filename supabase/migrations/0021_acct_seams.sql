@@ -266,53 +266,53 @@ returns jsonb
 language plpgsql security definer set search_path = ops_acct, ops_core, ops_procure, pg_temp as $$
 declare
   t ops_acct.transactions; l ops_procure.pr_lines; already numeric;
-  target text; replayed jsonb; res jsonb;
+  v_target text; replayed jsonb; res jsonb;
 begin
-  target := coalesce(p_pr_line_no, p_po_no);
-  replayed := ops_core.idem_replay('accounting','allocate:' || coalesce(target, '?'), p_key);
+  v_target := coalesce(p_pr_line_no, p_po_no);
+  replayed := ops_core.idem_replay('accounting','allocate:' || coalesce(v_target, '?'), p_key);
   if replayed is not null then return replayed; end if;
 
   if not ops_core.has_authority('post_ledger') then
-    return ops_core.refused('accounting','allocation', target,'allocate',
+    return ops_core.refused('accounting','allocation', v_target,'allocate',
       'authority_required','Applying money to a decision belongs to Accounting.');
   end if;
 
   if (p_pr_line_no is null) = (p_po_no is null) then
-    return ops_core.invalid('accounting','allocation', target,'allocate',
+    return ops_core.invalid('accounting','allocation', v_target,'allocate',
       'target_required',
       'An allocation points at a request line or at an order, and at exactly one.',
       jsonb_build_object('field','pr_line_no'));
   end if;
   if p_amount is null or p_amount <= 0 then
-    return ops_core.invalid('accounting','allocation', target,'allocate',
+    return ops_core.invalid('accounting','allocation', v_target,'allocate',
       'amount_positive','Allocation amount must be greater than zero.',
       jsonb_build_object('field','amount'));
   end if;
 
   select * into t from ops_acct.transactions where trx_no = p_trx_no;
   if not found then
-    return ops_core.not_found('accounting','allocation', target,'allocate',
+    return ops_core.not_found('accounting','allocation', v_target,'allocate',
       format('Transaction %s not found.', p_trx_no));
   end if;
   if t.status = 'VOID' then
-    return ops_core.conflict('accounting','allocation', target,'allocate',
+    return ops_core.conflict('accounting','allocation', v_target,'allocate',
       'transaction_void', format('%s is VOID and cannot fund anything.', p_trx_no));
   end if;
 
   if p_pr_line_no is not null then
     select * into l from ops_procure.pr_lines where line_no_full = p_pr_line_no;
     if not found then
-      return ops_core.invalid('accounting','allocation', target,'allocate',
+      return ops_core.invalid('accounting','allocation', v_target,'allocate',
         'pr_line_not_found',
         format('Line %s does not exist in procurement.', p_pr_line_no),
         jsonb_build_object('field','pr_line_no'));
     end if;
     if l.removed_at is not null then
-      return ops_core.conflict('accounting','allocation', target,'allocate',
+      return ops_core.conflict('accounting','allocation', v_target,'allocate',
         'line_removed', format('Line %s has been removed.', p_pr_line_no));
     end if;
   elsif not exists (select 1 from ops_procure.purchase_orders where po_no = p_po_no) then
-    return ops_core.invalid('accounting','allocation', target,'allocate',
+    return ops_core.invalid('accounting','allocation', v_target,'allocate',
       'po_not_found', format('Order %s does not exist in procurement.', p_po_no),
       jsonb_build_object('field','po_no'));
   end if;
@@ -321,7 +321,7 @@ begin
     from ops_acct.v_allocated where trx_id = t.id;
 
   if coalesce(already, 0) + p_amount > t.amount_idr then
-    return ops_core.invalid('accounting','allocation', target,'allocate',
+    return ops_core.invalid('accounting','allocation', v_target,'allocate',
       'over_allocated',
       format('This transaction only moved %s; %s is already allocated. A transaction never funds more than it moved.',
              t.amount_idr, coalesce(already, 0)),
@@ -333,15 +333,15 @@ begin
     (trx_id, pr_line_no, po_no, amount, method, allocated_by)
   values (t.id, p_pr_line_no, p_po_no, p_amount, p_method, auth.uid());
 
-  perform ops_core.emit('accounting','accounting.allocation.recorded', target,
+  perform ops_core.emit('accounting','accounting.allocation.recorded', v_target,
     jsonb_build_object('trx_no', p_trx_no, 'pr_line_no', p_pr_line_no,
                        'po_no', p_po_no, 'amount', p_amount));
 
-  res := ops_core.ok('accounting','allocation', target,'allocate',
+  res := ops_core.ok('accounting','allocation', v_target,'allocate',
     jsonb_build_object('trx_no', p_trx_no, 'pr_line_no', p_pr_line_no,
                        'po_no', p_po_no, 'amount', p_amount,
                        'unallocated', t.amount_idr - coalesce(already, 0) - p_amount));
-  return ops_core.idem_remember('accounting','allocate:' || coalesce(target, '?'), p_key, res);
+  return ops_core.idem_remember('accounting','allocate:' || coalesce(v_target, '?'), p_key, res);
 end $$;
 
 -- A correction supersedes; it never deletes (A2). The old row stays, so "who
