@@ -1674,6 +1674,15 @@ sheet is paid on `paid`, which ships `true`: HRD's decision is whether to turn
 it off, and doing so writes `unpaid_reason`. Its evidence is a
 `Laporan Lembur` — the screenshot of the work.
 
+**A closed day overrides both, and spends nothing** (D283, owner 2026-09-18).
+When an office-wide `holiday` and somebody's own mark fall on the same date,
+the holiday governs: the day is worth nothing to anybody, a `sick` mark on it
+needs no letter because there is no payment for a letter to unlock, and a
+`leave` mark on it **does not come off that person's entitlement** — a day that
+was never theirs to spend cannot be spent. Hours actually worked that day are
+still overtime. The question had never been asked because the demo read
+whichever mark its array held first (F101).
+
 Marks never touch scans, and scans never override a mark. They are different
 kinds of statement: the taps are evidence with a machine behind them, the mark
 is a decision with a person behind it, and destroying either to express the

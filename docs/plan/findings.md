@@ -4018,3 +4018,46 @@ unordered read — all of them answer a question nobody knew they were asking,
 and they answer it consistently enough that it never surfaces. Transcribing to
 a database is where they surface, because the database refuses to pretend the
 order was ever meaningful.
+
+---
+
+## F102 — `::date` on a timestamptz is the office-day bug wearing a third face
+
+The gross smoke seeded a person's attendance and asserted three counted days.
+It got one. The fixture was:
+
+```sql
+select employee_id, t::date, t, ... from unnest(array['2026-08-24 07:30+08', …])
+```
+
+`2026-08-24 07:30+08` is `2026-08-23 23:30` in UTC, and the cluster runs in
+UTC, so `t::date` is **the day before** for every morning tap in the fixture.
+Three days of scans landed on four dates, and only one of them lined up with a
+mark. `ops_core.office_day(t)` is the function that exists for exactly this,
+and using it fixed the fixture.
+
+This is F17 and F39 again, and the third time is the finding. The rule *the
+office day is `Asia/Makassar`, not UTC and not the browser's* is written down,
+is rule 8 of the build session's inherited rules, and has a function to enforce
+it — and it still went wrong, in a test, written by somebody who had read all
+three. Because `::date` is not where anybody looks for a timezone. It reads as
+a cast, not as a conversion, and the wrong answer is a plausible date rather
+than an error.
+
+Two things worth keeping.
+
+**The failure was silent in the direction that matters.** No constraint was
+violated, no row was rejected, and the scans were all there. What moved was
+which day they belonged to, and the only reason it surfaced is that an
+assertion had a hand-computed number in it. Had the test asserted *whatever the
+view returns*, three days on four dates would have been the expected result
+from then on.
+
+**A rule with a function is not a rule that is followed.** `office_day()` was
+one call away and the fixture did not use it, because the fixture was not
+thinking about office days — it was building a list of timestamps. The place to
+catch this is not more discipline; it is `attendance_scans` refusing a
+`work_date` that disagrees with `ops_core.office_day(at)`, which is a constraint
+the table does not have and should. Raised here rather than added in passing:
+it would reject rows the demo's own fixtures may rely on, and that is a
+migration with a question in it rather than a line in this one.
