@@ -4440,3 +4440,28 @@ one module and read by three is not that module's private table, and a policy
 written as though it were will be patched from the outside until somebody
 notices.** The patches are cheap, which is why four of them accumulated without
 an argument.
+
+## F112 · 2026-09-18 · 0065 — the explosion hides prices, not structure
+
+**What we assumed.** Writing the smoke for `explode_bom`, the refusal half was
+going to be the obvious one: somebody from HRD asks for the explosion of a
+kabinet and gets nothing. The assertion said `0 lines`. It got five.
+
+**What surprised us.** `products_read`, `bomrev_read` and `bomcomp_read` are all
+`using (true)`, and `0060` says why in a sentence: *the catalogue is read by
+everybody who has to name a thing.* The workshop's structure is not a secret.
+What **is** gated is the other side of the seam — `items_read_production` hands
+procurement's item list to `production.read` and nobody else — so the HRD
+reader gets the whole tree with every name and every rupiah stripped out of it.
+
+**What this implies.** The boundary a BOM explosion carries is *what things
+cost*, not *what things are made of*, and the two were worth separating in a
+test rather than leaving to whoever reads the policies next. The smoke now
+pins both halves: five lines, and not one price among them.
+
+It is also F104's shape seen from the other end. The additive policy that was
+written to stop a production user seeing plausible nulls is the same policy
+that produces them, correctly, for everybody else. A null price is the right
+answer often enough that it can never be read as a fault on its own — which is
+the argument for asserting the *reason* a figure is missing, not just that it
+is.
