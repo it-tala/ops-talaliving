@@ -15,7 +15,7 @@ import type {
   ActivityEvent, ActivityDaily, RetentionStatus,
 } from "@/services/identity/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { fail, fromRows, fromSeam, notFound, ok, type Result } from "./_kit";
+import { fail, fromRows, fromSeam, invalid, notFound, ok, type Result } from "./_kit";
 
 const SERVICE = "identity" as const;
 
@@ -396,5 +396,104 @@ export async function signOut(): Promise<Result<null>> {
   const sb = supabaseBrowser();
   const { error } = await sb.auth.signOut();
   if (error) return fail(SERVICE, error);
+  return ok(SERVICE, null);
+}
+
+/* ------------------------------------------------------------------ */
+/* Passwords                                                           */
+/* ------------------------------------------------------------------ */
+
+/** Send a recovery link to an address.
+ *
+ *  ## The gap this closes
+ *
+ *  The sign-in form said *lupa kata sandi — hubungi IT*, which was honest about
+ *  who decides and silent about what IT could actually do. The answer was
+ *  nothing: Supabase's dashboard can send a recovery mail, but the link it
+ *  sends lands wherever **Site URL** points, and on a project set up for local
+ *  development that is `http://localhost:3000` — a machine the person reading
+ *  the mail is not sitting at. The first real administrator account could not
+ *  be given a password by any route the application offered.
+ *
+ *  So the link has to come from the application, and it has to land on a page
+ *  the application serves. `redirectTo` is that page.
+ *
+ *  ## Why it always answers ok
+ *
+ *  Same reason `signIn` uses one message for a wrong password and an unknown
+ *  address: *no account with that address* is a fact about somebody else's
+ *  workspace, and handing it to whoever types a box is how a list of real
+ *  addresses gets built. GoTrue behaves the same way on its side; this keeps
+ *  the screen from undoing that.
+ *
+ *  A transport failure is different — that is this deployment being broken, not
+ *  a statement about the address — so it is returned.
+ */
+export async function requestPasswordReset(email: string): Promise<Result<null>> {
+  const sb = supabaseBrowser();
+  const { error } = await sb.auth.resetPasswordForEmail(email.trim(), {
+    /* Not a constant: the same build serves the preview deployment and
+       production, and a link back to the wrong origin is the bug this function
+       exists to fix. */
+    redirectTo: `${window.location.origin}/set-password`,
+  });
+  if (error && error.status && error.status >= 500) {
+    return {
+      error: {
+        code: "mail_failed",
+        message:
+          "Surat pemulihan tidak bisa dikirim dari server. Ini masalah deployment, "
+          + "bukan alamat Anda — beri tahu IT.",
+        outcome: "refused",
+        status: 500,
+        detail: { from: error.message },
+      },
+      meta: { request_id: "", service: SERVICE, version: "1", outcome: "refused" },
+    };
+  }
+  return ok(SERVICE, null);
+}
+
+/** Set the password of whoever is signed in right now.
+ *
+ *  Two callers, one function, and that is deliberate: somebody who arrived on a
+ *  recovery link and somebody changing a password they know are, to GoTrue, the
+ *  same request. A recovery link **is** a session — a short-lived one that the
+ *  client establishes from the URL — so there is no second code path for "reset"
+ *  and no token to pass around by hand.
+ *
+ *  It refuses when there is no session, rather than asking GoTrue and relaying
+ *  whatever it says. A person who opened `/set-password` from a bookmark, or
+ *  whose link has expired, needs to be told to ask for a new one; *Auth session
+ *  missing* is a true sentence that tells them nothing to do.
+ */
+export async function setPassword(password: string): Promise<Result<null>> {
+  const sb = supabaseBrowser();
+  const { data: auth } = await sb.auth.getSession();
+  if (!auth.session) {
+    return {
+      error: {
+        code: "no_recovery_session",
+        message:
+          "Tautan ini sudah dipakai atau kedaluwarsa. Minta tautan baru dari "
+          + "halaman masuk, lalu buka dari email yang sama.",
+        outcome: "refused",
+        status: 401,
+      },
+      meta: { request_id: "", service: SERVICE, version: "1", outcome: "refused" },
+    };
+  }
+
+  const { error } = await sb.auth.updateUser({ password });
+  /* GoTrue's own wording, kept. It is the one that names the rule that was
+     broken — too short, too common, same as the old one — and a sentence this
+     file invented would be a second description of a rule it does not own. */
+  if (error) return invalid(SERVICE, "password_rejected", error.message);
+
+  /* The trail. A password change nobody can ask about later is the kind of
+     event that only matters after it mattered. */
+  await db().rpc("record_activity_event", {
+    p_kind: "update", p_target: "session", p_label: "Mengganti kata sandi",
+  });
   return ok(SERVICE, null);
 }
