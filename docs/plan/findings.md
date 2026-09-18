@@ -4220,3 +4220,45 @@ found this: not a review, not a second reader, but deliberately breaking the
 rule and noticing that nothing complained. The cost is a few minutes per view;
 this one bought back an assertion that would have gone on passing while the
 behaviour it names quietly regressed.
+
+---
+
+## F107 — four of six came back, and the other two are counted nowhere
+
+A leg closes with `returned_qty` less than `qty`, which is a **legitimate,
+closed answer** — six chairs to the upholsterer and four back is the ordinary
+case, and the two that stayed are the question somebody has to ask the vendor
+(D280). The schema says this well. The arithmetic over it does not.
+
+`at_vendor_qty` sums the **open** legs, and `goods_on_site` is
+`qty − at_vendor_qty`. So after leg A closes at four of six:
+
+```
+order 12 · at vendor 6 · believed on the bench 6 · never came back 2
+```
+
+Six and six is twelve, and there are ten. The board will offer work on six
+pieces that are not in the building, and the refusal D255 exists for — *every
+piece is still at a vendor* — will not fire until the count is off by all of
+them rather than by two.
+
+This is faithful to the demo, which computes the same way, and it is not a
+transcription slip: **the model has no place to put a piece that is neither
+here nor at a vendor.** A closed leg says the trip ended; nothing says what
+happened to what did not come back. Three answers are possible and they are
+different facts — the vendor still has them and will send them later, the
+vendor scrapped them, or the order is short and somebody has to remake them.
+
+Not fixed here, deliberately. Every fix invents something: a fourth date, a
+shrinking order quantity, or a scrap record. The one that looks smallest —
+treating the shortfall as still at the vendor — is the one that is wrong most
+often, because the commonest reason four of six come back is that two were
+ruined.
+
+What the database can do meanwhile is stop the figure from reading as
+certainty. `v_work_order` should carry the shortfall as its own number beside
+`at_vendor_qty`, so *believed on the bench* is visibly a difference rather than
+a count, in the same way `unpriced` sits beside a material cost in
+`v_product_cost` (F104's sibling). That is a one-line view change and a
+question for the owner in the same breath: **kalau dari enam yang dikirim cuma
+empat yang kembali, dua itu masih di vendor, hilang, atau harus dibuat ulang?**

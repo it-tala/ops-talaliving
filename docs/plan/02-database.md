@@ -1800,6 +1800,7 @@ disagree.
 ```mermaid
 erDiagram
     work_orders ||--o{ progress_entries : "advanced by"
+    work_orders ||--o{ vendor_legs : "sent out on"
     process_stages ||--o{ progress_entries : "at"
 
     process_stages {
@@ -1830,6 +1831,19 @@ erDiagram
         route_t route "IN_HOUSE|SUBCON - a list of stages, not a flag (D254)"
         wo_status_t status "OPEN|DONE|CANCELLED"
         uuid created_by FK
+        text note
+    }
+    vendor_legs {
+        uuid id PK
+        text leg_no UK "leg-26-09-18_01 - one trip, one vendor, one process (W6, D280)"
+        uuid wo_id FK
+        vendor_process_t process "BARANG_MENTAH|JOK|AMPLAS|FINISHING|PACKING - NOT the four stages"
+        text vendor_code "procure.vendors.code, at the seam - never a uuid (ADR-004, C12)"
+        numeric qty
+        date sent_on
+        date expected_back "the vendor's promise. NULL = none given, which is not 'not yet due' (D134)"
+        date returned_on
+        numeric returned_qty "how many came back. Less than qty is a legitimate CLOSED answer"
         text note
     }
     progress_entries {
