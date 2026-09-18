@@ -145,12 +145,19 @@ select
   coalesce(g.at_vendor_qty, 0)  as at_vendor_qty,
   g.days_at_vendor,
   coalesce(g.subcon_overdue, false) as subcon_overdue,
+  coalesce(g.not_returned_qty, 0)   as not_returned_qty,
+  -- Write what is actually in the workshop. The shortfall is **subtracted and
+  -- also shown**: a count that quietly absorbs it is the number somebody
+  -- schedules against, and `not_returned_qty` beside it is what turns *six
+  -- here* into *six here, two unaccounted for* (F107).
+  (w.qty - coalesce(g.at_vendor_qty, 0) - coalesce(g.not_returned_qty, 0)) as on_site_qty,
   -- **One predicate, read by the API and the screen.** The rule written twice
   -- was F75. And it is no longer all-or-nothing: six of twelve chairs at the
   -- upholsterer leaves six on the bench, and work reported on those six is
   -- legitimate. An in-house order is always on site — there is nowhere else
   -- for it to be.
-  (w.route <> 'SUBCON' or w.qty - coalesce(g.at_vendor_qty, 0) > 0) as goods_on_site
+  (w.route <> 'SUBCON'
+   or w.qty - coalesce(g.at_vendor_qty, 0) - coalesce(g.not_returned_qty, 0) > 0) as goods_on_site
 from ops_prod.work_orders w
 left join lateral (
   select
@@ -182,7 +189,15 @@ left join lateral (
            then (max(l.returned_on) - min(l.sent_on))::int
          else (ops_core.office_day() - min(l.sent_on))::int end           as days_at_vendor,
     bool_or(l.returned_on is null and l.expected_back is not null
-            and l.expected_back < ops_core.office_day())                  as subcon_overdue
+            and l.expected_back < ops_core.office_day())                  as subcon_overdue,
+    -- **What went out and never came back** (F107, owner 2026-09-18: *tulis
+    -- sesuai yang ada di bengkel*). A leg closing at four of six is a
+    -- legitimate answer, and the two that stayed are neither at the vendor —
+    -- the trip is over — nor on the bench. Summing only the open legs made
+    -- them vanish: an order for twelve read *6 at vendor, 6 here* when ten
+    -- pieces existed.
+    coalesce(sum(l.qty - coalesce(l.returned_qty, 0))
+             filter (where l.returned_on is not null), 0)                 as not_returned_qty
   from ops_prod.vendor_legs l where l.wo_id = w.id
 ) g on true;
 
@@ -206,15 +221,19 @@ begin
     from ops_prod.work_orders w where w.id = new.wo_id;
 
   if new.qty > 0 and v_route = 'SUBCON' then
+    -- Open legs **and** what never came back: both are pieces that are not in
+    -- the building, and the refusal has to count the same ones the board shows
+    -- (F107). One predicate, two readers — the rule written twice was F75.
     select coalesce(sum(l.qty - coalesce(l.returned_qty, 0)), 0) into v_away
-      from ops_prod.vendor_legs l where l.wo_id = new.wo_id and l.returned_on is null;
+      from ops_prod.vendor_legs l where l.wo_id = new.wo_id;
     if v_qty - v_away <= 0 then
       select string_agg(format('%s (%s)', coalesce(v.name, l.vendor_code), l.leg_no), ', ')
         into v_where
         from ops_prod.vendor_legs l
         left join ops_procure.vendors v on v.code = l.vendor_code
        where l.wo_id = new.wo_id and l.returned_on is null;
-      raise exception 'every piece of % is still at a vendor — %', v_no, coalesce(v_where, 'no leg named')
+      raise exception 'no piece of % is in the workshop — %', v_no,
+        coalesce(v_where, 'nothing is out on an open leg; the shortfall never came back')
         using errcode = 'check_violation';
     end if;
   end if;

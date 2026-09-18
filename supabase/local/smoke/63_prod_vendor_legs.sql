@@ -108,6 +108,8 @@ begin
   select * into v from ops_prod.v_work_order where wo_no = 'spk-uji-20';
   assert v.at_vendor,                'something is away';
   assert v.at_vendor_qty = 12,       'all twelve, got ' || v.at_vendor_qty;
+  assert v.not_returned_qty = 0,     'nothing has come up short yet, got ' || v.not_returned_qty;
+  assert v.on_site_qty = 0,          'and nothing is on the bench, got ' || v.on_site_qty;
   assert not v.goods_on_site,        'so nothing is here';
   assert v.subcon_overdue,           'and one leg is past its promise';
   assert v.days_at_vendor = 10,      'from the first thing that went out, got ' || v.days_at_vendor;
@@ -161,8 +163,15 @@ begin
 
   select * into v from ops_prod.v_work_order where wo_no = 'spk-uji-20';
   assert v.at_vendor_qty = 6,      'only leg B is still out, got ' || v.at_vendor_qty;
-  assert v.goods_on_site,          'so there is something here to work on again';
   assert not v.subcon_overdue,     'and the overdue leg is closed';
+  /* **Write what is actually in the workshop** (F107, owner 2026-09-18). Two
+     of the six never came back, and they are neither at the vendor — that trip
+     is over — nor on the bench. Counting only the open legs said six were
+     here; four are. The shortfall is subtracted **and shown**, because a count
+     that quietly absorbs it is the number somebody schedules against. */
+  assert v.not_returned_qty = 2,   'two never came back, and it says so, got ' || v.not_returned_qty;
+  assert v.on_site_qty = 4,        '12 minus 6 at the vendor minus 2 missing, got ' || v.on_site_qty;
+  assert v.goods_on_site,          'four is still something to work on';
 
   -- Work is legitimate again.
   insert into ops_prod.progress_entries (wo_id, stage, qty, work_date, worked_by, recorded_by)
@@ -176,6 +185,37 @@ begin
     delete from ops_prod.vendor_legs where leg_no = 'leg-uji-a';
     raise exception 'deleting a leg should be refused (A5)';
   exception when insufficient_privilege then null;
+  end;
+end $$;
+
+/* ── F107: a shortfall alone can empty the workshop ────────────────────── */
+do $$
+declare wo uuid; v record;
+begin
+  insert into ops_prod.work_orders (wo_no, item_name, qty, uom, route, due_date, created_by)
+  values ('spk-uji-21','Kursi hilang', 3,'unit','SUBCON', ops_core.office_day() + 10,
+          'ffffffff-0000-0000-0000-0000000000d1')
+  returning id into wo;
+
+  -- All three went out and none came back. The leg is **closed** — the vendor
+  -- has answered — so nothing is out on an open leg, and nothing is here
+  -- either.
+  insert into ops_prod.vendor_legs (leg_no, wo_id, process, vendor_code, qty, sent_on, returned_on, returned_qty, note, created_by)
+  values ('leg-uji-c', wo,'JOK','V-9001', 3, ops_core.office_day() - 20, ops_core.office_day() - 1, 0,
+          'rusak semua di vendor','ffffffff-0000-0000-0000-0000000000d1');
+
+  select * into v from ops_prod.v_work_order where wo_no = 'spk-uji-21';
+  assert not v.at_vendor,          'the trip is over, so nothing is at a vendor';
+  assert v.not_returned_qty = 3,   'but three never came back, got ' || v.not_returned_qty;
+  assert v.on_site_qty = 0,        'and the workshop is empty, got ' || v.on_site_qty;
+  assert not v.goods_on_site,      'which is the fact the board must show';
+
+  -- And the refusal counts the same pieces the board does.
+  begin
+    insert into ops_prod.progress_entries (wo_id, stage, qty, work_date, recorded_by)
+    values (wo,'AMPLAS', 1, ops_core.office_day(),'ffffffff-0000-0000-0000-0000000000d1');
+    raise exception 'reporting work with nothing in the workshop should be refused';
+  exception when check_violation then null;
   end;
 end $$;
 

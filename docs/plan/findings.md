@@ -4307,3 +4307,53 @@ still reads `rename to v_total`, which is now advice that breaks a rule.
 written and neither anticipated the other. That is ordinary, and the useful
 habit is not to look for a rule that cannot be outgrown — it is to notice which
 of two rules is protecting something that already exists.
+
+---
+
+## F109 — the comment says a guard must not score 100%, and the code gives him 100%
+
+`kpiView`'s punctuality measure reads, in the demo:
+
+```ts
+const judgeable = tapped.filter((d) => startOn(d) !== null);
+const lateDays  = judgeable.filter(lateOn).length;
+value: Math.round(((tapped.length - lateDays) / tapped.length) * 100)
+```
+
+with a comment two lines above it saying exactly the right thing: *days whose
+schedule has no start time cannot be judged, so they leave the arithmetic
+entirely rather than counting as punctual (D261's rule, in a new place): a
+guard on an unstated shift must not score 100%.*
+
+They do not leave the arithmetic. `lateDays` is counted over the judgeable
+days and then divided by **all** the tapped ones, so a person with no start
+time has `lateDays = 0` over a non-zero denominator and scores exactly the
+100% the comment forbids. The rule was written down, argued for, and then not
+implemented in the same function.
+
+It survives because `dayStartFor` falls back to `rules.day_starts_minutes`,
+and the seed sets one — so in the demo almost nobody is unjudgeable and the
+divergence never shows. It shows the moment a rule book omits the company-wide
+start, which is the honest state for a business whose guard and house
+assistant have hours nobody has fixed (Q44, D274, D279).
+
+`0064` implements the **comment**, not the code: the denominator is the
+judgeable days, and a person with none of them is `null` with a reason —
+*belum ada jam masuk yang ditetapkan untuk orang ini* — rather than a
+compliment. A mutation restoring the demo's arithmetic scores the guard 100%,
+which is how the divergence was confirmed rather than assumed.
+
+Two things worth keeping.
+
+**A comment that states a rule is a specification, and it can be tested.**
+This one was precise enough to implement directly, which is why the
+disagreement was visible at all: a vaguer comment would have been satisfied by
+either version. Prose that names the failure it prevents — *must not score
+100%* — is prose that can be turned into an assertion.
+
+**Transcription is not translation.** The instruction for this phase is to move
+the demo's logic into the database, and the obvious reading is *do what the
+code does*. Where the code and its own stated intent disagree, doing what the
+code does would carry the bug across and make it a database's answer instead
+of a screen's — harder to see and quoted more widely. The demo's screens should
+be corrected to match; that is the design session's file, not this one's.
