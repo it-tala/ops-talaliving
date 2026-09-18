@@ -23,10 +23,25 @@ port = 54321
 schemas = ["public", "graphql_public", "ops_core", "ops_procure", "ops_acct", "ops_hr", "ops_prod", "ops_inv"]
 # Extra schemas to add to the search_path of every request.
 #
-# The order matters and `core` is first among ours: a client calls
-# `.from("v_pr_line")` and `.rpc("approve_line")` unqualified, so the search
-# path is what resolves them. Everything here is still subject to the policies
-# in the migrations — exposing a schema says where to look, never who may read.
+# **This does NOT make a client's `.from()` or `.rpc()` resolve, and the comment
+# that used to sit here said it did.** It claimed a client calls
+# `.from("v_pr_line")` unqualified and the search path resolves it. PostgREST's
+# own documentation is explicit that schemas listed here get *no API endpoints*:
+# they exist so objects inside an exposed schema can reference them unqualified
+# — a view in `ops_acct` reading a function in `ops_core`, for instance.
+#
+# A client call resolves against the one schema the request names, and with none
+# named PostgREST uses the first exposed schema, which is `public`. Believing
+# otherwise cost a deployment: the first screen to load against the real
+# database answered *Could not find the table 'public.v_my_access' in the schema
+# cache*, and every one of the ~100 calls in `src/lib/api/*` had the same fault.
+#
+# They now bind their schema explicitly, and `scripts/check-api-schemas.mjs`
+# keeps every call honest against the ladder. Two settings that sound like one
+# thing: `schemas` says which may be addressed, this says what they can see.
+#
+# Everything here is still subject to the policies in the migrations — exposing
+# a schema says where to look, never who may read.
 extra_search_path = ["public", "extensions", "ops_core", "ops_procure", "ops_acct", "ops_hr", "ops_prod", "ops_inv"]
 # The maximum number of rows returns from a view, table, or stored procedure. Limits payload size
 # for accidental or malicious requests.

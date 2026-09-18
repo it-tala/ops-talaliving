@@ -98,6 +98,15 @@ jobs:
       - name: the two api clients answer the same shapes
         run: node scripts/check-api-parity.mjs
 
+      # PostgREST does not search: `.from("v_my_access")` resolves against the
+      # one schema the request names, and with none it uses `public`, which this
+      # project keeps empty. Nothing could catch that earlier than production —
+      # `tsc` sees a string, the demo never reaches PostgREST, and the smoke
+      # files talk to Postgres directly. It did reach production, on all ~100
+      # calls at once. This resolves every one against the migration ladder.
+      - name: every client call names the right schema
+        run: node scripts/check-api-schemas.mjs
+
       # No Supabase variables here, deliberately. The build has to succeed with
       # none set, because that is how the deployed app runs today — demo mode,
       # browser-held fixtures, no database. `useRealApi()` requires both the
