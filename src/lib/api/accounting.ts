@@ -21,6 +21,32 @@ import { fail, fromSeam, fromRows, invalid, notFound, ok, type Result } from "./
 
 const SERVICE = "accounting" as const;
 
+/** Every object this module reads or calls lives in `ops_acct`, and PostgREST
+ *  has to be told so on **every request**.
+ *
+ *  `.from("x")` and `.rpc("y")` resolve against the schema the request names —
+ *  its `Accept-Profile` / `Content-Profile` header. With none, PostgREST uses
+ *  the first of its exposed schemas, which is `public`, and ours holds nothing.
+ *  The symptom is exact, and was seen in production: *Could not find the table
+ *  'public.v_my_access' in the schema cache*.
+ *
+ *  **Supabase's "Extra search path" does not fix this, and believing it did cost
+ *  a deploy.** That setting adds schemas to the search_path so objects *inside*
+ *  an exposed schema can reference them unqualified; PostgREST is explicit that
+ *  those schemas get no API endpoints of their own. Exposing a schema says it
+ *  may be addressed; naming it on the request is what addresses it.
+ *
+ *  `.schema()` rather than a second client: a client per schema is an auth
+ *  listener and a token-refresh timer per schema, and those racing is how a
+ *  session appears to end halfway through a form. This is a query builder bound
+ *  to one schema, from the one client.
+ *
+ *  Called `db` and not `q` because several functions here already open with
+ *  `let q = …` to build a filter chain, and a helper of the same name would be
+ *  shadowed by it — silently, in exactly the branches that filter.
+ */
+const db = () => supabaseBrowser().schema("ops_acct");
+
 /** A document going in, by its **code**. The contracts carry display strings
  *  (`"Payment Proof"`); the database stores `transfer_proof` and keeps the
  *  wording in `core.doc_kind_labels` so renaming a label is a row rather than
@@ -70,21 +96,18 @@ function toKindCode(kind: string): string {
  *  other would have been found by somebody looking at a blank column.
  */
 export async function listAccounts(): Promise<Result<(AccountBalance & { balance_locked: boolean })[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_account_balance").select("*").order("code");
+  const { data, error } = await db().from("v_account_balance").select("*").order("code");
   return fromRows(SERVICE, data as (AccountBalance & { balance_locked: boolean })[], error);
 }
 
 /** The account rows themselves — no balance, no lock. What a picker needs. */
 export async function listAccountRows(): Promise<Result<Account[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("accounts").select("*").order("code");
+  const { data, error } = await db().from("accounts").select("*").order("code");
   return fromRows<Account[]>(SERVICE, data as Account[], error);
 }
 
 export async function listTypeRows(): Promise<Result<TransactionType[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("transaction_types").select("*").order("code");
+  const { data, error } = await db().from("transaction_types").select("*").order("code");
   return fromRows<TransactionType[]>(SERVICE, data as TransactionType[], error);
 }
 
@@ -97,7 +120,7 @@ export async function listTransactions(
 ): Promise<Result<TransactionView[]>> {
   const limit = opts.limit ?? 50;
   const offset = opts.offset ?? 0;
-  let q = supabaseBrowser().from("v_transaction").select("*");
+  let q = db().from("v_transaction").select("*");
   if (opts.account_code) q = q.eq("account_code", opts.account_code);
   if (opts.status) q = q.eq("status", opts.status);
   const { data, error } = await q
@@ -110,8 +133,7 @@ export async function listTransactions(
 /** Everything a ledger row is made of, in one call: what it bought, what it
  *  funded, and what proves it. */
 export async function getTransaction(trxNo: string): Promise<Result<TransactionDetail>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_transaction_detail").select("*").eq("trx_no", trxNo).maybeSingle();
+  const { data, error } = await db().from("v_transaction_detail").select("*").eq("trx_no", trxNo).maybeSingle();
   if (error) return fail(SERVICE, error);
   if (!data) return notFound(SERVICE, "transaction_not_found", `Transaction ${trxNo} not found.`);
   return ok(SERVICE, data as unknown as TransactionDetail);
@@ -122,7 +144,13 @@ export async function getTransaction(trxNo: string): Promise<Result<TransactionD
  *  ledger this month" — they are "what happened to *this* row", asked while
  *  looking at it. */
 export async function historyFor(trxNo: string): Promise<Result<unknown[]>> {
-  const { data, error } = await supabaseBrowser()
+  /* **The one object this module reads from outside its own schema.** The audit
+     log belongs to `ops_core` — one trail for the whole system, not one per
+     service — so this call names that schema rather than the module's. Checked
+     against the database rather than remembered: it is the only exception among
+     the hundred objects the four clients touch, and
+     `scripts/check-api-schemas.mjs` is what keeps it the only one. */
+  const { data, error } = await supabaseBrowser().schema("ops_core")
     .from("audit_log").select("*")
     .eq("entity", "transaction").eq("entity_no", trxNo)
     .order("at", { ascending: false });
@@ -130,8 +158,7 @@ export async function historyFor(trxNo: string): Promise<Result<unknown[]>> {
 }
 
 export async function coverageFor(prLineNo: string): Promise<Result<unknown[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_allocation").select("*")
+  const { data, error } = await db().from("v_allocation").select("*")
     .eq("pr_line_no", prLineNo).is("superseded_by", null)
     .order("allocated_at");
   return fromRows<unknown[]>(SERVICE, data as unknown[], error);
@@ -158,8 +185,7 @@ async function codeFor(
   table: "accounts" | "vendors" | "projects", id: string | null | undefined,
 ): Promise<string | null> {
   if (!id) return null;
-  const { data } = await supabaseBrowser()
-    .from(table).select("code").eq("id", id).maybeSingle();
+  const { data } = await db().from(table).select("code").eq("id", id).maybeSingle();
   return (data as { code: string } | null)?.code ?? null;
 }
 
@@ -198,7 +224,7 @@ export async function postTransaction(
       "Akun itu tidak ada di database.", { field: "account_id" });
   }
 
-  const { data, error } = await supabaseBrowser().rpc("post_transaction", {
+  const { data, error } = await db().rpc("post_transaction", {
     p_account_code: accountCode,
     p_direction: input.direction,
     p_amount: input.amount_idr,
@@ -221,8 +247,7 @@ export async function postTransaction(
   /* The row exists whether or not this read succeeds, so its error is returned
      as it is rather than dressed as a failed post — retrying a post that
      already happened is how a payment gets made twice. */
-  const row = await supabaseBrowser()
-    .from("v_transaction").select("*").eq("trx_no", posted.data.trx_no).single();
+  const row = await db().from("v_transaction").select("*").eq("trx_no", posted.data.trx_no).single();
   return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
 }
 
@@ -231,7 +256,7 @@ export async function postTransaction(
 export async function voidTransaction(
   trxNo: string, reason: string, idempotencyKey?: string,
 ): Promise<Result<TransactionView>> {
-  const { data, error } = await supabaseBrowser().rpc("void_transaction", {
+  const { data, error } = await db().rpc("void_transaction", {
     p_trx_no: trxNo, p_reason: reason, p_key: idempotencyKey ?? null,
   });
   const voided = fromSeam<{ trx_no: string; status: string }>(SERVICE, data, error);
@@ -240,8 +265,7 @@ export async function voidTransaction(
   /* The row is still there — that is the whole point of a VOID (A5, D84) — so
      the screen wants it back, now reading VOID, rather than a receipt saying it
      worked. */
-  const row = await supabaseBrowser()
-    .from("v_transaction").select("*").eq("trx_no", voided.data.trx_no).single();
+  const row = await db().from("v_transaction").select("*").eq("trx_no", voided.data.trx_no).single();
   return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
 }
 
@@ -258,7 +282,7 @@ export async function allocate(
   },
   idempotencyKey?: string,
 ): Promise<Result<PaymentAllocation>> {
-  const { data, error } = await supabaseBrowser().rpc("allocate_payment", {
+  const { data, error } = await db().rpc("allocate_payment", {
     p_trx_no: input.trx_no,
     p_amount: input.amount,
     p_pr_line_no: input.pr_line_no ?? null,
@@ -273,8 +297,7 @@ export async function allocate(
   /* The allocation row itself, which is what the drawer draws. Newest live one
      for this transaction and this target: `allocate` always writes a new row and
      supersedes rather than editing (A2), so the latest is the one in force. */
-  let q = supabaseBrowser()
-    .from("v_allocation").select("*")
+  let q = db().from("v_allocation").select("*")
     .eq("trx_no", input.trx_no).is("superseded_by", null);
   q = input.pr_line_no ? q.eq("pr_line_no", input.pr_line_no) : q.eq("po_no", input.po_no ?? "");
   const row = await q.order("allocated_at", { ascending: false }).limit(1).maybeSingle();
@@ -287,7 +310,7 @@ export async function allocate(
 export async function supersedeAllocation(
   allocationId: string, newAmount?: number | null,
 ): Promise<Result<unknown>> {
-  const { data, error } = await supabaseBrowser().rpc("supersede_allocation", {
+  const { data, error } = await db().rpc("supersede_allocation", {
     p_allocation_id: allocationId, p_new_amount: newAmount ?? null,
   });
   return fromSeam(SERVICE, data, error);
@@ -298,15 +321,13 @@ export async function supersedeAllocation(
 /* ------------------------------------------------------------------ */
 
 export async function listInbox(): Promise<Result<unknown[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("evidence_inbox").select("*")
+  const { data, error } = await db().from("evidence_inbox").select("*")
     .eq("status", "PENDING").order("reported_at", { ascending: false });
   return fromRows<unknown[]>(SERVICE, data as unknown[], error);
 }
 
 export async function listInboxAll(): Promise<Result<unknown[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("evidence_inbox").select("*").order("reported_at", { ascending: false });
+  const { data, error } = await db().from("evidence_inbox").select("*").order("reported_at", { ascending: false });
   return fromRows<unknown[]>(SERVICE, data as unknown[], error);
 }
 
@@ -314,8 +335,7 @@ export async function listInboxAll(): Promise<Result<unknown[]>> {
  *  road — attaching from the record — and the reason is worth finding
  *  (ADR-010). */
 export async function getInboxHealth(): Promise<Result<InboxHealth>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_inbox_health").select("*").maybeSingle();
+  const { data, error } = await db().from("v_inbox_health").select("*").maybeSingle();
   if (error) return fail(SERVICE, error);
   return ok(SERVICE, data as unknown as InboxHealth);
 }
@@ -328,7 +348,7 @@ export async function resolveInbox(
   input: { ref_id: string; status: InboxStatus; trx_no?: string | null; note?: string | null },
   idempotencyKey?: string,
 ): Promise<Result<{ ref_id: string; status: string }>> {
-  const { data, error } = await supabaseBrowser().rpc("resolve_inbox", {
+  const { data, error } = await db().rpc("resolve_inbox", {
     p_ref_id: input.ref_id,
     p_status: input.status,
     p_trx_no: input.trx_no ?? null,
@@ -349,8 +369,7 @@ export async function resolveInbox(
  *  `from` exists because the engine takes a date, and pinning it is what makes
  *  the calendar testable. Left off, it starts at the office day. */
 export async function getCashPlan(from?: string): Promise<Result<unknown[]>> {
-  const { data, error } = await supabaseBrowser()
-    .rpc("cash_events", { p_from: from ?? null });
+  const { data, error } = await db().rpc("cash_events", { p_from: from ?? null });
   return fromRows<unknown[]>(SERVICE, data as unknown[], error);
 }
 
@@ -358,15 +377,14 @@ export async function getCashPlan(from?: string): Promise<Result<unknown[]>> {
  *  of the occurrences behind it, because a month with one overdue payday is an
  *  overdue month however well the other three went. */
 export async function listCells(month?: string): Promise<Result<unknown[]>> {
-  let q = supabaseBrowser().from("v_cash_cell").select("*");
+  let q = db().from("v_cash_cell").select("*");
   if (month) q = q.eq("month", month);
   const { data, error } = await q.order("month").order("due_date");
   return fromRows<unknown[]>(SERVICE, data as unknown[], error);
 }
 
 export async function listComponents(): Promise<Result<unknown[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_cash_row").select("*").order("name");
+  const { data, error } = await db().from("v_cash_row").select("*").order("name");
   return fromRows<unknown[]>(SERVICE, data as unknown[], error);
 }
 
@@ -374,8 +392,7 @@ export async function listComponents(): Promise<Result<unknown[]>> {
  *  among them**: money sitting there has not been given to operations yet, and
  *  counting it would make every month look survivable. */
 export async function getCashPosition(): Promise<Result<{ opening_cash: number; as_of: string }>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_cash_position").select("*").maybeSingle();
+  const { data, error } = await db().from("v_cash_position").select("*").maybeSingle();
   if (error) return fail(SERVICE, error);
   return ok(SERVICE, data as { opening_cash: number; as_of: string });
 }
@@ -384,8 +401,7 @@ export async function getCashPosition(): Promise<Result<{ opening_cash: number; 
  *  most spending is not on the calendar — but the figure a month is short by
  *  when the plan looked fine. */
 export async function listUnplanned(): Promise<Result<unknown[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_cash_unplanned").select("*").order("month");
+  const { data, error } = await db().from("v_cash_unplanned").select("*").order("month");
   return fromRows<unknown[]>(SERVICE, data as unknown[], error);
 }
 
@@ -404,7 +420,7 @@ export async function saveComponent(input: {
   starts_on?: string | null;
   note?: string | null;
 }): Promise<Result<unknown>> {
-  const { data, error } = await supabaseBrowser().rpc("save_cash_component", {
+  const { data, error } = await db().rpc("save_cash_component", {
     p_name: input.name,
     p_amount: input.amount,
     p_frequency: input.frequency,
@@ -433,7 +449,7 @@ export async function setOverride(input: {
   reason?: string | null;
   skip?: boolean;
 }): Promise<Result<unknown>> {
-  const { data, error } = await supabaseBrowser().rpc("set_cash_override", {
+  const { data, error } = await db().rpc("set_cash_override", {
     p_component_id: input.component_id,
     p_month: input.month,
     p_amount: input.amount ?? null,
@@ -449,7 +465,7 @@ export async function setOverride(input: {
 export async function linkPayment(input: {
   component_id: string; month: string; trx_no: string;
 }): Promise<Result<unknown>> {
-  const { data, error } = await supabaseBrowser().rpc("link_cash_payment", {
+  const { data, error } = await db().rpc("link_cash_payment", {
     p_component_id: input.component_id, p_month: input.month, p_trx_no: input.trx_no,
   });
   return fromSeam(SERVICE, data, error);
@@ -463,23 +479,20 @@ export async function linkPayment(input: {
  *  transfer really does close three orders — the bank saw one payment, the
  *  vendor closed three, and both are true (D97). */
 export async function paymentsForVendor(vendorId: string): Promise<Result<unknown[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_vendor_payment").select("*")
+  const { data, error } = await db().from("v_vendor_payment").select("*")
     .eq("vendor_id", vendorId).order("trx_date", { ascending: false });
   return fromRows<unknown[]>(SERVICE, data as unknown[], error);
 }
 
 export async function listStatements(): Promise<Result<unknown[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_bank_statement").select("*").order("period_start", { ascending: false });
+  const { data, error } = await db().from("v_bank_statement").select("*").order("period_start", { ascending: false });
   return fromRows<unknown[]>(SERVICE, data as unknown[], error);
 }
 
 /** A ledger row that looks like this statement line. **A suggestion, never
  *  applied by itself** (D180) — the view proposes and a person decides. */
 export async function suggestionsFor(statementLineId: string): Promise<Result<unknown[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_statement_suggestion").select("*")
+  const { data, error } = await db().from("v_statement_suggestion").select("*")
     .eq("statement_line_id", statementLineId).order("days_apart");
   return fromRows<unknown[]>(SERVICE, data as unknown[], error);
 }
@@ -558,7 +571,7 @@ export async function importStatement(
   },
   idempotencyKey?: string,
 ): Promise<Result<BankStatementView>> {
-  const { data, error } = await supabaseBrowser().rpc("import_statement", {
+  const { data, error } = await db().rpc("import_statement", {
     p_account_code: input.account_code,
     p_period_start: input.period_start,
     p_period_end: input.period_end,
@@ -580,7 +593,7 @@ export async function importStatement(
 export async function setStatementRate(
   input: { statement_no: string; line_id: string; fx_rate: number },
 ): Promise<Result<BankStatementView>> {
-  const { data, error } = await supabaseBrowser().rpc("set_statement_rate", {
+  const { data, error } = await db().rpc("set_statement_rate", {
     p_line_id: input.line_id,
     p_fx_rate: input.fx_rate,
     p_key: null,
@@ -594,7 +607,7 @@ export async function setStatementRate(
 export async function matchStatementLine(
   input: { statement_no: string; line_id: string; trx_no: string },
 ): Promise<Result<BankStatementView>> {
-  const { data, error } = await supabaseBrowser().rpc("match_statement_line", {
+  const { data, error } = await db().rpc("match_statement_line", {
     p_line_id: input.line_id,
     p_trx_no: input.trx_no,
     p_key: null,
@@ -618,7 +631,7 @@ export async function bookStatementLine(
     vendor_id?: string | null; project_id?: string | null;
   },
 ): Promise<Result<BankStatementView>> {
-  const { data, error } = await supabaseBrowser().rpc("book_statement_line", {
+  const { data, error } = await db().rpc("book_statement_line", {
     p_line_id: input.line_id,
     p_type_code: input.type_code,
     p_description: input.description,
@@ -638,7 +651,7 @@ export async function bookStatementLine(
 export async function ignoreStatementLine(
   input: { statement_no: string; line_id: string; note: string },
 ): Promise<Result<BankStatementView>> {
-  const { data, error } = await supabaseBrowser().rpc("ignore_statement_line", {
+  const { data, error } = await db().rpc("ignore_statement_line", {
     p_line_id: input.line_id,
     p_note: input.note,
     p_key: null,

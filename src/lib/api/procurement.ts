@@ -34,6 +34,32 @@ import { fail, fromSeam, fromRows, fromPage, notFound, ok, type Result } from ".
 
 const SERVICE = "procurement" as const;
 
+/** Every object this module reads or calls lives in `ops_procure`, and PostgREST
+ *  has to be told so on **every request**.
+ *
+ *  `.from("x")` and `.rpc("y")` resolve against the schema the request names —
+ *  its `Accept-Profile` / `Content-Profile` header. With none, PostgREST uses
+ *  the first of its exposed schemas, which is `public`, and ours holds nothing.
+ *  The symptom is exact, and was seen in production: *Could not find the table
+ *  'public.v_my_access' in the schema cache*.
+ *
+ *  **Supabase's "Extra search path" does not fix this, and believing it did cost
+ *  a deploy.** That setting adds schemas to the search_path so objects *inside*
+ *  an exposed schema can reference them unqualified; PostgREST is explicit that
+ *  those schemas get no API endpoints of their own. Exposing a schema says it
+ *  may be addressed; naming it on the request is what addresses it.
+ *
+ *  `.schema()` rather than a second client: a client per schema is an auth
+ *  listener and a token-refresh timer per schema, and those racing is how a
+ *  session appears to end halfway through a form. This is a query builder bound
+ *  to one schema, from the one client.
+ *
+ *  Called `db` and not `q` because several functions here already open with
+ *  `let q = …` to build a filter chain, and a helper of the same name would be
+ *  shadowed by it — silently, in exactly the branches that filter.
+ */
+const db = () => supabaseBrowser().schema("ops_procure");
+
 /** What a new line looks like going in.
  *
  *  Declared here rather than imported, because the demo's copy lives in
@@ -216,15 +242,13 @@ function toLineView(r: LineRow): PrLineView {
  *  is the board's own order — the queue below sorts the other way, and both
  *  orders are the view's, not this file's. */
 export async function listOpenLines(): Promise<Result<PrLineView[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_open_lines").select("*").order("submitted_at", { ascending: false });
+  const { data, error } = await db().from("v_open_lines").select("*").order("submitted_at", { ascending: false });
   if (error) return fail(SERVICE, error);
   return ok(SERVICE, (data as LineRow[]).map(toLineView));
 }
 
 export async function listAllLines(): Promise<Result<PrLineView[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_pr_line").select("*")
+  const { data, error } = await db().from("v_pr_line").select("*")
     .not("doc_status", "in", "(DRAFT,CANCELLED)")
     .is("removed_at", null)
     .order("submitted_at", { ascending: false });
@@ -236,15 +260,13 @@ export async function listAllLines(): Promise<Result<PrLineView[]>> {
  *  prioritised, but a line that has waited a week should not be below one filed
  *  this morning just because the table happens to be in that order. */
 export async function queue(): Promise<Result<PrLineView[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_approval_queue").select("*").order("submitted_at", { ascending: true });
+  const { data, error } = await db().from("v_approval_queue").select("*").order("submitted_at", { ascending: true });
   if (error) return fail(SERVICE, error);
   return ok(SERVICE, (data as LineRow[]).map(toLineView));
 }
 
 export async function decidedLines(limit = 12): Promise<Result<PrLineView[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_pr_line").select("*")
+  const { data, error } = await db().from("v_pr_line").select("*")
     .eq("approval_approved", true)
     .order("approval_at", { ascending: false })
     .limit(limit);
@@ -257,8 +279,7 @@ export async function decidedLines(limit = 12): Promise<Result<PrLineView[]>> {
  *  happening". So this reads every line with a material variance, settled or
  *  not. */
 export async function listVariances(): Promise<Result<PrLineView[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_pr_line").select("*")
+  const { data, error } = await db().from("v_pr_line").select("*")
     .eq("variance_material", true)
     .order("submitted_at", { ascending: false });
   if (error) return fail(SERVICE, error);
@@ -266,8 +287,7 @@ export async function listVariances(): Promise<Result<PrLineView[]>> {
 }
 
 export async function listLinesForWorkOrder(woNo: string): Promise<Result<PrLineView[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_pr_line").select("*").eq("source_wo_no", woNo).is("removed_at", null);
+  const { data, error } = await db().from("v_pr_line").select("*").eq("source_wo_no", woNo).is("removed_at", null);
   if (error) return fail(SERVICE, error);
   return ok(SERVICE, (data as LineRow[]).map(toLineView));
 }
@@ -309,7 +329,7 @@ export async function approveLine(
   },
   idempotencyKey?: string,
 ): Promise<Result<PrLineView>> {
-  const { data, error } = await supabaseBrowser().rpc("approve_line", {
+  const { data, error } = await db().rpc("approve_line", {
     p_line_no: input.line_no,
     p_approved: input.approved,
     p_approved_qty: input.approved_qty ?? null,
@@ -328,7 +348,7 @@ export async function removeLine(
   input: { line_no: string },
   idempotencyKey?: string,
 ): Promise<Result<PrLineView>> {
-  const { data, error } = await supabaseBrowser().rpc("remove_line", {
+  const { data, error } = await db().rpc("remove_line", {
     p_line_no: input.line_no, p_key: idempotencyKey ?? null,
   });
   const res = fromSeam<unknown>(SERVICE, data, error);
@@ -339,7 +359,7 @@ export async function removeLine(
 export async function noteLine(
   input: { line_no: string; instructions?: string | null; remark?: string | null },
 ): Promise<Result<PrLineView>> {
-  const { data, error } = await supabaseBrowser().rpc("note_line", {
+  const { data, error } = await db().rpc("note_line", {
     p_line_no: input.line_no,
     p_instructions: input.instructions ?? null,
     p_remark: input.remark ?? null,
@@ -352,7 +372,7 @@ export async function noteLine(
 export async function explainVariance(
   input: { line_no: string; reason: VarianceReason; note?: string | null },
 ): Promise<Result<PrLineView>> {
-  const { data, error } = await supabaseBrowser().rpc("explain_variance", {
+  const { data, error } = await db().rpc("explain_variance", {
     p_line_no: input.line_no, p_reason: input.reason, p_note: input.note ?? null,
   });
   const res = fromSeam<unknown>(SERVICE, data, error);
@@ -363,7 +383,7 @@ export async function explainVariance(
 export async function submitPr(
   docNo: string, idempotencyKey?: string,
 ): Promise<Result<PrDocumentView>> {
-  const { data, error } = await supabaseBrowser().rpc("submit_pr", {
+  const { data, error } = await db().rpc("submit_pr", {
     p_doc_no: docNo, p_key: idempotencyKey ?? null,
   });
   const submitted = fromSeam<{ doc_no: string; status: string; lines: number }>(
@@ -396,12 +416,11 @@ export async function createPr(
 ): Promise<Result<PrDocumentView>> {
   let projectCode = input.project_code ?? null;
   if (!projectCode && input.project_id) {
-    const { data } = await supabaseBrowser()
-      .from("projects").select("code").eq("id", input.project_id).maybeSingle();
+    const { data } = await db().from("projects").select("code").eq("id", input.project_id).maybeSingle();
     projectCode = (data as { code: string } | null)?.code ?? null;
   }
 
-  const { data, error } = await supabaseBrowser().rpc("create_pr", {
+  const { data, error } = await db().rpc("create_pr", {
     p_lines: input.lines,
     p_project_code: projectCode,
     p_doc_type: "PR",
@@ -426,7 +445,7 @@ export async function quickAddLine(
   idempotencyKey?: string,
 ): Promise<Result<PrLineView>> {
   const { project_code, ...line } = input;
-  const { data, error } = await supabaseBrowser().rpc("quick_add_line", {
+  const { data, error } = await db().rpc("quick_add_line", {
     p_line: line, p_project_code: project_code ?? null, p_key: idempotencyKey ?? null,
   });
   const res = fromSeam<{ line_no: string }>(SERVICE, data, error);
@@ -437,7 +456,7 @@ export async function quickAddLine(
 export async function addDraftLine(
   docNo: string, input: NewLineInput,
 ): Promise<Result<PrLineView>> {
-  const { data, error } = await supabaseBrowser().rpc("add_draft_line", {
+  const { data, error } = await db().rpc("add_draft_line", {
     p_doc_no: docNo, p_line: input,
   });
   const res = fromSeam<{ line_no: string }>(SERVICE, data, error);
@@ -451,7 +470,7 @@ export async function addDraftLine(
 export async function updateLine(
   lineNo: string, input: Partial<NewLineInput>,
 ): Promise<Result<PrLineView>> {
-  const { data, error } = await supabaseBrowser().rpc("update_line", {
+  const { data, error } = await db().rpc("update_line", {
     p_line_no: lineNo, p_patch: input,
   });
   const res = fromSeam<unknown>(SERVICE, data, error);
@@ -467,7 +486,7 @@ export async function requestApproval(
   input: { line_nos: string[]; to_email?: string | null; notes?: Record<string, string | null> },
   idempotencyKey?: string,
 ): Promise<Result<{ batch_no: string; token: string; sent_to: string; lines: string[] }>> {
-  const { data, error } = await supabaseBrowser().rpc("request_approval", {
+  const { data, error } = await db().rpc("request_approval", {
     p_line_nos: input.line_nos,
     p_to_email: input.to_email ?? null,
     p_notes: input.notes ?? {},
@@ -497,15 +516,14 @@ export async function requestApproval(
 export async function createVendor(
   input: { name: string }, idempotencyKey?: string,
 ): Promise<Result<Vendor>> {
-  const { data, error } = await supabaseBrowser().rpc("create_vendor", {
+  const { data, error } = await db().rpc("create_vendor", {
     p_name: input.name, p_key: idempotencyKey ?? null,
   });
   const created = fromSeam<{ code: string; name: string; is_curated: boolean }>(
     SERVICE, data, error);
   if (created.error) return created;
 
-  const row = await supabaseBrowser()
-    .from("vendors").select("*").eq("code", created.data.code).single();
+  const row = await db().from("vendors").select("*").eq("code", created.data.code).single();
   return fromRows<Vendor>(SERVICE, row.data as Vendor | null, row.error);
 }
 
@@ -513,7 +531,7 @@ export async function createItem(
   input: { name: string; category_code?: string; base_uom?: string; kind?: "goods" | "service" },
   idempotencyKey?: string,
 ): Promise<Result<{ code: string; name: string; is_curated: boolean }>> {
-  const { data, error } = await supabaseBrowser().rpc("create_item", {
+  const { data, error } = await db().rpc("create_item", {
     p_name: input.name,
     p_category_code: input.category_code ?? "uncurated",
     p_base_uom: input.base_uom ?? "pcs",
@@ -524,7 +542,7 @@ export async function createItem(
 }
 
 export async function curateItem(code: string, curated: boolean): Promise<Result<unknown>> {
-  const { data, error } = await supabaseBrowser().rpc("curate_item", {
+  const { data, error } = await db().rpc("curate_item", {
     p_code: code, p_curated: curated,
   });
   return fromSeam(SERVICE, data, error);
@@ -539,7 +557,7 @@ export async function updateVendorContact(
     npwp?: string | null;
   },
 ): Promise<Result<unknown>> {
-  const { data, error } = await supabaseBrowser().rpc("update_vendor_contact", {
+  const { data, error } = await db().rpc("update_vendor_contact", {
     p_code: code,
     p_pic_name: input.pic_name ?? null,
     p_pic_phone: input.pic_phone ?? null,
@@ -565,7 +583,7 @@ export async function createPo(
   },
   idempotencyKey?: string,
 ): Promise<Result<{ po_no: string; status: string; lines: number }>> {
-  const { data, error } = await supabaseBrowser().rpc("create_po", {
+  const { data, error } = await db().rpc("create_po", {
     p_vendor_code: input.vendor_code,
     p_lines: input.lines,
     p_dp_percent: input.dp_percent ?? null,
@@ -577,19 +595,19 @@ export async function createPo(
 }
 
 export async function requestPoApproval(poNo: string): Promise<Result<unknown>> {
-  const { data, error } = await supabaseBrowser().rpc("request_po_approval", { p_po_no: poNo });
+  const { data, error } = await db().rpc("request_po_approval", { p_po_no: poNo });
   return fromSeam(SERVICE, data, error);
 }
 
 export async function setExpectedDelivery(poNo: string, date: string): Promise<Result<unknown>> {
-  const { data, error } = await supabaseBrowser().rpc("set_expected_delivery", {
+  const { data, error } = await db().rpc("set_expected_delivery", {
     p_po_no: poNo, p_date: date,
   });
   return fromSeam(SERVICE, data, error);
 }
 
 export async function markPoResent(poNo: string): Promise<Result<unknown>> {
-  const { data, error } = await supabaseBrowser().rpc("mark_po_resent", { p_po_no: poNo });
+  const { data, error } = await db().rpc("mark_po_resent", { p_po_no: poNo });
   return fromSeam(SERVICE, data, error);
 }
 
@@ -609,7 +627,7 @@ export async function createReceipt(
   },
   idempotencyKey?: string,
 ): Promise<Result<{ receipt_no: string; status: string; notified: boolean }>> {
-  const { data, error } = await supabaseBrowser().rpc("create_receipt", {
+  const { data, error } = await db().rpc("create_receipt", {
     p_qty: input.qty_received,
     p_condition: input.condition,
     p_documents: input.documents,
@@ -626,7 +644,7 @@ export async function createReceipt(
  *  none. Nothing to roll is a `noop` — a successful nothing-happened, which is
  *  a better answer than a 200 that looks like work. */
 export async function syncRound(): Promise<Result<{ round_no: string; added: number }>> {
-  const { data, error } = await supabaseBrowser().rpc("sync_round");
+  const { data, error } = await db().rpc("sync_round");
   return fromSeam(SERVICE, data, error);
 }
 
@@ -637,7 +655,7 @@ export async function syncRound(): Promise<Result<{ round_no: string; added: num
 export async function closeRound(
   roundNo: string, idempotencyKey?: string,
 ): Promise<Result<{ round_no: string; status: string; still_owed: number }>> {
-  const { data, error } = await supabaseBrowser().rpc("close_round", {
+  const { data, error } = await db().rpc("close_round", {
     p_round_no: roundNo, p_key: idempotencyKey ?? null,
   });
   return fromSeam(SERVICE, data, error);
@@ -645,8 +663,7 @@ export async function closeRound(
 
 /** What the next round would pick up, before anybody presses the button. */
 export async function roundEligible(): Promise<Result<{ line_no_full: string; remaining: number }[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_round_eligible").select("line_no_full, remaining");
+  const { data, error } = await db().from("v_round_eligible").select("line_no_full, remaining");
   return fromRows(SERVICE, data as { line_no_full: string; remaining: number }[], error);
 }
 
@@ -659,7 +676,7 @@ export async function answerFromChat(
   input: { token: string; approved: boolean; answered_by_email: string; instructions?: string | null },
   idempotencyKey?: string,
 ): Promise<Result<{ line_no: string; approved: boolean; by: string; channel: string }>> {
-  const { data, error } = await supabaseBrowser().rpc("answer_request", {
+  const { data, error } = await db().rpc("answer_request", {
     p_token: input.token,
     p_approved: input.approved,
     p_answered_by_email: input.answered_by_email,
@@ -670,8 +687,7 @@ export async function answerFromChat(
 }
 
 async function getLine(lineNo: string): Promise<Result<PrLineView>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_pr_line").select("*").eq("line_no_full", lineNo).maybeSingle();
+  const { data, error } = await db().from("v_pr_line").select("*").eq("line_no_full", lineNo).maybeSingle();
   if (error) return fail(SERVICE, error);
   if (!data) {
     return {
@@ -695,7 +711,7 @@ async function getLine(lineNo: string): Promise<Result<PrLineView>> {
 export async function listVendors(
   opts: { q?: string; curated?: boolean } = {},
 ): Promise<Result<Vendor[]>> {
-  let q = supabaseBrowser().from("vendors").select("*").is("merged_into", null);
+  let q = db().from("vendors").select("*").is("merged_into", null);
   if (opts.curated !== undefined) q = q.eq("is_curated", opts.curated);
   if (opts.q) q = q.ilike("name", `%${opts.q}%`);
   const { data, error } = await q.order("name");
@@ -703,7 +719,7 @@ export async function listVendors(
 }
 
 export async function listVendorViews(opts: { q?: string } = {}): Promise<Result<VendorView[]>> {
-  let q = supabaseBrowser().from("v_vendor_view").select("*").is("merged_into", null);
+  let q = db().from("v_vendor_view").select("*").is("merged_into", null);
   if (opts.q) q = q.ilike("name", `%${opts.q}%`);
   const { data, error } = await q.order("name");
   return fromRows<VendorView[]>(SERVICE, data as VendorView[], error);
@@ -712,7 +728,7 @@ export async function listVendorViews(opts: { q?: string } = {}): Promise<Result
 export async function listItems(
   opts: { q?: string; curated?: boolean } = {},
 ): Promise<Result<Item[]>> {
-  let q = supabaseBrowser().from("items").select("*").is("merged_into", null);
+  let q = db().from("items").select("*").is("merged_into", null);
   if (opts.curated !== undefined) q = q.eq("is_curated", opts.curated);
   if (opts.q) q = q.ilike("name", `%${opts.q}%`);
   const { data, error } = await q.order("name");
@@ -720,30 +736,29 @@ export async function listItems(
 }
 
 export async function listItemViews(opts: { q?: string } = {}): Promise<Result<ItemView[]>> {
-  let q = supabaseBrowser().from("v_item_view").select("*").is("merged_into", null);
+  let q = db().from("v_item_view").select("*").is("merged_into", null);
   if (opts.q) q = q.ilike("name", `%${opts.q}%`);
   const { data, error } = await q.order("name");
   return fromRows<ItemView[]>(SERVICE, data as ItemView[], error);
 }
 
 export async function listUom(): Promise<Result<Uom[]>> {
-  const { data, error } = await supabaseBrowser().from("uom").select("*").order("code");
+  const { data, error } = await db().from("uom").select("*").order("code");
   return fromRows<Uom[]>(SERVICE, data as Uom[], error);
 }
 
 export async function listCategories(): Promise<Result<ItemCategory[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("item_categories").select("*").order("name");
+  const { data, error } = await db().from("item_categories").select("*").order("name");
   return fromRows<ItemCategory[]>(SERVICE, data as ItemCategory[], error);
 }
 
 export async function listProjects(): Promise<Result<Project[]>> {
-  const { data, error } = await supabaseBrowser().from("projects").select("*").order("code");
+  const { data, error } = await db().from("projects").select("*").order("code");
   return fromRows<Project[]>(SERVICE, data as Project[], error);
 }
 
 export async function curateVendor(code: string, curated: boolean): Promise<Result<unknown>> {
-  const { data, error } = await supabaseBrowser().rpc("curate_vendor", {
+  const { data, error } = await db().rpc("curate_vendor", {
     p_code: code, p_curated: curated,
   });
   return fromSeam(SERVICE, data, error);
@@ -752,7 +767,7 @@ export async function curateVendor(code: string, curated: boolean): Promise<Resu
 /** A pointer, never a delete (D33). Takes **codes**, not uuids, because that is
  *  what crosses every seam in this system and what a person can read back. */
 export async function mergeVendor(loserCode: string, winnerCode: string): Promise<Result<unknown>> {
-  const { data, error } = await supabaseBrowser().rpc("merge_vendor", {
+  const { data, error } = await db().rpc("merge_vendor", {
     p_loser_code: loserCode, p_winner_code: winnerCode,
   });
   return fromSeam(SERVICE, data, error);
@@ -763,19 +778,17 @@ export async function mergeVendor(loserCode: string, winnerCode: string): Promis
 /* ------------------------------------------------------------------ */
 
 export async function listRounds(): Promise<Result<RoundSummary[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_round_summary").select("*").order("opened_at", { ascending: false });
+  const { data, error } = await db().from("v_round_summary").select("*").order("opened_at", { ascending: false });
   return fromRows<RoundSummary[]>(SERVICE, data as RoundSummary[], error);
 }
 
 export async function getRound(roundNo: string): Promise<Result<RoundSummary>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_round_summary").select("*").eq("round_no", roundNo).single();
+  const { data, error } = await db().from("v_round_summary").select("*").eq("round_no", roundNo).single();
   return fromRows<RoundSummary>(SERVICE, data as RoundSummary, error);
 }
 
 export async function approveRound(roundNo: string, idempotencyKey?: string): Promise<Result<unknown>> {
-  const { data, error } = await supabaseBrowser().rpc("approve_round", {
+  const { data, error } = await db().rpc("approve_round", {
     p_round_no: roundNo, p_key: idempotencyKey ?? null,
   });
   return fromSeam(SERVICE, data, error);
@@ -788,7 +801,7 @@ export async function transferRound(
   input: { round_no: string; amount: number; trx_no: string; proof_attachment_id: string },
   idempotencyKey?: string,
 ): Promise<Result<unknown>> {
-  const { data, error } = await supabaseBrowser().rpc("transfer_round", {
+  const { data, error } = await db().rpc("transfer_round", {
     p_round_no: input.round_no,
     p_amount: input.amount,
     p_trx_no: input.trx_no,
@@ -799,28 +812,26 @@ export async function transferRound(
 }
 
 export async function listVendorJourneys(): Promise<Result<VendorJourney[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_vendor_journey").select("*").gt("orders", 0).order("vendor_name");
+  const { data, error } = await db().from("v_vendor_journey").select("*").gt("orders", 0).order("vendor_name");
   return fromRows<VendorJourney[]>(SERVICE, data as VendorJourney[], error);
 }
 
 export async function getVendorJourney(vendorId: string): Promise<Result<VendorJourney>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_vendor_journey").select("*").eq("vendor_id", vendorId).single();
+  const { data, error } = await db().from("v_vendor_journey").select("*").eq("vendor_id", vendorId).single();
   return fromRows<VendorJourney>(SERVICE, data as VendorJourney, error);
 }
 
 export async function approvePo(
   poNo: string, note?: string | null, idempotencyKey?: string,
 ): Promise<Result<unknown>> {
-  const { data, error } = await supabaseBrowser().rpc("approve_po", {
+  const { data, error } = await db().rpc("approve_po", {
     p_po_no: poNo, p_note: note ?? null, p_key: idempotencyKey ?? null,
   });
   return fromSeam(SERVICE, data, error);
 }
 
 export async function issuePo(poNo: string, idempotencyKey?: string): Promise<Result<unknown>> {
-  const { data, error } = await supabaseBrowser().rpc("issue_po", {
+  const { data, error } = await db().rpc("issue_po", {
     p_po_no: poNo, p_key: idempotencyKey ?? null,
   });
   return fromSeam(SERVICE, data, error);
@@ -830,7 +841,7 @@ export async function amendPoLine(
   input: { po_no: string; line_no: number; qty: number; unit_price: number; description?: string | null },
   idempotencyKey?: string,
 ): Promise<Result<unknown>> {
-  const { data, error } = await supabaseBrowser().rpc("amend_po_line", {
+  const { data, error } = await db().rpc("amend_po_line", {
     p_po_no: input.po_no, p_line_no: input.line_no,
     p_qty: input.qty, p_unit_price: input.unit_price,
     p_description: input.description ?? null,
@@ -843,7 +854,7 @@ export async function amendPoLine(
  *  says which — a refusal that only says no leaves somebody clicking it again
  *  next week (D132). */
 export async function closePo(poNo: string, idempotencyKey?: string): Promise<Result<unknown>> {
-  const { data, error } = await supabaseBrowser().rpc("close_po", {
+  const { data, error } = await db().rpc("close_po", {
     p_po_no: poNo, p_key: idempotencyKey ?? null,
   });
   return fromSeam(SERVICE, data, error);
@@ -853,7 +864,7 @@ export async function confirmReceipt(
   input: { receipt_no: string; qc_by?: string | null; note?: string | null },
   idempotencyKey?: string,
 ): Promise<Result<unknown>> {
-  const { data, error } = await supabaseBrowser().rpc("confirm_receipt", {
+  const { data, error } = await db().rpc("confirm_receipt", {
     p_receipt_no: input.receipt_no,
     p_qc_by: input.qc_by ?? null,
     p_note: input.note ?? null,
@@ -865,8 +876,7 @@ export async function confirmReceipt(
 /** Arrived and reported, with no signed tanda terima yet. The morning list
  *  (D131). */
 export async function listReported(): Promise<Result<unknown[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("receipts").select("*").eq("status", "REPORTED")
+  const { data, error } = await db().from("receipts").select("*").eq("status", "REPORTED")
     .order("received_at", { ascending: false });
   return fromRows<unknown[]>(SERVICE, data as unknown[], error);
 }
@@ -910,16 +920,14 @@ export async function listNotes(lineNo: string): Promise<Result<LineNote[]>> {
  *  half-drawn.
  */
 export async function getPoDetail(poNo: string): Promise<Result<PoDetail>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_po_detail").select("*").eq("po_no", poNo).maybeSingle();
+  const { data, error } = await db().from("v_po_detail").select("*").eq("po_no", poNo).maybeSingle();
   if (error) return fail(SERVICE, error);
   if (!data) return notFound(SERVICE, "po_not_found", `Order ${poNo} not found.`);
   return ok(SERVICE, data as unknown as PoDetail);
 }
 
 export async function listPo(): Promise<Result<PoDetail[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_po_detail").select("*").order("created_at", { ascending: false });
+  const { data, error } = await db().from("v_po_detail").select("*").order("created_at", { ascending: false });
   return fromRows<PoDetail[]>(SERVICE, data as unknown as PoDetail[], error);
 }
 
@@ -961,8 +969,7 @@ export interface PrDocumentView extends PrDocument {
 async function withLines(rows: PrDocumentRow[]): Promise<PrDocumentView[]> {
   if (rows.length === 0) return [];
 
-  const { data } = await supabaseBrowser()
-    .from("v_pr_line").select("*")
+  const { data } = await db().from("v_pr_line").select("*")
     .in("doc_id", rows.map((r) => r.id))
     .is("removed_at", null);
 
@@ -1000,8 +1007,7 @@ export async function listPr(
 ): Promise<Result<PrDocumentView[]>> {
   const limit = opts.limit ?? 50;
   const offset = opts.offset ?? 0;
-  const { data, error, count } = await supabaseBrowser()
-    .from("v_pr_document").select("*", { count: "exact" })
+  const { data, error, count } = await db().from("v_pr_document").select("*", { count: "exact" })
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
   if (error) return fail(SERVICE, error);
@@ -1015,8 +1021,7 @@ export async function listPr(
 }
 
 export async function getPr(docNo: string): Promise<Result<PrDocumentView>> {
-  const { data, error } = await supabaseBrowser()
-    .from("v_pr_document").select("*").eq("doc_no", docNo).maybeSingle();
+  const { data, error } = await db().from("v_pr_document").select("*").eq("doc_no", docNo).maybeSingle();
   if (error) return fail(SERVICE, error);
   if (!data) return notFound(SERVICE, "pr_not_found", `Request ${docNo} not found.`);
   const [doc] = await withLines([data as PrDocumentRow]);
@@ -1046,8 +1051,7 @@ export interface PrDocumentRow {
 }
 
 export async function listPendingRequests(): Promise<Result<ApprovalRequest[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("approval_requests").select("*").is("answered_at", null)
+  const { data, error } = await db().from("approval_requests").select("*").is("answered_at", null)
     .order("sent_at", { ascending: false });
   return fromRows<ApprovalRequest[]>(SERVICE, data as ApprovalRequest[], error);
 }

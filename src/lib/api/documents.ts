@@ -22,6 +22,32 @@ import { fail, fromSeam, notFound, ok, type Result } from "./_kit";
 
 const SERVICE = "documents" as const;
 
+/** Every object this module reads or calls lives in `ops_core`, and PostgREST
+ *  has to be told so on **every request**.
+ *
+ *  `.from("x")` and `.rpc("y")` resolve against the schema the request names —
+ *  its `Accept-Profile` / `Content-Profile` header. With none, PostgREST uses
+ *  the first of its exposed schemas, which is `public`, and ours holds nothing.
+ *  The symptom is exact, and was seen in production: *Could not find the table
+ *  'public.v_my_access' in the schema cache*.
+ *
+ *  **Supabase's "Extra search path" does not fix this, and believing it did cost
+ *  a deploy.** That setting adds schemas to the search_path so objects *inside*
+ *  an exposed schema can reference them unqualified; PostgREST is explicit that
+ *  those schemas get no API endpoints of their own. Exposing a schema says it
+ *  may be addressed; naming it on the request is what addresses it.
+ *
+ *  `.schema()` rather than a second client: a client per schema is an auth
+ *  listener and a token-refresh timer per schema, and those racing is how a
+ *  session appears to end halfway through a form. This is a query builder bound
+ *  to one schema, from the one client.
+ *
+ *  Called `db` and not `q` because several functions here already open with
+ *  `let q = …` to build a filter chain, and a helper of the same name would be
+ *  shadowed by it — silently, in exactly the branches that filter.
+ */
+const db = () => supabaseBrowser().schema("ops_core");
+
 /** The row shape of `ops_core.v_attachment`, which is `Attachment` plus the
  *  one derived field. `links` and `covers_count` are assembled below rather
  *  than nested in the view: PostgREST can embed, but only across a declared
@@ -144,7 +170,7 @@ export async function byEntity(entity: LinkEntity, entityNo: string): Promise<Re
  */
 export async function getAttachment(id: string): Promise<Result<AttachmentView>> {
   const sb = supabaseBrowser();
-  const { data, error } = await sb.from("v_attachment").select("*").eq("id", id).maybeSingle();
+  const { data, error } = await db().from("v_attachment").select("*").eq("id", id).maybeSingle();
   if (error) return fail(SERVICE, error);
   if (!data) {
     return notFound(SERVICE, "attachment_not_found",
@@ -174,7 +200,7 @@ export async function addLink(
   idempotencyKey?: string,
 ): Promise<Result<AttachmentView>> {
   const sb = supabaseBrowser();
-  const { data, error } = await sb.rpc("attach_url", {
+  const { data, error } = await db().rpc("attach_url", {
     p_url: input.url,
     p_title: input.title ?? null,
     p_key: idempotencyKey ?? null,
@@ -196,7 +222,7 @@ export async function link(
   idempotencyKey?: string,
 ): Promise<Result<AttachmentLink>> {
   const sb = supabaseBrowser();
-  const { data, error } = await sb.rpc("attach_link", {
+  const { data, error } = await db().rpc("attach_link", {
     p_attachment_id: input.attachment_id,
     p_entity: input.entity,
     p_entity_no: input.entity_no,
@@ -225,7 +251,7 @@ export async function link(
  */
 export async function unlink(linkId: string): Promise<Result<{ removed: string }>> {
   const sb = supabaseBrowser();
-  const { data, error } = await sb.rpc("attach_unlink", {
+  const { data, error } = await db().rpc("attach_unlink", {
     p_link_id: linkId,
     p_key: null,
   });
