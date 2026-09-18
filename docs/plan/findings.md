@@ -4146,3 +4146,44 @@ definition, three documents away from the policy that decides it.
 null when the value is, so the failure read `assertion failed` with no detail —
 at the exact moment the detail was the whole point. Every message in that smoke
 is `coalesce`d now, and the one for the price says what to suspect.
+
+---
+
+## F105 — `02-database.md` has been wrong four times in a row, and always the same way
+
+Transcribing HR and production has now found four places where the design
+document says something the contracts stopped saying:
+
+| | `02-database.md` | the contracts | found by |
+|---|---|---|---|
+| `day_marks` | no public code | the evidence road needs one | F99 |
+| `employees` | no `schedule_code` | there since M58 (D279) | 0045 |
+| `bom_components` | unique `(product_id, ref_code)` | revisions exist (D256) | 0060 |
+| `process_stages` | seven, `POTONG SERUT RAKIT` | four (D275), per product (D278) | 0061 |
+
+None is a mistake anybody made. Every one is a **decision that landed in
+`06-decisions.md` and in `src/services/*/contracts.ts` and not in the schema
+chapter** — which is exactly what should happen while a design session is
+moving fast, and exactly what makes the chapter unsafe to build from a month
+later. Each was caught because building the table meant reading the contract
+beside it; none would have been caught by reading the document alone.
+
+The pattern matters more than the four. `02-database.md` is 2.200 lines and
+reads as the specification, so the honest thing is to stop treating it as one.
+It is a **record of the reasoning**, and the contracts are the specification —
+they are what the screens compile against, so they cannot drift without
+something failing.
+
+There is a precedent for the fix and it is in this repository.
+`check-permissions.mjs` exists because `src/lib/roles.ts` and
+`ops_core.permission_catalog` were the same list written twice and had already
+drifted by two entries. The same shape applies here: a script could compare
+the ER diagrams' field lists against the interfaces in
+`src/services/*/contracts.ts` and fail on a difference, the same way parity
+does for the two API clients. It is not written here because it wants a mermaid
+parser and a TypeScript one, and because **the right first question is whether
+the diagrams should exist at all** rather than how to keep them true — a
+duplicate kept correct by a script is still a duplicate.
+
+Until somebody answers that: **read the contract, not the chapter, and update
+the chapter in the same commit.** That is what these four did.

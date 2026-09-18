@@ -1803,9 +1803,19 @@ erDiagram
     process_stages ||--o{ progress_entries : "at"
 
     process_stages {
-        text code PK "POTONG, SERUT, RAKIT..."
+        text code PK "AMPLAS, FINISHING, MACHINERY, PACKING - the owner's four (D275)"
         text name
-        int seq "a piece cannot be sanded before it is cut"
+        int seq "1-4; a piece cannot be finished before it is sanded"
+        text covers "what the workshop does inside it, so a one-word stage is not left to interpretation"
+    }
+    stage_sources {
+        text source_code PK "every code that counts towards one of the four, the stage's OWN code included (F74)"
+        text source_name
+        text stage_code FK
+    }
+    retired_stages {
+        text code PK "POTONG, SERUT, RAKIT, PEMBUATAN - roll into NOTHING, kept readable (D275)"
+        text name
     }
     work_orders {
         uuid id PK
@@ -1844,7 +1854,9 @@ erDiagram
 | `progress_entries` CHECK `qty <> 0` and `qty < 0 → note IS NOT NULL` | a correction says why; a negative number with no sentence is worse than the wrong one |
 | `progress_entries` UNIQUE `(source_ref, wo_id, stage) WHERE source_ref IS NOT NULL` | a signed lembur sheet posted twice adds nothing (D147) |
 | `work_orders.due_date` NOT NULL | an order with no date cannot be late, so nobody can tell when it is |
-| `process_stages` seeded, not typed | every screen says the same thing, and the order is checkable (Q35) |
+| `process_stages` seeded, not typed | every screen says the same thing, and the order is checkable. **Four, not the seven Q35 assumed** — D275 replaced them and D278 made them a property of the product as well as the route |
+| `stage_sources` includes each stage's **own** code | `FINISHING` names one of the four and one of the seven that collapsed into it; without the self-row, direct entries and rolled-up ones were added together and counted the same pieces twice (F74) |
+| `work_orders.bom_rev` must be a **released** revision of that order's own product | neither half is a foreign key that could say so — `product_code` is a code at the seam and `released_at` is a column. A pin to a draft is a pin to something still being edited |
 
 **Refused vs warned.** More than the order's quantity at one stage is refused —
 it cannot be true. A stage running *ahead of the one before it* is warned about
