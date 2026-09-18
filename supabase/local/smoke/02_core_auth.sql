@@ -52,6 +52,70 @@ begin
   end;
 end $$;
 
+-- ── an account older than the trigger ─────────────────────────────────────
+--
+-- The case that broke the real bootstrap on 2026-09-18, and that nothing here
+-- could have caught: every fixture above was inserted into `auth.users` *after*
+-- `provision_user` existed, so every one of them arrived provisioned. The three
+-- accounts on the real project were made three weeks before the ladder was
+-- applied, so `ops_core.users` was empty and `bootstrap_admin` refused an
+-- address that was plainly there.
+--
+-- Staged by deleting the profile rather than by inserting a user, because the
+-- trigger cannot be un-fired — and deleting it is exactly the state those three
+-- were in: known to Supabase, unknown here.
+--
+-- The refusal said *must sign in once*, which was false: a sign-in fires no
+-- trigger. `0029` makes it true, and this asserts the true version.
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('aaaaaaaa-0000-0000-0000-0000000000f0','lama@talaliving.com','{"full_name":"Akun Lama"}');
+delete from ops_core.users where id = 'aaaaaaaa-0000-0000-0000-0000000000f0';
+
+do $$
+declare n int;
+begin
+  select count(*) into n from ops_core.users
+   where id = 'aaaaaaaa-0000-0000-0000-0000000000f0';
+  assert n = 0, 'staged: authenticated by Supabase, unknown here';
+end $$;
+
+-- Signing in provisions them, and says so in the trail rather than silently.
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-0000000000f0';
+do $$
+declare u ops_core.users; a record;
+begin
+  perform ops_core.record_sign_in();
+
+  select * into u from ops_core.users where id = 'aaaaaaaa-0000-0000-0000-0000000000f0';
+  assert found, 'signing in must create the profile the message promises';
+  assert u.email = 'lama@talaliving.com', format('got %s', u.email);
+  assert u.full_name = 'Akun Lama', format('got %s', u.full_name);
+
+  -- Known is not allowed. The row arrives with nothing (D24).
+  select count(*) as m into a from ops_core.user_modules
+   where user_id = 'aaaaaaaa-0000-0000-0000-0000000000f0';
+  assert a.m = 0, format('provisioning grants nothing, saw %s modules', a.m);
+end $$;
+
+-- Twice is once: a second sign-in must not raise on the unique key, and must
+-- not overwrite a name somebody corrected by hand.
+reset role;
+update ops_core.users set full_name = 'Nama Dibetulkan'
+ where id = 'aaaaaaaa-0000-0000-0000-0000000000f0';
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-0000000000f0';
+do $$
+declare u ops_core.users;
+begin
+  perform ops_core.record_sign_in();
+  select * into u from ops_core.users where id = 'aaaaaaaa-0000-0000-0000-0000000000f0';
+  assert u.full_name = 'Nama Dibetulkan',
+         format('a second sign-in must not reset a corrected name, saw %s', u.full_name);
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
 -- ── granting, as IT ───────────────────────────────────────────────────────
 set local role authenticated;
 set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000001';
@@ -171,8 +235,11 @@ begin
   select count(*) into n from ops_core.v_user_access;
   assert n = 0, format('the access directory is it.read; Budi saw %s rows', n);
 
+  -- Four now: the three fixtures plus the account provisioned on its first
+  -- sign-in above. Counted rather than listed, because the claim is *everybody
+  -- signed in can read names*, not *these three names*.
   select count(*) into n from ops_core.users;
-  assert n = 3, format('names stay readable to everybody signed in, saw %s', n);
+  assert n = 4, format('names stay readable to everybody signed in, saw %s', n);
 end $$;
 
 set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000001';
@@ -181,7 +248,7 @@ do $$
 declare n int;
 begin
   select count(*) into n from ops_core.v_user_access;
-  assert n = 3, format('IT should see all three, saw %s', n);
+  assert n = 4, format('IT should see everybody, saw %s', n);
 end $$;
 
 rollback;
