@@ -39,36 +39,34 @@ decides this.
 
 ---
 
-## Google checks the reader, not us
+## Who checks the reader
 
-**Decided: the application hands out a Drive link and the reader's own
-Workspace account is what Drive checks.** Not a service account proxying bytes.
+**Decided: the application hands out a Drive link.** Uploaded files are
+view-only by default, and the owner's ruling (2026-09-18) is that the
+organisation's data policy covers who may open them. **Sign-in is not changed
+by this decision** — B5 stays whatever B5 decides, and nothing in B6 forces it.
 
-That choice is the one that makes the two drives mean something. Membership of
-the People drive is then the real guard on a KTP: a procurement clerk who
-somehow reached the link is refused by Google, whatever this application
-believes about them. With a service account it would be the other way round —
-the account sees everything, the application is the only guard, and a bug in
-`can()` is a bug in confidentiality.
+An earlier draft of this file argued the opposite: that handing out Drive links
+made Workspace sign-in mandatory, because a user holding an application session
+and no Google identity would be refused by Drive while the screen that produced
+the link said they were allowed. The owner has ruled that out, and it is
+recorded here rather than quietly deleted so that the next person does not
+re-derive it and change the design again.
 
-### What that costs, and it is not nothing
+One distinction is worth keeping straight, because the two are easy to hear as
+one thing. **View-only governs who may *change* a file; it does not decide who
+may *open* it.** Which of those applies depends on how the files are shared:
 
-**Signing in has to be Google.** `src/lib/api/identity.ts` signs in with
-`signInWithPassword` today. Under this decision that is wrong, and wrong in a
-way that looks fine until somebody clicks a document: they would hold a valid
-application session and no Google identity, so every evidence link would either
-prompt for a second sign-in or refuse them — while the screen that produced the
-link said they were allowed. Two permission systems disagreeing in front of a
-user is worse than either being strict.
+- Shared **to named people or a shared drive's members**, Google checks the
+  reader's Workspace account, and membership is the guard.
+- Shared **as anyone-with-the-link**, the link *is* the credential, and it
+  carries to anybody it is forwarded to.
 
-So **B5 becomes Supabase Auth with Google as the provider**, restricted to the
-Workspace domain. That is a simplification as much as a cost: no passwords to
-store or reset, and offboarding somebody is one action in Workspace admin
-rather than two systems to remember.
-
-It does mean **everyone who files or opens evidence needs a Workspace
-account** — including whoever photographs a delivery in the warehouse. That is
-a licensing question, and it belongs to the owner.
+Both are workable and they are not the same. The second needs no Workspace
+account for warehouse staff, which is the cheaper answer; it also means a
+People-drive link is protected by not being forwarded. Which one is in force is
+a fact about the Workspace configuration rather than about this repository, and
+this file does not assert it.
 
 ---
 
@@ -101,11 +99,11 @@ columns and a relaxed constraint. It does not:
 account may read every attachment row.
 
 The owner's reading — that KTP and ijazah are safe because only HRD, CEO and IT
-can reach them — **is right about the file and wrong about the row.** Drive
-refuses the bytes. Postgres hands over the metadata, and the metadata includes
-`filename`. `ktp-budi-santoso.jpg` is frequently the entire disclosure: it
-names the document type and the person in one string, and the file it points at
-is beside the point.
+can reach them — is about the **file**, and the file is Drive's to protect.
+Postgres still hands over the **row**, and the row includes `filename`.
+`ktp-budi-santoso.jpg` is frequently the entire disclosure: it names the
+document type and the person in one string, and the file it points at is beside
+the point.
 
 So the leak is much smaller than a bucket left public, and it is not nothing.
 
