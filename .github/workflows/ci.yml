@@ -1,10 +1,18 @@
 # The gate in front of `main`.
 #
-# `main` is the branch Vercel deploys to production — to `ops.talaliving.com`,
-# in front of a business that books real money. Vercel's Git integration
-# deploys whatever lands on the branch and asks nothing, so the gate cannot be
-# the deploy: it has to be the merge. Branch protection on `main` requires this
-# workflow, and pushes reach `main` only through a merged pull request.
+# `main` is production, in front of a business that books real money. It is
+# served by **Cloudflare Workers**, through the Workers Builds Git integration
+# connected to this repository: a push to `main` runs `npx wrangler deploy` and
+# goes live, a push to any other branch runs `npx wrangler versions upload` and
+# produces a preview version. That is the whole deployment story for this
+# repository — there is no Vercel here. (A Vercel project exists for the *old*
+# repository and serves previews there; this file used to claim it deployed
+# `main` to `ops.talaliving.com`, which was never true of this repository.)
+#
+# Because the integration deploys whatever lands on `main` and asks nothing,
+# the gate cannot be the deploy: it has to be the merge. Branch protection on
+# `main` requires this workflow, and pushes reach `main` only through a merged
+# pull request.
 #
 # Two jobs, because they fail for unrelated reasons and a red tick should say
 # which half broke without anybody opening the log:
@@ -70,20 +78,19 @@ jobs:
         run: node scripts/check-live-routes.mjs
 
       # No Supabase variables here, deliberately. The build has to succeed with
-      # none set, because that is how `ops-talaliving.vercel.app` runs — demo
-      # mode, browser-held fixtures, no database. `useRealApi()` requires both
-      # the flag and the keys, so a missing key is never silently a demo.
+      # none set, because that is how the deployed app runs today — demo mode,
+      # browser-held fixtures, no database. `useRealApi()` requires both the
+      # flag and the keys, so a missing key is never silently a demo.
       - name: build
         run: npm run build
 
-      # The same application, built for the other host.
+      # The application as it is actually shipped.
       #
-      # Vercel deploys `main`; Cloudflare is the second target, and an adapter
-      # nobody builds in CI is an adapter that is already broken by the time
-      # somebody needs it. This catches what `npm run build` cannot: code that
-      # compiles for Node but reaches for something the Workers runtime does
-      # not have, and a `wrangler.jsonc` that has drifted from what the bundle
-      # actually produces.
+      # Cloudflare is not a second target, it is the only one, so this step is
+      # the last chance to catch a broken deploy before `main` deploys itself.
+      # It catches what `npm run build` cannot: code that compiles for Node but
+      # reaches for something the Workers runtime does not have, and a
+      # `wrangler.jsonc` that has drifted from what the bundle produces.
       #
       # It builds Next a second time rather than reusing the step above, and
       # that is not waste: the adapter needs `output: "standalone"`, which it
@@ -92,13 +99,9 @@ jobs:
       # both proved.
       #
       # This step builds and never deploys — no Cloudflare token is read here,
-      # and nothing it produces leaves the runner.
-      #
-      # That is a statement about this step, not about the repository. A
-      # Cloudflare Workers Builds Git integration is connected outside of
-      # GitHub Actions and does deploy; `wrangler.jsonc` explains what it
-      # does and where its branch rules actually live. Do not read the line
-      # above as "nothing here can reach production".
+      # and nothing it produces leaves the runner. Deploying is the Workers
+      # Builds integration's job, not this workflow's; `wrangler.jsonc`
+      # describes it and says where its branch rules live.
       - name: cloudflare worker builds
         run: npx opennextjs-cloudflare build
 
