@@ -9,15 +9,17 @@ decides when a messy row is good enough to import."* `03-estimate.md` priced
 the consequence — B8 is **2–8 sessions**, the only open-ended range in the
 plan, and the item that decides whether the total is 20 sessions or 33.
 
-This file closes the measuring half of that. Every number below was read from
-the live `john-lau-v01` database on **2026-09-18**, not estimated. What it does
-not close is the deciding half: four questions at the end need a person, and
-they are now questions with numbers attached rather than questions in the
-abstract.
+This file closes both halves. Every number below was read from the live
+`john-lau-v01` database on **2026-09-18**, not estimated — and the four
+questions that gated B8 were answered the same day: three by counting, and the
+fourth by the owner. **B8 is no longer open-ended.** What remains is work with
+a known shape, described here.
 
 Nothing here has been applied. No migration has run against `john-lau-v01`,
-and this document does not change that — applying the ladder is a reviewed step
-in the cutover runbook (`README.md`), not a side effect of writing an inventory.
+and this document does not change that — the owner's instruction is to run it
+**after everything is ready**, which matches `README.md`: applying the ladder is
+a reviewed step in the cutover runbook, not a side effect of writing an
+inventory.
 
 ---
 
@@ -174,24 +176,79 @@ present.
 
 ---
 
-## The four questions that still need a person
+## The four questions — answered by the owner, 2026-09-18
 
-`03-estimate.md` said these gate B8. Three now have measurements attached; the
-fourth is unchanged because it is not a measurable question.
+Three were answered by counting. The fourth was answered by the owner, and it
+is the one that unblocks B8.
 
-| question | what the measurement says | still needed |
-|---|---|---|
-| How much ledger history? | Only 2026 exists — 3.235 rows, Rp 15,07 mrd, no null dates | **Answered by the data.** All of it. |
-| How many duplicate vendors/items? | 1 of 296, 3 of 1.020 | **Answered.** Import blunt per D30. |
-| Attendance history? | Out of scope here — no HR tables in `john-lau-v01` | Confirm the biometric machine starts fresh at cutover |
-| **Who decides when a messy row is good enough?** | The concrete queue is **68 unresolved vendor names** and **2.409 non-`COMPLETED` transactions** | **A named person.** This is the one that stalls the session if it is unanswered when B8 starts. |
+| question | answer |
+|---|---|
+| How much ledger history? | **All of it.** Only 2026 exists — 3.235 rows, Rp 15,07 mrd, no null dates |
+| How many duplicate vendors/items? | **1 of 296, 3 of 1.020.** Import blunt per D30 |
+| Attendance history? | Out of scope — no HR tables in `john-lau-v01` |
+| **Who rules on messy rows?** | **IT, or anyone holding the procurement module.** Not one named individual |
 
-The last row is the real gate. 2.409 transactions carry `UNTRACKED` or no
-status at all — that is 74% of the ledger, and the import needs a ruling on
-whether they come across as-is, come across flagged, or wait. That is a
-business judgement about money, and it is not one this repository can make.
+That last answer decides a design question, not just a staffing one. If the
+ruling belongs to a *role* rather than a person, the 68 unresolved vendor names
+cannot be a spreadsheet somebody keeps — they have to be **a queue inside the
+application**, gated by the procurement module grant, where resolving one is an
+ordinary permissioned action that writes an audit row like every other.
+
+That is consistent with what the import should do anyway (§2: never invent a
+vendor silently). It makes the reconciliation list a deliverable of B8 rather
+than a by-product: rows land with `vendor_id` null and the original text
+preserved, and a screen lists them for whoever holds the grant.
 
 ---
+
+## RLS: the migration is the fix
+
+The live `john-lau-v01` database has **RLS disabled on 16 tables**, including
+`accounts`, `bank_statements`, `balance_checkpoints` and `budget_rounds` —
+every row readable and writable by anyone holding the anon key.
+
+**The owner's ruling (2026-09-18): do not retrofit policies onto the legacy
+tables.** Build the `ops_*` equivalent with RLS on, migrate the data, then
+deactivate or drop the old one. Apply that pattern to every table.
+
+That ruling costs nothing to adopt, because it is already what the ladder does:
+
+> **46 tables created, 46 with `enable row level security`. 100%.**
+
+So the cutover *is* the RLS remediation. Nothing separate has to be written,
+and no policy has to be invented for a schema that is about to be retired —
+which also avoids the trap the advisory warns about, where enabling RLS without
+policies silently breaks a system that is still running.
+
+What the 16 map onto:
+
+| legacy table (RLS off) | disposition |
+|---|---|
+| `accounts` | → `ops_acct.accounts` |
+| `bank_statements` | → `ops_acct.bank_statements` |
+| `balance_checkpoints` | **→ nothing, deliberately.** Bank-vs-book is a *derivation* in the new schema: `v_statement_reconciliation` computes `computed_closing` and the difference (`0020_acct_views.sql:183–188`). A3 — the check is recomputed, never stored |
+| `budget_rounds`, `budget_round_lines` | → verify against `ops_procure.approval_batches` / `approval_requests` before assuming they are covered. The legacy comment calls these the **decision** round, explicitly distinct from `payment_requests`, which is the **money** round → `ops_procure.payment_rounds` |
+| `jl_*` (5 tables) | **retire with the legacy system.** The assistant service is not implemented and this system does not read them |
+| `receiving_*` (4 tables) | **retire.** Legacy ingestion pipeline; the new road is `ops_procure.receipts` + `ops_core.attachments` |
+| `chat_acks`, `personal_notes` | **retire.** Google Chat capture, which does not survive cutover |
+
+Two of the sixteen migrate. Twelve retire untouched. **`budget_rounds` and
+`budget_round_lines` are the only pair whose coverage is not yet established**,
+and that is a question for the design session, not a gap in this inventory.
+
+---
+
+## When
+
+**The owner's ruling: run it after everything is ready.** Not now, and not
+incrementally against the live project.
+
+That is also what `README.md` requires — applying the ladder is a reviewed step
+in the cutover runbook — and what B9 ("parallel run and cutover") is for. The
+sequencing consequence worth stating: because the legacy system is *still
+receiving events*, "ready" includes the pg_cron mirror and the idempotency
+column from §1. An import that runs once against a moving database and is never
+re-runnable is not a migration, it is a snapshot.
 
 ## What this does not cover
 

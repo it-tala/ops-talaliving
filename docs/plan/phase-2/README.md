@@ -118,11 +118,13 @@ in writing where they were not obvious.
    2026-09-18. The ledger turns out to be a single financial year (3.235 rows,
    all 2026, no null dates), vendors and items are clean enough to import
    blunt (1 collision in 296, 3 in 1.020), and accounts resolve perfectly.
-   Three structural problems are named there, and one question genuinely
-   remains: **who rules on the 68 unresolved vendor names and the 2.409
-   transactions that are not `COMPLETED`.** That person has to exist before B8
-   starts. The range in `03-estimate.md` is narrower than it was, but it is not
-   closed until that name is filled in.
+   Three structural problems are named there, and the question that gated it
+   — **who rules on the 68 unresolved vendor names and the 2.409 transactions
+   that are not `COMPLETED`** — was answered by the owner on 2026-09-18:
+   **IT, or anyone holding the procurement module.** A role rather than a
+   person, which makes the reconciliation list a queue inside the application
+   rather than somebody's spreadsheet. **B8 is no longer the open-ended item
+   in `03-estimate.md`.**
 
 Everything else that is open (Q35–Q41) carries a default that is already
 running, is visible on screen, and is a one-line change when answered.
