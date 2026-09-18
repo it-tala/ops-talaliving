@@ -182,3 +182,12 @@ jobs:
       # then one file per schema — each proving a refusal and a derivation.
       - name: smoke
         run: supabase/local/smoke.sh
+
+      # B8's import, proved on a fixture legacy system and run **twice**.
+      # Idempotence is the property the whole cutover rests on and the one that
+      # is never true by accident: an import against a database somebody is
+      # still using is run, reconciled, corrected and run again, and a second
+      # run that is not a no-op is a duplicate of money. Running it once would
+      # only prove the SQL parses.
+      - name: import — idempotent over two runs
+        run: supabase/import/test.sh
