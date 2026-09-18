@@ -27,7 +27,7 @@ import type {
   Vendor, VendorView, Item, ItemView, Uom, ItemCategory, Project,
   PrLineView, PrApproval, LineNote, LineVariance, ApprovalRequest,
   VendorJourney, RoundSummary, VarianceReason, Channel,
-  PoDetail, UomCode, PrCategory,
+  PoDetail, UomCode, PrCategory, PrDocument,
 } from "@/services/procurement/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fail, fromSeam, fromRows, fromPage, notFound, ok, type Result } from "./_kit";
@@ -362,11 +362,16 @@ export async function explainVariance(
 
 export async function submitPr(
   docNo: string, idempotencyKey?: string,
-): Promise<Result<{ doc_no: string; status: string; lines: number }>> {
+): Promise<Result<PrDocumentView>> {
   const { data, error } = await supabaseBrowser().rpc("submit_pr", {
     p_doc_no: docNo, p_key: idempotencyKey ?? null,
   });
-  return fromSeam(SERVICE, data, error);
+  const submitted = fromSeam<{ doc_no: string; status: string; lines: number }>(
+    SERVICE, data, error);
+  if (submitted.error) return submitted;
+  /* Read back: the screen redraws the document it just submitted, and the
+     status and the line statuses have both moved. */
+  return getPr(submitted.data.doc_no);
 }
 
 /* ------------------------------------------------------------------ */
@@ -383,16 +388,33 @@ export async function submitPr(
  *  this system (ADR-004), and it is what the caller already has.
  */
 export async function createPr(
-  input: { project_code?: string | null; lines: NewLineInput[] },
+  /** `project_code` is the seam-friendly way in: another service knows the
+   *  code, never the internal id (ADR-004). `project_id` is what the screens
+   *  still hold, and is resolved to a code before the seam sees it. */
+  input: { project_id?: string | null; project_code?: string | null; lines: NewLineInput[] },
   idempotencyKey?: string,
-): Promise<Result<{ doc_no: string; status: string; lines: number }>> {
+): Promise<Result<PrDocumentView>> {
+  let projectCode = input.project_code ?? null;
+  if (!projectCode && input.project_id) {
+    const { data } = await supabaseBrowser()
+      .from("projects").select("code").eq("id", input.project_id).maybeSingle();
+    projectCode = (data as { code: string } | null)?.code ?? null;
+  }
+
   const { data, error } = await supabaseBrowser().rpc("create_pr", {
     p_lines: input.lines,
-    p_project_code: input.project_code ?? null,
+    p_project_code: projectCode,
     p_doc_type: "PR",
     p_key: idempotencyKey ?? null,
   });
-  return fromSeam(SERVICE, data, error);
+
+  /* The seam answers `{doc_no, status, lines}` — what happened. The contract
+     promises the document, because the screen that creates a request goes
+     straight to it. Read back rather than widen the seam. */
+  const created = fromSeam<{ doc_no: string; status: string; lines: number }>(
+    SERVICE, data, error);
+  if (created.error) return created;
+  return getPr(created.data.doc_no);
 }
 
 /** One item, asked for and submitted in a single act — for the meeting itself,
@@ -454,13 +476,37 @@ export async function requestApproval(
   return fromSeam(SERVICE, data, error);
 }
 
+/** Create a vendor, and answer with the vendor.
+ *
+ *  **Two round trips, on purpose.** The seam returns `{code, name,
+ *  is_curated}` — enough to say what happened, and ADR-004's answer to *never
+ *  hand out a uuid where a code will do*. The contract promises a `Vendor`,
+ *  and two screens read more of it than the seam sends: `/procurement/supplier`
+ *  wants the name for its toast, and `/procurement/pr/new` puts the new vendor
+ *  straight onto the line it was created from, by `id`.
+ *
+ *  So the write stays narrow and the read that follows it is where the shape
+ *  comes from. The alternative — widening the seam to return a whole row —
+ *  makes every write a read as well, for the benefit of the callers that
+ *  happen to need one.
+ *
+ *  If the row cannot be read back, the vendor still exists: this returns the
+ *  read's error rather than pretending the write failed, because retrying a
+ *  create that already succeeded is how a duplicate gets made.
+ */
 export async function createVendor(
   input: { name: string }, idempotencyKey?: string,
-): Promise<Result<{ code: string; name: string; is_curated: boolean }>> {
+): Promise<Result<Vendor>> {
   const { data, error } = await supabaseBrowser().rpc("create_vendor", {
     p_name: input.name, p_key: idempotencyKey ?? null,
   });
-  return fromSeam(SERVICE, data, error);
+  const created = fromSeam<{ code: string; name: string; is_curated: boolean }>(
+    SERVICE, data, error);
+  if (created.error) return created;
+
+  const row = await supabaseBrowser()
+    .from("vendors").select("*").eq("code", created.data.code).single();
+  return fromRows<Vendor>(SERVICE, row.data as Vendor | null, row.error);
 }
 
 export async function createItem(
@@ -881,27 +927,100 @@ export async function getPo(poNo: string): Promise<Result<PoDetail>> {
   return getPoDetail(poNo);
 }
 
+/** A request document with its lines, as `/procurement/pr/documents` reads it.
+ *
+ *  Structurally the demo's `PrDocumentView`, declared here rather than imported
+ *  from `src/demo` — the real client does not depend on the demo, which is the
+ *  point of there being two of them. TypeScript is structural, so the swap in
+ *  `src/demo/api/index.ts` checks the two against each other for us; if they
+ *  ever drift, that file stops compiling, which is exactly where the drift
+ *  should surface.
+ */
+export interface PrDocumentView extends PrDocument {
+  lines: PrLineView[];
+  requested_by_name: string;
+  project_code: string | null;
+  requested_total: number;
+  approved_total: number;
+}
+
+/** Turn `v_pr_document` rows into what the screen was written against.
+ *
+ *  **The lines are not decoration.** `/procurement/pr/documents` filters by
+ *  line status, counts them per status for its chips, searches their
+ *  descriptions and renders the selected document's lines in the drawer. A
+ *  document with no `lines` array is that screen with every filter empty, every
+ *  count zero and a blank drawer — and it is listed as a live route, so this is
+ *  what it would have done against the database.
+ *
+ *  Two queries rather than a nested select: `v_pr_document` and `v_pr_line` are
+ *  views, and PostgREST cannot infer a relationship between two views the way it
+ *  does between two tables. Stitching here is honest about that instead of
+ *  depending on a join hint that would work until somebody rebuilt the view.
+ */
+async function withLines(rows: PrDocumentRow[]): Promise<PrDocumentView[]> {
+  if (rows.length === 0) return [];
+
+  const { data } = await supabaseBrowser()
+    .from("v_pr_line").select("*")
+    .in("doc_id", rows.map((r) => r.id))
+    .is("removed_at", null);
+
+  const byDoc = new Map<string, PrLineView[]>();
+  for (const line of (data ?? []) as LineRow[]) {
+    const view = toLineView(line);
+    const list = byDoc.get(line.doc_id) ?? [];
+    list.push(view);
+    byDoc.set(line.doc_id, list);
+  }
+
+  return rows.map((r) => {
+    const lines = (byDoc.get(r.id) ?? []).sort((a, b) => a.line_no - b.line_no);
+    return {
+      id: r.id, doc_no: r.doc_no, doc_type: r.doc_type,
+      status: r.status as PrDocumentView["status"],
+      requested_by: r.requested_by, project_id: r.project_id,
+      created_at: r.created_at, submitted_at: r.submitted_at,
+      lines,
+      requested_by_name: r.requested_by_name,
+      project_code: r.project_code,
+      /* The view already totals these, and it is the database's arithmetic that
+         wins: re-summing the lines here would be a second figure computed from a
+         page of rows, which is the mistake `approved_total` exists to avoid. */
+      requested_total: r.requested_total,
+      approved_total: r.approved_total,
+    };
+  });
+}
+
 /** The other reading of a request: what arrived together, from whom, on what
  *  day. The board is line-first (D48); this is the document. */
 export async function listPr(
   opts: { limit?: number; offset?: number } = {},
-): Promise<Result<PrDocumentRow[]>> {
+): Promise<Result<PrDocumentView[]>> {
   const limit = opts.limit ?? 50;
   const offset = opts.offset ?? 0;
   const { data, error, count } = await supabaseBrowser()
     .from("v_pr_document").select("*", { count: "exact" })
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
-  return fromPage<PrDocumentRow>(
-    SERVICE, data as PrDocumentRow[], count, error, limit, offset);
+  if (error) return fail(SERVICE, error);
+
+  const docs = await withLines((data ?? []) as PrDocumentRow[]);
+  const total = count ?? docs.length;
+  return ok(SERVICE, docs, {
+    limit, cursor: offset + limit < total ? String(offset + limit) : null,
+    has_more: offset + limit < total, total,
+  });
 }
 
-export async function getPr(docNo: string): Promise<Result<PrDocumentRow>> {
+export async function getPr(docNo: string): Promise<Result<PrDocumentView>> {
   const { data, error } = await supabaseBrowser()
     .from("v_pr_document").select("*").eq("doc_no", docNo).maybeSingle();
   if (error) return fail(SERVICE, error);
   if (!data) return notFound(SERVICE, "pr_not_found", `Request ${docNo} not found.`);
-  return ok(SERVICE, data as PrDocumentRow);
+  const [doc] = await withLines([data as PrDocumentRow]);
+  return ok(SERVICE, doc);
 }
 
 /** `v_pr_document`, as it comes back. Declared here rather than in `contracts`

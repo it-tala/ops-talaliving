@@ -64,16 +64,34 @@ function liveServices() {
   return ALL_SERVICES.filter((s) => new RegExp(`export \\* as ${s} from`).test(src));
 }
 
+/* Functions the real client exports but has not made match the contract.
+   Read from `src/lib/api/_pending.ts`, which `scripts/check-api-parity.mjs`
+   keeps honest in both directions. */
+function pendingParity() {
+  const src = readFileSync(join(ROOT, "src/lib/api/_pending.ts"), "utf8");
+  const block = src.match(/PENDING_PARITY: readonly string\[\] = \[([\s\S]*?)\n\];/);
+  if (!block) throw new Error("PENDING_PARITY not found in src/lib/api/_pending.ts");
+  return new Set([...block[1].matchAll(/"([a-z]+\.[a-zA-Z]+)"/g)].map((m) => m[1]));
+}
+
+const PENDING = pendingParity();
+
 /* What each live service actually implements, by name. Read from the module
    rather than listed here, for the same reason as above: a list is correct on
-   the day it is written. */
+   the day it is written.
+
+   **Exported is not the same as implemented.** A function that answers a
+   different shape from the demo the screens were written against is a gap
+   wearing a name that makes it look closed — `approvePo` returning `unknown`
+   where the screen redraws a `PoDetail` renders nothing and reports no error.
+   `swap()` refuses those at run time, so counting them here would list a route
+   as live that is guaranteed to refuse. They are subtracted. */
 function implementedFunctions(service) {
   const f = join(ROOT, `src/lib/api/${service}.ts`);
   if (!existsSync(f)) return new Set();
-  return new Set(
-    [...readFileSync(f, "utf8").matchAll(/^export (?:async )?function ([A-Za-z0-9_]+)/gm)]
-      .map((m) => m[1]),
-  );
+  const names = [...readFileSync(f, "utf8")
+    .matchAll(/^export (?:async )?function ([A-Za-z0-9_]+)/gm)].map((m) => m[1]);
+  return new Set(names.filter((n) => !PENDING.has(`${service}.${n}`)));
 }
 
 /* Functions that exist in the demo and deliberately never will in `src/lib/api`.
@@ -173,8 +191,13 @@ function servicesReachableFrom(entry) {
     for (const s of ALL_SERVICES) {
       /* `accounting.listAccounts` — the binding and the name it calls. The
          negative lookbehind keeps `procurement.accounting` and `foo.hr` out. */
+      /* `\s*` between the service and the method, because a formatter breaks a
+         long call across lines — `void identity\n  .recordActivity(…)` — and a
+         pattern that stops at the newline reports no call at all. That is the
+         worst way for this to fail: silently, on exactly the calls long enough
+         to be wrapped. It cost one already, the activity recorder in the shell. */
       for (const m of code.matchAll(
-        new RegExp(`(?<![A-Za-z0-9_.])${s}\\.([a-zA-Z][A-Za-z0-9_]*)`, "g"),
+        new RegExp(`(?<![A-Za-z0-9_.])${s}\\s*\\.\\s*([a-zA-Z][A-Za-z0-9_]*)`, "g"),
       )) found.add(`${s}.${m[1]}`);
     }
 
@@ -233,9 +256,53 @@ const LIVE_MODULES = ["dashboard", "procurement", "accounting", "it", "settings"
 
 const IMPL = Object.fromEntries(LIVE.map((s) => [s, implementedFunctions(s)]));
 
+/* The shell, which every route renders inside.
+ *
+ *  This was missed, and it is the same mistake the scanner was written to
+ *  correct, one level up. It walks from each `page.tsx` because a screen's real
+ *  dependencies include components it imports from elsewhere — and then stopped
+ *  at the page, as though nothing wrapped it. `src/app/(app)/layout.tsx` mounts
+ *  the sidebar, the topbar, the tour bar, the John Lau dock and the activity
+ *  recorder on **every** route. A service call in any of them runs on every
+ *  screen, and the scanner could not see one.
+ *
+ *  It matters for the recorder specifically: it writes a `view` on every
+ *  navigation, so if `identity.recordActivity` were missing from the real
+ *  client, every live route would meet a 501 on every page change and this
+ *  check would still have called them all live.
+ */
+const SHELL = join(APP, "layout.tsx");
+
+/* Calls the shell can make but a screen never makes *by being open*.
+ *
+ *  The shell's dependencies are every route's dependencies — except where the
+ *  call only happens because a person went and asked for it. John Lau is a
+ *  launcher in the corner: nothing runs until somebody opens it and submits a
+ *  question, and if `assistant` is not implemented they get the 501 naming the
+ *  call, in the panel they opened, which is the right place for it.
+ *
+ *  Counting it would take every route in the application dark for an overlay
+ *  that is not on the page — a guard that reports everything is a guard nobody
+ *  can act on. The distinction is *does the screen need this to render*, and it
+ *  is named here rather than inferred, because an unexplained exception is how a
+ *  guard quietly stops guarding.
+ *
+ *  `identity.recordActivity` is deliberately **not** here: the recorder fires on
+ *  every navigation, with nobody asking for it, so it is exactly the kind of
+ *  shell call that must hold a route back.
+ */
+const SHELL_ON_DEMAND = {
+  "assistant.ask": "John Lau, opened from the corner — nothing runs until somebody asks.",
+  "assistant.confirmDraft": "John Lau, after a person has already opened it.",
+  "assistant.abandonDraft": "John Lau, after a person has already opened it.",
+};
+
+const shellCalls = (existsSync(SHELL) ? [...servicesReachableFrom(SHELL)] : [])
+  .filter((c) => !(c in SHELL_ON_DEMAND));
+
 const verdict = routes.map((r) => {
   const entry = join(APP, r.slice(1), "page.tsx");
-  const calls = [...servicesReachableFrom(entry)].sort();
+  const calls = [...new Set([...servicesReachableFrom(entry), ...shellCalls])].sort();
   const used = [...new Set(calls.map((c) => c.split(".")[0]))].sort();
   const mod = MODULE_OF[r.split("/")[1]] ?? "unknown";
 
