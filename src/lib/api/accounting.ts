@@ -13,11 +13,11 @@ import type {
   Account, AccountBalance, TransactionView, TransactionDetail,
   TransactionType, Direction, AllocMethod, InboxStatus, InboxHealth,
   TrxStatus, BankStatementView, StatementLineView, StatementMatch,
-  TransactionTypeCode,
+  TransactionTypeCode, PaymentAllocation,
 } from "@/services/accounting/contracts";
 import type { DocKind } from "@/services/documents/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { fail, fromSeam, fromRows, notFound, ok, type Result } from "./_kit";
+import { fail, fromSeam, fromRows, invalid, notFound, ok, type Result } from "./_kit";
 
 const SERVICE = "accounting" as const;
 
@@ -50,24 +50,36 @@ function toKindCode(kind: string): string {
 /* Reference                                                           */
 /* ------------------------------------------------------------------ */
 
-export async function listAccounts(): Promise<Result<Account[]>> {
-  const { data, error } = await supabaseBrowser()
-    .from("accounts").select("*").order("code");
-  return fromRows<Account[]>(SERVICE, data as Account[], error);
-}
-
-/** The balance, as the database computes it (D9). No screen recomputes this,
- *  and one that cannot load it shows an em dash rather than a substitute — a
- *  client-side stand-in is how a page ends up disagreeing with the books.
+/** The accounts **with their balances**, as the database computes them (D9).
+ *  No screen recomputes this, and one that cannot load it shows an em dash
+ *  rather than a substitute — a client-side stand-in is how a page ends up
+ *  disagreeing with the books.
  *
  *  `balance_locked` is how the leadership accounts read to somebody without
  *  `approve_funds`: **locked, not hidden** (D87). The row is there, the figure
  *  is not, and the screen can say which — hiding the account from people who
- *  can see every transfer into it is a fiction they see through. */
-export async function listAccountRows(): Promise<Result<(AccountBalance & { balance_locked: boolean })[]>> {
+ *  can see every transfer into it is a fiction they see through.
+ *
+ *  **These two functions were the wrong way round** until the swap in
+ *  `src/demo/api/index.ts` put the two implementations side by side. This one
+ *  read `accounts` and the one below read `v_account_balance`, which is exactly
+ *  backwards from the demo the screens were written against — so every screen
+ *  asking for balances would have got rows with no balance on them, and the
+ *  reverse. Only one of the two showed up as a type error, because
+ *  `AccountBalance` has every field `Account` has and is assignable to it; the
+ *  other would have been found by somebody looking at a blank column.
+ */
+export async function listAccounts(): Promise<Result<(AccountBalance & { balance_locked: boolean })[]>> {
   const { data, error } = await supabaseBrowser()
     .from("v_account_balance").select("*").order("code");
   return fromRows(SERVICE, data as (AccountBalance & { balance_locked: boolean })[], error);
+}
+
+/** The account rows themselves — no balance, no lock. What a picker needs. */
+export async function listAccountRows(): Promise<Result<Account[]>> {
+  const { data, error } = await supabaseBrowser()
+    .from("accounts").select("*").order("code");
+  return fromRows<Account[]>(SERVICE, data as Account[], error);
 }
 
 export async function listTypeRows(): Promise<Result<TransactionType[]>> {
@@ -129,57 +141,108 @@ export async function coverageFor(prLineNo: string): Promise<Result<unknown[]>> 
 /* The two seams                                                       */
 /* ------------------------------------------------------------------ */
 
-/** **No document, no row** (D85), and a purchase needs to be checkable (D86).
+/** Resolve a uuid to the public code the seam actually takes.
+ *
+ *  Every seam in this system is addressed by code, never by uuid (ADR-004):
+ *  `post_transaction` takes `p_account_code`, and a trail somebody has to read
+ *  says `BCA-OPS`, not `9f3c…`. The screens were written against the demo,
+ *  whose fixtures are uuid-keyed, so they pass `account_id`.
+ *
+ *  **The translation belongs here, and only until the contract moves.** Doing
+ *  it in the client keeps the seam's rule intact and keeps the promise that a
+ *  screen cannot tell which implementation it got. Logged as a contract change
+ *  for the design session: `account_id` → `account_code`, and the same for
+ *  vendor and project. Once the screens send codes, these three lookups go.
+ */
+async function codeFor(
+  table: "accounts" | "vendors" | "projects", id: string | null | undefined,
+): Promise<string | null> {
+  if (!id) return null;
+  const { data } = await supabaseBrowser()
+    .from(table).select("code").eq("id", id).maybeSingle();
+  return (data as { code: string } | null)?.code ?? null;
+}
+
+/** Post a transaction, and answer with the transaction.
+ *
+ *  **No document, no row** (D85), and a purchase needs to be checkable (D86).
  *  Both refusals are the database's, with its own wording — which names what is
- *  missing rather than saying the form is invalid. */
+ *  missing rather than saying the form is invalid.
+ *
+ *  Two round trips, the same shape as `createVendor`: the seam answers
+ *  `{trx_no, amount, status}` — what happened — and the contract promises a
+ *  `TransactionView`, which is what the ledger screen puts straight into its
+ *  list without reloading. The write stays narrow; the read that follows is
+ *  where the shape comes from.
+ */
 export async function postTransaction(
   input: {
-    account_code: string;
+    trx_date: string;
+    account_id: string;
     direction: Direction;
     amount_idr: number;
-    type_code: string;
+    type_code: TransactionTypeCode;
+    vendor_id?: string | null;
+    project_id?: string | null;
     description: string;
-    documents: { attachment_id: string; kind: string }[];
-    trx_date?: string | null;
-    vendor_code?: string | null;
-    project_code?: string | null;
+    source_ref: string;
     lines?: { description: string; qty?: number | null; uom?: string | null;
-              unit_price?: number | null; amount: number; item_id?: string | null }[];
-    remark?: string | null;
-    /** The claim on the row itself (A4). A repeat with the same ref is the
-     *  same event arriving twice — a re-run import, a retried webhook — and is
-     *  a no-op whether or not an idempotency key was passed. */
-    source_ref?: string | null;
+              unit_price?: number | null; amount: number }[];
+    documents: { attachment_id: string; kind: DocKind }[];
   },
   idempotencyKey?: string,
-): Promise<Result<{ trx_no: string; amount: number; status: string }>> {
+): Promise<Result<TransactionView>> {
+  const accountCode = await codeFor("accounts", input.account_id);
+  if (!accountCode) {
+    return invalid(SERVICE, "account_not_found",
+      "Akun itu tidak ada di database.", { field: "account_id" });
+  }
+
   const { data, error } = await supabaseBrowser().rpc("post_transaction", {
-    p_account_code: input.account_code,
+    p_account_code: accountCode,
     p_direction: input.direction,
     p_amount: input.amount_idr,
     p_type_code: input.type_code,
     p_description: input.description,
     p_documents: input.documents.map((d) => ({ ...d, kind: toKindCode(d.kind) })),
-    p_trx_date: input.trx_date ?? null,
-    p_vendor_code: input.vendor_code ?? null,
-    p_project_code: input.project_code ?? null,
+    p_trx_date: input.trx_date,
+    p_vendor_code: await codeFor("vendors", input.vendor_id),
+    p_project_code: await codeFor("projects", input.project_id),
     p_lines: input.lines ?? [],
-    p_remark: input.remark ?? null,
-    p_source_ref: input.source_ref ?? null,
+    p_remark: null,
+    p_source_ref: input.source_ref || null,
     p_key: idempotencyKey ?? null,
   });
-  return fromSeam(SERVICE, data, error);
+
+  const posted = fromSeam<{ trx_no: string; amount: number; status: string }>(
+    SERVICE, data, error);
+  if (posted.error) return posted;
+
+  /* The row exists whether or not this read succeeds, so its error is returned
+     as it is rather than dressed as a failed post — retrying a post that
+     already happened is how a payment gets made twice. */
+  const row = await supabaseBrowser()
+    .from("v_transaction").select("*").eq("trx_no", posted.data.trx_no).single();
+  return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
 }
 
 /** VOID keeps the row and the amount, with a reason beside it (A5, D84). The
  *  correction is a new row; this one stays, saying what was once believed. */
 export async function voidTransaction(
   trxNo: string, reason: string, idempotencyKey?: string,
-): Promise<Result<{ trx_no: string; status: string }>> {
+): Promise<Result<TransactionView>> {
   const { data, error } = await supabaseBrowser().rpc("void_transaction", {
     p_trx_no: trxNo, p_reason: reason, p_key: idempotencyKey ?? null,
   });
-  return fromSeam(SERVICE, data, error);
+  const voided = fromSeam<{ trx_no: string; status: string }>(SERVICE, data, error);
+  if (voided.error) return voided;
+
+  /* The row is still there — that is the whole point of a VOID (A5, D84) — so
+     the screen wants it back, now reading VOID, rather than a receipt saying it
+     worked. */
+  const row = await supabaseBrowser()
+    .from("v_transaction").select("*").eq("trx_no", voided.data.trx_no).single();
+  return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
 }
 
 /** The second seam: what a payment was *for*. A transaction never funds more
@@ -194,7 +257,7 @@ export async function allocate(
     method?: AllocMethod;
   },
   idempotencyKey?: string,
-): Promise<Result<{ trx_no: string; amount: number; unallocated: number }>> {
+): Promise<Result<PaymentAllocation>> {
   const { data, error } = await supabaseBrowser().rpc("allocate_payment", {
     p_trx_no: input.trx_no,
     p_amount: input.amount,
@@ -203,7 +266,19 @@ export async function allocate(
     p_method: input.method ?? "transfer",
     p_key: idempotencyKey ?? null,
   });
-  return fromSeam(SERVICE, data, error);
+  const allocated = fromSeam<{ trx_no: string; amount: number; unallocated: number }>(
+    SERVICE, data, error);
+  if (allocated.error) return allocated;
+
+  /* The allocation row itself, which is what the drawer draws. Newest live one
+     for this transaction and this target: `allocate` always writes a new row and
+     supersedes rather than editing (A2), so the latest is the one in force. */
+  let q = supabaseBrowser()
+    .from("v_allocation").select("*")
+    .eq("trx_no", input.trx_no).is("superseded_by", null);
+  q = input.pr_line_no ? q.eq("pr_line_no", input.pr_line_no) : q.eq("po_no", input.po_no ?? "");
+  const row = await q.order("allocated_at", { ascending: false }).limit(1).maybeSingle();
+  return fromRows<PaymentAllocation>(SERVICE, row.data as PaymentAllocation | null, row.error);
 }
 
 /** A correction supersedes; it never deletes (A2). Pass no amount to withdraw

@@ -86,6 +86,18 @@ jobs:
       - name: permission catalogue agrees with itself
         run: node scripts/check-permissions.mjs
 
+      # The demo and the real client are supposed to be interchangeable — same
+      # names, same arguments, same answers — because that is the whole of the
+      # swap. Nothing checked it and nothing could: until the switchboard
+      # existed, no file imported both, so TypeScript never saw them side by
+      # side. The first time anything did, 37 of the 98 shared functions
+      # disagreed, and half of a swapped pair raised no error at all because
+      # `AccountBalance` is assignable to `Account`. This asks the compiler and
+      # compares the answer against the list in `src/lib/api/_pending.ts`,
+      # failing on drift in either direction.
+      - name: the two api clients answer the same shapes
+        run: node scripts/check-api-parity.mjs
+
       # No Supabase variables here, deliberately. The build has to succeed with
       # none set, because that is how the deployed app runs today — demo mode,
       # browser-held fixtures, no database. `useRealApi()` requires both the
