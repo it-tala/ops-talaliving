@@ -4,8 +4,24 @@
   // Vercel still deploys `main` to `ops.talaliving.com` (see `.github/workflows/ci.yml`).
   // This file does not change that — it is the second target, so a Next build
   // that only ever worked on one host cannot quietly become the only thing we
-  // can ship. CI builds it on every pull request; deploying is still a
-  // deliberate `npm run cf:deploy`, never a push.
+  // can ship.
+  //
+  // READ THIS BEFORE ASSUMING THIS FILE IS INERT. A Cloudflare Workers Builds
+  // Git integration is already connected to this repository, pointed at a
+  // Worker called `ops-talaliving`. It was connected before this file existed
+  // and did nothing, because it had no wrangler config to build — the first
+  // pull request to add one is the one that woke it up, and it uploaded a
+  // version straight off an unmerged branch.
+  //
+  // That matters here more than it would elsewhere: the whole point of
+  // `.github/workflows/ci.yml` is that the gate is the *merge*, because
+  // branch protection can guard a branch and cannot guard a deploy. Which
+  // branches this integration is allowed to build, and whether a build is
+  // promoted to production traffic or only uploaded as a preview version, is
+  // set in the Cloudflare dashboard — not in this file and not in this repo.
+  // Somebody has to have decided that deliberately. If nobody has, the answer
+  // is to fix it in the dashboard, not to delete this config and pretend the
+  // integration is not there.
   //
   // Deliberately small. There is no R2 incremental cache, no self-reference
   // service binding and no Images binding, because this application has

@@ -91,9 +91,14 @@ jobs:
       # build fails looking for `.next/standalone`. Two builds, two outputs,
       # both proved.
       #
-      # Build only — never deploy. Deploying stays a deliberate
-      # `npm run cf:deploy` by a person holding the credentials, which is why
-      # no Cloudflare token is read here.
+      # This step builds and never deploys — no Cloudflare token is read here,
+      # and nothing it produces leaves the runner.
+      #
+      # That is a statement about this step, not about the repository. A
+      # Cloudflare Workers Builds Git integration is connected outside of
+      # GitHub Actions and does deploy; `wrangler.jsonc` explains what it
+      # does and where its branch rules actually live. Do not read the line
+      # above as "nothing here can reach production".
       - name: cloudflare worker builds
         run: npx opennextjs-cloudflare build
 
