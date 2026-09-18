@@ -1775,11 +1775,17 @@ erDiagram
     }
 ```
 
-**Built so far: the second funnel only** (0080). `sales_reps` and `referrals`
-are real; markets, properties, the three agents per property and the scrape are
-a migration of their own, and nothing about the commission needs them. That is
-why `referrals.property_ref` is a **code** with nothing behind it yet rather
-than a foreign key — the seam holds while one side is missing (ADR-004).
+**Built in two migrations.** `0080` took the half with money in it —
+`sales_reps`, `referrals`, and the commission on `v_project_cost`. `0081` took
+the outreach funnel: `markets`, `properties`, `property_agents`, `scrape_rows`,
+and the derivations over them. `referrals.property_ref` stayed a **code** while
+one side was missing and still is: the seam was written to hold either way
+(ADR-004).
+
+**`RECYCLED` and `SKIP` are exits, not rungs**, so rank is a function that
+answers **null** for them rather than the enum's own declaration order. A plain
+`stage >= 'REPLIED'` would have counted an agent we gave up on as one who
+answered — F115.
 
 **`move_on` is not a column.** Seven days of silence since `sent_on` is a
 predicate, computed on read (D183) — the sheet's own MOVE ON column is one
@@ -1790,6 +1796,14 @@ Friday.
 |---|---|
 | `property_agents` UNIQUE `(property_id, slot)` | three agents, in a fixed order |
 | `property_agents` CHECK `stage = 'DEAL' → rep_id IS NOT NULL` | a deal against nobody is a commission nobody can compute (D185) |
+| `property_agents` CHECK `replied_on IS NULL OR (sent_on IS NOT NULL AND replied_on >= sent_on)` | you cannot answer a message that was never sent |
+| `property_agents` CHECK `stage = 'RECYCLED' → remark IS NOT NULL` | giving up says why; it is what the next person reads when this agent is approached again a year later |
+| `property_agents` trigger stamps `sent_on`, `replied_on` and `next_action_on` | a date somebody has to remember to fill in is the column that is wrong by Friday, and a stamp on one code path only is the same thing with extra steps (D183). The first message starts the clock and **a chase does not restart it** |
+| `markets` CHECK `code LIKE country_code || '-%'` and `code = upper(code)` | every filter is a prefix of the code, so a code that does not start with its own country is simply missing from every country roll-up and nothing raises (D187) |
+| `markets.timezone` checked against Postgres by trigger | *what time is it there* is the one question a list of names cannot answer, and a typo makes it unanswerable with nothing else noticing |
+| `properties` CHECK `status = 'QUALIFIED' OR status ~ '^DISQUALIFIED — .+$'` | the reason lives in the string, exactly as the tracker writes it |
+| `properties` CHECK `validated = (validated_by IS NOT NULL)` | a score is a machine's opinion until a person agrees with it, and the agreement has a name on it (D184) |
+| `properties.ref` is supplied, not minted | `TL-0001` is the tracker's own numbering and an **outside** reference, like a vendor's invoice number. ADR-005 governs the numbers this system issues |
 | `sales_reps` CHECK `commission_percent > 0 AND <= 20` | a number that will be paid many times |
 | `referrals` CHECK `status = 'WON' → project_code IS NOT NULL`, plus a trigger that the project **exists and carries a contract value** | commission comes from a contract that exists, never from a quotation (D186). The second half was a `contract_value` column on the referral until 0080: two places holding one number, and the first revision makes them disagree. The value is read from `procure.projects` and the refusal is now something the database can check rather than something it trusts the typist for (C15) |
 | `referrals` UNIQUE `(project_code) WHERE status = 'WON'` | one job pays one commission; a second would double it with nothing saying so |

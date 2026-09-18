@@ -4540,3 +4540,68 @@ bank. The rate is therefore frozen once anything has been paid against it, and
 ordinary editing before that. If rates really do move mid-relationship, the
 answer is the dated shape `ops_hr.pay_rule_sets` already has, and one rate per
 rep is the wrong table.
+
+## F115 · 2026-09-18 · 0081 — an enum's order is a rule nobody wrote down
+
+**What we assumed.** `OUTREACH_STAGES` is a ladder — `QUEUED`, `MSG SENT`,
+`REPLIED`, `CALL SET`, `FORM BACK`, `PRESENTATION`, `DEAL` — and the contract
+says the order is load-bearing: the funnel, the furthest agent per property and
+*has this one been messaged* are all comparisons on it. A Postgres enum orders
+by declaration, so an enum looked like the ladder, for free.
+
+**What surprised us.** The type has two more values, and neither is a rung.
+`RECYCLED` is *we gave up on this agent* and `SKIP` is *we never approached
+them*. Declared after `DEAL`, as the contract lists them, they sort **above**
+every real stage — so `stage >= 'REPLIED'` counts an agent we gave up on as one
+who answered, and `stage >= 'FORM BACK'` puts them past the form. Nothing
+raises. The reply rate simply climbs every time somebody is dropped, which is
+the direction that flatters the team.
+
+Declaring them first would have fixed those two comparisons and broken
+`messaged`, which is `rank >= 'MSG SENT' **or** RECYCLED` — an agent you gave up
+on *was* messaged. There is no declaration order that makes all three right,
+because the values are not on one line.
+
+**What this implies.** The rank is its own function and answers **null** for an
+exit, so every `>=` answers false and each comparison has to say what it means
+about the exits explicitly. The enum still types the column — it is a closed
+vocabulary and belongs there — but its order stops being load-bearing, and the
+smoke asserts `stage_rank('RECYCLED') is null` beside the counts.
+
+**The general shape.** An enum whose values are not all on the same scale has a
+sort order that reads as a rule and was never written as one. Where an order
+matters, it is a function or a seeded table with a number in it — the same
+reason `process_stages` is rows rather than a `case` (D275), reached from the
+opposite direction.
+
+**A smaller thing, noted in passing.** `ops_core.settings` has a
+`settings_write` policy and no UPDATE **grant**, so the policy can never apply:
+a setting is changed by a migration, not by a user. That may well be what was
+meant — settings here are deploy-time — but the policy says otherwise, and one
+of the two is wrong. `0003` is applied, so this is a note rather than a fix.
+
+## F116 · 2026-09-18 · 0081 — two things the harness knew and we did not
+
+**A settings key that reads as a schema.** `0081` seeded
+`ops.agent_move_on_days`, the key the demo already uses, and
+`check_schema_isolation.sh` refused the whole migration. It was right to.
+`ops` is the **legacy system's own schema**, the guard reads schema-qualified
+names out of the file, and a string literal beginning `ops.` is
+indistinguishable from a reference to it without parsing SQL properly. The
+guard exists because the new system shares one Supabase project with the
+running legacy one and that arrangement is only safe while every migration
+stays inside `ops_*` — which is far too much to risk on making a blunt check
+cleverer. The key moved to `mkt.` instead (C16), following `kpi.`.
+
+Worth keeping because the near-miss is the interesting part: had the guard been
+a little smarter it would have passed this, and the next file with `ops.`
+inside a string would have been a real one.
+
+**A test that leaves rows behind.** Running `supabase/import/test.sh` before
+`smoke.sh` makes `71_inv_stock` fail — it counts items, and the import commits
+some. Every smoke file wraps itself in `begin/rollback` so the order they run in
+cannot matter; the import test is not a smoke file and does not. CI runs
+rebuild → smoke → import, so CI is correct and this only bites somebody running
+them by hand in the other order. Noted rather than changed: the file belongs to
+the session that wrote it, and the fix is theirs to pick — a rollback, or a
+line in its header saying it must run last.
