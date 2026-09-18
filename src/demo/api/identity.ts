@@ -33,6 +33,58 @@ export async function listUsers(): Promise<Result<Session[]>> {
   return ok(SERVICE, getState().users.map(toSession));
 }
 
+/** Sign in with an email and a password — **the demo's half of the pair**.
+ *
+ *  The password is not checked, and the screen says so. What matters is that
+ *  the *name* and the *shape* exist on both sides: the swap in
+ *  `src/demo/api/index.ts` is typed against this module, so a function the real
+ *  client has and this one does not is a function no screen can call without a
+ *  compile error. The sign-in screen is one screen, not two.
+ *
+ *  It does not replace `actAs`. Picking a persona is how the demo shows five
+ *  different people seeing five different applications; this is how somebody
+ *  arrives the way they will in production. Demo keeps both.
+ */
+export async function signIn(email: string, _password: string): Promise<Result<Session>> {
+  await latency();
+  const user = getState().users.find(
+    (u) => u.email.toLowerCase() === email.trim().toLowerCase());
+
+  if (!user) {
+    /* The same wording the real client uses for a wrong password and for an
+       unknown address, and for the same reason: telling them apart tells
+       somebody probing which addresses are real, and helps nobody who mistyped.
+       Matching it here also means the screen never has two error styles to
+       handle. */
+    return refused(SERVICE, "sign_in_failed",
+      "That email and password do not match an account here.");
+  }
+
+  apply((draft) => {
+    draft.session_user_id = user.id;
+    writeAudit(draft, {
+      service: SERVICE, entity: "session", entity_no: user.email,
+      action: "sign_in", outcome: "ok", reason: "demo sign-in; no password is checked",
+    });
+  });
+  return ok(SERVICE, toSession(user));
+}
+
+export async function signOut(): Promise<Result<null>> {
+  await latency();
+  /* Deliberately does not clear `session_user_id`. There is nothing to sign out
+     of: the demo has no credential, and leaving somebody on a blank screen with
+     no way back would break the sandbox for the sake of imitating a door that
+     does not exist. The trail records the intent, which is the honest part. */
+  apply((draft) => {
+    writeAudit(draft, {
+      service: SERVICE, entity: "session", entity_no: actingUser(draft).email,
+      action: "sign_out", outcome: "noop", reason: "demo mode has no session to end",
+    });
+  });
+  return ok(SERVICE, null);
+}
+
 /** Demo only: switch which person is acting, so permissions can be shown
  *  working rather than described. Deleted in Phase 2 along with this layer. */
 export async function actAs(userId: string): Promise<Result<Session>> {
