@@ -65,7 +65,7 @@ create table ops_procure.round_transfers (
   -- Not nullable. The whole point of the table.
   proof_attachment_id uuid not null references ops_core.attachments(id),
   recorded_by         uuid not null references ops_core.users(id),
-  recorded_by_email   citext not null,
+  recorded_by_email   ops_core.citext not null,
   recorded_at         timestamptz not null default now(),
   -- The same ledger row cannot fund the same round twice. A repeat is a mistake
   -- or a double-tap, and either way it inflates the round's funding by an amount

@@ -23,7 +23,7 @@
 -- would leave every approval readable solely by joining, and a trail nobody can
 -- read is a trail nobody checks (ADR-004).
 create or replace function ops_procure.actor_email()
-returns citext language sql stable security definer set search_path = ops_core, pg_temp as $$
+returns ops_core.citext language sql stable security definer set search_path = ops_core, pg_temp as $$
   select email from ops_core.users where id = auth.uid()
 $$;
 
@@ -329,7 +329,7 @@ end $$;
 -- answer is what happened, and a card answered twice means two people were
 -- asked and both replied — which is worth knowing, not worth overwriting.
 create or replace function ops_procure.answer_request(
-  p_token text, p_approved boolean, p_answered_by_email citext,
+  p_token text, p_approved boolean, p_answered_by_email ops_core.citext,
   p_instructions text default null, p_key text default null)
 returns jsonb
 language plpgsql security definer set search_path = ops_procure, ops_core, pg_temp as $$
@@ -899,7 +899,7 @@ grant execute on function
   ops_procure.remove_line(text, text),
   ops_procure.note_line(text, text, text),
   ops_procure.explain_variance(text, ops_procure.variance_reason_t, text),
-  ops_procure.answer_request(text, boolean, citext, text, text),
+  ops_procure.answer_request(text, boolean, ops_core.citext, text, text),
   ops_procure.approve_po(text, text, text),
   ops_procure.issue_po(text, text),
   ops_procure.amend_po_line(text, int, numeric, numeric, text, text),

@@ -124,7 +124,7 @@ create table ops_procure.pr_approvals (
   -- is nullable because a chat answer's identity comes from Google's own
   -- authentication, and the person it names need not have an account here.
   recorded_by       uuid references ops_core.users(id),
-  recorded_by_email citext not null,
+  recorded_by_email ops_core.citext not null,
   recorded_at       timestamptz not null default now(),
   channel           ops_procure.channel_t not null default 'web'
 );
@@ -145,7 +145,7 @@ create table ops_procure.line_notes (
   instructions      text,
   remark            text,
   recorded_by       uuid references ops_core.users(id),
-  recorded_by_email citext not null,
+  recorded_by_email ops_core.citext not null,
   recorded_at       timestamptz not null default now(),
   constraint note_says_something check (
     coalesce(instructions, remark) is not null)
@@ -172,7 +172,7 @@ create table ops_procure.line_variances (
   -- silently rewrite what was being explained.
   amount_at_time    numeric not null,
   recorded_by       uuid references ops_core.users(id),
-  recorded_by_email citext not null,
+  recorded_by_email ops_core.citext not null,
   recorded_at       timestamptz not null default now()
 );
 

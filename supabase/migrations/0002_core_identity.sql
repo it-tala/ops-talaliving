@@ -7,7 +7,7 @@
 
 create table ops_core.users (
   id          uuid primary key references auth.users(id) on delete restrict,
-  email       citext not null unique,
+  email       ops_core.citext not null unique,
   full_name   text not null,
   is_active   boolean not null default true,
   created_at  timestamptz not null default now(),

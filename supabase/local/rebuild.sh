@@ -70,13 +70,22 @@ else
   fi
 fi
 
+# The extension goes too, and that is not tidiness. `0001` installs `citext`
+# **into `ops_core`**, and `create extension if not exists` matches on the
+# extension's NAME, not on where it lives — so an earlier run that left it in
+# `public` makes the new line a silent no-op, and the ladder then fails four
+# files later with *type ops_core.citext does not exist*. Worse, it could
+# succeed against a citext sitting in the wrong schema, which is the failure
+# that returns a wrong answer rather than an error (see `0001`). A replay
+# "from nothing" has to mean from nothing.
 q -q -c "
   drop schema if exists ops_inv cascade;
   drop schema if exists ops_prod cascade;
   drop schema if exists ops_hr cascade;
   drop schema if exists ops_acct cascade;
   drop schema if exists ops_procure cascade;
-  drop schema if exists ops_core cascade;" >/dev/null
+  drop schema if exists ops_core cascade;
+  drop extension if exists citext cascade;" >/dev/null
 
 if [ "$REAL_SUPABASE" = "0" ]; then
   q -q -v ON_ERROR_STOP=1 -f "$HERE/00_shim.sql" 2>&1 | grep -v NOTICE || true
