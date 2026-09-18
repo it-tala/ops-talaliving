@@ -3975,3 +3975,46 @@ demo id that was a primary key and a public code at once. Here it is a filter
 that means *waiting* and computes *not yet resolved*. Each time the fix is the
 same: **stop inferring the category from the absence of the others, and state
 the category.**
+
+---
+
+## F101 — a rule nobody had to decide until `ORDER BY` demanded it
+
+`day_marks` allows two marks on one date for one person: their own, and the
+office-wide one whose `employee_id` is null. The constraint permits it
+deliberately — a public holiday is declared once for everybody, and somebody
+may already have been marked *sakit* on that date.
+
+The demo reads the mark with `.find()`:
+
+```ts
+const mark = state.day_marks.find(
+  (m) => m.work_date === workDate
+    && (m.employee_id === null || m.employee_id === employee.id),
+) ?? null;
+```
+
+Whichever the array holds first wins. In the fixtures that is stable, so the
+screens have always agreed with each other, and the question has never been
+asked: **when somebody is marked sick on a day the whole office is closed,
+which mark decides what the day is worth?**
+
+They give different answers. `sakit` with a letter is `day_value = 1`;
+`holiday` is `0`, and its hours become overtime instead. So the two readings
+differ by a day's pay and by whether the hours are claimable.
+
+SQL cannot punt. A query without `ORDER BY` returns rows in whatever order the
+plan produces, and the same function would answer differently after a vacuum.
+`read_day` orders the personal mark first — specific over general, which is the
+ordinary reading — and this entry exists because **that is a decision I made,
+not one the design records.** It is worth putting to the owner: the argument
+for the other direction is real, since nobody works on a tanggal merah and a
+sick day spent on a closed day arguably should not be drawn from the person's
+entitlement at all.
+
+What to keep: **an ambiguity survives in a language that lets you not choose.**
+`.find()` on an array, `LIMIT 1` without `ORDER BY`, the first row of an
+unordered read — all of them answer a question nobody knew they were asking,
+and they answer it consistently enough that it never surfaces. Transcribing to
+a database is where they surface, because the database refuses to pretend the
+order was ever meaningful.

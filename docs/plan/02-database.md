@@ -1405,6 +1405,7 @@ erDiagram
         text full_name
         text position
         text unit
+        text schedule_code FK "the working pattern this person is on (Q53, D279) - in the contracts since M58, never in this diagram until 0045 needed it"
         pay_basis_t pay_basis "monthly|daily|hourly"
         bigint base_rate "POKOK only - per month, day or hour"
         bigint allowance_rate "TUNJANGAN - per day present, whatever the basis (D250)"
