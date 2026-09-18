@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Factory, ArrowRight, LogIn, AlertTriangle } from "lucide-react";
+import { Factory, ArrowRight, LogIn, AlertTriangle, MailCheck } from "lucide-react";
 import { Card, Badge, Button } from "@/components/ui/primitives";
 import { useBrand } from "@/lib/brand";
 import { useSession } from "@/store/session";
+import { identity } from "@/demo/api";
 import { useDemo } from "@/demo/provider";
 import { isLiveMode } from "@/lib/live";
 import { AUTHORITY_LABEL, MODULE_LABEL } from "@/lib/roles";
@@ -38,6 +39,17 @@ import { AUTHORITY_LABEL, MODULE_LABEL } from "@/lib/roles";
  *  **It does not offer a way to create an account.** Provisioning is not
  *  self-service here: somebody in IT grants what a person may open (D24), and a
  *  sign-up form would be a door into a workspace nobody invited them to.
+ *
+ *  ## Recovery is self-service, and that is not the same thing
+ *
+ *  Asking for a password link is not asking for access — the link goes to one
+ *  mailbox, the account's own, and it grants nothing that account did not
+ *  already have. Keeping it behind *hubungi IT* looked like caution and was
+ *  closer to a dead end: IT's only tool was Supabase's dashboard, whose mail
+ *  points at **Site URL**, and that still said `localhost`. The first
+ *  administrator account went three weeks with no password anybody could set.
+ *  A link sent from this page carries this origin instead, and lands on
+ *  `/set-password`.
  */
 export default function SignInPage() {
   const brand = useBrand();
@@ -76,6 +88,30 @@ function PasswordForm() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
+
+  /** Ask for a recovery link.
+   *
+   *  This used to say *hubungi IT* and stop there, which named the right person
+   *  and gave them nothing to do: the only lever IT had was Supabase's own
+   *  recovery mail, whose link lands on whatever **Site URL** says — and that
+   *  was still `localhost`. A link sent from here carries this origin, so it
+   *  comes back to `/set-password` on the deployment the person is actually
+   *  using.
+   *
+   *  It says the same thing whether or not the address exists. Confirming which
+   *  addresses are real is a favour to somebody typing addresses into a box,
+   *  and to nobody else.
+   */
+  async function recover() {
+    if (!email) { setError("Isi alamat email dulu, lalu minta tautan."); return; }
+    setBusy(true);
+    setError(null);
+    const res = await identity.requestPasswordReset(email);
+    setBusy(false);
+    if (res.error) { setError(res.error.message); return; }
+    setSent(true);
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -147,10 +183,29 @@ function PasswordForm() {
         </Button>
       </form>
 
-      <p className="border-t border-slate-100 px-5 py-3 text-[12px] text-slate-500">
-        Lupa kata sandi, atau belum punya akun? Hubungi IT. Akses ke tiap modul
-        diberikan per orang, bukan diminta sendiri.
-      </p>
+      <div className="border-t border-slate-100 px-5 py-3">
+        {sent ? (
+          <p className="flex items-start gap-2 text-[12px] text-emerald-800">
+            <MailCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              Kalau alamat itu terdaftar, tautannya sudah dikirim. Buka dari
+              perangkat ini — tautan berlaku satu jam dan sekali pakai.
+            </span>
+          </p>
+        ) : (
+          <p className="text-[12px] text-slate-500">
+            Lupa kata sandi?{" "}
+            <button
+              type="button" onClick={recover} disabled={busy}
+              className="font-medium text-brand-700 underline underline-offset-2 hover:text-brand-800 disabled:text-slate-400"
+            >
+              Kirim tautan ke email itu
+            </button>
+            . Belum punya akun? Hubungi IT — akses tiap modul diberikan per
+            orang, bukan diminta sendiri.
+          </p>
+        )}
+      </div>
     </Card>
   );
 }

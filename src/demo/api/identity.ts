@@ -512,3 +512,33 @@ export async function updateSetting(
 
   return ok(SERVICE, getState().app_settings.find((s) => s.key === input.key)!);
 }
+
+/* ------------------------------------------------------------------ */
+/* Passwords                                                           */
+/* ------------------------------------------------------------------ */
+
+/** There is no password here, so there is nothing to recover.
+ *
+ *  It exists because `src/demo/api/index.ts` is typed against this module: a
+ *  function the real client has and this one does not is a function no screen
+ *  may call without a compile error, and the sign-in screen is one screen, not
+ *  two. It answers `noop` rather than `ok` because a demo that says *check your
+ *  email* would have somebody waiting for a message nobody sent.
+ */
+export async function requestPasswordReset(_email: string): Promise<Result<null>> {
+  await latency();
+  return noop(SERVICE, null);
+}
+
+/** Refused, and the message says why rather than pretending it worked.
+ *
+ *  A demo that accepted a new password would be claiming to have stored a
+ *  credential it has nowhere to put — and the next sign-in, which checks
+ *  nothing, would appear to prove it.
+ */
+export async function setPassword(_password: string): Promise<Result<null>> {
+  await latency();
+  return refused(SERVICE, "no_password_in_demo",
+    "Mode demo tidak memeriksa kata sandi, jadi tidak ada yang bisa diganti. "
+    + "Pilih orang di halaman masuk untuk melihat aplikasi dari sudut pandangnya.");
+}
