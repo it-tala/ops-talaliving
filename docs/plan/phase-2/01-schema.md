@@ -80,16 +80,19 @@ in the single place where the resolution is not obvious: the order the ladder
 applies in. `rebuild.sh` applies in lexical order and never asks why 0023 is
 missing, so the gap costs nothing.
 
-**Smoke files have the same problem and no reservation, so they collide.**
-HR's two landed as `08_hr` and `09_hr_payroll`; `main` had meanwhile taken
-`08_core_files`, `09_acct_statement` and `10_core_activity`. Git merged both
-sides without a word — the filenames differ, so there is nothing for it to
-conflict on — and the directory came out with two 08s and two 09s. Renumbered
-to `11_hr` and `12_hr_payroll` here, after theirs, because theirs reached
-`main` first. The rule that follows: **take the next free number at merge
-time, not at write time**, and check the directory against `origin/main`
-before pushing. `smoke.sh` runs whatever is in the folder, so a duplicate
-prefix costs no failure and buys real confusion.
+**Smoke files had the same problem and now have the same fix.** HR's first two
+landed as `08_hr` and `09_hr_payroll` against `main`'s `08_core_files` and
+`09_acct_statement`; renumbering them to 11 and 12 collided again one merge
+later, with `11_core_activity_log`. Git says nothing either time — the
+filenames differ, so there is nothing for it to conflict on — and `smoke.sh`
+runs whatever is in the folder, so a duplicate prefix costs no failure and
+buys real confusion about what ran in what order.
+
+Taking the next free number at merge time is what produced the second
+collision, so the rule is the one the migrations already use: **HR's smokes
+have their own block, `40`–`44`, mirroring `0040`+.** A block cannot collide
+with a sequence, and neither session has to look at the other's directory
+before pushing.
 
 **Three HR tables are still unbuildable, and it is not a design gap.**
 `tasks`, `enrolments` and `contribution_rates` need `task_status_t`,
