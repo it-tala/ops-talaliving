@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "//verify": "What to run before pushing. `build` is next build and it is NOT what ships: opennextjs-cloudflare build is, and it refuses things next build accepts — an edge-runtime route, for one, which cost a deploy on 2026-09-21. Everything CI runs, in CI's order.",
+    "verify": "npx tsc --noEmit && npm run lint && node scripts/check-api-parity.mjs && node scripts/check-api-schemas.mjs && node scripts/check-live-routes.mjs && npm run cf:build",
     "start": "next start",
     "lint": "next lint",
     "cf:build": "opennextjs-cloudflare build",
