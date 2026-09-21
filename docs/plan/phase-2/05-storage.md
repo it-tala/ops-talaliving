@@ -8,7 +8,109 @@ that arrangement, written down and given the boundaries it was missing.
 
 ---
 
-## Two shared drives, split by who may see it — not by division
+## Superseded: an `ops` folder in each module's shared drive
+
+> **Owner, 2026-09-21:** *pakai folder ops di tiap module shared drive*
+>
+> and, earlier the same week: *saya ingin membuat manusia dan sistem bisa
+> membuka file berdampingan. jadi kalau ini module HRD maka harus di simpan di
+> HRD shared drive. mungkin daripada langsung ke shared drive nya buat saja
+> folder seperti "ops" di tiap module.*
+
+**This is the arrangement. The two-drive proposal below is kept for its
+reasoning and is not what was built** — `0035_core_drive_folders.sql` is.
+
+Seven shared drives already exist and people already work in them: HRD,
+PROCUREMENT, PRODUCTION, DRAFTING, ACCOUNTING, PROJECT MANAGER, BACKUP. A
+system that files somewhere else creates a second place to look, and the
+owner's reason is the one that decides it: a person and the system should open
+the same file side by side. The `ops` subfolder keeps them apart *inside* one
+drive — everything the application writes lands there, nothing filed by hand
+does.
+
+### What the two-drive split was protecting, and where that went
+
+Its one real virtue was making *personal data against business evidence* a rule
+in code rather than a habit. Seven drives is seven membership lists, and more
+people can see more folders. So the rule moved rather than being dropped:
+**the drive is chosen from the kind of document, by the database, at the moment
+of upload** (`ops_core.doc_kind_drive`). A KTP resolves to HRD and no argument
+to any function can send it elsewhere. That is the sensitivity-at-upload
+decision, and it is why `documents.upload` now carries the `kind` — it used to
+take a filename and a size, which is not enough to know where a file belongs.
+
+`16_core_drive_folders.sql` asserts every one of the eleven personal kinds
+resolves to HRD, and that no kind falls through to nowhere.
+
+### What is still open
+
+**An unclassified file from chat lands in PROCUREMENT.** `uploadToInbox` is the
+exception road — a document arrives before the record it belongs to exists, so
+there is no kind yet and it is filed as `other`, which maps to procurement. The
+inbox is for money evidence and that is what it receives, but somebody
+photographing a KTP into that chat would put it in the wrong drive. Changing
+one row in `doc_kind_drive` moves it; naming the risk here rather than assuming
+it away.
+
+### The eight module folders, and the `ops` inside each
+
+The owner gave the module folder ids on 2026-09-21 — eight, with **IT** added
+to the seven. They are recorded in `ops_core.drive_folders.parent_folder_id`.
+
+They are the *module* folders, not `ops` folders: every id begins with `1`, so
+each is an ordinary folder rather than a shared drive root (those begin with
+`0A`), and the note beside ACCOUNTING — *disini sudah ada folder TRANSACTIONS* —
+says what they contain. Recording one as the upload target would drop every
+file the system writes in beside the ones people filed by hand.
+
+So the two are kept apart, and **the second fills itself in**: the upload route
+finds or creates `ops` inside the module folder the first time it files
+something there, and writes the id back through
+`ops_core.record_ops_folder`. That function fills a blank only — a caller who
+could change a folder already set could redirect every future upload for that
+drive, HRD's included, just by being the next person to upload anything.
+Changing one afterwards stays `it.admin`.
+
+Asking for eight more ids would have worked, and would have been eight more
+chances to paste the wrong one into a column that silently redirects
+everything. A name is checkable; an id is not.
+
+`ops_core.v_drive_readiness` shows both stages: `has_parent` (a person did
+this) and `has_folder` (the route did).
+
+**The ids are unverified.** The Drive connector available while this was built
+could not see them — *Requested entity was not found* — which means either that
+its identity is not a member of those drives or that an id is wrong. The first
+upload to each drive will say which, in Google's own words.
+
+The Worker also needs the service account, under **Runtime variables and
+secrets** — not Build variables, because these are read server-side per request
+rather than inlined into a bundle:
+
+| name | kind | value |
+|---|---|---|
+| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | Variable | `capture-worker@john-lau-v01.iam.gserviceaccount.com` |
+| `GOOGLE_PRIVATE_KEY` | **Secret** | the `private_key` field from that account's JSON key file, verbatim — `BEGIN`/`END` lines and `\n` included |
+
+The email is also declared in `wrangler.jsonc` under `vars`, and that is not
+belt-and-braces. A plain-text variable that exists only in the dashboard does
+**not** survive `wrangler deploy`, which is what every push to `main` runs — and
+the failure is quiet, because the Secret does survive: the key stays, the email
+vanishes, `driveConfigured()` turns false, and every upload begins answering
+*the Drive service account is not set*.
+
+`GOOGLE_PRIVATE_KEY` stays out of the repository and always will. Secrets are
+managed apart from `vars` precisely so a deploy cannot touch them.
+
+The scope requested is `drive.file` — the service account may touch files **it
+created** and nothing else, so a mistake cannot reach the 1.412 documents
+already in those drives.
+
+---
+
+## The earlier proposal, kept for its reasoning
+
+**Not built.** Superseded by the section above.
 
 The owner asked whether to make one shared drive for ops or one per division.
 Neither. **Two, split by sensitivity.**

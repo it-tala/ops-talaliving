@@ -74,9 +74,7 @@ export function PayFromLine({
     setPosting(true);
     let attachmentId = proof?.id;
     if (!attachmentId && file) {
-      const up = await documents.upload({
-        filename: file.name, mime: file.type || "application/octet-stream", bytes: file.size,
-      });
+      const up = await documents.upload({ file, kind: "Payment Proof" });
       if (up.error) { setPosting(false); toast("critical", "Upload failed", up.error.message); return; }
       attachmentId = up.data.id;
       await documents.link({

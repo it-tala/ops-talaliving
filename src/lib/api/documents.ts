@@ -189,6 +189,78 @@ export async function listAttachments(): Promise<Result<AttachmentView[]>> {
   return withLinks((data ?? []) as AttachmentRow[]);
 }
 
+/** File a document: the bytes to Drive, the record to the database.
+ *
+ *  **The one call in this client that is not a PostgREST call.** Everything
+ *  else here talks to the database directly, which is the whole design — the
+ *  database decides and a server layer between would be a second place for
+ *  rules to live (ADR-002). This one goes through `/api/documents/upload`
+ *  because the raw file belongs in a Google shared drive (owner, 2026-09-21),
+ *  the service account key is what writes it, and a key in a browser is a key
+ *  in everybody's browser.
+ *
+ *  The route decides nothing: it asks `ops_core.drive_folder_for(kind)` which
+ *  drive, uploads, and calls `attach_file` **as the signed-in person**, so
+ *  every policy applies exactly as it would from here.
+ *
+ *  `kind` is required because it is what picks the drive. It used to be
+ *  declared afterwards, on the link, which meant the file was already
+ *  somewhere by the time anybody said what it was — and *somewhere* would have
+ *  had to be a default, which is a rule about where personal data goes written
+ *  in the least visible place in the system.
+ */
+export async function upload(
+  input: { file: File; kind: DocKind; sha256?: string },
+  idempotencyKey?: string,
+): Promise<Result<AttachmentView>> {
+  const body = new FormData();
+  body.append("file", input.file);
+  body.append("kind", input.kind);
+
+  let res: Response;
+  try {
+    res = await fetch("/api/documents/upload", {
+      method: "POST",
+      body,
+      /* The session cookie is what makes the route act as this person. */
+      credentials: "same-origin",
+      headers: idempotencyKey ? { "idempotency-key": idempotencyKey } : undefined,
+    });
+  } catch (e) {
+    /* A dropped connection mid-upload, which on a workshop's network is not
+       rare. Said as itself rather than as a refusal: nothing decided, nothing
+       wrong with the file, try again. */
+    return {
+      error: {
+        code: "upload_interrupted",
+        message: `Unggahan terputus sebelum selesai. Coba lagi. (${String((e as Error).message)})`,
+        outcome: "refused", status: 500,
+      },
+      meta: { request_id: "", service: SERVICE, version: "1", outcome: "refused" },
+    };
+  }
+
+  const envelope = await res.json() as
+    { data?: { attachment_id: string }; error?: Result<never>["error"] };
+  if (!res.ok || envelope.error) {
+    /* The route's refusal, relayed whole. It is the database's wording in the
+       cases that matter — *the HRD shared drive has no `ops` folder recorded
+       yet* names the thing to do, and a sentence invented here would not. */
+    return {
+      error: envelope.error ?? {
+        code: "upload_failed", message: `Upload failed (${res.status}).`,
+        outcome: "refused", status: res.status as never,
+      },
+      meta: { request_id: "", service: SERVICE, version: "1", outcome: "refused" },
+    } as Result<never>;
+  }
+
+  /* Read back rather than building the view from what went up: `uploaded_at`,
+     `duplicate_suspect` and `covers_count` are the database's answers, and two
+     of the three are things only it can know. */
+  return getAttachment(envelope.data!.attachment_id);
+}
+
 /** Filing an address as evidence (D125).
  *
  *  A marketplace listing, a quotation in a portal. Photographing the screen

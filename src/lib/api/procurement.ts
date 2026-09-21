@@ -26,11 +26,13 @@
 import type {
   Vendor, VendorView, Item, ItemView, Uom, ItemCategory, Project,
   PrLineView, PrApproval, LineNote, LineVariance, ApprovalRequest,
-  VendorJourney, RoundSummary, VarianceReason, Channel,
-  PoDetail, UomCode, PrCategory, PrDocument,
+  VendorJourney, RoundSummary, VarianceReason, Channel, ApprovalBatchView,
+  PoDetail, PoLine, PoStatusView, PurchaseOrder,
+  UomCode, PrCategory, PrDocument,
 } from "@/services/procurement/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { fail, fromSeam, fromRows, fromPage, notFound, ok, type Result } from "./_kit";
+import { getActiveLocale } from "@/lib/format";
+import { fail, fromSeam, fromRows, fromPage, invalid, notFound, ok, type Result } from "./_kit";
 
 const SERVICE = "procurement" as const;
 
@@ -530,17 +532,48 @@ export async function updateLine(
  *  a name in a config file, so if the authority moves the notification follows
  *  it (D19). A line with nothing behind it is refused before the card is sent,
  *  and the refusal names which lines (D125). */
+/** Ask leadership to decide a list, in one send.
+ *
+ *  **A batch, not a card per line** (D70). Fifteen separate cards ask the
+ *  approver to add fifteen numbers in their head to know what they just
+ *  committed to, which is how people stop reading the fifteenth.
+ *
+ *  `to` is a **user id**, because that is what the screen is holding — it
+ *  picked a person from a list. The seam takes an email (ADR-004: the thing a
+ *  person can read back), so the translation happens here, the same way
+ *  `curateVendor` turns a vendor id into a code.
+ *
+ *  Answers the batch as the board redraws it, not the seam's receipt: the
+ *  toast names the count, the total and who has to decide, and all three come
+ *  from `v_approval_batch`.
+ */
 export async function requestApproval(
-  input: { line_nos: string[]; to_email?: string | null; notes?: Record<string, string | null> },
+  input: { line_nos: string[]; to?: string; notes?: Record<string, string | null> },
   idempotencyKey?: string,
-): Promise<Result<{ batch_no: string; token: string; sent_to: string; lines: string[] }>> {
+): Promise<Result<ApprovalBatchView>> {
+  let toEmail: string | null = null;
+  if (input.to) {
+    const { data } = await supabaseBrowser().schema("ops_core")
+      .from("users").select("email").eq("id", input.to).maybeSingle();
+    toEmail = (data as { email: string } | null)?.email ?? null;
+    if (!toEmail) {
+      return notFound(SERVICE, "approver_not_found", "That person is not in this workspace.");
+    }
+  }
+
   const { data, error } = await db().rpc("request_approval", {
     p_line_nos: input.line_nos,
-    p_to_email: input.to_email ?? null,
+    p_to_email: toEmail,
     p_notes: input.notes ?? {},
     p_key: idempotencyKey ?? null,
   });
-  return fromSeam(SERVICE, data, error);
+  const sent = fromSeam<{ batch_no: string }>(SERVICE, data, error);
+  if (sent.error) return sent;
+
+  const batch = await db()
+    .from("v_approval_batch").select("*").eq("batch_no", sent.data.batch_no).single();
+  return fromRows<ApprovalBatchView>(
+    SERVICE, batch.data as ApprovalBatchView | null, batch.error);
 }
 
 /** Create a vendor, and answer with the vendor.
@@ -669,33 +702,81 @@ export async function updateVendorContact(
   return vendorViewByCode(code);
 }
 
+/** The drawer, after a write that answered a receipt.
+ *
+ *  Every PO mutation the detail screen calls redraws the whole order, so each
+ *  one ends here rather than handing back what the seam said. The seam's job is
+ *  to say *what happened* — that is what lands in the audit row; the drawer's
+ *  job is to show the order as it now stands, and those are different
+ *  sentences.
+ *
+ *  **A refusal is passed through untouched.** Reading the order back after a
+ *  refusal would answer `ok` with a row, and the screen would redraw happily
+ *  over a decision that never happened — which is the single most dangerous
+ *  way to get this wrong.
+ */
+async function afterPo(poNo: string, res: Result<unknown>): Promise<Result<PoDetail>> {
+  if (res.error) return res;
+  return getPoDetail(poNo);
+}
+
 /** Always a DRAFT. An order is a promise made to a supplier in the company's
  *  name, so leadership confirms it before it is sent — which means creating one
- *  cannot also send it (D132). */
+ *  cannot also send it (D132).
+ *
+ *  Takes `vendor_id`, because that is what the screen is holding: it picked the
+ *  vendor from a list of `VendorView`. The seam takes a code (ADR-004), so the
+ *  translation happens here, once — see `codeFor` above.
+ */
 export async function createPo(
   input: {
-    vendor_code: string;
-    lines: { description: string; qty: number; uom: string; unit_price: number }[];
+    vendor_id: string;
+    lines: { description: string; qty: number; uom: UomCode; unit_price: number }[];
     dp_percent?: number | null;
     note?: string | null;
+    /** When the vendor says it will arrive (D134). */
     expected_delivery?: string | null;
   },
   idempotencyKey?: string,
-): Promise<Result<{ po_no: string; status: string; lines: number }>> {
+): Promise<Result<PoView>> {
+  const vendorCode = await codeFor("vendors", input.vendor_id);
+  if (!vendorCode) {
+    return invalid(SERVICE, "vendor_required",
+      "An order is placed with somebody. Choose the vendor first.",
+      { field: "vendor_id" });
+  }
+
   const { data, error } = await db().rpc("create_po", {
-    p_vendor_code: input.vendor_code,
+    p_vendor_code: vendorCode,
     p_lines: input.lines,
     p_dp_percent: input.dp_percent ?? null,
     p_note: input.note ?? null,
     p_expected_delivery: input.expected_delivery ?? null,
     p_key: idempotencyKey ?? null,
   });
-  return fromSeam(SERVICE, data, error);
+  const created = fromSeam<{ po_no: string }>(SERVICE, data, error);
+  if (created.error) return created;
+  /* The order exists from here on. If the read fails this answers the read's
+     error, never the write's: retrying a create that already succeeded is how
+     a second order reaches a supplier. */
+  return getPo(created.data.po_no);
 }
 
-export async function requestPoApproval(poNo: string): Promise<Result<unknown>> {
-  const { data, error } = await db().rpc("request_po_approval", { p_po_no: poNo });
-  return fromSeam(SERVICE, data, error);
+/** Ask leadership to confirm the order — of somebody in particular.
+ *
+ *  The other half of D267: the question goes to a named person and the answer
+ *  comes back from **their own account**. A leadership meeting runs on one
+ *  laptop, and ticking a box there records the wrong person. With no `to`, the
+ *  seam picks whoever holds `approve_goods`; naming somebody who does not hold
+ *  it is refused, because that question would sit unanswerable in their chat.
+ */
+export async function requestPoApproval(
+  input: { po_no: string; to?: string },
+): Promise<Result<PoDetail>> {
+  const { data, error } = await db().rpc("request_po_approval", {
+    p_po_no: input.po_no, p_to: input.to ?? null,
+  });
+  return afterPo(input.po_no, fromSeam(SERVICE, data, error));
 }
 
 export async function setExpectedDelivery(poNo: string, date: string): Promise<Result<unknown>> {
@@ -705,9 +786,9 @@ export async function setExpectedDelivery(poNo: string, date: string): Promise<R
   return fromSeam(SERVICE, data, error);
 }
 
-export async function markPoResent(poNo: string): Promise<Result<unknown>> {
+export async function markPoResent(poNo: string): Promise<Result<PoDetail>> {
   const { data, error } = await db().rpc("mark_po_resent", { p_po_no: poNo });
-  return fromSeam(SERVICE, data, error);
+  return afterPo(poNo, fromSeam(SERVICE, data, error));
 }
 
 /** The photograph is always required; the signed tanda terima is what turns the
@@ -934,53 +1015,128 @@ export async function transferRound(
   return fromSeam(SERVICE, data, error);
 }
 
+/** Rp 12,7 M — for a sentence, not a column. */
+function formatShort(n: number): string {
+  if (n >= 1_000_000_000) return `Rp ${(n / 1_000_000_000).toFixed(1)} B`;
+  if (n >= 1_000_000) return `Rp ${(n / 1_000_000).toFixed(1)} M`;
+  return `Rp ${n.toLocaleString(getActiveLocale())}`;
+}
+
+/** One sentence a person can act on, rather than four numbers to compare.
+ *
+ *  **The one derived field in this file, and the exception is the point.** Rule
+ *  1 of this module is that nothing derived is computed here: status, coverage,
+ *  the variance, what a vendor could invoice — all of it arrives computed, so
+ *  there is one definition of each rule rather than two that drift.
+ *
+ *  `headline` is not one of those. It is a sentence, formatted in the reader's
+ *  locale, and putting it in the view would bake a locale into the database —
+ *  which is not a rule about money, it is a decision about who is reading. The
+ *  numbers it is built from are all derived, all in the row, and not recomputed
+ *  here; only the wording is.
+ *
+ *  `check-view-contracts.mjs` records that choice against `v_vendor_journey` as
+ *  a `composed` field, so *the client fills this in* is a claim somebody had to
+ *  write down rather than a gap that looks like the two bugs beside it.
+ */
+function headlineFor(j: Omit<VendorJourney, "headline">): string {
+  if (j.billable_now > 0) {
+    return `${formatShort(j.billable_now)} can be invoiced now — goods have arrived that nobody has paid for`;
+  }
+  if (j.outstanding > 0) {
+    return `${formatShort(j.outstanding)} still contracted, and nothing is billable until more arrives`;
+  }
+  return "Fully settled — every order paid against what has arrived";
+}
+
 export async function listVendorJourneys(): Promise<Result<VendorJourney[]>> {
-  const { data, error } = await db().from("v_vendor_journey").select("*").gt("orders", 0).order("vendor_name");
-  return fromRows<VendorJourney[]>(SERVICE, data as VendorJourney[], error);
+  const { data, error } = await db()
+    .from("v_vendor_journey").select("*").gt("orders", 0).order("vendor_name");
+  if (error) return fail(SERVICE, error);
+  const rows = (data ?? []) as Omit<VendorJourney, "headline">[];
+  return ok(SERVICE, rows.map((j) => ({ ...j, headline: headlineFor(j) })));
 }
 
 export async function getVendorJourney(vendorId: string): Promise<Result<VendorJourney>> {
-  const { data, error } = await db().from("v_vendor_journey").select("*").eq("vendor_id", vendorId).single();
-  return fromRows<VendorJourney>(SERVICE, data as VendorJourney, error);
+  const { data, error } = await db()
+    .from("v_vendor_journey").select("*").eq("vendor_id", vendorId).maybeSingle();
+  if (error) return fail(SERVICE, error);
+  if (!data) return notFound(SERVICE, "vendor_not_found", "Vendor not found.");
+  const j = data as Omit<VendorJourney, "headline">;
+  return ok(SERVICE, { ...j, headline: headlineFor(j) });
 }
 
+/** Leadership's answer on the order itself, which may be **no**.
+ *
+ *  Declining clears the approval and records `decline` in the trail, and it
+ *  needs a note: *no* with no sentence attached is a message procurement cannot
+ *  pass on to the supplier. Before `0033` the seam could only say yes, so the
+ *  only trace of a refusal was `approved_at` staying null — indistinguishable
+ *  from nobody having looked yet.
+ */
 export async function approvePo(
-  poNo: string, note?: string | null, idempotencyKey?: string,
-): Promise<Result<unknown>> {
+  input: { po_no: string; approved: boolean; note?: string | null },
+): Promise<Result<PoDetail>> {
   const { data, error } = await db().rpc("approve_po", {
-    p_po_no: poNo, p_note: note ?? null, p_key: idempotencyKey ?? null,
+    p_po_no: input.po_no, p_approved: input.approved,
+    p_note: input.note ?? null, p_key: null,
   });
-  return fromSeam(SERVICE, data, error);
+  return afterPo(input.po_no, fromSeam(SERVICE, data, error));
 }
 
-export async function issuePo(poNo: string, idempotencyKey?: string): Promise<Result<unknown>> {
+export async function issuePo(poNo: string, idempotencyKey?: string): Promise<Result<PoDetail>> {
   const { data, error } = await db().rpc("issue_po", {
     p_po_no: poNo, p_key: idempotencyKey ?? null,
   });
-  return fromSeam(SERVICE, data, error);
+  return afterPo(poNo, fromSeam(SERVICE, data, error));
 }
 
+/** An amendment after issue is a **revision**, not an edit (D135): the old line
+ *  stays pointing forward, and the vendor is holding a piece of paper that two
+ *  of them have to be tellable apart.
+ *
+ *  `qty` and `unit_price` are optional and mean *leave this one alone*. The
+ *  drawer amends a quantity without restating a price, and making it resend the
+ *  old price is how a stale number gets written back over a fresh one.
+ *
+ *  `reason` is not. It is the whole record of why the vendor's paper changed.
+ */
 export async function amendPoLine(
-  input: { po_no: string; line_no: number; qty: number; unit_price: number; description?: string | null },
-  idempotencyKey?: string,
-): Promise<Result<unknown>> {
+  input: {
+    po_no: string; line_no: number;
+    qty?: number; unit_price?: number; description?: string;
+    reason: string;
+  },
+): Promise<Result<PoDetail>> {
   const { data, error } = await db().rpc("amend_po_line", {
     p_po_no: input.po_no, p_line_no: input.line_no,
-    p_qty: input.qty, p_unit_price: input.unit_price,
+    p_reason: input.reason,
+    p_qty: input.qty ?? null,
+    p_unit_price: input.unit_price ?? null,
     p_description: input.description ?? null,
-    p_key: idempotencyKey ?? null,
+    p_key: null,
   });
-  return fromSeam(SERVICE, data, error);
+  return afterPo(input.po_no, fromSeam(SERVICE, data, error));
 }
 
 /** Refuses while anything is outstanding, and the refusal's `detail.blockers`
  *  says which — a refusal that only says no leaves somebody clicking it again
- *  next week (D132). */
-export async function closePo(poNo: string, idempotencyKey?: string): Promise<Result<unknown>> {
+ *  next week (D132).
+ *
+ *  `settle_reason` is how an order that will never finish gets closed anyway.
+ *  Eight of ten crates arrive, the supplier stops answering, and somebody
+ *  decides the company is not chasing the rest. Without it that order sits open
+ *  on the board forever, which is how a board stops being read. The sentence is
+ *  required in that case, and the audit row keeps what was still outstanding
+ *  when it was waived.
+ */
+export async function closePo(
+  input: { po_no: string; settle_reason?: string | null },
+): Promise<Result<PoDetail>> {
   const { data, error } = await db().rpc("close_po", {
-    p_po_no: poNo, p_key: idempotencyKey ?? null,
+    p_po_no: input.po_no, p_settle_reason: input.settle_reason ?? null, p_key: null,
   });
-  return fromSeam(SERVICE, data, error);
+  return afterPo(input.po_no, fromSeam(SERVICE, data, error));
 }
 
 export async function confirmReceipt(
@@ -1048,13 +1204,47 @@ export async function getPoDetail(poNo: string): Promise<Result<PoDetail>> {
   return ok(SERVICE, data as unknown as PoDetail);
 }
 
-export async function listPo(): Promise<Result<PoDetail[]>> {
-  const { data, error } = await db().from("v_po_detail").select("*").order("created_at", { ascending: false });
-  return fromRows<PoDetail[]>(SERVICE, data as unknown as PoDetail[], error);
+/** One order, as the **board** reads it — not the drawer.
+ *
+ *  Structurally the demo's `PoView`, declared here rather than imported from
+ *  `src/demo`, for the reason `PrDocumentView` below gives: the real client
+ *  does not depend on the demo, and TypeScript being structural means the swap
+ *  in `src/demo/api/index.ts` checks the two against each other. If they drift,
+ *  that file stops compiling.
+ *
+ *  `PoView` and `PoDetail` are not a naming accident — `_pending.ts` recorded
+ *  them as *two different shapes with confusingly similar names*, which is true
+ *  and hid what they are: a board row and a drawer. The difference is a page of
+ *  data per row. See `0033`.
+ */
+export interface PoView extends PurchaseOrder {
+  status_view: PoStatusView;
+  lines: PoLine[];
+  vendor_name: string;
+  /** Days past the date the vendor promised, when not everything has arrived.
+   *  Null without a promise: nothing is late, it is merely absent (D134). */
+  days_late: number | null;
 }
 
-export async function getPo(poNo: string): Promise<Result<PoDetail>> {
-  return getPoDetail(poNo);
+/** The board.
+ *
+ *  Reads `v_po_board`, **not** `v_po_detail`. It used to read the latter, which
+ *  rendered correctly and shipped every row's receipts, payment terms,
+ *  amendments and payments across the wire to be thrown away. On forty open
+ *  orders that is the difference between a list and a wait.
+ */
+export async function listPo(): Promise<Result<PoView[]>> {
+  const { data, error } = await db()
+    .from("v_po_board").select("*").order("created_at", { ascending: false });
+  return fromRows<PoView[]>(SERVICE, data as unknown as PoView[], error);
+}
+
+export async function getPo(poNo: string): Promise<Result<PoView>> {
+  const { data, error } = await db()
+    .from("v_po_board").select("*").eq("po_no", poNo).maybeSingle();
+  if (error) return fail(SERVICE, error);
+  if (!data) return notFound(SERVICE, "po_not_found", `PO ${poNo} not found.`);
+  return ok(SERVICE, data as unknown as PoView);
 }
 
 /** A request document with its lines, as `/procurement/pr/documents` reads it.

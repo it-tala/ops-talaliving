@@ -126,7 +126,7 @@ export function ProductDrawer({
 
   async function attachDrawing(p: ProductView, f: File, kind: "Gambar Kerja" | "Gambar Jadi") {
     setBusy(true);
-    const up = await documents.upload({ filename: f.name, mime: f.type || "application/pdf", bytes: f.size });
+    const up = await documents.upload({ file: f, kind });
     if (up.error) { setBusy(false); toast("critical", "Upload gagal", up.error.message); return; }
     const res = await production.attachProductDrawing({
       product_code: p.product_code, attachment_id: up.data.id, kind,

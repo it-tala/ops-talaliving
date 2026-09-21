@@ -294,7 +294,7 @@ begin
     join ops_procure.purchase_orders p on p.id = s.po_id where p.po_no = po;
   assert n = 2, format('a 30%% deposit implies a 70%% balance, saw %s terms', n);
 
-  r := ops_procure.request_po_approval(po);
+  r := ops_procure.request_po_approval(p_po_no => po);
   assert ops_core.said_ok(r), format('got %s', r);
 
   r := ops_procure.issue_po(po);
@@ -307,7 +307,8 @@ do $$
 declare r jsonb; po text;
 begin
   select po_no into po from ops_procure.purchase_orders order by created_at desc limit 1;
-  r := ops_procure.approve_po(po, 'Setuju.');
+  -- Named, per `0033`: `p_approved` now sits between the order and the note.
+  r := ops_procure.approve_po(p_po_no => po, p_note => 'Setuju.');
   assert ops_core.said_ok(r), format('got %s', r);
 end $$;
 

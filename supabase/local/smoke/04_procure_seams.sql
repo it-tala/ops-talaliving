@@ -277,7 +277,14 @@ begin
   assert st = 'DRAFT', 'and it is still a draft';
 
   -- Procurement cannot confirm it either. Confirming is the CEO's (D19).
-  r := ops_procure.approve_po('po-26-09-12_01');
+  --
+  -- **Named arguments, from here down.** `0033` added `p_approved` and
+  -- `p_reason` to these seams, and a positional call is a call whose meaning
+  -- changes when a parameter is inserted ahead of one it already passed. Here
+  -- it failed loudly — a sentence where a boolean was expected — which was
+  -- luck: insert a `text` parameter before `p_note` and both still type-check,
+  -- and the note lands in the wrong column with nothing to notice it.
+  r := ops_procure.approve_po(p_po_no => 'po-26-09-12_01');
   assert r ->> 'outcome' = 'refused', format('procurement must not confirm its own order, got %s', r);
 end $$;
 
@@ -285,7 +292,7 @@ set local request.jwt.claim.sub = 'dddddddd-0000-0000-0000-00000000ce00';
 do $$
 declare r jsonb; st text; rev int; sent int;
 begin
-  r := ops_procure.approve_po('po-26-09-12_01','Setuju, kirim.');
+  r := ops_procure.approve_po(p_po_no => 'po-26-09-12_01', p_note => 'Setuju, kirim.');
   assert ops_core.said_ok(r), format('the CEO confirms it, got %s', r);
 
   r := ops_procure.issue_po('po-26-09-12_01');
@@ -302,7 +309,9 @@ end $$;
 do $$
 declare r jsonb; rev int; sent int; n int; live numeric;
 begin
-  r := ops_procure.amend_po_line('po-26-09-12_01', 1, 6, 2000000);
+  r := ops_procure.amend_po_line(p_po_no => 'po-26-09-12_01', p_line_no => 1,
+                                 p_reason => 'Vendor hanya sanggup enam batang.',
+                                 p_qty => 6, p_unit_price => 2000000);
   assert ops_core.said_ok(r), format('amending an issued order, got %s', r);
 
   select revision, sent_revision into rev, sent
@@ -322,9 +331,11 @@ set local request.jwt.claim.sub = 'dddddddd-0000-0000-0000-00000000f11a';
 do $$
 declare r jsonb; b jsonb;
 begin
-  r := ops_procure.close_po('po-26-09-12_01');
+  r := ops_procure.close_po(p_po_no => 'po-26-09-12_01');
   assert r ->> 'outcome' = 'refused', format('nothing has arrived or been paid, got %s', r);
-  assert r -> 'error' ->> 'code' = 'close_blocked', format('got %s', r);
+  -- `close_refused` rather than `close_blocked`: the demo's code, because a
+  -- screen must not be able to tell the two implementations apart (ADR-009).
+  assert r -> 'error' ->> 'code' = 'close_refused', format('got %s', r);
 
   b := r -> 'error' -> 'detail' -> 'blockers';
   -- A refusal that only says no leaves somebody clicking it again next week.
