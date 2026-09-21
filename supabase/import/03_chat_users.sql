@@ -49,6 +49,20 @@
 -- Gated on `ops_core.legacy_map` and on the address not already being in
 -- `auth.users`. Putri's account exists from August; she is mapped, not
 -- recreated. Run it twice and the second run creates nobody.
+--
+-- That gate is also what makes an *undone* account stay undone. Rifki and
+-- Winda were created by the first run and removed the same day on the owner's
+-- decision; their `legacy_map` rows remain, now `skipped` with the reason, so
+-- this script passes over them. Re-creating either is a deliberate act —
+-- delete their map row first — rather than something the next run does quietly.
+--
+-- ── Undoing one, if it comes to that ─────────────────────────────────────
+--
+-- `ops_core.users.id → auth.users(id)` is **ON DELETE RESTRICT**, not cascade.
+-- Deleting the account first therefore fails; the order is profile, then the
+-- legacy `core.users` row (which has no foreign key to auth at all and so is
+-- neither blocked nor cascaded — it is simply left behind if you forget it),
+-- then `auth.users`, whose `auth.identities` row does cascade.
 
 \set ON_ERROR_STOP on
 

@@ -28,7 +28,7 @@ Each file ends by printing what it did. Read that, not the exit code.
 
 | step | source → target | rows | state |
 |---|---|---:|---|
-| 1 | `chat_users` → `ops_core.users` | 9 | `03_chat_users.sql` |
+| 1 | `chat_users` → `ops_core.users` | 9 | `03_chat_users.sql` — 7 stand, 2 removed by decision |
 | 2 | `accounts` → `ops_acct.accounts` | 6 | `01_reference.sql` |
 | 3 | `projects` → `ops_procure.projects` | 5 | `01_reference.sql` |
 | 4 | `vendors` → `ops_procure.vendors` | 296 | `01_reference.sql` |

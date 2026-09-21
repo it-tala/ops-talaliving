@@ -79,6 +79,38 @@ whether the project has SMTP configured. Supabase's built-in mailer is rate
 limited to a handful of messages an hour, which is fine for eight people spread
 over a day and not fine for eight in one minute.
 
+### The two decisions the owner made after the run
+
+**No grants, for anybody.** All nine stand at 0 modules and 0 authorities, and
+that is now a choice rather than a default. Grants will be made on the IT
+screen, where they are audited, when somebody decides them.
+
+**Rifki and Winda were removed.** No role in the legacy system, `pending:`
+placeholder ids, and never a sign-in to the old chat — so the accounts created
+a few minutes earlier were deleted the same day. `ops_core.users` holds 9.
+
+This is not the A5 "nothing is deleted" rule being bent. A5 protects business
+records; these two rows were created by this session's own run, carried no
+history, and removing them reverts a provisioning step rather than destroying
+anything anybody wrote. The decision itself survives in `legacy_map`, which is
+where import decisions are supposed to live:
+
+```sql
+select source_id, outcome, note from ops_core.legacy_map
+ where source_table = 'public.chat_users' and outcome = 'skipped';
+```
+
+Their map rows are kept deliberately: the `(source_table, source_id)` gate means
+`03_chat_users.sql` now passes over them, so a later run cannot quietly bring
+back an account somebody decided against. Verified — the guard reports 0 rows to
+process.
+
+The delete was run behind three assertions, not on faith: exactly two rows
+matched, neither had ever signed in, and no audit row pointed at either. The
+order matters and is recorded in the script, because
+`ops_core.users → auth.users` is **RESTRICT**: profile first, then the legacy
+`core.users` row, then the account.
+
 ## Still open
 
 **One refusal, and it needs a person.** `public.projects` `FAIRMONT` has no
@@ -91,8 +123,8 @@ select source_id, note from ops_core.legacy_map
  where source_table = 'public.projects' and outcome = 'refused';
 ```
 
-**The grants have not been made, and they are the next decision.** Nine people
-can sign in; none of them can open anything. The legacy roles are recorded in
+**The grants have not been made** — by decision, not by omission. Seven of the
+nine can sign in; none of them can open anything. The legacy roles are recorded in
 `legacy_map.note` — Accounting, CEO, CO-CEO, IT Developer, Payment Approver,
 and two people with no role recorded at all — but a legacy role is a note, not
 a mapping: this system grants *modules* and *authorities*, and which of those
@@ -104,6 +136,8 @@ select target_id, note from ops_core.legacy_map
  where source_table = 'public.chat_users' order by note;
 ```
 
-Two of the nine, Rifki and Winda, carry `pending:` placeholder ids and no role
-— they never signed in to the old chat. Worth confirming they should have
-accounts at all before anybody is told they do.
+**SMTP is unverified from here**, and it gates telling anybody. Seven people
+have accounts and no password; the only way in is the reset email. Confirm the
+project has SMTP configured — and remember Supabase's built-in mailer is rate
+limited to a handful of messages an hour — before seven people are asked to try
+at once.
