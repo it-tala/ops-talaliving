@@ -34,6 +34,11 @@ create or replace function ops_mkt.set_agent_stage(
   p_slot         int,
   p_stage        ops_mkt.outreach_stage_t,
   p_remark       text default null,
+  -- *Chase this one on Friday instead.* Optional, and when it is given it
+  -- **wins over what the trigger computed** — a date a person typed is a
+  -- decision and the default is only a default. Inert on an exit, because
+  -- `v_property_agent.due` excludes those however the column reads.
+  p_next_action_on date default null,
   p_key          text default null)
 returns jsonb
 language plpgsql security definer set search_path = ops_mkt, ops_core, pg_temp as $$
@@ -87,6 +92,14 @@ begin
          remark = coalesce(nullif(btrim(coalesce(p_remark,'')), ''), remark)
    where id = v_agent.id
   returning * into v_agent;
+
+  -- After the trigger, not instead of it: the stamping still decides what a
+  -- first message and a reply do, and this only overrides the chase date.
+  if p_next_action_on is not null then
+    update ops_mkt.property_agents set next_action_on = p_next_action_on
+     where id = v_agent.id
+    returning * into v_agent;
+  end if;
 
   if p_stage = 'DEAL' then
     perform ops_core.emit('marketing','marketing.agent.deal', p_property_ref,
@@ -305,7 +318,7 @@ begin
 end $$;
 
 grant execute on function
-  ops_mkt.set_agent_stage(text, int, ops_mkt.outreach_stage_t, text, text),
+  ops_mkt.set_agent_stage(text, int, ops_mkt.outreach_stage_t, text, date, text),
   ops_mkt.move_to_next_agent(text, int, text, text),
   ops_mkt.onboard_rep(text, int, numeric, text, text, text)
   to authenticated;

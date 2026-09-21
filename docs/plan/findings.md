@@ -4683,3 +4683,37 @@ only when every input to it is pinned.** Freezing one factor of a product reads
 as protection and is not. Where a stored fact (a ledger payment) is the shadow
 of a derived one (a commission), every term in the derivation joins the freeze,
 and the way to find them is to write out the arithmetic and go along it.
+
+## F119 · 2026-09-21 · B4 — a sequence is the one thing the smoke cannot roll back
+
+**The contract every smoke file keeps.** `begin` at the top, `rollback` at the
+bottom, so the cluster is unchanged afterwards and the order the files run in
+cannot matter. `smoke.sh` says exactly that in its header, and it has been true
+of thirty-five files.
+
+**Where it stopped being true.** `0083` mints `TL-0004` from a sequence, and
+`nextval` is deliberately **not transactional** — a sequence that is advanced
+inside a transaction that then rolls back stays advanced, because two sessions
+must never be handed the same number and a rollback cannot know whether anybody
+else has taken one since. So the smoke passed on a freshly rebuilt database and
+failed on the second run of the suite, asserting `TL-0003` against a `TL-0006`
+that was correct.
+
+The failure is the good kind — loud, and on a re-run rather than in production
+— but it was found by accident, while running the suite twice for an unrelated
+reason. A file that only passes on a fresh database is a file that will
+eventually pass for the wrong reason.
+
+**The fix, and why it is not a smaller assertion.** The smoke places the
+sequence itself: `setval('ops_mkt.property_ref_seq', 1, false)` before it takes
+the role that may not, with a sentence saying why. Weakening the assertion to
+*some `TL-nnnn` that is not one the tracker used* was the alternative and is
+worse — it stops testing the one behaviour worth testing, which is that the
+mint **steps over** `TL-0001` and `TL-0002` and lands exactly on `TL-0003`.
+
+**The general shape.** Sequences, `setval`, advisory locks and anything written
+through `dblink` are outside the transaction that appears to contain them. Where
+a test asserts a value one of those produces, the test has to **set the starting
+point**, not assume it. The whole suite now passes twice in a row without a
+rebuild, which is the property that was silently lost and is worth checking for
+directly rather than noticing again by accident.

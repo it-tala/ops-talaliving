@@ -192,6 +192,9 @@ create trigger rate_is_frozen_once_paid
 -- missing number must come back null rather than nought.
 create or replace view ops_mkt.v_referral as
 select
+  -- The row's own id. Not a reference anything crosses a seam with (ADR-004),
+  -- and not for a person to read — it is what a screen keys a list on.
+  r.id,
   r.referral_no,
   r.rep_id,
   s.rep_no,
@@ -226,6 +229,7 @@ left join ops_procure.projects p on p.code = r.project_code;
 
 create or replace view ops_mkt.v_rep as
 select
+  s.id,
   s.rep_no,
   s.name,
   s.agency,
@@ -245,6 +249,10 @@ select
   -- The number that matters (D186).
   coalesce(sum(v.commission_unpaid), 0)::bigint              as commission_unpaid,
   count(*) filter (where v.contract_value_missing)::int      as needs_attention,
+  -- *Which properties was this rep recruited through* is not answered here on
+  -- purpose: `property_agents` arrives with 0081 and a view cannot reach
+  -- forward down the ladder. It is one join from `v_property_agent` and the
+  -- client does it — collecting refs is assembly, not a derivation.
   s.note
 from ops_mkt.sales_reps s
 left join ops_mkt.v_referral v on v.rep_id = s.id

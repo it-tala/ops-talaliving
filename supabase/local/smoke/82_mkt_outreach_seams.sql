@@ -103,6 +103,16 @@ begin
   assert (a -> 'data' ->> 'replied_on')::date = ops_core.office_day(),
     'the reply is stamped, got ' || coalesce(a -> 'data' ->> 'replied_on','(null)');
   assert a -> 'data' ->> 'next_action_on' is null, 'and the chase ends';
+
+  -- *Chase this one on Friday instead.* **A date a person typed beats the one
+  -- the trigger computed** — the default is only a default, and a seam that
+  -- silently discarded the typed date would be the worst of both.
+  a := ops_mkt.set_agent_stage('TL-0101', 3,'MSG SENT', null, ops_core.office_day() + 2);
+  assert (a -> 'data' ->> 'sent_on')::date = ops_core.office_day(),
+    'the clock still started, got ' || coalesce(a -> 'data' ->> 'sent_on','(null)');
+  assert (a -> 'data' ->> 'next_action_on')::date = ops_core.office_day() + 2,
+    'but the chase is when the person said, not seven days out, got '
+    || coalesce(a -> 'data' ->> 'next_action_on','(null)');
 end $$;
 
 /* ── REFUSAL: a slot nobody is in; a deal with nobody behind it ────────── */
@@ -188,7 +198,7 @@ begin
     'whitespace is not a reason, got ' || coalesce(a -> 'error' ->> 'code','(null)');
   assert (select stage from ops_mkt.property_agents a2
            join ops_mkt.properties p on p.id = a2.property_id
-          where p.ref = 'TL-0101' and a2.slot = 3) = 'QUEUED',
+          where p.ref = 'TL-0101' and a2.slot = 3) = 'MSG SENT',
     'and neither agent moved';
 end $$;
 

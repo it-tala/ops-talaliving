@@ -34,6 +34,28 @@ export * as accounting from "./accounting";
    waiting for, while the screens that only read evidence open. */
 export * as documents from "./documents";
 
+/* ## `marketing` is written and is deliberately not exported here yet
+ *
+ *  `src/lib/api/marketing.ts` exists, type-checks, and matches the demo on all
+ *  fifteen functions with nothing on the pending list — `check-api-parity.mjs`
+ *  covers it. What is missing is not code.
+ *
+ *  Exporting a service from this file is what makes its routes live:
+ *  `check-live-routes.mjs` reads this module to decide. The marketing screens
+ *  read `ops_mkt`, and **`ops_mkt` has no tables in the live project**: the
+ *  ladder there stops in the 0030s, and 0080–0085 have only ever been applied
+ *  to the throwaway cluster. Turning the screens on today would give every one
+ *  of them *Could not find the table `ops_mkt.v_market`* — which is the exact
+ *  failure this file and `live.ts` exist to make impossible.
+ *
+ *  So the line that would add it is not here. Adding it is the whole of the
+ *  remaining work, and it becomes correct the moment the marketing block of
+ *  the ladder is applied to the project — after which
+ *  `node scripts/check-live-routes.mjs --write` regenerates `LIVE_ROUTES` and
+ *  the eight marketing screens open. Applying migrations to a project another
+ *  session is mid-cutover on is not a decision this file gets to make.
+ */
+
 export { isOk } from "@/services/_shared/envelope";
 export type { Result, ApiError, Outcome } from "@/services/_shared/envelope";
 

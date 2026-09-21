@@ -283,6 +283,7 @@ create unique index scrape_once_per_market on ops_mkt.scrape_rows (market_code, 
 -- ── views ─────────────────────────────────────────────────────────────────
 create or replace view ops_mkt.v_market as
 select
+  m.id,
   m.code,
   m.country_code,
   m.country_name,
@@ -326,6 +327,7 @@ select
   a.next_action_on,
   a.remark,
   a.rep_id,
+  a.updated_at,
   -- Silence, in days. Null once they answer: waiting stops being a number the
   -- moment it stops being true.
   case when a.sent_on is not null and a.replied_on is null
@@ -342,6 +344,7 @@ join ops_mkt.properties p on p.id = a.property_id;
 
 create or replace view ops_mkt.v_property as
 select
+  p.id,
   p.ref,
   p.market_code,
   mk.label                                  as market_label,
@@ -360,10 +363,13 @@ select
   p.chain,
   p.reno_signal,
   p.reno_source,
+  p.review_note,
   p.rating,
   p.score,
   p.validated,
   p.notes,
+  p.import_id,
+  p.created_at,
   coalesce(ag.agents, 0)                    as agents,
   -- **The furthest any agent reached**, and the property is at that stage and
   -- no other. `QUEUED` where nobody has been approached yet, which is a real

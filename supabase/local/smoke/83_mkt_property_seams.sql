@@ -27,6 +27,14 @@ insert into ops_core.user_modules (user_id, module, level) values
   ('ffffffff-0000-0000-0000-000000008302','marketing','read'),
   ('ffffffff-0000-0000-0000-000000008303','it','read');
 
+-- **A sequence is not rolled back.** Everything else in this file disappears
+-- at the `rollback` below, and `property_ref_seq` does not: `nextval` is
+-- deliberately non-transactional, so the second run of this file would mint
+-- `TL-0006` where the first minted `TL-0003` and the assertions below would
+-- fail for a reason that has nothing to do with the code. So the file places
+-- the sequence itself, before taking the role that may not (F119).
+select setval('ops_mkt.property_ref_seq', 1, false);
+
 set local role authenticated;
 set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-000000008301';
 

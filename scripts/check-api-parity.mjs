@@ -60,7 +60,7 @@ const ROOT = resolve(dirname(new URL(import.meta.url).pathname), "..");
 /* The services that have a real client at all. A service with no
    `src/lib/api/<name>.ts` has nothing to compare and is not drift — it is B2/B3
    not having reached it, which `check-live-routes.mjs` already reports. */
-const SERVICES = ["identity", "procurement", "accounting", "documents"];
+const SERVICES = ["identity", "procurement", "accounting", "documents", "marketing"];
 
 /** Every `export function` / `export async function` name in a module. */
 function exportedFunctions(path) {
