@@ -898,11 +898,55 @@ export async function listVendors(
   return fromRows<Vendor[]>(SERVICE, data as Vendor[], error);
 }
 
+/* ── Why these lists name their columns ──────────────────────────────────
+ *
+ *  `v_vendor_view` and `v_item_view` each carry a handful of columns computed
+ *  by a **correlated subquery, once per row**: a vendor's `items_bought` and
+ *  `absorbed`, an item's `sourced_from`. `select("*")` asks Postgres for all
+ *  of them, so the cost of the list is the number of rows times the cost of
+ *  scanning the purchase history.
+ *
+ *  That was free while the tables were empty and stopped being free the day
+ *  the legacy import landed 296 vendors and 1.020 items: `/procurement/supplier`
+ *  began answering **500, statement timeout**, measured in production. Naming
+ *  the columns the list actually draws takes the same 296 rows from a timeout
+ *  to **14 ms**, because a subquery in the target list is not evaluated when
+ *  nothing selects it.
+ *
+ *  The heavy columns are all **drawer-only** — no list row draws them — so the
+ *  detail fetch below is where they belong, and it runs the subquery once
+ *  rather than three hundred times.
+ *
+ *  This is not pagination, and pagination would not have fixed it: the per-row
+ *  cost would still be there, one page later.
+ */
+const VENDOR_LIST_COLUMNS =
+  "id, code, name, aka, merged_into, is_curated, phone, address, pic_name, "
+  + "pic_phone, bank_account, bank_account_secondary, npwp, supplied_categories, "
+  + "created_by, created_at, updated_at, supplied_category_names, "
+  + "transaction_count, total_spend, last_purchase, open_pr_lines, bought_categories";
+
 export async function listVendorViews(opts: { q?: string } = {}): Promise<Result<VendorView[]>> {
-  let q = db().from("v_vendor_view").select("*").is("merged_into", null);
+  let q = db().from("v_vendor_view").select(VENDOR_LIST_COLUMNS).is("merged_into", null);
   if (opts.q) q = q.ilike("name", `%${opts.q}%`);
   const { data, error } = await q.order("name");
-  return fromRows<VendorView[]>(SERVICE, data as VendorView[], error);
+  if (error) return fail(SERVICE, error);
+  /* Empty rather than absent, so the field exists and the screen can render
+     before the detail arrives. The drawer replaces the row with `getVendor`'s
+     answer; a list row never reads either of these. */
+  return ok(SERVICE, ((data ?? []) as unknown as Omit<VendorView, "absorbed" | "items_bought">[])
+    .map((v) => ({ ...v, absorbed: [], items_bought: [] })));
+}
+
+/** One vendor, with the history the list leaves out.
+ *
+ *  What the drawer opens onto. Running the per-row subqueries for a single id
+ *  is the cheap direction of the same query that times out across 296. */
+export async function getVendor(id: string): Promise<Result<VendorView>> {
+  const { data, error } = await db().from("v_vendor_view").select("*").eq("id", id).maybeSingle();
+  if (error) return fail(SERVICE, error);
+  if (!data) return notFound(SERVICE, "vendor_not_found", "Vendor not found.");
+  return ok(SERVICE, data as unknown as VendorView);
 }
 
 export async function listItems(
@@ -915,11 +959,28 @@ export async function listItems(
   return fromRows<Item[]>(SERVICE, data as Item[], error);
 }
 
+/** Everything but `sourced_from` — see the note above `VENDOR_LIST_COLUMNS`.
+ *  1.020 items times one scan of the purchase history each is the same bomb. */
+const ITEM_LIST_COLUMNS =
+  "id, code, name, aka, merged_into, category_code, base_uom, kind, is_curated, "
+  + "standard_price, last_price, last_vendor_id, last_purchased_at, created_by, "
+  + "created_at, category_name, last_vendor_name, suggested_price, purchase_count";
+
 export async function listItemViews(opts: { q?: string } = {}): Promise<Result<ItemView[]>> {
-  let q = db().from("v_item_view").select("*").is("merged_into", null);
+  let q = db().from("v_item_view").select(ITEM_LIST_COLUMNS).is("merged_into", null);
   if (opts.q) q = q.ilike("name", `%${opts.q}%`);
   const { data, error } = await q.order("name");
-  return fromRows<ItemView[]>(SERVICE, data as ItemView[], error);
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, ((data ?? []) as unknown as Omit<ItemView, "sourced_from">[])
+    .map((i) => ({ ...i, sourced_from: [] })));
+}
+
+/** One item, with the vendors it has been bought from. The drawer's half. */
+export async function getItem(id: string): Promise<Result<ItemView>> {
+  const { data, error } = await db().from("v_item_view").select("*").eq("id", id).maybeSingle();
+  if (error) return fail(SERVICE, error);
+  if (!data) return notFound(SERVICE, "item_not_found", "Item not found.");
+  return ok(SERVICE, data as unknown as ItemView);
 }
 
 export async function listUom(): Promise<Result<Uom[]>> {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Truck, Plus, Check, Merge, Search, UserRound, Phone, MapPin, Landmark, Boxes, Pencil, Save } from "lucide-react";
 import {
   Badge, Button, Card, CardHeader, PageHeader, StatCard,
@@ -76,6 +76,27 @@ export default function SuppliersPage() {
 
   const [state, reload] = useLoad(() => procurement.listVendorViews({ q }), [q]);
   const [cats] = useLoad(() => procurement.listCategories(), []);
+
+  /* The list leaves out `items_bought` and `absorbed`: each costs a subquery
+     per row over the purchase history, and no row in the table draws them.
+     With 296 vendors that was a statement timeout, so the drawer opens
+     immediately on what the list already has and the history arrives a moment
+     later — which is also the only place either field is read.
+
+     Keyed by id in a ref rather than by "is it empty": a vendor we have never
+     bought from has an empty history legitimately, and testing the field would
+     refetch it on every render. */
+  const detailFor = useRef<string | null>(null);
+  useEffect(() => {
+    const id = selected?.id;
+    if (!id || detailFor.current === id) return;
+    detailFor.current = id;
+    let live = true;
+    void procurement.getVendor(id).then((res) => {
+      if (live && res.data) setSelected((cur) => (cur?.id === id ? res.data : cur));
+    });
+    return () => { live = false; };
+  }, [selected?.id]);
   const mayEdit = can("procurement.update");
 
   const refresh = () => { reload(); setSelected(null); setEditing(false); };

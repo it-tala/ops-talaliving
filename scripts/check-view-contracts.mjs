@@ -79,6 +79,12 @@ const VIEW_CONTRACTS = {
   v_pr_document:     "PrDocumentRow",
   v_approval_batch:  "ApprovalBatchView",
   v_round_eligible:  null,   // one column, counted
+  /* Read by `accounting.coverageLines()` for five columns and shaped into
+     `CoverageLine` by hand. Not a cast: `CoverageLine` also carries
+     `description` and `payments`, which come from `v_pr_line` and
+     `v_allocation` — naming it here would assert a shape this view does not
+     have, which is the exact mistake this file exists to catch. */
+  v_line_coverage:   null,
 
   /* ── core ────────────────────────────────────────────────────────────── */
   v_user_access:     "AccessRow",

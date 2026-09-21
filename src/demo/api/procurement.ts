@@ -1808,6 +1808,21 @@ export async function listItemViews(
   return ok(SERVICE, rows.map((i) => itemView(state, i)));
 }
 
+/** One item, with the vendors it has been bought from.
+ *
+ *  The drawer's half of the catalogue. It exists because the live client's
+ *  list cannot afford `sourced_from` — a subquery per row over the purchase
+ *  history, which at 1.020 items is what took `/procurement/supplier`'s
+ *  sibling to a statement timeout. Here it is the same cheap lookup either
+ *  way; the pair exists so both clients answer the same shape. */
+export async function getItem(id: string): Promise<Result<ItemView>> {
+  await latency();
+  const state = getState();
+  const i = state.items.find((x) => x.id === id);
+  if (!i) return notFound(SERVICE, "item_not_found", "Item not found.");
+  return ok(SERVICE, itemView(state, i));
+}
+
 export async function createItem(
   input: { name: string; base_uom: UomCode; category_code?: string; kind?: "goods" | "service" },
   idempotencyKey?: string,
