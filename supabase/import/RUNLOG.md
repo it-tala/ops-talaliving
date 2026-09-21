@@ -136,8 +136,37 @@ select target_id, note from ops_core.legacy_map
  where source_table = 'public.chat_users' order by note;
 ```
 
-**SMTP is unverified from here**, and it gates telling anybody. Seven people
-have accounts and no password; the only way in is the reset email. Confirm the
-project has SMTP configured — and remember Supabase's built-in mailer is rate
-limited to a handful of messages an hour — before seven people are asked to try
-at once.
+**SMTP is unresolved, and it gates telling anybody.** Seven people have
+accounts and no password, so the reset email is the only way in.
+
+What is known, 2026-09-21. `auth.users.recovery_sent_at` for
+`superadmin@talaliving.com` reads `2026-09-18 09:17:24`. GoTrue writes that
+column only after the mailer accepts the message — a send failure returns an
+error and leaves it null — so **mail left the building at least once**. Nothing
+else: no recovery has been requested since, `auth.audit_log_entries` is empty,
+and the log retention here is about an hour, far short of 18 September.
+
+Why one success does not settle it: Supabase's **built-in mailer only delivers
+to addresses on the project's team**, and is rate limited to a handful of
+messages an hour. `superadmin@` plausibly is such an address. `anggun@`,
+`evin@`, `alika@`, `geryle@` and `ryan@` are not, and would be dropped without
+the reset call ever failing — the endpoint returns 200 and nobody receives
+anything, which is the worst shape a failure can take.
+
+So the question is not *does SMTP work* but *is custom SMTP configured*:
+**Dashboard → Project Settings → Authentication → SMTP Settings**. If
+"Enable Custom SMTP" is off, the other six will not receive their reset email.
+
+A live test could not be run from the session that wrote this — outbound HTTPS
+to `*.supabase.co` is refused by the agent proxy. From any machine that can
+reach it:
+
+```bash
+curl -i -X POST "https://hhphmfqbtwcxpvubmwbq.supabase.co/auth/v1/recover" \
+  -H "apikey: <the publishable key>" -H "Content-Type: application/json" \
+  -d '{"email":"it@talaliving.com"}'
+```
+
+`200` plus an email that arrives is the only answer that counts. `200` with no
+email is the built-in mailer silently dropping a non-team address; `500` is
+SMTP genuinely misconfigured.
