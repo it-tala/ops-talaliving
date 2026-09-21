@@ -484,9 +484,7 @@ function SendProof({ asEmail }: { asEmail: string }) {
     if (!file) { toast("warning", "No file", "A transfer proof is a document, not a number."); return; }
     setBusy(true);
     const res = await documents.uploadToInbox({
-      filename: file.name,
-      mime: file.type || "image/jpeg",
-      bytes: file.size,
+      file,
       origin: "chat",
       money_direction: "IN",
       amount_idr: amount || null,

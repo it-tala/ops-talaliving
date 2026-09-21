@@ -8,7 +8,75 @@ that arrangement, written down and given the boundaries it was missing.
 
 ---
 
-## Two shared drives, split by who may see it — not by division
+## Superseded: an `ops` folder in each module's shared drive
+
+> **Owner, 2026-09-21:** *pakai folder ops di tiap module shared drive*
+>
+> and, earlier the same week: *saya ingin membuat manusia dan sistem bisa
+> membuka file berdampingan. jadi kalau ini module HRD maka harus di simpan di
+> HRD shared drive. mungkin daripada langsung ke shared drive nya buat saja
+> folder seperti "ops" di tiap module.*
+
+**This is the arrangement. The two-drive proposal below is kept for its
+reasoning and is not what was built** — `0035_core_drive_folders.sql` is.
+
+Seven shared drives already exist and people already work in them: HRD,
+PROCUREMENT, PRODUCTION, DRAFTING, ACCOUNTING, PROJECT MANAGER, BACKUP. A
+system that files somewhere else creates a second place to look, and the
+owner's reason is the one that decides it: a person and the system should open
+the same file side by side. The `ops` subfolder keeps them apart *inside* one
+drive — everything the application writes lands there, nothing filed by hand
+does.
+
+### What the two-drive split was protecting, and where that went
+
+Its one real virtue was making *personal data against business evidence* a rule
+in code rather than a habit. Seven drives is seven membership lists, and more
+people can see more folders. So the rule moved rather than being dropped:
+**the drive is chosen from the kind of document, by the database, at the moment
+of upload** (`ops_core.doc_kind_drive`). A KTP resolves to HRD and no argument
+to any function can send it elsewhere. That is the sensitivity-at-upload
+decision, and it is why `documents.upload` now carries the `kind` — it used to
+take a filename and a size, which is not enough to know where a file belongs.
+
+`16_core_drive_folders.sql` asserts every one of the eleven personal kinds
+resolves to HRD, and that no kind falls through to nowhere.
+
+### What is still open
+
+**An unclassified file from chat lands in PROCUREMENT.** `uploadToInbox` is the
+exception road — a document arrives before the record it belongs to exists, so
+there is no kind yet and it is filed as `other`, which maps to procurement. The
+inbox is for money evidence and that is what it receives, but somebody
+photographing a KTP into that chat would put it in the wrong drive. Changing
+one row in `doc_kind_drive` moves it; naming the risk here rather than assuming
+it away.
+
+### What IT must set, once
+
+`drive_id` and `folder_id` start **null** for all seven — they are facts about
+a Google Workspace, and a migration that invented them would ship a wrong
+answer. Until they are filled in, every upload refuses by name: *the ACCOUNTING
+shared drive has no `ops` folder recorded yet.* `ops_core.v_drive_readiness`
+says which are still missing.
+
+The Worker also needs the service account, as **runtime secrets** — not build
+variables, because these must never reach a browser:
+
+| secret | value |
+|---|---|
+| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | `capture-worker@john-lau-v01.iam.gserviceaccount.com` |
+| `GOOGLE_PRIVATE_KEY` | the PEM from that account's key file |
+
+The scope requested is `drive.file` — the service account may touch files **it
+created** and nothing else, so a mistake cannot reach the 1.412 documents
+already in those drives.
+
+---
+
+## The earlier proposal, kept for its reasoning
+
+**Not built.** Superseded by the section above.
 
 The owner asked whether to make one shared drive for ops or one per division.
 Neither. **Two, split by sensitivity.**

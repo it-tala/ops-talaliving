@@ -29,18 +29,38 @@ function view(att: Attachment): AttachmentView {
   return { ...att, links, covers_count: links.length };
 }
 
+/** File a document.
+ *
+ *  **`kind` decides which shared drive it lands in**, and that is why it is
+ *  required rather than declared afterwards on the link. The owner's
+ *  arrangement (2026-09-21) is an `ops` folder inside each of the seven module
+ *  shared drives, so that people and the system open the same files side by
+ *  side — and the personal-data boundary that used to come from having a
+ *  separate drive now comes from `ops_core.doc_kind_drive`, which is consulted
+ *  at the moment of upload. A KTP resolves to HRD and no argument to this
+ *  function can send it anywhere else.
+ *
+ *  This took `{filename, mime, bytes}` and no file at all, which was honest for
+ *  a sandbox with nowhere to put one and left the real client unable to do its
+ *  job: the bytes never left the browser. It takes the `File` now, and the demo
+ *  reads the three fields off it rather than being told them.
+ */
 export async function upload(
-  input: { filename: string; mime: string; bytes: number; sha256?: string },
+  input: { file: File; kind: DocKind; sha256?: string },
   idempotencyKey?: string,
 ): Promise<Result<AttachmentView>> {
   await latency();
   const cached = replayed<AttachmentView>(SERVICE, "upload", idempotencyKey);
   if (cached) return cached;
 
-  if (input.bytes > maxBytes()) {
+  const filename = input.file.name;
+  const mime = input.file.type || "application/octet-stream";
+  const bytes = input.file.size;
+
+  if (bytes > maxBytes()) {
     return invalid(
       SERVICE, "file_too_large",
-      `File is ${(input.bytes / 1024 / 1024).toFixed(1)} MB, over the ${(maxBytes() / 1024 / 1024).toFixed(0)} MB limit.`,
+      `File is ${(bytes / 1024 / 1024).toFixed(1)} MB, over the ${(maxBytes() / 1024 / 1024).toFixed(0)} MB limit.`,
       { field: "bytes", limit: maxBytes() },
     );
   }
@@ -53,9 +73,11 @@ export async function upload(
   const user = actingUser();
   const att: Attachment = {
     id: newId("att"),
-    storage_path: `demo/${new Date().toISOString().slice(0, 7)}/${input.filename}`,
+    /* Where it *would* go, named after the drive the kind resolves to, so the
+       demo shows the arrangement rather than hiding it behind a fake path. */
+    storage_path: `demo/${new Date().toISOString().slice(0, 7)}/${filename}`,
     url: null,
-    filename: input.filename, sha256: sha, mime: input.mime, bytes: input.bytes,
+    filename, sha256: sha, mime, bytes,
     uploaded_by: user.id, uploaded_at: new Date().toISOString(),
     source: "web", duplicate_suspect: duplicate,
   };
@@ -78,9 +100,7 @@ export async function upload(
  */
 export async function uploadToInbox(
   input: {
-    filename: string;
-    mime: string;
-    bytes: number;
+    file: File;
     origin: "chat" | "web";
     money_direction?: "IN" | "OUT" | null;
     amount_idr?: number | null;
@@ -88,8 +108,18 @@ export async function uploadToInbox(
   },
   idempotencyKey?: string,
 ): Promise<Result<AttachmentView>> {
+  /* **`Others`, because nothing has said what this is yet.** That is the
+     exception road's whole definition — a file arrives before the record it
+     belongs to exists, and a person classifies it afterwards (D81).
+     `upload` needs a kind because the kind picks the shared drive, and the
+     only honest answer here is the unclassified one.
+     
+     Worth knowing: `other` maps to the PROCUREMENT drive (0035), so a
+     personal document photographed into chat would land there rather than in
+     HRD. The inbox is for money evidence and that is what it receives, but the
+     mapping is a row somebody can change if that stops being true. */
   const uploaded = await upload(
-    { filename: input.filename, mime: input.mime, bytes: input.bytes },
+    { file: input.file, kind: "Others" },
     idempotencyKey,
   );
   if (uploaded.error) return uploaded;
@@ -119,12 +149,12 @@ export async function uploadToInbox(
       money_direction: input.money_direction ?? null,
     });
     writeAudit(draft, {
-      service: SERVICE, entity: "attachment", entity_no: input.filename,
+      service: SERVICE, entity: "attachment", entity_no: input.file.name,
       action: "upload_to_inbox", outcome: "ok", reason: input.origin,
     });
     writeOutbox(draft, {
       service: SERVICE, event_type: "documents.inbox.received",
-      payload: { filename: input.filename, origin: input.origin, direction: input.money_direction ?? null },
+      payload: { filename: input.file.name, origin: input.origin, direction: input.money_direction ?? null },
     });
   });
 

@@ -125,7 +125,7 @@ export function DayDrawer({
    *  document here. */
   async function attachSurat(f: File, markId: string) {
     setBusy(true);
-    const up = await documents.upload({ filename: f.name, mime: f.type || "image/jpeg", bytes: f.size });
+    const up = await documents.upload({ file: f, kind: "Surat Dokter" });
     if (up.error) { setBusy(false); toast("critical", "Upload gagal", up.error.message); return; }
     const res = await hr.attachSuratDokter({ mark_id: markId, attachment_id: up.data.id });
     setBusy(false);

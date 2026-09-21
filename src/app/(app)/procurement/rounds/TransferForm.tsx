@@ -71,9 +71,7 @@ export function TransferForm({
     if (!file) { toast("warning", "Proof first", "A round is funded when there is proof it was funded."); return; }
     setBusy(true);
 
-    const up = await documents.upload({
-      filename: file.name, mime: file.type || "application/octet-stream", bytes: file.size,
-    });
+    const up = await documents.upload({ file, kind: "Payment Proof" });
     if (up.error) { setBusy(false); toast("critical", "Upload failed", up.error.message); return; }
 
     const label = `Round ${round.round_no} funding`;
