@@ -107,34 +107,41 @@ created today. `ops_acct.evidence_inbox` — the new system's same idea — hold
 schema names the other, and `supabase/import/` covers accounts, projects,
 vendors and items only.
 
-So the review queue does not reach `ops.talaliving.com`, and there are two
-independent reasons, both of which have to be fixed:
+### Where it stands after 2026-09-21
 
-**No bridge.** The inbox has an exit and no entrance. `ops_acct.resolve_inbox()`
-exists; there is no seam that *files* evidence, so a worker would be inserting
-directly. Three things block a straight `insert … select`:
+**The database half is done and proven.** `0033` gives the inbox a door in —
+`ops_acct.file_evidence()` — and `03_bridge_review_queue.sql` carried the open
+work across: **38 rows filed, 38 attachments, 38 outbox events**, with the
+Gemini keys translated to the contract's (`IDR AMOUNT` → `amount_idr`) rather
+than copied, which would have produced rows that look full in the database and
+render blank on the screen.
 
-- `evidence_inbox.attachment_id` is `not null` into `ops_core.attachments`,
-  which is empty. The Drive links do fit — `attachments.url` with
-  `source = 'chat'` satisfies the `file_or_link` constraint — so this is work,
-  not a redesign.
-- `attachments.uploaded_by` is `not null` into `ops_core.users`. **Resolved
-  2026-09-21**: `import/03_chat_users.sql` created the eight missing accounts,
-  so all nine `chat_users` now have one and `ops_core.users` holds 11 rows.
-  What remains is matching the queue's free-text name (`Putri Tala`) to a
-  user id — a join the bridge has to make, not a blocker.
-- `service_role` has no grant on `evidence_inbox` (only `authenticated` and
-  `postgres` do), so a worker authenticating that way is refused before RLS is
-  even consulted.
+The seam was proved against real rows rather than a fixture: a second call on
+the same `ref_id` answers `already_filed` and writes nothing, an unknown
+sender's name is refused rather than defaulted, and all three uploaders in the
+queue resolved to exactly one active person.
 
-The statuses line up, which is the easy half: `PENDING`, `CONFIRMED`,
-`ATTACHED` and `REJECTED` exist on both sides, and `inbox_origin_t` has `chat`.
+Two things it also settled:
 
-**The screen is not live.** `/accounting/verifikasi` is not in `LIVE_ROUTES`
-(`src/lib/live.ts`) — 9 routes are, and it is not one. Bridging the data today
-would fill a table no deployed screen opens.
+- **`service_role` had no `usage` on any `ops_*` schema.** The worker could not
+  have reached the new system under any credentials. `0033` grants usage on
+  `ops_acct` and `ops_core` plus execute on that one function — and nothing
+  else, no table grants — so the worker's entire reach is one verb with
+  validated arguments.
+- **The queue grew from 29 PENDING to 38 while this was being written.** That
+  is the argument against ever calling the bridge finished: the worker is
+  producing now, so a copy is stale within the hour.
 
-A one-off import would also be the wrong shape here: the worker is still
-producing, so anything copied on Monday is stale on Tuesday. The honest options
-are to repoint the worker at `ops_acct` (step 3 above) or to run a continuous
-sync until it is repointed — and only the first of those ever ends.
+**What is left.**
+
+1. *The screen.* `/accounting/verifikasi` is still not in `LIVE_ROUTES`. Five
+   functions stand between it and live: `accounting.listInbox`, `listInboxAll`
+   and `resolveInbox` are on `src/lib/api/_pending.ts` (they answer `unknown[]`
+   where the contract promises `EvidenceInboxRow[]`), and
+   `coverageForDocument` and `coverageForTransaction` are not written at all.
+   Until then the inbox holds 38 real documents that no deployed screen opens.
+2. *The worker.* Repointing it at `file_evidence()` is a change in GCP, not in
+   this repository. It can be switched over without draining anything, because
+   the function is idempotent on `ref_id` — a row the bridge already carried is
+   answered `already_filed`.
+
