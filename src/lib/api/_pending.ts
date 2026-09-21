@@ -42,7 +42,7 @@
  *  `produced_trx_id`, so a cast would have rendered a blank where a ledger
  *  reference belongs. `resolveInbox` took a `status` and answered a receipt,
  *  where the screen names a *road* and redraws the row — so it maps the five
- *  roads onto the four statuses and re-reads. That one needed `0034` first:
+ *  roads onto the four statuses and re-reads. That one needed `0039` first:
  *  the screen has always passed `pr_line_no` and the seam had nowhere to put
  *  it, so `produced_pr_line_no` had never once been written.
  *

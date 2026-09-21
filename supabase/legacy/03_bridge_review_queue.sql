@@ -18,7 +18,7 @@
 --      about a document pipeline
 --
 -- The actual fix is step 3 of `README.md`: repoint the worker at
--- `ops_acct.file_evidence()`. It has the grant it needs as of `0033`, and the
+-- `ops_acct.file_evidence()`. It has the grant it needs as of `0038`, and the
 -- function is idempotent on `ref_id`, so the worker can be switched over
 -- without draining anything first — a row already bridged is answered
 -- `already_filed` rather than duplicated.

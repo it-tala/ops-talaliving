@@ -469,7 +469,7 @@ type InboxResolution = "transaction" | "retro_pr_line" | "link" | "note" | "reje
  *  Two roads land on `CONFIRMED` because *it became a ledger row* and *it
  *  became a request line that was then paid* are the same outcome as far as
  *  the document is concerned — the difference is recorded in
- *  `produced_pr_line_no`, which is the point of `0034`.
+ *  `produced_pr_line_no`, which is the point of `0039`.
  */
 const RESOLUTION_STATUS: Record<InboxResolution, InboxStatus> = {
   transaction: "CONFIRMED",
@@ -487,7 +487,7 @@ export async function resolveInbox(
     trx_no?: string;
     pr_line_no?: string;
     /** Mandatory for `reject` and `note`: a row nobody explained is a row
-     *  nobody can review. Both are enforced by the seam (`0034`). */
+     *  nobody can review. Both are enforced by the seam (`0039`). */
     reason?: string;
   },
   idempotencyKey?: string,

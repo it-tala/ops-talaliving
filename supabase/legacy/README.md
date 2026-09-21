@@ -109,7 +109,7 @@ vendors and items only.
 
 ### Where it stands after 2026-09-21
 
-**The database half is done and proven.** `0033` gives the inbox a door in —
+**The database half is done and proven.** `0038` gives the inbox a door in —
 `ops_acct.file_evidence()` — and `03_bridge_review_queue.sql` carried the open
 work across: **38 rows filed, 38 attachments, 38 outbox events**, with the
 Gemini keys translated to the contract's (`IDR AMOUNT` → `amount_idr`) rather
@@ -124,7 +124,7 @@ queue resolved to exactly one active person.
 Two things it also settled:
 
 - **`service_role` had no `usage` on any `ops_*` schema.** The worker could not
-  have reached the new system under any credentials. `0033` grants usage on
+  have reached the new system under any credentials. `0038` grants usage on
   `ops_acct` and `ops_core` plus execute on that one function — and nothing
   else, no table grants — so the worker's entire reach is one verb with
   validated arguments.

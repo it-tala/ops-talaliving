@@ -1,4 +1,4 @@
--- 0034_acct_resolve_inbox_line.sql — the road that writes a request line can
+-- 0039_acct_resolve_inbox_line.sql — the road that writes a request line can
 -- finally say which one.
 --
 -- ── What was missing ─────────────────────────────────────────────────────

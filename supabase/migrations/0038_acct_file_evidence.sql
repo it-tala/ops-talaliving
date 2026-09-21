@@ -1,4 +1,4 @@
--- 0033_acct_file_evidence.sql — the inbox gains a door in.
+-- 0038_acct_file_evidence.sql — the inbox gains a door in.
 --
 -- ── The gap this closes ──────────────────────────────────────────────────
 --
@@ -208,4 +208,4 @@ comment on function ops_acct.file_evidence(text, text, text, ops_acct.inbox_orig
                                            ops_acct.direction_t, text) is
   'The way a document gets into the inbox: writes the attachment and the inbox row together, '
   'idempotent on ref_id so a capture worker may retry, and refusing rather than guessing when '
-  'the sender''s name matches nobody. The only thing service_role may call in ops_*. (0033)';
+  'the sender''s name matches nobody. The only thing service_role may call in ops_*. (0038)';
