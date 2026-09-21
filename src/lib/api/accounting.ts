@@ -14,6 +14,9 @@ import type {
   TransactionType, Direction, AllocMethod, InboxStatus, InboxHealth,
   TrxStatus, BankStatementView, StatementLineView, StatementMatch,
   TransactionTypeCode, PaymentAllocation,
+  InboxOrigin, EvidenceInboxRow,
+  DocumentCoverage, TransactionCoverage, CoverageTransaction,
+  CoverageLine, CoveragePayment,
 } from "@/services/accounting/contracts";
 import type { DocKind } from "@/services/documents/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -320,15 +323,74 @@ export async function supersedeAllocation(
 /* The exception road                                                  */
 /* ------------------------------------------------------------------ */
 
-export async function listInbox(): Promise<Result<unknown[]>> {
-  const { data, error } = await db().from("evidence_inbox").select("*")
-    .eq("status", "PENDING").order("reported_at", { ascending: false });
-  return fromRows<unknown[]>(SERVICE, data as unknown[], error);
+/** The row as `evidence_inbox` stores it.
+ *
+ *  Named apart from `EvidenceInboxRow` because two of its fields do not carry
+ *  the contract's names. `select("*") as EvidenceInboxRow[]` type-checks and
+ *  is wrong: the screen reads `produced_trx_id` off an object whose key is
+ *  `produced_trx_no`, gets `undefined`, and renders a blank where a ledger
+ *  reference should be. A cast is not a mapping.
+ */
+interface InboxRowDb {
+  id: string;
+  ref_id: string;
+  origin: InboxOrigin;
+  status: InboxStatus;
+  attachment_id: string;
+  reported_by: string;
+  reported_at: string;
+  extracted: EvidenceInboxRow["extracted"] | null;
+  money_direction: Direction | null;
+  produced_trx_no: string | null;
+  produced_pr_line_no: string | null;
 }
 
-export async function listInboxAll(): Promise<Result<unknown[]>> {
-  const { data, error } = await db().from("evidence_inbox").select("*").order("reported_at", { ascending: false });
-  return fromRows<unknown[]>(SERVICE, data as unknown[], error);
+/** Named rather than `*`, so adding a column to the table cannot silently
+ *  change what this function answers. */
+const INBOX_COLUMNS =
+  "id, ref_id, origin, status, attachment_id, reported_by, reported_at, "
+  + "extracted, money_direction, produced_trx_no, produced_pr_line_no";
+
+function toInboxRow(r: InboxRowDb): EvidenceInboxRow {
+  return {
+    id: r.id,
+    ref_id: r.ref_id,
+    origin: r.origin,
+    status: r.status,
+    attachment_id: r.attachment_id,
+    reported_by: r.reported_by,
+    reported_at: r.reported_at,
+    /* `{}` and not `null`: every field inside is optional and the screen reads
+       `extracted.amount_idr` without guarding the parent. */
+    extracted: r.extracted ?? {},
+    /* The contract calls it `produced_trx_id` and the column holds a trx_no,
+       because ADR-004 keeps public codes on the wire rather than uuids. The
+       mismatch is the contract's, and renaming it is a change to fifty-two
+       screens; translating it is a line here. */
+    produced_trx_id: r.produced_trx_no,
+    produced_pr_line_no: r.produced_pr_line_no,
+    /* **Empty because nothing computes it**, not because there is nothing.
+       The legacy queue carried a `similar_trx` column its pipeline filled;
+       this schema has no equivalent and no view derives one. An empty list is
+       the honest answer — "we did not look" — and the fixtures carry the same.
+       Give it a source and this stops being a literal. */
+    similar_trx_nos: [],
+    money_direction: r.money_direction,
+  };
+}
+
+export async function listInbox(): Promise<Result<EvidenceInboxRow[]>> {
+  const { data, error } = await db().from("evidence_inbox").select(INBOX_COLUMNS)
+    .eq("status", "PENDING").order("reported_at", { ascending: false });
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, ((data ?? []) as unknown as InboxRowDb[]).map(toInboxRow));
+}
+
+export async function listInboxAll(): Promise<Result<EvidenceInboxRow[]>> {
+  const { data, error } = await db().from("evidence_inbox").select(INBOX_COLUMNS)
+    .order("reported_at", { ascending: false });
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, ((data ?? []) as unknown as InboxRowDb[]).map(toInboxRow));
 }
 
 /** Not decoration. If this number grows, people are routing around the normal
@@ -344,18 +406,279 @@ export async function getInboxHealth(): Promise<Result<InboxHealth>> {
  *  reached the inbox and left it without a trace is the failure this road
  *  exists to prevent: somebody sent it, and "we never got it" must never be
  *  the answer. */
+type InboxResolution = "transaction" | "retro_pr_line" | "link" | "note" | "reject";
+
+/** The road the screen names, and the status it arrives at.
+ *
+ *  Two roads land on `CONFIRMED` because *it became a ledger row* and *it
+ *  became a request line that was then paid* are the same outcome as far as
+ *  the document is concerned — the difference is recorded in
+ *  `produced_pr_line_no`, which is the point of `0034`.
+ */
+const RESOLUTION_STATUS: Record<InboxResolution, InboxStatus> = {
+  transaction: "CONFIRMED",
+  retro_pr_line: "CONFIRMED",
+  link: "ATTACHED",
+  note: "NOTED",
+  reject: "REJECTED",
+};
+
 export async function resolveInbox(
-  input: { ref_id: string; status: InboxStatus; trx_no?: string | null; note?: string | null },
+  input: {
+    ref_id: string;
+    resolution: InboxResolution;
+    /** What it produced, when it produced something. */
+    trx_no?: string;
+    pr_line_no?: string;
+    /** Mandatory for `reject` and `note`: a row nobody explained is a row
+     *  nobody can review. Both are enforced by the seam (`0034`). */
+    reason?: string;
+  },
   idempotencyKey?: string,
-): Promise<Result<{ ref_id: string; status: string }>> {
+): Promise<Result<EvidenceInboxRow>> {
   const { data, error } = await db().rpc("resolve_inbox", {
     p_ref_id: input.ref_id,
-    p_status: input.status,
+    p_status: RESOLUTION_STATUS[input.resolution],
     p_trx_no: input.trx_no ?? null,
-    p_note: input.note ?? null,
+    p_pr_line_no: input.pr_line_no ?? null,
+    p_note: input.reason ?? null,
     p_key: idempotencyKey ?? null,
   });
-  return fromSeam(SERVICE, data, error);
+
+  const res = fromSeam<{ ref_id: string }>(SERVICE, data, error);
+  if (res.error) return res;
+
+  /* The seam answers a receipt; the screen redraws the row. **Re-read rather
+     than reconstruct** — `resolved_at`, `resolved_by` and the link the seam
+     wrote are the database's to state, and a receipt assembled here would
+     disagree with it the first time either changes. */
+  const after = await db().from("evidence_inbox").select(INBOX_COLUMNS)
+    .eq("ref_id", input.ref_id).maybeSingle();
+  if (after.error) return fail(SERVICE, after.error);
+  if (!after.data) {
+    return notFound(SERVICE, "inbox_row_not_found", `Row ${input.ref_id} not found.`);
+  }
+  return ok(SERVICE, toInboxRow(after.data as unknown as InboxRowDb));
+}
+
+/* ------------------------------------------------------------------ */
+/* Coverage — the questions asked before a document is booked          */
+/* ------------------------------------------------------------------ */
+
+/** Coverage is the one read in this service that genuinely spans three
+ *  schemas: the paper is `ops_core`'s, the money is `ops_acct`'s, and the
+ *  request line the money closes is `ops_procure`'s.
+ *
+ *  That is not ADR-004 being bent. The rule is that a service does not reach
+ *  into another service's *decisions* — no writes, no reimplemented guards.
+ *  These are reads of published views, and the demo derives exactly the same
+ *  three sources from one state object. A screen asking "is this document
+ *  already accounted for" is asking a question no single schema can answer.
+ */
+const core = () => supabaseBrowser().schema("ops_core");
+const procure = () => supabaseBrowser().schema("ops_procure");
+
+/** The request lines a set of transactions reaches, each with **every**
+ *  payment against it — not only the ones these transactions made.
+ *
+ *  Showing only our own half is what makes a split-paid line read as half
+ *  paid: the plywood bought with cash at the counter and settled by transfer
+ *  the next day is one line and two transactions (D206), and a screen that
+ *  sees one of them reports a gap that does not exist.
+ */
+async function coverageLines(trxNos: string[]): Promise<Result<CoverageLine[]>> {
+  if (trxNos.length === 0) return ok(SERVICE, []);
+
+  const mine = await db().from("v_allocation").select("pr_line_no")
+    .in("trx_no", trxNos).is("superseded_by", null).not("pr_line_no", "is", null);
+  if (mine.error) return fail(SERVICE, mine.error);
+
+  const lineNos = [...new Set((mine.data ?? []).map((a) => a.pr_line_no as string))];
+  if (lineNos.length === 0) return ok(SERVICE, []);
+
+  const all = await db().from("v_allocation").select("trx_no, pr_line_no, amount, method")
+    .in("pr_line_no", lineNos).is("superseded_by", null);
+  if (all.error) return fail(SERVICE, all.error);
+  const payments = (all.data ?? []) as {
+    trx_no: string; pr_line_no: string; amount: number | string; method: AllocMethod;
+  }[];
+
+  /* Which account each paying transaction came out of. The screen shows it so
+     a person can tell the cash half from the transfer half at a glance. */
+  const payingTrx = [...new Set(payments.map((a) => a.trx_no))];
+  const accts = await db().from("v_transaction").select("trx_no, account_code").in("trx_no", payingTrx);
+  if (accts.error) return fail(SERVICE, accts.error);
+  const accountOf = new Map(
+    ((accts.data ?? []) as { trx_no: string; account_code: string }[])
+      .map((t) => [t.trx_no, t.account_code]),
+  );
+
+  /* Approved, covered, remaining and settled come from the view. **Not
+     recomputed here** (A3): a second opinion about whether a line is settled
+     is how a screen and the board disagree. */
+  const cov = await procure().from("v_line_coverage")
+    .select("line_no_full, approved, covered, remaining, settled").in("line_no_full", lineNos);
+  if (cov.error) return fail(SERVICE, cov.error);
+  const covOf = new Map(
+    ((cov.data ?? []) as {
+      line_no_full: string; approved: number | string; covered: number | string;
+      remaining: number | string; settled: boolean;
+    }[]).map((c) => [c.line_no_full, c]),
+  );
+
+  const desc = await procure().from("v_pr_line")
+    .select("line_no_full, description").in("line_no_full", lineNos);
+  if (desc.error) return fail(SERVICE, desc.error);
+  const descOf = new Map(
+    ((desc.data ?? []) as { line_no_full: string; description: string }[])
+      .map((d) => [d.line_no_full, d.description]),
+  );
+
+  const ours = new Set(trxNos);
+  return ok(SERVICE, lineNos.map((no) => {
+    const c = covOf.get(no);
+    return {
+      line_no_full: no,
+      description: descOf.get(no) ?? "—",
+      approved: Number(c?.approved ?? 0),
+      covered: Number(c?.covered ?? 0),
+      remaining: Number(c?.remaining ?? 0),
+      settled: c?.settled ?? false,
+      payments: payments.filter((a) => a.pr_line_no === no).map((a): CoveragePayment => ({
+        trx_no: a.trx_no,
+        account_code: accountOf.get(a.trx_no) ?? "—",
+        method: a.method,
+        amount: Number(a.amount),
+        from_this_document: ours.has(a.trx_no),
+      })),
+    };
+  }));
+}
+
+/** What one document already stands behind.
+ *
+ *  Asked before booking it again, which is the duplicate this screen exists to
+ *  prevent: the same nota photographed twice, or sent to two chat groups.
+ */
+export async function coverageForDocument(
+  attachmentId: string,
+  documentAmount: number | null = null,
+): Promise<Result<DocumentCoverage>> {
+  const links = await core().from("attachment_links").select("entity_no")
+    .eq("attachment_id", attachmentId).eq("entity", "transaction").is("unlinked_at", null);
+  if (links.error) return fail(SERVICE, links.error);
+  const trxNos = [...new Set(((links.data ?? []) as { entity_no: string }[]).map((l) => l.entity_no))];
+
+  const trx = await db().from("v_transaction")
+    .select("trx_no, trx_date, account_code, direction, amount_idr, status, description, evidence_count")
+    .in("trx_no", trxNos);
+  if (trx.error) return fail(SERVICE, trx.error);
+
+  const names = await db().from("accounts").select("code, name");
+  if (names.error) return fail(SERVICE, names.error);
+  const nameOf = new Map(
+    ((names.data ?? []) as { code: string; name: string }[]).map((a) => [a.code, a.name]),
+  );
+
+  const transactions: CoverageTransaction[] =
+    ((trx.data ?? []) as {
+      trx_no: string; trx_date: string; account_code: string; direction: Direction;
+      amount_idr: number | string; status: TrxStatus; description: string;
+      evidence_count: number | null;
+    }[]).map((t) => ({
+      trx_no: t.trx_no,
+      trx_date: t.trx_date,
+      account_code: t.account_code,
+      account_name: nameOf.get(t.account_code) ?? "—",
+      direction: t.direction,
+      /* A void row moved no money. Counting its face value is how a document
+         reads as fully accounted for by a transaction somebody cancelled. */
+      amount_idr: t.status === "VOID" ? 0 : Number(t.amount_idr),
+      status: t.status,
+      description: t.description,
+      /* The view counts every piece of paper on the row, this one included. */
+      other_documents: Math.max(0, Number(t.evidence_count ?? 0) - 1),
+    }));
+
+  const lines = await coverageLines(trxNos);
+  if (lines.error) return lines;
+
+  const coveredTotal = transactions.reduce((n, t) => n + t.amount_idr, 0);
+  return ok(SERVICE, {
+    attachment_id: attachmentId,
+    document_amount: documentAmount,
+    transactions,
+    lines: lines.data,
+    covered_total: coveredTotal,
+    /* Null rather than `0 − covered`: a gap measured against an amount nobody
+       ever read is the whole sum wearing the costume of a discrepancy. */
+    gap: documentAmount === null ? null : documentAmount - coveredTotal,
+    shared: transactions.some((t) => t.other_documents > 0),
+  });
+}
+
+/** What a ledger row already carries, before a document is attached to it.
+ *
+ *  This is the end the check actually bites at. A document in the queue is
+ *  attached to nothing, so its own coverage is empty and says nothing; what
+ *  decides whether *link* is the right road is the state of the row being
+ *  linked to (D207).
+ */
+export async function coverageForTransaction(trxNo: string): Promise<Result<TransactionCoverage>> {
+  const t = await db().from("v_transaction")
+    .select("trx_no, amount_idr, status, account_code, description, allocated_total, unallocated")
+    .eq("trx_no", trxNo).maybeSingle();
+  if (t.error) return fail(SERVICE, t.error);
+  if (!t.data) return notFound(SERVICE, "transaction_not_found", `Tidak ada transaksi ${trxNo}.`);
+  const row = t.data as unknown as {
+    trx_no: string; amount_idr: number | string; status: TrxStatus; account_code: string;
+    description: string; allocated_total: number | string | null; unallocated: number | string | null;
+  };
+
+  const links = await core().from("attachment_links").select("attachment_id, kind")
+    .eq("entity", "transaction").eq("entity_no", trxNo).is("unlinked_at", null);
+  if (links.error) return fail(SERVICE, links.error);
+  const linkRows = (links.data ?? []) as { attachment_id: string; kind: string }[];
+
+  const atts = await core().from("attachments").select("id, filename")
+    .in("id", linkRows.map((l) => l.attachment_id));
+  if (atts.error) return fail(SERVICE, atts.error);
+  const fileOf = new Map(
+    ((atts.data ?? []) as { id: string; filename: string }[]).map((a) => [a.id, a.filename]),
+  );
+
+  const alloc = await db().from("v_allocation").select("pr_line_no, po_no, amount, method")
+    .eq("trx_no", trxNo).is("superseded_by", null);
+  if (alloc.error) return fail(SERVICE, alloc.error);
+
+  const lines = await coverageLines([trxNo]);
+  if (lines.error) return lines;
+
+  return ok(SERVICE, {
+    trx_no: row.trx_no,
+    amount_idr: Number(row.amount_idr),
+    status: row.status,
+    account_code: row.account_code,
+    description: row.description,
+    documents: linkRows.map((l) => ({
+      attachment_id: l.attachment_id,
+      filename: fileOf.get(l.attachment_id) ?? "—",
+      kind: l.kind,
+    })),
+    allocations: ((alloc.data ?? []) as {
+      pr_line_no: string | null; po_no: string | null; amount: number | string; method: AllocMethod;
+    }[]).map((a) => ({
+      target: (a.pr_line_no ?? a.po_no ?? "—"),
+      kind: (a.pr_line_no ? "line" : "po") as "line" | "po",
+      amount: Number(a.amount),
+      method: a.method,
+    })),
+    /* The view's numbers, not a sum of the list above: an allocation the view
+       counts and this query missed would otherwise read as unallocated money. */
+    allocated_total: Number(row.allocated_total ?? 0),
+    unallocated: Number(row.unallocated ?? 0),
+    lines: lines.data,
+  });
 }
 
 /* ------------------------------------------------------------------ */
