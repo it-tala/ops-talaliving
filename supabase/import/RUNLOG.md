@@ -136,37 +136,59 @@ select target_id, note from ops_core.legacy_map
  where source_table = 'public.chat_users' order by note;
 ```
 
-**SMTP is unresolved, and it gates telling anybody.** Seven people have
-accounts and no password, so the reset email is the only way in.
+**SMTP: answered 2026-09-21, and the answer was no.** Custom SMTP is not
+enabled, and the built-in mailer cannot be made to do this job. Supabase's own
+documentation is unambiguous:
 
-What is known, 2026-09-21. `auth.users.recovery_sent_at` for
-`superadmin@talaliving.com` reads `2026-09-18 09:17:24`. GoTrue writes that
-column only after the mailer accepts the message — a send failure returns an
-error and leaves it null — so **mail left the building at least once**. Nothing
-else: no recovery has been requested since, `auth.audit_log_entries` is empty,
-and the log retention here is about an hour, far short of 18 September.
+> Unless you configure a custom SMTP server for your project, Supabase Auth
+> will refuse to deliver messages to addresses that are not part of the
+> project's team.
 
-Why one success does not settle it: Supabase's **built-in mailer only delivers
-to addresses on the project's team**, and is rate limited to a handful of
-messages an hour. `superadmin@` plausibly is such an address. `anggun@`,
-`evin@`, `alika@`, `geryle@` and `ryan@` are not, and would be dropped without
-the reset call ever failing — the endpoint returns 200 and nobody receives
-anything, which is the worst shape a failure can take.
+There is no setting to change. The only way to make the built-in mailer reach
+Anggun, Evin, Alika, Geryle and Ryan is to add each of them as a **team member
+of the Supabase organization** — which hands accounting staff dashboard access
+to the production database. That is a worse problem than the one being solved,
+so it was not done.
 
-So the question is not *does SMTP work* but *is custom SMTP configured*:
-**Dashboard → Project Settings → Authentication → SMTP Settings**. If
-"Enable Custom SMTP" is off, the other six will not receive their reset email.
+### What was done instead: temporary passwords, no email at all
 
-A live test could not be run from the session that wrote this — outbound HTTPS
-to `*.supabase.co` is refused by the agent proxy. From any machine that can
-reach it:
+The six accounts that had never signed in were given a 14-character random
+password each, set directly with `crypt(…, gen_salt('bf'))`. Putri, `shared`
+and `superadmin` were not touched — their passwords work and are in use. People
+sign in and change it on `/set-password`, which the app already has.
+
+Each hash was then verified the way GoTrue verifies it —
+`encrypted_password = crypt(<plaintext>, encrypted_password)` — rather than
+assumed, because a password that does not work is indistinguishable from a
+wrong email address at the sign-in screen.
+
+**One bug, caught and fixed before anybody was told.** The first attempt
+generated the password in a scalar subquery, which Postgres evaluated **once**
+— all six accounts got the *same* password. The fix is `gen_random_bytes()`
+referenced per row, which is volatile and therefore re-evaluated. Confirmed
+afterwards that the shared value matches zero accounts. If you are generating
+per-row secrets in SQL, this is the trap: an uncorrelated subquery is a
+constant.
+
+### Why custom SMTP is still needed
+
+Nothing above gives the business a password reset. There is no "must change
+password" flag in the app, so an unchanged temporary password stays valid
+indefinitely, and every future *I forgot my password* becomes a ticket that
+needs SQL access. Ten minutes with any free provider (Resend, Brevo, SES) ends
+that permanently. From the docs, it can be done without the dashboard:
 
 ```bash
-curl -i -X POST "https://hhphmfqbtwcxpvubmwbq.supabase.co/auth/v1/recover" \
-  -H "apikey: <the publishable key>" -H "Content-Type: application/json" \
-  -d '{"email":"it@talaliving.com"}'
+export SUPABASE_ACCESS_TOKEN="…"   # supabase.com/dashboard/account/tokens
+curl -X PATCH "https://api.supabase.com/v1/projects/hhphmfqbtwcxpvubmwbq/config/auth" \
+  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ "external_email_enabled": true, "smtp_host": "…", "smtp_port": 587,
+        "smtp_user": "…", "smtp_pass": "…", "smtp_admin_email": "…",
+        "smtp_sender_name": "Tala Living Ops" }'
 ```
 
-`200` plus an email that arrives is the only answer that counts. `200` with no
-email is the built-in mailer silently dropping a non-team address; `500` is
-SMTP genuinely misconfigured.
+Custom SMTP also lifts the send limit to 30 new users per hour and lets the
+address be one people recognise, rather than a Supabase default that looks like
+phishing to anybody careful.
+
