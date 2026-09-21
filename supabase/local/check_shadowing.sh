@@ -30,7 +30,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 psql -h "$HOST" -p "$PORT" -U "$USER" -Atc "
   select distinct column_name
     from information_schema.columns
-   where table_schema in ('ops_core','ops_procure','ops_acct','ops_hr','ops_prod','ops_inv','ops_mkt')
+   where table_schema in ('ops_core','ops_procure','ops_acct','ops_hr','ops_prod','ops_inv','ops_mkt','ops_asst')
 " > /tmp/_columns.txt
 
 python3 - "$HERE/../migrations" /tmp/_columns.txt <<'PY'

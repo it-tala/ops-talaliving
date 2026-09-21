@@ -669,16 +669,39 @@ name, and forcing it onto one would make the fitted count wrong. A consignment
 that predates the labels has **no** box rows at all, and that is read as *no
 boxes recorded* rather than *nol peti* (F60's rule again).
 
-**Schema `asst`** — `assistant_turns`: the prompt verbatim, what it was
-understood as, the tools it ran, the facts it returned, and the draft plus its
-outcome. Kept because *what did John Lau tell me on Tuesday* is asked after
-somebody has acted on the answer (D217). Two constraints matter:
+**Schema `asst`** — built as `ops_asst` in `0090`. `assistant_turns`: the
+prompt verbatim, what it was understood as, the tools it ran, the facts it
+returned, and the draft plus its outcome. Kept because *what did John Lau tell
+me on Tuesday* is asked after somebody has acted on the answer (D217). Two
+constraints matter, and both are enforced rather than intended:
 
 - a turn's **figures live in their own column**, never inside the prose, so a
-  number cannot be paraphrased on its way into a sentence;
+  number cannot be paraphrased on its way into a sentence. `no_money_in_the_prose`
+  refuses a currency marker before a digit and a grouped thousand — the failure
+  that actually happens — and deliberately lets `Berkas 201`, `pr-26-09-11_03`
+  and a date through, because refusing those teaches whoever hits it to work
+  around the check rather than to use `facts`;
 - the **tool catalogue is code, not rows.** A list of what an assistant may
   reach is a security boundary, and a boundary stored as data somebody can
-  edit at runtime is a boundary with an UPDATE statement in it (D218).
+  edit at runtime is a boundary with an UPDATE statement in it (D218). So
+  `tools_used` is free text validated against nothing, and that is the point.
+
+Three more the building added:
+
+- **a turn is append-only but for the second yes.** Once the assistant is an
+  input path — a write confirmed field by field instead of a form filled in
+  (D220) — the turn is the *provenance* of that write, and provenance that can
+  be edited afterwards is not provenance. `turn_is_evidence` freezes everything
+  but `draft_outcome`, which moves once;
+- **your own conversation, and nobody else's, including IT.** Somebody asking
+  about salaries has done nothing wrong, and a permanent record of the
+  question readable by their manager is a worse trail than no trail. What is
+  announced on a refusal is the **tool**, never the sentence;
+- so **`v_turn_provenance`** answers *where did this line come from* — actor,
+  tool, fields confirmed, document produced — for `it.read`, with no `prompt`
+  column at all. It is the one view in the ladder that runs as its owner, which
+  is what lets it cross the boundary the table's policy draws, and the
+  predicate inside it is therefore the whole guard.
 
 `core.audit_log` has no retention at all. It is the evidence behind every
 figure the system prints, and a purged audit row is a past number nobody can

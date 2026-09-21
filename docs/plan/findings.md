@@ -4717,3 +4717,71 @@ a test asserts a value one of those produces, the test has to **set the starting
 point**, not assume it. The whole suite now passes twice in a row without a
 rebuild, which is the property that was silently lost and is worth checking for
 directly rather than noticing again by accident.
+
+## F120 · 2026-09-21 · 0090 — a guard the grant already refuses is a guard nobody tested
+
+**What the mutation found.** `turn_is_evidence` freezes everything about a turn
+but the draft's outcome. The smoke tested it by updating a prompt and expecting
+a refusal, and got one — from the **missing UPDATE grant**, which fires first
+and never reaches the trigger. Removing the trigger's entire condition changed
+nothing the suite could see. Twenty-one mutations caught; that one survived.
+
+**Why it matters more than a missing test.** The grant and the trigger stop
+different roads. The grant stops an ordinary client, and the trigger stops the
+roads that have the rights anyway: a `security definer` seam, a migration,
+somebody at a psql prompt. Those are exactly the roads a rule like this exists
+for — nobody writes an evidence trigger to stop a caller who was already going
+to be refused — and they were the ones nothing exercised.
+
+**The fix is in the test, not the code.** The smoke now steps out of the role
+for that assertion, `reset role`, and updates as the owner, where the trigger is
+the only thing left. Two assertions instead of one: the grant refuses the
+ordinary road, and the trigger refuses the privileged one, each for its own
+reason and each provable on its own.
+
+**The general shape, which is F95 one layer up.** Layered guards hide each
+other from tests. When two mechanisms refuse the same act, the outer one
+answers first and the inner one is never asked — so a test that only shows *the
+act was refused* has proved the outer one and said nothing about the inner. The
+way to know is to ask each of them from a place the other cannot answer from,
+and the way to find out you have not is a mutation that removes the inner one
+and watches the suite stay green.
+
+## F121 · 2026-09-21 · validating John Lau — the permission check is a message, not an authority
+
+**What the validation was.** Three capabilities were put to the code: does it
+explain the system interactively, does it answer from the database according to
+the asker's rights, and does it write on confirmation instead of a form. All
+three are built. The second one is built in a way that will not survive the
+swap, and it is better to say so now than to port it.
+
+**What the demo does.** `ask()` reads `user.modules`, compares the held level
+against the tool's with a rank table, and refuses in TypeScript. That is a
+guard reimplemented outside the database, which is the thing `accounting.ts`
+opens by forbidding: *a guard reimplemented in TypeScript is a guard that can
+disagree with the one in front of the money.* Against fixtures it is the only
+guard there is, so it is right for Phase 1 and wrong the moment the tools call
+real views.
+
+**The distinction to keep, because the check is not simply deletable.** F64
+found that rendering *closed* and *permission* the same way sends somebody to
+argue with the wrong person — the first is never granted away and the second is
+fixed by asking IT. Telling them apart needs the tool's declared module and
+level *before* the call. So:
+
+- **whether** a person may read something is the database's answer, and only
+  the database's: the tool runs as them and RLS refuses;
+- **which sentence** they get when it is refused is the catalogue's, decided
+  from the tool's declared reach and module.
+
+Written down because the obvious port is to keep the rank comparison and call
+it the gate, which would put a second copy of every module's rules in a file
+nobody thinks of as security. The catalogue may say *this tool is for hrd
+write*; it may not be what stops anybody.
+
+**And the ceiling worth stating plainly.** *According to role and permission*
+has a floor the owner set: all three HR tools and both IT tools are
+`reach: "blocked"` — closed to the prompt at every level, by nobody's grant
+(D218). Five of sixteen. A person with full HR access still cannot ask John Lau
+about a payslip, and the screen says so rather than pretending the tool is not
+there.

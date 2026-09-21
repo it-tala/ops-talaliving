@@ -36,7 +36,7 @@ MIGRATIONS="$HERE/../migrations"
 # Ours, plus the schemas Supabase itself owns and every project legitimately
 # reads. `auth` is GoTrue's: `auth.uid()` is how RLS learns who is asking, so a
 # migration that never mentions it would be a migration with no policies.
-ALLOWED='ops_core|ops_procure|ops_acct|ops_hr|ops_prod|ops_inv|ops_mkt|auth|storage|extensions|graphql|graphql_public|realtime|vault|cron|pg_catalog|pg_temp|information_schema'
+ALLOWED='ops_core|ops_procure|ops_acct|ops_hr|ops_prod|ops_inv|ops_mkt|ops_asst|auth|storage|extensions|graphql|graphql_public|realtime|vault|cron|pg_catalog|pg_temp|information_schema'
 
 # The legacy system's own schemas, named explicitly rather than inferred, so the
 # failure message can say which system the migration was about to reach into.
