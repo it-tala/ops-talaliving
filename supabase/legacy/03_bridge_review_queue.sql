@@ -45,12 +45,21 @@
 -- `jsonb_strip_nulls` drops what the model could not read, so an empty string
 -- in the spreadsheet becomes an absent key rather than a confident "".
 --
--- ── ref_id is `rq-<queue_id>` ────────────────────────────────────────────
+-- ── ref_id is the queue's own `ref_id` ───────────────────────────────────
 --
--- Not the queue's own `ref_id`, which is `<event uuid>~<slot>` and encodes a
--- PR line the row may later be detached from. `queue_id` is a bigint primary
--- key: unique, stable, and something the worker can recompute after a restart
--- without asking us anything, which is what makes the idempotency real.
+-- `<event uuid>~<slot>`, exactly as `card_ref(event_id, slot)` builds it in
+-- `john-lau`. The first cut of this file used `rq-<queue_id>` — a bigint
+-- primary key, unique and stable, and **wrong**, for a reason that only shows
+-- up one step later: `queue_id` is assigned by the insert, so the worker does
+-- not know it at the moment it would call `file_evidence()`. The worker would
+-- have filed under `<event>~<slot>` and the bridge under `rq-493`, and the
+-- same document would sit in the inbox twice with nothing to tie the two
+-- together.
+--
+-- The rule the seam's header states is the right one and was misapplied here:
+-- ref_id is **the source's own id**, and the source's own id is the one the
+-- source can compute again from what it holds. The 38 rows already bridged
+-- were re-keyed rather than re-filed.
 
 \set ON_ERROR_STOP on
 
@@ -59,9 +68,9 @@ begin;
 create temp table _bridged on commit drop as
 select q.queue_id,
        ops_acct.file_evidence(
-         'rq-' || q.queue_id,
+         q.ref_id,
          -- Drive's own file id, plus an extension so the name is openable.
-         coalesce(nullif(btrim(q.extracted ->> 'DRIVE FILE NAME'), ''), 'rq-' || q.queue_id)
+         coalesce(nullif(btrim(q.extracted ->> 'DRIVE FILE NAME'), ''), q.ref_id)
            || case q.mime_type
                 when 'image/webp'      then '.webp'
                 when 'image/jpeg'      then '.jpg'
