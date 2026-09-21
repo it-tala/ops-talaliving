@@ -87,7 +87,6 @@ export const PENDING_PARITY: readonly string[] = [
   "procurement.getRound",
   "procurement.listReported",
   "procurement.listRounds",
-  "procurement.requestApproval",
   "procurement.setExpectedDelivery",
   "procurement.syncRound",
   /* Positional against object arguments. */

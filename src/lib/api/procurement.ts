@@ -26,7 +26,7 @@
 import type {
   Vendor, VendorView, Item, ItemView, Uom, ItemCategory, Project,
   PrLineView, PrApproval, LineNote, LineVariance, ApprovalRequest,
-  VendorJourney, RoundSummary, VarianceReason, Channel,
+  VendorJourney, RoundSummary, VarianceReason, Channel, ApprovalBatchView,
   PoDetail, PoLine, PoStatusView, PurchaseOrder,
   UomCode, PrCategory, PrDocument,
 } from "@/services/procurement/contracts";
@@ -532,17 +532,48 @@ export async function updateLine(
  *  a name in a config file, so if the authority moves the notification follows
  *  it (D19). A line with nothing behind it is refused before the card is sent,
  *  and the refusal names which lines (D125). */
+/** Ask leadership to decide a list, in one send.
+ *
+ *  **A batch, not a card per line** (D70). Fifteen separate cards ask the
+ *  approver to add fifteen numbers in their head to know what they just
+ *  committed to, which is how people stop reading the fifteenth.
+ *
+ *  `to` is a **user id**, because that is what the screen is holding — it
+ *  picked a person from a list. The seam takes an email (ADR-004: the thing a
+ *  person can read back), so the translation happens here, the same way
+ *  `curateVendor` turns a vendor id into a code.
+ *
+ *  Answers the batch as the board redraws it, not the seam's receipt: the
+ *  toast names the count, the total and who has to decide, and all three come
+ *  from `v_approval_batch`.
+ */
 export async function requestApproval(
-  input: { line_nos: string[]; to_email?: string | null; notes?: Record<string, string | null> },
+  input: { line_nos: string[]; to?: string; notes?: Record<string, string | null> },
   idempotencyKey?: string,
-): Promise<Result<{ batch_no: string; token: string; sent_to: string; lines: string[] }>> {
+): Promise<Result<ApprovalBatchView>> {
+  let toEmail: string | null = null;
+  if (input.to) {
+    const { data } = await supabaseBrowser().schema("ops_core")
+      .from("users").select("email").eq("id", input.to).maybeSingle();
+    toEmail = (data as { email: string } | null)?.email ?? null;
+    if (!toEmail) {
+      return notFound(SERVICE, "approver_not_found", "That person is not in this workspace.");
+    }
+  }
+
   const { data, error } = await db().rpc("request_approval", {
     p_line_nos: input.line_nos,
-    p_to_email: input.to_email ?? null,
+    p_to_email: toEmail,
     p_notes: input.notes ?? {},
     p_key: idempotencyKey ?? null,
   });
-  return fromSeam(SERVICE, data, error);
+  const sent = fromSeam<{ batch_no: string }>(SERVICE, data, error);
+  if (sent.error) return sent;
+
+  const batch = await db()
+    .from("v_approval_batch").select("*").eq("batch_no", sent.data.batch_no).single();
+  return fromRows<ApprovalBatchView>(
+    SERVICE, batch.data as ApprovalBatchView | null, batch.error);
 }
 
 /** Create a vendor, and answer with the vendor.

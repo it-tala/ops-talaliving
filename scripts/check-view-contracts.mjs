@@ -77,6 +77,7 @@ const VIEW_CONTRACTS = {
   v_open_lines:      "LineRow",
   v_approval_queue:  "LineRow",
   v_pr_document:     "PrDocumentRow",
+  v_approval_batch:  "ApprovalBatchView",
   v_round_eligible:  null,   // one column, counted
 
   /* ── core ────────────────────────────────────────────────────────────── */
