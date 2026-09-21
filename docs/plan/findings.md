@@ -4785,3 +4785,59 @@ has a floor the owner set: all three HR tools and both IT tools are
 (D218). Five of sixteen. A person with full HR access still cannot ask John Lau
 about a payslip, and the screen says so rather than pretending the tool is not
 there.
+
+## F122 · 2026-09-21 · 0050 — our own service names are the legacy system's schemas
+
+**What happened.** `0050` emitted `hr.attendance.imported`, following the
+convention four other services use — `procurement.pr.created`,
+`marketing.rep.onboarded`. `check_schema_isolation.sh` refused the whole
+migration, because `hr` is one of the **legacy system's own schema names** and
+a dotted string beginning with it is indistinguishable from a reference to that
+schema without parsing SQL properly.
+
+This is F116 again — a settings key beginning `ops.` — and the second time is
+what makes it a shape rather than an accident. The legacy list is
+`core|hr|ops|po_import|public`, and **three of those five are also our own
+domain names**: `core` is our first schema, `hr` is a `ServiceName`, `ops` is
+the prefix on all eight of our schemas. Any dotted string starting with one of
+them trips a guard that exists for a very good reason and should stay blunt.
+
+**The answer was already in the ladder.** `identity` emits `access.changed` —
+no service prefix at all — and has done since `0007`. The `service` is its own
+column on the outbox row, so the prefix was decoration, and the one service
+that skipped it was right by accident. `0050` emits `attendance.imported`.
+
+**What to do about it, which is not to fix the guard.** The next `hr.` or
+`core.` inside a string may be a real reference, and a guard that reasons about
+quotes would pass it. What is worth doing is knowing the collision exists
+before choosing a name: the check is the thing that tells you, and being
+refused by it is the system working.
+
+## F123 · 2026-09-21 · 0050 — a flag on a widely-read table is N places, found once
+
+**The change.** `day_marks` needed a way to take a mark back. The demo deletes
+the row; the database has no DELETE grant and should not — *why was the
+fourteenth marked sick and then not* is what somebody asks when they query a
+payslip, and a deleted mark answers with silence. So: `withdrawn_at`, and
+`mark_once` unique over the live marks only.
+
+**What it actually cost.** Four things read a day mark, all defined in `0046`:
+`office_closed`, `read_day`, `v_leave_used` and `v_day_mark_value`. Every one
+of them asks for the row and would have found the withdrawn one — a day taken
+back would still have spent somebody's leave entitlement and still shown on
+their timesheet. Three of the four are long enough that restating them by hand
+would have been a transcription risk, so they were sliced out of `0046`
+programmatically and patched with one predicate each.
+
+**The alternative, and why it lost.** A second table for withdrawn marks costs
+nothing today: no reader changes at all. It costs for ever instead — *was this
+day ever marked* becomes a two-place question, and the second place is one
+somebody will forget. One table, four predicates, paid once.
+
+**The general shape.** A nullable flag on a table with N readers is N places
+that have to learn about it, and **the moment the flag is added is the only
+moment all N can be found**. After that they are found one at a time, by
+somebody noticing a figure that looks slightly wrong. Adding the column and the
+readers in one migration is not tidiness; it is the difference between a change
+and a slow leak. The way to know N is to grep for the table before writing the
+`alter`, not after.

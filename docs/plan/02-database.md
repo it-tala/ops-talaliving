@@ -1936,6 +1936,20 @@ erDiagram
 | `stage_sources` includes each stage's **own** code | `FINISHING` names one of the four and one of the seven that collapsed into it; without the self-row, direct entries and rolled-up ones were added together and counted the same pieces twice (F74) |
 | `work_orders.bom_rev` must be a **released** revision of that order's own product | neither half is a foreign key that could say so — `product_code` is a code at the seam and `released_at` is a column. A pin to a draft is a pin to something still being edited |
 
+**Who may write, in HR** (`0050`, the daily half): `hrd.create` for importing
+the machine's file, typing in a tap the machine missed and marking a day;
+`hrd.update` for withdrawing a mark and for withholding or restoring the
+allowance on a day. All through seams, addressed by `employee_no` and
+`mark_no`. The overtime sheets, the payroll runs and the enrolments have
+tables and views and **no seams yet**.
+
+**A day mark is withdrawn, not deleted.** `withdrawn_at`/`_by`/`_reason`, and
+`mark_once` is unique over the **live** ones only, so a day marked by mistake
+can be marked correctly. Four things read a mark — `office_closed`,
+`read_day`, `v_leave_used` and `v_day_mark_value` — and all four learned the
+predicate when the column arrived, because that was the only moment they could
+all be found (F123).
+
 **Refused vs warned.** More than the order's quantity at one stage is refused —
 it cannot be true. A stage running *ahead of the one before it* is warned about
 on the board and accepted: it usually means a mis-keyed number or work that
