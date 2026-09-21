@@ -83,13 +83,24 @@ could not see them — *Requested entity was not found* — which means either t
 its identity is not a member of those drives or that an id is wrong. The first
 upload to each drive will say which, in Google's own words.
 
-The Worker also needs the service account, as **runtime secrets** — not build
-variables, because these must never reach a browser:
+The Worker also needs the service account, under **Runtime variables and
+secrets** — not Build variables, because these are read server-side per request
+rather than inlined into a bundle:
 
-| secret | value |
-|---|---|
-| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | `capture-worker@john-lau-v01.iam.gserviceaccount.com` |
-| `GOOGLE_PRIVATE_KEY` | the PEM from that account's key file |
+| name | kind | value |
+|---|---|---|
+| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | Variable | `capture-worker@john-lau-v01.iam.gserviceaccount.com` |
+| `GOOGLE_PRIVATE_KEY` | **Secret** | the `private_key` field from that account's JSON key file, verbatim — `BEGIN`/`END` lines and `\n` included |
+
+The email is also declared in `wrangler.jsonc` under `vars`, and that is not
+belt-and-braces. A plain-text variable that exists only in the dashboard does
+**not** survive `wrangler deploy`, which is what every push to `main` runs — and
+the failure is quiet, because the Secret does survive: the key stays, the email
+vanishes, `driveConfigured()` turns false, and every upload begins answering
+*the Drive service account is not set*.
+
+`GOOGLE_PRIVATE_KEY` stays out of the repository and always will. Secrets are
+managed apart from `vars` precisely so a deploy cannot touch them.
 
 The scope requested is `drive.file` — the service account may touch files **it
 created** and nothing else, so a mistake cannot reach the 1.412 documents

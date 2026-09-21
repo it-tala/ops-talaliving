@@ -72,5 +72,29 @@
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
+  },
+
+  // ── Runtime variables ───────────────────────────────────────────────────
+  //
+  // **Declared here because a deploy would otherwise remove them.** Plain-text
+  // variables set in the dashboard and not present in this file do not survive
+  // `wrangler deploy`, which is what every push to `main` runs. Cloudflare says
+  // so in the dashboard — *update your Wrangler config to keep deployments in
+  // sync* — and the failure it prevents is quiet: the secret below stays, this
+  // value vanishes, `driveConfigured()` turns false, and every upload starts
+  // answering *the Drive service account is not set*.
+  //
+  // This is not the contradiction of the note above about `NEXT_PUBLIC_*`. Those
+  // are build-time values inlined into the browser bundle, and an anon key that
+  // differs between a local stack and the project. This is a **service account
+  // identity** — not a secret, the same in every environment, and already
+  // written down in `docs/plan/phase-2/05-storage.md`.
+  //
+  // `GOOGLE_PRIVATE_KEY` is **not** here and never will be. It is a Secret,
+  // set once in the dashboard or with `wrangler secret put`, encrypted at rest
+  // and unreadable afterwards. Secrets are managed apart from `vars` precisely
+  // so that a deploy cannot touch them.
+  "vars": {
+    "GOOGLE_SERVICE_ACCOUNT_EMAIL": "capture-worker@john-lau-v01.iam.gserviceaccount.com"
   }
 }
