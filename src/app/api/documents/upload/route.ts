@@ -39,7 +39,23 @@ import { uploadToDrive, findOrCreateOpsFolder, driveConfigured } from "@/lib/dri
  *  visible, it is in the right folder, and somebody can attach it by hand.
  */
 
-export const runtime = "edge";
+/** **Not `runtime = "edge"`.** That line was here and it broke the deploy:
+ *
+ *      app/api/documents/upload/route cannot use the edge runtime.
+ *      OpenNext requires edge runtime function to be defined in a separate
+ *      function.
+ *
+ *  `next build` accepts it happily — the failure is in `opennextjs-cloudflare
+ *  build`, which is a different command and the one that actually ships. So the
+ *  local build said yes to something the deploy said no to, which is the whole
+ *  reason `npm run cf:build` exists and the reason it now runs before a push
+ *  rather than after.
+ *
+ *  The default runtime is the right one regardless: OpenNext bundles it into
+ *  the Worker, `nodejs_compat` is already on, and everything this route needs —
+ *  `fetch`, `crypto.subtle`, `FormData` — is a web API that workerd provides
+ *  natively.
+ */
 
 interface Envelope {
   error?: { code: string; message: string; status: number; detail?: unknown };
