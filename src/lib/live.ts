@@ -66,6 +66,7 @@ export const LIVE_ROUTES: readonly string[] = [
   "/it/audit",
   "/it/pengguna",
   "/it/peran",
+  "/john-lau",
   "/procurement/catalog",
   "/procurement/meeting",
   "/procurement/po",

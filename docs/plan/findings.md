@@ -3858,3 +3858,40 @@ file.
 What generalises: **when a guard fires on something innocent, the fix belongs
 in the guard's precision, not in its scope.** Widening what it permits and
 narrowing what it inspects look similar in a diff and are opposites.
+
+---
+
+## F94 — the guard whose scope was typed out by hand
+
+`scripts/check-api-parity.mjs` is the only thing that stops the demo client and
+the real one drifting apart. ADR-009 says a screen cannot tell which of the two
+it got, and that claim is worth exactly as much as this check.
+
+It opened with:
+
+```js
+const SERVICES = ["identity", "procurement", "accounting", "documents"];
+```
+
+`src/lib/api/assistant.ts` was written, exported from `src/lib/api/index.ts`,
+and swapped in for the demo — five functions, one of which confirms a write —
+and the check said `ok (82 of 104 match)`. It was not wrong about the
+hundred and four. It had simply never opened the file.
+
+Derived from `src/lib/api/index.ts` instead, the same line reads `ok (87 of 109
+match)`. The five that appeared were the five it had been blind to, and they
+happened to be fine. The next five might not be.
+
+What makes this worth writing down is not the missing name. It is **which**
+name was missing: the newest one. A hand-kept scope is always complete for the
+code that existed when somebody last thought about it, so the thing it stops
+covering first is always the thing most likely to be wrong. The failure mode is
+not a guard that breaks — it is a guard that keeps saying `ok`, in a smaller
+and smaller voice, while the surface it was written for grows past it.
+
+`check-live-routes.mjs` already read that file for its own list, three metres
+away, and the reason given there is the same one: *adding a service to the live
+set means writing it, not editing a list.*
+
+The rule: **a guard's scope is read, never typed.** If a check needs to know
+what exists, it asks the thing that knows.

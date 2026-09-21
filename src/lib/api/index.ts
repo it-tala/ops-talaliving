@@ -33,6 +33,10 @@ export * as accounting from "./accounting";
    so every screen that needs an upload stays dark and says which call it is
    waiting for, while the screens that only read evidence open. */
 export * as documents from "./documents";
+/* John Lau. The catalogue, the gate and the router are in `ops_asst` (0038,
+   0039, 0040); this module runs the tools by making the same calls the screens
+   make, as the person, so RLS applies exactly as it does there. */
+export * as assistant from "./assistant";
 
 export { isOk } from "@/services/_shared/envelope";
 export type { Result, ApiError, Outcome } from "@/services/_shared/envelope";

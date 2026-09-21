@@ -33,6 +33,7 @@ import * as liveIdentity from "@/lib/api/identity";
 import * as liveProcurement from "@/lib/api/procurement";
 import * as liveAccounting from "@/lib/api/accounting";
 import * as liveDocuments from "@/lib/api/documents";
+import * as liveAssistant from "@/lib/api/assistant";
 
 export const identity = swap("identity", demoIdentity, liveIdentity);
 export const procurement = swap("procurement", demoProcurement, liveProcurement);
@@ -55,7 +56,7 @@ export const marketing = swap("marketing", demoMarketing);
    `ServiceName` values to make this line read nicely would put a name in the
    audit trail that no envelope anywhere else uses. */
 export const delivery = swap("production", demoDelivery);
-export const assistant = swap("procurement", demoAssistant);
+export const assistant = swap("procurement", demoAssistant, liveAssistant);
 
 export { isOk } from "@/services/_shared/envelope";
 export type { Result, ApiError, Outcome } from "@/services/_shared/envelope";

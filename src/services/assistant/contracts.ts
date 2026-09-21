@@ -77,7 +77,20 @@ export interface AssistantTool {
  */
 export interface AnswerFact {
   label: string;
-  value: string;
+  /** Anything that is not a number: a status, a count with its unit, a date.
+   *
+   *  **A figure does not go here.** `amount` carries figures, because the
+   *  separators in `Rp 6.000.000` follow a locale the person chooses
+   *  (`formatIDR`), and a number formatted anywhere but there is a number that
+   *  disagrees with the screen it is supposed to be checkable against (D217). */
+  value: string | null;
+  /** The figure itself, unformatted, when there is one. Rendered with the same
+   *  helper the screens use, so John Lau's number and the screen's number are
+   *  the same string of characters and can be compared by eye. */
+  amount?: number | null;
+  /** What `amount` is counted in. `IDR` today; a unit here rather than a
+   *  formatted string means the next one does not need a second rule. */
+  unit?: "IDR" | null;
   /** The tool that produced it. */
   source: string;
   /** The screen showing the same number. */
@@ -103,8 +116,16 @@ export interface AssistantDraft {
   tool: string;
   /** What it will do, in one line. */
   headline: string;
-  /** Field by field, exactly what will be written. */
-  fields: { label: string; value: string }[];
+  /** Field by field, exactly what will be written.
+   *
+   *  `key` is what the confirmation is keyed by, and `label` is what the person
+   *  reads. They were one thing — the label — and that made the payload depend
+   *  on the language in force: somebody who drafted in Indonesian and switched
+   *  to English before pressing yes confirmed a form whose every field had
+   *  become empty, silently, because `fields["Barang"]` no longer existed.
+   *
+   *  A display string is never a key. */
+  fields: { key: string; label: string; value: string }[];
   /** Things a person should notice before saying yes — a price above the last
    *  one paid, a vendor with no history. Never blocking. */
   warnings: string[];
