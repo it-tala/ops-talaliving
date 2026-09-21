@@ -336,6 +336,7 @@ same state to build on.
 | Open | The default we take until told otherwise |
 |---|---|
 | **Q54 — may the workshop raise its own purchase request?** | **No — `procurement.create`, unchanged.** `ops_prod.request_materials` assembles the lines and hands them to `create_pr`; it does not write `pr_documents` itself, so there is exactly one road to a purchase request and one authority guarding it. A foreman who should raise his own is **granted `procurement.create`**, which is a grant somebody can audit, rather than served by a second door in another schema that nobody would think to look at. Flip it by saying so and the check becomes `procurement.create or production.create` in one line — but the request stays a **draft** either way (D151) |
+| **Q55 — is each seam's own replay path worth a test, or is the mechanism enough?** | **Each seam's own, eventually — thirty-nine of the sixty-six are not tested today.** The `idem_replay` mechanism is well covered (`04`'s `tap-0001` block). What is not is each seam's **two lines**: that this function asks before it works, and asks under the right service and endpoint. `0051` shipped with those lines deletable and nothing noticing (F125). The pattern that catches it is cheap — send the key a second time with **different arguments behind it** and assert the first call's answer comes back — but retro-fitting it touches accounting and procurement smoke while those modules are going live, so it waits for that cutover rather than racing it |
 
 ### Closed, for the shape
 

@@ -4877,3 +4877,48 @@ nobody looks for one; the same rule as a policy sits where every reader of that
 table already looks. And a privacy boundary that needs a special mechanism is
 usually a boundary drawn in the wrong place — the right line here needed no
 mechanism at all, only a predicate in the place predicates go.
+
+## F125 · 2026-09-21 · 0051 — the idempotency key that was never sent
+
+**What the mutation found.** `import_overtime_form` opens the way every seam
+in this codebase opens — read the key, hand back the remembered answer if it is
+there:
+
+```sql
+v_replayed := ops_core.idem_replay('hr','import_overtime_form', p_key);
+if v_replayed is not null then return v_replayed; end if;
+```
+
+Deleting those two lines broke nothing. Twenty-four of the twenty-five
+mutations on `0051` were caught; that one survived.
+
+**Why.** The smoke *did* send the form twice, and asserted the second reading
+added nothing — but the second call passed **no key**. It was testing the
+function's own arithmetic (every row on the paper is already a line, so nothing
+to add), which is a different promise from the one the key makes. The two look
+identical from the outside: both answer *nothing was added*. Only one of them
+is still true when the rows differ.
+
+**The distinguishing case is a key with different rows behind it.** A third
+call, carrying the first call's key and a single row, must answer with the
+**first call's tally** — `added = 2` — because a replay hands back the stored
+envelope without doing the work. A fresh execution of that one row would say
+`added = 0`. Now the mutation dies.
+
+**A wider question this opens, measured rather than guessed at.** Sixty-six
+seams in the ladder take an idempotency key. Counting call sites where the same
+literal is passed as the last argument twice, **twenty-seven** have the replay
+path exercised; the rest reach it only through the one-key-one-call shape that
+just proved insufficient here. The mechanism itself is well tested — `04`'s
+`approve_line` block sends `tap-0001` twice, asserts `outcome = 'duplicate'`,
+status 200, `data` byte-identical to the first answer, and two approval rows
+rather than three; `tap-0002` proves a 422 releases the claim. What is untested
+is each seam's own **two lines**: that this particular function asks before it
+works, and asks with the right service and endpoint. A copied-in `'hr'` where
+`'acct'` belongs would make two seams share one key space, and nothing in the
+suite would notice.
+
+**The lesson is F95's, with a sharper edge on it.** *A check that has never
+failed for the right reason has not been checked* — and a test can fail for the
+right-looking reason while exercising the wrong code. The second reading of
+that form always passed, and always would have, with the replay deleted.
