@@ -123,8 +123,41 @@ select source_id, note from ops_core.legacy_map
  where source_table = 'public.projects' and outcome = 'refused';
 ```
 
-**The grants have not been made** — by decision, not by omission. Seven of the
-nine can sign in; none of them can open anything. The legacy roles are recorded in
+**Module access was set on 2026-09-21**, for the three modules that have live
+screens: `it`, `procurement`, `accounting`.
+
+| person | legacy role | modules | authorities |
+|---|---|---|---|
+| Tala IT | IT Developer | `it:admin` `procurement:admin` `accounting:admin` | — |
+| Ryan Tala | IT Developer | `it:admin` `procurement:read` `accounting:read` | — |
+| Anggun Tala | Accounting | `procurement:read` `accounting:write` | `post_ledger` `resolve_inbox` |
+| putri | Accounting | `procurement:read` `accounting:write` | `post_ledger` `resolve_inbox` |
+| Geryle Lao | Payment Approver | `procurement:read` `accounting:read` | `approve_funds` |
+| Evin Oshima | CEO | `procurement:read` `accounting:read` | — |
+| Alika Oshima | CO-CEO | `procurement:read` `accounting:read` | — |
+
+**Evin and Alika deliberately hold no `approve_funds`.** Geryle's legacy role
+says *Payment Approver* in so many words; CEO and CO-CEO are job titles, and
+reading a signature on money out of a job title is exactly the guess this
+system is built not to make. It is two clicks on the IT screen the day somebody
+says otherwise.
+
+The derived permissions were checked against `permission_catalog` rather than
+assumed — a level is not a permission until the catalog says so. `it:admin`
+does yield `it.read` and `it.manage_roles`, which is the part that matters:
+**the next change happens on the IT screen, not in SQL.**
+
+### Applied out-of-band, and the audit says so
+
+`ops_core.set_modules` and `set_authorities` both require
+`has_permission('it.manage_roles')`, read from `auth.uid()`. An MCP session has
+no session, so the seams refuse — correctly. The rows were therefore written
+directly, with `granted_by` left **null**: nobody clicked this, and a name in
+that column would claim a click that never happened. One `audit_log` row per
+person records what changed, that SQL applied it, and who asked.
+
+This was a bootstrap, not a pattern. Two people now hold `it.manage_roles`, so
+there is no reason to do it this way again. The legacy roles are recorded in
 `legacy_map.note` — Accounting, CEO, CO-CEO, IT Developer, Payment Approver,
 and two people with no role recorded at all — but a legacy role is a note, not
 a mapping: this system grants *modules* and *authorities*, and which of those
