@@ -74,9 +74,7 @@ export function EvidenceStrip({
   }
 
   async function attach(file: File) {
-    const up = await documents.upload({
-      filename: file.name, mime: file.type || "application/octet-stream", bytes: file.size,
-    });
+    const up = await documents.upload({ file, kind });
     if (up.error) { toast("critical", "Upload failed", up.error.message); return; }
     const link = await documents.link({
       attachment_id: up.data.id, entity, entity_no: entityNo, kind,

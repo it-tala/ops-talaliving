@@ -347,13 +347,25 @@ if (process.argv.includes("--report")) {
 
   /* A route blocked by one thing is the cheap one; a route blocked by nine is a
      service, not an afternoon. */
-  console.log("\nroutes by how much they are waiting on:\n");
-  for (const v of verdict.filter((x) => !x.live)
-                         .map((x) => [x.route, x.missing.length + x.unimplemented.length,
-                                      [...x.missing.map((s) => s + ".*"), ...x.unimplemented]])
-                         .sort((a, b) => a[1] - b[1])
-                         .slice(0, 20)) {
+  /* `--report /procurement/pr` narrows to the routes whose path contains that
+     text and prints all of them. Without a filter the list is capped, because
+     forty-seven rows scroll the summary above it off the screen — and the
+     summary is the part somebody reads first. */
+  const filter = process.argv[process.argv.indexOf("--report") + 1];
+  const narrow = filter && !filter.startsWith("--") ? filter : null;
+
+  const waiting = verdict.filter((x) => !x.live)
+    .filter((x) => !narrow || x.route.includes(narrow))
+    .map((x) => [x.route, x.missing.length + x.unimplemented.length,
+                 [...x.missing.map((s) => s + ".*"), ...x.unimplemented]])
+    .sort((a, b) => a[1] - b[1]);
+
+  console.log(`\nroutes by how much they are waiting on${narrow ? ` (${narrow})` : ""}:\n`);
+  for (const v of (narrow ? waiting : waiting.slice(0, 20))) {
     console.log(`  ${String(v[1]).padStart(2)}  ${v[0].padEnd(38)} ${v[2].join(", ")}`);
+  }
+  if (!narrow && waiting.length > 20) {
+    console.log(`\n  …and ${waiting.length - 20} more. Narrow with: --report <path fragment>`);
   }
   process.exit(0);
 }

@@ -254,6 +254,62 @@ export async function postTransaction(
   return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
 }
 
+/** Pay an approved request line.
+ *
+ *  The working surface's whole point (D74): the same board where a line is
+ *  asked for, corrected and documented is where it gets paid. Until `0034` this
+ *  had **no seam, no client function and no row anywhere** — paying an approved
+ *  request was a thing the database could not do at all, which is why
+ *  `/procurement/pr` and `/procurement/meeting` were both dark.
+ *
+ *  `account_id` rather than a code, because the screen picked the account from
+ *  a list of `AccountRow`; the seam takes the code, and `codeFor` translates.
+ *
+ *  **The proof is required** (D85). A payment with no transfer receipt is the
+ *  same empty row as any other undocumented posting, and the refusal names the
+ *  receipt rather than "documents", because that is the thing the person is
+ *  being asked for.
+ */
+export async function postFromLine(
+  input: {
+    line_no: string;
+    amount: number;
+    account_id: string;
+    trx_date: string;
+    type_code: TransactionTypeCode;
+    attachment_id: string;
+    document_kind?: DocKind;
+  },
+  idempotencyKey?: string,
+): Promise<Result<TransactionView>> {
+  const accountCode = await codeFor("accounts", input.account_id);
+  if (!accountCode) {
+    return invalid(SERVICE, "account_not_found",
+      "Akun itu tidak ada di database.", { field: "account_id" });
+  }
+
+  const { data, error } = await db().rpc("post_from_line", {
+    p_line_no:       input.line_no,
+    p_amount:        input.amount,
+    p_account_code:  accountCode,
+    p_type_code:     input.type_code,
+    p_attachment_id: input.attachment_id || null,
+    p_trx_date:      input.trx_date,
+    p_document_kind: input.document_kind ?? "Payment Proof",
+    p_key:           idempotencyKey ?? null,
+  });
+  const posted = fromSeam<{ trx_no: string }>(SERVICE, data, error);
+  if (posted.error) return posted;
+
+  /* Same shape as `postTransaction`: the money has moved whether or not this
+     read succeeds, so a failed read is returned as itself rather than dressed
+     as a failed payment. Retrying one that already happened is how a supplier
+     gets paid twice. */
+  const row = await db()
+    .from("v_transaction").select("*").eq("trx_no", posted.data.trx_no).single();
+  return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
+}
+
 /** VOID keeps the row and the amount, with a reason beside it (A5, D84). The
  *  correction is a new row; this one stays, saying what was once believed. */
 export async function voidTransaction(

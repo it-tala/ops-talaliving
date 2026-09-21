@@ -92,27 +92,14 @@ export const PENDING_PARITY: readonly string[] = [
   /* Procurement: the same pattern, at scale. Every one of these answers what
      the seam returned rather than the row the screen is about to draw. The
      curation five are gone from here — see the note above. */
-  "procurement.amendPoLine",
   "procurement.answerFromChat",
-  "procurement.approvePo",
   "procurement.approveRound",
-  "procurement.closePo",
   "procurement.closeRound",
   "procurement.confirmReceipt",
-  /* Takes `vendor_code`; the screen holds `vendor_id`. */
-  "procurement.createPo",
   "procurement.createReceipt",
-  /* Answers `PoDetail`; the contract is `PoView`. Two different shapes with
-     confusingly similar names — worth resolving in the contract, not here. */
-  "procurement.getPo",
   "procurement.getRound",
-  "procurement.issuePo",
-  "procurement.listPo",
   "procurement.listReported",
   "procurement.listRounds",
-  "procurement.markPoResent",
-  "procurement.requestApproval",
-  "procurement.requestPoApproval",
   "procurement.setExpectedDelivery",
   "procurement.syncRound",
   /* Positional against object arguments. */
