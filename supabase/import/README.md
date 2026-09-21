@@ -33,6 +33,7 @@ Each file ends by printing what it did. Read that, not the exit code.
 | 3 | `projects` → `ops_procure.projects` | 5 | `01_reference.sql` |
 | 4 | `vendors` → `ops_procure.vendors` | 296 | `01_reference.sql` |
 | 5 | `items` → `ops_procure.items` | 1.020 | `02_items.sql` |
+| 6 | `transactions` → `ops_acct.transactions` | 3.235 | `03_ledger.sql` |
 
 ### Step 1 is not an `insert … select`
 
@@ -81,6 +82,53 @@ wrote one down — a question somebody can answer. A defaulted `pcs` would mean
 Nine items keep no unit for a different reason: `fil`, `gendel`, `ltrset`,
 `roll/pcs` and `pail/drum`. The last two name two units at once, which is not a
 unit. Their original text is kept in `legacy_map.note`.
+
+### Step 6 — the ledger, and why it cannot be done in halves
+
+Reference data can. A vendor that did not come across is one somebody notices
+is missing.
+
+A ledger cannot. **Every opening balance in `ops_acct.accounts` is 0 as of
+2026-01-01 and the legacy data begins 2026-01-01**, so a balance in the new
+system is exactly the sum of what `03_ledger.sql` imported. A row left out does
+not show as a gap — it shows as a balance that is wrong, on a screen that looks
+identical to one that is right.
+
+That is why `0042` had to land first. Five transaction types existed in the old
+system and not the new one, covering 473 rows and **Rp 1,26 miliar**; an import
+may not invent a category, so the codes had to be added deliberately (owner,
+2026-09-21) before anything could run.
+
+It is also why the file ends with a reconciliation rather than a summary: net
+movement per account, ours against theirs, which must agree to the rupiah.
+**Read that, not the exit code.** A difference is not a rounding question — it
+is a row the import did not carry.
+
+Three things it resolves that the old schema kept as text:
+
+- **the author.** 706 of the 3.235 have one, recoverable through
+  `event_id → raw_events.sender → chat_users.email`, and it is carried. The
+  other 2.529 have none anywhere, and `posted_by` is `not null`. Owner,
+  2026-09-21: **`shared@talaliving.com`** — put to them with the cost attached,
+  that it is an account people sign in to and the trail will read as though it
+  posted them, and chosen anyway. Every such row is marked in `legacy_map`, so
+  *which ones had a real author* stays answerable.
+- **the vendor**, by name. 276 of 281 distinct names resolve.
+- **the project**, by **name** and not by code — `transactions.project` holds
+  `BABY ISLAND`, not `25007`. 655 of 666 rows resolve. Among the eleven that do
+  not is `CHAIR PHILIPPINES`, which the project table spells
+  `CHAIR PHILIPHINES`: two live systems disagreeing about a name, which must
+  surface as a refusal rather than be matched away by a fuzzy comparison.
+
+Booking the money twice is guarded three times over, and each layer was proved
+by removing the one above it: the `legacy_map` gate, `source_ref` unique, and
+`trx_no` unique.
+
+`trx_no` carries the legacy number across unchanged. The old id is
+`trx-26-01-02_001` and `ops_acct.transactions.trx_no` is documented as
+`trx-26-09-11_014` — the same format, because the new numbering was written
+from the old. So the number people already quote keeps working, and a
+screenshot from January still finds its row.
 
 ## What the import must never do
 

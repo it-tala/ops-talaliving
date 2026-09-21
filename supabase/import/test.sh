@@ -143,30 +143,158 @@ LV=$(q -Atc "select (last_vendor_id is null)::text from ops_procure.items where 
 [ "$LV" = "true" ] || fail "an unknown last vendor stays null" "a vendor was invented"
 pass "last vendor resolved, never invented"
 
-# Re-read the map now that both files have run. Taken before `02_items` it
-# would be a count from a different moment, and comparing it with the second
-# run would report a failure that is only the measurement moving.
+
+echo
+echo "── ledger ──────────────────────────────────────────────────────────"
+q -q -f "$HERE/03_ledger.sql" >/dev/null
+pass "03_ledger (first run)"
+
+# Twelve legacy rows, four of them unimportable for four different reasons.
+T1=$(q -Atc "select count(*) from ops_acct.transactions")
+[ "$T1" = "8" ] || fail "eight of twelve transactions land" "saw $T1"
+TR=$(q -Atc "select count(*) from ops_core.legacy_map
+              where source_table='public.transactions' and outcome='refused'")
+[ "$TR" = "4" ] || fail "four refusals, one per shape" "saw $TR"
+pass "8 imported, 4 refused"
+
+# Each refusal names its own reason. Four rows refused under one message would
+# be a list nobody can work through — which is what the refusals are for.
+for want in "amount is 0" "no direction" "is not an account" "has no code"; do
+  q -Atc "select note from ops_core.legacy_map
+           where source_table='public.transactions' and outcome='refused'" \
+    | grep -q "$want" || fail "a refusal says '$want'" "no refusal mentions it"
+done
+pass "four refusals, four distinct reasons"
+
+# **The number people already quote.** `trx-26-01-02_001` in the old system is
+# `trx-26-01-02_001` here, because the two numbering schemes are the same one.
+# A screenshot from January still finds its row.
+N=$(q -Atc "select count(*) from ops_acct.transactions where trx_no = 'trx-26-01-02_001'")
+[ "$N" = "1" ] || fail "the legacy transaction number is carried across" "saw $N"
+pass "trx_no survives the move"
+
+# The author the old system recorded is recovered, not flattened onto the
+# fallback. One of the twelve has a chat event from somebody this system knows.
+AUTHOR=$(q -Atc "select u.email::text from ops_acct.transactions t
+                   join ops_core.users u on u.id = t.posted_by
+                  where t.trx_no = 'trx-26-01-02_001'")
+[ "$AUTHOR" = "evin@talaliving.com" ] \
+  || fail "a recorded author is recovered" "saw '$AUTHOR' — it was flattened onto the fallback"
+
+# And the one whose sender chat knows but this system does not falls back,
+# rather than failing or inventing a user.
+AUTHOR=$(q -Atc "select u.email::text from ops_acct.transactions t
+                   join ops_core.users u on u.id = t.posted_by
+                  where t.trx_no = 'trx-26-01-12_011'")
+[ "$AUTHOR" = "shared@talaliving.com" ] \
+  || fail "an unknown sender falls back" "saw '$AUTHOR'"
+pass "author recovered where recorded, shared@ where not"
+
+# A vendor name that resolves becomes a key; one that does not stays null with
+# its text kept. Never created — a vendor made from a ledger line is a
+# duplicate nobody will ever find.
+VOK=$(q -Atc "select (vendor_id is not null)::text from ops_acct.transactions where trx_no='trx-26-01-02_001'")
+[ "$VOK" = "true" ] || fail "a known vendor resolves" "saw $VOK"
+VNO=$(q -Atc "select (vendor_id is null)::text from ops_acct.transactions where trx_no='trx-26-01-04_003'")
+[ "$VNO" = "true" ] || fail "an unknown vendor stays null" "a vendor was invented"
+VC=$(q -Atc "select count(*) from ops_procure.vendors where name like '%TIDAK ADA%'")
+[ "$VC" = "0" ] || fail "and is not created" "the import made a vendor from a ledger line"
+pass "vendor resolved, never invented"
+
+# `CHAIR PHILIPPINES` on the transaction against `CHAIR PHILIPHINES` in the
+# project table. Two live systems disagreeing about a name, and the import must
+# leave it null rather than match it away — a fuzzy comparison here is how a
+# cost lands on the wrong project.
+POK=$(q -Atc "select (project_id is not null)::text from ops_acct.transactions where trx_no='trx-26-01-02_001'")
+[ "$POK" = "true" ] || fail "a project name that matches resolves" "saw $POK"
+PNO=$(q -Atc "select (project_id is null)::text from ops_acct.transactions where trx_no='trx-26-01-05_004'")
+[ "$PNO" = "true" ] || fail "a misspelled project stays null" "it was matched away"
+q -Atc "select note from ops_core.legacy_map where source_id='trx-26-01-05_004'" \
+  | grep -q "CHAIR PHILIPPINES" || fail "the original project text is kept" "note lost it"
+pass "project resolved by name, spelling difference refused"
+
+# No type at all is filed OTHERS, because `type_code` is not null — and the map
+# says so, which is what keeps those rows findable among the ones somebody
+# deliberately filed that way.
+TY=$(q -Atc "select type_code from ops_acct.transactions where trx_no='trx-26-01-10_009'")
+[ "$TY" = "OTHERS" ] || fail "a blank type is filed OTHERS" "saw '$TY'"
+q -Atc "select note from ops_core.legacy_map where source_id='trx-26-01-10_009'" \
+  | grep -q "indistinguishable" || fail "and the map says the original was blank" "note does not"
+pass "no type → OTHERS, and noted"
+
+# A blank status is posted, not left to a default nobody chose.
+ST=$(q -Atc "select status::text from ops_acct.transactions where trx_no='trx-26-01-11_010'")
+[ "$ST" = "POSTED" ] || fail "a blank status is posted" "saw '$ST'"
+pass "no status → POSTED"
+
+# `posted_at` carries the legacy moment. A ledger whose rows all claim to have
+# been posted on the afternoon of the import cannot answer *what did we know in
+# March*.
+PA=$(q -Atc "select (posted_at::date = '2026-01-02')::text from ops_acct.transactions where trx_no='trx-26-01-02_001'")
+[ "$PA" = "true" ] || fail "posted_at is the legacy moment" "it defaulted to now()"
+pass "posted_at is when it happened"
+
+# ── the reconciliation, which is why this file exists ─────────────────────
+#
+# Openings are 0 on both sides, so a balance here is exactly the sum of what
+# was imported. Three accounts have no refused rows and must agree to the
+# rupiah. The two that differ must differ by **exactly** the refused amount —
+# any other number is a row the import lost without saying so.
+AGREE=$(q -Atc "with ours as (
+    select a.code, sum(case when t.direction='IN' then t.amount_idr else -t.amount_idr end) net
+      from ops_acct.transactions t join ops_acct.accounts a on a.id=t.account_id
+     where t.status <> 'VOID' group by a.code),
+  theirs as (
+    select btrim(account) code, sum(case when in_out='IN' then idr_amount else -idr_amount end) net
+      from public.transactions
+     where account is not null and idr_amount > 0 and in_out in ('IN','OUT') group by 1)
+  select count(*) from ours o join theirs x on x.code=o.code where o.net = x.net")
+[ "$AGREE" = "3" ] || fail "the untouched accounts reconcile to the rupiah" "only $AGREE of 3 agree"
+pass "3 accounts reconcile exactly"
+
+DIFF=$(q -Atc "with ours as (
+    select a.code, sum(case when t.direction='IN' then t.amount_idr else -t.amount_idr end) net
+      from ops_acct.transactions t join ops_acct.accounts a on a.id=t.account_id
+     where t.status <> 'VOID' group by a.code),
+  theirs as (
+    select btrim(account) code, sum(case when in_out='IN' then idr_amount else -idr_amount end) net
+      from public.transactions
+     where account is not null and idr_amount > 0 and in_out in ('IN','OUT') group by 1)
+  select string_agg(coalesce(o.code,x.code) || '=' || (coalesce(o.net,0)-coalesce(x.net,0))::text, ',' order by coalesce(o.code,x.code))
+    from ours o full join theirs x on x.code=o.code
+   where coalesce(o.net,0) <> coalesce(x.net,0)")
+[ "$DIFF" = "BNI 325=42000,BRI 900=123000" ] \
+  || fail "and the differences are exactly the refused rows" "saw $DIFF"
+pass "the two gaps are exactly the four refusals"
+
+# Re-read the map now that every file has run. Taken earlier it would be a
+# count from a different moment, and comparing it with the second run would
+# report a failure that is only the measurement moving.
 M1=$(q -Atc "select count(*) from ops_core.legacy_map")
 
 echo
 echo "── second run — the one that matters ───────────────────────────────"
 q -q -f "$HERE/01_reference.sql" >/dev/null
 q -q -f "$HERE/02_items.sql" >/dev/null
-pass "01_reference + 02_items (second run)"
+q -q -f "$HERE/03_ledger.sql" >/dev/null
+pass "01_reference + 02_items + 03_ledger (second run)"
 
 V2=$(q -Atc "select count(*) from ops_procure.vendors")
 P2=$(q -Atc "select count(*) from ops_procure.projects")
 M2=$(q -Atc "select count(*) from ops_core.legacy_map")
 A2=$(q -Atc "select count(*) from ops_acct.accounts")
 I2=$(q -Atc "select count(*) from ops_procure.items")
+T2=$(q -Atc "select count(*) from ops_acct.transactions")
 RUNS=$(q -Atc "select count(distinct run_id) from ops_core.legacy_map")
 
 [ "$V2" = "$V1" ] || fail "re-running imports no vendor twice"  "$V1 then $V2"
 [ "$P2" = "$P1" ] || fail "re-running imports no project twice" "$P1 then $P2"
 [ "$A2" = "$A1" ] || fail "re-running inserts no account"       "$A1 then $A2"
 [ "$I2" = "$I1" ] || fail "re-running imports no item twice"    "$I1 then $I2"
+# The one that would be a duplicate of money rather than of a reference row.
+[ "$T2" = "$T1" ] || fail "re-running books no transaction twice" "$T1 then $T2"
 [ "$M2" = "$M1" ] || fail "the map does not grow on a re-run"   "$M1 then $M2"
-[ "$RUNS" = "2" ] || fail "two files, two run ids on the first pass" "saw $RUNS"
+[ "$RUNS" = "3" ] || fail "three files, three run ids on the first pass" "saw $RUNS"
 pass "second run changed nothing"
 
 echo
