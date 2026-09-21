@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { supabaseServer } from "@/lib/supabase/server";
-import { uploadToDrive, driveConfigured } from "@/lib/drive";
+import { uploadToDrive, findOrCreateOpsFolder, driveConfigured } from "@/lib/drive";
 
 /** `POST /api/documents/upload` — the one server route this application has.
  *
@@ -110,7 +110,45 @@ export async function POST(request: Request): Promise<Response> {
       { status: e?.status ?? 422 },
     );
   }
-  const folder = resolved.data as { folder_id: string; label: string; slug: string };
+  const folder = resolved.data as {
+    folder_id: string | null;
+    parent_folder_id: string | null;
+    label: string;
+    slug: string;
+  };
+
+  /* **The `ops` folder, located once per drive.**
+   *
+   * The owner gave the module folders — what a person can read off a Drive URL
+   * — and `ops` is the subfolder everything this application writes goes into,
+   * so that people and the system can read the same drive side by side without
+   * mixing what each of them filed.
+   *
+   * Resolved by name and then written down, rather than asked for as eight
+   * more ids: a name is checkable, an id pasted into a column that redirects
+   * every future upload is not.
+   */
+  let folderId = folder.folder_id;
+  if (!folderId) {
+    if (!folder.parent_folder_id) {
+      return refuse(501, "drive_not_configured",
+        `The ${folder.label} shared drive has no folder recorded yet.`);
+    }
+    try {
+      folderId = await findOrCreateOpsFolder(folder.parent_folder_id);
+    } catch (e) {
+      return refuse(502, "drive_folder_failed",
+        `Could not find or create the \`ops\` folder in ${folder.label}. `
+        + String((e as Error).message),
+        { slug: folder.slug });
+    }
+    /* Written back so the next upload does not search again. A failure here is
+       not worth refusing an upload over — the folder exists, the file can go in
+       it, and the only cost is one more search next time. */
+    await sb.schema("ops_core").rpc("record_ops_folder", {
+      p_slug: folder.slug, p_folder_id: folderId,
+    });
+  }
 
   const bytes = await file.arrayBuffer();
 
@@ -126,7 +164,7 @@ export async function POST(request: Request): Promise<Response> {
   let uploaded;
   try {
     uploaded = await uploadToDrive(
-      { name: file.name, type: file.type, bytes }, folder.folder_id,
+      { name: file.name, type: file.type, bytes }, folderId,
     );
   } catch (e) {
     /* Nothing has been written to the database, so there is nothing to undo.

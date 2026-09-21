@@ -76,15 +76,14 @@ begin
   -- Nothing is configured in a fresh ladder, which is correct: `drive_id` and
   -- `folder_id` are facts about somebody's Google Workspace, and a migration
   -- that invented them would ship a wrong answer.
+  -- `0036` recorded the eight module folders the owner gave, so the drives
+  -- resolve — with `folder_id` still null, meaning *the `ops` folder has not
+  -- been located yet*. That is the route's job, not a person's.
   r := ops_core.drive_folder_for('nota');
-  assert r ->> 'outcome' = 'refused', format('an unconfigured drive refuses, got %s', r);
-  assert r -> 'error' ->> 'code' = 'drive_not_configured', format('got %s', r);
-  -- And it names the drive and the remedy, because "upload failed" sends
-  -- somebody to IT with nothing to say.
-  assert r -> 'error' ->> 'message' like '%ACCOUNTING%',
-    format('it names the drive, got %s', r -> 'error' ->> 'message');
-  assert r -> 'error' ->> 'message' like '%drive_folders%',
-    format('and where to set it, got %s', r -> 'error' ->> 'message');
+  assert ops_core.said_ok(r), format('a drive with a parent folder resolves, got %s', r);
+  assert r -> 'data' ->> 'parent_folder_id' is not null, 'the module folder is recorded';
+  assert r -> 'data' ->> 'folder_id' is null,
+    format('and `ops` is not located yet, got %s', r -> 'data' ->> 'folder_id');
 end $$;
 
 /* ── REFUSAL: a kind nobody has heard of ───────────────────────────────── */
@@ -103,20 +102,35 @@ end $$;
 
 /* ── once IT fills it in ───────────────────────────────────────────────── */
 
-set local role postgres;
-update ops_core.drive_folders
-   set drive_id = '0AD_hrd_example', folder_id = '1hrd_ops_example'
- where slug = 'hrd';
-update ops_core.drive_folders
-   set drive_id = '0AD_proc_example', folder_id = '1proc_ops_example'
- where slug = 'procurement';
-set local role authenticated;
+-- The route's write-back, after it has found or created `ops` in Drive. Run as
+-- an ordinary uploader on purpose: `drive_folders` is `it.admin` to write, and
+-- this narrow `security definer` fill is the exception.
+do $$
+declare r jsonb;
+begin
+  r := ops_core.record_ops_folder('hrd', '1hrd_ops_example');
+  assert ops_core.said_ok(r), format('the route writes down what it found, got %s', r);
+
+  -- **Only ever fills a blank.** A caller that could change a folder already
+  -- set could redirect every future upload for that drive — HRD's included —
+  -- just by being the next person to upload anything.
+  r := ops_core.record_ops_folder('hrd', '1somewhere_else');
+  assert r ->> 'outcome' = 'noop', format('a second call changes nothing, got %s', r);
+  assert r -> 'data' ->> 'folder_id' = '1hrd_ops_example',
+    format('and answers the id that is there, got %s', r -> 'data');
+
+  r := ops_core.record_ops_folder('procurement', '1proc_ops_example');
+  assert ops_core.said_ok(r), format('got %s', r);
+
+  r := ops_core.record_ops_folder('nosuchdrive', '1x');
+  assert r -> 'error' ->> 'code' = 'not_found', format('got %s', r);
+end $$;
 
 do $$
 declare r jsonb;
 begin
   r := ops_core.drive_folder_for('ktp');
-  assert ops_core.said_ok(r), format('a configured drive resolves, got %s', r);
+  assert ops_core.said_ok(r), format('a located drive resolves, got %s', r);
   assert r -> 'data' ->> 'slug' = 'hrd', format('a KTP goes to HRD, got %s', r -> 'data');
   assert r -> 'data' ->> 'folder_id' = '1hrd_ops_example', 'and names the ops folder';
 
@@ -127,11 +141,12 @@ begin
   assert r -> 'data' ->> 'slug' = 'procurement',
     format('a goods photo goes to PROCUREMENT, got %s', r -> 'data');
 
-  -- Accounting is still unset, and still says so rather than falling back to
-  -- a drive that happens to be ready.
+  -- Accounting's `ops` is still not located, and it answers that rather than
+  -- borrowing a folder from a drive that happens to be ready.
   r := ops_core.drive_folder_for('nota');
-  assert r -> 'error' ->> 'code' = 'drive_not_configured',
-    format('one configured drive is not all of them, got %s', r);
+  assert r -> 'data' ->> 'folder_id' is null,
+    format('one located drive is not all of them, got %s', r -> 'data');
+  assert r -> 'data' ->> 'slug' = 'accounting', 'and it is still the right drive';
 end $$;
 
 /* ── what /it reads ────────────────────────────────────────────────────── */
@@ -140,17 +155,22 @@ do $$
 declare r record; n int;
 begin
   select count(*) into n from ops_core.v_drive_readiness;
-  assert n = 7, format('seven shared drives, got %s', n);
+  assert n = 8, format('eight shared drives — IT was added 2026-09-21, got %s', n);
 
   select * into r from ops_core.v_drive_readiness where slug = 'hrd';
   assert r.has_folder, 'HRD is ready';
   assert r.kinds = 11, format('and takes eleven kinds of document, got %s', r.kinds);
 
   select * into r from ops_core.v_drive_readiness where slug = 'backup';
-  assert not r.has_folder, 'BACKUP has no folder';
-  -- And that is not a fault: it is deliberately empty (owner, 2026-09-18), so
-  -- nothing maps to it and nothing will fail for want of it.
+  assert r.has_parent, 'BACKUP has a module folder';
+  assert not r.has_folder, 'and no `ops` inside it yet';
+  -- Which is not a fault: it is deliberately empty (owner, 2026-09-18), so
+  -- nothing maps to it and nothing will ever go looking.
   assert r.kinds = 0, format('nothing is filed there, got %s', r.kinds);
+
+  -- Every drive the owner named has its module folder recorded.
+  select count(*) into n from ops_core.v_drive_readiness where not has_parent;
+  assert n = 0, format('%s drives still have no module folder', n);
 end $$;
 
 /* ── REFUSAL: pointing a folder somewhere else is IT's ─────────────────── */
@@ -161,7 +181,7 @@ declare n int;
 begin
   -- Procurement holds `procurement.write` and no `it.admin`. Repointing a
   -- folder silently redirects every future upload, including HRD's.
-  update ops_core.drive_folders set folder_id = '1somewhere_else' where slug = 'hrd';
+  update ops_core.drive_folders set parent_folder_id = '1somewhere_else' where slug = 'hrd';
   get diagnostics n = row_count;
   assert n = 0, 'only IT repoints a shared drive folder';
 end $$;
@@ -169,8 +189,8 @@ end $$;
 do $$
 declare f text;
 begin
-  select folder_id into f from ops_core.drive_folders where slug = 'hrd';
-  assert f = '1hrd_ops_example', format('and it did not move, got %s', f);
+  select parent_folder_id into f from ops_core.drive_folders where slug = 'hrd';
+  assert f = '1qQzgoHOWqSs49EZNzHHoyJU0aK2v7X2J', format('and it did not move, got %s', f);
 end $$;
 
 rollback;

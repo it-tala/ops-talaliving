@@ -33,15 +33,27 @@ import "server-only";
  */
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
+const FILES_URL = "https://www.googleapis.com/drive/v3/files";
 const UPLOAD_URL =
   "https://www.googleapis.com/upload/drive/v3/files"
   + "?uploadType=multipart&supportsAllDrives=true&fields=id,name,webViewLink";
 
 /** The scope, and only this one. `drive.file` lets the service account touch
  *  files **it created** and nothing else — so a mistake here cannot reach the
- *  years of documents already in those drives. The broader `drive` scope would
- *  let it read and delete all of them, and nothing about filing an upload needs
- *  that. */
+ *  1.412 documents already in those drives. The broader `drive` scope would let
+ *  it read and delete all of them, and nothing about filing an upload needs
+ *  that.
+ *
+ *  **What this costs, stated rather than discovered:** the account cannot
+ *  *see* a folder a person made. So `findOrCreateOpsFolder` searching for an
+ *  existing hand-made `ops` will come back empty and make its own. That is the
+ *  right trade here — nobody has made one yet, the app creating it is the plan,
+ *  and a duplicate folder is a tidying job where a `drive` scope would be a
+ *  standing risk to years of documents.
+ *
+ *  If an upload ever fails with Google saying the parent cannot be written,
+ *  that is this line to revisit, and the error will say so in Google's own
+ *  words rather than being swallowed. */
 const SCOPE = "https://www.googleapis.com/auth/drive.file";
 
 export interface DriveFile {
@@ -190,6 +202,64 @@ export async function uploadToDrive(
   }
   const out = (await res.json()) as { id: string; name: string; webViewLink?: string };
   return { id: out.id, name: out.name, webViewLink: out.webViewLink ?? null };
+}
+
+/** The `ops` folder inside a module folder — found, or made.
+ *
+ *  The owner gave the module folders (PROCUREMENT, ACCOUNTING, HRD and five
+ *  more), which is what a person can read off a Drive URL. The `ops` folder
+ *  inside each is what this application writes to, and asking for eight more
+ *  ids would have been eight more chances to paste the wrong one into a column
+ *  that silently redirects everything afterwards.
+ *
+ *  So it is resolved by **name**, once, and the id is written back to
+ *  `ops_core.drive_folders`. A name is checkable; an id is not.
+ *
+ *  `trashed = false` matters: a folder somebody deleted last month still
+ *  answers a search, and uploading into the bin loses the file quietly. If the
+ *  `ops` folder has been trashed this makes a new one, which is the right
+ *  answer — the old files are still in the bin where somebody put them.
+ */
+export async function findOrCreateOpsFolder(parentFolderId: string): Promise<string> {
+  const token = await accessToken();
+
+  const q = [
+    "name = 'ops'",
+    "mimeType = 'application/vnd.google-apps.folder'",
+    `'${parentFolderId}' in parents`,
+    "trashed = false",
+  ].join(" and ");
+
+  const search = new URL(FILES_URL);
+  search.searchParams.set("q", q);
+  search.searchParams.set("fields", "files(id,name)");
+  search.searchParams.set("supportsAllDrives", "true");
+  search.searchParams.set("includeItemsFromAllDrives", "true");
+  /* Without this the search is scoped to My Drive and answers nothing for a
+     folder that is plainly there — the same trap as `supportsAllDrives` on the
+     upload, one call earlier. */
+  search.searchParams.set("corpora", "allDrives");
+
+  const found = await fetch(search, { headers: { authorization: `Bearer ${token}` } });
+  if (!found.ok) {
+    throw new Error(`Drive refused the folder search: ${found.status} ${await found.text()}`);
+  }
+  const hits = ((await found.json()) as { files?: { id: string }[] }).files ?? [];
+  if (hits.length > 0) return hits[0]!.id;
+
+  const made = await fetch(`${FILES_URL}?supportsAllDrives=true&fields=id`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      name: "ops",
+      mimeType: "application/vnd.google-apps.folder",
+      parents: [parentFolderId],
+    }),
+  });
+  if (!made.ok) {
+    throw new Error(`Drive refused to create the ops folder: ${made.status} ${await made.text()}`);
+  }
+  return ((await made.json()) as { id: string }).id;
 }
 
 /** Is this deployment able to reach Drive at all?

@@ -52,13 +52,36 @@ photographing a KTP into that chat would put it in the wrong drive. Changing
 one row in `doc_kind_drive` moves it; naming the risk here rather than assuming
 it away.
 
-### What IT must set, once
+### The eight module folders, and the `ops` inside each
 
-`drive_id` and `folder_id` start **null** for all seven — they are facts about
-a Google Workspace, and a migration that invented them would ship a wrong
-answer. Until they are filled in, every upload refuses by name: *the ACCOUNTING
-shared drive has no `ops` folder recorded yet.* `ops_core.v_drive_readiness`
-says which are still missing.
+The owner gave the module folder ids on 2026-09-21 — eight, with **IT** added
+to the seven. They are recorded in `ops_core.drive_folders.parent_folder_id`.
+
+They are the *module* folders, not `ops` folders: every id begins with `1`, so
+each is an ordinary folder rather than a shared drive root (those begin with
+`0A`), and the note beside ACCOUNTING — *disini sudah ada folder TRANSACTIONS* —
+says what they contain. Recording one as the upload target would drop every
+file the system writes in beside the ones people filed by hand.
+
+So the two are kept apart, and **the second fills itself in**: the upload route
+finds or creates `ops` inside the module folder the first time it files
+something there, and writes the id back through
+`ops_core.record_ops_folder`. That function fills a blank only — a caller who
+could change a folder already set could redirect every future upload for that
+drive, HRD's included, just by being the next person to upload anything.
+Changing one afterwards stays `it.admin`.
+
+Asking for eight more ids would have worked, and would have been eight more
+chances to paste the wrong one into a column that silently redirects
+everything. A name is checkable; an id is not.
+
+`ops_core.v_drive_readiness` shows both stages: `has_parent` (a person did
+this) and `has_folder` (the route did).
+
+**The ids are unverified.** The Drive connector available while this was built
+could not see them — *Requested entity was not found* — which means either that
+its identity is not a member of those drives or that an id is wrong. The first
+upload to each drive will say which, in Google's own words.
 
 The Worker also needs the service account, as **runtime secrets** — not build
 variables, because these must never reach a browser:
