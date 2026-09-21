@@ -4922,3 +4922,48 @@ suite would notice.
 failed for the right reason has not been checked* — and a test can fail for the
 right-looking reason while exercising the wrong code. The second reading of
 that form always passed, and always would have, with the replay deleted.
+
+## F126 · 2026-09-21 · 0052 — a unique key blind to the case it was written for, and a flag whose cost is not the number of readers
+
+Two things came out of putting seams on the payroll, and neither is about
+payroll.
+
+**`period_once` cannot see the week either side.** `0044` put
+`unique (period_start, period_end)` on `payroll_runs` with the comment *the same
+week is not run twice by accident*, which is true and is not the failure. 1–7
+September and 5–11 September are two different pairs of dates, so the key
+admits both, and the fifth, sixth and seventh are paid over again — the exact
+thing the key exists to prevent, arriving through the gap in it.
+
+The fix is a gist exclusion over `daterange(period_start, period_end, '[]')`,
+which needs no extension because a range carries its own opclass. The unique key
+stays: the exact repeat is the common mistake and deserves the clearer error.
+
+The general shape is worth more than the fix. **A unique key over the endpoints
+of an interval constrains the endpoints, not the interval.** Anywhere a table
+holds a span — a period, a tenancy, a rate that is in force between two dates,
+a vendor leg — the key that looks like it stops overlap stops only exact
+repetition, and the two are easy to read as the same promise because the comment
+above the key usually says the second one.
+
+**A nullable flag's cost is the size of its readers, not their number.** F123
+said *a flag on a table with N readers is N places that must learn about it, and
+the moment the flag is added is the only moment all N can be found*. Withdrawing
+an adjustment has N = 2, which by that arithmetic is cheap. One of the two is
+`payroll_line`, two hundred lines of PL/pgSQL in `0047`, and a function has no
+ALTER — so the whole thing is restated in `0052` for a single added predicate,
+sliced out of the earlier file programmatically rather than retyped.
+
+So the count is the wrong measure. What a flag actually costs is **how much
+code has to be re-emitted to carry it**, and a long function is a worse reader
+to have than three short ones. Two consequences, both cheap to act on next time:
+a derivation that reads a table it does not own should read it through a **view**
+that holds the predicate, so the predicate has one home; and where that is not
+possible, the restatement should be mechanical — a slice with one substitution,
+verified by a mutation that checks the copy still has the rule — rather than a
+retyping nobody can diff.
+
+The mutation that proves the second reader learned is worth keeping in mind as a
+shape: it withdraws an adjustment and then reads **the same figure from both
+sides**, the run's total and the person's payslip. A test that checked only the
+first would have passed with the payslip still paying money somebody took back.

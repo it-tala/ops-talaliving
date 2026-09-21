@@ -1939,16 +1939,47 @@ erDiagram
 | `stage_sources` includes each stage's **own** code | `FINISHING` names one of the four and one of the seven that collapsed into it; without the self-row, direct entries and rolled-up ones were added together and counted the same pieces twice (F74) |
 | `work_orders.bom_rev` must be a **released** revision of that order's own product | neither half is a foreign key that could say so — `product_code` is a code at the seam and `released_at` is a column. A pin to a draft is a pin to something still being edited |
 
-**Who may write, in HR** (`0050` and `0051`, the daily work): `hrd.create` for
+**Who may write, in HR** (`0050`–`0052`, the daily work): `hrd.create` for
 importing the machine's file, typing in a tap the machine missed, marking a
 day, opening an overtime sheet, adding a name to one and reading the paper
 form; `hrd.update` for withdrawing a mark, withholding or restoring the
-allowance on a day, and for HRD's own check on an overtime sheet. The
-**leader's** signature is not a module level at all — it is
-`has_authority('approve_overtime')`, because an authority is never implied by
-one (D24). All through seams, addressed by `employee_no`, `mark_no` and
-`sheet_no`. The payroll runs, the enrolments, the pay rules, the tasks and the
-employee files have tables and views and **no seams yet**.
+allowance on a day, and for HRD's own check on an overtime sheet;
+`payroll.run` for opening a payroll run, putting an adjustment on one,
+withdrawing one and recording the transfer that paid it. Neither signature is a
+module level at all — the overtime leader's is
+`has_authority('approve_overtime')` and the payroll's is
+`has_authority('approve_funds')`, because an authority is never implied by one
+(D24). The smoke for `0052` holds `payroll` at **admin**, the highest level
+there is, and still cannot sign the run. All through seams, addressed by
+`employee_no`, `mark_no`, `sheet_no`, `run_no` and `adj_no`. The enrolments,
+the pay rules, the tasks, the leave requests and the employee files have tables
+and views and **no seams yet**.
+
+**A payroll adjustment is withdrawn, not deleted.** `adj_no` names it,
+`withdrawn_at`/`_by`/`_reason` take it back, and the row stays. Two things read
+the table and both learned the predicate when the flag arrived: `v_payroll_run`
+sums them, and so does `payroll_line` two hundred lines away in `0047`, which
+is restated in `0052` for that one line (F126, and F123's rule again).
+
+**The signature is refused over days nobody has read** (D139) — everything else
+in HR is a warning, and this is the one that makes the figure wrong rather than
+incomplete. Overtime still waiting for a signature only warns (A6): those hours
+land on the next run, and holding the whole payroll for one unsigned lembar
+pays nobody on Friday.
+
+**PAID names a movement the ledger actually has.** `paid_names_its_row` could
+only ask that the string is not empty, which a typo satisfies, so
+`record_payroll_paid` asks `ops_acct` whether the transaction is there, is not
+VOID, and went out rather than came in. It does **not** check the amount: the
+contract calls gross plus adjustments the net, `0048` then made an employee's
+BPJS half a deduction from what they receive, and nothing has yet said which of
+the two a run pays. Both figures are reported side by side instead — Q56.
+
+**Two runs cannot cover one day.** `period_once` is unique on
+`(period_start, period_end)`, which catches the same week opened twice and is
+blind to 1–7 September beside 5–11 September — three days paid over again
+through the gap in the key that was written to prevent exactly that. `0052`
+adds `periods_do_not_overlap`, a gist exclusion over the date range.
 
 **What the leader is signing is the surat, not the hours.** HRD checked those
 first — `decide_overtime_sheet('leader', …)` on a sheet HRD has not seen is
