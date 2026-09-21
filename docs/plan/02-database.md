@@ -1782,12 +1782,14 @@ and the derivations over them. `referrals.property_ref` stayed a **code** while
 one side was missing and still is: the seam was written to hold either way
 (ADR-004).
 
-**Who may write:** `marketing.create` for importing the scrape, promoting a
-row and onboarding a representative; `marketing.update` for moving an agent
-along the ladder, moving on from one, validating an enrichment and qualifying a
-property. All of it through seams — `0082` for the agents, `0083` for the
-properties and the scrape — addressed by public reference rather than by uuid
-(C17). The clock's stamping is a trigger rather than seam code, so it holds for
+**Who may write:** `marketing.create` for defining a market, importing the
+scrape, promoting a row, onboarding a representative and recording an
+introduction; `marketing.update` for moving an agent along the ladder, moving
+on from one, validating an enrichment, qualifying a property, moving an
+introduction along, recording which ledger row paid a commission and retiring a
+market. All of it through seams — `0082` for the agents, `0083` for the
+properties and the scrape, `0084` for the referrals and the markets —
+addressed by public reference rather than by uuid (C17). The clock's stamping is a trigger rather than seam code, so it holds for
 a correction typed straight into the table.
 
 **`messaged` and `replied` count events, not rungs** — `sent_on is not null`
@@ -1823,6 +1825,7 @@ Friday.
 | `referrals` UNIQUE `(project_code) WHERE status = 'WON'` | one job pays one commission; a second would double it with nothing saying so |
 | `referrals` CHECK `commission_trx_no IS NULL OR status = 'WON'` | nothing is paid on an introduction that never became a job |
 | `referrals` CHECK `status = 'LOST' → lost_reason IS NOT NULL` | the reason **is** the record; there is no DELETE, because that is how a conversion rate improves by forgetting (A2) |
+| `referrals.project_code` and `referrals.commission_trx_no` frozen once a commission has been **paid** | the two factors of the commission are the project's contract value and the rep's rate, and freezing only one of them leaves the figure movable. Re-point a settled referral at a larger contract and `commission_amount` grows past what the bank sent, with nothing saying so. Which row paid is a fact besides: a correction is another ledger entry (A2, A5, F118) |
 | `sales_reps.commission_percent` frozen once a commission has been **paid** against it | one rate per rep is the tracker's shape and holds until somebody renegotiates: every commission already computed silently restates, the settled ones included, and the module stops agreeing with the bank. A rep who genuinely renegotiates mid-relationship needs the **dated** rate `hr.pay_rule_sets` already has — F114 |
 | `scrape_rows` UNIQUE `(market_code, lower(name))` | re-importing the scrape adds nothing |
 | `markets.code` is `COUNTRY[-REGION]-CITY-AREA` | every filter is a **prefix** of it, so one query serves country, city and district (D187) |

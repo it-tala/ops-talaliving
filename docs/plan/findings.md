@@ -4649,3 +4649,37 @@ that **happened**, not rungs a row has climbed past.
 been refused earlier. That is right and worth pinning — a trail that records
 only what succeeded cannot answer *who has been trying to do this*, which is the
 question it gets asked.
+
+## F118 · 2026-09-21 · 0084 — half a multiplication was frozen
+
+**What `0080` did.** A commission is the project's contract value times the
+representative's rate, derived on every read and stored nowhere (A3, C15). One
+rate per rep holds until somebody renegotiates, at which point every commission
+already computed silently restates — including the ones the ledger has paid — so
+the rate freezes once anything has been paid against it. That was written up as
+its own small decision and felt complete.
+
+**What it missed.** The contract value is the *other factor*. Nothing stopped a
+settled referral being re-pointed at a different project: the rate stays put,
+`commission_amount` recomputes off the new contract, and a commission the bank
+sent 12.500.000 for reads as 22.500.000 with no column anywhere disagreeing.
+Exactly the failure the rate freeze exists to prevent, reached by the other
+side of the `×`.
+
+**How it was found.** Not by re-reading `0080`. Writing `set_referral_status`
+in `0084` meant asking *what may a settled referral still do*, and the answer
+listed three things — move backwards, change project, change the trx — of which
+only the first was covered. A seam is a good place to find this because a seam
+has to enumerate the acts; a constraint only has to be true about one of them.
+
+**The rule now.** `paid_referral_is_pinned`: once `commission_trx_no` is set,
+neither it nor `project_code` may change. A trigger rather than a check in the
+seam, for the reason every invariant here is — it has to hold for a correction
+typed straight into the table. The status is separately refused from going back
+behind a payment, in the seam, because that one wants a sentence.
+
+**The general shape, and it is worth carrying.** **A derived figure is pinned
+only when every input to it is pinned.** Freezing one factor of a product reads
+as protection and is not. Where a stored fact (a ledger payment) is the shadow
+of a derived one (a commission), every term in the derivation joins the freeze,
+and the way to find them is to write out the arithmetic and go along it.
