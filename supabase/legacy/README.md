@@ -118,10 +118,11 @@ directly. Three things block a straight `insert … select`:
   which is empty. The Drive links do fit — `attachments.url` with
   `source = 'chat'` satisfies the `file_or_link` constraint — so this is work,
   not a redesign.
-- `attachments.uploaded_by` is `not null` into `ops_core.users`, which has 3
-  rows. The queue records a name in text (`Putri Tala`); the legacy system has
-  9 `chat_users`. **This is step 1 of the import, still held** — it needs
-  authentication accounts, which is a decision about people, not a select.
+- `attachments.uploaded_by` is `not null` into `ops_core.users`. **Resolved
+  2026-09-21**: `import/03_chat_users.sql` created the eight missing accounts,
+  so all nine `chat_users` now have one and `ops_core.users` holds 11 rows.
+  What remains is matching the queue's free-text name (`Putri Tala`) to a
+  user id — a join the bridge has to make, not a blocker.
 - `service_role` has no grant on `evidence_inbox` (only `authenticated` and
   `postgres` do), so a worker authenticating that way is refused before RLS is
   even consulted.
