@@ -1782,11 +1782,13 @@ and the derivations over them. `referrals.property_ref` stayed a **code** while
 one side was missing and still is: the seam was written to hold either way
 (ADR-004).
 
-**Who may write:** `marketing.update` for moving an agent along the ladder and
-for moving on from one, `marketing.create` for onboarding a representative —
-all three through seams in `0082`, addressed by **property ref and slot** (C17).
-The clock's stamping is a trigger rather than seam code, so it holds for a
-correction typed straight into the table.
+**Who may write:** `marketing.create` for importing the scrape, promoting a
+row and onboarding a representative; `marketing.update` for moving an agent
+along the ladder, moving on from one, validating an enrichment and qualifying a
+property. All of it through seams — `0082` for the agents, `0083` for the
+properties and the scrape — addressed by public reference rather than by uuid
+(C17). The clock's stamping is a trigger rather than seam code, so it holds for
+a correction typed straight into the table.
 
 **`messaged` and `replied` count events, not rungs** — `sent_on is not null`
 and `replied_on is not null`. An agent met at an event and signed the same week
@@ -1815,7 +1817,7 @@ Friday.
 | `markets.timezone` checked against Postgres by trigger | *what time is it there* is the one question a list of names cannot answer, and a typo makes it unanswerable with nothing else noticing |
 | `properties` CHECK `status = 'QUALIFIED' OR status ~ '^DISQUALIFIED — .+$'` | the reason lives in the string, exactly as the tracker writes it |
 | `properties` CHECK `validated = (validated_by IS NOT NULL)` | a score is a machine's opinion until a person agrees with it, and the agreement has a name on it (D184) |
-| `properties.ref` is supplied, not minted | `TL-0001` is the tracker's own numbering and an **outside** reference, like a vendor's invoice number. ADR-005 governs the numbers this system issues |
+| `properties.ref` is supplied on import and **minted on promotion** | Both, and the two do not disagree. A property that came from the old tracker arrives **with** its ref — `TL-0001` is an outside reference there, like a vendor's invoice number, which is why the column is not generated. A property this system promotes out of a scrape row was never known to any outside system, so `next_property_ref()` gives it the next number in the same series, **skipping any the tracker already used** (0083). Not in `doc_prefixes`: that registry is for document numbers of the shape `pr-26-09-11_03`, and `TL-0004` is not one |
 | `sales_reps` CHECK `commission_percent > 0 AND <= 20` | a number that will be paid many times |
 | `referrals` CHECK `status = 'WON' → project_code IS NOT NULL`, plus a trigger that the project **exists and carries a contract value** | commission comes from a contract that exists, never from a quotation (D186). The second half was a `contract_value` column on the referral until 0080: two places holding one number, and the first revision makes them disagree. The value is read from `procure.projects` and the refusal is now something the database can check rather than something it trusts the typist for (C15) |
 | `referrals` UNIQUE `(project_code) WHERE status = 'WON'` | one job pays one commission; a second would double it with nothing saying so |
