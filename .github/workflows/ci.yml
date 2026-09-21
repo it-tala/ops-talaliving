@@ -183,6 +183,15 @@ jobs:
       - name: smoke
         run: supabase/local/smoke.sh
 
+      # The guard that needs both halves at once: the TypeScript contracts and a
+      # database with the ladder applied. `tsc` cannot check whether a view
+      # returns the columns a cast claims — `as` is the instruction to stop
+      # checking — so nothing found `v_po_detail` missing three of `PoDetail`'s
+      # fields until `/procurement/po/[po]/print` had already shipped reading
+      # one of them.
+      - name: view contracts
+        run: node scripts/check-view-contracts.mjs
+
       # B8's import, proved on a fixture legacy system and run **twice**.
       # Idempotence is the property the whole cutover rests on and the one that
       # is never true by accident: an import against a database somebody is

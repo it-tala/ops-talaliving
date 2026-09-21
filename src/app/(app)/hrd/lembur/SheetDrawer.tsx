@@ -54,7 +54,7 @@ export function SheetDrawer({
 
   async function attach(f: File, kind: string) {
     setBusy(true);
-    const up = await documents.upload({ filename: f.name, mime: f.type || "application/pdf", bytes: f.size });
+    const up = await documents.upload({ file: f, kind: "Laporan Lembur" });
     if (up.error) { setBusy(false); toast("critical", "Upload gagal", up.error.message); return; }
     const res = await hr.attachOvertimeDoc({ sheet_no: sheetNo, attachment_id: up.data.id });
     setBusy(false);

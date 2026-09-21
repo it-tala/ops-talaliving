@@ -70,9 +70,7 @@ export function NewEntry({ onClose, onPosted }: { onClose: () => void; onPosted:
   }
 
   async function addFile(file: File) {
-    const up = await documents.upload({
-      filename: file.name, mime: file.type || "application/octet-stream", bytes: file.size,
-    });
+    const up = await documents.upload({ file, kind });
     if (up.error) { toast("critical", "Upload failed", up.error.message); return; }
     setDocs((d) => [...d, { attachment_id: up.data.id, filename: file.name, kind }]);
     if (up.data.duplicate_suspect) {

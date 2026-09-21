@@ -98,7 +98,7 @@ function Row({ row, mayConfirm, onDone }: { row: ReportedRow; mayConfirm: boolea
   );
 
   async function upload(f: File) {
-    const up = await documents.upload({ filename: f.name, mime: f.type || "image/jpeg", bytes: f.size });
+    const up = await documents.upload({ file: f, kind: "Delivery Note" });
     if (up.error) { toast("critical", "Upload failed", up.error.message); return; }
     setDoc({ id: up.data.id, name: f.name });
   }

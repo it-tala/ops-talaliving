@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/primitives";
 import { NumberInput } from "@/components/ui/number-input";
 import { useLoad } from "@/components/ui/loaded";
 import { formatNumber } from "@/lib/format";
+import type { DocKind } from "@/services/documents/contracts";
 import { cn } from "@/lib/cn";
 import { documents, identity, procurement } from "@/demo/api";
 import { RECEIPT_CONDITIONS, type ReceiptCondition, type PoLineJourney } from "@/services/procurement/contracts";
@@ -49,10 +50,11 @@ export function ReceiveForm({
   const photoFileRef = useRef<HTMLInputElement>(null);
   const noteRef = useRef<HTMLInputElement>(null);
 
-  async function upload(f: File, set: (s: Slot) => void) {
-    const up = await documents.upload({
-      filename: f.name, mime: f.type || "image/jpeg", bytes: f.size,
-    });
+  /* The kind travels with the slot, because it is what decides which shared
+     drive the file lands in (0035) — a goods photo and a signed tanda terima
+     are two different documents and the picker knows which is which. */
+  async function upload(f: File, set: (s: Slot) => void, kind: DocKind) {
+    const up = await documents.upload({ file: f, kind });
     if (up.error) { toast("critical", "Upload failed", up.error.message); return; }
     set({ id: up.data.id, name: f.name });
   }
@@ -146,7 +148,7 @@ export function ReceiveForm({
           hint="what actually arrived"
           value={photo}
           icon={Camera}
-          onPick={(f) => upload(f, setPhoto)}
+          onPick={(f) => upload(f, setPhoto, "Receiving Item")}
           inputRef={photoRef}
           capture
         />
@@ -155,7 +157,7 @@ export function ReceiveForm({
           hint="signed — that we acknowledged it"
           value={tandaTerima}
           icon={FileSignature}
-          onPick={(f) => upload(f, setTandaTerima)}
+          onPick={(f) => upload(f, setTandaTerima, "Delivery Note")}
           inputRef={photoFileRef}
         />
       </div>
