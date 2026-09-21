@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Boxes, Plus, Check, Tag, TrendingUp, Store } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader, StatCard } from "@/components/ui/primitives";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -36,6 +36,23 @@ export default function CatalogPage() {
 
   const [state, reload] = useLoad(() => procurement.listItemViews({ q, category: category || undefined }), [q, category]);
   const [cats] = useLoad(() => procurement.listCategories(), []);
+
+  /* `sourced_from` is left out of the list for the same reason the supplier
+     screen leaves out its history: a subquery per row over every purchase,
+     and 1.020 items. The drawer is the only thing that reads it, so it is
+     fetched when the drawer opens. See `VENDOR_LIST_COLUMNS` in
+     `src/lib/api/procurement.ts`. */
+  const detailFor = useRef<string | null>(null);
+  useEffect(() => {
+    const id = selected?.id;
+    if (!id || detailFor.current === id) return;
+    detailFor.current = id;
+    let live = true;
+    void procurement.getItem(id).then((res) => {
+      if (live && res.data) setSelected((cur) => (cur?.id === id ? res.data : cur));
+    });
+    return () => { live = false; };
+  }, [selected?.id]);
   const mayEdit = can("procurement.update");
 
   async function addItem() {

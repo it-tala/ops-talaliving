@@ -19,6 +19,9 @@ local/        NEVER applied to Supabase
   check_schema_isolation.sh
                 any migration reaching outside `ops_*` — the guard that lets
                 this system share a database with the one it replaces
+import/       reading the legacy system, once, into ours
+legacy/       marking the old half as retired, and the same isolation rule
+              asked of the running database rather than of the files
 ```
 
 ## Running the whole stack locally — free, and nothing touches production

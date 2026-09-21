@@ -28,7 +28,7 @@ Each file ends by printing what it did. Read that, not the exit code.
 
 | step | source → target | rows | state |
 |---|---|---:|---|
-| 1 | `chat_users` → `ops_core.users` | 9 | **held** — needs auth accounts, see below |
+| 1 | `chat_users` → `ops_core.users` | 9 | `03_chat_users.sql` — 7 stand, 2 removed by decision |
 | 2 | `accounts` → `ops_acct.accounts` | 6 | `01_reference.sql` |
 | 3 | `projects` → `ops_procure.projects` | 5 | `01_reference.sql` |
 | 4 | `vendors` → `ops_procure.vendors` | 296 | `01_reference.sql` |
@@ -48,7 +48,24 @@ nine should be able to sign in at all. `0029` made the second half harmless —
 an account that signs in for the first time provisions its own profile — so the
 honest order is *invite, then they arrive*, not *insert, then hope*.
 
-Held out of `01_reference.sql` rather than half-done.
+It was held out of `01_reference.sql` rather than half-done, and the owner
+answered on 2026-09-21: **finish all nine.** `03_chat_users.sql` does it.
+
+What makes that safe to run as a script, when the decision it encodes is about
+people, is that **it grants nothing**. `provision_user()` lands a profile with
+no modules and no authorities (D24), and the legacy `core.fn_sync_auth_user()`
+— which fires off the same insert, because both systems hang a trigger on
+`auth.users` — lands one with no role. Nine people can sign in and see nothing
+until somebody holding `it.manage_roles` decides what they may open. Being
+known and being allowed stay separate, which is the whole reason provisioning
+is not a grant.
+
+No password is set by anybody: each account gets 32 random bytes, hashed and
+discarded in the same expression, recorded nowhere. The way in is
+`requestPasswordReset` from the sign-in screen, then `/set-password` —
+`email_confirmed_at` is set so that road is open immediately. The script sends
+no invitation, which is the correct order: an invitation that arrives before
+the grant is an invitation to an empty app.
 
 ### Step 5 — answered, 2026-09-18
 

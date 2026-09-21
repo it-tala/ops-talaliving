@@ -10,7 +10,7 @@
  *  They are not interchangeable today. Putting the two modules side by side for
  *  the first time — which the swap does, and nothing before it did — showed
  *  **37 of the 98 shared functions disagreeing**, and they disagree in ways a
- *  screen would meet rather than a reviewer. Thirty-two are left of 102:
+ *  screen would meet rather than a reviewer. Twenty-nine are left of 104:
  *
  *  - **A receipt where the contract promises the thing.** `approvePo` answers
  *    `Result<unknown>`; the screen expects the `PoDetail` it is about to redraw.
@@ -33,6 +33,22 @@
  *  thirty-seven money-path functions in one change is how a fortnight of quiet
  *  breakage gets introduced. They come off in families, each with the smoke
  *  file that earns it.
+ *
+ *  Three came off together for the evidence inbox — `listInbox`,
+ *  `listInboxAll` and `resolveInbox` — because they are one screen and it is
+ *  the screen the capture pipeline ends at. `listInbox` and `listInboxAll`
+ *  were `select("*")` answering `unknown[]`; they now map the row, which is
+ *  not decoration: the column is `produced_trx_no` and the contract reads
+ *  `produced_trx_id`, so a cast would have rendered a blank where a ledger
+ *  reference belongs. `resolveInbox` took a `status` and answered a receipt,
+ *  where the screen names a *road* and redraws the row — so it maps the five
+ *  roads onto the four statuses and re-reads. That one needed `0039` first:
+ *  the screen has always passed `pr_line_no` and the seam had nowhere to put
+ *  it, so `produced_pr_line_no` had never once been written.
+ *
+ *  `coverageForDocument` and `coverageForTransaction` were never on this list
+ *  because they did not exist at all; they do now, and `/accounting/verifikasi`
+ *  is live as a result.
  *
  *  Five came off together in `0032` — the curation family, `curateVendor`,
  *  `mergeVendor`, `updateVendorContact`, `createItem`, `curateItem` — because
@@ -69,11 +85,8 @@ export const PENDING_PARITY: readonly string[] = [
   "accounting.historyFor",
   "accounting.linkPayment",
   "accounting.listComponents",
-  "accounting.listInbox",
-  "accounting.listInboxAll",
   "accounting.listStatements",
   "accounting.paymentsForVendor",
-  "accounting.resolveInbox",
   "accounting.setOverride",
 
   /* Procurement: the same pattern, at scale. Every one of these answers what
