@@ -220,14 +220,77 @@ end $$;
 
 /* ── what IT does get: the sentences, without the people ───────────────── */
 
+-- A second person asks the same thing, and a third asks it with different
+-- punctuation and a possessive. All three are one question to the router, so
+-- all three must be one row here — that grouping is the difference between a
+-- tuning list and a log.
+set local role postgres;
+insert into ops_core.user_modules (user_id, module, level) values
+  ('a5570000-0000-0000-0000-000000000012','procurement','read');
+set local role authenticated;
+set local request.jwt.claim.sub = 'a5570000-0000-0000-0000-000000000012';
+
 do $$
-declare n int; v_p text;
+declare r jsonb;
+begin
+  r := ops_asst.record_turn('Siapa yang menang piala dunia?', 'unknown', 'id');
+  assert ops_core.said_ok(r), format('got %s', r);
+  r := ops_asst.record_turn('siapa yang menang piala dunianya', 'unknown', 'en');
+  assert ops_core.said_ok(r), format('got %s', r);
+  r := ops_asst.record_turn('kapan kantor libur', 'unknown', 'id');
+  assert ops_core.said_ok(r), format('got %s', r);
+end $$;
+
+-- `at` defaults to `now()`, which is **transaction start** — so every row this
+-- file writes shares a timestamp and "most recent" means nothing inside it.
+-- That is right for the column (each real turn is its own transaction) and
+-- wrong for the test, so the moments are set explicitly here. Without this the
+-- ordering assertions below pass or fail on insertion order and prove nothing.
+set local role postgres;
+update ops_asst.turns set at = now() - interval '3 hours' where prompt = 'siapa yang menang piala dunia';
+update ops_asst.turns set at = now() - interval '2 hours' where prompt = 'Siapa yang menang piala dunia?';
+update ops_asst.turns set at = now() - interval '1 hour'  where prompt = 'siapa yang menang piala dunianya';
+set local role authenticated;
+
+do $$
+declare n int; r record;
 begin
   select count(*) into n from ops_asst.unmatched();
-  assert n = 1, format('one prompt went unmatched, got %s', n);
+  assert n = 2, format('four prompts, two questions, got %s rows', n);
 
-  select prompt into v_p from ops_asst.unmatched();
-  assert v_p = 'siapa yang menang piala dunia', format('got %s', v_p);
+  select * into r from ops_asst.unmatched() limit 1;
+  -- Most asked first: that is the one worth a rule, and it will not be the
+  -- newest.
+  assert r.times = 3, format('the repeated one is on top with its count, got %s', r.times);
+  assert r.normalised = 'siapa yang menang piala dunia',
+    format('grouped by what the matcher compares, got %s', r.normalised);
+  -- The example is the most recent **as it was typed** — punctuation, `-nya`
+  -- and all. The normalised form is what the router saw; the raw one is what a
+  -- person reads when deciding whether a rule would have helped.
+  assert r.example = 'siapa yang menang piala dunianya', format('got %s', r.example);
+  assert r.langs @> array['id','en'], format('both languages asked it, got %s', r.langs);
+  assert r.first_at < r.last_at, 'and it spans time';
+end $$;
+
+/* ── is the router working, in counts and nothing else ─────────────────── */
+
+do $$
+declare h record;
+begin
+  select * into h from ops_asst.router_health();
+  assert h.turns = 5, format('five turns across two people, got %s', h.turns);
+  assert h.unknown = 4, format('four of them unmatched, got %s', h.unknown);
+  assert h.answered = 1, format('one answered, got %s', h.answered);
+  -- Not a column anywhere in either function. The question is *what did we
+  -- fail to understand*, and a name makes it a different question (D218).
+  assert not exists (
+    select 1 from information_schema.routines ro
+    join information_schema.parameters pa
+      on pa.specific_name = ro.specific_name
+   where ro.routine_schema = 'ops_asst'
+     and ro.routine_name in ('unmatched','router_health')
+     and pa.parameter_name in ('actor_id','actor_email','prompt_by')),
+    'neither function returns who asked';
 end $$;
 
 -- And it is IT's, not everybody's.

@@ -49,6 +49,7 @@
  */
 import type {
   AssistantReply, AssistantTurn, AssistantTool, AnswerFact, AssistantDraft,
+  UnmatchedPrompt, RouterHealth, RouterRule,
 } from "@/services/assistant/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fail, fromSeam, fromRows, invalid, ok, refused, type Result } from "./_kit";
@@ -587,4 +588,62 @@ async function reread(turnId: string, settled: DraftRow): Promise<Result<Assista
   turn.draft_outcome = settled.outcome;
   turn.produced_ref = settled.produced_ref;
   return ok(SERVICE, turn);
+}
+
+/* ── the tuning list ───────────────────────────────────────────────────── */
+
+/** The questions John Lau did not understand, grouped and without names.
+ *
+ *  `it.read`, and the refusal comes from the function rather than from a check
+ *  here: it is everybody's prompts in one place, so it is IT's. A client-side
+ *  guard would be a second, weaker statement of a rule the database already
+ *  makes.
+ */
+export async function unmatched(limit = 200): Promise<Result<UnmatchedPrompt[]>> {
+  const { data, error } = await db().rpc("unmatched", { p_limit: limit });
+  return fromRows<UnmatchedPrompt[]>(SERVICE, (data ?? []) as UnmatchedPrompt[], error);
+}
+
+export async function routerHealth(): Promise<Result<RouterHealth>> {
+  const { data, error } = await db().rpc("router_health");
+  if (error) return fail(SERVICE, error);
+  /* A set-returning function comes back as an array of one. An empty one means
+     nobody has asked anything yet, which is a real state and not an error —
+     the screen says *nothing has been asked yet* rather than failing to load. */
+  const row = ((data ?? []) as RouterHealth[])[0];
+  return ok(SERVICE, row ?? {
+    turns: 0, answered: 0, guided: 0, drafted: 0, unknown: 0,
+    refused_closed: 0, refused_permission: 0, since: null,
+  });
+}
+
+interface RuleRow {
+  seq: number;
+  tool: string;
+  stage: "how" | "main";
+  all_words: string[];
+  any_words: string[];
+  not_words: string[];
+  understood_en: string;
+  understood_id: string;
+  note: string | null;
+}
+
+/** The rules as they stand. Read-only everywhere, including here: they are
+ *  rows a migration wrote, and the one screen that shows them says who can
+ *  change them (A7). */
+export async function listRules(): Promise<Result<RouterRule[]>> {
+  const { data, error } = await db().from("rules").select("*").order("seq");
+  if (error) return fail(SERVICE, error);
+  const lang = getActiveLang();
+  return ok(SERVICE, (data ?? []).map((r: RuleRow): RouterRule => ({
+    seq: r.seq,
+    tool: r.tool,
+    stage: r.stage,
+    all_words: r.all_words ?? [],
+    any_words: r.any_words ?? [],
+    not_words: r.not_words ?? [],
+    understood: lang === "id" ? r.understood_id : r.understood_en,
+    note: r.note,
+  })));
 }

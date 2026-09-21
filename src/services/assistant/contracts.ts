@@ -187,3 +187,64 @@ export interface AssistantReply {
    *  before it matters. */
   understood_as: string;
 }
+
+/** One question the router did not understand, grouped the way the router
+ *  itself compares questions.
+ *
+ *  **There is nothing here about who asked.** The question this answers is
+ *  *what did we fail to understand*; a name turns it into a different question,
+ *  and `it.audit` is blocked from the prompt precisely so that one stays hard
+ *  to ask (D218, D190).
+ */
+export interface UnmatchedPrompt {
+  /** Lowercased, depunctuated, `-nya` dropped — what the matcher actually
+   *  compares against. Two sentences that share this are one question to the
+   *  router, which is the whole reason the list is grouped by it. */
+  normalised: string;
+  /** The most recent one as somebody typed it. The normalised form is what the
+   *  router sees; this is what a person reads when deciding whether a rule
+   *  would have helped. */
+  example: string;
+  times: number;
+  langs: ("en" | "id")[];
+  first_at: string;
+  last_at: string;
+}
+
+/** Whether the keyword router is doing its job, in counts and nothing else.
+ *
+ *  *Should a model go behind this* is not answerable from the unmatched list
+ *  alone (D221). A hundred unmatched beside four hundred answered is a router
+ *  doing its job on the questions people repeat; a hundred beside a hundred and
+ *  ten is one that mostly fails.
+ */
+export interface RouterHealth {
+  turns: number;
+  answered: number;
+  guided: number;
+  drafted: number;
+  unknown: number;
+  /** The boundary holding: somebody asked for something no grant reaches. */
+  refused_closed: number;
+  /** Somebody who needs a grant they have not got — an IT job, not a router
+   *  one. Kept apart from the above for the reason they always are (F64). */
+  refused_permission: number;
+  since: string | null;
+}
+
+/** One rule in the keyword router, read-only.
+ *
+ *  Shown beside the unmatched list because you cannot decide what to add
+ *  without seeing what is there. Not editable from a screen: the rules are
+ *  rows in a migration, reviewed, with the reason next to them.
+ */
+export interface RouterRule {
+  seq: number;
+  tool: string;
+  stage: "how" | "main";
+  all_words: string[];
+  any_words: string[];
+  not_words: string[];
+  understood: string;
+  note: string | null;
+}

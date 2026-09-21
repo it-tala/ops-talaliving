@@ -19,13 +19,14 @@
 import { ok, invalid, notFound, refused, type Result } from "@/services/_shared/envelope";
 import type {
   AssistantReply, AssistantTurn, AssistantTool, AnswerFact, AssistantDraft,
+  UnmatchedPrompt, RouterHealth, RouterRule,
 } from "@/services/assistant/contracts";
 import { getState, apply, newId, writeAudit } from "../store";
 import { latency, actingUser, requireModule, replayed, remember } from "./_kit";
 import { TOOLS, findTool, resolveTool } from "../assistant/catalogue";
 import { settingText } from "../settings";
 import type { Lang } from "@/lib/i18n";
-import { route } from "../assistant/router";
+import { route, normalise, rules } from "../assistant/router";
 import { GUIDES, resolveGuide, draftShape } from "@/lib/john-lau";
 import { accountBalances, approvalQueue, vendorJourney } from "../derive";
 import { stockItems } from "../inventory-derive";
@@ -385,4 +386,69 @@ export async function abandonDraft(turnId: string): Promise<Result<AssistantTurn
     row.draft_outcome = "abandoned";
   });
   return ok(SERVICE, getState().assistant_turns.find((t) => t.id === turnId)!);
+}
+
+/* ── the tuning list ───────────────────────────────────────────────────── */
+
+/** The questions the router did not understand, grouped the way the router
+ *  compares them.
+ *
+ *  Grouped by `normalise` — the matcher's own function, imported rather than
+ *  re-written, because a second normaliser is a second answer to *are these
+ *  the same question*. F64 is the day `stoknya menipis` and `stok menipis`
+ *  were not.
+ *
+ *  Nothing about who asked, here as in the database: the question is what we
+ *  failed to understand (D218).
+ */
+export async function unmatched(limit = 200): Promise<Result<UnmatchedPrompt[]>> {
+  await latency();
+  const denied = requireModule(SERVICE, "it");
+  if (denied) return denied as Result<UnmatchedPrompt[]>;
+
+  const groups = new Map<string, UnmatchedPrompt>();
+  for (const t of getState().assistant_turns) {
+    if (t.kind !== "unknown") continue;
+    const key = normalise(t.prompt);
+    const g = groups.get(key);
+    const l = lang();
+    if (!g) {
+      groups.set(key, {
+        normalised: key, example: t.prompt, times: 1, langs: [l],
+        first_at: t.at, last_at: t.at,
+      });
+    } else {
+      g.times += 1;
+      if (t.at > g.last_at) { g.last_at = t.at; g.example = t.prompt; }
+      if (t.at < g.first_at) g.first_at = t.at;
+      if (!g.langs.includes(l)) g.langs.push(l);
+    }
+  }
+  return ok(SERVICE, [...groups.values()]
+    .sort((a, b) => b.times - a.times || b.last_at.localeCompare(a.last_at))
+    .slice(0, limit));
+}
+
+export async function routerHealth(): Promise<Result<RouterHealth>> {
+  await latency();
+  const denied = requireModule(SERVICE, "it");
+  if (denied) return denied as Result<RouterHealth>;
+
+  const turns = getState().assistant_turns;
+  const n = (f: (t: AssistantTurn) => boolean) => turns.filter(f).length;
+  return ok(SERVICE, {
+    turns: turns.length,
+    answered: n((t) => t.kind === "answer"),
+    guided: n((t) => t.kind === "guide"),
+    drafted: n((t) => t.kind === "draft"),
+    unknown: n((t) => t.kind === "unknown"),
+    refused_closed: n((t) => t.refused_because === "closed"),
+    refused_permission: n((t) => t.refused_because === "permission"),
+    since: turns.length ? turns[0].at : null,
+  });
+}
+
+export async function listRules(): Promise<Result<RouterRule[]>> {
+  await latency();
+  return ok(SERVICE, rules() as RouterRule[]);
 }
