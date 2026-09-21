@@ -4841,3 +4841,39 @@ somebody noticing a figure that looks slightly wrong. Adding the column and the
 readers in one migration is not tidiness; it is the difference between a change
 and a slow leak. The way to know N is to grep for the table before writing the
 `alter`, not after.
+
+## F124 · 2026-09-21 · 0090, corrected by 0037 — the privacy line was in the wrong place
+
+**What `0090` shipped, hours before main's guard caught it.**
+`v_turn_provenance` was a `security_invoker = off` view: it read past the
+table's policy on purpose, and a `has_permission('it.read')` inside its `where`
+clause was the only thing stopping every signed-in account from reading every
+draft anybody had confirmed. It was written deliberately and documented as the
+one view in the ladder that runs as its owner.
+
+**`0037`'s check refused it**, and the refusal was the useful part. That
+migration had just measured what `0014` got backwards — a view runs with its
+**owner's** rights unless told otherwise — and enforced `security_invoker = on`
+over every view in the ladder, with two named exceptions and an assertion that
+there are exactly two. Adding a third means editing the count as well as the
+list, which is friction on purpose, and the friction worked: it made the
+question *does this have to be an exception* unavoidable.
+
+**It did not.** The reasoning that produced the definer view was *the prompt is
+private, so IT must see a subset without it*. That is the wrong line. A prompt
+that produced a purchase request line is **the provenance of that line** — the
+sentence somebody typed instead of filling in the form, as much a record of the
+order as the fields are. A prompt that asked about a salary and was refused
+produced nothing and belongs to the asker alone.
+
+So the rule is not *the prompt is private*; it is **a turn that wrote something
+is readable by whoever audits writes, and a turn that did not is not**. Said
+that way it is a second RLS policy — `draft is not null and
+has_permission('it.read')` — policies being OR'd, and the view goes back to
+carrying the reader's rights like every other one.
+
+**Two things worth keeping.** A guard inside a view is a guard in a place
+nobody looks for one; the same rule as a policy sits where every reader of that
+table already looks. And a privacy boundary that needs a special mechanism is
+usually a boundary drawn in the wrong place — the right line here needed no
+mechanism at all, only a predicate in the place predicates go.

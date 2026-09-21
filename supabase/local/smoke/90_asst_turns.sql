@@ -330,18 +330,21 @@ begin
   assert p.fields -> 0 ->> 'value' = 'Tripleks 12mm',
     'field by field, as it was confirmed, got ' || coalesce(p.fields -> 0 ->> 'value','(null)');
 
-  -- **The view has no prompt column at all**, which is a stronger statement
-  -- than a filter: there is nothing to forget to apply.
-  assert not exists (
-    select 1 from information_schema.columns
-     where table_schema = 'asst_none' or (table_schema = 'ops_asst'
-       and table_name = 'v_turn_provenance' and column_name = 'prompt')),
-    'a question cannot leak through a column that is not there';
-
   -- Only the turns that wrote something. A conversation that answered and
   -- guided is not on this list at all.
   select count(*) into n from ops_asst.v_turn_provenance;
   assert n = 1, 'one write through the prompt, got ' || n;
+
+  -- **And the question that produced it comes with it**, because the sentence
+  -- somebody typed instead of filling in the form is that document's
+  -- provenance. The ones that produced nothing do not: IT reads one turn out
+  -- of the seven on this table.
+  select count(*) into n from ops_asst.assistant_turns;
+  assert n = 1, 'the draft turn, and no other conversation, got ' || n;
+  assert (select prompt from ops_asst.assistant_turns)
+         like 'tolong buat permintaan%', 'and it reads the sentence that wrote';
+  assert not exists (select 1 from ops_asst.assistant_turns where prompt like '%gaji pak joko%'),
+    'the salary question produced nothing and is nobody else''s business';
 
   -- The write is announced with everything on it, because it is the one input
   -- path with no form behind it.
@@ -353,18 +356,26 @@ begin
     || coalesce((v_payload -> 'fields')::text,'(null)');
 end $$;
 
-/* ── REFUSAL: provenance is IT's, and nobody else's ────────────────────── */
+/* ── REFUSAL: a colleague's write is not a colleague's business ────────── */
+set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-000000009001';
+do $$
+declare n int;
+begin
+  assert not ops_core.has_permission('it.read'), 'Budi is not IT';
+  -- Sari would see her own draft here, and should: it is hers. Budi is the
+  -- one who proves the limit, because the widening policy is `it.read` and
+  -- nothing else — a colleague with no audit role reads none of it.
+  select count(*) into n from ops_asst.v_turn_provenance;
+  assert n = 0, 'got ' || n;
+end $$;
+
 set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-000000009002';
 do $$
 declare n int;
 begin
-  assert not ops_core.has_permission('it.read'), 'Sari is not IT';
-  -- The view runs as its owner — the only one in the ladder that does — so
-  -- the predicate inside it is the whole guard. Without it every signed-in
-  -- account would read every draft anybody ever confirmed, including their own
-  -- colleagues'.
+  -- And the author still sees her own, through the first policy.
   select count(*) into n from ops_asst.v_turn_provenance;
-  assert n = 0, 'got ' || n;
+  assert n = 1, 'her own draft is hers to read, got ' || n;
 end $$;
 
 rollback;

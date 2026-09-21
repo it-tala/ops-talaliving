@@ -302,8 +302,17 @@ end $$;
 -- The question *what has Budi been asking John Lau* must not be, or nobody
 -- will ask it anything worth asking.
 --
--- Both are served by leaving the prompt out. Everything here is about a write
--- that happened: who, which tool, which fields, which document.
+-- The line between them turns out to be the draft itself. A prompt that
+-- produced a purchase request line is **part of that line's provenance** —
+-- the sentence somebody typed instead of filling in the form, and as much a
+-- record of the order as the fields are. A prompt that asked about a salary
+-- and was refused produced nothing, and belongs to nobody but the asker.
+--
+-- So the split is not *the prompt is always private*; it is **a turn that
+-- wrote something is readable by IT, and a turn that did not is not**. Which
+-- means no view has to read past anybody's rights: a second policy says it,
+-- and `v_turn_provenance` is an ordinary invoker view that presents the
+-- provenance-shaped subset of what the reader may already see.
 create or replace view ops_asst.v_turn_provenance as
 select
   t.turn_no,
@@ -317,12 +326,11 @@ select
   t.produced_ref
 from ops_asst.assistant_turns t
 join ops_core.users u on u.id = t.actor_id
--- **The gate is in the view**, because the view is what crosses the line the
--- table's policy draws. It runs as its owner — the only one in the ladder that
--- does — so this predicate is not decoration: without it, every signed-in
--- account could read every draft anybody ever confirmed.
-where t.draft is not null
-  and ops_core.has_permission('it.read');
+-- No permission predicate here, and that is the point: the view carries the
+-- reader's rights like every other view in the ladder (0037), and the two
+-- policies below are what decide whose rows arrive. A guard inside a view is a
+-- guard in a place nobody looks for one.
+where t.draft is not null;
 
 -- ── access ────────────────────────────────────────────────────────────────
 alter table ops_asst.assistant_turns enable row level security;
@@ -333,18 +341,21 @@ alter table ops_asst.assistant_turns enable row level security;
 create policy turns_read on ops_asst.assistant_turns for select to authenticated
   using (actor_id = auth.uid());
 
+-- And the turns that **wrote something**, to IT. Policies are OR'd, so this
+-- widens the first rather than replacing it: a draft turn is readable by its
+-- author and by whoever audits writes, and every other turn stays the author's
+-- alone. The prompt comes with it, deliberately — the sentence that produced a
+-- purchase request line is that line's provenance, and a question that
+-- produced nothing is not anybody's business.
+create policy turns_provenance_read on ops_asst.assistant_turns for select to authenticated
+  using (draft is not null and ops_core.has_permission('it.read'));
+
 -- No INSERT or UPDATE policy and no INSERT or UPDATE grant: both roads are the
 -- seams above, which is what keeps the turn number minted and the refusal
 -- announced. No DELETE anywhere (A2) — a turn somebody acted on is a fact, and
 -- the one thing a person might want to erase is the one thing worth keeping.
 
--- `security_invoker = off` — **the only view in the ladder that runs as its
--- owner**, and deliberately, because its whole job is to cross the boundary
--- `turns_read` draws: it reads rows the caller may not read and hands back the
--- part of them that is not private. Every other view in this system carries
--- the reader's rights and should; this one carries the reason it does not, in
--- the `where` clause above.
-alter view ops_asst.v_turn_provenance set (security_invoker = off);
+alter view ops_asst.v_turn_provenance set (security_invoker = on);
 
 grant usage on schema ops_asst to authenticated;
 grant select on ops_asst.assistant_turns, ops_asst.v_turn_provenance to authenticated;

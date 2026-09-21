@@ -693,15 +693,18 @@ Three more the building added:
   (D220) — the turn is the *provenance* of that write, and provenance that can
   be edited afterwards is not provenance. `turn_is_evidence` freezes everything
   but `draft_outcome`, which moves once;
-- **your own conversation, and nobody else's, including IT.** Somebody asking
-  about salaries has done nothing wrong, and a permanent record of the
-  question readable by their manager is a worse trail than no trail. What is
-  announced on a refusal is the **tool**, never the sentence;
+- **your own conversation, and nobody else's** — except the turns that *wrote
+  something*, which a second policy opens to `it.read`. The line is not *the
+  prompt is private*: a sentence somebody typed instead of filling in a form is
+  that document's provenance and belongs with it, while a question that
+  produced nothing belongs to the asker alone. Somebody asking about salaries
+  has done nothing wrong, and what a refusal announces is the **tool**, never
+  the sentence;
 - so **`v_turn_provenance`** answers *where did this line come from* — actor,
-  tool, fields confirmed, document produced — for `it.read`, with no `prompt`
-  column at all. It is the one view in the ladder that runs as its owner, which
-  is what lets it cross the boundary the table's policy draws, and the
-  predicate inside it is therefore the whole guard.
+  tool, fields confirmed, document produced — and is an ordinary
+  `security_invoker = on` view (0037). The two policies decide whose rows
+  arrive; nothing about the view does, because a guard inside a view is a guard
+  in a place nobody looks for one (F124).
 
 `core.audit_log` has no retention at all. It is the evidence behind every
 figure the system prints, and a purged audit row is a past number nobody can
