@@ -1939,12 +1939,31 @@ erDiagram
 | `stage_sources` includes each stage's **own** code | `FINISHING` names one of the four and one of the seven that collapsed into it; without the self-row, direct entries and rolled-up ones were added together and counted the same pieces twice (F74) |
 | `work_orders.bom_rev` must be a **released** revision of that order's own product | neither half is a foreign key that could say so — `product_code` is a code at the seam and `released_at` is a column. A pin to a draft is a pin to something still being edited |
 
-**Who may write, in HR** (`0050`, the daily half): `hrd.create` for importing
-the machine's file, typing in a tap the machine missed and marking a day;
-`hrd.update` for withdrawing a mark and for withholding or restoring the
-allowance on a day. All through seams, addressed by `employee_no` and
-`mark_no`. The overtime sheets, the payroll runs and the enrolments have
-tables and views and **no seams yet**.
+**Who may write, in HR** (`0050` and `0051`, the daily work): `hrd.create` for
+importing the machine's file, typing in a tap the machine missed, marking a
+day, opening an overtime sheet, adding a name to one and reading the paper
+form; `hrd.update` for withdrawing a mark, withholding or restoring the
+allowance on a day, and for HRD's own check on an overtime sheet. The
+**leader's** signature is not a module level at all — it is
+`has_authority('approve_overtime')`, because an authority is never implied by
+one (D24). All through seams, addressed by `employee_no`, `mark_no` and
+`sheet_no`. The payroll runs, the enrolments, the pay rules, the tasks and the
+employee files have tables and views and **no seams yet**.
+
+**What the leader is signing is the surat, not the hours.** HRD checked those
+first — `decide_overtime_sheet('leader', …)` on a sheet HRD has not seen is
+refused as `hrd_first` — and an approval with no `surat_lembur` on the evidence
+road is refused too: without the paper, what was approved is a number (D147).
+Which is also why HR has no `attach_overtime_doc`. Filing evidence is one road
+and it is the documents seam (ADR-010); a second road through `ops_hr` would be
+a second place a surat can be linked and a second place it can be forgotten.
+
+**An approved production sheet announces what was made.** The `overtime.approved`
+event carries the work order, the stage and the quantity for each line that
+named them, because `0062` lets `approve_overtime` post a progress entry
+sourced to that sheet without the poster holding the production module — the
+signature is the authority (D147's second door). The same sheet posted twice
+adds nothing, which `progress_entries` enforces on `source_ref`.
 
 **A day mark is withdrawn, not deleted.** `withdrawn_at`/`_by`/`_reason`, and
 `mark_once` is unique over the **live** ones only, so a day marked by mistake
