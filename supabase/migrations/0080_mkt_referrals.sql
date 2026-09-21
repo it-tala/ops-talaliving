@@ -42,9 +42,13 @@
 
 create schema if not exists ops_mkt;  -- the Package programme: reps, referrals, commission
 
+-- `agn` and `lead`, which is what the tracker prints today and what the team
+-- says out loud. `rep` and `rfl` would have been tidier and would have made
+-- every number on every screen change shape on the day of the swap — the one
+-- change guaranteed to make it unusable by the people who use the sheet (D183).
 insert into ops_core.doc_prefixes (prefix, what) values
-  ('rep', 'sales representative'),
-  ('rfl', 'referral');
+  ('agn',  'sales representative'),
+  ('lead', 'referral');
 
 -- Deliberately shorter than the outreach ladder: an owner either is talking to
 -- us, has signed, or has not.
@@ -52,7 +56,7 @@ create type ops_mkt.referral_status_t as enum ('LEAD','SURVEYED','QUOTED','WON',
 
 create table ops_mkt.sales_reps (
   id                 uuid primary key default gen_random_uuid(),
-  rep_no             text not null unique default ops_core.next_doc_number('rep'),
+  rep_no             text not null unique default ops_core.next_doc_number('agn'),
   name               text not null check (length(btrim(name)) > 0),
   agency             text,
   phone              text,
@@ -76,7 +80,7 @@ create table ops_mkt.sales_reps (
 
 create table ops_mkt.referrals (
   id                uuid primary key default gen_random_uuid(),
-  referral_no       text not null unique default ops_core.next_doc_number('rfl'),
+  referral_no       text not null unique default ops_core.next_doc_number('lead'),
   rep_id            uuid not null references ops_mkt.sales_reps(id),
   owner_name        text not null check (length(btrim(owner_name)) > 0),
   unit              text,

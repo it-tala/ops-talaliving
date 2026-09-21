@@ -4605,3 +4605,47 @@ rebuild → smoke → import, so CI is correct and this only bites somebody runn
 them by hand in the other order. Noted rather than changed: the file belongs to
 the session that wrote it, and the fix is theirs to pick — a rollback, or a
 line in its header saying it must run last.
+
+## F117 · 2026-09-21 · 0082 — the trigger wrote what the constraint forbade
+
+**What happened.** The first run of `0082`'s smoke died on
+`replied_after_sent`. An agent sitting at `QUEUED` was onboarded and then moved
+straight to `DEAL`; `0081`'s trigger stamps `replied_on` for anything at or past
+`REPLIED`, the row had no `sent_on`, and the constraint on the same table
+refused the write the trigger had just composed. Two guards written a day apart,
+in the same file, disagreeing.
+
+**Which one was right.** The constraint. You cannot answer a message that was
+never sent, and the case is real rather than a fixture artefact: an agent met at
+an event and signed the same week never sat in silence. The trigger was
+inventing a reply to a message that did not exist.
+
+Neither *invent the missing `sent_on`* nor *refuse the deal* was acceptable —
+the first fills in what is missing, which D150 forbids, and the second refuses
+something that happens. So the trigger now stamps a reply **only when there was
+a message to answer**, and the row says a deal happened and says nobody recorded
+messaging them. Both true, neither invented.
+
+**What that then broke, which is the more interesting half.** Once `sent_on`
+could legitimately be null for an agent well up the ladder, `pipeline()` was
+wrong. It counted `messaged` and `replied` by **rung** — `rank >= 'MSG SENT'`,
+`rank >= 'REPLIED'` — copied from the demo, where every advanced agent happened
+to have been messaged. The event agent is in the numerator and not the
+denominator, so a market can report a reply rate **above a hundred per cent**.
+
+The fix is smaller than the bug: `messaged` is `sent_on is not null` and
+`replied` is `replied_on is not null`. Both are what the words mean, both are
+events rather than positions, and the `or stage = 'RECYCLED'` special case
+disappears — an agent you gave up on keeps their `sent_on`, so they keep
+counting, and one dropped before any message was sent correctly does not.
+
+**The general shape.** A rate whose numerator and denominator are read off
+different things will eventually exceed one. `replied ÷ messaged` is only a rate
+if both count the same kind of fact about the same population — here, things
+that **happened**, not rungs a row has climbed past.
+
+**And a third thing, from the same smoke.** Asserting one audit row for a
+`move_on` found two: the successful one, and the attempt a read-grant user had
+been refused earlier. That is right and worth pinning — a trail that records
+only what succeeded cannot answer *who has been trying to do this*, which is the
+question it gets asked.

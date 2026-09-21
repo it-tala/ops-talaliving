@@ -87,9 +87,9 @@ begin
 end $$;
 
 insert into ops_mkt.sales_reps (id, rep_no, name, agency, commission_percent, created_by) values
-  ('cccc8000-0000-0000-0000-0000000000b1','rep-26-09-18_01','Budi Santoso','Ray White', 2.5,
+  ('cccc8000-0000-0000-0000-0000000000b1','agn-26-09-18_01','Budi Santoso','Ray White', 2.5,
    'ffffffff-0000-0000-0000-000000008001'),
-  ('cccc8000-0000-0000-0000-0000000000b2','rep-26-09-18_02','Sari Dewi','Century 21', 3,
+  ('cccc8000-0000-0000-0000-0000000000b2','agn-26-09-18_02','Sari Dewi','Century 21', 3,
    'ffffffff-0000-0000-0000-000000008001');
 
 /* ── REFUSAL: a commission needs a contract that exists ────────────────── */
@@ -145,19 +145,19 @@ end $$;
 insert into ops_mkt.referrals
   (referral_no, rep_id, owner_name, unit, status, project_code, commission_trx_no, lost_reason, created_by)
 values
-  ('rfl-80-01','cccc8000-0000-0000-0000-0000000000b1','Pak Hadi','PH-1','WON','PRJ-80', null, null,
+  ('lead-80-01','cccc8000-0000-0000-0000-0000000000b1','Pak Hadi','PH-1','WON','PRJ-80', null, null,
    'ffffffff-0000-0000-0000-000000008001'),
-  ('rfl-80-02','cccc8000-0000-0000-0000-0000000000b1','Bu Ratna','PH-2','WON','PRJ-81',
+  ('lead-80-02','cccc8000-0000-0000-0000-0000000000b1','Bu Ratna','PH-2','WON','PRJ-81',
    'trx-26-09-18_001', null,'ffffffff-0000-0000-0000-000000008001'),
-  ('rfl-80-03','cccc8000-0000-0000-0000-0000000000b1','Pak Wawan','PH-7','QUOTED', null, null, null,
+  ('lead-80-03','cccc8000-0000-0000-0000-0000000000b1','Pak Wawan','PH-7','QUOTED', null, null, null,
    'ffffffff-0000-0000-0000-000000008001'),
-  ('rfl-80-04','cccc8000-0000-0000-0000-0000000000b1','Bu Lina','PH-9','LOST', null, null,
+  ('lead-80-04','cccc8000-0000-0000-0000-0000000000b1','Bu Lina','PH-9','LOST', null, null,
    'pakai kontraktor sendiri','ffffffff-0000-0000-0000-000000008001'),
-  ('rfl-80-05','cccc8000-0000-0000-0000-0000000000b2','Pak Anton','PH-3','LEAD', null, null, null,
+  ('lead-80-05','cccc8000-0000-0000-0000-0000000000b2','Pak Anton','PH-3','LEAD', null, null, null,
    'ffffffff-0000-0000-0000-000000008001'),
   -- Priced, and not signed: the one case where every ingredient of a
   -- commission exists and none is owed.
-  ('rfl-80-06','cccc8000-0000-0000-0000-0000000000b1','Bu Tuti','PH-4','QUOTED','PRJ-83', null, null,
+  ('lead-80-06','cccc8000-0000-0000-0000-0000000000b1','Bu Tuti','PH-4','QUOTED','PRJ-83', null, null,
    'ffffffff-0000-0000-0000-000000008001');
 
 /* ── REFUSAL: one project, one commission ──────────────────────────────── */
@@ -175,7 +175,7 @@ end $$;
 do $$
 declare v record;
 begin
-  select * into v from ops_mkt.v_referral where referral_no = 'rfl-80-01';
+  select * into v from ops_mkt.v_referral where referral_no = 'lead-80-01';
   assert v.contract_value = 500000000,
     'the value comes from the project, got ' || coalesce(v.contract_value::text,'(null)');
   assert v.commission_amount = 12500000,
@@ -185,21 +185,21 @@ begin
     'so all of it is outstanding, got ' || coalesce(v.commission_unpaid::text,'(null)');
   assert v.project_name = 'Astoria PH-1', 'the project names itself across the seam';
 
-  select * into v from ops_mkt.v_referral where referral_no = 'rfl-80-02';
+  select * into v from ops_mkt.v_referral where referral_no = 'lead-80-02';
   assert v.commission_amount = 5000000, '200 juta × 2,5%, got ' || coalesce(v.commission_amount::text,'(null)');
   assert v.commission_paid,             'the ledger row is on the referral';
   assert v.commission_unpaid = 0,       'and nothing is outstanding, got ' || coalesce(v.commission_unpaid::text,'(null)');
 
   -- A referral that has been surveyed and quoted is **work, not revenue**. A
   -- percentage of a hoped-for size is a figure the agent will quote back at us.
-  select * into v from ops_mkt.v_referral where referral_no = 'rfl-80-03';
+  select * into v from ops_mkt.v_referral where referral_no = 'lead-80-03';
   assert v.commission_amount is null, 'nothing is owed on an introduction that has not been won';
   assert v.commission_unpaid is null, 'and no outstanding figure either — null, not nought';
 
   -- The case that separates *not won* from *no figure to work from*: a quoted
   -- job whose project exists and carries a value. Every ingredient is there
   -- and nothing is owed, because a quote is work rather than revenue (D186).
-  select * into v from ops_mkt.v_referral where referral_no = 'rfl-80-06';
+  select * into v from ops_mkt.v_referral where referral_no = 'lead-80-06';
   assert v.contract_value = 100000000, 'the quote has a figure, got ' || coalesce(v.contract_value::text,'(null)');
   assert v.commission_amount is null,  'and it earns nobody anything until it is signed';
 end $$;
@@ -212,7 +212,7 @@ begin
   -- would still be quoting last month's figure, and nothing would say so.
   update ops_procure.projects set contract_value = 600000000 where code = 'PRJ-80';
 
-  select * into v from ops_mkt.v_referral where referral_no = 'rfl-80-01';
+  select * into v from ops_mkt.v_referral where referral_no = 'lead-80-01';
   assert v.contract_value = 600000000, 'the revision is visible, got ' || coalesce(v.contract_value::text,'(null)');
   assert v.commission_amount = 15000000,
     '600 juta × 2,5% — derived, never stored, got ' || coalesce(v.commission_amount::text,'(null)');
@@ -221,7 +221,7 @@ begin
   -- is not something a trigger here can prevent, so the view reports it as a
   -- state somebody has to go and fix rather than a quiet null.
   update ops_procure.projects set contract_value = null where code = 'PRJ-80';
-  select * into v from ops_mkt.v_referral where referral_no = 'rfl-80-01';
+  select * into v from ops_mkt.v_referral where referral_no = 'lead-80-01';
   assert v.commission_amount is null,   'a commission off a missing number is not a number';
   assert v.contract_value_missing,      'and the row says that is why';
 
@@ -236,31 +236,31 @@ begin
   -- bank.
   begin
     update ops_mkt.sales_reps set commission_percent = 4
-     where rep_no = 'rep-26-09-18_01';
+     where rep_no = 'agn-26-09-18_01';
     raise exception 'moving a rate that has been paid against should be refused';
   exception when check_violation then null;
   end;
 
   -- Sari has been paid nothing, so hers is still ordinary editing.
-  update ops_mkt.sales_reps set commission_percent = 3.5 where rep_no = 'rep-26-09-18_02';
-  assert (select commission_percent from ops_mkt.sales_reps where rep_no = 'rep-26-09-18_02') = 3.5,
+  update ops_mkt.sales_reps set commission_percent = 3.5 where rep_no = 'agn-26-09-18_02';
+  assert (select commission_percent from ops_mkt.sales_reps where rep_no = 'agn-26-09-18_02') = 3.5,
     'a rate nothing has been paid against is still negotiable';
 
   -- Everything else about a rep moves freely either way.
-  update ops_mkt.sales_reps set phone = '0812-3456' where rep_no = 'rep-26-09-18_01';
+  update ops_mkt.sales_reps set phone = '0812-3456' where rep_no = 'agn-26-09-18_01';
 end $$;
 
 /* ── REFUSAL: nothing is deleted (A2) ──────────────────────────────────── */
 do $$
 begin
   begin
-    delete from ops_mkt.referrals where referral_no = 'rfl-80-04';
+    delete from ops_mkt.referrals where referral_no = 'lead-80-04';
     raise exception 'deleting an introduction that came to nothing should be refused';
   exception when insufficient_privilege then null;
   end;
   -- `LOST` with a reason is the record; removing the row is how a conversion
   -- rate improves by forgetting.
-  assert (select lost_reason from ops_mkt.referrals where referral_no = 'rfl-80-04')
+  assert (select lost_reason from ops_mkt.referrals where referral_no = 'lead-80-04')
          = 'pakai kontraktor sendiri', 'the reason is the record';
 end $$;
 
@@ -268,7 +268,7 @@ end $$;
 do $$
 declare r record;
 begin
-  select * into r from ops_mkt.v_rep where rep_no = 'rep-26-09-18_01';
+  select * into r from ops_mkt.v_rep where rep_no = 'agn-26-09-18_01';
   assert r.referrals = 5,   'five introductions, got ' || coalesce(r.referrals::text,'(null)');
   assert r.won = 2,         'two of them signed, got ' || coalesce(r.won::text,'(null)');
   assert r.lost = 1,        'one went elsewhere, got ' || coalesce(r.lost::text,'(null)');
@@ -282,7 +282,7 @@ begin
 
   -- A rep who has introduced nothing yet is a row of zeroes, not a missing row:
   -- *onboarded and quiet* is a state somebody follows up on.
-  select * into r from ops_mkt.v_rep where rep_no = 'rep-26-09-18_02';
+  select * into r from ops_mkt.v_rep where rep_no = 'agn-26-09-18_02';
   assert r.referrals = 1,          'one lead, got ' || coalesce(r.referrals::text,'(null)');
   assert r.commission_earned = 0,  'and nothing earned on it yet';
   assert r.won_value is null,      'no contracts at all is not a value of nought';

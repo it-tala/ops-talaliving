@@ -1782,6 +1782,18 @@ and the derivations over them. `referrals.property_ref` stayed a **code** while
 one side was missing and still is: the seam was written to hold either way
 (ADR-004).
 
+**Who may write:** `marketing.update` for moving an agent along the ladder and
+for moving on from one, `marketing.create` for onboarding a representative —
+all three through seams in `0082`, addressed by **property ref and slot** (C17).
+The clock's stamping is a trigger rather than seam code, so it holds for a
+correction typed straight into the table.
+
+**`messaged` and `replied` count events, not rungs** — `sent_on is not null`
+and `replied_on is not null`. An agent met at an event and signed the same week
+is above `REPLIED` having never been messaged, which by rungs puts them in the
+numerator and not the denominator; a reply rate over a hundred per cent is how
+that gets found (F117).
+
 **`RECYCLED` and `SKIP` are exits, not rungs**, so rank is a function that
 answers **null** for them rather than the enum's own declaration order. A plain
 `stage >= 'REPLIED'` would have counted an agent we gave up on as one who

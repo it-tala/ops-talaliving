@@ -123,7 +123,7 @@ values
     true, 40, 2400000, 2, false, null, null);
 
 insert into ops_mkt.sales_reps (id, rep_no, name, market_code, commission_percent, created_by)
-values ('cccc8100-0000-0000-0000-0000000000b1','rep-81-01','Budi Santoso','AU-QLD-GOLDCOAST-SPMIDDLE', 2.5,
+values ('cccc8100-0000-0000-0000-0000000000b1','agn-81-01','Budi Santoso','AU-QLD-GOLDCOAST-SPMIDDLE', 2.5,
         'ffffffff-0000-0000-0000-000000008101');
 
 /* ── REFUSAL: three agents, in order, and a deal names its rep ─────────── */
@@ -227,6 +227,21 @@ begin
   select * into a from ops_mkt.property_agents where id = 'eeee8100-0000-0000-0000-0000000000d8';
   assert a.replied_on = ops_core.office_day(), 'the reply is stamped too, got ' || coalesce(a.replied_on::text,'(null)');
   assert a.next_action_on is null, 'and a reply ends the chase';
+
+  -- **Only if there was a message to answer.** An agent met at an event and
+  -- signed the same week never sat in silence: stamping a reply for them would
+  -- write a date against a message that does not exist, and
+  -- `replied_after_sent` would refuse the whole write (F117). Nothing is
+  -- invented to paper over it — the row says a deal happened and says nobody
+  -- recorded messaging them, both of which are true.
+  insert into ops_mkt.property_agents (id, property_id, slot, name)
+  values ('eeee8100-0000-0000-0000-0000000000d9','dddd8100-0000-0000-0000-0000000000c4', 2,'Hasan Basri');
+  update ops_mkt.property_agents set stage = 'PRESENTATION'
+   where id = 'eeee8100-0000-0000-0000-0000000000d9';
+  select * into a from ops_mkt.property_agents where id = 'eeee8100-0000-0000-0000-0000000000d9';
+  assert a.stage = 'PRESENTATION', 'the stage is recorded, got ' || coalesce(a.stage::text,'(null)');
+  assert a.sent_on is null,    'and nobody messaged them, which is what happened';
+  assert a.replied_on is null, 'so there is no reply date to invent';
 end $$;
 
 /* ── DERIVATION: waiting, and the line — `RECYCLED` is not `REPLIED` ───── */
@@ -310,8 +325,8 @@ begin
   assert s.qualified = 3,  'one was disqualified, got ' || coalesce(s.qualified::text,'(null)');
   assert s.validated = 1,  'and only one has been checked by a person (D184), got '
     || coalesce(s.validated::text,'(null)');
-  -- An agent you gave up on **was** messaged. Leaving RECYCLED out would make
-  -- the reply rate climb every time somebody is dropped.
+  -- An agent you gave up on **was** messaged, and still counts: `sent_on` is
+  -- what says so, and dropping somebody does not clear it.
   assert s.messaged = 5,   'four approached plus the one dropped, got ' || coalesce(s.messaged::text,'(null)');
   assert s.replied = 2,    'got ' || coalesce(s.replied::text,'(null)');
   assert s.reply_rate = 40.0, '2 of 5, got ' || coalesce(s.reply_rate::text,'(null)');
@@ -331,6 +346,13 @@ begin
 
   s := ops_mkt.pipeline('ID');
   assert s.properties = 2,     'the villa and the resort, got ' || coalesce(s.properties::text,'(null)');
+  -- Two agents there now: one messaged who answered, and one at PRESENTATION
+  -- whom nobody recorded messaging. **Counted as events, not as rungs** — the
+  -- second is in neither figure, because no message went out and therefore no
+  -- silence was ended. Counting rungs would have put them in the numerator
+  -- alone and made the reply rate 200% (F117).
+  assert s.messaged = 1,       'got ' || coalesce(s.messaged::text,'(null)');
+  assert s.replied = 1,        'got ' || coalesce(s.replied::text,'(null)');
   assert s.messaged = 1,       'messaged once during the clock test, got ' || coalesce(s.messaged::text,'(null)');
   assert s.replied = 1,        'and it replied, got ' || coalesce(s.replied::text,'(null)');
 

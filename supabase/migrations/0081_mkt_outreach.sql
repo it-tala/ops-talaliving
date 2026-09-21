@@ -232,7 +232,16 @@ begin
   -- And stops when they answer, wherever on the ladder the answer arrives:
   -- somebody who books a call has replied, whether or not anybody clicked
   -- REPLIED on the way past.
-  if ops_mkt.stage_rank(new.stage) >= ops_mkt.stage_rank('REPLIED') and new.replied_on is null then
+  --
+  -- **Only if there was a message to answer.** An agent met at an event and
+  -- signed the same week never sat in silence, and stamping a reply for them
+  -- writes a date against a message that does not exist — which
+  -- `replied_after_sent` then refuses, correctly. Nothing here invents the
+  -- missing send date either (D150): the row says a deal happened and says
+  -- nobody recorded messaging them, both of which are true.
+  if new.sent_on is not null
+     and ops_mkt.stage_rank(new.stage) >= ops_mkt.stage_rank('REPLIED')
+     and new.replied_on is null then
     new.replied_on := v_today;
     -- A reply ends the chase. What happens next is a person's move, not a date.
     new.next_action_on := null;
@@ -439,12 +448,16 @@ language sql stable set search_path = ops_mkt, pg_temp as $$
       (select count(*) from props)::int                                     as properties,
       (select count(*) from props where qualified)::int                     as qualified,
       (select count(*) from props where qualified and validated)::int       as validated,
-      -- An agent you gave up on **was** messaged. Leaving `RECYCLED` out would
-      -- make the reply rate climb every time somebody is dropped.
-      (select count(*) from ag
-        where ops_mkt.stage_rank(stage) >= 1 or stage = 'RECYCLED')::int     as messaged,
-      (select count(*) from ag
-        where ops_mkt.stage_rank(stage) >= ops_mkt.stage_rank('REPLIED'))::int as replied,
+      -- **Events, not rungs.** `messaged` is *a message went out* and
+      -- `replied` is *somebody we messaged answered* — which is what a reply
+      -- rate is a rate of. Counting rungs instead gets both ends wrong: an
+      -- agent you gave up on is above `MSG SENT` whether or not one was ever
+      -- sent, and an agent met at an event and signed the same week is above
+      -- `REPLIED` having never been messaged at all. That second case can put
+      -- somebody in the numerator and not the denominator, and a reply rate
+      -- over a hundred per cent is how you find out (F117).
+      (select count(*) from ag where sent_on is not null)::int                as messaged,
+      (select count(*) from ag where replied_on is not null)::int             as replied,
       (select count(*) from ag
         where ops_mkt.stage_rank(stage) >= ops_mkt.stage_rank('FORM BACK'))::int as forms_back,
       (select count(*) from ag where stage = 'DEAL')::int                    as deals
