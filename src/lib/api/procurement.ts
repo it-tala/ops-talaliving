@@ -60,6 +60,55 @@ const SERVICE = "procurement" as const;
  */
 const db = () => supabaseBrowser().schema("ops_procure");
 
+/* ------------------------------------------------------------------ */
+/* id ↔ code, and reading a row back                                   */
+/* ------------------------------------------------------------------ */
+
+/** The seams take **codes**; the screens hold **ids**.
+ *
+ *  Both are right, and the mismatch is not a bug in either. ADR-004 says never
+ *  hand out a uuid where a code will do, so `VND-0007` is what crosses a seam,
+ *  lands in an audit row and gets read aloud on the phone. A screen, meanwhile,
+ *  is holding a `VendorView` it already fetched, and `id` is what it has.
+ *
+ *  So the translation happens here — once, in the client — rather than in five
+ *  screens or in the seams. It is the same shape `accounting.codeFor` uses, and
+ *  it is deliberately **not** silent about failure: a null means the row is
+ *  gone, which is a 404 the person can act on, not a call with `p_code: null`
+ *  that the seam would answer with its own confusing *no such vendor*.
+ *
+ *  Both are `string` in TypeScript, so nothing would have complained until a
+ *  seam refused every call. That is exactly why 37 functions were listed as
+ *  pending rather than assumed correct.
+ */
+async function codeFor(table: "vendors" | "items", id: string): Promise<string | null> {
+  const { data } = await db().from(table).select("code").eq("id", id).maybeSingle();
+  return (data as { code: string } | null)?.code ?? null;
+}
+
+/** The row the screen is about to draw, after a write that answered a receipt.
+ *
+ *  Two round trips, the same shape as `createVendor` and `postTransaction`: the
+ *  seam answers *what happened* — `{code, is_curated}` — and the contract
+ *  promises the whole view, because the screen puts it straight back into its
+ *  list without reloading.
+ *
+ *  Widening the seams to return a whole row instead was the alternative, and it
+ *  is worse: every write becomes a read for the benefit of the callers that
+ *  happen to need one, and the audit payload stops being *what changed*.
+ */
+async function vendorViewByCode(code: string): Promise<Result<VendorView>> {
+  const { data, error } = await db()
+    .from("v_vendor_view").select("*").eq("code", code).single();
+  return fromRows<VendorView>(SERVICE, data as VendorView | null, error);
+}
+
+async function itemViewByCode(code: string): Promise<Result<ItemView>> {
+  const { data, error } = await db()
+    .from("v_item_view").select("*").eq("code", code).single();
+  return fromRows<ItemView>(SERVICE, data as ItemView | null, error);
+}
+
 /** What a new line looks like going in.
  *
  *  Declared here rather than imported, because the demo's copy lives in
@@ -526,36 +575,80 @@ export async function createVendor(
   return fromRows<Vendor>(SERVICE, row.data as Vendor | null, row.error);
 }
 
+/** Born uncurated (D30): recorded, visible on the catalogue page, and absent
+ *  from every dropdown until a person says it is a real entry.
+ *
+ *  `base_uom` is a `UomCode` and is **required**, where this used to take
+ *  `string` and default to `pcs`. Both changes matter. `string` let a typo
+ *  reach the database and become a unit nobody can convert; and a defaulted
+ *  `pcs` is a claim — *one piece* — about a thing nobody measured, which is the
+ *  very thing `0031` made `base_uom` nullable to stop the import from doing.
+ *  A person creating an item here knows the unit; the null is for the 587 rows
+ *  where somebody long ago did not write one down.
+ */
 export async function createItem(
-  input: { name: string; category_code?: string; base_uom?: string; kind?: "goods" | "service" },
+  input: { name: string; base_uom: UomCode; category_code?: string; kind?: "goods" | "service" },
   idempotencyKey?: string,
-): Promise<Result<{ code: string; name: string; is_curated: boolean }>> {
+): Promise<Result<ItemView>> {
   const { data, error } = await db().rpc("create_item", {
     p_name: input.name,
     p_category_code: input.category_code ?? "uncurated",
-    p_base_uom: input.base_uom ?? "pcs",
+    p_base_uom: input.base_uom,
     p_kind: input.kind ?? "goods",
     p_key: idempotencyKey ?? null,
   });
-  return fromSeam(SERVICE, data, error);
+  const created = fromSeam<{ code: string }>(SERVICE, data, error);
+  if (created.error) return created;
+  /* If the read fails the item still exists, so this answers the read's error
+     rather than the write's: retrying a create that already succeeded is how a
+     duplicate gets made. */
+  return itemViewByCode(created.data.code);
 }
 
-export async function curateItem(code: string, curated: boolean): Promise<Result<unknown>> {
+/** One decision, not three: *this is a real catalogue entry, it is a finishing
+ *  material, and it costs about this much.* The seam took only the flag until
+ *  `0032`, so the other two thirds had nowhere to go.
+ *
+ *  `standard_price` is the curated price and only ever set by a person.
+ *  `last_price` is a trace of what was actually paid and is never written here
+ *  — conflating them is how one panic purchase becomes the official price.
+ */
+export async function curateItem(
+  id: string,
+  input: { curated: boolean; category_code?: string; standard_price?: number | null },
+): Promise<Result<ItemView>> {
+  const code = await codeFor("items", id);
+  if (!code) return notFound(SERVICE, "item_not_found", "Item not found.");
+
   const { data, error } = await db().rpc("curate_item", {
-    p_code: code, p_curated: curated,
+    p_code: code,
+    p_curated: input.curated,
+    p_category_code: input.category_code ?? null,
+    p_standard_price: input.standard_price ?? null,
   });
-  return fromSeam(SERVICE, data, error);
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return itemViewByCode(code);
 }
 
+/** Contact and banking details, kept apart from curation: knowing who to call
+ *  does not make a vendor canonical, and a curated vendor with no phone number
+ *  is still a gap worth seeing.
+ *
+ *  A vendor is a person before it is a company — *call Toko Amplas* is not an
+ *  instruction anybody can follow. Both bank accounts are on record because
+ *  some vendors invoice from one and collect on another, and paying into the
+ *  wrong one is a week of chasing.
+ */
 export async function updateVendorContact(
-  code: string,
-  input: {
-    pic_name?: string | null; pic_phone?: string | null;
-    phone?: string | null; address?: string | null;
-    bank_account?: string | null; bank_account_secondary?: string | null;
-    npwp?: string | null;
-  },
-): Promise<Result<unknown>> {
+  id: string,
+  input: Partial<Pick<Vendor,
+    "pic_name" | "pic_phone" | "phone" | "address" |
+    "bank_account" | "bank_account_secondary" | "npwp" | "supplied_categories">>,
+): Promise<Result<VendorView>> {
+  const code = await codeFor("vendors", id);
+  if (!code) return notFound(SERVICE, "vendor_not_found", "Vendor not found.");
+
   const { data, error } = await db().rpc("update_vendor_contact", {
     p_code: code,
     p_pic_name: input.pic_name ?? null,
@@ -565,8 +658,15 @@ export async function updateVendorContact(
     p_bank_account: input.bank_account ?? null,
     p_bank_account_secondary: input.bank_account_secondary ?? null,
     p_npwp: input.npwp ?? null,
+    /* `undefined` and `[]` are different answers and the seam reads them that
+       way: null leaves the list alone, an empty array clears it. Collapsing
+       them would make "this vendor supplies nothing in particular" impossible
+       to say. */
+    p_supplied_categories: input.supplied_categories ?? null,
   });
-  return fromSeam(SERVICE, data, error);
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return vendorViewByCode(code);
 }
 
 /** Always a DRAFT. An order is a promise made to a supplier in the company's
@@ -756,20 +856,44 @@ export async function listProjects(): Promise<Result<Project[]>> {
   return fromRows<Project[]>(SERVICE, data as Project[], error);
 }
 
-export async function curateVendor(code: string, curated: boolean): Promise<Result<unknown>> {
+export async function curateVendor(id: string, curated: boolean): Promise<Result<VendorView>> {
+  const code = await codeFor("vendors", id);
+  if (!code) return notFound(SERVICE, "vendor_not_found", "Vendor not found.");
+
   const { data, error } = await db().rpc("curate_vendor", {
     p_code: code, p_curated: curated,
   });
-  return fromSeam(SERVICE, data, error);
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return vendorViewByCode(code);
 }
 
-/** A pointer, never a delete (D33). Takes **codes**, not uuids, because that is
- *  what crosses every seam in this system and what a person can read back. */
-export async function mergeVendor(loserCode: string, winnerCode: string): Promise<Result<unknown>> {
+/** Fold a duplicate spelling into the real vendor.
+ *
+ *  A pointer, never a delete (D33): the absorbed row is kept and marked, so
+ *  every transaction that pointed at it still points at it and history does not
+ *  move when somebody corrects a name years later. Readers follow `merged_into`
+ *  — `v_vendor_view` does, which is why the winner's `total_spend` grows by
+ *  exactly what the loser carried.
+ *
+ *  Only ever a human decision. Two spellings differing by nothing but spacing
+ *  are one thing; two differing by a word are a question, and the answer is not
+ *  the machine's.
+ *
+ *  Answers the **winner's** view, because that is the row the screen keeps.
+ */
+export async function mergeVendor(loserId: string, winnerId: string): Promise<Result<VendorView>> {
+  const [loser, winner] = await Promise.all([
+    codeFor("vendors", loserId), codeFor("vendors", winnerId),
+  ]);
+  if (!loser || !winner) return notFound(SERVICE, "vendor_not_found", "Vendor not found.");
+
   const { data, error } = await db().rpc("merge_vendor", {
-    p_loser_code: loserCode, p_winner_code: winnerCode,
+    p_loser_code: loser, p_winner_code: winner,
   });
-  return fromSeam(SERVICE, data, error);
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return vendorViewByCode(winner);
 }
 
 /* ------------------------------------------------------------------ */

@@ -323,6 +323,41 @@ const verdict = routes.map((r) => {
 
 const expected = verdict.filter((v) => v.live).map((v) => v.route);
 
+/* ── `--report`: what each dark route is waiting for ──────────────────── */
+
+/** The check says *these seven are live*. Deciding what to build next needs the
+ *  other fifty-two, grouped by what would unlock them — and counting by hand
+ *  from a 37-line list against 59 routes is exactly the arithmetic nobody
+ *  redoes after the first time. Printed rather than kept: a file would be one
+ *  more thing to go stale. */
+if (process.argv.includes("--report")) {
+  const blockers = new Map();  // service.function → routes waiting on it
+  for (const v of verdict) {
+    if (v.live) continue;
+    for (const c of [...v.missing.map((s) => `${s}.*`), ...v.unimplemented]) {
+      if (!blockers.has(c)) blockers.set(c, []);
+      blockers.get(c).push(v.route);
+    }
+  }
+  const rows = [...blockers].sort((a, b) => b[1].length - a[1].length);
+  console.log(`${routes.length - expected.length} routes dark, waiting on ${rows.length} things:\n`);
+  for (const [call, rs] of rows) {
+    console.log(`  ${String(rs.length).padStart(2)}  ${call.padEnd(34)} ${rs.slice(0, 3).join(" ")}${rs.length > 3 ? ` +${rs.length - 3}` : ""}`);
+  }
+
+  /* A route blocked by one thing is the cheap one; a route blocked by nine is a
+     service, not an afternoon. */
+  console.log("\nroutes by how much they are waiting on:\n");
+  for (const v of verdict.filter((x) => !x.live)
+                         .map((x) => [x.route, x.missing.length + x.unimplemented.length,
+                                      [...x.missing.map((s) => s + ".*"), ...x.unimplemented]])
+                         .sort((a, b) => a[1] - b[1])
+                         .slice(0, 20)) {
+    console.log(`  ${String(v[1]).padStart(2)}  ${v[0].padEnd(38)} ${v[2].join(", ")}`);
+  }
+  process.exit(0);
+}
+
 /* ── compare, or write ────────────────────────────────────────────────── */
 
 const file = readFileSync(LIVE_TS, "utf8");

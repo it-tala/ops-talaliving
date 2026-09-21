@@ -10,7 +10,7 @@
  *  They are not interchangeable today. Putting the two modules side by side for
  *  the first time — which the swap does, and nothing before it did — showed
  *  **37 of the 98 shared functions disagreeing**, and they disagree in ways a
- *  screen would meet rather than a reviewer:
+ *  screen would meet rather than a reviewer. Thirty-two are left of 102:
  *
  *  - **A receipt where the contract promises the thing.** `approvePo` answers
  *    `Result<unknown>`; the screen expects the `PoDetail` it is about to redraw.
@@ -26,10 +26,23 @@
  *
  *  ## Why a list rather than thirty-seven fixes in one go
  *
- *  Because most of them are write paths, several move money, and there is no
- *  database to test them against yet — the ladder has never been applied to
- *  Supabase (B8 is still open). Rewriting thirty-seven money-path functions in
- *  one unverified change is how a fortnight of quiet breakage gets introduced.
+ *  Because most of them are write paths and several move money. When this list
+ *  was written there was also no database to test them against; there is now —
+ *  the ladder is applied, and `supabase/local/` replays it from nothing — so
+ *  the reason has narrowed to the one that never goes away: rewriting
+ *  thirty-seven money-path functions in one change is how a fortnight of quiet
+ *  breakage gets introduced. They come off in families, each with the smoke
+ *  file that earns it.
+ *
+ *  Five came off together in `0032` — the curation family, `curateVendor`,
+ *  `mergeVendor`, `updateVendorContact`, `createItem`, `curateItem` — because
+ *  they are one screenful of decisions and because the import is about to land
+ *  296 vendors and 1.020 items for somebody to curate. That change also had to
+ *  fix `v_vendor_view` and `v_item_view` first: `listVendorViews` and
+ *  `listItemViews` were **never on this list**, since their signatures matched,
+ *  and both met the contract with `as ItemView[]` over a view missing six of
+ *  its columns. A cast is not an implementation, and a matching signature is
+ *  not a matching answer — which is the limit of what this file can catch.
  *
  *  So each one is **named, refused and counted** instead:
  *
@@ -64,7 +77,8 @@ export const PENDING_PARITY: readonly string[] = [
   "accounting.setOverride",
 
   /* Procurement: the same pattern, at scale. Every one of these answers what
-     the seam returned rather than the row the screen is about to draw. */
+     the seam returned rather than the row the screen is about to draw. The
+     curation five are gone from here — see the note above. */
   "procurement.amendPoLine",
   "procurement.answerFromChat",
   "procurement.approvePo",
@@ -72,14 +86,9 @@ export const PENDING_PARITY: readonly string[] = [
   "procurement.closePo",
   "procurement.closeRound",
   "procurement.confirmReceipt",
-  /* Widened enum: `base_uom?: string` against eighteen `UomCode`s. */
-  "procurement.createItem",
   /* Takes `vendor_code`; the screen holds `vendor_id`. */
   "procurement.createPo",
   "procurement.createReceipt",
-  /* Takes a code where the contract takes an id, and answers nothing. */
-  "procurement.curateItem",
-  "procurement.curateVendor",
   /* Answers `PoDetail`; the contract is `PoView`. Two different shapes with
      confusingly similar names — worth resolving in the contract, not here. */
   "procurement.getPo",
@@ -89,14 +98,12 @@ export const PENDING_PARITY: readonly string[] = [
   "procurement.listReported",
   "procurement.listRounds",
   "procurement.markPoResent",
-  "procurement.mergeVendor",
   "procurement.requestApproval",
   "procurement.requestPoApproval",
   "procurement.setExpectedDelivery",
   "procurement.syncRound",
   /* Positional against object arguments. */
   "procurement.transferRound",
-  "procurement.updateVendorContact",
 ];
 
 /** `service.function` → is it pending? */
