@@ -130,6 +130,52 @@ by removing the one above it: the `legacy_map` gate, `source_ref` unique, and
 from the old. So the number people already quote keeps working, and a
 screenshot from January still finds its row.
 
+## What has actually been run
+
+A table, because *is the ledger in yet* is a question somebody asks from a
+phone and should not have to answer by reading SQL. The commit that added
+`03_ledger.sql` says *nothing has been run against production yet*, which was
+true when it was written and stopped being true an hour later — a sentence in
+a commit message cannot be corrected, so the record lives here.
+
+| file | against `john-lau-v01` | result |
+|---|---|---|
+| `01_reference.sql` | yes | 296 vendors, 4 projects, 6 accounts mapped |
+| `02_items.sql` | yes | 1.020 items |
+| `03_ledger.sql` | **2026-09-21** | 3.221 imported, 14 refused, all five accounts reconciled |
+
+`03_ledger.sql` was run as a **dry run first** — the whole file inside a
+transaction that was rolled back — and the numbers it printed were the numbers
+the real run produced. That is worth doing again for anything that touches
+money: it costs one minute and it is the only way to see a reconciliation
+before committing to it.
+
+```
+account      ours           legacy         verdict
+BCA 064      21.259.068     21.259.068     agrees
+BCA 271      18.662.986     18.662.986     agrees
+BNI 325         648.132        648.132     agrees
+JAGO         10.473.352     10.473.352     agrees
+PETTY CASH      557.168        557.168     agrees
+```
+
+Of the 3.221: **699 carry the author the old system recorded**, 2.522 are
+posted as `shared@talaliving.com`. The 14 refusals are all `idr_amount = 0`,
+three of them described `void`, so refusing them moved no balance. A second
+run stages **0 rows**, checked against production rather than assumed.
+
+Left for a person, all of it queryable from `ops_core.legacy_map`:
+
+- **460 transactions with no vendor**, 59 of which name one that resolves to
+  nothing. The name is kept; the vendor was never created.
+- **2.570 with no project**, including the `CHAIR PHILIPPINES` /
+  `CHAIR PHILIPHINES` disagreement.
+- **10 filed `OTHERS`** because the legacy row had no type, each one noted.
+
+There is no screen for that list yet. It is the obvious next thing, alongside
+`item_purchases` (1.194 rows → `ops_acct.transaction_lines`) and
+`transaction_docs` (237 → evidence).
+
 ## What the import must never do
 
 **Never invent a reference silently.** A vendor created from a typo is a
