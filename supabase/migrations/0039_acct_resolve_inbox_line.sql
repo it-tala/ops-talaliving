@@ -24,6 +24,26 @@
 -- old one goes first, and its grant is written again below, because dropping a
 -- function drops its grants with it.
 --
+-- ── And `p_pr_line_no` goes LAST, which looks wrong and is not ───────────
+--
+-- Reading order says it belongs beside `p_trx_no`: they are the two things a
+-- resolution can produce. It was written there first and CI caught it within
+-- the minute — `06_acct.sql` calls this function **positionally**, and
+--
+--     resolve_inbox('inb-002','REJECTED','','Ini struk pribadi…')
+--
+-- put the rejection's reason into the new fourth parameter. The seam then
+-- refused it with `no_such_line: There is no request line Ini struk pribadi,
+-- bukan punya kantor.` — a message that is almost funny and would have been
+-- entirely serious in production, where a rejection would have started
+-- failing for a reason naming a request line nobody typed.
+--
+-- A defaulted parameter inserted into the middle of an argument list silently
+-- reassigns every positional call after it. Appending keeps all of them
+-- correct, and this signature is reached by name from `src/lib/api` anyway —
+-- so the tidy order would have bought readability in one file and paid for it
+-- in every caller.
+--
 -- ── `NOTED` now needs its words too ──────────────────────────────────────
 --
 -- `0021` required a reason for `REJECTED` and not for `NOTED`, while the demo
@@ -35,14 +55,16 @@
 -- PENDING, so no existing row was resolved under the looser rule.
 
 drop function if exists ops_acct.resolve_inbox(text, ops_acct.inbox_status_t, text, text, text);
+drop function if exists ops_acct.resolve_inbox(text, ops_acct.inbox_status_t, text, text, text, text);
 
 create function ops_acct.resolve_inbox(
   p_ref_id     text,
   p_status     ops_acct.inbox_status_t,
   p_trx_no     text default null,
-  p_pr_line_no text default null,
   p_note       text default null,
-  p_key        text default null)
+  p_key        text default null,
+  -- Appended, not slotted in beside `p_trx_no`. See the header.
+  p_pr_line_no text default null)
 returns jsonb
 language plpgsql security definer set search_path = ops_acct, ops_core, pg_temp as $$
 declare row ops_acct.evidence_inbox; replayed jsonb; res jsonb;

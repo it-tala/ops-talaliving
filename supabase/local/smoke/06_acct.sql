@@ -274,7 +274,12 @@ insert into ops_acct.evidence_inbox (ref_id, origin, attachment_id, reported_by,
   ('inb-001','chat','44440000-0000-0000-0000-0000000000b3','ffffffff-0000-0000-0000-00000000f11a',
    '{"vendor_name":"CV UJI LEDGER","amount_idr":250000,"confidence":0.4,"doc_kind":"nota"}', 'OUT'),
   ('inb-002','web','44440000-0000-0000-0000-0000000000b3','ffffffff-0000-0000-0000-00000000f11a',
-   '{}', null);
+   '{}', null),
+  -- For the `retro_pr_line` road: bought first, the request line written after
+  -- the fact. The only road where nothing but the inbox records which line the
+  -- document became.
+  ('inb-003','chat','44440000-0000-0000-0000-0000000000b3','ffffffff-0000-0000-0000-00000000f11a',
+   '{}', 'OUT');
 set local role authenticated;
 
 -- Evin holds approve_funds and accounting.read. Neither resolves an inbox row.
@@ -321,7 +326,32 @@ begin
 
   -- Nothing left the table. Five roads out, and every one of them keeps the row.
   select count(*) into n from ops_acct.evidence_inbox;
-  assert n = 2, format('nothing is deleted, saw %s rows', n);
+  assert n = 3, format('nothing is deleted, saw %s rows', n);
+end $$;
+
+/* ── the road that produces a request line says which one (0039) ───────── */
+do $$
+declare r jsonb; produced text;
+begin
+  -- A line number naming no line reads as an answer, so it is refused.
+  r := ops_acct.resolve_inbox('inb-003','CONFIRMED',
+        (select trx_no from ops_acct.transactions where source_ref = 'payroll-w37'),
+        null, null, 'pr-99-99-99_99-L99');
+  assert r -> 'error' ->> 'code' = 'no_such_line', format('got %s', r);
+
+  r := ops_acct.resolve_inbox('inb-003','CONFIRMED',
+        (select trx_no from ops_acct.transactions where source_ref = 'payroll-w37'),
+        null, null, 'pr-26-09-13_01-L01');
+  assert ops_core.said_ok(r), format('got %s', r);
+
+  -- The point of 0039. Before it, this column had never been written by
+  -- anything: the screen passed a line number and the seam had nowhere to put
+  -- it, so `which line did that document become` had no answer on the one
+  -- road where nothing else records it.
+  select produced_pr_line_no into produced
+    from ops_acct.evidence_inbox where ref_id = 'inb-003';
+  assert produced = 'pr-26-09-13_01-L01',
+         format('the line it produced is recorded, saw %s', produced);
 end $$;
 
 /* ── DERIVATION: the road's health ─────────────────────────────────────── */
@@ -329,10 +359,10 @@ do $$
 declare h record;
 begin
   select * into h from ops_acct.v_inbox_health;
-  assert h.arrived = 2, format('two arrived this week, got %s', h.arrived);
-  assert h.unresolved = 0, format('both dealt with, got %s', h.unresolved);
-  assert h.from_chat = 1 and h.from_web = 1,
-         format('one each door, got chat %s web %s', h.from_chat, h.from_web);
+  assert h.arrived = 3, format('three arrived this week, got %s', h.arrived);
+  assert h.unresolved = 0, format('all three dealt with, got %s', h.unresolved);
+  assert h.from_chat = 2 and h.from_web = 1,
+         format('two by chat, one by web, got chat %s web %s', h.from_chat, h.from_web);
   -- Not decoration: if this grows, people are routing around the normal road
   -- and the reason is worth finding (ADR-010).
 end $$;
