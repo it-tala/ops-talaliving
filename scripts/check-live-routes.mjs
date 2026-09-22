@@ -230,6 +230,44 @@ function routeDirs(dir, out = []) {
 
 const LIVE = liveServices();
 
+/* A route can be entirely correct by every measure this file already takes —
+ * every function it reaches exported by `src/lib/api`, the module in
+ * `LIVE_MODULES` — and still be served 501s in production, because none of
+ * that is what a screen actually calls. A screen calls `src/demo/api/index.ts`
+ * (ADR-009's "one line"), and if that file's `swap("inventory", demoInventory)`
+ * never got its third argument, `inventory` is wired to nothing but the demo
+ * and the 501 stub in every live deployment — invisibly, because nothing
+ * above this line reads that file at all. This is exactly that bug, found
+ * live in production: `src/lib/api/inventory.ts` existed, `LIVE_ROUTES`
+ * correctly listed `/inventory/log`, and the switchboard still refused every
+ * call because `swap()` was never handed the live module.
+ *
+ * So the switchboard is read too, and a service this file already knows is
+ * implemented must be wired with its live module there — the third argument
+ * present, not merely `swap("x", demoX)`. */
+const SWITCHBOARD = join(ROOT, "src/demo/api/index.ts");
+
+function switchboardGaps() {
+  const src = blankNonCode(readFileSync(SWITCHBOARD, "utf8"));
+  const wired = new Map();  // exported binding name -> arg count of its swap() call
+  for (const m of src.matchAll(
+    /export const ([a-zA-Z][A-Za-z0-9_]*)\s*=\s*swap\(\s*[^,]+,\s*[a-zA-Z][A-Za-z0-9_.]*\s*(,\s*[a-zA-Z][A-Za-z0-9_.]*\s*)?\)/g,
+  )) {
+    wired.set(m[1], m[2] !== undefined);
+  }
+  return LIVE.filter((s) => wired.has(s) && !wired.get(s));
+}
+
+const gaps = switchboardGaps();
+if (gaps.length) {
+  console.error(
+    `src/demo/api/index.ts does not pass the live module to swap() for: ${gaps.join(", ")}\n`
+    + `Every screen that calls ${gaps.map((s) => `${s}.*`).join(", ")} meets the 501 stub in `
+    + "live mode regardless of what src/lib/api implements or LIVE_ROUTES lists.",
+  );
+  process.exit(1);
+}
+
 /* `/demo` is the fixtures sandbox and the guided tour. It is demo-only by
    definition, never live, and listing it would be a category error rather than
    a missing implementation. */
