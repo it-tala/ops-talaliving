@@ -1,34 +1,53 @@
-/** Implements `/api/v1/inventory` against the database — the material-stock
- *  half first (`0071`). Timber (`0070`) and the board rack (no migration yet)
- *  follow separately; until they land, `swap()` answers those names the same
- *  way it answers a function that was never written at all (this file's
- *  sibling modules' own header comments explain why that is safe to ship
- *  incrementally, not a half-measure).
+/** Implements `/api/v1/inventory` against the database — material stock
+ *  (`0071`), timber (`0070`), and the board rack (`0094`/`0095`, written for
+ *  this module: `0070` never migrated `board_moves` at all, and the atomic
+ *  three-table write `receiveLogs` needs had no seam anywhere in the ladder).
  *
  *  Same rules as `accounting.ts`/`procurement.ts`: nothing derived is computed
- *  here that the database already decided, no permission is checked here
- *  (RLS on `ops_inv.stock_moves` already gates every insert by kind — `moves_new`
- *  in `0071`), and no refusal is reworded.
+ *  here that the database already decided, no permission is checked here, and
+ *  no refusal is reworded.
  *
- *  **No write seam.** Unlike accounting/procurement, `0071` never wrapped
- *  `stock_moves` in a `security definer` function — the table's own RLS policy
- *  is the whole of its access control, and "on_hand" is `sum(qty)` computed on
- *  read (A3, D170), so there is no server-side function to ask for `before`/
- *  `after` either. Those figures are read here (a `select` before the
- *  `insert`), the same arithmetic `writeMove()`'s callers do in the demo —
- *  this is not a second implementation of a business rule, it is the one
- *  place that rule can run at all.
+ *  **Two shapes of write seam, not one.** `stock_moves` (`0071`) and the
+ *  single-row timber writes (`addLog`, `reportBoards`, `markLogSawn`, all
+ *  `0070`) have no `security definer` function — RLS alone gates them, and
+ *  "on_hand"/yield/cost are `sum()`s computed on read (A3, D170, D153), so
+ *  there is no server-side function to ask for a before/after either; those
+ *  figures are read here, a `select` before the `insert`, the same arithmetic
+ *  the demo's own callers do. `receive_logs` and `move_boards` (`0095`,
+ *  `0094`) ARE seams — one because three tables have to land in one
+ *  transaction, the other because "not enough boards" (D205) needs every
+ *  other row for that size, which RLS cannot see.
  */
 import type {
   StockLocation, StockMove, StockMoveView, StockItemView, StockItemDetail,
+  LogMeasure, LogPiece, LogPieceView, SawnBoard, SawnBoardView, LogPurchaseView,
+  TimberVendorSummary, BoardStockView, BoardMoveView, BoardMoveKind, NotaScan,
 } from "@/services/inventory/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { fail, fromRows, invalid, noop, notFound, ok, type Result } from "./_kit";
+import { fail, fromRows, fromSeam, invalid, noop, notFound, ok, conflict, type Result } from "./_kit";
+import { scanNota } from "./_nota_kayu";
 
 const SERVICE = "inventory" as const;
 
 const db = () => supabaseBrowser().schema("ops_inv");
 const procure = () => supabaseBrowser().schema("ops_procure");
+const core = () => supabaseBrowser().schema("ops_core");
+
+const round4 = (n: number) => Math.round(n * 10_000) / 10_000;
+
+/** A log's volume in cubic metres — `ops_inv.log_volume_m3()`'s own formula
+ *  (`0070`), restated here for the per-row `m3` `LogPieceView` needs;
+ *  `v_log_purchase` already applies it for the load's totals. */
+function logVolumeM3(diameterCm: number, lengthCm: number, measure: LogMeasure): number {
+  const d = diameterCm / 100;
+  const l = lengthCm / 100;
+  const v = measure === "round" ? (Math.PI / 4) * d * d * l : d * d * l;
+  return round4(v);
+}
+
+function boardVolumeM3(thicknessMm: number, widthMm: number, lengthMm: number): number {
+  return round4((thicknessMm / 1000) * (widthMm / 1000) * (lengthMm / 1000));
+}
 
 /** The signed-in user's id, for `moved_by` — `stock_moves` has no default for
  *  it (unlike the seam-backed tables elsewhere, nothing here can fall back to
@@ -423,4 +442,478 @@ export async function stockFromReceipt(
     return { stocked: false, why: error.message };
   }
   return { stocked: true };
+}
+
+/* ------------------------------------------------------------------ */
+/* Timber                                                               */
+/* ------------------------------------------------------------------ */
+
+/** A vendor's public code, for a seam addressed by code (ADR-004) — the
+ *  reverse of `withGroupAndLocation`'s sibling lookups in `accounting.ts`,
+ *  needed here because `LogPurchase.vendor_id` is, despite its name, always a
+ *  code at the seam (C12) while the screens still pass an id. */
+async function vendorCodeFor(vendorId: string): Promise<string | null> {
+  const { data } = await procure().from("vendors").select("code").eq("id", vendorId).maybeSingle();
+  return (data as { code: string } | null)?.code ?? null;
+}
+
+/** Every `LogPurchaseView` this module returns, built the same way for one
+ *  purchase or for the whole list: `v_log_purchase` (`0070`) for the
+ *  per-load arithmetic, `log_pieces`/`sawn_boards` batched by purchase id for
+ *  the nested `logs`/`boards` arrays, vendor codes resolved back to ids, the
+ *  nota resolved via `attachment_links` (C14 — there is no column for it),
+ *  and `warnings[]` built from figures the view already computed — the same
+ *  boundary `getCashPlan`'s `label`/`verdict` sit on, restated from
+ *  `logPurchaseView()` in `src/demo/inventory-derive.ts` rather than
+ *  recomputing the volumes and yield it already read off the view. */
+async function buildLogPurchaseViews(purchaseNos?: string[]): Promise<Result<LogPurchaseView[]>> {
+  let q = db().from("v_log_purchase").select("*");
+  if (purchaseNos) q = q.in("purchase_no", purchaseNos);
+  const { data, error } = await q.order("received_on", { ascending: false });
+  if (error) return fail(SERVICE, error);
+  const rows = (data ?? []) as Array<Record<string, unknown>>;
+  if (rows.length === 0) return ok(SERVICE, []);
+
+  const ids = rows.map((r) => r.id as string);
+  const nos = rows.map((r) => r.purchase_no as string);
+  const vendorCodes = [...new Set(rows.map((r) => r.vendor_code as string))];
+
+  const [piecesRes, boardsRes, vendorsRes, linksRes, lowYieldRes] = await Promise.all([
+    db().from("log_pieces").select("*").in("purchase_id", ids),
+    db().from("sawn_boards").select("*").in("purchase_id", ids),
+    procure().from("vendors").select("id, code").in("code", vendorCodes),
+    core().from("attachment_links").select("entity_no, attachment_id")
+      .eq("entity", "log_purchase").eq("kind", "nota").is("unlinked_at", null).in("entity_no", nos),
+    core().rpc("setting_num", { p_key: "ops.low_yield_percent" }),
+  ]);
+  if (piecesRes.error) return fail(SERVICE, piecesRes.error);
+  if (boardsRes.error) return fail(SERVICE, boardsRes.error);
+  if (vendorsRes.error) return fail(SERVICE, vendorsRes.error);
+  if (linksRes.error) return fail(SERVICE, linksRes.error);
+
+  const lowYieldThreshold = (lowYieldRes.data as number | null) ?? 45;
+  const vendorIdByCode = new Map((vendorsRes.data ?? []).map((v) => [v.code as string, v.id as string]));
+  const notaByPurchaseNo = new Map((linksRes.data ?? []).map((l) => [l.entity_no as string, l.attachment_id as string]));
+
+  const piecesByPurchase = new Map<string, LogPieceView[]>();
+  for (const p of piecesRes.data ?? []) {
+    const measure = (rows.find((r) => r.id === p.purchase_id)?.measure as LogMeasure) ?? "round";
+    const view: LogPieceView = {
+      ...(p as unknown as LogPiece),
+      m3: logVolumeM3(p.diameter_cm as number, p.length_cm as number, measure),
+    };
+    const list = piecesByPurchase.get(p.purchase_id as string) ?? [];
+    list.push(view);
+    piecesByPurchase.set(p.purchase_id as string, list);
+  }
+  for (const list of piecesByPurchase.values()) list.sort((a, b) => a.tag.localeCompare(b.tag));
+
+  const boardsByPurchase = new Map<string, SawnBoardView[]>();
+  for (const b of boardsRes.data ?? []) {
+    const each = boardVolumeM3(b.thickness_mm as number, b.width_mm as number, b.length_mm as number);
+    const view: SawnBoardView = {
+      ...(b as unknown as SawnBoard),
+      m3_each: each,
+      m3: round4(each * (b.qty as number)),
+      size: `${(b.thickness_mm as number) / 10} × ${(b.width_mm as number) / 10} × ${(b.length_mm as number) / 10} cm`,
+    };
+    const list = boardsByPurchase.get(b.purchase_id as string) ?? [];
+    list.push(view);
+    boardsByPurchase.set(b.purchase_id as string, list);
+  }
+  for (const list of boardsByPurchase.values()) {
+    list.sort((a, b) => a.sawn_on.localeCompare(b.sawn_on) || a.size.localeCompare(b.size));
+  }
+
+  const views: LogPurchaseView[] = rows.map((r) => {
+    const logs = piecesByPurchase.get(r.id as string) ?? [];
+    const boards = boardsByPurchase.get(r.id as string) ?? [];
+    const log_m3 = r.log_m3 as number;
+    const sawn_m3 = r.sawn_m3 as number;
+    const unsawn_m3 = r.unsawn_m3 as number;
+    const yield_percent = r.yield_percent as number | null;
+    const measure_gap_m3 = r.claimed_gap_m3 as number | null;
+    const claimed_m3 = r.claimed_m3 as number | null;
+
+    const warnings: string[] = [];
+    if ((r.pieces as number) === 0) {
+      warnings.push("Belum ada batang yang diukur — kubikasi dan harga per m³ belum bisa dihitung.");
+    }
+    if (log_m3 > 0 && sawn_m3 === 0) {
+      warnings.push("Belum ada papan yang dilaporkan — angka rendemen dan harga per m³ papan belum ada.");
+    }
+    if (unsawn_m3 > 0 && sawn_m3 > 0) {
+      warnings.push(`${unsawn_m3} m³ belum digergaji — rendemen dan harga per m³ papan dihitung hanya dari batang yang sudah.`);
+    }
+    if (yield_percent != null && yield_percent > 100) {
+      warnings.push(`Papan ${sawn_m3} m³ melebihi log ${log_m3} m³ — salah ukur, atau ada papan dari log lain masuk ke sini.`);
+    } else if (yield_percent != null && yield_percent < lowYieldThreshold) {
+      warnings.push(`Rendemen ${yield_percent}% — di bawah yang biasa. Layak ditanyakan ke pemilik sawmill.`);
+    }
+    if (measure_gap_m3 != null && Math.abs(measure_gap_m3) >= 0.05) {
+      warnings.push(
+        measure_gap_m3 < 0
+          ? `Ukuran kita ${Math.abs(measure_gap_m3)} m³ LEBIH KECIL dari yang ditagih (${claimed_m3} m³).`
+          : `Ukuran kita ${measure_gap_m3} m³ lebih besar dari yang ditagih (${claimed_m3} m³).`,
+      );
+    }
+
+    return {
+      id: r.id as string,
+      purchase_no: r.purchase_no as string,
+      vendor_id: vendorIdByCode.get(r.vendor_code as string) ?? (r.vendor_code as string),
+      trx_no: r.trx_no as string | null,
+      pr_line_no: r.pr_line_no as string | null,
+      received_on: r.received_on as string,
+      species: r.species as string,
+      total_cost: r.total_cost as number,
+      claimed_m3, measure: r.measure as LogMeasure,
+      nota_attachment_id: notaByPurchaseNo.get(r.purchase_no as string) ?? null,
+      note: r.note as string | null,
+      created_at: r.created_at as string,
+      created_by: r.created_by as string,
+      vendor_name: (r.vendor_name as string) ?? "—",
+      logs, boards, log_m3, sawn_m3, yield_percent,
+      cost_per_log_m3: r.cost_per_log_m3 as number | null,
+      cost_per_sawn_m3: r.cost_per_sawn_m3 as number | null,
+      unsawn_m3, measure_gap_m3, warnings,
+    };
+  });
+
+  return ok(SERVICE, views);
+}
+
+export async function listLogPurchases(): Promise<Result<LogPurchaseView[]>> {
+  return buildLogPurchaseViews();
+}
+
+export async function getLogPurchase(purchaseNo: string): Promise<Result<LogPurchaseView>> {
+  const res = await buildLogPurchaseViews([purchaseNo]);
+  if (res.error) return res;
+  const found = res.data[0];
+  if (!found) return notFound(SERVICE, "purchase_not_found", `No log purchase ${purchaseNo}.`);
+  return ok(SERVICE, found);
+}
+
+/** Every vendor's timber side by side. The column that decides is
+ *  `cost_per_sawn_m3`, not the invoice price (D153) — `v_timber_by_vendor`
+ *  (`0070`) already groups by vendor and species; `unsawn_m3` is not one of
+ *  its columns, but is exactly `log_m3 - sawn_logs_m3`, which are. */
+export async function timberByVendor(): Promise<Result<TimberVendorSummary[]>> {
+  const { data, error } = await db().from("v_timber_by_vendor").select("*")
+    .order("species").order("cost_per_sawn_m3", { ascending: false });
+  if (error) return fail(SERVICE, error);
+  const rows = data ?? [];
+  const codes = [...new Set(rows.map((r) => r.vendor_code as string))];
+  const { data: vendors, error: vErr } = await procure().from("vendors").select("id, code").in("code", codes);
+  if (vErr) return fail(SERVICE, vErr);
+  const idByCode = new Map((vendors ?? []).map((v) => [v.code as string, v.id as string]));
+
+  return ok(SERVICE, rows.map((r) => ({
+    vendor_id: idByCode.get(r.vendor_code as string) ?? (r.vendor_code as string),
+    vendor_name: r.vendor_name as string,
+    species: r.species as string,
+    purchases: r.loads as number,
+    log_m3: r.log_m3 as number,
+    sawn_m3: r.sawn_m3 as number,
+    total_cost: r.total_cost as number,
+    yield_percent: r.yield_percent as number | null,
+    cost_per_log_m3: r.cost_per_log_m3 as number | null,
+    cost_per_sawn_m3: r.cost_per_sawn_m3 as number | null,
+    unsawn_m3: round4((r.log_m3 as number) - (r.sawn_logs_m3 as number)),
+  })));
+}
+
+/** A load of logs arriving — `ops_inv.receive_logs()` (`0095`), the one
+ *  atomic write in this module: the purchase, its logs and any boards read
+ *  straight off the nota land in one transaction, because three separate
+ *  `.insert()`s could leave a purchase with no logs behind it if the second
+ *  one failed. `nota_attachment_id` is linked afterwards, the same optional,
+ *  non-atomic evidence link `confirmReceipt`'s `delivery_note_attachment_id`
+ *  already is (`0086`) — a load that arrived is a fact whether or not the
+ *  link lands (A6). */
+export async function receiveLogs(
+  input: {
+    vendor_id: string;
+    received_on: string;
+    species: string;
+    total_cost: number;
+    claimed_m3?: number | null;
+    measure?: LogMeasure;
+    trx_no?: string | null;
+    pr_line_no?: string | null;
+    nota_attachment_id?: string | null;
+    note?: string | null;
+    boards?: { thickness_mm: number; width_mm: number; length_mm: number; qty: number; grade?: string | null }[];
+    logs?: { tag?: string; diameter_cm: number; length_cm: number }[];
+  },
+  idempotencyKey?: string,
+): Promise<Result<LogPurchaseView>> {
+  const vendorCode = await vendorCodeFor(input.vendor_id);
+  if (!vendorCode) return notFound(SERVICE, "vendor_not_found", "Vendor itu tidak ada.");
+
+  const { data, error } = await db().rpc("receive_logs", {
+    p_vendor_code: vendorCode,
+    p_received_on: input.received_on,
+    p_species: input.species,
+    p_total_cost: Math.round(input.total_cost),
+    p_claimed_m3: input.claimed_m3 ?? null,
+    p_measure: input.measure ?? "round",
+    p_trx_no: input.trx_no ?? null,
+    p_pr_line_no: input.pr_line_no ?? null,
+    p_note: input.note ?? null,
+    p_logs: (input.logs ?? []).map((l) => ({ tag: l.tag ?? null, diameter_cm: l.diameter_cm, length_cm: l.length_cm })),
+    p_boards: (input.boards ?? []).map((b) => ({
+      thickness_mm: b.thickness_mm, width_mm: b.width_mm, length_mm: b.length_mm, qty: b.qty, grade: b.grade ?? null,
+    })),
+    p_key: idempotencyKey ?? null,
+  });
+  const res = fromSeam<{ purchase_no: string }>(SERVICE, data, error);
+  if (res.error) return res;
+
+  if (input.nota_attachment_id) {
+    const uid = await currentUserId();
+    if (!uid.error) {
+      await core().from("attachment_links").insert({
+        attachment_id: input.nota_attachment_id, entity: "log_purchase",
+        entity_no: res.data.purchase_no, kind: "nota", linked_by: uid.data,
+      });
+    }
+  }
+  return getLogPurchase(res.data.purchase_no);
+}
+
+/** One log, measured — a single row against a load that already exists, so
+ *  `0070`'s RLS is enough (no seam, matching this file's header). The tag
+ *  falls back to `#N` exactly as the demo's does when nobody gives one;
+ *  `piece_tag_once` (`0070`) refuses a repeat within the same load. */
+export async function addLog(
+  input: { purchase_no: string; tag: string; diameter_cm: number; length_cm: number; note?: string | null },
+): Promise<Result<LogPurchaseView>> {
+  const { data: purchase, error: pErr } = await db().from("log_purchases").select("id")
+    .eq("purchase_no", input.purchase_no).maybeSingle();
+  if (pErr) return fail(SERVICE, pErr);
+  if (!purchase) return notFound(SERVICE, "purchase_not_found", `No log purchase ${input.purchase_no}.`);
+
+  let tag = input.tag.trim();
+  if (!tag) {
+    const { count } = await db().from("log_pieces")
+      .select("id", { count: "exact", head: true }).eq("purchase_id", purchase.id);
+    tag = `#${(count ?? 0) + 1}`;
+  }
+
+  const { error } = await db().from("log_pieces").insert({
+    purchase_id: purchase.id, tag,
+    diameter_cm: input.diameter_cm, length_cm: input.length_cm,
+    note: input.note?.trim() || null,
+  });
+  if (error) {
+    if (error.code === "23505") return conflict(SERVICE, "tag_used", `Nomor ${input.tag} sudah dipakai di kiriman ini.`);
+    return fail(SERVICE, error);
+  }
+  return getLogPurchase(input.purchase_no);
+}
+
+/** Boards off the saw. Reporting them off a named log is what marks that log
+ *  sawn — one write here, then a second only when the log had no `sawn_on`
+ *  yet, the same "the second one is the one people forget" reasoning the
+ *  demo gives. */
+export async function reportBoards(
+  input: {
+    purchase_no: string; log_tag?: string | null;
+    thickness_mm: number; width_mm: number; length_mm: number; qty: number;
+    sawn_on: string; grade?: string | null; note?: string | null;
+  },
+): Promise<Result<LogPurchaseView>> {
+  const { data: purchase, error: pErr } = await db().from("log_purchases").select("id")
+    .eq("purchase_no", input.purchase_no).maybeSingle();
+  if (pErr) return fail(SERVICE, pErr);
+  if (!purchase) return notFound(SERVICE, "purchase_not_found", `No log purchase ${input.purchase_no}.`);
+
+  let logId: string | null = null;
+  if (input.log_tag) {
+    const { data: log } = await db().from("log_pieces").select("id, sawn_on")
+      .eq("purchase_id", purchase.id).eq("tag", input.log_tag).maybeSingle();
+    if (!log) return notFound(SERVICE, "log_not_found", `Tidak ada batang ${input.log_tag} di kiriman ini.`);
+    logId = log.id as string;
+    if (!log.sawn_on) {
+      await db().from("log_pieces").update({ sawn_on: input.sawn_on }).eq("id", logId);
+    }
+  }
+
+  const { error } = await db().from("sawn_boards").insert({
+    purchase_id: purchase.id, log_id: logId,
+    thickness_mm: input.thickness_mm, width_mm: input.width_mm, length_mm: input.length_mm,
+    qty: input.qty, sawn_on: input.sawn_on,
+    grade: input.grade?.trim() || null, note: input.note?.trim() || null,
+  });
+  if (error) return fail(SERVICE, error);
+  return getLogPurchase(input.purchase_no);
+}
+
+/** Marking a log sawn without reporting boards — for the one that split and
+ *  produced nothing. It still counts against the yield, which is the point. */
+export async function markLogSawn(
+  input: { purchase_no: string; tag: string; sawn_on: string; note?: string | null },
+): Promise<Result<LogPurchaseView>> {
+  const { data: purchase, error: pErr } = await db().from("log_purchases").select("id")
+    .eq("purchase_no", input.purchase_no).maybeSingle();
+  if (pErr) return fail(SERVICE, pErr);
+  if (!purchase) return notFound(SERVICE, "purchase_not_found", `No log purchase ${input.purchase_no}.`);
+
+  const { data: log } = await db().from("log_pieces").select("id")
+    .eq("purchase_id", purchase.id).eq("tag", input.tag).maybeSingle();
+  if (!log) return notFound(SERVICE, "log_not_found", `Tidak ada batang ${input.tag}.`);
+
+  const patch: { sawn_on: string; note?: string } = { sawn_on: input.sawn_on };
+  if (input.note?.trim()) patch.note = input.note.trim();
+  const { error } = await db().from("log_pieces").update(patch).eq("id", log.id);
+  if (error) return fail(SERVICE, error);
+  return getLogPurchase(input.purchase_no);
+}
+
+/** Reading a nota, without writing anything (D200) — pure text parsing,
+ *  `_nota_kayu.ts`, no database involved. */
+export async function readNota(text: string): Promise<Result<NotaScan>> {
+  return ok(SERVICE, scanNota(text));
+}
+
+/* ------------------------------------------------------------------ */
+/* The board rack                                                       */
+/* ------------------------------------------------------------------ */
+
+export async function listBoardStock(): Promise<Result<BoardStockView[]>> {
+  const { data, error } = await db().from("v_board_stock").select("*")
+    .order("species").order("thickness_mm").order("width_mm");
+  return fromRows<BoardStockView[]>(SERVICE, data as BoardStockView[], error);
+}
+
+/** Every movement, sawing included, newest first — `v_board_stock`'s (`0094`)
+ *  raw sources read directly rather than through a second view: `sawn_boards`
+ *  synthesizes a `"sawn"` move per row (there is no such row in
+ *  `board_moves`, D203) and `board_moves` itself, both priced by the same
+ *  load-then-species-dearest rule `v_board_stock` uses, restated here rather
+ *  than duplicated in SQL because — unlike `v_board_stock`'s per-key
+ *  aggregation — this is a per-row transform with no grouping to get wrong. */
+export async function listBoardMoves(
+  filter: { board_key?: string; ref_no?: string; limit?: number } = {},
+): Promise<Result<BoardMoveView[]>> {
+  const [sawnRes, movesRes, purchasesRes] = await Promise.all([
+    db().from("sawn_boards").select("*"),
+    db().from("board_moves").select("*"),
+    db().from("v_log_purchase").select("id, purchase_no, species, cost_per_sawn_m3, created_by"),
+  ]);
+  if (sawnRes.error) return fail(SERVICE, sawnRes.error);
+  if (movesRes.error) return fail(SERVICE, movesRes.error);
+  if (purchasesRes.error) return fail(SERVICE, purchasesRes.error);
+
+  const purchases = new Map((purchasesRes.data ?? []).map((p) => [p.id as string, p]));
+  const dearestBySpecies = new Map<string, number>();
+  for (const p of purchasesRes.data ?? []) {
+    const c = p.cost_per_sawn_m3 as number | null;
+    if (c != null) {
+      const species = p.species as string;
+      dearestBySpecies.set(species, Math.max(dearestBySpecies.get(species) ?? 0, c));
+    }
+  }
+  const rateFor = (purchaseId: string | null, species: string): { rate: number | null; basis: "load" | "dearest" | null } => {
+    const own = purchaseId ? ((purchases.get(purchaseId)?.cost_per_sawn_m3 as number | null | undefined) ?? null) : null;
+    if (own != null) return { rate: own, basis: "load" };
+    const dearest = dearestBySpecies.get(species) ?? null;
+    return dearest == null ? { rate: null, basis: null } : { rate: dearest, basis: "dearest" };
+  };
+
+  const userIds = [...new Set([
+    ...(purchasesRes.data ?? []).map((p) => p.created_by as string),
+    ...(movesRes.data ?? []).map((m) => m.moved_by as string),
+  ])];
+  const { data: users, error: uErr } = await core().from("users").select("id, full_name").in("id", userIds);
+  if (uErr) return fail(SERVICE, uErr);
+  const nameOf = new Map((users ?? []).map((u) => [u.id as string, u.full_name as string]));
+
+  const fromSawing: BoardMoveView[] = (sawnRes.data ?? []).map((sb) => {
+    const purchase = purchases.get(sb.purchase_id as string);
+    const species = (purchase?.species as string) ?? "—";
+    const t = sb.thickness_mm as number, w = sb.width_mm as number, l = sb.length_mm as number, qty = sb.qty as number;
+    const m3Each = boardVolumeM3(t, w, l);
+    const { rate, basis } = rateFor(sb.purchase_id as string, species);
+    const createdBy = (purchase?.created_by as string) ?? "";
+    return {
+      id: sb.id as string, move_no: sb.id as string, at: `${sb.sawn_on}T12:00:00+08:00`,
+      board_key: `${species}|${t}x${w}x${l}`,
+      species, thickness_mm: t, width_mm: w, length_mm: l,
+      qty, kind: "sawn",
+      purchase_id: sb.purchase_id as string | null, ref_no: null,
+      reason: sb.grade ? `Grade ${sb.grade}` : null,
+      by: createdBy,
+      size: `${t / 10} × ${w / 10} × ${l / 10} cm`,
+      m3: round4(m3Each * qty),
+      purchase_no: (purchase?.purchase_no as string) ?? null,
+      by_name: nameOf.get(createdBy) ?? createdBy,
+      value: rate == null ? null : Math.round(rate * m3Each * qty),
+      value_basis: basis,
+    };
+  });
+
+  const rest: BoardMoveView[] = (movesRes.data ?? []).map((m) => {
+    const t = m.thickness_mm as number, w = m.width_mm as number, l = m.length_mm as number, qty = m.qty as number;
+    const species = m.species as string;
+    const m3Each = boardVolumeM3(t, w, l);
+    const { rate, basis } = rateFor(m.purchase_id as string | null, species);
+    const purchase = m.purchase_id ? purchases.get(m.purchase_id as string) : null;
+    const movedBy = m.moved_by as string;
+    return {
+      id: m.id as string, move_no: m.move_no as string, at: m.at as string,
+      board_key: `${species}|${t}x${w}x${l}`,
+      species, thickness_mm: t, width_mm: w, length_mm: l,
+      qty, kind: m.kind as BoardMoveKind,
+      purchase_id: m.purchase_id as string | null, ref_no: m.ref_no as string | null, reason: m.reason as string | null,
+      by: movedBy,
+      size: `${t / 10} × ${w / 10} × ${l / 10} cm`,
+      m3: round4(m3Each * qty),
+      purchase_no: (purchase?.purchase_no as string) ?? null,
+      by_name: nameOf.get(movedBy) ?? movedBy,
+      value: rate == null ? null : Math.round(rate * m3Each * qty),
+      value_basis: basis,
+    };
+  });
+
+  const merged = [...fromSawing, ...rest]
+    .filter((m) => (!filter.board_key || m.board_key === filter.board_key) && (!filter.ref_no || m.ref_no === filter.ref_no))
+    .sort((a, b) => b.at.localeCompare(a.at));
+
+  return ok(SERVICE, merged.slice(0, filter.limit ?? 300));
+}
+
+/** Taking boards to the floor, bringing them back, scrapping them, or
+ *  counting them and finding something else — `ops_inv.move_boards()`
+ *  (`0094`), the one hard block in this system (D205): issuing or scrapping
+ *  more than the rack holds is refused there, not flagged, because RLS alone
+ *  cannot see every other row for a size the way the seam's own read of
+ *  `v_board_stock` does. `kind: "sawn"` is refused **here**, before the
+ *  seam: `ops_inv.board_move_kind_t` (`0094`) has no such value at all — a
+ *  screen that sent it would meet a Postgres type-cast error instead of the
+ *  seam's own worded refusal, which this one line exists to give it instead. */
+export async function moveBoards(
+  input: {
+    board_key: string; kind: BoardMoveKind; qty: number;
+    ref_no?: string | null; purchase_no?: string | null; reason?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<BoardStockView[]>> {
+  if (input.kind === "sawn") {
+    return invalid(
+      SERVICE, "sawn_is_reported",
+      "Papan masuk lewat laporan gergajian, bukan lewat sini — supaya rendemen dan isi rak tidak pernah berbeda.",
+      { field: "kind" },
+    );
+  }
+  const { data, error } = await db().rpc("move_boards", {
+    p_board_key: input.board_key, p_kind: input.kind, p_qty: input.qty,
+    p_ref_no: input.ref_no ?? null, p_purchase_no: input.purchase_no ?? null, p_reason: input.reason ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return listBoardStock();
 }
