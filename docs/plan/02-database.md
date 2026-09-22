@@ -1984,6 +1984,51 @@ the document row stores the **link**, not the attachment — so *is this still
 this person's KTP* has one answer, and unlinking on the road is visible in the
 berkas (ADR-010, A3).
 
+**The employment contract, and what it is for** (`0058`). HRD writes the
+contract — in Word, on letterhead, signed on paper. What the system never had is
+the answer to *what is in it*, which is what goes missing every time the HR
+person changes: forty PDFs in Drive and not one question answerable without
+opening them one at a time.
+
+**A contract is checked against the system, not loaded into it.** The figures
+already have a home — `employees.base_rate`, `allowance_rate`,
+`paid_leave_days`, `schedule_code`, and the dated rule book for lateness,
+undertime and overtime. Copying them here would make two numbers for one thing,
+and the first revision makes them disagree with nothing saying so (A3). So a
+clause **writes nothing**. `contract_conflicts()` compares what the paper says
+with what is being run today and reports both sides; applying it is somebody's
+decision, through the `save_employee` seam that already exists — one road, one
+audit row that reads *pay changed*, because that is what happened (D155).
+
+**A policy clause never quietly changes the rule for everybody else.** Clauses
+about pay, allowance, leave and schedule are about one person. Lateness,
+deductions and overtime quote a rule that applies to the whole business. One
+contract naming a different overtime rule is not an exception to be executed;
+it is a difference somebody has to read.
+
+**The list of required points is data** (`clause_checklist`), the same way the
+berkas-201 checklist is: adding one makes every contract report it missing that
+day, with nothing to back-fill. Ten are required today — gaji pokok, tunjangan,
+jam kerja, cuti, jangka waktu, masa percobaan, keterlambatan, potongan, lembur,
+pemutusan.
+
+**Every clause carries its own sentence.** `quote` holds the paper's wording
+verbatim beside the structured reading, because a figure with no sentence behind
+it is one nobody can argue with at the counter — and because when a machine
+starts reading these, the quote is the thing we can **prove is in the document**
+before storing it.
+
+**A machine proposes; a person signs.** `propose_clause` always writes
+`source = 'extracted'` and never confirmed, and **is refused over a clause
+somebody has already confirmed**: re-reading the same PDF tomorrow may replace
+yesterday's proposal, never a signature. `confirm_clause` infers `source` rather
+than asking — unchanged from the proposal means the reader accepted the
+machine's reading, edited means they corrected it, so *what fraction of readings
+survive review* is one count rather than a guess about the parser. A running
+contract may be **completed** and may not be **changed**: filling a point nobody
+ever answered is recording what the paper already says; changing a signed answer
+is a new contract that supersedes this one.
+
 **A payroll adjustment is withdrawn, not deleted.** `adj_no` names it,
 `withdrawn_at`/`_by`/`_reason` take it back, and the row stays. Two things read
 the table and both learned the predicate when the flag arrived: `v_payroll_run`

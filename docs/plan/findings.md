@@ -5130,3 +5130,50 @@ to be covered. This is the second time that has happened to this same check —
 the hand-kept list had the same property for the same reason — and both times
 the fix was to widen the scope to *everything of this kind that exists* rather
 than to *everything of this kind that is switched on*.
+
+## F129 · 2026-09-22 · 0058 — a CHECK constraint over a predicate that can return NULL is a constraint that passes
+
+**What was written.** `clause_value_ok(kind, value)` decides whether a clause's
+structured reading has the shape its kind requires — a `gaji_pokok` must carry
+an amount and a unit, a `keterlambatan` must name a mode the rule book also
+uses. It is enforced twice: as a CHECK on `contract_clauses`, and as a refusal
+in the two seams so the caller gets a sentence rather than an exception.
+
+```sql
+select case p_kind
+  when 'gaji_pokok' then
+    (p_value ->> 'amount') ~ '^[0-9]+$' and p_value ->> 'per' in ('month','day','hour')
+  ...
+  else true end
+```
+
+**What it did.** `'{"amount":"180000"}' ->> 'per'` is NULL. `NULL in ('month',
+…)` is NULL. `true and NULL` is NULL. So the function returned NULL, and both
+enforcement points let the row through:
+
+- a CHECK constraint **passes** on NULL — only `false` rejects;
+- `if not ops_hr.clause_value_ok(...) then` never fires, because `not NULL` is
+  NULL and a plpgsql `if` over NULL takes the else branch.
+
+A clause with an amount and no unit was accepted by a function whose entire job
+was to refuse exactly that. The smoke caught it on the first run — the assertion
+read `satuannya belum disebut, got (null)`, and `(null)` was the error code that
+never came.
+
+**The fix is one word**: `coalesce(case … end, false)`. Unknown is not
+permission.
+
+**Why this shape is worth remembering.** SQL's three-valued logic turns a
+missing field into *unknown* rather than *false*, and every enforcement point in
+Postgres treats unknown as permission: CHECK passes, RLS `using` passes the row
+through as invisible rather than refused, `WHERE` drops it. So **the more fields
+a validator reads, the more likely it is that a partly-filled input makes it
+answer NULL** — and a validator whose job is to reject half-filled input is
+precisely the one most exposed to it.
+
+Two habits follow, both cheap. A boolean function used as a guard should be
+total: wrap the body in `coalesce(…, false)` so there is no third answer. And
+the mutation that proves it exists is not *does the rule work* but **does the
+rule still work when the field it reads is absent** — the version of this
+finding's mutation is `coalesce(…, true)`, which is the bug restated, and it is
+now in the suite.
