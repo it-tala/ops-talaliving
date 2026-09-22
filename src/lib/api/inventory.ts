@@ -260,27 +260,26 @@ async function onHandAt(itemCode: string, location: string): Promise<number> {
 
 /** Taking material out to the floor. Issuing more than the record shows is
  *  **allowed and flagged**, never refused (A6): `went_negative` says so in the
- *  answer rather than the write being blocked. */
+ *  answer rather than the write being blocked.
+ *
+ *  The one write in this family with a seam (`0097`) behind it rather than a
+ *  plain insert — `returnStock`/`adjustStock`/`transferStock` stay a plain
+ *  insert, matching their demo counterparts, which take no idempotency key
+ *  either. A double tap issuing material is the one of the four where a
+ *  repeat is a silent second bundle leaving the rack rather than a mistake
+ *  somebody notices immediately (an adjustment or transfer of the same
+ *  amount twice reads oddly on the screen; an issue of the same amount twice
+ *  does not). */
 export async function issueStock(
   input: { item_code: string; location: string; qty: number; wo_no?: string | null; reason?: string | null },
+  idempotencyKey?: string,
 ): Promise<Result<{ move_no: string; on_hand_after: number; went_negative: boolean }>> {
-  if (input.qty <= 0) return invalid(SERVICE, "qty_invalid", "Jumlah keluar harus lebih dari nol.", { field: "qty" });
-  const check = await stockable(input.item_code);
-  if (!check.ok) return invalid(SERVICE, "not_stocked", check.why, { field: "item_code" });
-  const uid = await currentUserId();
-  if (uid.error) return uid;
-
-  const before = await onHandFor(input.item_code);
-  const after = Math.round((before - input.qty) * 1000) / 1000;
-
-  const { data, error } = await db().from("stock_moves").insert({
-    item_code: input.item_code, location: input.location, kind: "issue",
-    qty: -Math.abs(input.qty), uom: check.base_uom,
-    ref_no: input.wo_no ?? null, reason: input.reason ?? null, moved_by: uid.data,
-  }).select("move_no").single();
-  if (error) return fail(SERVICE, error);
-
-  return ok(SERVICE, { move_no: data.move_no as string, on_hand_after: after, went_negative: after < 0 });
+  const { data, error } = await db().rpc("issue_stock", {
+    p_item_code: input.item_code, p_location: input.location, p_qty: input.qty,
+    p_wo_no: input.wo_no ?? null, p_reason: input.reason ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  return fromSeam(SERVICE, data, error);
 }
 
 /** Material coming back unused. */
