@@ -14,7 +14,7 @@ import type {
   TransactionType, Direction, AllocMethod, InboxStatus, InboxHealth,
   TrxStatus, BankStatementView, StatementLineView, StatementMatch,
   TransactionTypeCode, PaymentAllocation, VendorPayment, CashOverride, CashSettlement,
-  CashComponent,
+  CashComponent, CashPlan, CashMonth,
   InboxOrigin, EvidenceInboxRow,
   DocumentCoverage, TransactionCoverage, CoverageTransaction,
   CoverageLine, CoveragePayment,
@@ -22,6 +22,7 @@ import type {
 import type { DocKind } from "@/services/documents/contracts";
 import type { LineCoverage } from "@/services/procurement/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
+import { getActiveLocale, formatIDRCompact } from "@/lib/format";
 import { fail, fromSeam, fromRows, invalid, notFound, ok, type Result } from "./_kit";
 
 const SERVICE = "accounting" as const;
@@ -782,11 +783,35 @@ export async function coverageForTransaction(trxNo: string): Promise<Result<Tran
  *  tables and the ledger as it stands. **No projection is stored** (D109–D115):
  *  a stored one disagrees with the ledger the moment a payment lands.
  *
- *  `from` exists because the engine takes a date, and pinning it is what makes
- *  the calendar testable. Left off, it starts at the office day. */
-export async function getCashPlan(from?: string): Promise<Result<unknown[]>> {
-  const { data, error } = await db().rpc("cash_events", { p_from: from ?? null });
-  return fromRows<unknown[]>(SERVICE, data as unknown[], error);
+ *  The engine — occurrence dates, claim order, the fuzzy match against the
+ *  ledger, the running balance — is `ops_acct.cash_plan()` (`0091`), ported
+ *  from `cashPlan()` one branch at a time and proved against
+ *  `smoke/86_acct_cash_plan.sql`. Two things stay here rather than in SQL:
+ *  `label` (a locale-formatted month name — locale is a per-request concern
+ *  the database does not have) and `verdict` (formatting a Rupiah figure into
+ *  a sentence is presentation, the same boundary `formatShort` sits on in the
+ *  demo). Both are built from data the seam already returns
+ *  (`short_month` / `short_by` / each month's `closing`), so nothing is
+ *  computed here that the database has not already decided. */
+export async function getCashPlan(): Promise<Result<CashPlan>> {
+  const { data, error } = await db().rpc("cash_plan");
+  if (error) return fail(SERVICE, error);
+  const plan = data as Omit<CashPlan, "months" | "verdict"> & {
+    months: Omit<CashMonth, "label">[];
+  };
+
+  const months: CashMonth[] = plan.months.map((m) => ({ ...m, label: monthLabel(m.month) }));
+  const last = months[months.length - 1];
+  const verdict = plan.short_month
+    ? `On this plan the money runs out in ${monthLabel(plan.short_month)} — ${formatIDRCompact(plan.short_by)} short.`
+    : `The plan holds through ${last.label}, ending at ${formatIDRCompact(last.closing)}.`;
+
+  return ok(SERVICE, { ...plan, months, verdict });
+}
+
+function monthLabel(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString(getActiveLocale(), { month: "short", year: "numeric" });
 }
 
 /** One line, one month: the cell a calendar draws. Its state is the **worst**
