@@ -56,6 +56,14 @@
 -- the ten typeless transactions in `03_ledger.sql`, and recorded the same way:
 -- each one noted in the map, so *which ones* stays answerable.
 --
+-- ── 237 documents, 226 claims ───────────────────────────────────────────
+--
+-- Eleven rows say the same thing as another: this file, this transaction, this
+-- kind. `links_live_idx` collapses them and that is right — two identical
+-- claims are one claim — but *fewer links than documents* has to be explained
+-- rather than left as a discrepancy somebody finds later. Each repeat is
+-- recorded in the map pointing at the link that exists, saying it repeats one.
+--
 -- The 62 that do have a type need no mapping at all. `Payment Proof`,
 -- `Receipt / Invoice / Nota` and `Others` are `ops_core.doc_kind_labels`
 -- verbatim — the new vocabulary was written from the old one.
@@ -185,6 +193,16 @@ select d.doc_id,
        nullif(btrim(d.caption), '')              as caption,
        f.uploaded_by,
        d.created_at,
+       /* **The same claim, made twice.** Eleven of the 237 real rows say the
+          same thing as another: this file, this transaction, this kind. The
+          unique index on a live link collapses them, which is right — two
+          identical claims are one claim — but the map would then record eleven
+          rows as `imported` with nothing saying why there are fewer links than
+          documents. Numbered here so the note can say it. */
+       row_number() over (
+         partition by m.target_id, d.trx_id,
+                      coalesce(ops_core.doc_kind_of(d.doc_type), 'other'::ops_core.doc_kind_t)
+         order by d.created_at, d.doc_id)        as claim_seq,
        case
          when t.id is null
            then 'transaction ' || d.trx_id || ' was not imported — see its own row in this map'
@@ -216,6 +234,9 @@ insert into ops_core.legacy_map
 select 'public.transaction_docs', l.doc_id::text, 'ops_core.attachment_links', k.id,
        case when l.refused_because is null then 'imported' else 'refused' end,
        coalesce(l.refused_because, nullif(concat_ws('; ',
+         case when l.claim_seq > 1
+              then 'this document repeats a claim another row already made — same file, same '
+                   'transaction, same kind — so it points at the one link rather than a second' end,
          case when coalesce(btrim(l.doc_type), '') = ''
               then 'no document type in the legacy row — filed as Others, which is '
                    'indistinguishable on screen from one somebody chose' end,

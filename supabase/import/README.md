@@ -221,6 +221,8 @@ a commit message cannot be corrected, so the record lives here.
 | `01_reference.sql` | yes | 296 vendors, 4 projects, 6 accounts mapped |
 | `02_items.sql` | yes | 1.020 items |
 | `03_ledger.sql` | **2026-09-21** | 3.221 imported, 14 refused, all five accounts reconciled |
+| `04_lines.sql` | **2026-09-22** | 1.189 lines on 1.188 transactions, 5 refused |
+| `05_evidence.sql` | **2026-09-22** | 148 files, 226 claims over 197 transactions, 0 refused |
 
 `03_ledger.sql` was run as a **dry run first** — the whole file inside a
 transaction that was rolled back — and the numbers it printed were the numbers
@@ -241,6 +243,39 @@ Of the 3.221: **699 carry the author the old system recorded**, 2.522 are
 posted as `shared@talaliving.com`. The 14 refusals are all `idr_amount = 0`,
 three of them described `void`, so refusing them moved no balance. A second
 run stages **0 rows**, checked against production rather than assumed.
+
+### What steps 7 and 8 found
+
+**Six transactions whose lines do not add up**, and one of them is not a
+rounding slip:
+
+| transaction | says | its lines say | difference |
+|---|---:|---:|---:|
+| `trx-26-07-27_061` | 2.500 | 15.850.000 | **+15.847.500** |
+| `trx-26-07-15_020` | 55.000 | 85.000 | +30.000 |
+| `trx-26-07-13_093` | 21.001.514 | 21.011.514 | +10.000 |
+| `trx-26-07-21_020` | 36.000 | 35.000 | −1.000 |
+| `trx-26-08-26_091` | 5.217.500 | 5.217.000 | −500 |
+| `trx-26-08-19_040` | 1.970.674 | 1.970.670 | −4 |
+
+The first is worth somebody's attention today: a transaction recorded as Rp
+2.500 against Rp 15,85 juta of itemised purchases. Neither number was changed —
+which of the two is wrong is a question for whoever has the receipt.
+
+**Eleven documents repeat a claim another already made** — same file, same
+transaction, same kind — so 237 documents produced 226 links.
+`links_live_idx` collapses them, which is right: two identical claims are one
+claim. Each repeat is recorded in the map pointing at the link that exists.
+
+**One transfer proof evidences nine transactions.** That is the arrangement
+this import was shaped around, and the largest instance of it in the data.
+
+Of the 148 files, **128 carry the uploader the old system recorded** and 20 are
+`shared@talaliving.com`. All 148 have a checksum.
+
+The 38 attachments that the capture pipeline had already filed have no links of
+their own — they came in through `ops_acct.evidence_inbox`, where filing and
+linking are separate acts. None of them was one of these 148.
 
 Left for a person, all of it queryable from `ops_core.legacy_map`:
 

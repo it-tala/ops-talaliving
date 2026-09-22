@@ -343,9 +343,19 @@ pass "05_evidence (first run)"
 # purchases.
 A1=$(q -Atc "select count(*) from ops_core.attachments")
 K1=$(q -Atc "select count(*) from ops_core.attachment_links")
-[ "$A1" = "3" ] || fail "three files, not five doc rows" "saw $A1 attachments"
-[ "$K1" = "4" ] || fail "four claims land, one is refused" "saw $K1 links"
-pass "3 files, 4 claims"
+[ "$A1" = "3" ] || fail "three files, not six doc rows" "saw $A1 attachments"
+# Six documents, four claims: one is refused, and one repeats another exactly.
+[ "$K1" = "4" ] || fail "six documents make four distinct claims" "saw $K1 links"
+pass "3 files, 4 claims from 6 documents"
+
+# Two identical claims are one claim, and the map says so — otherwise *fewer
+# links than documents* is a discrepancy somebody finds later with no
+# explanation attached.
+q -Atc "select note from ops_core.legacy_map where source_id='d0c00000-0000-0000-0000-000000000006'" \
+  | grep -q "repeats a claim" || fail "a repeated claim says it repeats one" "note does not"
+MAPPED=$(q -Atc "select count(*) from ops_core.legacy_map where source_table='public.transaction_docs'")
+[ "$MAPPED" = "6" ] || fail "every document is accounted for either way" "saw $MAPPED of 6"
+pass "the repeat is recorded, not lost"
 
 # The one that matters: one file, two transactions.
 SHARED=$(q -Atc "select count(*) from ops_core.attachment_links k

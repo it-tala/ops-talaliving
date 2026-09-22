@@ -336,4 +336,9 @@ insert into public.transaction_docs
   -- does not exist would arrive as an attachment nothing points at.
   ('d0c00000-0000-0000-0000-000000000005','trx-26-01-06_005',null,
    'https://drive.google.com/file/d/1OrphanDDD/view','bukti yang tidak jadi',
-   'Payment Proof','2026-01-06 09:06+07');
+   'Payment Proof','2026-01-06 09:06+07'),
+  -- the same claim as d3, made twice: same file, same transaction, same kind.
+  -- Eleven of the 237 real rows do this. One claim, and the map says why.
+  ('d0c00000-0000-0000-0000-000000000006','trx-26-01-04_003',null,
+   'https://drive.google.com/file/d/1NotaBBB/view','Nota TINER (lagi)',
+   'Receipt / Invoice / Nota','2026-01-04 09:08+07');
