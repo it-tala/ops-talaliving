@@ -1,4 +1,4 @@
--- 0045_hr_timesheet.sql — reading a day's taps, and what the reading is worth.
+-- 0048_hr_timesheet.sql — reading a day's taps, and what the reading is worth.
 --
 -- This is the transcription of `timesheetDay` in `src/demo/hr-derive.ts`, and
 -- it is the largest single derivation in HR. What it produces is not a number

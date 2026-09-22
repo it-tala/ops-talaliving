@@ -59,8 +59,24 @@ const ROOT = resolve(dirname(new URL(import.meta.url).pathname), "..");
 
 /* The services that have a real client at all. A service with no
    `src/lib/api/<name>.ts` has nothing to compare and is not drift — it is B2/B3
-   not having reached it, which `check-live-routes.mjs` already reports. */
-const SERVICES = ["identity", "procurement", "accounting", "documents", "marketing"];
+   not having reached it, which `check-live-routes.mjs` already reports.
+
+   **Read rather than listed**, and that is not tidiness. This was four names
+   typed out, and `assistant` was written, exported and swapped in without
+   appearing here — so the one check that exists to stop the two clients
+   drifting would have said `ok` about a module it never opened. A guard with a
+   hand-kept scope is a guard that stops covering the newest thing first, which
+   is the thing most likely to be wrong. `check-live-routes.mjs` reads the same
+   file for the same reason. `marketing` is written but deliberately not
+   exported yet (see `src/lib/api/index.ts`), so reading the export list rather
+   than a hand-kept name means nothing has to remember to add it here when it
+   is. */
+function liveServices() {
+  const src = readFileSync(join(ROOT, "src/lib/api/index.ts"), "utf8");
+  return [...src.matchAll(/^export \* as (\w+) from "\.\/(\w+)"/gm)].map((m) => m[1]);
+}
+
+const SERVICES = liveServices();
 
 /** Every `export function` / `export async function` name in a module. */
 function exportedFunctions(path) {

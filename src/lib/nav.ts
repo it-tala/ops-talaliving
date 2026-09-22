@@ -6,7 +6,7 @@ import {
   FolderKanban, Hammer, Truck, Wrench, Stamp, Package,
   PencilRuler, ListTree, CalendarClock, CalendarRange, Link2,
   Cpu, ScrollText, Activity, UserCog, KeyRound, Clock, Scale, Factory,
-  Settings, FlaskConical, MessagesSquare, Route, ShieldCheck, Gauge, type LucideIcon,
+  Settings, FlaskConical, MessagesSquare, Route, ShieldCheck, Gauge, MessageSquareOff, type LucideIcon,
 } from "lucide-react";
 
 /** Menu sebagai DATA, bukan JSX.
@@ -171,6 +171,10 @@ export const NAV: NavSection[] = [
     icon: Cpu,
     items: [
       { label: "Audit Log", labelKey: "audit", href: "/it/audit", icon: ScrollText, permission: "it.read", badge: "new" },
+      /* The tuning list. `it.read` because it is everybody's prompts in one
+         place — which is also why it shows no names, and why the two functions
+         behind it pick their own columns rather than leaning on RLS. */
+      { label: "John Lau — tidak dimengerti", labelKey: "johnLauTuning", href: "/it/john-lau", icon: MessageSquareOff, permission: "it.read", badge: "new" },
       { label: "Activity Log", labelKey: "activity", href: "/it/aktivitas", icon: Activity, permission: "it.read", badge: "new" },
       { label: "Users", labelKey: "users", href: "/it/pengguna", icon: UserCog, permission: "it.manage_users", badge: "new" },
       { label: "Roles & Permissions", labelKey: "roles", href: "/it/peran", icon: KeyRound, permission: "it.manage_roles", badge: "new" },

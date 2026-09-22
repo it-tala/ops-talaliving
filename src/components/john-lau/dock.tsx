@@ -13,6 +13,8 @@ import type { AssistantTurn } from "@/services/assistant/contracts";
 import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
 import { useT, useLang } from "@/lib/i18n";
+import { formatIDR } from "@/lib/format";
+import { isRouteLive } from "@/lib/live";
 import { MESSAGES, EXAMPLES } from "@/lib/messages";
 
 /** John Lau, docked.
@@ -48,6 +50,24 @@ export function JohnLauDock() {
   }
 
   if (!ready) return null;
+
+  /** **Not drawn where it cannot answer.**
+   *
+   *  The dock lives in the shell, so it appeared on all fourteen live routes
+   *  while `assistant` had no implementation behind it — every question came
+   *  back as a 501 in a warning toast. A button that is present and broken
+   *  teaches people the application is unreliable; one that is absent teaches
+   *  nothing at all, which is the better of the two until it works.
+   *
+   *  Gated on `isRouteLive("/john-lau")` rather than a flag of its own,
+   *  because that answer is **derived**: `check-live-routes.mjs` adds the
+   *  route the moment every `assistant.*` call it reaches exists. The dock
+   *  turns itself on then, and nobody has to remember to flip anything.
+   *
+   *  Demo mode is unaffected — `isRouteLive` is true for everything there,
+   *  which is the point of the demo.
+   */
+  if (!isRouteLive("/john-lau")) return null;
 
   return (
     <>
@@ -131,7 +151,10 @@ function Turn({ turn, onNavigate, onChanged }: {
   const { toast } = useToast();
   const t = useT();
   const [fields, setFields] = useState<Record<string, string>>(
-    Object.fromEntries((turn.draft?.fields ?? []).map((f) => [f.label, f.value.startsWith("—") ? "" : f.value])),
+    /* Keyed by `f.key`, never by `f.label`: the label is language-dependent,
+       and a payload keyed by display text empties itself when somebody
+       switches language between drafting and confirming. */
+    Object.fromEntries((turn.draft?.fields ?? []).map((f) => [f.key, f.value.startsWith("—") ? "" : f.value])),
   );
   const [busy, setBusy] = useState(false);
 
@@ -179,7 +202,14 @@ function Turn({ turn, onNavigate, onChanged }: {
             {turn.facts.map((f, i) => (
               <li key={i} className="flex flex-wrap items-baseline gap-x-2 text-[12px]">
                 <span className="min-w-0 flex-1 truncate text-slate-600">{f.label}</span>
-                <span className="font-medium tabular-nums text-slate-900">{f.value}</span>
+                {/* **The number is formatted here and nowhere else.** A fact
+                    carries `amount` + `unit` rather than a finished string, so
+                    John Lau's figure and the figure on the screen it points at
+                    are the same characters and can be compared by eye (D217).
+                    `value` is for everything that is not a number. */}
+                <span className="font-medium tabular-nums text-slate-900">
+                  {f.amount != null && f.unit === "IDR" ? formatIDR(f.amount) : f.value}
+                </span>
                 {f.href && (
                   <button onClick={() => onNavigate(f.href!)} aria-label="Buka layarnya" className="text-brand-700 hover:underline">
                     <ArrowUpRight className="h-3 w-3" />
@@ -220,10 +250,10 @@ function Turn({ turn, onNavigate, onChanged }: {
             <p className="text-[12px] font-medium text-amber-900">{turn.draft.headline}</p>
             <div className="mt-1.5 space-y-1.5">
               {turn.draft.fields.map((f) => (
-                <label key={f.label} className="block text-[11px] text-slate-600">
+                <label key={f.key} className="block text-[11px] text-slate-600">
                   {f.label}
                   <input
-                    value={fields[f.label] ?? ""} onChange={(e) => setFields({ ...fields, [f.label]: e.target.value })}
+                    value={fields[f.key] ?? ""} onChange={(e) => setFields({ ...fields, [f.key]: e.target.value })}
                     placeholder={f.value}
                     className="mt-0.5 h-8 w-full rounded-lg border border-slate-200 px-2 text-[12px] focus:border-brand-400 focus:outline-none"
                   />

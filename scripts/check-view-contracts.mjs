@@ -133,6 +133,14 @@ const VIEW_CONTRACTS = {
   /* Mapped field by field into an anonymous row type, so `tsc` checks every
      one of them and there is no cast to lie. */
   v_followup_queue:  null,
+
+  /* ── john lau ────────────────────────────────────────────────────────── */
+  /* The catalogue, read into a private row shape and mapped field by field
+     into `AssistantTool` — both languages come down and one is chosen in the
+     client, because the list is a menu and a menu is rendering (0038). The
+     mapping names every field it moves, so `tsc` checks it; what `tsc` cannot
+     see, and this can, is whether the view still returns `blocked_reason_id`. */
+  v_tool_catalogue: "CatalogueRow",
 };
 
 /** Views that do **not** satisfy their contract, with what is missing and why

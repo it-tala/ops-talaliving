@@ -1,4 +1,4 @@
--- 0052_hr_payroll_seams.sql — opening a run, what people move on it by hand,
+-- 0055_hr_payroll_seams.sql — opening a run, what people move on it by hand,
 -- and the two signatures at the end of it.
 --
 -- `0044` built `payroll_runs` and `payroll_adjustments`, the freeze trigger and

@@ -81,34 +81,4 @@ fi
 q -q -c "
   drop schema if exists ops_asst cascade;
   drop schema if exists ops_mkt cascade;
-  drop schema if exists ops_inv cascade;
-  drop schema if exists ops_prod cascade;
-  drop schema if exists ops_hr cascade;
-  drop schema if exists ops_acct cascade;
-  drop schema if exists ops_procure cascade;
-  drop schema if exists ops_core cascade;
-  drop extension if exists citext cascade;" >/dev/null
-
-if [ "$REAL_SUPABASE" = "0" ]; then
-  q -q -v ON_ERROR_STOP=1 -f "$HERE/00_shim.sql" 2>&1 | grep -v NOTICE || true
-fi
-
-# A migration that fails stops the run. An earlier version of this script piped
-# psql through grep and reported "ok" over the top of an ERROR — exactly the
-# kind of green tick this project exists to distrust.
-for f in "$HERE"/../migrations/*.sql; do
-  printf '%-44s' "$(basename "$f")"
-  if out=$(q -q -v ON_ERROR_STOP=1 -f "$f" 2>&1); then
-    echo "ok"
-  else
-    echo "FAILED"
-    echo "$out" | grep -v NOTICE
-    exit 1
-  fi
-done
-
-q -Atc "
-  select table_schema || ': ' || count(*)
-    from information_schema.tables
-   where table_schema in ('ops_core','ops_procure','ops_acct','ops_hr','ops_prod','ops_inv','ops_mkt','ops_asst')
    group by table_schema order by 1;"

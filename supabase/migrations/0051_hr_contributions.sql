@@ -1,4 +1,4 @@
--- 0048_hr_contributions.sql — the statutory half, and the enum that held it up.
+-- 0051_hr_contributions.sql — the statutory half, and the enum that held it up.
 --
 -- The last HR tables, and the reason they waited: `contribution_scheme_t` is
 -- in `src/services/hr/contracts.ts` and never reached `0001_core_types.sql`.

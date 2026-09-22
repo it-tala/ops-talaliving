@@ -1,4 +1,4 @@
--- 0044_hr_payroll.sql — the run, and the only rows a person adds to it by hand.
+-- 0047_hr_payroll.sql — the run, and the only rows a person adds to it by hand.
 --
 -- **Payroll lines are not a table.** A line is days and approved overtime read
 -- through the rule book in force when the period opened, and storing it would

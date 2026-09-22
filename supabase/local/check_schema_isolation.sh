@@ -24,10 +24,11 @@
 # ── What it will and will not catch ───────────────────────────────────────
 #
 # It reads schema-qualified names out of the migrations after stripping
-# comments, so the prose in this repository — which discusses `core.users` and
-# `public` at length, on purpose — never trips it. What it cannot see is a
-# name assembled at run time inside `execute format(...)`; there is none today,
-# and if one ever appears it belongs in review, not in a grep.
+# comments and one-word string literals, so the prose in this repository —
+# which discusses `core.users` and `public` at length, on purpose — never trips
+# it, and neither does a migration that *stores* a dotted name as data. What it
+# cannot see is a name assembled at run time inside `execute format(...)`; there
+# is none today, and if one ever appears it belongs in review, not in a grep.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -51,7 +52,32 @@ blank_comments() {
   # exactly that — it reported a real violation on line 3 as being on line 1,
   # which is a comment that is entirely fine. A guard that points at innocent
   # code is one people learn to argue with rather than fix.
-  perl -0777 -pe 's{/\*.*?\*/}{ $& =~ tr/\n//cdr }ges' "$1" | sed 's/--.*$//'
+  perl -0777 -pe 's{/\*.*?\*/}{ $& =~ tr/\n//cdr }ges' "$1" | sed 's/--.*$//' | blank_atoms
+}
+
+blank_atoms() {
+  # A quoted word is data, never a schema reference.
+  #
+  # `0038` stores John Lau's catalogue as rows, and two of the tool names it
+  # writes down are `hr.payroll` and `hr.attendance` — the names of *refusals*,
+  # transcribed from the owner's own answers. This guard read them as a
+  # migration reaching into the legacy `hr` schema and refused the file.
+  #
+  # That is the failure mode the comment in `blank_comments` warns about: a
+  # guard pointing at innocent code is one people learn to argue with rather
+  # than fix, and the argument ends with somebody widening `LEGACY` or deleting
+  # the check.
+  #
+  # So a single-quoted run containing **no whitespace and no quote** is
+  # blanked. The carve-out is deliberately that narrow, because the thing this
+  # guard exists to catch is a *statement* — `alter table public.vendors`,
+  # `drop schema ops cascade` — and a statement cannot fit in a token with no
+  # spaces in it. `'public.vendors'` on its own does nothing to anybody.
+  #
+  # No SQL string state is tracked and none is needed: an apostrophe in the
+  # English prose inside a `$r$ … $r$` block (*that person's name*) has
+  # whitespace before the next quote, so it never pairs.
+  sed -E "s/'[^'[:space:]]*'/''/g"
 }
 
 for f in "$MIGRATIONS"/*.sql; do

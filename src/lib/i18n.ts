@@ -50,6 +50,28 @@ export function pick(m: Message, lang: Lang): string {
   return m[lang];
 }
 
+/** The language in force, for code that is not a component.
+ *
+ *  `useLang` is a hook and a hook needs a render. The service clients answer
+ *  into a panel — a refusal, a guide, a sentence about what was understood —
+ *  and D224 puts that resolution at the service edge rather than in the
+ *  screen, so they need the answer without one.
+ *
+ *  Pushed in rather than read out, the same shape as `setActiveLocale` in
+ *  `format.ts` and for the same reason: the setting stays the only source, and
+ *  a reader here would mean this file knowing where settings live. One
+ *  direction (D216).
+ */
+let activeLang: Lang = DEFAULT_LANG;
+
+export function setActiveLang(lang: string | undefined) {
+  activeLang = lang === "id" ? "id" : "en";
+}
+
+export function getActiveLang(): Lang {
+  return activeLang;
+}
+
 /** The language in force, from the setting (D216). */
 export function useLang(): Lang {
   const state = useDemo();

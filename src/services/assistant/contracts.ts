@@ -77,7 +77,20 @@ export interface AssistantTool {
  */
 export interface AnswerFact {
   label: string;
-  value: string;
+  /** Anything that is not a number: a status, a count with its unit, a date.
+   *
+   *  **A figure does not go here.** `amount` carries figures, because the
+   *  separators in `Rp 6.000.000` follow a locale the person chooses
+   *  (`formatIDR`), and a number formatted anywhere but there is a number that
+   *  disagrees with the screen it is supposed to be checkable against (D217). */
+  value: string | null;
+  /** The figure itself, unformatted, when there is one. Rendered with the same
+   *  helper the screens use, so John Lau's number and the screen's number are
+   *  the same string of characters and can be compared by eye. */
+  amount?: number | null;
+  /** What `amount` is counted in. `IDR` today; a unit here rather than a
+   *  formatted string means the next one does not need a second rule. */
+  unit?: "IDR" | null;
   /** The tool that produced it. */
   source: string;
   /** The screen showing the same number. */
@@ -103,8 +116,16 @@ export interface AssistantDraft {
   tool: string;
   /** What it will do, in one line. */
   headline: string;
-  /** Field by field, exactly what will be written. */
-  fields: { label: string; value: string }[];
+  /** Field by field, exactly what will be written.
+   *
+   *  `key` is what the confirmation is keyed by, and `label` is what the person
+   *  reads. They were one thing — the label — and that made the payload depend
+   *  on the language in force: somebody who drafted in Indonesian and switched
+   *  to English before pressing yes confirmed a form whose every field had
+   *  become empty, silently, because `fields["Barang"]` no longer existed.
+   *
+   *  A display string is never a key. */
+  fields: { key: string; label: string; value: string }[];
   /** Things a person should notice before saying yes — a price above the last
    *  one paid, a vendor with no history. Never blocking. */
   warnings: string[];
@@ -165,4 +186,65 @@ export interface AssistantReply {
   /** What it understood, in its own words, so a wrong reading is visible
    *  before it matters. */
   understood_as: string;
+}
+
+/** One question the router did not understand, grouped the way the router
+ *  itself compares questions.
+ *
+ *  **There is nothing here about who asked.** The question this answers is
+ *  *what did we fail to understand*; a name turns it into a different question,
+ *  and `it.audit` is blocked from the prompt precisely so that one stays hard
+ *  to ask (D218, D190).
+ */
+export interface UnmatchedPrompt {
+  /** Lowercased, depunctuated, `-nya` dropped — what the matcher actually
+   *  compares against. Two sentences that share this are one question to the
+   *  router, which is the whole reason the list is grouped by it. */
+  normalised: string;
+  /** The most recent one as somebody typed it. The normalised form is what the
+   *  router sees; this is what a person reads when deciding whether a rule
+   *  would have helped. */
+  example: string;
+  times: number;
+  langs: ("en" | "id")[];
+  first_at: string;
+  last_at: string;
+}
+
+/** Whether the keyword router is doing its job, in counts and nothing else.
+ *
+ *  *Should a model go behind this* is not answerable from the unmatched list
+ *  alone (D221). A hundred unmatched beside four hundred answered is a router
+ *  doing its job on the questions people repeat; a hundred beside a hundred and
+ *  ten is one that mostly fails.
+ */
+export interface RouterHealth {
+  turns: number;
+  answered: number;
+  guided: number;
+  drafted: number;
+  unknown: number;
+  /** The boundary holding: somebody asked for something no grant reaches. */
+  refused_closed: number;
+  /** Somebody who needs a grant they have not got — an IT job, not a router
+   *  one. Kept apart from the above for the reason they always are (F64). */
+  refused_permission: number;
+  since: string | null;
+}
+
+/** One rule in the keyword router, read-only.
+ *
+ *  Shown beside the unmatched list because you cannot decide what to add
+ *  without seeing what is there. Not editable from a screen: the rules are
+ *  rows in a migration, reviewed, with the reason next to them.
+ */
+export interface RouterRule {
+  seq: number;
+  tool: string;
+  stage: "how" | "main";
+  all_words: string[];
+  any_words: string[];
+  not_words: string[];
+  understood: string;
+  note: string | null;
 }

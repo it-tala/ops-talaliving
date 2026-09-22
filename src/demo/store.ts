@@ -12,6 +12,7 @@
 import { initialState, stateSignature } from "./fixtures";
 import type { DemoState, AuditRow, OutboxRow } from "./state";
 import { setActiveLocale } from "@/lib/format";
+import { setActiveLang } from "@/lib/i18n";
 
 const STORAGE_KEY = "ops-v2-demo/v2";
 
@@ -77,6 +78,10 @@ export function hydrate() {
 function applySettings() {
   const locale = state.app_settings?.find((x) => x.key === "format.locale")?.value;
   if (locale) setActiveLocale(locale);
+  /* And the language, for the same reason one step along: the service clients
+     resolve a refusal into one language at the edge (D224) and are not
+     components, so `useLang` is no use to them. */
+  setActiveLang(state.app_settings?.find((x) => x.key === "format.language")?.value);
 }
 
 function emit() {
