@@ -1939,7 +1939,7 @@ erDiagram
 | `stage_sources` includes each stage's **own** code | `FINISHING` names one of the four and one of the seven that collapsed into it; without the self-row, direct entries and rolled-up ones were added together and counted the same pieces twice (F74) |
 | `work_orders.bom_rev` must be a **released** revision of that order's own product | neither half is a foreign key that could say so — `product_code` is a code at the seam and `released_at` is a column. A pin to a draft is a pin to something still being edited |
 
-**Who may write, in HR** (`0050`–`0052`, the daily work): `hrd.create` for
+**Who may write, in HR** (`0050`–`0053`, the daily work): `hrd.create` for
 importing the machine's file, typing in a tap the machine missed, marking a
 day, opening an overtime sheet, adding a name to one and reading the paper
 form; `hrd.update` for withdrawing a mark, withholding or restoring the
@@ -1954,6 +1954,35 @@ there is, and still cannot sign the run. All through seams, addressed by
 `employee_no`, `mark_no`, `sheet_no`, `run_no` and `adj_no`. The enrolments,
 the pay rules, the tasks, the leave requests and the employee files have tables
 and views and **no seams yet**.
+
+**The person and their berkas** (`0053`). `hrd.create` writes the personnel
+record through `save_employee` — one seam for the new hire and the change of
+terms, because the screen has one form and the difference is whether the number
+is already here — and files a document with `file_employee_document`;
+`hrd.update` sets somebody's working pattern. **Absent means unchanged, never
+zero**: a save that leaves the allowance field out must not stop paying it
+(D250), which is why the seam coalesces rather than overwrites, and why
+`p_set_schedule` exists — SQL cannot tell *absent* from *null* and D279 needs
+the difference, since null is a deliberate unlink and absent is nothing at all.
+
+**An identity number is not a column a client may select.** `employee_documents`
+has **no read policy and no select grant**. The only road to a row is
+`employee_documents_of()`, a definer function that asks the permission itself
+and blanks the number before it leaves the database for the five kinds that
+name a *person* rather than a document — KTP, KK, NPWP and the two BPJS cards.
+What the screen receives is the mask, the length and whether that length is
+what the kind wants, so a fifteen-digit NIK can be called a failed reading
+without anybody seeing it (D195, D196). `reveal_employee_doc_no` returns the
+number once and writes an audit row that says whose and which kind and **never
+the number** — the one table nobody may delete from is the worst place to keep
+one (D197). `0048` masks a BPJS number in a view and leaves the column
+selectable, which is the same rule made decorative: see F127.
+
+**The file goes on the evidence road and nowhere else.** `file_employee_document`
+calls `ops_core.attach_link` rather than writing `attachment_links` itself, and
+the document row stores the **link**, not the attachment — so *is this still
+this person's KTP* has one answer, and unlinking on the road is visible in the
+berkas (ADR-010, A3).
 
 **A payroll adjustment is withdrawn, not deleted.** `adj_no` names it,
 `withdrawn_at`/`_by`/`_reason` take it back, and the row stays. Two things read

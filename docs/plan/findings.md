@@ -4967,3 +4967,52 @@ The mutation that proves the second reader learned is worth keeping in mind as a
 shape: it withdraws an adjustment and then reads **the same figure from both
 sides**, the run's total and the person's payslip. A test that checked only the
 first would have passed with the payslip still paying money somebody took back.
+
+## F127 · 2026-09-22 · 0048 — a mask over a column the reader can select is a decoration
+
+**What `0048` does.** `enrolments.member_no` holds a BPJS membership number,
+typed off the card because the card is the only place it exists. `v_enrolment`
+returns `member_no_masked` and never the number, with a comment citing D196.
+
+**What the table does.** `enrol_read` is `for select to authenticated using
+(has_permission('hrd.read') or has_permission('payroll.read'))`, over every
+column, and `0040` granted `select on all tables in schema ops_hr`. So:
+
+```sql
+select member_no from ops_hr.enrolments;
+```
+
+answers in full to anybody who can open the screen the mask is on. The masking
+is real in the view and buys nothing, because the view is not the only road to
+the row — it is one projection of a table the same reader may select directly
+through PostgREST.
+
+**Why a view cannot fix it.** Every view in this ladder is `security_invoker =
+on` and `0037` asserts there are exactly two exceptions. An invoker view reads
+with the caller's privileges, so a column the view can read is a column the
+caller can read. The mask can only be enforced where the caller's privileges
+stop, which means one of: a column privilege (`revoke select (col)`), a definer
+function, or a separate table with no policy.
+
+**What `0053` does instead**, for the same rule over a worse secret. The table
+has **no read policy and no select grant at all**, and the only road to a row
+is `employee_documents_of()` — a definer function that asks
+`has_permission('hrd.read')` itself and blanks the number before it leaves the
+database for the five kinds that identify a person. The screen gets the mask,
+the length, and whether the length is what the kind wants, which is enough to
+say *this reading is wrong* without showing a digit. A mutation proves the
+table itself cannot be selected, because without that assertion the whole
+arrangement reduces to `0048`'s.
+
+**The general shape.** *Where a secret is masked decides whether it is masked.*
+A projection that removes a column protects the people who read that
+projection; it protects nothing when the reader can also name the table. With
+PostgREST every table is an endpoint, so "the screen only calls the view" is
+not a property of the system — it is a hope about the client.
+
+**`0048` is not fixed here.** Its enrolment seams are not written yet, and the
+fix is the same shape: no select grant, one definer read. It belongs with those
+seams rather than as a drive-by change to a table whose write road does not
+exist. Until then the exposure is a membership number readable by HR and
+payroll, who are the two roles allowed to see it on the screen anyway — which
+is why this is a finding and not an incident.
