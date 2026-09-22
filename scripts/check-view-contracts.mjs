@@ -108,7 +108,15 @@ const VIEW_CONTRACTS = {
      stitched on before the result is returned. The intermediate cast is
      genuinely incomplete and the returned value is not. */
   v_statement_line:     { type: "StatementLineView", composed: ["suggestions"] },
-  v_inbox_health:       "InboxHealth",
+  /* Read into an anonymous row and mapped into `InboxHealth` by hand —
+     `by_origin` was a straight `as unknown as InboxHealth` onto a view with
+     no such column, which this script's own contract check would have
+     caught immediately if this entry had said so instead of naming
+     `by_origin` a known gap "behind" a route that was actually live
+     (`/accounting/verifikasi` crashed on it in production). Never cast
+     again, so `tsc` checks the object literal against the function's return
+     type instead. */
+  v_inbox_health:       null,
   /* `fromRows<unknown[]>` — the client hands these straight to a screen that
      reads them structurally, so there is no named contract to compare against.
      Each is a candidate for one; none is a cast that can lie today. */
@@ -193,8 +201,6 @@ const KNOWN_GAPS = {
      (A10), so it is not decoration: without it the screen cannot tell funded
      from paid. */
   v_round_summary: ["transfers"],
-  /* `/accounting/verifikasi` — also waiting on five. */
-  v_inbox_health:  ["by_origin"],
 };
 
 /* ── the interfaces, from the contracts and from the client ───────────── */
