@@ -23,7 +23,7 @@ import type { DocKind } from "@/services/documents/contracts";
 import type { LineCoverage } from "@/services/procurement/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { getActiveLocale, formatIDRCompact } from "@/lib/format";
-import { fail, fromSeam, fromRows, invalid, notFound, ok, type Result } from "./_kit";
+import { fail, fromSeam, fromPage, fromRows, invalid, notFound, ok, type Result } from "./_kit";
 
 const SERVICE = "accounting" as const;
 
@@ -140,19 +140,36 @@ export async function listTypeRows(): Promise<Result<TransactionType[]>> {
 /* The ledger                                                          */
 /* ------------------------------------------------------------------ */
 
+/** `description.ilike."%needle%",trx_no.ilike."%needle%"` — quoted, because a
+ *  comma or parenthesis typed into the search box is filter syntax to
+ *  PostgREST, not search text, and unquoted it either breaks the `.or()`
+ *  below or lets free-text input add a clause nobody typed. */
+function ilikeOrFilter(q: string, ...columns: string[]): string {
+  const escaped = q.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const pattern = `"%${escaped}%"`;
+  return columns.map((c) => `${c}.ilike.${pattern}`).join(",");
+}
+
 export async function listTransactions(
-  opts: { limit?: number; offset?: number; account_code?: string; status?: TrxStatus } = {},
+  opts: {
+    account_id?: string; type_code?: string; q?: string;
+    project_code?: string; include_void?: boolean;
+    limit?: number; offset?: number;
+  } = {},
 ): Promise<Result<TransactionView[]>> {
   const limit = opts.limit ?? 50;
   const offset = opts.offset ?? 0;
-  let q = db().from("v_transaction").select("*");
-  if (opts.account_code) q = q.eq("account_code", opts.account_code);
-  if (opts.status) q = q.eq("status", opts.status);
-  const { data, error } = await q
+  let q = db().from("v_transaction").select("*", { count: "exact" });
+  if (!opts.include_void) q = q.neq("status", "VOID");
+  if (opts.account_id) q = q.eq("account_id", opts.account_id);
+  if (opts.project_code) q = q.eq("project_code", opts.project_code);
+  if (opts.type_code) q = q.eq("type_code", opts.type_code);
+  if (opts.q) q = q.or(ilikeOrFilter(opts.q, "description", "trx_no"));
+  const { data, error, count } = await q
     .order("trx_date", { ascending: false })
     .order("trx_no", { ascending: false })
     .range(offset, offset + limit - 1);
-  return fromRows<TransactionView[]>(SERVICE, data as TransactionView[], error);
+  return fromPage<TransactionView>(SERVICE, data as TransactionView[], count, error, limit, offset);
 }
 
 /** Everything a ledger row is made of, in one call: what it bought, what it
