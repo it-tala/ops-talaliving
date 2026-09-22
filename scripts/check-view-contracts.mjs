@@ -131,6 +131,19 @@ const VIEW_CONTRACTS = {
   /* Read for `location`/`location_name`/`qty` per item and folded into
      `StockItemView.by_location` by hand — never cast, so nothing here can lie. */
   v_stock_by_location: null,
+  /* Every column matches `BoardStockView` field for field — ported from
+     `boardStock()` for exactly that (`0094`'s own header). */
+  v_board_stock: "BoardStockView",
+  /* Read into an anonymous row and mapped into `LogPurchaseView` by hand,
+     field by field, with `logs`/`boards`/`warnings`/`vendor_id` built from a
+     second and third read (`log_pieces`, `sawn_boards`, `vendors`) — never
+     cast, so `tsc` checks the object literal against the function's own
+     return type instead. */
+  v_log_purchase: null,
+  /* Same shape as `v_log_purchase` above: mapped by hand into
+     `TimberVendorSummary`, `unsawn_m3` computed from this row's own
+     `log_m3`/`sawn_logs_m3` rather than cast from a column of that name. */
+  v_timber_by_vendor: null,
 
   /* ── marketing ───────────────────────────────────────────────────────── */
   v_market:          "MarketView",
