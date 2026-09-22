@@ -170,6 +170,14 @@ const VIEW_CONTRACTS = {
      one of them and there is no cast to lie. */
   v_followup_queue:  null,
 
+  /* ── hr ──────────────────────────────────────────────────────────────── */
+  /* `amount`, `by_name` and `restored_by_name` are the three the table cannot
+     answer on its own, which is the whole reason the view exists (0057). */
+  v_allowance_withholding: "AllowanceWithholdingView",
+  /* Read for `stage`, `payable` and `total_hours` and merged onto the sheet
+     rows; nothing is cast into a contract from it. */
+  v_overtime_claim:  null,
+
   /* ── john lau ────────────────────────────────────────────────────────── */
   /* The catalogue, read into a private row shape and mapped field by field
      into `AssistantTool` — both languages come down and one is chosen in the

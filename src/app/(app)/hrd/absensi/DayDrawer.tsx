@@ -52,6 +52,10 @@ export function DayDrawer({
   const [otReason, setOtReason] = useState("");
   const [holdOpen, setHoldOpen] = useState(false);
   const [holdReason, setHoldReason] = useState("");
+  /* Taking a mark back needs a sentence, because the mark is withdrawn rather
+     than deleted and the sentence is what the next person reads (C19). */
+  const [undoing, setUndoing] = useState(false);
+  const [undoReason, setUndoReason] = useState("");
   const [holds, reloadHolds] = useLoad(
     () => hr.listWithholdings({ employee_no: employeeNo, from: workDate, to: workDate }),
     [employeeNo, workDate],
@@ -87,10 +91,11 @@ export function DayDrawer({
 
   async function unmark(markId: string) {
     setBusy(true);
-    const res = await hr.unmarkDay(markId);
+    const res = await hr.unmarkDay(markId, undoReason);
     setBusy(false);
     if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", "Not removed", res.error.message); return; }
-    after("Mark removed", `${workDate} is back to what the machine recorded.`);
+    setUndoing(false); setUndoReason("");
+    after("Mark withdrawn", `${workDate} is back to what the machine recorded.`);
   }
 
   /* HRD deciding the day earns no tunjangan, and saying why. A separate act
@@ -201,11 +206,33 @@ export function DayDrawer({
                 {d.mark.kind === "sick" && d.day_value > 0 && (
                   <p className="mt-1 text-[11px] text-violet-800">Surat dokter sudah dilampirkan — hari ini dibayar penuh.</p>
                 )}
-                {mayEdit && d.mark.employee_id !== null && (
+                {mayEdit && d.mark.employee_id !== null && !undoing && (
                   <Button size="sm" variant="ghost" icon={Undo2} className="mt-2" disabled={busy}
-                    onClick={() => unmark(d.mark!.id)}>
-                    Remove this mark
+                    onClick={() => setUndoing(true)}>
+                    Withdraw this mark
                   </Button>
+                )}
+                {mayEdit && d.mark.employee_id !== null && undoing && (
+                  <div className="mt-2">
+                    <input
+                      value={undoReason} onChange={(e) => setUndoReason(e.target.value)}
+                      placeholder="Kenapa ditarik — salah orang, salah tanggal, suratnya ternyata ada…"
+                      className="h-9 w-full rounded-lg border border-violet-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                    />
+                    <p className="mt-1 text-[11px] text-violet-800">
+                      Tandanya tetap tercatat. Yang dibaca orang berikutnya adalah alasannya.
+                    </p>
+                    <div className="mt-2 flex justify-end gap-2">
+                      <Button size="sm" variant="ghost" disabled={busy}
+                        onClick={() => { setUndoing(false); setUndoReason(""); }}>
+                        Batal
+                      </Button>
+                      <Button size="sm" icon={Undo2} disabled={busy || !undoReason.trim()}
+                        onClick={() => unmark(d.mark!.id)}>
+                        Withdraw
+                      </Button>
+                    </div>
+                  </div>
                 )}
                 {d.mark.employee_id === null && (
                   <p className="mt-2 text-[11px] text-violet-800">

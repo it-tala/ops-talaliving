@@ -71,6 +71,32 @@ export * as inventory from "./inventory";
  *  session is mid-cutover on is not a decision this file gets to make.
  */
 
+/* ## `hr` is written for three screens of four, and is not exported either
+ *
+ *  `src/lib/api/hr.ts` implements the chain HRD works — the person, their
+ *  terms, their berkas, the machine's file and the marks on it — and
+ *  `check-api-parity.mjs` compares every one of its functions against the
+ *  demo's, because that check reads the **directory** rather than this file:
+ *  parity is about whether the shapes agree, and being exported is about
+ *  whether there is a database behind them (F128).
+ *
+ *  Two things are missing, and only one of them is code. `ops_hr` has no
+ *  tables in the live project — the ladder there stops in the 0040s — so
+ *  exporting this today would answer *Could not find the table
+ *  `ops_hr.employees`* on every HR screen, which is the failure this file and
+ *  `live.ts` exist to make impossible. And the payroll half is genuinely
+ *  unfinished: `PayrollLine` in the contract carries per-day payslip rows,
+ *  overtime parts and contribution lines that `ops_hr.payroll_figures` does
+ *  not have (C20), so the seven payroll functions are not written rather than
+ *  written badly.
+ *
+ *  Adding the line becomes correct the moment the HR block of the ladder is
+ *  applied to the project, after which `node scripts/check-live-routes.mjs
+ *  --write` regenerates `LIVE_ROUTES` and `/hrd/karyawan`, `/hrd/berkas-201`
+ *  and `/hrd/absensi` open. Applying migrations to a project another session
+ *  is mid-cutover on is not a decision this file gets to make.
+ */
+
 export { isOk } from "@/services/_shared/envelope";
 export type { Result, ApiError, Outcome } from "@/services/_shared/envelope";
 

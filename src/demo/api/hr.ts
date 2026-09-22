@@ -605,10 +605,37 @@ function viewWithholding(state: DemoState, w: AllowanceWithholding): AllowanceWi
   };
 }
 
-export async function unmarkDay(markId: string): Promise<Result<{ removed: string }>> {
+/** Taking a mark back.
+ *
+ *  **The reason is not optional, and that is the database talking.** A day mark
+ *  is withdrawn there and never deleted (A2): *kenapa tanggal empat belas
+ *  ditandai sakit lalu tidak* is asked three months later by the person whose
+ *  payslip it is, and a row that is gone answers with silence. A withdrawal
+ *  with no sentence is refused by the seam, so the parameter is in the contract
+ *  — C19.
+ *
+ *  Where the two implementations still differ, and it is worth naming: the
+ *  database keeps the row with `withdrawn_at`, `withdrawn_by` and the sentence
+ *  on it, while this one still splices the array and keeps the sentence in the
+ *  audit trail alone. Nine places read `day_marks` in the fixtures and every
+ *  one of them would have to learn the flag (F123's arithmetic again); until
+ *  they do, the demo remembers **why** and forgets **what**, which is a
+ *  divergence in what survives rather than in what either answers.
+ */
+export async function unmarkDay(
+  markId: string, reason: string,
+): Promise<Result<{ removed: string }>> {
   await latency();
   const denied = requireModule(SERVICE, "hrd");
   if (denied) return denied;
+
+  if (!reason?.trim()) {
+    return invalid(
+      SERVICE, "reason_required",
+      "Kenapa ditarik? Tandanya tetap tercatat; yang dibaca orang berikutnya adalah alasannya.",
+      { field: "reason" },
+    );
+  }
 
   const state = getState();
   const mark = state.day_marks.find((m) => m.id === markId);
@@ -619,8 +646,8 @@ export async function unmarkDay(markId: string): Promise<Result<{ removed: strin
     draft.day_marks = draft.day_marks.filter((m) => m.id !== markId);
     writeAudit(draft, {
       service: SERVICE, entity: "day_mark", entity_no: `${mark.work_date}/${mark.employee_id ?? "ALL"}`,
-      action: "unmark", outcome: "ok", reason: mark.reason,
-      detail: { kind: mark.kind, by: user.email },
+      action: "unmark", outcome: "ok", reason: reason.trim(),
+      detail: { kind: mark.kind, marked_because: mark.reason, by: user.email },
     });
   });
   return ok(SERVICE, { removed: markId });

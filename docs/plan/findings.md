@@ -5093,3 +5093,40 @@ seams rather than as a drive-by change to a table whose write road does not
 exist. Until then the exposure is a membership number readable by HR and
 payroll, who are the two roles allowed to see it on the screen anyway — which
 is why this is a finding and not an incident.
+
+## F128 · 2026-09-22 · the parity check was scoped to the export list, so the two clients most likely to have drifted were the two nobody compared
+
+**What it read.** `check-api-parity.mjs` builds a TypeScript probe that assigns
+every real client function to the demo's type of the same name. Which services
+it opens came from `liveServices()` — a regex over the `export * as …` lines in
+`src/lib/api/index.ts`.
+
+That was itself a fix. The list had been four names typed out, and `assistant`
+was written, exported and swapped in without appearing in it, so the one check
+that exists to stop the two clients drifting said `ok` about a module it had
+never opened. Reading a file rather than keeping a list was the right move.
+
+**The wrong file.** `index.ts` is the list of services whose **routes are
+live**, which is a different question from whether their shapes agree. A
+service is exported when there is a database behind it; it is written long
+before. Two modules were in that gap — `marketing`, written and held back
+because `ops_mkt` has no tables in the project, and now `hr`, written and held
+back for the same reason plus an unfinished payroll half.
+
+So the check covered every module that had already been proved in production
+and skipped both of the ones that had never been compared to anything. The day
+either is exported is the day its drift arrives, all at once, on the screens.
+
+**It now reads the directory**: every `src/lib/api/*.ts` with a demo twin. That
+immediately put `hr`'s twenty-one functions under the probe, which found
+exactly one disagreement — `unmarkDay`, where the demo deletes a mark and the
+database withdraws it, so the signature had to grow a reason (C18). One real
+finding on the first run of a widened guard is the usual return.
+
+**The shape worth keeping.** *A guard's scope is a claim about what is at
+risk.* Scoping it to what is already live inverts the claim: the newest,
+least-exercised code is the code most likely to be wrong and the least likely
+to be covered. This is the second time that has happened to this same check —
+the hand-kept list had the same property for the same reason — and both times
+the fix was to widen the scope to *everything of this kind that exists* rather
+than to *everything of this kind that is switched on*.
