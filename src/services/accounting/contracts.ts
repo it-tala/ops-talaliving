@@ -247,6 +247,10 @@ export interface EvidenceInboxRow {
   status: InboxStatus;
   attachment_id: string;
   reported_by: string;
+  /** Who `reported_by` is, spelled out — the chat sender's own name, not a
+   *  uuid the screen would otherwise have to look up itself. Null only for
+   *  the rare row nobody could resolve a name for. */
+  reported_by_name: string | null;
   reported_at: string;
   /** The AI's reading. A proposal, never a posting.
    *  Every field is nullable because "could not read it" is a real answer and

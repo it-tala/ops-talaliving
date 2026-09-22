@@ -184,6 +184,7 @@ export default function InboxPage() {
                         </p>
                         <p className="text-[11px] text-slate-400">
                           {r.reported_at.slice(0, 10)} · {r.origin}
+                          {r.reported_by_name != null && ` · from ${r.reported_by_name}`}
                           {r.extracted.confidence != null && ` · read ${r.extracted.confidence}% sure`}
                         </p>
                         {r.similar_trx_nos.length > 0 && (
@@ -501,7 +502,9 @@ function ResolvePanel({
     <Card>
       <CardHeader
         title={row.extracted.note ?? row.extracted.vendor_name ?? file?.filename ?? row.attachment_id}
-        subtitle={`${row.origin} · ${row.reported_at.slice(0, 16).replace("T", " ")} · read ${row.extracted.confidence ?? "—"}% sure`}
+        subtitle={`${row.origin} · ${row.reported_at.slice(0, 16).replace("T", " ")}`
+          + (row.reported_by_name != null ? ` · from ${row.reported_by_name}` : "")
+          + ` · read ${row.extracted.confidence ?? "—"}% sure`}
         icon={FileText}
         action={<Badge tone={row.money_direction === "IN" ? "green" : "slate"}>{row.money_direction ?? "OUT"}</Badge>}
       />

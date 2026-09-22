@@ -13,7 +13,7 @@ import type {
 import { getActiveLocale } from "@/lib/format";
 import { officeToday } from "@/lib/office";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
-import type { AuditRow } from "../state";
+import type { AuditRow, DemoState } from "../state";
 import {
   accountBalances, transactionView, allocatedTotal, inboxHealth, lineCoverage,
   lineStatus, fundings, fundingView, cashPlan, cashDue, cashMonthDetail,
@@ -415,9 +415,19 @@ export async function historyFor(trxNo: string): Promise<Result<AuditRow[]>> {
 /* The exception inbox                                                 */
 /* ------------------------------------------------------------------ */
 
+/** Who `reported_by` is, spelled out. Not stored on the row (`state.ts`'s own
+ *  comment on `evidence_inbox`) — resolved here, the same boundary every
+ *  other `_name` field in this file sits on. */
+function withReporterName(
+  state: DemoState, row: Omit<EvidenceInboxRow, "reported_by_name">,
+): EvidenceInboxRow {
+  return { ...row, reported_by_name: state.users.find((u) => u.id === row.reported_by)?.full_name ?? null };
+}
+
 export async function listInbox(): Promise<Result<EvidenceInboxRow[]>> {
   await latency();
-  return ok(SERVICE, getState().evidence_inbox.filter((r) => r.status === "PENDING"));
+  const state = getState();
+  return ok(SERVICE, state.evidence_inbox.filter((r) => r.status === "PENDING").map((r) => withReporterName(state, r)));
 }
 
 export async function getInboxHealth(): Promise<Result<InboxHealth>> {
@@ -511,7 +521,8 @@ export async function resolveInbox(
     });
   });
 
-  const updated = getState().evidence_inbox.find((r) => r.ref_id === input.ref_id)!;
+  const finalState = getState();
+  const updated = withReporterName(finalState, finalState.evidence_inbox.find((r) => r.ref_id === input.ref_id)!);
   remember(SERVICE, endpoint, idempotencyKey, updated);
   return ok(SERVICE, updated);
 }
@@ -520,9 +531,10 @@ export async function resolveInbox(
  *  decide about that photo" is asked long after the row leaves the queue. */
 export async function listInboxAll(): Promise<Result<EvidenceInboxRow[]>> {
   await latency();
-  return ok(SERVICE, [...getState().evidence_inbox].sort(
-    (a, b) => b.reported_at.localeCompare(a.reported_at),
-  ));
+  const state = getState();
+  return ok(SERVICE, [...state.evidence_inbox]
+    .sort((a, b) => b.reported_at.localeCompare(a.reported_at))
+    .map((r) => withReporterName(state, r)));
 }
 
 /** Every payment made to one vendor, newest first, with what each one closed.
@@ -605,9 +617,10 @@ export async function listIncoming(
  *  matching it to a purchase. */
 export async function listIncomingReview(): Promise<Result<EvidenceInboxRow[]>> {
   await latency();
-  return ok(SERVICE, getState().evidence_inbox.filter(
-    (r) => r.status === "PENDING" && r.money_direction === "IN",
-  ));
+  const state = getState();
+  return ok(SERVICE, state.evidence_inbox
+    .filter((r) => r.status === "PENDING" && r.money_direction === "IN")
+    .map((r) => withReporterName(state, r)));
 }
 
 /** Book a chat-uploaded transfer proof as money in.
