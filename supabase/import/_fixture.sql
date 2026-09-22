@@ -210,3 +210,130 @@ insert into public.transactions
   ('trx-26-01-13_012','l12',gen_random_uuid(),null,
    '2026-01-13',null,'UANG MAKAN LEMBUR',null,
    'RECCURING - OVERTIME','PETTY CASH','OUT',25000,'COMPLETED','2026-01-13 09:00+07');
+
+-- ── what was bought, for 04 ──────────────────────────────────────────────
+--
+-- Five purchase lines, and each one is a shape `04_lines.sql` has to get right:
+--
+--   a line on an imported transaction     the ordinary case
+--   two lines on one transaction          `line_no` 1 and 2, in order
+--   a unit that folds                     `liter` → `ltr`, through `_units.sql`
+--   a unit nobody here can read           `slop` → no unit, text kept
+--   no quantity and no price              a service line; both are nullable
+--   `item_raw` blank                      falls back to the item's own name
+--   a line on a REFUSED transaction       refused, naming the transaction
+--   lines that do not sum to the amount   imported as they are, and reported
+--
+-- The last one matters most. Six of the 1.188 real transactions with lines do
+-- not add up, and the temptation is to make them. A line adjusted so an
+-- arithmetic check passes is a fact replaced by a preference.
+
+drop table if exists public.item_purchases cascade;
+create table public.item_purchases (
+  purchase_id uuid primary key default gen_random_uuid(),
+  push_id uuid, trx_id text, item_id uuid, item_raw text, vendor text,
+  qty numeric, unit text, price numeric, idr_amount numeric,
+  trx_date date, created_at timestamptz default now()
+);
+
+insert into public.item_purchases
+  (purchase_id, trx_id, item_id, item_raw, vendor, qty, unit, price, idr_amount, trx_date, created_at) values
+  -- the ordinary case, and `item_raw` is what was typed rather than what the
+  -- catalogue ended up calling it
+  ('ccc00000-0000-0000-0000-000000000001','trx-26-01-02_001',
+   'bbbb0000-0000-0000-0000-000000000001','SEKRUP 3" GALVANIS','UD SUMBER REJEKI',
+   100,'PCS',1000,100000,'2026-01-02','2026-01-02 09:01+07'),
+
+  -- two lines on one transaction, summing to it exactly. The first folds its
+  -- unit; the second has none this system knows, no quantity and no price, and
+  -- a blank `item_raw` that must fall back to the item's name.
+  ('ccc00000-0000-0000-0000-000000000002','trx-26-01-04_003',
+   'bbbb0000-0000-0000-0000-000000000002','TINER',null,
+   5,'liter',32000,160000,'2026-01-04','2026-01-04 09:01+07'),
+  ('ccc00000-0000-0000-0000-000000000003','trx-26-01-04_003',
+   'bbbb0000-0000-0000-0000-000000000004','','VENDOR YANG TIDAK ADA',
+   null,'slop',null,90000,'2026-01-04','2026-01-04 09:02+07'),
+
+  -- a line whose total is not its transaction's. Imported as it stands and
+  -- reported, because which of the two is wrong is a question for somebody with
+  -- the documents.
+  ('ccc00000-0000-0000-0000-000000000004','trx-26-01-13_012',
+   'bbbb0000-0000-0000-0000-000000000003','TUKANG AMPLAS 1 HARI',null,
+   1,'hari',30000,30000,'2026-01-13','2026-01-13 09:01+07'),
+
+  -- and a line on a transaction `03_ledger.sql` refused. A line on something
+  -- that does not exist is not a line.
+  ('ccc00000-0000-0000-0000-000000000005','trx-26-01-06_005',
+   'bbbb0000-0000-0000-0000-000000000005','PAKU BETON',null,
+   10,'kg',2500,25000,'2026-01-06','2026-01-06 09:01+07');
+
+-- ── the documents behind the money, for 05 ───────────────────────────────
+--
+-- Four `transaction_docs` rows over **three** files, because that difference is
+-- the whole design: one transfer proof covering two purchases is how this
+-- business pays, and an import that made two copies of it would erase the fact.
+--
+--   two doc rows, one file        one attachment, two links
+--   a typed document              `Payment Proof` resolves verbatim
+--   no type at all                filed `Others`, and noted
+--   a doc on a REFUSED transaction  refused, naming the transaction
+--   a blob nothing points at      ignored — not every file is evidence
+--   a file already filed          resolved, not duplicated
+
+drop table if exists public.blobs cascade;
+create table public.blobs (
+  blob_id uuid primary key default gen_random_uuid(),
+  event_id uuid, sha256 text, drive_file_id text, drive_link text,
+  mime_type text, size_bytes bigint, created_at timestamptz default now(),
+  duplicate_suspect boolean default false
+);
+
+insert into public.blobs
+  (blob_id, event_id, sha256, drive_file_id, drive_link, mime_type, size_bytes, created_at) values
+  -- the shared one: two transactions cite it
+  ('b10b0000-0000-0000-0000-000000000001','eee00000-0000-0000-0000-000000000001',
+   'a1b2c3','1SharedProofAAA','https://drive.google.com/file/d/1SharedProofAAA/view',
+   'image/jpeg', 184320, '2026-01-02 09:05+07'),
+  ('b10b0000-0000-0000-0000-000000000002',null,
+   'd4e5f6','1NotaBBB','https://drive.google.com/file/d/1NotaBBB/view',
+   'application/pdf', 91022, '2026-01-04 09:05+07'),
+  ('b10b0000-0000-0000-0000-000000000003',null,
+   null,'1UntypedCCC','https://drive.google.com/file/d/1UntypedCCC/view',
+   'image/webp', 44100, '2026-01-06 09:05+07'),
+  -- pointed at only by a document on a refused transaction, so it must not
+  -- become an attachment either.
+  ('b10b0000-0000-0000-0000-000000000004',null,
+   'z9y8x7','1OrphanDDD','https://drive.google.com/file/d/1OrphanDDD/view',
+   'image/png', 12345, '2026-01-07 09:05+07');
+
+drop table if exists public.transaction_docs cascade;
+create table public.transaction_docs (
+  doc_id uuid primary key default gen_random_uuid(),
+  trx_id text not null, line_id text, push_id uuid, event_id uuid,
+  drive_link text, caption text, sheet_ref text,
+  created_at timestamptz default now(), doc_type text
+);
+
+insert into public.transaction_docs
+  (doc_id, trx_id, event_id, drive_link, caption, doc_type, created_at) values
+  -- one file, two transactions
+  ('d0c00000-0000-0000-0000-000000000001','trx-26-01-02_001','eee00000-0000-0000-0000-000000000001',
+   'https://drive.google.com/file/d/1SharedProofAAA/view','Payment of SEKRUP + TINER',
+   'Payment Proof','2026-01-02 09:06+07'),
+  ('d0c00000-0000-0000-0000-000000000002','trx-26-01-04_003','eee00000-0000-0000-0000-000000000001',
+   'https://drive.google.com/file/d/1SharedProofAAA/view','Payment of SEKRUP + TINER',
+   'Payment Proof','2026-01-04 09:06+07'),
+  -- a typed one of its own
+  ('d0c00000-0000-0000-0000-000000000003','trx-26-01-04_003',null,
+   'https://drive.google.com/file/d/1NotaBBB/view','Nota TINER',
+   'Receipt / Invoice / Nota','2026-01-04 09:07+07'),
+  -- no type at all: filed `Others`, and noted
+  ('d0c00000-0000-0000-0000-000000000004','trx-26-01-10_009',null,
+   'https://drive.google.com/file/d/1UntypedCCC/view',null,
+   null,'2026-01-10 09:06+07'),
+  -- on a transaction `03_ledger.sql` refused. The document is refused — and so
+  -- is its file, because a file whose only mention is on a transaction that
+  -- does not exist would arrive as an attachment nothing points at.
+  ('d0c00000-0000-0000-0000-000000000005','trx-26-01-06_005',null,
+   'https://drive.google.com/file/d/1OrphanDDD/view','bukti yang tidak jadi',
+   'Payment Proof','2026-01-06 09:06+07');
