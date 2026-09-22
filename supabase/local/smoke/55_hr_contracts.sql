@@ -114,7 +114,8 @@ end $$;
 do $$
 declare n int; v_no text;
 begin
-  select contract_no into v_no from ops_hr.employment_contracts;
+  select contract_no into v_no from ops_hr.employment_contracts
+   where effective_from = '2026-01-02';
   select count(*) into n from ops_hr.contract_coverage(v_no) where required;
   assert n = 10, 'sepuluh poin wajib, got ' || n;
   select count(*) into n from ops_hr.contract_coverage(v_no) where required and not present;
@@ -127,7 +128,8 @@ end $$;
 do $$
 declare a jsonb; v_no text;
 begin
-  select contract_no into v_no from ops_hr.employment_contracts;
+  select contract_no into v_no from ops_hr.employment_contracts
+   where effective_from = '2026-01-02';
 
   a := ops_hr.confirm_clause('kkj-99-99-99_01','gaji_pokok','x');
   assert a -> 'error' ->> 'code' = 'not_found', 'got ' || coalesce(a -> 'error' ->> 'code','(null)');
@@ -157,7 +159,8 @@ end $$;
 do $$
 declare a jsonb; v_no text; cl ops_hr.contract_clauses;
 begin
-  select contract_no into v_no from ops_hr.employment_contracts;
+  select contract_no into v_no from ops_hr.employment_contracts
+   where effective_from = '2026-01-02';
 
   a := ops_hr.propose_clause(v_no,'gaji_pokok','Upah pokok sebesar Rp 180.000 (seratus delapan puluh ribu rupiah) per hari kerja.', 1,
                              '{"amount":"180000","per":"day"}'::jsonb,'k-58-prop');
@@ -191,7 +194,8 @@ end $$;
 do $$
 declare a jsonb; v_no text;
 begin
-  select contract_no into v_no from ops_hr.employment_contracts;
+  select contract_no into v_no from ops_hr.employment_contracts
+   where effective_from = '2026-01-02';
   a := ops_hr.propose_clause(v_no,'cuti','Cuti tahunan 12 hari.', 3, '{"days":"12"}'::jsonb);
   assert ops_core.said_ok(a), 'got ' || coalesce(a -> 'error' ->> 'code', a::text);
 
@@ -211,7 +215,8 @@ end $$;
 do $$
 declare a jsonb; v_no text;
 begin
-  select contract_no into v_no from ops_hr.employment_contracts;
+  select contract_no into v_no from ops_hr.employment_contracts
+   where effective_from = '2026-01-02';
   -- Mesin sudah membaca klausul lemburnya, dan belum ada yang menandatangani.
   -- **Usulan bukan jawaban**: kontrak ini tetap belum lengkap.
   perform ops_hr.propose_clause(v_no,'lembur','Lembur mengikuti ketentuan pemerintah.', 2,
@@ -237,6 +242,11 @@ end $$;
 --
 -- Kontrak yang berlaku tanpa berkas yang ditandatangani adalah kesepakatan
 -- lisan dengan nomor dokumen di depannya.
+--
+-- Sejak blok ini ada **dua** kontrak, dan setiap `select … into` di bawahnya
+-- menyebut yang mana. Sebuah `select into` tanpa `where` atas dua baris
+-- mengambil salah satunya menurut urutan heap — hijau di satu mesin, merah di
+-- mesin lain, dan satu putaran CI untuk menemukannya.
 do $$
 declare a jsonb; v_no text;
 begin
@@ -253,7 +263,8 @@ end $$;
 do $$
 declare a jsonb; v_no text;
 begin
-  select contract_no into v_no from ops_hr.employment_contracts;
+  select contract_no into v_no from ops_hr.employment_contracts
+   where effective_from = '2026-01-02';
 
   perform ops_hr.confirm_clause(v_no,'tunjangan','Tunjangan kehadiran Rp 20.000 per hari masuk.', 1,
                                 '{"amount":"20000","per":"day"}'::jsonb);
@@ -499,7 +510,8 @@ set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-000000005802';
 do $$
 declare a jsonb; n int; v_no text;
 begin
-  select contract_no into v_no from ops_hr.employment_contracts limit 1;
+  select contract_no into v_no from ops_hr.employment_contracts
+   where effective_from = '2026-01-02';
   select count(*) into n from ops_hr.v_contract;
   assert n = 3, 'pembaca HRD melihat semuanya, got ' || n;
 
