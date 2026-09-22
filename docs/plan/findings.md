@@ -3818,3 +3818,80 @@ The thing to keep is that **a warning that fires on almost everything is a
 warning nobody reads**, and the cost is not the noise — it is the one real
 overtaking in the seed, which was sitting in the same list as thirty invented
 ones and would have been scrolled past with them.
+
+---
+
+## F93 — the guard that refused a migration for writing down a refusal
+
+`0038` moves John Lau's catalogue into the database. Sixteen tool names go in
+as rows, and five of them are the names of things the owner said may never be
+asked through a prompt: `hr.payroll`, `hr.attendance`, `hr.employee_files`,
+`it.audit`, `it.settings_write`.
+
+`check_schema_isolation.sh` refused the file. It had found `hr.` at the start
+of a qualified name, and `hr` is one of the legacy system's own schemas — the
+whole reason that script exists is that our half of this shared database is
+`ops_*` and nothing else.
+
+It was reading a **string literal**. `'hr.payroll'` is data: the name of a
+capability, in a column, about to be inserted. It reaches into nothing.
+
+The interesting part is not the regex. It is what a false positive costs a
+guard. This one had been right every time it fired, which is exactly the
+standing it needs to stop a real `alter table public.vendors` at 7pm on a
+Friday. The first time it is wrong, the cheapest way past it is to widen
+`LEGACY`, or to rename the tool, or to add a `# shellcheck`-shaped exemption
+— and each of those leaves the guard a little less able to do the thing it is
+for. `blank_comments` already says this in its own comment: *a guard that
+points at innocent code is one people learn to argue with rather than fix.* It
+said it about line numbers, and then the same script did it about literals.
+
+The fix is a carve-out narrow enough to state in one sentence: **a
+single-quoted run with no whitespace in it is blanked**, because the thing this
+guard exists to catch is a *statement* and a statement does not fit inside one
+token. `'public.vendors'` on its own does nothing to anybody; `execute 'drop
+schema public cascade'` has spaces in it and is still caught. All three shapes
+— a bare qualified name, a bare `drop schema`, and a DDL string inside
+`execute` — were re-run against the patched guard and all three still fail the
+file.
+
+What generalises: **when a guard fires on something innocent, the fix belongs
+in the guard's precision, not in its scope.** Widening what it permits and
+narrowing what it inspects look similar in a diff and are opposites.
+
+---
+
+## F94 — the guard whose scope was typed out by hand
+
+`scripts/check-api-parity.mjs` is the only thing that stops the demo client and
+the real one drifting apart. ADR-009 says a screen cannot tell which of the two
+it got, and that claim is worth exactly as much as this check.
+
+It opened with:
+
+```js
+const SERVICES = ["identity", "procurement", "accounting", "documents"];
+```
+
+`src/lib/api/assistant.ts` was written, exported from `src/lib/api/index.ts`,
+and swapped in for the demo — five functions, one of which confirms a write —
+and the check said `ok (82 of 104 match)`. It was not wrong about the
+hundred and four. It had simply never opened the file.
+
+Derived from `src/lib/api/index.ts` instead, the same line reads `ok (87 of 109
+match)`. The five that appeared were the five it had been blind to, and they
+happened to be fine. The next five might not be.
+
+What makes this worth writing down is not the missing name. It is **which**
+name was missing: the newest one. A hand-kept scope is always complete for the
+code that existed when somebody last thought about it, so the thing it stops
+covering first is always the thing most likely to be wrong. The failure mode is
+not a guard that breaks — it is a guard that keeps saying `ok`, in a smaller
+and smaller voice, while the surface it was written for grows past it.
+
+`check-live-routes.mjs` already read that file for its own list, three metres
+away, and the reason given there is the same one: *adding a service to the live
+set means writing it, not editing a list.*
+
+The rule: **a guard's scope is read, never typed.** If a check needs to know
+what exists, it asks the thing that knows.

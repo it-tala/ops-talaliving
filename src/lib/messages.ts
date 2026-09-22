@@ -76,6 +76,7 @@ export const MESSAGES = {
 
     it: m("IT", "IT"),
     audit: m("Audit log", "Log audit"),
+    johnLauTuning: m("John Lau — not understood", "John Lau — tidak dimengerti"),
     activity: m("Activity log", "Log aktivitas"),
     users: m("Users & access", "Pengguna & akses"),
     roles: m("Roles & permissions", "Peran & izin"),
@@ -122,18 +123,37 @@ export const MESSAGES = {
   },
 } as const;
 
+/** Five sentences, and every one of them has a job.
+ *
+ *  Four are things John Lau can answer today, one per shape: a guide, two
+ *  reads, and a question about money. The fifth — *Berapa gaji Karjo?* — is
+ *  there **because it is refused**, so that somebody meets the boundary with
+ *  its reason attached rather than discovering it on a Tuesday while trying to
+ *  get work done.
+ *
+ *  What is deliberately **not** here: anything that routes to a module the new
+ *  system has no data for. *Barang apa yang stoknya menipis?* was in this list
+ *  and it routes perfectly — to `inventory.low_stock`, which answers *that
+ *  module has nothing in it yet*, because `ops_inv` has no tables. A
+ *  suggestion is a promise, and that one broke it in the most visible place
+ *  the application has. It goes back when inventory lands.
+ *
+ *  `scripts/check-john-lau.mjs` puts all five through the real router and
+ *  refuses the build if one of them stops working — which is F64, the version
+ *  of this found by somebody clicking a chip.
+ */
 export const EXAMPLES: Record<"en" | "id", string[]> = {
   en: [
     "How do I create a PO?",
     "What are the account balances?",
-    "Which items are below minimum?",
+    "What is waiting for approval?",
     "How much do we owe our vendors?",
     "What is Karjo's salary?",
   ],
   id: [
     "Bagaimana cara membuat PO?",
     "Saldo rekening berapa?",
-    "Barang apa yang stoknya menipis?",
+    "Baris apa yang menunggu persetujuan?",
     "Berapa hutang kita ke vendor?",
     "Berapa gaji Karjo?",
   ],

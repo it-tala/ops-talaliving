@@ -192,6 +192,18 @@ jobs:
       - name: view contracts
         run: node scripts/check-view-contracts.mjs
 
+      # John Lau's suggestions, put through his own router.
+      #
+      # F64 is the dock offering `stoknya menipis` while the rule said `stok
+      # menipis` — the one sentence the application proposed was the one it did
+      # not understand, and it was found by somebody clicking it. The router is
+      # now `ops_asst.rules` and the suggestions are still a TypeScript string,
+      # so the two are further apart than they were. This also refuses a
+      # suggestion that routes to a module the new system has no data for,
+      # which is a promise broken in the most visible place there is.
+      - name: john lau offers nothing he cannot answer
+        run: node scripts/check-john-lau.mjs
+
       # B8's import, proved on a fixture legacy system and run **twice**.
       # Idempotence is the property the whole cutover rests on and the one that
       # is never true by accident: an import against a database somebody is

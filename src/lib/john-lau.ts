@@ -1,11 +1,28 @@
-/** The SOP, as steps somebody can follow while the screen is open beside them.
+/** John Lau's prose: the guidance he gives, and the shape of a draft.
  *
- *  Written as **the rule and then the click**, not the click alone. A step that
- *  says *press Issue* teaches somebody to press Issue; a step that says *until
- *  it is issued nothing is owed, so a draft is the safe place to stop* teaches
- *  them when not to (D222).
+ *  ## Why this is in `src/lib` and not in `src/demo`
+ *
+ *  It was in `src/demo/assistant/guides.ts`, which was right while only the
+ *  demo could answer. Both implementations answer now, and the same guide has
+ *  to come back from either — a screen that cannot tell which service it got is
+ *  the whole of ADR-009, and it stops being true the moment the demo knows a
+ *  step the real one does not.
+ *
+ *  It is prose and not data, deliberately, and that is the difference between
+ *  this file and the catalogue. `ops_asst.tools` is in the database because it
+ *  is a **security boundary** and a reader must not be able to edit it. A guide
+ *  is neither: it explains a screen, it touches nothing, and it belongs beside
+ *  `src/lib/messages.ts`, which is where the shell's two languages already
+ *  live.
+ *
+ *  ## How the steps are written
+ *
+ *  **The rule and then the click**, not the click alone. A step that says
+ *  *press Issue* teaches somebody to press Issue; a step that says *until it is
+ *  issued nothing is owed, so a draft is the safe place to stop* teaches them
+ *  when not to (D222).
  */
-import type { GuideStep } from "@/services/assistant/contracts";
+import type { AssistantDraft, GuideStep } from "@/services/assistant/contracts";
 import type { Message, Lang } from "@/lib/i18n";
 
 interface StepDef { text: Message; href: string | null; rule: Message | null }
@@ -101,3 +118,67 @@ export const GUIDES: Record<string, GuideDef> = {
     ],
   },
 };
+
+/* ────────────────────────────────────────────────────────────────────────
+ * The shape of a draft
+ * ──────────────────────────────────────────────────────────────────────── */
+
+/** What a person is asked to say yes to, before anything is written.
+ *
+ *  Shared by both implementations for the same reason the guides are: D220
+ *  says the confirmation is of **the exact payload, not a summary of it**, and
+ *  two copies of "what the payload looks like" is how the demo ends up asking
+ *  for three fields and the real one writing four.
+ *
+ *  The id, the idempotency key and the timestamp are not here — they belong to
+ *  whoever is actually opening the draft, and inventing them in a pure
+ *  function would mean two callers minting keys the database never saw.
+ */
+export function draftShape(
+  tool: string,
+  args: Record<string, string>,
+  lang: Lang,
+): Pick<AssistantDraft, "headline" | "fields" | "warnings"> {
+  const id = lang === "id";
+  /* A blank that says it is blank. The alternative — quietly defaulting a
+     quantity to 1, a vendor to the last one used — is composing, and composing
+     is the one thing John Lau does not do (D217). It also reads as a fact on a
+     confirmation screen, which is the worst place for a guess to be. */
+  const blank = id ? "— belum diisi —" : "— not filled in —";
+  const qty = args.qty ? `${args.qty} ${args.uom ?? ""}`.trim() : blank;
+
+  if (tool === "procurement.draft_po") {
+    return {
+      headline: id ? "Purchase order baru" : "New purchase order",
+      fields: [
+        { key: "vendor", label: "Vendor", value: args.name ?? blank },
+        { key: "item", label: id ? "Barang" : "Item", value: args.item ?? blank },
+        { key: "qty", label: id ? "Jumlah" : "Quantity", value: qty },
+        { key: "unit_price", label: id ? "Harga satuan" : "Unit price", value: args.unit_price ?? blank },
+        { key: "status", label: id ? "Status awal" : "Initial status",
+          value: id ? "DRAFT — belum dikirim ke vendor" : "DRAFT — not sent to the vendor" },
+      ],
+      warnings: id ? [
+        "Saya mengambil apa yang bisa saya baca dari kalimat Anda dan tidak menebak sisanya. Yang bertanda belum diisi harus Anda lengkapi sebelum konfirmasi.",
+        "PO ini dibuat sebagai draft. Sebelum di-issue tidak ada kewajiban apa pun ke vendor.",
+      ] : [
+        "I took what I could read from your sentence and did not guess the rest. Anything marked not filled in is yours to complete before confirming.",
+        "This PO is created as a draft. Until it is issued there is no obligation to the vendor at all.",
+      ],
+    };
+  }
+
+  return {
+    headline: id ? "Baris permintaan pembelian baru" : "New purchase request line",
+    fields: [
+      { key: "item", label: id ? "Barang" : "Item", value: args.name ?? blank },
+      { key: "qty", label: id ? "Jumlah" : "Quantity", value: qty },
+      { key: "purpose", label: id ? "Keperluan" : "Purpose", value: args.purpose ?? blank },
+    ],
+    warnings: id ? [
+      "Baris ini masuk sebagai permintaan, bukan sebagai persetujuan. Yang menyetujui tetap orang, di papan rapat.",
+    ] : [
+      "This goes in as a request, not as an approval. Approving it stays a person's act, on the meeting board.",
+    ],
+  };
+}

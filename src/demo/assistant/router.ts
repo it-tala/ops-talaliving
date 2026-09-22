@@ -91,7 +91,7 @@ const HOW = ["cara", "bagaimana", "gimana", "sop", "langkah", "caranya", "how do
  *  working (F64). A matcher this literal is exactly what a language model
  *  replaces; until then it should at least survive the way people write.
  */
-function normalise(text: string): string {
+export function normalise(text: string): string {
   return text
     .toLowerCase()
     .replace(/[?!.,;:]/g, " ")
@@ -137,4 +137,42 @@ function extractArgs(p: string): Record<string, string> {
   const vendor = /(?:ke|dari|vendor)\s+([a-z][a-z .]{3,30})/.exec(p);
   if (vendor && !args.name) args.name = vendor[1].trim();
   return args;
+}
+
+/** The rules, for the one screen that shows them.
+ *
+ *  Exported rather than duplicated: a second copy of the router's own rules,
+ *  written so a screen could render them, is a copy that disagrees with the
+ *  matcher the first time somebody edits one and not the other.
+ *
+ *  Flattened to the shape the live client returns, so the demo and the real
+ *  one hand the screen the same rows. The live rules live in `ops_asst.rules`
+ *  and are read from there; these are the same eighteen, in the same order.
+ */
+export function rules(): {
+  seq: number; tool: string; stage: "how" | "main";
+  all_words: string[]; any_words: string[]; not_words: string[];
+  understood: string; note: string | null;
+}[] {
+  const main = RULES.map((r, i) => ({
+    seq: (i + 1) * 10,
+    tool: r.tool,
+    stage: "main" as const,
+    all_words: r.all ?? [],
+    any_words: r.any,
+    not_words: r.not ?? [],
+    understood: r.understood,
+    note: null,
+  })).filter((r) => !r.tool.startsWith("guide."));
+  const how = GUIDES.map((g, i) => ({
+    seq: 110 + i,
+    tool: g.tool,
+    stage: "how" as const,
+    all_words: [] as string[],
+    any_words: g.any,
+    not_words: [] as string[],
+    understood: g.understood,
+    note: null,
+  }));
+  return [...main, ...how];
 }

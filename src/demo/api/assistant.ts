@@ -19,14 +19,15 @@
 import { ok, invalid, notFound, refused, type Result } from "@/services/_shared/envelope";
 import type {
   AssistantReply, AssistantTurn, AssistantTool, AnswerFact, AssistantDraft,
+  UnmatchedPrompt, RouterHealth, RouterRule,
 } from "@/services/assistant/contracts";
 import { getState, apply, newId, writeAudit } from "../store";
 import { latency, actingUser, requireModule, replayed, remember } from "./_kit";
 import { TOOLS, findTool, resolveTool } from "../assistant/catalogue";
 import { settingText } from "../settings";
 import type { Lang } from "@/lib/i18n";
-import { route } from "../assistant/router";
-import { GUIDES, resolveGuide } from "../assistant/guides";
+import { route, normalise, rules } from "../assistant/router";
+import { GUIDES, resolveGuide, draftShape } from "@/lib/john-lau";
 import { accountBalances, approvalQueue, vendorJourney } from "../derive";
 import { stockItems } from "../inventory-derive";
 import { workOrderViews } from "../production-derive";
@@ -207,7 +208,11 @@ function readFor(tool: string): { text: string; facts: AnswerFact[] } {
       return {
         text: id ? "Saldo tiap rekening, dihitung dari transaksi yang tercatat — sama dengan yang ada di buku besar." : "The balance of each account, computed from the recorded transactions — the same figures the ledger shows.",
         facts: rows.map((a) => ({
-          label: a.code, value: `Rp ${Math.round(a.balance).toLocaleString("en-US")}`,
+          /* The figure goes back unformatted. `formatIDR` follows a locale
+              the person chooses, so a number formatted here is a number that
+              disagrees with the ledger it is supposed to be checkable against
+              (D217). */
+          label: a.code, value: null, amount: Math.round(a.balance), unit: "IDR",
           source: tool, href: "/accounting/ledger",
         })),
       };
@@ -220,7 +225,8 @@ function readFor(tool: string): { text: string; facts: AnswerFact[] } {
           : (id ? `${lines.length} baris menunggu persetujuan.` : `${lines.length} lines are waiting for approval.`),
         facts: lines.slice(0, 8).map((l) => ({
           label: `${l.line_no_full} · ${l.description}`,
-          value: l.item_total != null ? `Rp ${l.item_total.toLocaleString("en-US")}` : "nilai belum ada",
+          value: l.item_total != null ? null : (id ? "nilai belum ada" : "no value yet"),
+          amount: l.item_total ?? null, unit: l.item_total != null ? "IDR" : null,
           source: tool, href: "/procurement/meeting",
         })),
       };
@@ -275,7 +281,7 @@ function readFor(tool: string): { text: string; facts: AnswerFact[] } {
           : (id ? `${rows.length} vendor masih punya sisa kewajiban.` : `${rows.length} vendors still have an outstanding balance.`),
         facts: rows.slice(0, 8).map((x) => ({
           label: x.v.name,
-          value: `Rp ${Math.round(x.j.outstanding).toLocaleString("en-US")} belum dibayar`,
+          value: null, amount: Math.round(x.j.outstanding), unit: "IDR",
           source: tool, href: `/procurement/tracker/${x.v.id}`,
         })),
       };
@@ -285,47 +291,21 @@ function readFor(tool: string): { text: string; facts: AnswerFact[] } {
   }
 }
 
+/** The demo's half of a draft: the identity, the key and the moment.
+ *
+ *  What is *in* the draft — the headline, the fields, the warnings — comes
+ *  from `draftShape` in `@/lib/john-lau`, shared with the real client. D220
+ *  says the confirmation is of the exact payload, and two copies of what the
+ *  payload looks like is how one implementation asks for three fields while
+ *  the other writes four.
+ */
 function buildDraft(tool: string, args: Record<string, string>): AssistantDraft {
-  const now = new Date().toISOString();
-  const id = lang() === "id";
-  const blank = id ? "— belum diisi —" : "— not filled in —";
-  if (tool === "procurement.draft_po") {
-    return {
-      id: newId("dft"), tool,
-      headline: id ? "Purchase order baru" : "New purchase order",
-      fields: [
-        { label: "Vendor", value: args.name ?? blank },
-        { label: id ? "Barang" : "Item", value: args.item ?? blank },
-        { label: id ? "Jumlah" : "Quantity", value: args.qty ? `${args.qty} ${args.uom ?? ""}`.trim() : blank },
-        { label: id ? "Harga satuan" : "Unit price", value: args.unit_price ?? blank },
-        { label: id ? "Status awal" : "Initial status", value: id ? "DRAFT — belum dikirim ke vendor" : "DRAFT — not sent to the vendor" },
-      ],
-      warnings: id ? [
-        "Saya mengambil apa yang bisa saya baca dari kalimat Anda dan tidak menebak sisanya. Yang bertanda belum diisi harus Anda lengkapi sebelum konfirmasi.",
-        "PO ini dibuat sebagai draft. Sebelum di-issue tidak ada kewajiban apa pun ke vendor.",
-      ] : [
-        "I took what I could read from your sentence and did not guess the rest. Anything marked not filled in is yours to complete before confirming.",
-        "This PO is created as a draft. Until it is issued there is no obligation to the vendor at all.",
-      ],
-      args: { ...args },
-      idempotency_key: newId("idem"), created_at: now,
-    };
-  }
   return {
     id: newId("dft"), tool,
-    headline: id ? "Baris permintaan pembelian baru" : "New purchase request line",
-    fields: [
-      { label: id ? "Barang" : "Item", value: args.name ?? blank },
-      { label: id ? "Jumlah" : "Quantity", value: args.qty ? `${args.qty} ${args.uom ?? ""}`.trim() : blank },
-      { label: id ? "Keperluan" : "Purpose", value: args.purpose ?? blank },
-    ],
-    warnings: id ? [
-      "Baris ini masuk sebagai permintaan, bukan sebagai persetujuan. Yang menyetujui tetap orang, di papan rapat.",
-    ] : [
-      "This goes in as a request, not as an approval. Approving it stays a person's act, on the meeting board.",
-    ],
+    ...draftShape(tool, args, lang()),
     args: { ...args },
-    idempotency_key: newId("idem"), created_at: now,
+    idempotency_key: newId("idem"),
+    created_at: new Date().toISOString(),
   };
 }
 
@@ -361,13 +341,15 @@ export async function confirmDraft(
 
   let produced: string | null = null;
   if (turn.draft.tool === "procurement.draft_pr_line") {
+    /* By key, not by label — a label is display text and changes with the
+       language in force (see `AssistantDraft.fields`). */
     const res = await procurement.quickAddLine({
-      description: input.fields.Barang ?? "",
-      qty: Number(input.fields.Jumlah?.split(" ")[0] ?? 1),
-      uom: (input.fields.Jumlah?.split(" ")[1] ?? "pcs") as never,
+      description: input.fields.item ?? "",
+      qty: Number(input.fields.qty?.split(" ")[0] ?? 1),
+      uom: (input.fields.qty?.split(" ")[1] ?? "pcs") as never,
       unit_price: null,
       vendor_id: null,
-      purpose: input.fields.Keperluan || "Diminta lewat John Lau",
+      purpose: input.fields.purpose || "Diminta lewat John Lau",
     });
     if (res.error) return res as unknown as Result<AssistantTurn>;
     produced = res.data.line_no_full;
@@ -404,4 +386,69 @@ export async function abandonDraft(turnId: string): Promise<Result<AssistantTurn
     row.draft_outcome = "abandoned";
   });
   return ok(SERVICE, getState().assistant_turns.find((t) => t.id === turnId)!);
+}
+
+/* ── the tuning list ───────────────────────────────────────────────────── */
+
+/** The questions the router did not understand, grouped the way the router
+ *  compares them.
+ *
+ *  Grouped by `normalise` — the matcher's own function, imported rather than
+ *  re-written, because a second normaliser is a second answer to *are these
+ *  the same question*. F64 is the day `stoknya menipis` and `stok menipis`
+ *  were not.
+ *
+ *  Nothing about who asked, here as in the database: the question is what we
+ *  failed to understand (D218).
+ */
+export async function unmatched(limit = 200): Promise<Result<UnmatchedPrompt[]>> {
+  await latency();
+  const denied = requireModule(SERVICE, "it");
+  if (denied) return denied as Result<UnmatchedPrompt[]>;
+
+  const groups = new Map<string, UnmatchedPrompt>();
+  for (const t of getState().assistant_turns) {
+    if (t.kind !== "unknown") continue;
+    const key = normalise(t.prompt);
+    const g = groups.get(key);
+    const l = lang();
+    if (!g) {
+      groups.set(key, {
+        normalised: key, example: t.prompt, times: 1, langs: [l],
+        first_at: t.at, last_at: t.at,
+      });
+    } else {
+      g.times += 1;
+      if (t.at > g.last_at) { g.last_at = t.at; g.example = t.prompt; }
+      if (t.at < g.first_at) g.first_at = t.at;
+      if (!g.langs.includes(l)) g.langs.push(l);
+    }
+  }
+  return ok(SERVICE, [...groups.values()]
+    .sort((a, b) => b.times - a.times || b.last_at.localeCompare(a.last_at))
+    .slice(0, limit));
+}
+
+export async function routerHealth(): Promise<Result<RouterHealth>> {
+  await latency();
+  const denied = requireModule(SERVICE, "it");
+  if (denied) return denied as Result<RouterHealth>;
+
+  const turns = getState().assistant_turns;
+  const n = (f: (t: AssistantTurn) => boolean) => turns.filter(f).length;
+  return ok(SERVICE, {
+    turns: turns.length,
+    answered: n((t) => t.kind === "answer"),
+    guided: n((t) => t.kind === "guide"),
+    drafted: n((t) => t.kind === "draft"),
+    unknown: n((t) => t.kind === "unknown"),
+    refused_closed: n((t) => t.refused_because === "closed"),
+    refused_permission: n((t) => t.refused_because === "permission"),
+    since: turns.length ? turns[0].at : null,
+  });
+}
+
+export async function listRules(): Promise<Result<RouterRule[]>> {
+  await latency();
+  return ok(SERVICE, rules() as RouterRule[]);
 }

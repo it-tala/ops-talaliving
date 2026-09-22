@@ -251,8 +251,16 @@ const MODULE_OF = {
 
 /* The modules this deployment opens. Procurement and accounting are the two the
    owner is going live with; identity carries IT and settings, and the dashboard
-   reads only from those two. Everything else waits for its service. */
-const LIVE_MODULES = ["dashboard", "procurement", "accounting", "it", "settings"];
+   reads only from those two. Everything else waits for its service.
+
+   `assistant` joins them with `ops_asst` (0038–0040): the catalogue, the gate,
+   the router and the turn store are tables, and `src/lib/api/assistant.ts`
+   runs the tools by making the same calls the screens make. Three of its
+   sixteen tools read modules that are still empty — `inventory.low_stock`,
+   `production.late_orders`, `delivery.fulfilment` — and they say so by name
+   rather than answering a zero. A module is open when it can answer honestly,
+   not when it can answer everything. */
+const LIVE_MODULES = ["dashboard", "procurement", "accounting", "it", "settings", "assistant"];
 
 const IMPL = Object.fromEntries(LIVE.map((s) => [s, implementedFunctions(s)]));
 
