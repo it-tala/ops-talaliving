@@ -99,20 +99,12 @@ export const PENDING_PARITY: readonly string[] = [
   /* Procurement: the same pattern, at scale. Every one of these answers what
      the seam returned rather than the row the screen is about to draw. The
      curation five are gone from here — see the note above, and `historyFor`,
-     `answerFromChat`, `confirmReceipt`, `createReceipt` and `listReported`
-     are gone from both files for the same reason (`findings.md`). */
-  "procurement.approveRound",
-  "procurement.closeRound",
-  /* `RoundView = RoundSummary & { lines: PrLineView[] }`, and `RoundSummary`
-     itself is short four fields (`transfers`, `paying_balance`, `to_transfer`,
-     `remaining_after_payment`) that nothing in the ladder computes yet — not
-     a redraw, a view that does not exist. See `findings.md`. */
-  "procurement.getRound",
-  "procurement.listRounds",
+     `answerFromChat`, `confirmReceipt`, `createReceipt`, `listReported`, and
+     all six round functions (`approveRound`, `closeRound`, `getRound`,
+     `listRounds`, `syncRound`, `transferRound` — `0087` gave
+     `v_round_summary` the four money fields it was missing) are gone from
+     both files for the same reason (`findings.md`). */
   "procurement.setExpectedDelivery",
-  "procurement.syncRound",
-  /* Positional against object arguments. */
-  "procurement.transferRound",
 ];
 
 /** `service.function` → is it pending? */
