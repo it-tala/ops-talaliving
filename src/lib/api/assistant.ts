@@ -38,14 +38,17 @@
  *  screen renders it with, and the two strings can be compared by eye (D217).
  *  The prose in `text` never contains a number.
  *
- *  ## Three tools have no data yet, and say so
+ *  ## Two tools still have no data, and say so
  *
- *  `inventory.low_stock`, `production.late_orders` and `delivery.fulfilment`
- *  are in the catalogue and reachable, and `ops_inv` and `ops_prod` have no
- *  tables in them. They answer *this is not built yet, here is the screen* —
- *  named, one by one, rather than through a silent default. A default here
- *  would mean the next tool somebody adds and forgets to wire answers
- *  something reassuring.
+ *  `production.late_orders` and `delivery.fulfilment` are in the catalogue and
+ *  reachable, and `ops_prod` has no tables in it. They answer *this is not
+ *  built yet, here is the screen* — named, one by one, rather than through a
+ *  silent default. A default here would mean the next tool somebody adds and
+ *  forgets to wire answers something reassuring.
+ *
+ *  `inventory.low_stock` was the third until `ops_inv` (`0070`/`0071`) landed
+ *  — it now reads `inventory.listStock({ low_only: true })`, the same call
+ *  `/inventory/material` makes with its "di bawah minimum" filter on.
  */
 import type {
   AssistantReply, AssistantTurn, AssistantTool, AnswerFact, AssistantDraft,
@@ -57,6 +60,7 @@ import { getActiveLang } from "@/lib/i18n";
 import { GUIDES, resolveGuide, draftShape } from "@/lib/john-lau";
 import * as procurement from "./procurement";
 import * as accounting from "./accounting";
+import * as inventory from "./inventory";
 import { isOk } from "@/services/_shared/envelope";
 
 /** John Lau stamps his envelopes `procurement`, as the demo does. Inventing an
@@ -449,11 +453,27 @@ async function readFor(
       };
     }
 
-    /* The three the new system has no data for. `ops_inv` and `ops_prod` have
-       no tables in them at all, so there is nothing to read and nothing to be
-       wrong about — which is a better answer than a zero. */
-    case "inventory.low_stock":
-      return notBuilt(id ? "stok minimum" : "minimum stock", "/inventory/material");
+    case "inventory.low_stock": {
+      const res = await inventory.listStock({ low_only: true });
+      if (!isOk(res)) return { text: res.error.message, facts: [] };
+      const rows = res.data;
+      return {
+        text: rows.length === 0
+          ? (id ? "Tidak ada item di bawah stok minimum." : "No item is below its minimum stock.")
+          : (id ? `${rows.length} item di bawah stok minimum.` : `${rows.length} items are below their minimum stock.`),
+        facts: rows.slice(0, 8).map((r): AnswerFact => ({
+          label: r.item_name,
+          /* A quantity, not a currency (D217's `amount`/`unit` carry `IDR`
+             today, nothing else) — "a count with its unit" is what `value` is
+             for, per its own doc comment. */
+          value: `${r.on_hand} ${r.uom}${r.min_qty != null ? ` (min ${r.min_qty})` : ""}`,
+          source: src, href: "/inventory/material",
+        })),
+      };
+    }
+
+    /* `ops_prod` has no tables in it at all, so there is nothing to read and
+       nothing to be wrong about — which is a better answer than a zero. */
     case "production.late_orders":
       return notBuilt(id ? "SPK yang lewat tanggal" : "work orders past their date", "/produksi/jadwal");
     case "delivery.fulfilment":
