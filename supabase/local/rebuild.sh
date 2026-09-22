@@ -14,15 +14,15 @@
 #
 # ── The two guards, and why they are not paranoia ─────────────────────────
 #
-# This script begins with seven `drop schema … cascade`, and `00_shim.sql` begins
-# with an eighth: `drop schema auth cascade`. Against the wrong database either
+# This script begins with eight `drop schema … cascade`, and `00_shim.sql` begins
+# with a ninth: `drop schema auth cascade`. Against the wrong database either
 # one is unrecoverable, and the wrong database is one environment variable away.
 # So:
 #
 #   1. **It refuses any host that is not local.** `PGHOST=db.xxx.supabase.co`
 #      is not a mistake this script is willing to let somebody make at 7pm. A
 #      remote database is reached by a migration tool, reviewed, one file at a
-#      time — never by a thing whose first act is to drop seven schemas.
+#      time — never by a thing whose first act is to drop eight schemas.
 #
 #   2. **It never runs the shim where a real `auth` schema exists.** The shim
 #      fakes just enough of Supabase for the migrations to run on a bare
@@ -41,7 +41,7 @@ case "$HOST" in
   /*|localhost|127.0.0.1|::1|host.docker.internal) ;;
   *)
     echo "refusing: PGHOST=$HOST is not local." >&2
-    echo "This script drops seven schemas before it does anything else. It is for a" >&2
+    echo "This script drops eight schemas before it does anything else. It is for a" >&2
     echo "throwaway cluster or the local Supabase stack, never for a real project." >&2
     exit 2 ;;
 esac
@@ -59,7 +59,7 @@ if [ "$REAL_SUPABASE" = "0" ]; then
 else
   echo "auth: real (GoTrue) — shim skipped, its schema left untouched"
   # One more refusal, and it is the one that matters most. A hosted project has
-  # tables under `auth` with rows in them. Dropping our seven schemas next to real
+  # tables under `auth` with rows in them. Dropping our eight schemas next to real
   # accounts is not something to do by running a script called "rebuild".
   USERS=$(q -Atc "select count(*) from auth.users" 2>/dev/null || echo 0)
   if [ "${REBUILD_OVER_ACCOUNTS:-0}" != "1" ] && [ "$USERS" != "0" ]; then
@@ -80,34 +80,5 @@ fi
 # "from nothing" has to mean from nothing.
 q -q -c "
   drop schema if exists ops_asst cascade;
-  drop schema if exists ops_inv cascade;
-  drop schema if exists ops_prod cascade;
-  drop schema if exists ops_hr cascade;
-  drop schema if exists ops_acct cascade;
-  drop schema if exists ops_procure cascade;
-  drop schema if exists ops_core cascade;
-  drop extension if exists citext cascade;" >/dev/null
-
-if [ "$REAL_SUPABASE" = "0" ]; then
-  q -q -v ON_ERROR_STOP=1 -f "$HERE/00_shim.sql" 2>&1 | grep -v NOTICE || true
-fi
-
-# A migration that fails stops the run. An earlier version of this script piped
-# psql through grep and reported "ok" over the top of an ERROR — exactly the
-# kind of green tick this project exists to distrust.
-for f in "$HERE"/../migrations/*.sql; do
-  printf '%-44s' "$(basename "$f")"
-  if out=$(q -q -v ON_ERROR_STOP=1 -f "$f" 2>&1); then
-    echo "ok"
-  else
-    echo "FAILED"
-    echo "$out" | grep -v NOTICE
-    exit 1
-  fi
-done
-
-q -Atc "
-  select table_schema || ': ' || count(*)
-    from information_schema.tables
-   where table_schema in ('ops_core','ops_procure','ops_acct','ops_hr','ops_prod','ops_inv','ops_asst')
+  drop schema if exists ops_mkt cascade;
    group by table_schema order by 1;"

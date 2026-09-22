@@ -67,7 +67,10 @@ const ROOT = resolve(dirname(new URL(import.meta.url).pathname), "..");
    drifting would have said `ok` about a module it never opened. A guard with a
    hand-kept scope is a guard that stops covering the newest thing first, which
    is the thing most likely to be wrong. `check-live-routes.mjs` reads the same
-   file for the same reason. */
+   file for the same reason. `marketing` is written but deliberately not
+   exported yet (see `src/lib/api/index.ts`), so reading the export list rather
+   than a hand-kept name means nothing has to remember to add it here when it
+   is. */
 function liveServices() {
   const src = readFileSync(join(ROOT, "src/lib/api/index.ts"), "utf8");
   return [...src.matchAll(/^export \* as (\w+) from "\.\/(\w+)"/gm)].map((m) => m[1]);

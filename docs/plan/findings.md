@@ -3895,3 +3895,1152 @@ set means writing it, not editing a list.*
 
 The rule: **a guard's scope is read, never typed.** If a check needs to know
 what exists, it asks the thing that knows.
+
+---
+
+## F97 — the tab that said `undefined`, on every screen we have
+
+*(F95–F96 are reserved: they exist on `claude/serene-euler-eq2qef`, which is
+not merged. Numbering around them costs nothing and keeps that branch
+harvestable without a renumber.)*
+
+Adding a 404 page meant giving it a `<title>`, which meant reading `BRAND`
+from a server component. It came back `undefined`. So did the one in
+`app/layout.tsx`, which has read it the same way since the layout was written:
+**every tab in this application has been titled `undefined`** — sign-in,
+dashboard, all fifty-nine routes — and nobody noticed, because nobody reads a
+tab title twice. The comment on `BRAND.documentTitle` says exactly that, and it
+was right for the wrong reason: the title was never being read at all.
+
+The cause is one line. `src/lib/brand.ts` opened with `"use client"`, and the
+module holds two unlike things behind it — `BRAND`, a plain constant, and
+`useBrand`, a hook over `DemoProvider`. The directive was there for the hook,
+but it applies to the module: across the boundary the constant stops being a
+constant and becomes a client reference, so a server component reading
+`BRAND.documentTitle` gets `undefined` rather than an error. The build stays
+green. Nothing anywhere says the value did not arrive.
+
+The directive was never needed. A hook does not require `"use client"` — the
+components that *call* it do, and all five already declare it. Removing the
+line fixes the constant on the server and changes nothing on the client.
+
+Two things to keep from this.
+
+**A value that degrades to `undefined` instead of throwing will not be caught
+by a build.** `metadata.title` accepts `undefined` and renders no tag at all,
+so the failure mode is an *absent* element — and every check we have looks at
+things that are present. The 404 only exposed it because it was the first
+server component written since the layout, and the first time anyone diffed
+rendered HTML against what the source said should be in it.
+
+**`"use client"` is a property of a module, not of the export you had in
+mind.** A file mixing a constant and a hook will hand the constant to the
+client graph on the strength of the hook alone. The split we now rely on is
+implicit; if `brand.ts` grows anything that genuinely needs the directive, the
+constant has to move to its own file rather than the directive coming back.
+
+---
+
+## F98 — the plan counts a system that has since doubled
+
+Picking up Phase 2 meant reading `03-estimate.md` to see what was left, and two
+of the figures it reasons from no longer describe this repository.
+
+**Services: the documents say eight, `src/lib/live.ts` implies eleven, and
+there are ten.** `phase-2/README.md` opens with "52 screens, 8 services"; the
+comment in `live.ts` says `src/lib/api` implements "three of the eleven" and
+calls the remainder "the eight unimplemented services". `src/demo/api/index.ts`
+exports ten, and it is the list by construction — it is what screens import.
+Three are built, so **seven** are outstanding, not eight.
+
+**Service functions: the estimate says 154, and there are 280.** That figure
+was measured at the end of Phase 1, at M26. M27–M64 added the pay split, the
+schedules, the KPI board, vendor legs, the BOM revisions and the rest, and
+nobody re-counted. B2 is sized as "2.583 lines of TS logic" and B3 as "~25
+functions" — both anchored to the smaller surface.
+
+The consequence is not that the estimate is wrong. It is that **20–33 sessions
+is a floor rather than a range**, and the two items that grow are the two the
+document already calls the largest and the most load-bearing. Anybody planning
+against 3–5 weeks should know the denominator moved under it.
+
+The thing worth keeping: **a number in a planning document is a measurement
+with a date on it, and this one had neither.** The counts above are one command
+each against the code (`grep -c '^export \* as' src/demo/api/index.ts`,
+`grep -c '^export \(async \)\?function' src/demo/api/*.ts`). A figure that can
+be re-derived in a second and is quoted from memory for thirty milestones is a
+figure that will be wrong by the time it decides anything.
+
+---
+
+## F99 — the one mark that can be worth money was the one that could carry no evidence
+
+`hr.day_marks` transcribed almost mechanically from `02-database.md`, and then
+stopped on *sakit*. The rule is that a sick day is paid when a `Surat Dokter`
+is linked to the mark, on the same evidence road as every nota and receiving
+photo (D144, ADR-010). The road is `core.attachment_links`, and its
+`entity_no` is **a public code, never a uuid** (ADR-004).
+
+`day_marks` had no public code. The design's diagram gives it `id` and nothing
+else, so the single mark that can reach a payslip was the single one that could
+not be attached to.
+
+It survived design review because in the demo the distinction does not exist.
+There a mark's id *is* `dmk_03` — readable, stable, quotable — so
+`entity_no: mark.id` is both a uuid-shaped key and a public code at once, and
+the fixture and the derivation agree with each other. Against a database they
+come apart: `id` becomes `gen_random_uuid()`, and an `entity_no` holding it
+breaks the one rule that makes the evidence road survive a service being split
+out.
+
+The fix is `mark_no`, from `next_doc_number('dmk')`, and the precedent was
+already written down: `rcv` was added to `doc_prefixes` during procurement for
+this same reason, with the comment *a prefix nobody has registered is a number
+nobody recognises*.
+
+Two things to keep.
+
+**A fixture id that reads like a public code hides whether the code exists.**
+Every demo id in this project is human-readable, which is what makes fixtures
+reviewable — and it means no screen, no derivation and no review can tell a
+public code from a primary key. The places that will bite are exactly the ones
+where the two are different columns in Postgres, and there is no way to find
+them by reading the demo. They are found by writing the table.
+
+**The audit trail was right to disagree.** `writeAudit` records a mark as
+`work_date/employee_no` — `2026-09-03/B-009` — while the link records the
+mark's id. That looked like a drift worth reconciling and it is not: one is a
+key a person reads in a trail, the other is a key a row points at. Making them
+the same string would have been the tidy answer and the wrong one.
+
+---
+
+## F100 — "pending" defined as *not the other things* counted a decision as a queue
+
+`v_payroll_run` reports how many overtime hours in a period are still waiting
+on somebody. The first version said what waiting was **not**:
+
+```sql
+sum(c.hours) filter (where not c.payable and c.stage <> 'declined')
+```
+
+which reads perfectly and is wrong. `overtime_stage_t` has eight values, and
+two of them mean *decided against*: `declined` for a production sheet
+leadership refused, and `unpaid` for a staff sheet HRD turned off. The filter
+excluded the first and swept the second in, so a night HRD had already ruled on
+— with a written reason, on screen — came back to payroll as outstanding work.
+
+It was found by an assertion that was written before the view was run, and
+failed with `not pending, it is decided, got 2`. The two hours were Rina's
+tutup-buku session from the smoke's own staff branch, three blocks earlier.
+
+The fix is to name the waiting states instead:
+
+```sql
+filter (where c.stage in ('waiting_hrd','waiting_surat','waiting_leader'))
+```
+
+Same answer today, different behaviour tomorrow. **A negative filter over an
+enum grants membership by default**: the ninth stage anybody adds is pending
+unless they remember this line, and nothing will fail when they do not — the
+figure just quietly grows. A positive one refuses by default, and a stage that
+belongs in the queue has to be put there on purpose.
+
+The general form is the one this project keeps arriving at from different
+directions. F92 was a `done: 0` that answered two questions at once; C11 was a
+demo id that was a primary key and a public code at once. Here it is a filter
+that means *waiting* and computes *not yet resolved*. Each time the fix is the
+same: **stop inferring the category from the absence of the others, and state
+the category.**
+
+---
+
+## F101 — a rule nobody had to decide until `ORDER BY` demanded it
+
+`day_marks` allows two marks on one date for one person: their own, and the
+office-wide one whose `employee_id` is null. The constraint permits it
+deliberately — a public holiday is declared once for everybody, and somebody
+may already have been marked *sakit* on that date.
+
+The demo reads the mark with `.find()`:
+
+```ts
+const mark = state.day_marks.find(
+  (m) => m.work_date === workDate
+    && (m.employee_id === null || m.employee_id === employee.id),
+) ?? null;
+```
+
+Whichever the array holds first wins. In the fixtures that is stable, so the
+screens have always agreed with each other, and the question has never been
+asked: **when somebody is marked sick on a day the whole office is closed,
+which mark decides what the day is worth?**
+
+They give different answers. `sakit` with a letter is `day_value = 1`;
+`holiday` is `0`, and its hours become overtime instead. So the two readings
+differ by a day's pay and by whether the hours are claimable.
+
+SQL cannot punt. A query without `ORDER BY` returns rows in whatever order the
+plan produces, and the same function would answer differently after a vacuum.
+`read_day` orders the personal mark first — specific over general, which is the
+ordinary reading — and this entry exists because **that is a decision I made,
+not one the design records.** It is worth putting to the owner: the argument
+for the other direction is real, since nobody works on a tanggal merah and a
+sick day spent on a closed day arguably should not be drawn from the person's
+entitlement at all.
+
+What to keep: **an ambiguity survives in a language that lets you not choose.**
+`.find()` on an array, `LIMIT 1` without `ORDER BY`, the first row of an
+unordered read — all of them answer a question nobody knew they were asking,
+and they answer it consistently enough that it never surfaces. Transcribing to
+a database is where they surface, because the database refuses to pretend the
+order was ever meaningful.
+
+---
+
+## F102 — `::date` on a timestamptz is the office-day bug wearing a third face
+
+The gross smoke seeded a person's attendance and asserted three counted days.
+It got one. The fixture was:
+
+```sql
+select employee_id, t::date, t, ... from unnest(array['2026-08-24 07:30+08', …])
+```
+
+`2026-08-24 07:30+08` is `2026-08-23 23:30` in UTC, and the cluster runs in
+UTC, so `t::date` is **the day before** for every morning tap in the fixture.
+Three days of scans landed on four dates, and only one of them lined up with a
+mark. `ops_core.office_day(t)` is the function that exists for exactly this,
+and using it fixed the fixture.
+
+This is F17 and F39 again, and the third time is the finding. The rule *the
+office day is `Asia/Makassar`, not UTC and not the browser's* is written down,
+is rule 8 of the build session's inherited rules, and has a function to enforce
+it — and it still went wrong, in a test, written by somebody who had read all
+three. Because `::date` is not where anybody looks for a timezone. It reads as
+a cast, not as a conversion, and the wrong answer is a plausible date rather
+than an error.
+
+Two things worth keeping.
+
+**The failure was silent in the direction that matters.** No constraint was
+violated, no row was rejected, and the scans were all there. What moved was
+which day they belonged to, and the only reason it surfaced is that an
+assertion had a hand-computed number in it. Had the test asserted *whatever the
+view returns*, three days on four dates would have been the expected result
+from then on.
+
+**A rule with a function is not a rule that is followed.** `office_day()` was
+one call away and the fixture did not use it, because the fixture was not
+thinking about office days — it was building a list of timestamps. The place to
+catch this is not more discipline; it is `attendance_scans` refusing a
+`work_date` that disagrees with `ops_core.office_day(at)`, which is a constraint
+the table does not have and should. Raised here rather than added in passing:
+it would reject rows the demo's own fixtures may rely on, and that is a
+migration with a question in it rather than a line in this one.
+
+---
+
+## F103 — a linter that got stricter because a column was added somewhere else
+
+`check_shadowing.sh` went red on `0048`, and the two files it named were
+`0016_procure_seams.sql` and `0017_procure_create_seams.sql` — procurement,
+merged weeks earlier, green on every run since.
+
+Nothing in them had changed. What changed is the set they are checked against.
+The script asks Postgres for **every column name in all six `ops_*` schemas**
+and flags any PL/pgSQL local that matches one. `0048` created
+`ops_hr.contribution_rates.confirmed` and a `total` column on
+`contribution_lines()`, and two locals that had been unremarkable since the day
+they were written — `declare … total numeric` and `declare … confirmed
+boolean` — became findings.
+
+**Neither was actually ambiguous.** Postgres resolves an unqualified name
+against the tables in *that query*, and those functions never touch `ops_hr`.
+The script is deliberately broader than the hazard: its own comment says the
+convention it enforces is *prefix every local with `v_`*, and by that rule the
+two locals were always wrong and simply had not been caught.
+
+So the fix was theirs, not a workaround in mine: `total` → `v_total`,
+`confirmed` → `v_confirmed`, which is what the script prints. Two things made
+it worth doing carefully rather than with a global replace. `'requested_total'`
+and `'transferred_total'` are jsonb keys a screen reads, and survive `\btotal\b`
+only because `_` is a word character — luck, verified rather than assumed. And
+`format('%s is already confirmed.', …)` is a sentence somebody reads, which a
+blind rename turns into *is already v_confirmed*. Their own smokes
+(`04_procure_seams`, `05_procure_lifecycle`) prove the rename changed no
+behaviour.
+
+The thing to keep is about the shape of the check rather than the bug.
+**A global linter makes every schema addition a change to everybody else's
+code.** That is the cost of the broad version, and it is worth paying here —
+the narrow version would need to know which tables each function's queries can
+reach, which is most of a query planner. But it means a session adding an
+ordinary column can be handed a red build in a module it has never opened, and
+the right response is to fix what the tool names rather than to rename the
+column. A convention is only cheap while everybody is actually following it;
+the arrears fall due the first time somebody grows the namespace.
+
+---
+
+## F104 — a view that priced nothing, because the reader could not see the other schema
+
+`v_product_bom` resolves each BOM line to a name and a price out of
+`ops_procure.items`. Its smoke asserted a plank at Rp 150.000 and got null.
+
+Not a fixture bug. The view carries `security_invoker`, so it reads
+`ops_procure.items` as whoever is looking, and `items_read` in `0006` requires
+`procurement.read`. A workshop user holds `production`. Every line of every
+bill of material came back **unnamed and unpriced** — no error, no refusal, a
+table of plausible nulls that reads as *nobody has priced any of this*.
+
+That is the same failure as F97's `undefined` title and F100's swept-in
+`unpaid`: the wrong answer is a well-formed value, so nothing downstream has
+anything to complain about.
+
+The fix is an additive policy on their table, `items_read_production`, scoped
+to `production.read`. Policies are OR'd, so procurement's own is untouched.
+The argument for it is procurement's own, written in `0006` about projects —
+*read by everybody who can open any module that spends against them; hiding the
+list would make every "which job is this for?" unanswerable*. A BOM line whose
+item cannot be named makes *what is this component* unanswerable in the same
+way. It is scoped rather than `true` on purpose: vendors, orders and what was
+paid stay where they were.
+
+Three things worth keeping.
+
+**`security_invoker` turns an access question into a data question.** Without
+it the view would have priced everything for everybody, which is worse; with
+it, a missing grant looks exactly like missing data. The cost is real and the
+alternative is not better — it just moves the failure somewhere nobody checks.
+
+**A cross-schema join is a permission the design never wrote down.** Nothing in
+`02-database.md` says *production reads the item catalogue*, and the view it
+specifies cannot work without that. The permission was implied by a view
+definition, three documents away from the policy that decides it.
+
+**The assertion that caught it printed nothing.** `'got ' || b.unit_price` is
+null when the value is, so the failure read `assertion failed` with no detail —
+at the exact moment the detail was the whole point. Every message in that smoke
+is `coalesce`d now, and the one for the price says what to suspect.
+
+---
+
+## F105 — `02-database.md` has been wrong four times in a row, and always the same way
+
+Transcribing HR and production has now found four places where the design
+document says something the contracts stopped saying:
+
+| | `02-database.md` | the contracts | found by |
+|---|---|---|---|
+| `day_marks` | no public code | the evidence road needs one | F99 |
+| `employees` | no `schedule_code` | there since M58 (D279) | 0045 |
+| `bom_components` | unique `(product_id, ref_code)` | revisions exist (D256) | 0060 |
+| `process_stages` | seven, `POTONG SERUT RAKIT` | four (D275), per product (D278) | 0061 |
+
+None is a mistake anybody made. Every one is a **decision that landed in
+`06-decisions.md` and in `src/services/*/contracts.ts` and not in the schema
+chapter** — which is exactly what should happen while a design session is
+moving fast, and exactly what makes the chapter unsafe to build from a month
+later. Each was caught because building the table meant reading the contract
+beside it; none would have been caught by reading the document alone.
+
+The pattern matters more than the four. `02-database.md` is 2.200 lines and
+reads as the specification, so the honest thing is to stop treating it as one.
+It is a **record of the reasoning**, and the contracts are the specification —
+they are what the screens compile against, so they cannot drift without
+something failing.
+
+There is a precedent for the fix and it is in this repository.
+`check-permissions.mjs` exists because `src/lib/roles.ts` and
+`ops_core.permission_catalog` were the same list written twice and had already
+drifted by two entries. The same shape applies here: a script could compare
+the ER diagrams' field lists against the interfaces in
+`src/services/*/contracts.ts` and fail on a difference, the same way parity
+does for the two API clients. It is not written here because it wants a mermaid
+parser and a TypeScript one, and because **the right first question is whether
+the diagrams should exist at all** rather than how to keep them true — a
+duplicate kept correct by a script is still a duplicate.
+
+Until somebody answers that: **read the contract, not the chapter, and update
+the chapter in the same commit.** That is what these four did.
+
+---
+
+## F106 — the test passed, the mutation passed, and only one of those was good news
+
+`62_prod_progress` asserts that `POTONG` is never folded into Sanding: the
+business buys barang mentah now, so pieces that were *cut* are not pieces that
+were *sanded*, and the two counts must stay apart (D275).
+
+The test passed. Then the mutation that adds `POTONG → AMPLAS` to
+`stage_sources` — the exact bug the assertion is about — **also passed.**
+
+The fixture recorded `POTONG 4` and `AMPLAS 4`. The roll-up is a minimum over
+the sources that carried a figure (F74), and `min(4, 4)` is 4 either way. The
+assertion was reading a number that two different rules produce, so it could
+not tell them apart. Changing the fixture to `POTONG 2` makes the folded answer
+2 and the correct one 4, and the mutation now fails by name.
+
+Two things worth keeping.
+
+**A passing assertion proves nothing about a rule whose inputs coincide.** The
+figures in a fixture are usually chosen for realism or convenience, and
+`4` twice looked like both. Every number in a fixture is also a choice about
+which wrong answers remain visible, and that is not a property anybody checks
+when writing it.
+
+**This is the argument for mutation-testing stated precisely.** F95 says a
+check that has never failed for the right reason has not been checked, and
+every derivation in this branch has been mutated since. That practice is what
+found this: not a review, not a second reader, but deliberately breaking the
+rule and noticing that nothing complained. The cost is a few minutes per view;
+this one bought back an assertion that would have gone on passing while the
+behaviour it names quietly regressed.
+
+---
+
+## F107 — four of six came back, and the other two are counted nowhere
+
+A leg closes with `returned_qty` less than `qty`, which is a **legitimate,
+closed answer** — six chairs to the upholsterer and four back is the ordinary
+case, and the two that stayed are the question somebody has to ask the vendor
+(D280). The schema says this well. The arithmetic over it does not.
+
+`at_vendor_qty` sums the **open** legs, and `goods_on_site` is
+`qty − at_vendor_qty`. So after leg A closes at four of six:
+
+```
+order 12 · at vendor 6 · believed on the bench 6 · never came back 2
+```
+
+Six and six is twelve, and there are ten. The board will offer work on six
+pieces that are not in the building, and the refusal D255 exists for — *every
+piece is still at a vendor* — will not fire until the count is off by all of
+them rather than by two.
+
+This is faithful to the demo, which computes the same way, and it is not a
+transcription slip: **the model has no place to put a piece that is neither
+here nor at a vendor.** A closed leg says the trip ended; nothing says what
+happened to what did not come back. Three answers are possible and they are
+different facts — the vendor still has them and will send them later, the
+vendor scrapped them, or the order is short and somebody has to remake them.
+
+Not fixed here, deliberately. Every fix invents something: a fourth date, a
+shrinking order quantity, or a scrap record. The one that looks smallest —
+treating the shortfall as still at the vendor — is the one that is wrong most
+often, because the commonest reason four of six come back is that two were
+ruined.
+
+What the database can do meanwhile is stop the figure from reading as
+certainty. `v_work_order` should carry the shortfall as its own number beside
+`at_vendor_qty`, so *believed on the bench* is visibly a difference rather than
+a count, in the same way `unpriced` sits beside a material cost in
+`v_product_cost` (F104's sibling). That is a one-line view change and a
+question for the owner in the same breath: **kalau dari enam yang dikirim cuma
+empat yang kembali, dua itu masih di vendor, hilang, atau harus dibuat ulang?**
+
+---
+
+## F108 — two rules that were each right, and could not both be obeyed
+
+`check_shadowing` compares every PL/pgSQL local against **every column name in
+all six `ops_*` schemas**. Its convention is *prefix every local with `v_`*, and
+it is deliberately broader than the hazard (F103).
+
+`0028` added a second rule, and a stronger one: **the ladder was applied to
+`john-lau-v01` on 2026-09-18, so a mistake in an applied migration is fixed by
+a new migration and never by editing the old one.** A file somebody has run is
+a record of what their database actually did.
+
+`0048` walked into both at once. Two of its columns — `contribution_rates
+.confirmed` and a roll-up's `total` — collided with locals in
+`0016_procure_seams` and `0017_procure_create_seams`, which are applied. The
+three ways out were each blocked:
+
+- **Rename their locals.** What the tool prints, and what F103 did. Now
+  forbidden: those files are the record.
+- **Fix them in a new migration.** What `0028` prescribes. Does not work here —
+  the checker reads *files*, so the old `declare` blocks stay flagged however
+  many later migrations redefine the functions.
+- **Leave it.** CI is red.
+
+So the fourth: **rename the columns in the unapplied migration.** It is the
+opposite of what F103 concluded a fortnight of commits earlier — *fix what the
+tool names rather than bend the schema around a linter* — and the reversal is
+correct, because the cost changed. When both files were unapplied, theirs was
+in arrears and cheap to fix. Once one side is a record of a real database, the
+side that has never run anywhere is always the cheaper one to move.
+
+Two things to keep.
+
+**A file-based checker cannot express "fixed in a later migration".** That is
+not a flaw to work around today; it is the thing to know before the next
+collision, because the obvious response — editing the old file — is now the one
+that must not happen, and nothing in the tool says so. The check's own message
+still reads `rename to v_total`, which is now advice that breaks a rule.
+
+**The rules did not conflict until the ladder shipped.** Both were right when
+written and neither anticipated the other. That is ordinary, and the useful
+habit is not to look for a rule that cannot be outgrown — it is to notice which
+of two rules is protecting something that already exists.
+
+---
+
+## F109 — the comment says a guard must not score 100%, and the code gives him 100%
+
+`kpiView`'s punctuality measure reads, in the demo:
+
+```ts
+const judgeable = tapped.filter((d) => startOn(d) !== null);
+const lateDays  = judgeable.filter(lateOn).length;
+value: Math.round(((tapped.length - lateDays) / tapped.length) * 100)
+```
+
+with a comment two lines above it saying exactly the right thing: *days whose
+schedule has no start time cannot be judged, so they leave the arithmetic
+entirely rather than counting as punctual (D261's rule, in a new place): a
+guard on an unstated shift must not score 100%.*
+
+They do not leave the arithmetic. `lateDays` is counted over the judgeable
+days and then divided by **all** the tapped ones, so a person with no start
+time has `lateDays = 0` over a non-zero denominator and scores exactly the
+100% the comment forbids. The rule was written down, argued for, and then not
+implemented in the same function.
+
+It survives because `dayStartFor` falls back to `rules.day_starts_minutes`,
+and the seed sets one — so in the demo almost nobody is unjudgeable and the
+divergence never shows. It shows the moment a rule book omits the company-wide
+start, which is the honest state for a business whose guard and house
+assistant have hours nobody has fixed (Q44, D274, D279).
+
+`0064` implements the **comment**, not the code: the denominator is the
+judgeable days, and a person with none of them is `null` with a reason —
+*belum ada jam masuk yang ditetapkan untuk orang ini* — rather than a
+compliment. A mutation restoring the demo's arithmetic scores the guard 100%,
+which is how the divergence was confirmed rather than assumed.
+
+Two things worth keeping.
+
+**A comment that states a rule is a specification, and it can be tested.**
+This one was precise enough to implement directly, which is why the
+disagreement was visible at all: a vaguer comment would have been satisfied by
+either version. Prose that names the failure it prevents — *must not score
+100%* — is prose that can be turned into an assertion.
+
+**Transcription is not translation.** The instruction for this phase is to move
+the demo's logic into the database, and the obvious reading is *do what the
+code does*. Where the code and its own stated intent disagree, doing what the
+code does would carry the bug across and make it a database's answer instead
+of a screen's — harder to see and quoted more widely. The demo's screens should
+be corrected to match; that is the design session's file, not this one's.
+
+---
+
+## F110 — the demo's stock list and the database's catalogue are two vocabularies
+
+`stockItems` filters the catalogue by `STOCKED_CATEGORIES`, a hard-coded set in
+`src/demo/fixtures/reference.ts`:
+
+```
+kayu · panel · engsel-rel · handle · pengikat · cat · pelarut
+lem · abrasif · mesin · kemasan · kantor
+```
+
+`0006` seeded `ops_procure.item_categories` with a different list entirely:
+
+```
+production · sanding · finishing · packing · machining
+office · service · uncurated · raw-wood · hardware
+```
+
+Not one code appears in both. They are two answers to the same question,
+written months apart, and neither is wrong on its own — the demo's are the
+workshop's words, the ladder's are the ones the seed actually carries.
+
+**It is a swap hazard rather than a bug today.** Nothing is broken while the
+screens read fixtures; the moment `src/demo/api/inventory` re-exports from
+`src/lib/api`, the stock list filters live categories through a set that
+matches none of them and comes back **empty** — a rack with nothing on it,
+no error, and the same shape as F104's unpriced BOM.
+
+So the list is a table here, `ops_inv.stocked_categories`, seeded against the
+codes that exist. Two things follow.
+
+**A constant in the demo is a decision with no home in the database.** Every
+`Set` and `Record` in `src/demo/fixtures` that the logic branches on is a
+candidate for this, and the stock list is unlikely to be the only one. Worth a
+sweep before the swap rather than after.
+
+**Which of the two vocabularies is right is the owner's question, not this
+migration's.** The table is seeded from the ladder's codes because those are
+what items actually carry; if the workshop's words are the better list, that is
+a change to `0006`'s seed and to the demo together, in one commit, with
+somebody deciding — not a schema quietly preferring one.
+
+---
+
+## F111 — the fourth additive policy is the signal, not the fix
+
+`v_stock_item` returned no rows at all to somebody holding `inventory`. Same
+cause as F104 for the fourth time: the view reads a procurement table, carries
+`security_invoker`, and `items_read` in `0006` asks for `procurement.read`.
+
+The running count across this branch:
+
+| table | policy | for | migration |
+|---|---|---|---|
+| `items` | `items_read_production` | the BOM's names and prices | 0060 |
+| `vendors` | `vendors_read_production` | the vendor leg's name | 0063 |
+| `vendors` | `vendors_read_inventory` | the timber load's vendor | 0070 |
+| `items` | `items_read_inventory` | every name on the stock list | 0071 |
+
+Each one is defensible on its own and the argument is always procurement's own,
+from `0006`: *hiding the list would make every "which job is this for?"
+unanswerable.* Four of them is no longer a series of exceptions; it is a rule
+that has outgrown where it lives.
+
+It cannot be fixed from this branch. `items_read` and `vendors_read` are in
+`0006`, which has been applied (0028), so editing them is exactly what that
+migration forbids — and an additive policy is the only door left open.
+
+What the procurement session should write, in a migration they own: one
+`items_read` and one `vendors_read` that name every module which **references**
+the catalogue without owning it, then drop the four above. The predicate is one
+line — `has_permission('procurement.read') or has_permission('production.read')
+or has_permission('inventory.read')` — and having it in one place is the whole
+point, because the fifth module to need it will otherwise add a fifth policy
+and nobody will be counting.
+
+The general shape, which is worth more than the fix: **reference data owned by
+one module and read by three is not that module's private table, and a policy
+written as though it were will be patched from the outside until somebody
+notices.** The patches are cheap, which is why four of them accumulated without
+an argument.
+
+## F112 · 2026-09-18 · 0065 — the explosion hides prices, not structure
+
+**What we assumed.** Writing the smoke for `explode_bom`, the refusal half was
+going to be the obvious one: somebody from HRD asks for the explosion of a
+kabinet and gets nothing. The assertion said `0 lines`. It got five.
+
+**What surprised us.** `products_read`, `bomrev_read` and `bomcomp_read` are all
+`using (true)`, and `0060` says why in a sentence: *the catalogue is read by
+everybody who has to name a thing.* The workshop's structure is not a secret.
+What **is** gated is the other side of the seam — `items_read_production` hands
+procurement's item list to `production.read` and nobody else — so the HRD
+reader gets the whole tree with every name and every rupiah stripped out of it.
+
+**What this implies.** The boundary a BOM explosion carries is *what things
+cost*, not *what things are made of*, and the two were worth separating in a
+test rather than leaving to whoever reads the policies next. The smoke now
+pins both halves: five lines, and not one price among them.
+
+It is also F104's shape seen from the other end. The additive policy that was
+written to stop a production user seeing plausible nulls is the same policy
+that produces them, correctly, for everybody else. A null price is the right
+answer often enough that it can never be read as a fault on its own — which is
+the argument for asserting the *reason* a figure is missing, not just that it
+is.
+
+## F113 · 2026-09-18 · 0066 — `v_line_coverage.approved` is not what was approved
+
+**What we assumed.** Building `v_wo_materials`, the *actual* half of D151's
+comparison wanted three sums over a work order's request lines: asked, approved,
+paid. Procurement already has a per-line view with an `approved` column and a
+`covered` column, so the first draft read both straight off it.
+
+**What surprised us.** A brand-new draft request, approved by nobody, reported
+`approved = 7.311.000` — exactly what it asked. The column means *the amount
+still to be covered*:
+
+```sql
+case when ap.approved is true then coalesce(ap.approved_amount, l.item_total, 0)
+     else coalesce(l.item_total, 0) end as approved
+```
+
+Inside `v_line_coverage` that is right and useful — it is the funding target,
+and the fallback to `item_total` is what lets an unapproved line still be
+matched against a payment. Read from outside as *how much has been approved*,
+it is silently the opposite of the truth, and it fails in the worst direction:
+a project that nobody has approved a rupiah of reads as fully approved.
+
+**What this implies.** The figure has to come from the approval itself —
+`v_line_approval.approved is true`, summing `coalesce(approved_amount,
+item_total)` over those lines only, and nought over the rest. That is what the
+view does now, with the reason written above it and a mutation that puts the
+old column back.
+
+**The general shape.** A column name that is a verb in the past tense reads as
+a fact and may be a target. `approved`, `received`, `settled` — each one is
+somebody's shorthand inside the view that owns it, and the borrowing service
+cannot see the shorthand. This is F104's lesson in a different register: there
+the wrong answer was a plausible null, here it is a plausible number, and the
+number is worse because nothing about it looks unset.
+
+## F114 · 2026-09-18 · 0080 — one project, four modules, four visibility flags
+
+**What we assumed.** `v_project_cost` answers one question — what is this job
+costing — so it should read as one row. 0066 gave it two visibility flags,
+which felt like a detail of that migration. Adding marketing's commission made
+it four, and four is not a detail.
+
+**What the row now says.** `cost_visible` — may you be told what making it
+costs, which is really *may you read `procure.items`*, and the predicate
+mirrors the three `items_read*` policies exactly (F111 again, from the inside
+this time). `procurement_visible` — the request side. `ledger_visible` — what
+has actually gone out. `marketing_visible` — what the introduction owes. No
+role in the business holds all four, so no reader ever sees the whole row.
+
+**What surprised us.** Every one of the four is *necessary*, and each was found
+the same way: a figure summed over rows the reader could not see came back as
+nought, and nought is a sentence. *Nobody is owed anything on this job* is not
+*you may not see what is owed*. Writing the flag is the only honest fix
+available from inside a view, and it is why a fifth additive policy was not
+added (F111).
+
+**What this implies, and it is not a small thing.** A view whose completeness
+depends on who is asking is a view that will be screenshotted and passed
+around, and the four booleans will not survive the screenshot. The shape this
+probably wants is the opposite: **one gated question** — a per-project figure
+that only somebody who may see all four quarters can ask at all, refused rather
+than partially answered for everybody else. That is a change to a contract
+0066's smoke already pins, so it is not something to do mid-session on a
+judgement call; it is the owner's, or the next session's, and it is written
+here so the fifth flag does not get added quietly instead.
+
+**A second thing this migration decided on its own.** `sales_reps` carries one
+`commission_percent`, as the tracker does. That holds until a rate is
+renegotiated, at which point every commission already computed restates —
+including the ones the ledger has paid, so the module stops agreeing with the
+bank. The rate is therefore frozen once anything has been paid against it, and
+ordinary editing before that. If rates really do move mid-relationship, the
+answer is the dated shape `ops_hr.pay_rule_sets` already has, and one rate per
+rep is the wrong table.
+
+## F115 · 2026-09-18 · 0081 — an enum's order is a rule nobody wrote down
+
+**What we assumed.** `OUTREACH_STAGES` is a ladder — `QUEUED`, `MSG SENT`,
+`REPLIED`, `CALL SET`, `FORM BACK`, `PRESENTATION`, `DEAL` — and the contract
+says the order is load-bearing: the funnel, the furthest agent per property and
+*has this one been messaged* are all comparisons on it. A Postgres enum orders
+by declaration, so an enum looked like the ladder, for free.
+
+**What surprised us.** The type has two more values, and neither is a rung.
+`RECYCLED` is *we gave up on this agent* and `SKIP` is *we never approached
+them*. Declared after `DEAL`, as the contract lists them, they sort **above**
+every real stage — so `stage >= 'REPLIED'` counts an agent we gave up on as one
+who answered, and `stage >= 'FORM BACK'` puts them past the form. Nothing
+raises. The reply rate simply climbs every time somebody is dropped, which is
+the direction that flatters the team.
+
+Declaring them first would have fixed those two comparisons and broken
+`messaged`, which is `rank >= 'MSG SENT' **or** RECYCLED` — an agent you gave up
+on *was* messaged. There is no declaration order that makes all three right,
+because the values are not on one line.
+
+**What this implies.** The rank is its own function and answers **null** for an
+exit, so every `>=` answers false and each comparison has to say what it means
+about the exits explicitly. The enum still types the column — it is a closed
+vocabulary and belongs there — but its order stops being load-bearing, and the
+smoke asserts `stage_rank('RECYCLED') is null` beside the counts.
+
+**The general shape.** An enum whose values are not all on the same scale has a
+sort order that reads as a rule and was never written as one. Where an order
+matters, it is a function or a seeded table with a number in it — the same
+reason `process_stages` is rows rather than a `case` (D275), reached from the
+opposite direction.
+
+**A smaller thing, noted in passing.** `ops_core.settings` has a
+`settings_write` policy and no UPDATE **grant**, so the policy can never apply:
+a setting is changed by a migration, not by a user. That may well be what was
+meant — settings here are deploy-time — but the policy says otherwise, and one
+of the two is wrong. `0003` is applied, so this is a note rather than a fix.
+
+## F116 · 2026-09-18 · 0081 — two things the harness knew and we did not
+
+**A settings key that reads as a schema.** `0081` seeded
+`ops.agent_move_on_days`, the key the demo already uses, and
+`check_schema_isolation.sh` refused the whole migration. It was right to.
+`ops` is the **legacy system's own schema**, the guard reads schema-qualified
+names out of the file, and a string literal beginning `ops.` is
+indistinguishable from a reference to it without parsing SQL properly. The
+guard exists because the new system shares one Supabase project with the
+running legacy one and that arrangement is only safe while every migration
+stays inside `ops_*` — which is far too much to risk on making a blunt check
+cleverer. The key moved to `mkt.` instead (C16), following `kpi.`.
+
+Worth keeping because the near-miss is the interesting part: had the guard been
+a little smarter it would have passed this, and the next file with `ops.`
+inside a string would have been a real one.
+
+**A test that leaves rows behind.** Running `supabase/import/test.sh` before
+`smoke.sh` makes `71_inv_stock` fail — it counts items, and the import commits
+some. Every smoke file wraps itself in `begin/rollback` so the order they run in
+cannot matter; the import test is not a smoke file and does not. CI runs
+rebuild → smoke → import, so CI is correct and this only bites somebody running
+them by hand in the other order. Noted rather than changed: the file belongs to
+the session that wrote it, and the fix is theirs to pick — a rollback, or a
+line in its header saying it must run last.
+
+## F117 · 2026-09-21 · 0082 — the trigger wrote what the constraint forbade
+
+**What happened.** The first run of `0082`'s smoke died on
+`replied_after_sent`. An agent sitting at `QUEUED` was onboarded and then moved
+straight to `DEAL`; `0081`'s trigger stamps `replied_on` for anything at or past
+`REPLIED`, the row had no `sent_on`, and the constraint on the same table
+refused the write the trigger had just composed. Two guards written a day apart,
+in the same file, disagreeing.
+
+**Which one was right.** The constraint. You cannot answer a message that was
+never sent, and the case is real rather than a fixture artefact: an agent met at
+an event and signed the same week never sat in silence. The trigger was
+inventing a reply to a message that did not exist.
+
+Neither *invent the missing `sent_on`* nor *refuse the deal* was acceptable —
+the first fills in what is missing, which D150 forbids, and the second refuses
+something that happens. So the trigger now stamps a reply **only when there was
+a message to answer**, and the row says a deal happened and says nobody recorded
+messaging them. Both true, neither invented.
+
+**What that then broke, which is the more interesting half.** Once `sent_on`
+could legitimately be null for an agent well up the ladder, `pipeline()` was
+wrong. It counted `messaged` and `replied` by **rung** — `rank >= 'MSG SENT'`,
+`rank >= 'REPLIED'` — copied from the demo, where every advanced agent happened
+to have been messaged. The event agent is in the numerator and not the
+denominator, so a market can report a reply rate **above a hundred per cent**.
+
+The fix is smaller than the bug: `messaged` is `sent_on is not null` and
+`replied` is `replied_on is not null`. Both are what the words mean, both are
+events rather than positions, and the `or stage = 'RECYCLED'` special case
+disappears — an agent you gave up on keeps their `sent_on`, so they keep
+counting, and one dropped before any message was sent correctly does not.
+
+**The general shape.** A rate whose numerator and denominator are read off
+different things will eventually exceed one. `replied ÷ messaged` is only a rate
+if both count the same kind of fact about the same population — here, things
+that **happened**, not rungs a row has climbed past.
+
+**And a third thing, from the same smoke.** Asserting one audit row for a
+`move_on` found two: the successful one, and the attempt a read-grant user had
+been refused earlier. That is right and worth pinning — a trail that records
+only what succeeded cannot answer *who has been trying to do this*, which is the
+question it gets asked.
+
+## F118 · 2026-09-21 · 0084 — half a multiplication was frozen
+
+**What `0080` did.** A commission is the project's contract value times the
+representative's rate, derived on every read and stored nowhere (A3, C15). One
+rate per rep holds until somebody renegotiates, at which point every commission
+already computed silently restates — including the ones the ledger has paid — so
+the rate freezes once anything has been paid against it. That was written up as
+its own small decision and felt complete.
+
+**What it missed.** The contract value is the *other factor*. Nothing stopped a
+settled referral being re-pointed at a different project: the rate stays put,
+`commission_amount` recomputes off the new contract, and a commission the bank
+sent 12.500.000 for reads as 22.500.000 with no column anywhere disagreeing.
+Exactly the failure the rate freeze exists to prevent, reached by the other
+side of the `×`.
+
+**How it was found.** Not by re-reading `0080`. Writing `set_referral_status`
+in `0084` meant asking *what may a settled referral still do*, and the answer
+listed three things — move backwards, change project, change the trx — of which
+only the first was covered. A seam is a good place to find this because a seam
+has to enumerate the acts; a constraint only has to be true about one of them.
+
+**The rule now.** `paid_referral_is_pinned`: once `commission_trx_no` is set,
+neither it nor `project_code` may change. A trigger rather than a check in the
+seam, for the reason every invariant here is — it has to hold for a correction
+typed straight into the table. The status is separately refused from going back
+behind a payment, in the seam, because that one wants a sentence.
+
+**The general shape, and it is worth carrying.** **A derived figure is pinned
+only when every input to it is pinned.** Freezing one factor of a product reads
+as protection and is not. Where a stored fact (a ledger payment) is the shadow
+of a derived one (a commission), every term in the derivation joins the freeze,
+and the way to find them is to write out the arithmetic and go along it.
+
+## F119 · 2026-09-21 · B4 — a sequence is the one thing the smoke cannot roll back
+
+**The contract every smoke file keeps.** `begin` at the top, `rollback` at the
+bottom, so the cluster is unchanged afterwards and the order the files run in
+cannot matter. `smoke.sh` says exactly that in its header, and it has been true
+of thirty-five files.
+
+**Where it stopped being true.** `0083` mints `TL-0004` from a sequence, and
+`nextval` is deliberately **not transactional** — a sequence that is advanced
+inside a transaction that then rolls back stays advanced, because two sessions
+must never be handed the same number and a rollback cannot know whether anybody
+else has taken one since. So the smoke passed on a freshly rebuilt database and
+failed on the second run of the suite, asserting `TL-0003` against a `TL-0006`
+that was correct.
+
+The failure is the good kind — loud, and on a re-run rather than in production
+— but it was found by accident, while running the suite twice for an unrelated
+reason. A file that only passes on a fresh database is a file that will
+eventually pass for the wrong reason.
+
+**The fix, and why it is not a smaller assertion.** The smoke places the
+sequence itself: `setval('ops_mkt.property_ref_seq', 1, false)` before it takes
+the role that may not, with a sentence saying why. Weakening the assertion to
+*some `TL-nnnn` that is not one the tracker used* was the alternative and is
+worse — it stops testing the one behaviour worth testing, which is that the
+mint **steps over** `TL-0001` and `TL-0002` and lands exactly on `TL-0003`.
+
+**The general shape.** Sequences, `setval`, advisory locks and anything written
+through `dblink` are outside the transaction that appears to contain them. Where
+a test asserts a value one of those produces, the test has to **set the starting
+point**, not assume it. The whole suite now passes twice in a row without a
+rebuild, which is the property that was silently lost and is worth checking for
+directly rather than noticing again by accident.
+
+## F120 · 2026-09-21 · 0090 — a guard the grant already refuses is a guard nobody tested
+
+**What the mutation found.** `turn_is_evidence` freezes everything about a turn
+but the draft's outcome. The smoke tested it by updating a prompt and expecting
+a refusal, and got one — from the **missing UPDATE grant**, which fires first
+and never reaches the trigger. Removing the trigger's entire condition changed
+nothing the suite could see. Twenty-one mutations caught; that one survived.
+
+**Why it matters more than a missing test.** The grant and the trigger stop
+different roads. The grant stops an ordinary client, and the trigger stops the
+roads that have the rights anyway: a `security definer` seam, a migration,
+somebody at a psql prompt. Those are exactly the roads a rule like this exists
+for — nobody writes an evidence trigger to stop a caller who was already going
+to be refused — and they were the ones nothing exercised.
+
+**The fix is in the test, not the code.** The smoke now steps out of the role
+for that assertion, `reset role`, and updates as the owner, where the trigger is
+the only thing left. Two assertions instead of one: the grant refuses the
+ordinary road, and the trigger refuses the privileged one, each for its own
+reason and each provable on its own.
+
+**The general shape, which is F95 one layer up.** Layered guards hide each
+other from tests. When two mechanisms refuse the same act, the outer one
+answers first and the inner one is never asked — so a test that only shows *the
+act was refused* has proved the outer one and said nothing about the inner. The
+way to know is to ask each of them from a place the other cannot answer from,
+and the way to find out you have not is a mutation that removes the inner one
+and watches the suite stay green.
+
+## F121 · 2026-09-21 · validating John Lau — the permission check is a message, not an authority
+
+**What the validation was.** Three capabilities were put to the code: does it
+explain the system interactively, does it answer from the database according to
+the asker's rights, and does it write on confirmation instead of a form. All
+three are built. The second one is built in a way that will not survive the
+swap, and it is better to say so now than to port it.
+
+**What the demo does.** `ask()` reads `user.modules`, compares the held level
+against the tool's with a rank table, and refuses in TypeScript. That is a
+guard reimplemented outside the database, which is the thing `accounting.ts`
+opens by forbidding: *a guard reimplemented in TypeScript is a guard that can
+disagree with the one in front of the money.* Against fixtures it is the only
+guard there is, so it is right for Phase 1 and wrong the moment the tools call
+real views.
+
+**The distinction to keep, because the check is not simply deletable.** F64
+found that rendering *closed* and *permission* the same way sends somebody to
+argue with the wrong person — the first is never granted away and the second is
+fixed by asking IT. Telling them apart needs the tool's declared module and
+level *before* the call. So:
+
+- **whether** a person may read something is the database's answer, and only
+  the database's: the tool runs as them and RLS refuses;
+- **which sentence** they get when it is refused is the catalogue's, decided
+  from the tool's declared reach and module.
+
+Written down because the obvious port is to keep the rank comparison and call
+it the gate, which would put a second copy of every module's rules in a file
+nobody thinks of as security. The catalogue may say *this tool is for hrd
+write*; it may not be what stops anybody.
+
+**And the ceiling worth stating plainly.** *According to role and permission*
+has a floor the owner set: all three HR tools and both IT tools are
+`reach: "blocked"` — closed to the prompt at every level, by nobody's grant
+(D218). Five of sixteen. A person with full HR access still cannot ask John Lau
+about a payslip, and the screen says so rather than pretending the tool is not
+there.
+
+## F122 · 2026-09-21 · 0050 — our own service names are the legacy system's schemas
+
+**What happened.** `0050` emitted `hr.attendance.imported`, following the
+convention four other services use — `procurement.pr.created`,
+`marketing.rep.onboarded`. `check_schema_isolation.sh` refused the whole
+migration, because `hr` is one of the **legacy system's own schema names** and
+a dotted string beginning with it is indistinguishable from a reference to that
+schema without parsing SQL properly.
+
+This is F116 again — a settings key beginning `ops.` — and the second time is
+what makes it a shape rather than an accident. The legacy list is
+`core|hr|ops|po_import|public`, and **three of those five are also our own
+domain names**: `core` is our first schema, `hr` is a `ServiceName`, `ops` is
+the prefix on all eight of our schemas. Any dotted string starting with one of
+them trips a guard that exists for a very good reason and should stay blunt.
+
+**The answer was already in the ladder.** `identity` emits `access.changed` —
+no service prefix at all — and has done since `0007`. The `service` is its own
+column on the outbox row, so the prefix was decoration, and the one service
+that skipped it was right by accident. `0050` emits `attendance.imported`.
+
+**What to do about it, which is not to fix the guard.** The next `hr.` or
+`core.` inside a string may be a real reference, and a guard that reasons about
+quotes would pass it. What is worth doing is knowing the collision exists
+before choosing a name: the check is the thing that tells you, and being
+refused by it is the system working.
+
+## F123 · 2026-09-21 · 0050 — a flag on a widely-read table is N places, found once
+
+**The change.** `day_marks` needed a way to take a mark back. The demo deletes
+the row; the database has no DELETE grant and should not — *why was the
+fourteenth marked sick and then not* is what somebody asks when they query a
+payslip, and a deleted mark answers with silence. So: `withdrawn_at`, and
+`mark_once` unique over the live marks only.
+
+**What it actually cost.** Four things read a day mark, all defined in `0046`:
+`office_closed`, `read_day`, `v_leave_used` and `v_day_mark_value`. Every one
+of them asks for the row and would have found the withdrawn one — a day taken
+back would still have spent somebody's leave entitlement and still shown on
+their timesheet. Three of the four are long enough that restating them by hand
+would have been a transcription risk, so they were sliced out of `0046`
+programmatically and patched with one predicate each.
+
+**The alternative, and why it lost.** A second table for withdrawn marks costs
+nothing today: no reader changes at all. It costs for ever instead — *was this
+day ever marked* becomes a two-place question, and the second place is one
+somebody will forget. One table, four predicates, paid once.
+
+**The general shape.** A nullable flag on a table with N readers is N places
+that have to learn about it, and **the moment the flag is added is the only
+moment all N can be found**. After that they are found one at a time, by
+somebody noticing a figure that looks slightly wrong. Adding the column and the
+readers in one migration is not tidiness; it is the difference between a change
+and a slow leak. The way to know N is to grep for the table before writing the
+`alter`, not after.
+
+## F124 · 2026-09-21 · 0090, corrected by 0037 — the privacy line was in the wrong place
+
+**What `0090` shipped, hours before main's guard caught it.**
+`v_turn_provenance` was a `security_invoker = off` view: it read past the
+table's policy on purpose, and a `has_permission('it.read')` inside its `where`
+clause was the only thing stopping every signed-in account from reading every
+draft anybody had confirmed. It was written deliberately and documented as the
+one view in the ladder that runs as its owner.
+
+**`0037`'s check refused it**, and the refusal was the useful part. That
+migration had just measured what `0014` got backwards — a view runs with its
+**owner's** rights unless told otherwise — and enforced `security_invoker = on`
+over every view in the ladder, with two named exceptions and an assertion that
+there are exactly two. Adding a third means editing the count as well as the
+list, which is friction on purpose, and the friction worked: it made the
+question *does this have to be an exception* unavoidable.
+
+**It did not.** The reasoning that produced the definer view was *the prompt is
+private, so IT must see a subset without it*. That is the wrong line. A prompt
+that produced a purchase request line is **the provenance of that line** — the
+sentence somebody typed instead of filling in the form, as much a record of the
+order as the fields are. A prompt that asked about a salary and was refused
+produced nothing and belongs to the asker alone.
+
+So the rule is not *the prompt is private*; it is **a turn that wrote something
+is readable by whoever audits writes, and a turn that did not is not**. Said
+that way it is a second RLS policy — `draft is not null and
+has_permission('it.read')` — policies being OR'd, and the view goes back to
+carrying the reader's rights like every other one.
+
+**Two things worth keeping.** A guard inside a view is a guard in a place
+nobody looks for one; the same rule as a policy sits where every reader of that
+table already looks. And a privacy boundary that needs a special mechanism is
+usually a boundary drawn in the wrong place — the right line here needed no
+mechanism at all, only a predicate in the place predicates go.
+
+## F125 · 2026-09-21 · 0051 — the idempotency key that was never sent
+
+**What the mutation found.** `import_overtime_form` opens the way every seam
+in this codebase opens — read the key, hand back the remembered answer if it is
+there:
+
+```sql
+v_replayed := ops_core.idem_replay('hr','import_overtime_form', p_key);
+if v_replayed is not null then return v_replayed; end if;
+```
+
+Deleting those two lines broke nothing. Twenty-four of the twenty-five
+mutations on `0051` were caught; that one survived.
+
+**Why.** The smoke *did* send the form twice, and asserted the second reading
+added nothing — but the second call passed **no key**. It was testing the
+function's own arithmetic (every row on the paper is already a line, so nothing
+to add), which is a different promise from the one the key makes. The two look
+identical from the outside: both answer *nothing was added*. Only one of them
+is still true when the rows differ.
+
+**The distinguishing case is a key with different rows behind it.** A third
+call, carrying the first call's key and a single row, must answer with the
+**first call's tally** — `added = 2` — because a replay hands back the stored
+envelope without doing the work. A fresh execution of that one row would say
+`added = 0`. Now the mutation dies.
+
+**A wider question this opens, measured rather than guessed at.** Sixty-six
+seams in the ladder take an idempotency key. Counting call sites where the same
+literal is passed as the last argument twice, **twenty-seven** have the replay
+path exercised; the rest reach it only through the one-key-one-call shape that
+just proved insufficient here. The mechanism itself is well tested — `04`'s
+`approve_line` block sends `tap-0001` twice, asserts `outcome = 'duplicate'`,
+status 200, `data` byte-identical to the first answer, and two approval rows
+rather than three; `tap-0002` proves a 422 releases the claim. What is untested
+is each seam's own **two lines**: that this particular function asks before it
+works, and asks with the right service and endpoint. A copied-in `'hr'` where
+`'acct'` belongs would make two seams share one key space, and nothing in the
+suite would notice.
+
+**The lesson is F95's, with a sharper edge on it.** *A check that has never
+failed for the right reason has not been checked* — and a test can fail for the
+right-looking reason while exercising the wrong code. The second reading of
+that form always passed, and always would have, with the replay deleted.
+
+## F126 · 2026-09-21 · 0052 — a unique key blind to the case it was written for, and a flag whose cost is not the number of readers
+
+Two things came out of putting seams on the payroll, and neither is about
+payroll.
+
+**`period_once` cannot see the week either side.** `0044` put
+`unique (period_start, period_end)` on `payroll_runs` with the comment *the same
+week is not run twice by accident*, which is true and is not the failure. 1–7
+September and 5–11 September are two different pairs of dates, so the key
+admits both, and the fifth, sixth and seventh are paid over again — the exact
+thing the key exists to prevent, arriving through the gap in it.
+
+The fix is a gist exclusion over `daterange(period_start, period_end, '[]')`,
+which needs no extension because a range carries its own opclass. The unique key
+stays: the exact repeat is the common mistake and deserves the clearer error.
+
+The general shape is worth more than the fix. **A unique key over the endpoints
+of an interval constrains the endpoints, not the interval.** Anywhere a table
+holds a span — a period, a tenancy, a rate that is in force between two dates,
+a vendor leg — the key that looks like it stops overlap stops only exact
+repetition, and the two are easy to read as the same promise because the comment
+above the key usually says the second one.
+
+**A nullable flag's cost is the size of its readers, not their number.** F123
+said *a flag on a table with N readers is N places that must learn about it, and
+the moment the flag is added is the only moment all N can be found*. Withdrawing
+an adjustment has N = 2, which by that arithmetic is cheap. One of the two is
+`payroll_line`, two hundred lines of PL/pgSQL in `0047`, and a function has no
+ALTER — so the whole thing is restated in `0052` for a single added predicate,
+sliced out of the earlier file programmatically rather than retyped.
+
+So the count is the wrong measure. What a flag actually costs is **how much
+code has to be re-emitted to carry it**, and a long function is a worse reader
+to have than three short ones. Two consequences, both cheap to act on next time:
+a derivation that reads a table it does not own should read it through a **view**
+that holds the predicate, so the predicate has one home; and where that is not
+possible, the restatement should be mechanical — a slice with one substitution,
+verified by a mutation that checks the copy still has the rule — rather than a
+retyping nobody can diff.
+
+The mutation that proves the second reader learned is worth keeping in mind as a
+shape: it withdraws an adjustment and then reads **the same figure from both
+sides**, the run's total and the person's payslip. A test that checked only the
+first would have passed with the payslip still paying money somebody took back.

@@ -669,16 +669,42 @@ name, and forcing it onto one would make the fitted count wrong. A consignment
 that predates the labels has **no** box rows at all, and that is read as *no
 boxes recorded* rather than *nol peti* (F60's rule again).
 
-**Schema `asst`** — `assistant_turns`: the prompt verbatim, what it was
-understood as, the tools it ran, the facts it returned, and the draft plus its
-outcome. Kept because *what did John Lau tell me on Tuesday* is asked after
-somebody has acted on the answer (D217). Two constraints matter:
+**Schema `asst`** — built as `ops_asst` in `0090`. `assistant_turns`: the
+prompt verbatim, what it was understood as, the tools it ran, the facts it
+returned, and the draft plus its outcome. Kept because *what did John Lau tell
+me on Tuesday* is asked after somebody has acted on the answer (D217). Two
+constraints matter, and both are enforced rather than intended:
 
 - a turn's **figures live in their own column**, never inside the prose, so a
-  number cannot be paraphrased on its way into a sentence;
+  number cannot be paraphrased on its way into a sentence. `no_money_in_the_prose`
+  refuses a currency marker before a digit and a grouped thousand — the failure
+  that actually happens — and deliberately lets `Berkas 201`, `pr-26-09-11_03`
+  and a date through, because refusing those teaches whoever hits it to work
+  around the check rather than to use `facts`;
 - the **tool catalogue is code, not rows.** A list of what an assistant may
   reach is a security boundary, and a boundary stored as data somebody can
-  edit at runtime is a boundary with an UPDATE statement in it (D218).
+  edit at runtime is a boundary with an UPDATE statement in it (D218). So
+  `tools_used` is free text validated against nothing, and that is the point.
+
+Three more the building added:
+
+- **a turn is append-only but for the second yes.** Once the assistant is an
+  input path — a write confirmed field by field instead of a form filled in
+  (D220) — the turn is the *provenance* of that write, and provenance that can
+  be edited afterwards is not provenance. `turn_is_evidence` freezes everything
+  but `draft_outcome`, which moves once;
+- **your own conversation, and nobody else's** — except the turns that *wrote
+  something*, which a second policy opens to `it.read`. The line is not *the
+  prompt is private*: a sentence somebody typed instead of filling in a form is
+  that document's provenance and belongs with it, while a question that
+  produced nothing belongs to the asker alone. Somebody asking about salaries
+  has done nothing wrong, and what a refusal announces is the **tool**, never
+  the sentence;
+- so **`v_turn_provenance`** answers *where did this line come from* — actor,
+  tool, fields confirmed, document produced — and is an ordinary
+  `security_invoker = on` view (0037). The two policies decide whose rows
+  arrive; nothing about the view does, because a guard inside a view is a guard
+  in a place nobody looks for one (F124).
 
 `core.audit_log` has no retention at all. It is the evidence behind every
 figure the system prints, and a purged audit row is a past number nobody can
@@ -1405,6 +1431,7 @@ erDiagram
         text full_name
         text position
         text unit
+        text schedule_code FK "the working pattern this person is on (Q53, D279) - in the contracts since M58, never in this diagram until 0045 needed it"
         pay_basis_t pay_basis "monthly|daily|hourly"
         bigint base_rate "POKOK only - per month, day or hour"
         bigint allowance_rate "TUNJANGAN - per day present, whatever the basis (D250)"
@@ -1486,6 +1513,7 @@ erDiagram
     }
     day_marks {
         uuid id PK
+        text mark_no UK "dmk-26-09-18_01 - the evidence road needs a public code (ADR-004)"
         uuid employee_id FK "NULL = the whole office"
         date work_date
         day_mark_t kind "holiday|half_day|absent|sick|leave|permit"
@@ -1553,6 +1581,8 @@ slots are computed, never stored.
 | `attendance_scans` CHECK `source = 'manual' → reason IS NOT NULL` | a time somebody typed says why the machine missed it (D137) |
 | `day_marks` UNIQUE `(work_date, employee_id)` incl. NULL | one mark per person per day, one office-wide mark per day. Postgres needs `NULLS NOT DISTINCT` here |
 | `day_marks.reason` NOT NULL | *setengah hari* with no reason is a decision nobody can check in six months (D142) |
+| `day_marks.mark_no` NOT NULL UNIQUE, from `next_doc_number('dmk')` | a *sakit* day is paid when a `Surat Dokter` is linked, and `core.attachment_links.entity_no` is a public code and never a uuid (ADR-004). Without it the one mark that can be worth money is the one that cannot carry evidence |
+| `day_marks` CHECK `employee_id IS NOT NULL OR kind = 'holiday'` | an office-wide mark is a holiday or nothing. *sakit* for everybody is not something that happens; it is a mis-click that silently pays the whole company a day |
 | `overtime_lines` UNIQUE `(sheet_id, employee_id)` | one line per person per sheet — a second entry for the same night is a second sheet |
 | `overtime_sheets` CHECK `leader_approved_at IS NULL OR hrd_checked_at IS NOT NULL` | leadership signs **after** HRD, not instead of it (D145) |
 | `overtime_sheets` CHECK `kind = 'staff' → leader_approved_at IS NULL` | a staff session never waits on leadership (D146) |
@@ -1564,6 +1594,9 @@ slots are computed, never stored.
 | `payroll_adjustments.reason` NOT NULL, non-empty | a deduction an employee cannot read is one they cannot dispute (D155) |
 | `payroll_adjustments` CHECK `amount <> 0` | a zero adjustment is a row that says nothing and prints a line on a payslip |
 | `payroll_adjustments` writable only while the run is `DRAFT` | an approved run is a figure somebody signed; moving money inside it afterwards is a new run, not an edit (D155) |
+| `payroll_runs` status moves `DRAFT → APPROVED → PAID` and never back | the freeze above is undone from the other end if a run can be reopened. Correcting an approved run is a new run (D155) |
+| `payroll_runs` CHECK `status = 'PAID' → paid_trx_no IS NOT NULL` | a run that says it was paid and names no ledger row is a payment nobody can find. The code is `acct`'s, quoted and never joined (ADR-004) |
+| `overtime_sheets` CHECK each signature is a person **and** a moment, or neither | a `leader_approved_at` with no `leader_approved_by` is a signature with no signatory, and the stage view would read it as approved |
 | `overtime_lines.form_amount` NULL-able | most nights have no figure on the paper; a nought there would mean *worked for free* rather than *not stated* (D154) |
 
 ### Berkas 201 and leave
@@ -1667,6 +1700,15 @@ sheet is paid on `paid`, which ships `true`: HRD's decision is whether to turn
 it off, and doing so writes `unpaid_reason`. Its evidence is a
 `Laporan Lembur` — the screenshot of the work.
 
+**A closed day overrides both, and spends nothing** (D285, owner 2026-09-18).
+When an office-wide `holiday` and somebody's own mark fall on the same date,
+the holiday governs: the day is worth nothing to anybody, a `sick` mark on it
+needs no letter because there is no payment for a letter to unlock, and a
+`leave` mark on it **does not come off that person's entitlement** — a day that
+was never theirs to spend cannot be spent. Hours actually worked that day are
+still overtime. The question had never been asked because the demo read
+whichever mark its array held first (F101).
+
 Marks never touch scans, and scans never override a mark. They are different
 kinds of statement: the taps are evidence with a machine behind them, the mark
 is a decision with a person behind it, and destroying either to express the
@@ -1753,11 +1795,39 @@ erDiagram
         text owner_name
         text unit
         referral_status_t status "LEAD|SURVEYED|QUOTED|WON|LOST"
-        text project_code "required on WON"
-        numeric contract_value "required on WON"
+        text project_code "required on WON - and the value is read THROUGH it (C15)"
         text commission_trx_no "the ledger row that paid it"
+        text lost_reason "required on LOST"
     }
 ```
+
+**Built in two migrations.** `0080` took the half with money in it —
+`sales_reps`, `referrals`, and the commission on `v_project_cost`. `0081` took
+the outreach funnel: `markets`, `properties`, `property_agents`, `scrape_rows`,
+and the derivations over them. `referrals.property_ref` stayed a **code** while
+one side was missing and still is: the seam was written to hold either way
+(ADR-004).
+
+**Who may write:** `marketing.create` for defining a market, importing the
+scrape, promoting a row, onboarding a representative and recording an
+introduction; `marketing.update` for moving an agent along the ladder, moving
+on from one, validating an enrichment, qualifying a property, moving an
+introduction along, recording which ledger row paid a commission and retiring a
+market. All of it through seams — `0082` for the agents, `0083` for the
+properties and the scrape, `0084` for the referrals and the markets —
+addressed by public reference rather than by uuid (C17). The clock's stamping is a trigger rather than seam code, so it holds for
+a correction typed straight into the table.
+
+**`messaged` and `replied` count events, not rungs** — `sent_on is not null`
+and `replied_on is not null`. An agent met at an event and signed the same week
+is above `REPLIED` having never been messaged, which by rungs puts them in the
+numerator and not the denominator; a reply rate over a hundred per cent is how
+that gets found (F117).
+
+**`RECYCLED` and `SKIP` are exits, not rungs**, so rank is a function that
+answers **null** for them rather than the enum's own declaration order. A plain
+`stage >= 'REPLIED'` would have counted an agent we gave up on as one who
+answered — F115.
 
 **`move_on` is not a column.** Seven days of silence since `sent_on` is a
 predicate, computed on read (D183) — the sheet's own MOVE ON column is one
@@ -1768,8 +1838,21 @@ Friday.
 |---|---|
 | `property_agents` UNIQUE `(property_id, slot)` | three agents, in a fixed order |
 | `property_agents` CHECK `stage = 'DEAL' → rep_id IS NOT NULL` | a deal against nobody is a commission nobody can compute (D185) |
+| `property_agents` CHECK `replied_on IS NULL OR (sent_on IS NOT NULL AND replied_on >= sent_on)` | you cannot answer a message that was never sent |
+| `property_agents` CHECK `stage = 'RECYCLED' → remark IS NOT NULL` | giving up says why; it is what the next person reads when this agent is approached again a year later |
+| `property_agents` trigger stamps `sent_on`, `replied_on` and `next_action_on` | a date somebody has to remember to fill in is the column that is wrong by Friday, and a stamp on one code path only is the same thing with extra steps (D183). The first message starts the clock and **a chase does not restart it** |
+| `markets` CHECK `code LIKE country_code || '-%'` and `code = upper(code)` | every filter is a prefix of the code, so a code that does not start with its own country is simply missing from every country roll-up and nothing raises (D187) |
+| `markets.timezone` checked against Postgres by trigger | *what time is it there* is the one question a list of names cannot answer, and a typo makes it unanswerable with nothing else noticing |
+| `properties` CHECK `status = 'QUALIFIED' OR status ~ '^DISQUALIFIED — .+$'` | the reason lives in the string, exactly as the tracker writes it |
+| `properties` CHECK `validated = (validated_by IS NOT NULL)` | a score is a machine's opinion until a person agrees with it, and the agreement has a name on it (D184) |
+| `properties.ref` is supplied on import and **minted on promotion** | Both, and the two do not disagree. A property that came from the old tracker arrives **with** its ref — `TL-0001` is an outside reference there, like a vendor's invoice number, which is why the column is not generated. A property this system promotes out of a scrape row was never known to any outside system, so `next_property_ref()` gives it the next number in the same series, **skipping any the tracker already used** (0083). Not in `doc_prefixes`: that registry is for document numbers of the shape `pr-26-09-11_03`, and `TL-0004` is not one |
 | `sales_reps` CHECK `commission_percent > 0 AND <= 20` | a number that will be paid many times |
-| `referrals` CHECK `status = 'WON' → project_code IS NOT NULL AND contract_value IS NOT NULL` | commission comes from a contract that exists, never from a quotation (D186) |
+| `referrals` CHECK `status = 'WON' → project_code IS NOT NULL`, plus a trigger that the project **exists and carries a contract value** | commission comes from a contract that exists, never from a quotation (D186). The second half was a `contract_value` column on the referral until 0080: two places holding one number, and the first revision makes them disagree. The value is read from `procure.projects` and the refusal is now something the database can check rather than something it trusts the typist for (C15) |
+| `referrals` UNIQUE `(project_code) WHERE status = 'WON'` | one job pays one commission; a second would double it with nothing saying so |
+| `referrals` CHECK `commission_trx_no IS NULL OR status = 'WON'` | nothing is paid on an introduction that never became a job |
+| `referrals` CHECK `status = 'LOST' → lost_reason IS NOT NULL` | the reason **is** the record; there is no DELETE, because that is how a conversion rate improves by forgetting (A2) |
+| `referrals.project_code` and `referrals.commission_trx_no` frozen once a commission has been **paid** | the two factors of the commission are the project's contract value and the rep's rate, and freezing only one of them leaves the figure movable. Re-point a settled referral at a larger contract and `commission_amount` grows past what the bank sent, with nothing saying so. Which row paid is a fact besides: a correction is another ledger entry (A2, A5, F118) |
+| `sales_reps.commission_percent` frozen once a commission has been **paid** against it | one rate per rep is the tracker's shape and holds until somebody renegotiates: every commission already computed silently restates, the settled ones included, and the module stops agreeing with the bank. A rep who genuinely renegotiates mid-relationship needs the **dated** rate `hr.pay_rule_sets` already has — F114 |
 | `scrape_rows` UNIQUE `(market_code, lower(name))` | re-importing the scrape adds nothing |
 | `markets.code` is `COUNTRY[-REGION]-CITY-AREA` | every filter is a **prefix** of it, so one query serves country, city and district (D187) |
 | no figure mixes two `markets.currency` values | an ADR of 106 and one of 1.850.000 are not addable, and no rate is invented to make them so (D181) |
@@ -1784,12 +1867,23 @@ disagree.
 ```mermaid
 erDiagram
     work_orders ||--o{ progress_entries : "advanced by"
+    work_orders ||--o{ vendor_legs : "sent out on"
     process_stages ||--o{ progress_entries : "at"
 
     process_stages {
-        text code PK "POTONG, SERUT, RAKIT..."
+        text code PK "AMPLAS, FINISHING, MACHINERY, PACKING - the owner's four (D275)"
         text name
-        int seq "a piece cannot be sanded before it is cut"
+        int seq "1-4; a piece cannot be finished before it is sanded"
+        text covers "what the workshop does inside it, so a one-word stage is not left to interpretation"
+    }
+    stage_sources {
+        text source_code PK "every code that counts towards one of the four, the stage's OWN code included (F74)"
+        text source_name
+        text stage_code FK
+    }
+    retired_stages {
+        text code PK "POTONG, SERUT, RAKIT, PEMBUATAN - roll into NOTHING, kept readable (D275)"
+        text name
     }
     work_orders {
         uuid id PK
@@ -1804,6 +1898,19 @@ erDiagram
         route_t route "IN_HOUSE|SUBCON - a list of stages, not a flag (D254)"
         wo_status_t status "OPEN|DONE|CANCELLED"
         uuid created_by FK
+        text note
+    }
+    vendor_legs {
+        uuid id PK
+        text leg_no UK "leg-26-09-18_01 - one trip, one vendor, one process (W6, D280)"
+        uuid wo_id FK
+        vendor_process_t process "BARANG_MENTAH|JOK|AMPLAS|FINISHING|PACKING - NOT the four stages"
+        text vendor_code "procure.vendors.code, at the seam - never a uuid (ADR-004, C12)"
+        numeric qty
+        date sent_on
+        date expected_back "the vendor's promise. NULL = none given, which is not 'not yet due' (D134)"
+        date returned_on
+        numeric returned_qty "how many came back. Less than qty is a legitimate CLOSED answer"
         text note
     }
     progress_entries {
@@ -1828,7 +1935,73 @@ erDiagram
 | `progress_entries` CHECK `qty <> 0` and `qty < 0 → note IS NOT NULL` | a correction says why; a negative number with no sentence is worse than the wrong one |
 | `progress_entries` UNIQUE `(source_ref, wo_id, stage) WHERE source_ref IS NOT NULL` | a signed lembur sheet posted twice adds nothing (D147) |
 | `work_orders.due_date` NOT NULL | an order with no date cannot be late, so nobody can tell when it is |
-| `process_stages` seeded, not typed | every screen says the same thing, and the order is checkable (Q35) |
+| `process_stages` seeded, not typed | every screen says the same thing, and the order is checkable. **Four, not the seven Q35 assumed** — D275 replaced them and D278 made them a property of the product as well as the route |
+| `stage_sources` includes each stage's **own** code | `FINISHING` names one of the four and one of the seven that collapsed into it; without the self-row, direct entries and rolled-up ones were added together and counted the same pieces twice (F74) |
+| `work_orders.bom_rev` must be a **released** revision of that order's own product | neither half is a foreign key that could say so — `product_code` is a code at the seam and `released_at` is a column. A pin to a draft is a pin to something still being edited |
+
+**Who may write, in HR** (`0050`–`0052`, the daily work): `hrd.create` for
+importing the machine's file, typing in a tap the machine missed, marking a
+day, opening an overtime sheet, adding a name to one and reading the paper
+form; `hrd.update` for withdrawing a mark, withholding or restoring the
+allowance on a day, and for HRD's own check on an overtime sheet;
+`payroll.run` for opening a payroll run, putting an adjustment on one,
+withdrawing one and recording the transfer that paid it. Neither signature is a
+module level at all — the overtime leader's is
+`has_authority('approve_overtime')` and the payroll's is
+`has_authority('approve_funds')`, because an authority is never implied by one
+(D24). The smoke for `0052` holds `payroll` at **admin**, the highest level
+there is, and still cannot sign the run. All through seams, addressed by
+`employee_no`, `mark_no`, `sheet_no`, `run_no` and `adj_no`. The enrolments,
+the pay rules, the tasks, the leave requests and the employee files have tables
+and views and **no seams yet**.
+
+**A payroll adjustment is withdrawn, not deleted.** `adj_no` names it,
+`withdrawn_at`/`_by`/`_reason` take it back, and the row stays. Two things read
+the table and both learned the predicate when the flag arrived: `v_payroll_run`
+sums them, and so does `payroll_line` two hundred lines away in `0047`, which
+is restated in `0052` for that one line (F126, and F123's rule again).
+
+**The signature is refused over days nobody has read** (D139) — everything else
+in HR is a warning, and this is the one that makes the figure wrong rather than
+incomplete. Overtime still waiting for a signature only warns (A6): those hours
+land on the next run, and holding the whole payroll for one unsigned lembar
+pays nobody on Friday.
+
+**PAID names a movement the ledger actually has.** `paid_names_its_row` could
+only ask that the string is not empty, which a typo satisfies, so
+`record_payroll_paid` asks `ops_acct` whether the transaction is there, is not
+VOID, and went out rather than came in. It does **not** check the amount: the
+contract calls gross plus adjustments the net, `0048` then made an employee's
+BPJS half a deduction from what they receive, and nothing has yet said which of
+the two a run pays. Both figures are reported side by side instead — Q56.
+
+**Two runs cannot cover one day.** `period_once` is unique on
+`(period_start, period_end)`, which catches the same week opened twice and is
+blind to 1–7 September beside 5–11 September — three days paid over again
+through the gap in the key that was written to prevent exactly that. `0052`
+adds `periods_do_not_overlap`, a gist exclusion over the date range.
+
+**What the leader is signing is the surat, not the hours.** HRD checked those
+first — `decide_overtime_sheet('leader', …)` on a sheet HRD has not seen is
+refused as `hrd_first` — and an approval with no `surat_lembur` on the evidence
+road is refused too: without the paper, what was approved is a number (D147).
+Which is also why HR has no `attach_overtime_doc`. Filing evidence is one road
+and it is the documents seam (ADR-010); a second road through `ops_hr` would be
+a second place a surat can be linked and a second place it can be forgotten.
+
+**An approved production sheet announces what was made.** The `overtime.approved`
+event carries the work order, the stage and the quantity for each line that
+named them, because `0062` lets `approve_overtime` post a progress entry
+sourced to that sheet without the poster holding the production module — the
+signature is the authority (D147's second door). The same sheet posted twice
+adds nothing, which `progress_entries` enforces on `source_ref`.
+
+**A day mark is withdrawn, not deleted.** `withdrawn_at`/`_by`/`_reason`, and
+`mark_once` is unique over the **live** ones only, so a day marked by mistake
+can be marked correctly. Four things read a mark — `office_closed`,
+`read_day`, `v_leave_used` and `v_day_mark_value` — and all four learned the
+predicate when the column arrived, because that was the only moment they could
+all be found (F123).
 
 **Refused vs warned.** More than the order's quantity at one stage is refused —
 it cannot be true. A stage running *ahead of the one before it* is warned about
@@ -1898,7 +2071,8 @@ numbers and a workshop that conflates them runs out on a Saturday.
 
 | Constraint | Why |
 |---|---|
-| `bom_components` UNIQUE `(product_id, ref_code)` | one line per component — change the quantity, don't add a second row |
+| `bom_components` UNIQUE `(product_id, rev, ref_code)` | one line per component **per revision** — change the quantity, don't add a second row. The key in this table said `(product_id, ref_code)`, which predates `bom_revisions` (D256) and would have allowed one line across every version of a BOM |
+| `bom_components` and `bom_revisions` writable **only while the revision is a draft** | a released revision is what a June work order is pinned to. Editing or deleting a line out of it silently rewrites what that wardrobe was made of, and no foreign key would complain |
 | `bom_components` CHECK `qty > 0`, `waste_percent BETWEEN 0 AND 90` | |
 | `bom_components` CHECK `NOT (kind = 'product' AND ref_code = parent code)` | a product cannot be a component of itself |
 | `ref_code` **not** a foreign key | the workshop knows it needs a steel frame before procurement has a code for one. Unresolved codes are shown, not refused (A6) |
@@ -1909,7 +2083,8 @@ numbers and a workshop that conflates them runs out on a Saturday.
 
 | View | Answers |
 |---|---|
-| `v_project_cost` | per project: **projected** material cost (BOM × ordered qty), **asked · approved · paid** over the request lines whose `source_wo_no` belongs to that project's work orders, and separately the ledger's whole project spend. Materials against materials; labour is in neither, and the wider ledger figure is never subtracted from the narrower one (D151) |
+| `v_project_cost` | per project: the **projection** (BOM × ordered qty), **asked · approved · paid** over the request lines whose `source_wo_no` belongs to that project's work orders, the ledger's whole project spend, and — since 0080 — what the job was **sold** for and the **commission** its introduction owes. Materials against materials; labour is in neither, the wider ledger figure is never subtracted from the narrower one, and there is **no margin column** for the same reason (D151). Four modules answer one question and no single reader may see all four, so `cost_visible`, `procurement_visible`, `ledger_visible` and `marketing_visible` say which quarters the reader was allowed to be shown — the figures they govern come back **null, never nought** |
+| `v_wo_materials` | per work order: the **projection** — the explosion of the revision the order was pinned to, its unpriced and unexplodable counts, and a `projected_cost` that is null while anything is unpriced — beside the **actual**: how many requests were raised from it and what they asked, had approved and had paid. `procurement_visible` says whether the reader was allowed to see that second half at all, because the sums come back empty either way and a nought would read as *nobody has asked yet* (0066) |
 | `v_product_bom` | per product: each component resolved to a name and a price — the catalogue's **standard price**, falling back to the **last price paid**, and the view says which — plus `qty_with_waste`, a subtotal, the material cost per unit, and how many components could not be priced. Computed on read, never stored (A3, D149) |
 | `v_work_order` | per order: `done` per stage, `current_stage` (the furthest with anything finished), `completed` (through the last stage), `percent` — counted as **stages finished across the quantity**, not as the furthest stage reached — `days_left`, `late`, and the warnings in words |
 

@@ -117,6 +117,23 @@ const VIEW_CONTRACTS = {
   v_statement_suggestion: null,
   v_vendor_payment:       null,
 
+  /* ── marketing ───────────────────────────────────────────────────────── */
+  v_market:          "MarketView",
+  v_property_agent:  "PropertyAgentView",
+  v_referral:        "Referral",
+  /* The nested halves are three more reads, stitched on after the flat rows
+     arrive: PostgREST returns rows and the contract wants a tree. */
+  v_property:        { type: "PropertyView", composed: ["market", "agents", "next_agent"] },
+  /* `referrals` is a **count** on the view and an **array** on the contract,
+     which this check compares by name and would not catch — so it is listed as
+     composed, with `leads`, which the client fills from that same count.
+     `from_properties` is a join `v_rep` cannot make: it lives in 0080 and
+     `property_agents` arrives in 0081. */
+  v_rep:             { type: "RepView", composed: ["market", "referrals", "leads", "from_properties"] },
+  /* Mapped field by field into an anonymous row type, so `tsc` checks every
+     one of them and there is no cast to lie. */
+  v_followup_queue:  null,
+
   /* ── john lau ────────────────────────────────────────────────────────── */
   /* The catalogue, read into a private row shape and mapped field by field
      into `AssistantTool` — both languages come down and one is chosen in the
