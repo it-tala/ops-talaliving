@@ -79,26 +79,35 @@
 export const PENDING_PARITY: readonly string[] = [
   /* Answers a receipt; the contract promises `LineCoverage`. */
   "accounting.coverageFor",
-  /* Takes `from?`, answers rows; the contract is `() => CashPlan`. */
+  /* Takes `from?`, answers rows; the contract is `() => CashPlan` — a
+     computed month-by-month projection, not a query. See `findings.md`. */
   "accounting.getCashPlan",
-  /* `unknown[]` where the screen reads `AuditRow[]`. */
-  "accounting.historyFor",
   "accounting.linkPayment",
+  /* Reads `v_cash_row` (the display row for the plan grid — `CashRow`, a
+     different type); the contract wants the raw `cash_components` rows,
+     including `scheme_codes`, which the table does not have a column for
+     yet. See `findings.md`. */
   "accounting.listComponents",
+  /* The contract's `lines: StatementLineView[]` is a nested array; the view
+     is flat. */
   "accounting.listStatements",
+  /* The contract wants `proof_attachment_id` / `proof_filename`; the view
+     has neither. */
   "accounting.paymentsForVendor",
   "accounting.setOverride",
 
   /* Procurement: the same pattern, at scale. Every one of these answers what
      the seam returned rather than the row the screen is about to draw. The
-     curation five are gone from here — see the note above. */
-  "procurement.answerFromChat",
+     curation five are gone from here — see the note above, and `historyFor`,
+     `answerFromChat`, `confirmReceipt`, `createReceipt` and `listReported`
+     are gone from both files for the same reason (`findings.md`). */
   "procurement.approveRound",
   "procurement.closeRound",
-  "procurement.confirmReceipt",
-  "procurement.createReceipt",
+  /* `RoundView = RoundSummary & { lines: PrLineView[] }`, and `RoundSummary`
+     itself is short four fields (`transfers`, `paying_balance`, `to_transfer`,
+     `remaining_after_payment`) that nothing in the ladder computes yet — not
+     a redraw, a view that does not exist. See `findings.md`. */
   "procurement.getRound",
-  "procurement.listReported",
   "procurement.listRounds",
   "procurement.setExpectedDelivery",
   "procurement.syncRound",

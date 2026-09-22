@@ -24,6 +24,25 @@ import { fail, fromSeam, fromRows, invalid, notFound, ok, type Result } from "./
 
 const SERVICE = "accounting" as const;
 
+/** The shape of `src/demo/state.ts`'s `AuditRow`, restated here rather than
+ *  imported from it: this module is the real implementation and does not
+ *  depend on the demo one, the same way `src/demo/api` does not depend on
+ *  this file. `check-api-parity.mjs` compares the two structurally, so this
+ *  only has to match the shape — it does not have to share the declaration. */
+interface AuditRow {
+  id: string;
+  at: string;
+  actor_id: string;
+  actor_email: string;
+  service: string;
+  entity: string;
+  entity_no: string;
+  action: string;
+  outcome: "ok" | "refused" | "duplicate" | "noop";
+  reason: string | null;
+  detail?: Record<string, unknown> | null;
+}
+
 /** Every object this module reads or calls lives in `ops_acct`, and PostgREST
  *  has to be told so on **every request**.
  *
@@ -146,18 +165,23 @@ export async function getTransaction(trxNo: string): Promise<Result<TransactionD
  *  screen nobody opens (D84). Anomaly questions are never "who touched the
  *  ledger this month" — they are "what happened to *this* row", asked while
  *  looking at it. */
-export async function historyFor(trxNo: string): Promise<Result<unknown[]>> {
+export async function historyFor(trxNo: string): Promise<Result<AuditRow[]>> {
   /* **The one object this module reads from outside its own schema.** The audit
      log belongs to `ops_core` — one trail for the whole system, not one per
      service — so this call names that schema rather than the module's. Checked
      against the database rather than remembered: it is the only exception among
      the hundred objects the four clients touch, and
-     `scripts/check-api-schemas.mjs` is what keeps it the only one. */
+     `scripts/check-api-schemas.mjs` is what keeps it the only one.
+     `v_audit`, not the bare `audit_log` table: the table has no `actor_email`
+     at all, and the contract needs it read back from `at` alone in every
+     screen that shows this trail — `0023` already did that join once (`0086`
+     added the table's own `actor_id` to the same view, on the same
+     reasoning). */
   const { data, error } = await supabaseBrowser().schema("ops_core")
-    .from("audit_log").select("*")
+    .from("v_audit").select("*")
     .eq("entity", "transaction").eq("entity_no", trxNo)
     .order("at", { ascending: false });
-  return fromRows<unknown[]>(SERVICE, data as unknown[], error);
+  return fromRows<AuditRow[]>(SERVICE, data as AuditRow[], error);
 }
 
 export async function coverageFor(prLineNo: string): Promise<Result<unknown[]>> {
