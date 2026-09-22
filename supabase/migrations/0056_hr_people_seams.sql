@@ -1,4 +1,4 @@
--- 0053_hr_people_seams.sql — the person, their terms, and the berkas 201.
+-- 0056_hr_people_seams.sql — the person, their terms, and the berkas 201.
 --
 -- `0040` built `employees` and opened the table to `hrd.create`/`hrd.update`
 -- through a policy, which is how every HR table shipped: writable, with no road
@@ -137,6 +137,10 @@ create type ops_hr.employee_document_row as (
   doc_no_source    ops_hr.doc_no_source_t,
   issued_on        date,
   expires_on       date,
+  -- Negative once it has passed. Null where this one never expires. Computed
+  -- here rather than in a browser, because *today* in a browser is the
+  -- viewer's midnight and a K3 certificate expires on the office's (F17).
+  expires_in_days  int,
   note             text,
   recorded_by      uuid,
   recorded_at      timestamptz
@@ -160,7 +164,10 @@ language sql stable security definer set search_path = ops_hr, ops_core, pg_temp
     case when d.doc_no is null or ops_hr.doc_no_digits(d.kind) is null then null
          else length(regexp_replace(d.doc_no, '[^0-9]', '', 'g'))
               = ops_hr.doc_no_digits(d.kind) end,
-    d.doc_no_source, d.issued_on, d.expires_on, d.note, d.recorded_by, d.recorded_at
+    d.doc_no_source, d.issued_on, d.expires_on,
+    case when d.expires_on is null then null
+         else (d.expires_on - ops_core.office_day())::int end,
+    d.note, d.recorded_by, d.recorded_at
   from ops_hr.employee_documents d
   join ops_hr.employees e on e.id = d.employee_id
   -- The link only where it is still a link. An unlinked file stopped being this

@@ -272,6 +272,11 @@ begin
   assert r.doc_no = 'PKWT-26-011', 'got ' || coalesce(r.doc_no,'(null)');
   assert r.doc_no_length_ok is null, 'a contract number has no fixed length to be wrong';
   assert r.expires_on = '2027-01-01', 'a PKWT ends, and the screen counts down to it';
+  -- Counted from the **office's** today, not the viewer's browser (F17).
+  assert r.expires_in_days = ('2027-01-01'::date - ops_core.office_day()),
+    'got ' || coalesce(r.expires_in_days::text,'(null)');
+  assert (select expires_in_days from ops_hr.employee_documents_of('B-0012') where kind = 'ktp') is null,
+    'and a KTP does not expire';
 end $$;
 
 /* ── DERIVATION: a scan with no number yet is pending, not blank ────────── */
