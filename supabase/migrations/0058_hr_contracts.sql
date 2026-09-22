@@ -610,51 +610,6 @@ language sql stable set search_path = ops_hr, pg_temp as $$
   order by c.contract_no, k.sort
 $$;
 
--- Satu baris per kontrak, untuk daftar di layar.
-create or replace view ops_hr.v_contract as
-select
-  c.id,
-  c.contract_no,
-  c.employee_id,
-  e.employee_no,
-  e.full_name,
-  c.kind,
-  c.effective_from,
-  c.ends_on,
-  c.status,
-  c.sha256,
-  l.attachment_id,
-  c.superseded_by,
-  c.ended_on,
-  c.ended_reason,
-  c.note,
-  -- Berapa hari lagi PKWT ini habis, dihitung dari hari kantor dan bukan dari
-  -- tengah malam di peramban siapa pun (F17).
-  case when c.ends_on is null then null
-       else (c.ends_on - ops_core.office_day())::int end            as ends_in_days,
-  -- Masa percobaan **diturunkan dari klausulnya**, bukan disimpan di kolom
-  -- kedua: berapa bulan disebut di kertas, dan kapan berakhirnya adalah
-  -- aritmetika atas tanggal mulainya (A3).
-  case when pc.value ->> 'months' is null then null
-       else (c.effective_from + ((pc.value ->> 'months')::int || ' months')::interval)::date end
-                                                                     as probation_until,
-  (select count(*) from ops_hr.clause_checklist k
-    where k.required
-      and not exists (select 1 from ops_hr.contract_clauses cl
-                       where cl.contract_no = c.contract_no and cl.kind = k.kind
-                         and cl.confirmed_at is not null))::int       as required_missing,
-  (select count(*) from ops_hr.contract_clauses cl
-    where cl.contract_no = c.contract_no and cl.confirmed_at is not null)::int as clauses_confirmed,
-  (select count(*) from ops_hr.contract_clauses cl
-    where cl.contract_no = c.contract_no and cl.confirmed_at is null)::int     as clauses_proposed
-from ops_hr.employment_contracts c
-join ops_hr.employees e on e.id = c.employee_id
-left join ops_core.attachment_links l on l.id = c.link_id and l.unlinked_at is null
-left join ops_hr.contract_clauses pc
-  on pc.contract_no = c.contract_no and pc.kind = 'masa_percobaan'
- and pc.confirmed_at is not null;
-
-alter view ops_hr.v_contract set (security_invoker = on);
 
 -- ── selisih terhadap yang benar-benar dijalankan ──────────────────────────
 --
@@ -728,7 +683,7 @@ language sql stable set search_path = ops_hr, pg_temp as $$
         when 'cuti'          then s.paid_leave_days::text || ' hari'
         when 'jam_kerja'     then s.schedule_code
         when 'jangka_waktu'  then s.contract_kind::text
-        when 'keterlambatan' then coalesce(s.rules ->> 'late_mode', 'manual')
+        when 'keterlambatan' then s.value ->> 'mode'
         when 'potongan'      then coalesce(s.rules ->> 'undertime_mode', 'off')
         when 'lembur'        then coalesce(s.rules ->> 'overtime_mode', 'statutory')
         end as runs
@@ -747,6 +702,57 @@ language sql stable set search_path = ops_hr, pg_temp as $$
   from compared c
   order by c.contract_no, c.kind
 $$;
+
+-- Satu baris per kontrak, untuk daftar di layar.
+create or replace view ops_hr.v_contract as
+select
+  c.id,
+  c.contract_no,
+  c.employee_id,
+  e.employee_no,
+  e.full_name,
+  c.kind,
+  c.effective_from,
+  c.ends_on,
+  c.status,
+  c.sha256,
+  l.attachment_id,
+  c.superseded_by,
+  c.ended_on,
+  c.ended_reason,
+  c.note,
+  -- Berapa hari lagi PKWT ini habis, dihitung dari hari kantor dan bukan dari
+  -- tengah malam di peramban siapa pun (F17).
+  case when c.ends_on is null then null
+       else (c.ends_on - ops_core.office_day())::int end            as ends_in_days,
+  -- Masa percobaan **diturunkan dari klausulnya**, bukan disimpan di kolom
+  -- kedua: berapa bulan disebut di kertas, dan kapan berakhirnya adalah
+  -- aritmetika atas tanggal mulainya (A3).
+  case when pc.value ->> 'months' is null then null
+       else (c.effective_from + ((pc.value ->> 'months')::int || ' months')::interval)::date end
+                                                                     as probation_until,
+  (select count(*) from ops_hr.clause_checklist k
+    where k.required
+      and not exists (select 1 from ops_hr.contract_clauses cl
+                       where cl.contract_no = c.contract_no and cl.kind = k.kind
+                         and cl.confirmed_at is not null))::int       as required_missing,
+  (select count(*) from ops_hr.contract_clauses cl
+    where cl.contract_no = c.contract_no and cl.confirmed_at is not null)::int as clauses_confirmed,
+  (select count(*) from ops_hr.contract_clauses cl
+    where cl.contract_no = c.contract_no and cl.confirmed_at is null)::int     as clauses_proposed,
+  -- Berapa poin yang tertulis di kertas tidak sama dengan yang dijalankan
+  -- sistem hari ini. Nol untuk kontrak yang belum berlaku: kertas yang belum
+  -- diberlakukan tidak mengatakan apa pun tentang apa yang dibayarkan.
+  (select count(*) from ops_hr.contract_conflicts(c.contract_no) f
+    where f.differs)::int                                                      as conflict_count
+from ops_hr.employment_contracts c
+join ops_hr.employees e on e.id = c.employee_id
+left join ops_core.attachment_links l on l.id = c.link_id and l.unlinked_at is null
+left join ops_hr.contract_clauses pc
+  on pc.contract_no = c.contract_no and pc.kind = 'masa_percobaan'
+ and pc.confirmed_at is not null;
+
+alter view ops_hr.v_contract set (security_invoker = on);
 
 -- ── akses ─────────────────────────────────────────────────────────────────
 alter table ops_hr.employment_contracts enable row level security;

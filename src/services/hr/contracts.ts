@@ -892,6 +892,163 @@ export interface EmployeeFileView {
   complete: boolean;
 }
 
+/* ── Kontrak kerja ────────────────────────────────────────────────────────
+ *
+ *  HRD yang membuat kontraknya — di Word, di atas kop surat, ditandatangani di
+ *  kertas. Yang tidak pernah ada adalah jawaban atas *apa isinya*, dan itulah
+ *  yang hilang setiap kali orang HRD berganti.
+ *
+ *  **Kontrak diperiksa terhadap sistem, bukan dimuat ke dalamnya.** Angkanya
+ *  sudah punya rumah: `Employee.base_rate`, `allowance_rate`,
+ *  `paid_leave_days`, `schedule_code`, dan buku aturan bertanggal untuk
+ *  keterlambatan, potongan dan lembur. Sebuah klausul karena itu **tidak
+ *  menulis apa pun** — yang dihasilkannya adalah `ClauseConflict`, selisih
+ *  antara yang tertulis di kertas dan yang dijalankan hari ini, dengan kedua
+ *  sisinya terbaca. Menerapkannya adalah perbuatan lain, lewat `saveEmployee`,
+ *  dengan jejak yang berbunyi *upah berubah* (D155).
+ */
+
+export type ContractKind = "PKWT" | "PKWTT";
+
+export type ContractStatus =
+  /** Sudah dicatat, isinya belum lengkap, belum berlaku. */
+  | "draft"
+  /** Berlaku. Satu orang hanya punya satu. */
+  | "active"
+  /** Digantikan kontrak berikutnya, dan tetap ada: slip gaji bulan Maret
+   *  dihitung di bawah kontrak yang berlaku bulan Maret (A5). */
+  | "superseded"
+  | "ended";
+
+/** Poin yang ditanyakan pada setiap kontrak. **Mana yang wajib adalah data**
+ *  (`clause_checklist`), bukan konstanta di sini: menambah satu membuat setiap
+ *  kontrak melaporkannya hari itu juga, tanpa ada yang perlu di-backfill. Yang
+ *  ada di sini hanyalah namanya di layar. */
+export type ClauseKind =
+  | "gaji_pokok" | "tunjangan" | "jam_kerja" | "cuti" | "jangka_waktu"
+  | "masa_percobaan" | "keterlambatan" | "potongan" | "lembur" | "pemutusan"
+  | "bpjs" | "kerahasiaan" | "fasilitas" | "penempatan" | "lainnya";
+
+export const CLAUSE_LABEL: Record<ClauseKind, string> = {
+  gaji_pokok: "Gaji pokok",
+  tunjangan: "Tunjangan",
+  jam_kerja: "Jam kerja",
+  cuti: "Cuti",
+  jangka_waktu: "Jangka waktu",
+  masa_percobaan: "Masa percobaan",
+  keterlambatan: "Keterlambatan",
+  potongan: "Potongan",
+  lembur: "Lembur",
+  pemutusan: "Pemutusan hubungan kerja",
+  bpjs: "BPJS",
+  kerahasiaan: "Kerahasiaan",
+  fasilitas: "Fasilitas",
+  penempatan: "Penempatan",
+  lainnya: "Lain-lain",
+};
+
+export interface ClauseChecklistItem {
+  kind: ClauseKind;
+  required: boolean;
+  /** Kenapa poin ini ditanyakan, tercetak di sebelah namanya. */
+  what: string;
+  /** Ke mana jawabannya bermuara di basis data. Null berarti klausul ini
+   *  disimpan sebagai catatan dan tidak dibandingkan dengan apa pun. */
+  bears_on: string | null;
+  sort: number;
+}
+
+export interface EmploymentContract {
+  id: string;
+  contract_no: string;
+  employee_id: string;
+  kind: ContractKind;
+  effective_from: string;
+  /** PKWT berakhir; PKWTT tidak. */
+  ends_on: string | null;
+  status: ContractStatus;
+  /** Dipaku ke berkas yang dibaca: PDF baru berarti bacaan yang lama tidak
+   *  lagi berlaku. */
+  sha256: string | null;
+  attachment_id: string | null;
+  superseded_by: string | null;
+  ended_on: string | null;
+  ended_reason: string | null;
+  note: string | null;
+}
+
+export interface ContractView extends EmploymentContract {
+  employee_no: string;
+  full_name: string;
+  /** Negatif kalau sudah lewat. Dihitung dari hari kantor, bukan tengah malam
+   *  di peramban siapa pun (F17). */
+  ends_in_days: number | null;
+  /** **Diturunkan** dari klausul masa percobaannya dan tanggal mulai — bukan
+   *  kolom kedua yang bisa tidak sejalan (A3). */
+  probation_until: string | null;
+  required_missing: number;
+  clauses_confirmed: number;
+  clauses_proposed: number;
+  /** Berapa poin yang tertulis di kertas tidak sama dengan yang dijalankan.
+   *  Nol untuk kontrak yang belum berlaku. */
+  conflict_count: number;
+}
+
+export interface ContractClause {
+  contract_no: string;
+  kind: ClauseKind;
+  /** Kalimat aslinya dari kertasnya. Angka tanpa kalimat di belakangnya adalah
+   *  angka yang tidak bisa dibantah di meja — dan nanti, ketika mesin yang
+   *  membacanya, kutipan inilah yang bisa dibuktikan ada di dokumennya. */
+  quote: string;
+  page: number | null;
+  /** Bacaan terstrukturnya. Bentuknya ditentukan per jenis oleh basis data;
+   *  `{amount, per}` untuk gaji, `{mode}` untuk aturan. */
+  value: Record<string, string> | null;
+  /** Dari mana bacaannya: terbaca mesin, diketik orang, atau menunggu dibaca.
+   *  Kosakata yang sama dengan nomor dokumen di berkas 201. */
+  source: DocNoSource;
+  /** Usulan mesin tidak pernah lahir terkonfirmasi, dan tidak pernah menimpa
+   *  yang sudah dikonfirmasi orang. */
+  confirmed: boolean;
+  confirmed_at: string | null;
+  proposed_at: string;
+}
+
+export interface ClauseCoverage {
+  kind: ClauseKind;
+  required: boolean;
+  what: string;
+  present: boolean;
+  confirmed: boolean;
+  source: DocNoSource | null;
+}
+
+/** Selisih antara yang tertulis dan yang dijalankan. **Tidak satu pun
+ *  diterapkan sendiri** — keduanya ditampilkan dan seseorang memutuskan. */
+export interface ClauseConflict {
+  kind: ClauseKind;
+  /** Apa yang dikatakan kertasnya. */
+  says: string | null;
+  /** Apa yang dijalankan sistem hari ini. */
+  runs: string | null;
+  /** Ada yang bisa dibandingkan sama sekali. Klausul kerahasiaan tidak punya
+   *  lawan di basis data, dan mengarang satu lebih buruk daripada mengatakan
+   *  tidak ada. */
+  comparable: boolean;
+  differs: boolean;
+  bears_on: string | null;
+  quote: string;
+}
+
+export interface ContractDetail extends ContractView {
+  clauses: ContractClause[];
+  coverage: ClauseCoverage[];
+  /** Kosong sampai kontraknya berlaku: kertas yang belum diberlakukan tidak
+   *  mengatakan apa pun tentang apa yang dibayarkan hari ini. */
+  conflicts: ClauseConflict[];
+}
+
 /* ── Cuti & izin ──────────────────────────────────────────────────────────
  *
  *  A day off has two halves and until now this system only had the second: the

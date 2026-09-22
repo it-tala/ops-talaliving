@@ -323,6 +323,14 @@ begin
   -- Sepuluh poin wajib, plus BPJS yang baru dilengkapi di atas.
   assert v.clauses_confirmed = 11, 'got ' || v.clauses_confirmed;
   assert v.attachment_id = 'bbbb5800-0000-0000-0000-0000000000f1', 'kertasnya terjangkau';
+  -- Berapa poin yang tidak sama dengan yang dijalankan, di baris daftarnya —
+  -- supaya layar tidak perlu membuka tiap kontrak untuk tahu mana yang perlu
+  -- dibaca.
+  assert v.conflict_count = 2, 'cuti dan keterlambatan, got ' || v.conflict_count;
+  -- Dan nol untuk yang belum berlaku: kertas yang belum diberlakukan tidak
+  -- mengatakan apa pun tentang apa yang dibayarkan hari ini.
+  assert (select conflict_count from ops_hr.v_contract where status = 'draft') = 0,
+    'got ' || (select conflict_count from ops_hr.v_contract where status = 'draft');
   assert v.ends_in_days = ('2026-12-31'::date - ops_core.office_day()),
     'dihitung dari hari kantor, bukan tengah malam peramban (F17)';
 end $$;

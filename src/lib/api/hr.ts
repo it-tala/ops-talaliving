@@ -40,6 +40,8 @@ import type {
   EmployeeDocSlot, DocNoSource, AttendanceScan, DayMark, DayMarkKind,
   AllowanceWithholdingView, TimesheetDay, ScanSlot, ScanSource, DayState,
   OvertimeSheetView, OvertimeLineView, WorkSchedule, ScheduleHours,
+  ContractKind, ContractStatus, ClauseKind, ClauseChecklistItem,
+  ContractView, ContractDetail, ContractClause, ClauseCoverage, ClauseConflict,
 } from "@/services/hr/contracts";
 import {
   EMPLOYEE_DOC_CHECKLIST, EMPLOYEE_DOC_LABEL, SENSITIVE_DOC_KINDS,
@@ -738,4 +740,215 @@ export async function listOvertimeSheets(): Promise<Result<OvertimeSheetView[]>>
     } as OvertimeSheetView;
   });
   return ok(SERVICE, rows);
+}
+
+/* ------------------------------------------------------------------ */
+/* Kontrak kerja                                                       */
+/* ------------------------------------------------------------------ */
+
+/** A contract as `v_contract` answers it, plus the two reads that hang off it.
+ *
+ *  Every figure here came out of the database: `ends_in_days` counted from the
+ *  office's today, `probation_until` derived from the clause and the start
+ *  date, the three counts computed against `clause_checklist`. This file only
+ *  stitches the three reads into the one nested shape the screen takes.
+ */
+interface ContractRow {
+  id: string;
+  contract_no: string;
+  employee_id: string;
+  employee_no: string;
+  full_name: string;
+  kind: ContractKind;
+  effective_from: string;
+  ends_on: string | null;
+  status: ContractStatus;
+  sha256: string | null;
+  attachment_id: string | null;
+  superseded_by: string | null;
+  ended_on: string | null;
+  ended_reason: string | null;
+  note: string | null;
+  ends_in_days: number | null;
+  probation_until: string | null;
+  required_missing: number;
+  clauses_confirmed: number;
+  clauses_proposed: number;
+  conflict_count: number;
+}
+
+interface ClauseRow {
+  contract_no: string;
+  kind: ClauseKind;
+  quote: string;
+  page: number | null;
+  value: Record<string, string> | null;
+  source: DocNoSource;
+  confirmed_at: string | null;
+  proposed_at: string;
+}
+
+function toClause(r: ClauseRow): ContractClause {
+  return {
+    contract_no: r.contract_no, kind: r.kind, quote: r.quote, page: r.page,
+    value: r.value, source: r.source,
+    confirmed: r.confirmed_at != null,
+    confirmed_at: r.confirmed_at, proposed_at: r.proposed_at,
+  };
+}
+
+/** The list of points every contract is asked about, and which are required.
+ *  **Data, not a constant in this file**: adding one makes every contract
+ *  report it the same day. */
+export async function listClauseChecklist(): Promise<Result<ClauseChecklistItem[]>> {
+  const { data, error } = await db()
+    .from("clause_checklist").select("kind,required,what,bears_on,sort").order("sort");
+  return fromRows<ClauseChecklistItem[]>(
+    SERVICE, data as unknown as ClauseChecklistItem[], error);
+}
+
+export async function listContracts(
+  opts: { employee_no?: string } = {},
+): Promise<Result<ContractView[]>> {
+  let q = db().from("v_contract").select("*")
+    /* Incomplete first, then whatever expires soonest: the two reasons anybody
+       opens this screen. Nulls last, because a PKWTT never expires. */
+    .order("required_missing", { ascending: false })
+    .order("ends_in_days", { ascending: true, nullsFirst: false })
+    .order("full_name");
+  if (opts.employee_no) q = q.eq("employee_no", opts.employee_no);
+  const { data, error } = await q;
+  return fromRows<ContractView[]>(SERVICE, data as unknown as ContractView[], error);
+}
+
+/** One contract, whole: the row, its clauses, the checklist it is measured
+ *  against, and the differences against what is actually being run. Four reads
+ *  rather than four round trips per clause. */
+export async function getContract(contractNo: string): Promise<Result<ContractDetail>> {
+  const { data: row, error } = await db()
+    .from("v_contract").select("*").eq("contract_no", contractNo).maybeSingle();
+  if (error) return fromRows<ContractDetail>(SERVICE, null, error);
+  if (!row) return notFound(SERVICE, "contract_not_found", `Tidak ada kontrak ${contractNo}.`);
+
+  const { data: clauses, error: e2 } = await db()
+    .from("contract_clauses")
+    .select("contract_no,kind,quote,page,value,source,confirmed_at,proposed_at")
+    .eq("contract_no", contractNo);
+  if (e2) return fromRows<ContractDetail>(SERVICE, null, e2);
+
+  const { data: coverage, error: e3 } = await db()
+    .rpc("contract_coverage", { p_contract_no: contractNo });
+  if (e3) return fromRows<ContractDetail>(SERVICE, null, e3);
+
+  const { data: conflicts, error: e4 } = await db()
+    .rpc("contract_conflicts", { p_contract_no: contractNo });
+  if (e4) return fromRows<ContractDetail>(SERVICE, null, e4);
+
+  return ok(SERVICE, {
+    ...(row as unknown as ContractRow),
+    clauses: ((clauses ?? []) as unknown as ClauseRow[]).map(toClause),
+    coverage: ((coverage ?? []) as unknown as (ClauseCoverage & { sort?: number })[])
+      .map((c) => ({
+        kind: c.kind, required: c.required, what: c.what,
+        present: c.present, confirmed: c.confirmed, source: c.source,
+      })),
+    conflicts: (conflicts ?? []) as unknown as ClauseConflict[],
+  });
+}
+
+export async function registerContract(
+  input: {
+    employee_no: string; kind: ContractKind; effective_from: string;
+    ends_on?: string | null; attachment_id?: string | null;
+    sha256?: string | null; note?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<ContractView>> {
+  const { data, error } = await db().rpc("register_contract", {
+    p_employee_no: input.employee_no,
+    p_kind: input.kind,
+    p_effective_from: input.effective_from,
+    p_ends_on: input.ends_on ?? null,
+    p_attachment_id: input.attachment_id ?? null,
+    p_sha256: input.sha256 ?? null,
+    p_note: input.note ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const said = fromSeam<{ contract_no: string }>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<ContractView>;
+  const list = await listContracts();
+  if (list.error) return list as unknown as Result<ContractView>;
+  const row = list.data.find((c) => c.contract_no === said.data.contract_no);
+  if (!row) return notFound(SERVICE, "contract_not_found", said.data.contract_no);
+  return ok(SERVICE, row);
+}
+
+/** The road for a machine — and there is no machine yet. What is here is the
+ *  shape: a proposal is never born confirmed, and the seam refuses to write
+ *  over a clause somebody has already signed. */
+export async function proposeClause(
+  input: {
+    contract_no: string; kind: ClauseKind; quote: string;
+    page?: number | null; value?: Record<string, string> | null;
+  },
+): Promise<Result<ContractDetail>> {
+  const { data, error } = await db().rpc("propose_clause", {
+    p_contract_no: input.contract_no,
+    p_kind: input.kind,
+    p_quote: input.quote,
+    p_page: input.page ?? null,
+    p_value: input.value ?? null,
+    p_key: null,
+  });
+  const said = fromSeam<unknown>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<ContractDetail>;
+  return getContract(input.contract_no);
+}
+
+export async function confirmClause(
+  input: {
+    contract_no: string; kind: ClauseKind; quote: string;
+    page?: number | null; value?: Record<string, string> | null;
+  },
+): Promise<Result<ContractDetail>> {
+  const { data, error } = await db().rpc("confirm_clause", {
+    p_contract_no: input.contract_no,
+    p_kind: input.kind,
+    p_quote: input.quote,
+    p_page: input.page ?? null,
+    p_value: input.value ?? null,
+    p_key: null,
+  });
+  const said = fromSeam<unknown>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<ContractDetail>;
+  return getContract(input.contract_no);
+}
+
+export async function activateContract(
+  contractNo: string, idempotencyKey?: string,
+): Promise<Result<ContractDetail>> {
+  const { data, error } = await db().rpc("activate_contract", {
+    p_contract_no: contractNo, p_key: idempotencyKey ?? null,
+  });
+  const said = fromSeam<unknown>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<ContractDetail>;
+  return getContract(contractNo);
+}
+
+export async function endContract(
+  input: { contract_no: string; ended_on: string; reason: string },
+): Promise<Result<ContractView>> {
+  const { data, error } = await db().rpc("end_contract", {
+    p_contract_no: input.contract_no,
+    p_ended_on: input.ended_on,
+    p_reason: input.reason,
+    p_key: null,
+  });
+  const said = fromSeam<unknown>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<ContractView>;
+  const list = await listContracts();
+  if (list.error) return list as unknown as Result<ContractView>;
+  const row = list.data.find((c) => c.contract_no === input.contract_no);
+  if (!row) return notFound(SERVICE, "contract_not_found", input.contract_no);
+  return ok(SERVICE, row);
 }

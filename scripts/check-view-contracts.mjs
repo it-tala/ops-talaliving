@@ -173,6 +173,10 @@ const VIEW_CONTRACTS = {
   /* ── hr ──────────────────────────────────────────────────────────────── */
   /* `amount`, `by_name` and `restored_by_name` are the three the table cannot
      answer on its own, which is the whole reason the view exists (0057). */
+  /* `listContracts` casts the rows straight into `ContractView`;
+     `getContract` stitches the clauses, the checklist coverage and the
+     differences onto the same row, and those three are named as composed. */
+  v_contract: { type: "ContractView", composed: ["clauses", "coverage", "conflicts"] },
   v_allowance_withholding: "AllowanceWithholdingView",
   /* Read for `stage`, `payable` and `total_hours` and merged onto the sheet
      rows; nothing is cast into a contract from it. */

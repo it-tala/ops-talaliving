@@ -25,6 +25,7 @@ import type {
   Employee, AttendanceScan, DayMark, OvertimeSheet, OvertimeLine, PayrollRun,
   PayrollAdjustment, PayRuleSet, EmployeeDocument, LeaveRequest,
   AllowanceWithholding, ContributionRate, Enrolment, Task,
+  EmploymentContract, ContractClause, ClauseChecklistItem,
 } from "@/services/hr/contracts";
 import type {
   WorkOrder, ProgressEntry, VendorLeg, Product, BomComponent, BomRevision,
@@ -142,6 +143,11 @@ export interface DemoState {
   payroll_runs: PayrollRun[];
   /** Berkas 201: somebody's own file, and what is missing from it (D177). */
   employee_documents: EmployeeDocument[];
+  /* Kontrak kerja, klausulnya, dan daftar poin wajibnya — yang terakhir adalah
+     data supaya menambah satu poin membuat setiap kontrak melaporkannya. */
+  employment_contracts: EmploymentContract[];
+  contract_clauses: ContractClause[];
+  clause_checklist: ClauseChecklistItem[];
   /** Asked for, then decided. Approving one writes the timesheet mark (D178). */
   leave_requests: LeaveRequest[];
 
