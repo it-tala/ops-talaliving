@@ -947,6 +947,113 @@ export const CLAUSE_LABEL: Record<ClauseKind, string> = {
   lainnya: "Lain-lain",
 };
 
+/** Bentuk jawaban tiap poin, dan satu-satunya tempat bentuk itu hidup di sisi
+ *  TypeScript.
+ *
+ *  Sebelum ini jawabannya diketik sebagai JSON mentah — `{"amount":"180000",
+ *  "per":"day"}` — di sebuah kotak satu baris. Itu bisa dipakai oleh orang yang
+ *  menulis seamnya dan oleh tidak seorang pun selain dia. Selama tahap C
+ *  (pembaca PDF) belum ada, **mengetik adalah satu-satunya jalan masuk**, jadi
+ *  jalan itu harus jalan yang sebenarnya: satu bidang per kunci, pilihan
+ *  sebagai pilihan, angka sebagai angka.
+ *
+ *  Yang dijaga di sini bukan kebenaran — `ops_hr.clause_value_ok` yang
+ *  memutuskan, dan ia tetap memutuskan. Yang dijaga adalah **formulirnya tidak
+ *  pernah menawarkan sesuatu yang akan ditolak basis data, dan tidak pernah
+ *  menyembunyikan sesuatu yang diwajibkannya**. Keduanya tetap dua tulisan di
+ *  dua bahasa, jadi `scripts/check-clause-fields.mjs` membaca keduanya dan
+ *  menolak kalau berbeda — sebuah `mode` yang ditambahkan di SQL dan lupa di
+ *  sini adalah pilihan yang tidak akan pernah bisa dipilih siapa pun.
+ */
+export type ClauseField =
+  | { key: string; label: string; input: "digits"; positive?: true; unit?: string; placeholder?: string }
+  | { key: string; label: string; input: "choice"; options: readonly { value: string; label: string }[] }
+  | { key: string; label: string; input: "schedule" };
+
+/** Poin yang tidak ada di sini disimpan sebagai kalimat saja. Itu disengaja:
+ *  memaksa bentuk pada *kerahasiaan* berarti mengarang bentuk, dan bentuk
+ *  karangan adalah yang diisi asal-asalan supaya tombolnya menyala. */
+export const CLAUSE_FIELDS: Record<ClauseKind, readonly ClauseField[]> = {
+  gaji_pokok: [
+    { key: "amount", label: "Jumlah", input: "digits", positive: true, unit: "Rp", placeholder: "180000" },
+    { key: "per", label: "Per", input: "choice", options: [
+      { value: "month", label: "bulan" }, { value: "day", label: "hari" }, { value: "hour", label: "jam" },
+    ] },
+  ],
+  tunjangan: [
+    { key: "amount", label: "Jumlah", input: "digits", unit: "Rp", placeholder: "25000" },
+    { key: "per", label: "Per", input: "choice", options: [
+      { value: "day", label: "hari" }, { value: "month", label: "bulan" },
+    ] },
+  ],
+  jam_kerja: [
+    { key: "schedule_code", label: "Jadwal kerja", input: "schedule" },
+  ],
+  cuti: [
+    { key: "days", label: "Hari per tahun", input: "digits", unit: "hari", placeholder: "12" },
+  ],
+  jangka_waktu: [
+    { key: "kind", label: "Jenis", input: "choice", options: [
+      { value: "PKWT", label: "PKWT — ada tanggal berakhirnya" },
+      { value: "PKWTT", label: "PKWTT — tidak berakhir" },
+    ] },
+  ],
+  masa_percobaan: [
+    { key: "months", label: "Lama", input: "digits", unit: "bulan", placeholder: "3" },
+  ],
+  keterlambatan: [
+    { key: "mode", label: "Cara menghitung", input: "choice", options: [
+      { value: "none", label: "tidak ada potongan karena terlambat" },
+      { value: "manual", label: "diputuskan orang, per kejadian" },
+      { value: "pro_rata", label: "pro rata atas menit yang hilang" },
+    ] },
+  ],
+  potongan: [
+    { key: "mode", label: "Cara menghitung", input: "choice", options: [
+      { value: "off", label: "tidak ada potongan" },
+      { value: "hourly", label: "per jam yang tidak dikerjakan" },
+      { value: "half_day_step", label: "kelipatan setengah hari" },
+    ] },
+  ],
+  lembur: [
+    { key: "mode", label: "Cara menghitung", input: "choice", options: [
+      { value: "none", label: "tidak dibayar terpisah" },
+      { value: "statutory", label: "tarif pemerintah (1,5× lalu 2×)" },
+      { value: "flat", label: "tarif tetap per jam" },
+    ] },
+  ],
+  pemutusan: [],
+  bpjs: [],
+  kerahasiaan: [],
+  fasilitas: [],
+  penempatan: [],
+  lainnya: [],
+};
+
+/** Aturan yang sama dengan `ops_hr.clause_value_ok`, diturunkan dari
+ *  `CLAUSE_FIELDS` dan bukan ditulis ulang — klien demo memakainya sebagai
+ *  basis datanya, layarnya memakainya untuk tahu kapan tombolnya boleh
+ *  menyala. Klien sungguhan tidak memakainya sama sekali: di sana yang
+ *  memutuskan tetap seamnya. */
+export function clauseValueOk(
+  kind: ClauseKind, value: Record<string, string> | null,
+): boolean {
+  const fields = CLAUSE_FIELDS[kind];
+  if (fields.length === 0) return true;
+  const v = value ?? {};
+  return fields.every((f) => {
+    const got = v[f.key] ?? "";
+    switch (f.input) {
+      case "digits":
+        return /^[0-9]+$/.test(got) && (f.positive !== true || Number(got) > 0);
+      case "choice":
+        return f.options.some((o) => o.value === got);
+      case "schedule":
+        return got !== "";
+    }
+  });
+}
+
 export interface ClauseChecklistItem {
   kind: ClauseKind;
   required: boolean;

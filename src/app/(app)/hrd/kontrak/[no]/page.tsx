@@ -10,7 +10,8 @@ import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { cn } from "@/lib/cn";
 import { hr } from "@/demo/api";
 import {
-  CLAUSE_LABEL, type ClauseKind, type ContractDetail, type ContractClause,
+  CLAUSE_LABEL, CLAUSE_FIELDS, clauseValueOk,
+  type ClauseKind, type ClauseField, type ContractDetail, type ContractClause,
 } from "@/services/hr/contracts";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
@@ -221,6 +222,15 @@ function Conflicts({ c }: { c: ContractDetail }) {
 
 function Clauses({ c, mayEdit, onDone }: { c: ContractDetail; mayEdit: boolean; onDone: () => void }) {
   const byKind = new Map(c.clauses.map((cl) => [cl.kind, cl]));
+  /* *Jam kerja* menunjuk sebuah jadwal yang harus benar-benar ada — mengetik
+     kodenya bebas berarti menunjuk jadwal yang tidak ada dan baru tahu di
+     payroll. Kalau daftarnya belum datang, bidangnya turun jadi kotak ketik
+     biasa: satu daftar yang gagal dimuat tidak boleh mengunci seluruh
+     formulir. */
+  const [schedules] = useLoad(() => hr.listSchedules(), []);
+  const codes = schedules.status === "ready"
+    ? schedules.data.schedules.map((w) => ({ code: w.code, name: w.name }))
+    : null;
   return (
     <Card>
       <CardHeader
@@ -240,6 +250,7 @@ function Clauses({ c, mayEdit, onDone }: { c: ContractDetail; mayEdit: boolean; 
             what={k.what}
             clause={byKind.get(k.kind) ?? null}
             mayEdit={mayEdit}
+            codes={codes}
             onDone={onDone}
           />
         ))}
@@ -249,26 +260,30 @@ function Clauses({ c, mayEdit, onDone }: { c: ContractDetail; mayEdit: boolean; 
 }
 
 function ClauseRow({
-  contractNo, kind, required, what, clause, mayEdit, onDone,
+  contractNo, kind, required, what, clause, mayEdit, codes, onDone,
 }: {
   contractNo: string; kind: ClauseKind; required: boolean; what: string;
-  clause: ContractClause | null; mayEdit: boolean; onDone: () => void;
+  clause: ContractClause | null; mayEdit: boolean; codes: Schedule[] | null;
+  onDone: () => void;
 }) {
   const { toast } = useToast();
+  const fields = CLAUSE_FIELDS[kind];
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [quote, setQuote] = useState(clause?.quote ?? "");
-  const [value, setValue] = useState(
-    clause?.value ? JSON.stringify(clause.value) : "");
+  const [value, setValue] = useState<Record<string, string>>(clause?.value ?? {});
+
+  /* Poin tanpa bentuk disimpan sebagai kalimat saja, jadi jawabannya *tidak
+     punya* nilai — mengirim `{}` ke sana akan menyimpan objek kosong yang
+     terbaca seperti jawaban yang hilang isinya. */
+  const shaped = fields.length > 0;
+  const ready = quote.trim() !== "" && (!shaped || clauseValueOk(kind, value));
 
   async function confirm() {
-    let parsed: Record<string, string> | null = null;
-    if (value.trim()) {
-      try { parsed = JSON.parse(value) as Record<string, string>; }
-      catch { toast("warning", "Bacaannya belum bisa dibaca", "Tulis sebagai JSON, misalnya {\"amount\":\"180000\",\"per\":\"day\"}."); return; }
-    }
     setBusy(true);
-    const res = await hr.confirmClause({ contract_no: contractNo, kind, quote, value: parsed });
+    const res = await hr.confirmClause({
+      contract_no: contractNo, kind, quote, value: shaped ? value : null,
+    });
     setBusy(false);
     if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", "Belum tersimpan", res.error.message); return; }
     setOpen(false);
@@ -293,7 +308,17 @@ function ClauseRow({
           <span className="text-[11px] text-slate-400">bacaan mesin, diterima apa adanya</span>
         )}
         {mayEdit && !open && (
-          <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setOpen(true)}>
+          <Button
+            size="sm" variant="ghost" className="ml-auto"
+            /* Dibaca ulang dari klausulnya tiap kali dibuka. Tanpa ini sebuah
+               ketikan yang ditinggalkan lewat *Batal* masih ada waktu kotaknya
+               dibuka lagi, terlihat persis seperti nilai yang tersimpan. */
+            onClick={() => {
+              setQuote(clause?.quote ?? "");
+              setValue(clause?.value ?? {});
+              setOpen(true);
+            }}
+          >
             {clause?.confirmed ? "Ubah" : clause ? "Periksa usulan" : "Jawab"}
           </Button>
         )}
@@ -308,15 +333,15 @@ function ClauseRow({
             {clause.page != null && <span className="ml-1.5 not-italic text-[11px] text-slate-400">hal. {clause.page}</span>}
           </p>
           {clause.value && (
-            <p className="mt-1 font-mono text-[11px] text-slate-500">
-              {Object.entries(clause.value).map(([k, v]) => `${k}: ${v}`).join(" · ")}
+            <p className="mt-1 text-[11px] text-slate-500">
+              {fields.map((f) => `${f.label}: ${readable(f, clause.value?.[f.key] ?? "")}`).join(" · ")}
             </p>
           )}
         </>
       )}
 
       {open && (
-        <div className="mt-2 space-y-2 rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+        <div className="mt-2 space-y-2.5 rounded-lg border border-slate-200 bg-slate-50/60 p-3">
           <div>
             <label className="text-[11px] uppercase tracking-wide text-slate-400">Kalimat aslinya</label>
             <textarea
@@ -328,20 +353,104 @@ function ClauseRow({
               Angka tanpa kalimat di belakangnya adalah angka yang tidak bisa dibantah di meja.
             </p>
           </div>
-          <div>
-            <label className="text-[11px] uppercase tracking-wide text-slate-400">Bacaannya</label>
-            <input
-              value={value} onChange={(e) => setValue(e.target.value)}
-              placeholder={'{"amount":"180000","per":"day"}'}
-              className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 font-mono text-[12px] focus:border-brand-400 focus:outline-none"
-            />
-          </div>
-          <div className="flex justify-end gap-2">
+
+          {shaped ? (
+            <div className="grid gap-2.5 sm:grid-cols-2">
+              {fields.map((f) => (
+                <FieldInput
+                  key={f.key}
+                  field={f}
+                  codes={codes}
+                  value={value[f.key] ?? ""}
+                  onChange={(v) => setValue((prev) => ({ ...prev, [f.key]: v }))}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="text-[11px] text-slate-500">
+              Poin ini disimpan sebagai kalimatnya saja — tidak ada angka yang dibandingkan
+              dengan apa pun, jadi tidak ada yang perlu diisi selain kutipannya.
+            </p>
+          )}
+
+          <div className="flex items-center justify-end gap-2">
+            {shaped && !ready && quote.trim() !== "" && (
+              <span className="mr-auto text-[11px] text-slate-500">Lengkapi isian di atas.</span>
+            )}
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => setOpen(false)}>Batal</Button>
-            <Button size="sm" icon={Check} disabled={busy || !quote.trim()} onClick={confirm}>Konfirmasi</Button>
+            <Button size="sm" icon={Check} disabled={busy || !ready} onClick={confirm}>Konfirmasi</Button>
           </div>
         </div>
       )}
     </div>
   );
+}
+
+interface Schedule { code: string; name: string }
+
+/** Satu bidang, bentuknya menurut `CLAUSE_FIELDS` — yang dijaga sama dengan
+ *  `ops_hr.clause_value_ok` oleh `scripts/check-clause-fields.mjs`. */
+function FieldInput({
+  field, value, codes, onChange,
+}: {
+  field: ClauseField; value: string; codes: Schedule[] | null;
+  onChange: (v: string) => void;
+}) {
+  const box = "mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none";
+  return (
+    <div>
+      <label className="text-[11px] uppercase tracking-wide text-slate-400">{field.label}</label>
+      {field.input === "choice" ? (
+        <select value={value} onChange={(e) => onChange(e.target.value)} className={box}>
+          <option value="">— pilih —</option>
+          {field.options.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      ) : field.input === "schedule" ? (
+        codes
+          ? (
+            <select value={value} onChange={(e) => onChange(e.target.value)} className={box}>
+              <option value="">— pilih —</option>
+              {codes.map((c) => (
+                <option key={c.code} value={c.code}>{c.code} — {c.name}</option>
+              ))}
+            </select>
+          )
+          : (
+            <input
+              value={value} onChange={(e) => onChange(e.target.value)}
+              placeholder="kode jadwal" className={cn(box, "font-mono text-[12px]")}
+            />
+          )
+      ) : (
+        <div className="relative">
+          <input
+            value={value} inputMode="numeric"
+            onChange={(e) => onChange(e.target.value.replace(/[^0-9]/g, ""))}
+            placeholder={field.placeholder}
+            className={cn(box, "tabular-nums", field.unit && "pr-12")}
+          />
+          {field.unit && (
+            <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-slate-400">
+              {field.unit}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Nilai tersimpan dibaca kembali sebagai kata, bukan sebagai kode: sebuah
+ *  baris yang berbunyi `mode: pro_rata` menyuruh pembacanya menebak. */
+function readable(field: ClauseField, stored: string): string {
+  if (field.input === "choice") {
+    return field.options.find((o) => o.value === stored)?.label ?? stored;
+  }
+  if (field.input === "digits" && /^[0-9]+$/.test(stored)) {
+    const n = Number(stored).toLocaleString("id-ID");
+    return field.unit === "Rp" ? `Rp ${n}` : field.unit ? `${n} ${field.unit}` : n;
+  }
+  return stored;
 }

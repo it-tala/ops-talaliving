@@ -2,13 +2,15 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ScrollText, AlertTriangle, CalendarClock, Search, Scale } from "lucide-react";
-import { Badge, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
+import { ScrollText, AlertTriangle, CalendarClock, Search, Scale, Plus } from "lucide-react";
+import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { Paged } from "@/components/ui/pager";
 import { cn } from "@/lib/cn";
 import { hr } from "@/demo/api";
 import type { ContractView } from "@/services/hr/contracts";
+import { useSession } from "@/store/session";
+import { NewContract } from "./NewContract";
 
 /** Kontrak kerja — bukan folder PDF, melainkan jawaban atas *apa isinya*.
  *
@@ -27,8 +29,10 @@ import type { ContractView } from "@/services/hr/contracts";
  *    otomatis di mana pun — dilaporkan, dan seseorang memutuskan (D155).
  */
 export default function ContractsPage() {
+  const { can } = useSession();
   const [rows, reload] = useLoad(() => hr.listContracts(), []);
   const [q, setQ] = useState("");
+  const [making, setMaking] = useState(false);
 
   return (
     <div>
@@ -36,8 +40,19 @@ export default function ContractsPage() {
         breadcrumb="HRD"
         title="Kontrak kerja"
         description="Apa yang tertulis di kertas, dan apakah itu yang benar-benar dijalankan. Poin wajib yang belum dijawab dan selisih terhadap sistem dihitung per kontrak, bukan dicari waktu dibutuhkan."
-        actions={<SourceBadge state={rows} />}
+        actions={
+          <div className="flex items-center gap-2">
+            <SourceBadge state={rows} />
+            {can("hrd.update") && (
+              <Button icon={Plus} onClick={() => setMaking(true)}>Daftarkan kontrak</Button>
+            )}
+          </div>
+        }
       />
+
+      {making && (
+        <NewContract onClose={() => setMaking(false)} onDone={() => { setMaking(false); reload(); }} />
+      )}
 
       <Loaded state={rows} onRetry={reload}>
         {(all) => {

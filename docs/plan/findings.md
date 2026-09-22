@@ -5177,3 +5177,56 @@ the mutation that proves it exists is not *does the rule work* but **does the
 rule still work when the field it reads is absent** — the version of this
 finding's mutation is `coalesce(…, true)`, which is the bug restated, and it is
 now in the suite.
+
+## F130 · 2026-09-22 · the only way to answer a contract clause was to type its JSON, and the two statements of the rule could not see each other
+
+**The screen shipped with a developer's input.** `0058` gives every clause a
+shaped answer — `{"amount":"180000","per":"day"}` for a wage, `{"mode":
+"pro_rata"}` for lateness — and `ops_hr.clause_value_ok` refuses anything else.
+Tahap B built the screen around that, and the field it built was a one-line box
+with the JSON as its placeholder.
+
+That is defensible while a machine is going to fill it in: the reader (tahap C)
+proposes the value, a person reads the sentence beside it and presses
+*Konfirmasi*, and nobody types a brace. Tahap C is now deferred — *sementara
+biar diisi manual saja dulu* — and **the fallback path became the only path**.
+It was never designed to be one. An HRD clerk cannot be asked to know that
+`per` takes `month` and not `bulan`, and the refusal they would get names a
+`check` constraint.
+
+**The deferral is what exposed it, not a bug report.** Nothing was broken. Every
+guard was green, and the screen worked exactly as written for the person who
+wrote it. What changed was which of two paths carries the traffic, and the
+quality of a fallback is invisible until it stops being one.
+
+**Two statements of one rule.** Replacing the box with real fields creates the
+actual risk: the option list now lives in `CLAUSE_FIELDS` (TypeScript) *and* in
+`clause_value_ok` (SQL), and neither can see the other. Both drifts are silent
+and neither is caught by `tsc` — the `Record<ClauseKind, …>` makes the *kinds*
+exhaustive and says nothing about the inside:
+
+- **SQL grows a choice the form lacks.** The choice cannot be picked by anyone,
+  ever. The only symptom is a value that never appears in the data, which reads
+  as *nobody chose it*.
+- **The form offers a choice SQL refuses.** Worse, because it looks like it
+  worked right up to the button.
+
+`scripts/check-clause-fields.mjs` parses both and refuses any disagreement. It
+does not re-implement the rule — the constraint still decides — it only refuses
+the drift. Six mutations, three from each side, all caught naming the kind and
+printing both sides.
+
+**Its first run failed for the wrong reason,** which was worth the ten minutes:
+the parser sliced each field on brace boundaries, and an options list is itself
+made of `{ value, label }` objects, so it read a one-choice field and reported
+six disagreements that did not exist. *A guard that fails on its first run has
+not proved it works — it has proved it fails.* Mutating it afterwards is what
+separated the two.
+
+**The second gap the deferral opened.** `registerContract` existed in both
+clients, passed parity, and **no screen called it**. With a machine in the loop
+that is a gap; with manual entry it means contracts cannot be created at all.
+The chain HRD was promised — register, answer the points, activate — was broken
+at its first link, and nothing could have found that but walking it, because
+every guard in this repo asks whether a function is *correct*, not whether
+anybody can *reach* it.

@@ -13,7 +13,9 @@ import type {
   ContractKind, ClauseKind, ClauseChecklistItem, EmploymentContract,
   ContractView, ContractDetail, ContractClause, ClauseConflict,
 } from "@/services/hr/contracts";
-import { SENSITIVE_DOC_KINDS, SCHEME_LABEL, maskDocNo } from "@/services/hr/contracts";
+import {
+  SENSITIVE_DOC_KINDS, SCHEME_LABEL, maskDocNo, clauseValueOk,
+} from "@/services/hr/contracts";
 import type { DocKind } from "@/services/documents/contracts";
 import type { DemoState } from "../state";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
@@ -1798,25 +1800,6 @@ export async function endContract(
  *  yang seluruh tugasnya menolak bentuk tidak lengkap justru meloloskannya.
  *  Di sini `undefined` punya masalah yang sama bentuknya.
  */
-function clauseValueOk(kind: ClauseKind, value: Record<string, string> | null): boolean {
-  const v = value ?? {};
-  const digits = (x: string | undefined) => !!x && /^[0-9]+$/.test(x);
-  switch (kind) {
-    case "gaji_pokok":
-      return digits(v.amount) && Number(v.amount) > 0
-        && ["month", "day", "hour"].includes(v.per ?? "");
-    case "tunjangan":
-      return digits(v.amount) && ["day", "month"].includes(v.per ?? "");
-    case "cuti":          return digits(v.days);
-    case "masa_percobaan": return digits(v.months);
-    case "jangka_waktu":  return ["PKWT", "PKWTT"].includes(v.kind ?? "");
-    case "jam_kerja":     return (v.schedule_code ?? "") !== "";
-    case "keterlambatan": return ["none", "manual", "pro_rata"].includes(v.mode ?? "");
-    case "potongan":      return ["off", "hourly", "half_day_step"].includes(v.mode ?? "");
-    case "lembur":        return ["none", "statutory", "flat"].includes(v.mode ?? "");
-    default:              return true;
-  }
-}
 
 /* ── Cuti & izin ──────────────────────────────────────────────────────────
  *
@@ -2746,8 +2729,6 @@ export async function approvePayroll(runNo: string): Promise<Result<PayrollView>
   });
   return getPayroll(runNo);
 }
-
-
 
 /* ── Working patterns, as HR maintains them (Q53, D279) ────────────────
  *
