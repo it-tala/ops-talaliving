@@ -70,6 +70,11 @@ const VIEW_CONTRACTS = {
   v_item_view:       "ItemView",
   v_vendor_journey:  { type: "VendorJourney", composed: ["headline"] },
   v_round_summary:   "RoundSummary",
+  /* Read for one column, `line_id` — which lines belong to a round, so
+     `getRoundView()` can fetch them from `v_pr_line` the same way every other
+     line list does. No row here is ever handed to a screen, so there is
+     nothing to cast. */
+  v_line_round:      null,
   /* Read into `LineRow`, a private flat shape this client reshapes into
      `PrLineView` by hand. The reshaping is checked by `tsc`, because nothing
      is cast: `toLineView` names every field it moves. */
@@ -157,10 +162,14 @@ const VIEW_CONTRACTS = {
  *  it.
  */
 const KNOWN_GAPS = {
-  /* `/procurement/rounds` — also waiting on seven functions in `_pending.ts`.
-     A funded round still pays nobody (A10), so `transfers` is not decoration:
-     without it the screen cannot tell funded from paid. */
-  v_round_summary: ["transfers", "paying_balance", "to_transfer", "remaining_after_payment"],
+  /* `0087` added `paying_balance`, `to_transfer` and `remaining_after_payment`
+     to the view. `transfers` stays a known gap on purpose: it was never meant
+     to live on this view — `getRoundView()` in `src/lib/api/procurement.ts`
+     reads it from `round_transfers` directly, the same table the demo's
+     `roundSummary()` filters in memory. A funded round still pays nobody
+     (A10), so it is not decoration: without it the screen cannot tell funded
+     from paid. */
+  v_round_summary: ["transfers"],
   /* `/accounting/verifikasi` — also waiting on five. */
   v_inbox_health:  ["by_origin"],
 };

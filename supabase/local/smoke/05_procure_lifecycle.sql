@@ -354,7 +354,10 @@ begin
            where po_id = (select po_id from ops_procure.po_lines where id = pol)) = 0,
          'and a reported arrival is worth nothing until somebody signs for it (D131)';
 
-  -- Morning. Procurement signs for it.
+  -- Morning. Procurement signs for it. Confirming is a person's act, not a
+  -- document's — no tanda terima is required to do it (the assertion below,
+  -- on the drawer, is the test that pins that down). `att2` stays available
+  -- for the next report, which confirms with one in hand (0086).
   r := ops_procure.confirm_receipt(rcv);
   assert ops_core.said_ok(r), format('got %s', r);
 

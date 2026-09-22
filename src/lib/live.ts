@@ -62,6 +62,7 @@ export const LIVE_SERVICES = ["identity", "procurement", "accounting"] as const;
  */
 export const LIVE_ROUTES: readonly string[] = [
   "/accounting/documents",
+  "/accounting/rekening-koran",
   "/accounting/verifikasi",
   "/it/aktivitas",
   "/it/audit",
@@ -71,6 +72,7 @@ export const LIVE_ROUTES: readonly string[] = [
   "/john-lau",
   "/procurement/catalog",
   "/procurement/meeting",
+  "/procurement/penerimaan",
   "/procurement/po",
   "/procurement/po/[po]",
   "/procurement/po/[po]/print",
@@ -78,6 +80,7 @@ export const LIVE_ROUTES: readonly string[] = [
   "/procurement/pr/documents",
   "/procurement/supplier",
   "/procurement/tracker",
+  "/procurement/tracker/[vendor]",
 ];
 
 /** Is this deployment talking to a database at all?
