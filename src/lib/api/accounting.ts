@@ -14,7 +14,7 @@ import type {
   TransactionType, Direction, AllocMethod, InboxStatus, InboxHealth,
   TrxStatus, BankStatementView, StatementLineView, StatementMatch,
   TransactionTypeCode, PaymentAllocation, VendorPayment, CashOverride, CashSettlement,
-  CashComponent, CashPlan, CashMonth,
+  CashComponent, CashPlan, CashMonth, CashMonthDetail, CashDue, CashDayRow,
   InboxOrigin, EvidenceInboxRow,
   DocumentCoverage, TransactionCoverage, CoverageTransaction,
   CoverageLine, CoveragePayment,
@@ -226,7 +226,11 @@ async function codeFor(
   table: "accounts" | "vendors" | "projects", id: string | null | undefined,
 ): Promise<string | null> {
   if (!id) return null;
-  const { data } = await db().from(table).select("code").eq("id", id).maybeSingle();
+  /* `accounts` lives in `ops_acct`; `vendors` and `projects` are procurement's
+     (ADR-004 again, one level down) — reading either through `db()`'s
+     `ops_acct` binding asks PostgREST for a table that schema does not have. */
+  const client = table === "accounts" ? db() : supabaseBrowser().schema("ops_procure");
+  const { data } = await client.from(table).select("code").eq("id", id).maybeSingle();
   return (data as { code: string } | null)?.code ?? null;
 }
 
@@ -363,6 +367,18 @@ export async function voidTransaction(
      the screen wants it back, now reading VOID, rather than a receipt saying it
      worked. */
   const row = await db().from("v_transaction").select("*").eq("trx_no", voided.data.trx_no).single();
+  return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
+}
+
+/** A row moved past POSTED to COMPLETED — `post_ledger`, the same authority
+ *  every seam in this file answers to, and nothing else (`0093`, read against
+ *  `void_transaction` rather than invented). */
+export async function markComplete(trxNo: string): Promise<Result<TransactionView>> {
+  const { data, error } = await db().rpc("complete_transaction", { p_trx_no: trxNo });
+  const completed = fromSeam<{ trx_no: string; status: string }>(SERVICE, data, error);
+  if (completed.error) return completed;
+
+  const row = await db().from("v_transaction").select("*").eq("trx_no", completed.data.trx_no).single();
   return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
 }
 
@@ -814,6 +830,79 @@ function monthLabel(month: string): string {
   return new Date(y, m - 1, 1).toLocaleDateString(getActiveLocale(), { month: "short", year: "numeric" });
 }
 
+/** `to − from`, in whole days, the same WITA-anchored arithmetic
+ *  `src/demo/derive.ts`'s own `daysBetween` uses — so a "3 hari lagi" here and
+ *  in the demo never disagree over which side of midnight a date fell on. */
+function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00+08:00`) - Date.parse(`${from}T00:00:00+08:00`)) / 86_400_000);
+}
+
+/** One month opened up, day by day, with the balance running through it.
+ *
+ *  Not a seam of its own: `cashMonthDetail` in the demo is `cashPlan()` read
+ *  from one angle — every event behind the month's twelve rows, sorted into a
+ *  day order, with a balance walked across them the same way the twelve-month
+ *  view walks a balance across months. `getCashPlan()` already carries every
+ *  event this needs; redoing the walk here is the same boundary
+ *  `getCashPlan`'s own `verdict`/`label` sit on — presentation built from data
+ *  the database already decided, not a second derivation racing the
+ *  database's (0091's header, on `undated_obligations`/`short_by`). */
+export async function getMonthDetail(month: string): Promise<Result<CashMonthDetail>> {
+  const plan = await getCashPlan();
+  if (plan.error) return plan;
+
+  const index = plan.data.months.findIndex((m) => m.month === month);
+  if (index === -1) {
+    return notFound(SERVICE, "month_not_in_plan", `${month} is outside the twelve months the plan covers.`);
+  }
+  const today = plan.data.generated_for;
+  const view = plan.data.months[index];
+  const opening = index === 0 ? plan.data.opening_cash : plan.data.months[index - 1].closing;
+
+  const events = plan.data.rows
+    .flatMap((r) => r.cells[index].events)
+    .filter((e) => e.state !== "SKIPPED")
+    .sort((a, b) => a.date.localeCompare(b.date) || (b.direction === "IN" ? 1 : -1));
+
+  let balance = opening;
+  let low = opening;
+  let low_date: string | null = null;
+  let first_negative_date: string | null = null;
+
+  const rows: CashDayRow[] = events.map((e) => {
+    const is_past = view.is_current && (e.date < today || e.state === "PAID");
+    const moves = is_past ? 0 : Math.max(e.planned - e.actual, 0);
+    balance += e.direction === "IN" ? moves : -moves;
+    if (balance < low) { low = balance; low_date = e.date; }
+    if (balance < 0 && first_negative_date === null) first_negative_date = e.date;
+    return { ...e, balance, is_past };
+  });
+
+  return ok(SERVICE, {
+    month, label: view.label, opening, closing: view.closing, rows,
+    low_point: low, low_date, first_negative_date,
+    undated_obligations: plan.data.undated_obligations,
+  });
+}
+
+/** The reminder half: what falls due next, and what is already late — built
+ *  from the very same events `getMonthDetail` reads, so the two can never say
+ *  different things (D116). */
+export async function listDue(): Promise<Result<CashDue[]>> {
+  const plan = await getCashPlan();
+  if (plan.error) return plan;
+  const today = plan.data.generated_for;
+
+  const due = plan.data.rows
+    .flatMap((r) => r.cells.flatMap((c) => c.events))
+    .filter((e) => e.state !== "SKIPPED" && e.state !== "PAID")
+    .map((e) => ({ ...e, days_away: daysBetween(today, e.date) }))
+    .filter((e) => e.days_away <= 21 && e.days_away >= -90)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  return ok(SERVICE, due);
+}
+
 /** One line, one month: the cell a calendar draws. Its state is the **worst**
  *  of the occurrences behind it, because a month with one overdue payday is an
  *  overdue month however well the other three went. */
@@ -883,6 +972,109 @@ export async function saveComponent(input: {
     p_id: input.id ?? null,
   });
   return fromSeam(SERVICE, data, error);
+}
+
+/** Add something that repeats — `saveComponent` (`save_cash_component`) with
+ *  `p_id` left null, and `vendor_id`/`account_id` resolved to the codes the
+ *  seam takes (`codeFor`, above). Redraws the row from `cash_components`
+ *  rather than trusting the seam's echo, the same as every other write here.
+ *
+ *  The category clash (D110), the day-of-month and weekday ranges, the
+ *  once-needs-a-date rule — every refusal `addComponent` can produce — are
+ *  the seam's (`0022`, `0092`), not reimplemented in TypeScript (this file's
+ *  header, again). **Not checked here**: the demo also refuses below
+ *  `requireLevel(SERVICE, "accounting", "admin")` (Q24/D233 — the estimate
+ *  belongs to leadership, not merely to whoever holds `accounting.update`);
+ *  the seam still gates on `has_permission('accounting.update')` as it has
+ *  since `0022`, one level looser. Tightening a live money-path authorisation
+ *  rule is a call for whoever owns that decision, not something this parity
+ *  pass makes unasked.
+ *
+ *  No idempotency key: `save_cash_component` has never taken one (unlike
+ *  `post_transaction`), so a retried call adds a second line rather than
+ *  replaying the first — accepted here, on the signature, only to match the
+ *  demo's; nothing yet makes the promise the demo's does. */
+export async function addComponent(input: {
+  name: string;
+  direction: Direction;
+  amount: number;
+  frequency?: "weekly" | "monthly" | "once";
+  due_day?: number;
+  due_weekday?: number | null;
+  due_date?: string | null;
+  type_code?: string | null;
+  vendor_id?: string | null;
+  account_id?: string | null;
+  starts_on?: string;
+  ends_on?: string | null;
+  note?: string | null;
+}): Promise<Result<CashComponent>> {
+  const { data, error } = await db().rpc("save_cash_component", {
+    p_name: input.name,
+    p_amount: input.amount,
+    p_frequency: input.frequency ?? "monthly",
+    p_direction: input.direction,
+    p_due_day: input.due_day ?? null,
+    p_due_weekday: input.due_weekday ?? null,
+    p_due_date: input.due_date ?? null,
+    p_type_code: input.type_code ?? null,
+    p_vendor_code: await codeFor("vendors", input.vendor_id),
+    p_account_code: await codeFor("accounts", input.account_id),
+    p_starts_on: input.starts_on ?? null,
+    p_note: input.note ?? null,
+    p_id: null,
+    p_ends_on: input.ends_on ?? null,
+    p_active: true,
+  });
+  const saved = fromSeam<{ component_id: string }>(SERVICE, data, error);
+  if (saved.error) return saved;
+  const row = await db().from("cash_components").select("*").eq("id", saved.data.component_id).maybeSingle();
+  if (row.error) return fail(SERVICE, row.error);
+  if (!row.data) return notFound(SERVICE, "component_not_found", "The line was saved but could not be read back.");
+  return ok(SERVICE, row.data as CashComponent);
+}
+
+/** Change the estimate, the day, or the name.
+ *
+ *  `save_cash_component` is one seam for both create and update, and on
+ *  update it **replaces the row** — every field it accepts, not only the
+ *  ones a caller means to touch (unchanged from `0022`; `0092` only added
+ *  `ends_on`/`active` to the same replace). A `patch` object is therefore
+ *  read against the current row first, so a caller who names only `amount`
+ *  does not blank out the line's vendor, category or due date. */
+export async function updateComponent(
+  id: string,
+  patch: { name?: string; amount?: number; due_day?: number; ends_on?: string | null; note?: string | null; active?: boolean },
+): Promise<Result<CashComponent>> {
+  const current = await db().from("cash_components").select("*").eq("id", id).maybeSingle();
+  if (current.error) return fail(SERVICE, current.error);
+  if (!current.data) return notFound(SERVICE, "component_not_found", `No calendar line ${id}.`);
+  const row = current.data as CashComponent;
+
+  const { data, error } = await db().rpc("save_cash_component", {
+    p_name: patch.name ?? row.name,
+    p_amount: patch.amount ?? row.amount,
+    p_frequency: row.frequency,
+    p_direction: row.direction,
+    p_due_day: patch.due_day ?? row.due_day,
+    p_due_weekday: row.due_weekday,
+    p_due_date: row.due_date,
+    p_type_code: row.type_code,
+    p_vendor_code: await codeFor("vendors", row.vendor_id),
+    p_account_code: await codeFor("accounts", row.account_id),
+    p_starts_on: row.starts_on,
+    p_note: patch.note ?? row.note,
+    p_id: id,
+    p_ends_on: patch.ends_on !== undefined ? patch.ends_on : row.ends_on,
+    p_active: patch.active ?? row.active,
+  });
+  const saved = fromSeam(SERVICE, data, error);
+  if (saved.error) return saved;
+
+  const after = await db().from("cash_components").select("*").eq("id", id).maybeSingle();
+  if (after.error) return fail(SERVICE, after.error);
+  if (!after.data) return notFound(SERVICE, "component_not_found", `No calendar line ${id}.`);
+  return ok(SERVICE, after.data as CashComponent);
 }
 
 /** A month changed. `skip: true` means *not this month* — a bill that skips is

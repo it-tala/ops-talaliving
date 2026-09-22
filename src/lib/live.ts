@@ -61,9 +61,12 @@ export const LIVE_SERVICES = ["identity", "procurement", "accounting"] as const;
  *  Regenerate with `node scripts/check-live-routes.mjs --write`.
  */
 export const LIVE_ROUTES: readonly string[] = [
+  "/accounting/calendar",
   "/accounting/documents",
+  "/accounting/ledger",
   "/accounting/rekening-koran",
   "/accounting/verifikasi",
+  "/dashboard",
   "/it/aktivitas",
   "/it/audit",
   "/it/john-lau",
