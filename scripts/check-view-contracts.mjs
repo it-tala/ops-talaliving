@@ -122,6 +122,16 @@ const VIEW_CONTRACTS = {
   v_statement_suggestion: null,
   v_vendor_payment:       null,
 
+  /* ── inventory ───────────────────────────────────────────────────────── */
+  /* `by_location`/`group_code`/`group_name` are a second and third read
+     (`v_stock_by_location`, `item_categories`), stitched on in
+     `withGroupAndLocation` — the view itself never had a column for either,
+     the same shape as `v_statement_line`'s `suggestions` above. */
+  v_stock_item:        { type: "StockItemView", composed: ["by_location", "group_code", "group_name"] },
+  /* Read for `location`/`location_name`/`qty` per item and folded into
+     `StockItemView.by_location` by hand — never cast, so nothing here can lie. */
+  v_stock_by_location: null,
+
   /* ── marketing ───────────────────────────────────────────────────────── */
   v_market:          "MarketView",
   v_property_agent:  "PropertyAgentView",

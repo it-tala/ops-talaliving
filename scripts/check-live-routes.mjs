@@ -255,12 +255,19 @@ const MODULE_OF = {
 
    `assistant` joins them with `ops_asst` (0038–0040): the catalogue, the gate,
    the router and the turn store are tables, and `src/lib/api/assistant.ts`
-   runs the tools by making the same calls the screens make. Three of its
-   sixteen tools read modules that are still empty — `inventory.low_stock`,
-   `production.late_orders`, `delivery.fulfilment` — and they say so by name
-   rather than answering a zero. A module is open when it can answer honestly,
-   not when it can answer everything. */
-const LIVE_MODULES = ["dashboard", "procurement", "accounting", "it", "settings", "assistant"];
+   runs the tools by making the same calls the screens make. Two of its
+   sixteen tools read modules that are still empty — `production.late_orders`,
+   `delivery.fulfilment` — and they say so by name rather than answering a
+   zero. A module is open when it can answer honestly, not when it can answer
+   everything.
+
+   `inventory` joins them once `0070`/`0071` are applied: material stock has
+   its schema and its client (`src/lib/api/inventory.ts`). Timber (`0070`'s
+   other half) and the board rack (no migration yet) are not written in that
+   client yet, so `/inventory/log` and `/inventory/papan` stay dark on their
+   own — this list only says the module may open, the per-route function scan
+   above still decides which screens in it do. */
+const LIVE_MODULES = ["dashboard", "procurement", "accounting", "it", "settings", "assistant", "inventory"];
 
 const IMPL = Object.fromEntries(LIVE.map((s) => [s, implementedFunctions(s)]));
 
