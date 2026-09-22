@@ -13,12 +13,14 @@ import type {
   Account, AccountBalance, TransactionView, TransactionDetail,
   TransactionType, Direction, AllocMethod, InboxStatus, InboxHealth,
   TrxStatus, BankStatementView, StatementLineView, StatementMatch,
-  TransactionTypeCode, PaymentAllocation,
+  TransactionTypeCode, PaymentAllocation, VendorPayment, CashOverride, CashSettlement,
+  CashComponent,
   InboxOrigin, EvidenceInboxRow,
   DocumentCoverage, TransactionCoverage, CoverageTransaction,
   CoverageLine, CoveragePayment,
 } from "@/services/accounting/contracts";
 import type { DocKind } from "@/services/documents/contracts";
+import type { LineCoverage } from "@/services/procurement/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fail, fromSeam, fromRows, invalid, notFound, ok, type Result } from "./_kit";
 
@@ -166,12 +168,13 @@ export async function getTransaction(trxNo: string): Promise<Result<TransactionD
  *  ledger this month" — they are "what happened to *this* row", asked while
  *  looking at it. */
 export async function historyFor(trxNo: string): Promise<Result<AuditRow[]>> {
-  /* **The one object this module reads from outside its own schema.** The audit
+  /* One of two objects this module reads from outside its own schema — the
+     other is `coverageFor`'s `ops_procure.v_line_coverage`, below. The audit
      log belongs to `ops_core` — one trail for the whole system, not one per
-     service — so this call names that schema rather than the module's. Checked
-     against the database rather than remembered: it is the only exception among
-     the hundred objects the four clients touch, and
-     `scripts/check-api-schemas.mjs` is what keeps it the only one.
+     service — so this call names that schema rather than the module's.
+     Checked against the database rather than remembered:
+     `scripts/check-api-schemas.mjs` reads every `.schema(...).from(...)` call
+     in this file and confirms each one names the object's real home.
      `v_audit`, not the bare `audit_log` table: the table has no `actor_email`
      at all, and the contract needs it read back from `at` alone in every
      screen that shows this trail — `0023` already did that join once (`0086`
@@ -184,11 +187,21 @@ export async function historyFor(trxNo: string): Promise<Result<AuditRow[]>> {
   return fromRows<AuditRow[]>(SERVICE, data as AuditRow[], error);
 }
 
-export async function coverageFor(prLineNo: string): Promise<Result<unknown[]>> {
-  const { data, error } = await db().from("v_allocation").select("*")
-    .eq("pr_line_no", prLineNo).is("superseded_by", null)
-    .order("allocated_at");
-  return fromRows<unknown[]>(SERVICE, data as unknown[], error);
+/** What a line is covered for, in the shape the demo's `lineCoverage()`
+ *  answers (`line_id`, `approved`, `covered`, `remaining`, `settled`) — not
+ *  the allocation rows behind it, which `ops_procure.v_allocation` gives and
+ *  which is a different question (*what paid for it*, not *how much of it is
+ *  paid*). `ops_procure.v_line_coverage` already computes exactly this for
+ *  every line `v_pr_line`'s own `coverage_*` columns draw from — a second
+ *  cross-schema read alongside `historyFor`'s, because coverage is owned by
+ *  procurement the same way the audit trail is owned by core. */
+export async function coverageFor(lineNoFull: string): Promise<Result<LineCoverage>> {
+  const { data, error } = await supabaseBrowser().schema("ops_procure")
+    .from("v_line_coverage").select("line_id, approved, covered, remaining, settled")
+    .eq("line_no_full", lineNoFull).maybeSingle();
+  if (error) return fail(SERVICE, error);
+  if (!data) return notFound(SERVICE, "line_not_found", `Line ${lineNoFull} not found.`);
+  return ok(SERVICE, data as LineCoverage);
 }
 
 /* ------------------------------------------------------------------ */
@@ -786,9 +799,15 @@ export async function listCells(month?: string): Promise<Result<unknown[]>> {
   return fromRows<unknown[]>(SERVICE, data as unknown[], error);
 }
 
-export async function listComponents(): Promise<Result<unknown[]>> {
-  const { data, error } = await db().from("v_cash_row").select("*").order("name");
-  return fromRows<unknown[]>(SERVICE, data as unknown[], error);
+/** The raw editable rows — what a form needs (`vendor_id`, `account_id`,
+ *  `scheme_codes`), not `v_cash_row`'s display shape (`vendor_name`,
+ *  `account_code`, the cells and totals a calendar cell draws). That view is
+ *  for `CashRow`, a different contract; reading it here was the same
+ *  backwards-view mistake `listAccounts`/`listAccountRows` had until the
+ *  swap put the two clients side by side (see this file's own header). */
+export async function listComponents(): Promise<Result<CashComponent[]>> {
+  const { data, error } = await db().from("cash_components").select("*").order("name");
+  return fromRows<CashComponent[]>(SERVICE, data as CashComponent[], error);
 }
 
 /** Cash across the accounts that actually pay people. **Leadership's are not
@@ -845,21 +864,33 @@ export async function saveComponent(input: {
  *  a fact, not a deletion. On a **weekly** line the amount is the month's
  *  total, and the difference lands on the last run: the THR is paid with one
  *  payday rather than spread across four (D114). */
+/** The demo signals "skip this month" with `amount: null`; the seam takes a
+ *  separate `p_skip` boolean (`0089` added `p_due_day` beside it — the
+ *  contract's `due_day` had a column since `0022` and no seam parameter to
+ *  reach it). Redraws the saved row from `cash_overrides` rather than
+ *  echoing the seam, the same as every other write in this file. */
 export async function setOverride(input: {
   component_id: string;
   month: string;
-  amount?: number | null;
+  amount: number | null;
+  due_day?: number | null;
   reason?: string | null;
-  skip?: boolean;
-}): Promise<Result<unknown>> {
+}): Promise<Result<CashOverride>> {
   const { data, error } = await db().rpc("set_cash_override", {
     p_component_id: input.component_id,
     p_month: input.month,
-    p_amount: input.amount ?? null,
+    p_amount: input.amount,
     p_reason: input.reason ?? null,
-    p_skip: input.skip ?? false,
+    p_skip: input.amount === null,
+    p_due_day: input.due_day ?? null,
   });
-  return fromSeam(SERVICE, data, error);
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  const { data: row, error: readErr } = await db().from("cash_overrides").select("*")
+    .eq("component_id", input.component_id).eq("month", input.month).maybeSingle();
+  if (readErr) return fail(SERVICE, readErr);
+  if (!row) return notFound(SERVICE, "override_not_found", "The override was saved but could not be read back.");
+  return ok(SERVICE, row as CashOverride);
 }
 
 /** Somebody saying *this ledger row is that bill*. It beats the category
@@ -867,11 +898,17 @@ export async function setOverride(input: {
  *  row, one bill: a payment already on the calendar is a 409. */
 export async function linkPayment(input: {
   component_id: string; month: string; trx_no: string;
-}): Promise<Result<unknown>> {
+}): Promise<Result<CashSettlement>> {
   const { data, error } = await db().rpc("link_cash_payment", {
     p_component_id: input.component_id, p_month: input.month, p_trx_no: input.trx_no,
   });
-  return fromSeam(SERVICE, data, error);
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  const { data: row, error: readErr } = await db().from("cash_settlements").select("*")
+    .eq("trx_no", input.trx_no).maybeSingle();
+  if (readErr) return fail(SERVICE, readErr);
+  if (!row) return notFound(SERVICE, "settlement_not_found", "The link was saved but could not be read back.");
+  return ok(SERVICE, row as CashSettlement);
 }
 
 /* ------------------------------------------------------------------ */
@@ -881,15 +918,27 @@ export async function linkPayment(input: {
 /** One payment, and what it settled. `applies_to` is a list because one
  *  transfer really does close three orders — the bank saw one payment, the
  *  vendor closed three, and both are true (D97). */
-export async function paymentsForVendor(vendorId: string): Promise<Result<unknown[]>> {
+export async function paymentsForVendor(vendorId: string): Promise<Result<VendorPayment[]>> {
   const { data, error } = await db().from("v_vendor_payment").select("*")
-    .eq("vendor_id", vendorId).order("trx_date", { ascending: false });
-  return fromRows<unknown[]>(SERVICE, data as unknown[], error);
+    .eq("vendor_id", vendorId).order("trx_date").order("trx_no");
+  return fromRows<VendorPayment[]>(SERVICE, data as VendorPayment[], error);
 }
 
-export async function listStatements(): Promise<Result<unknown[]>> {
-  const { data, error } = await db().from("v_bank_statement").select("*").order("period_start", { ascending: false });
-  return fromRows<unknown[]>(SERVICE, data as unknown[], error);
+/** Every statement, each with its lines — `getStatement`'s shape, for every
+ *  row rather than one. One `getStatement` per statement rather than a fourth
+ *  hand-rolled query here: the demo builds the same nested shape from the
+ *  same three reads, and a second way to assemble a `BankStatementView` is a
+ *  second place for the two to drift. */
+export async function listStatements(): Promise<Result<BankStatementView[]>> {
+  const { data, error } = await db().from("v_bank_statement").select("statement_no")
+    .order("period_start", { ascending: false });
+  if (error) return fail(SERVICE, error);
+  const views = await Promise.all(
+    (data ?? []).map((r) => getStatement((r as { statement_no: string }).statement_no)),
+  );
+  const failed = views.find((v) => v.error);
+  if (failed?.error) return { error: failed.error, meta: failed.meta };
+  return ok(SERVICE, views.map((v) => (v as { data: BankStatementView }).data));
 }
 
 /** A ledger row that looks like this statement line. **A suggestion, never

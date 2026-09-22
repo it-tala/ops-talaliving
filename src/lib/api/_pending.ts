@@ -77,34 +77,34 @@
  *  finishing B2/B3, and the removal has to come with the fix that earns it.
  */
 export const PENDING_PARITY: readonly string[] = [
-  /* Answers a receipt; the contract promises `LineCoverage`. */
-  "accounting.coverageFor",
-  /* Takes `from?`, answers rows; the contract is `() => CashPlan` — a
-     computed month-by-month projection, not a query. See `findings.md`. */
-  "accounting.getCashPlan",
-  "accounting.linkPayment",
-  /* Reads `v_cash_row` (the display row for the plan grid — `CashRow`, a
-     different type); the contract wants the raw `cash_components` rows,
-     including `scheme_codes`, which the table does not have a column for
-     yet. See `findings.md`. */
-  "accounting.listComponents",
-  /* The contract's `lines: StatementLineView[]` is a nested array; the view
-     is flat. */
-  "accounting.listStatements",
-  /* The contract wants `proof_attachment_id` / `proof_filename`; the view
-     has neither. */
-  "accounting.paymentsForVendor",
-  "accounting.setOverride",
+  /* Procurement is clear, and so is every accounting function but this one.
+     `coverageFor`, `linkPayment`, `listComponents` (`0090` added the
+     `scheme_codes` column the table never had), `listStatements`,
+     `paymentsForVendor` (`0088` added the proof-attachment columns
+     `v_vendor_payment` never carried), `setOverride` (`0089` added the
+     `p_due_day` parameter the seam never took) are gone from both files —
+     see `findings.md`.
 
-  /* Procurement: the same pattern, at scale. Every one of these answers what
-     the seam returned rather than the row the screen is about to draw. The
-     curation five are gone from here — see the note above, and `historyFor`,
-     `answerFromChat`, `confirmReceipt`, `createReceipt`, `listReported`, and
-     all six round functions (`approveRound`, `closeRound`, `getRound`,
-     `listRounds`, `syncRound`, `transferRound` — `0087` gave
-     `v_round_summary` the four money fields it was missing) are gone from
-     both files for the same reason (`findings.md`). */
-  "procurement.setExpectedDelivery",
+     `getCashPlan` takes `from?`, answers rows; the contract is
+     `() => CashPlan`. Not a shape mismatch a view can close: the demo's
+     `cashPlan()` (`src/demo/derive.ts`) is ~150 lines computing twelve
+     months forward from `cash_components` — occurrence dates per frequency,
+     an override on a weekly line spread across its runs with the remainder on
+     the last one, fuzzy matching of ledger rows to planned occurrences within
+     a tolerance window, the running balance, the first month it goes negative
+     and by how much, and undated obligations held apart rather than spread to
+     make the chart look even. Every migration in this ladder puts a
+     derivation like this behind a view (A3) precisely so the real and the
+     demo client can't compute it two different ways and disagree — so this
+     has to be ported to SQL as one piece, not approximated, and it is the one
+     screen in this codebase's own findings log that most reliably found real
+     business mistakes by being asked a question it had to get exactly right
+     (`docs/plan/checkpoints/2026-09-23.md`). Money-path logic this load-
+     bearing is not a fix to land inside a larger batch; it wants its own
+     migration, its own smoke file proving the month-by-month arithmetic
+     against seeded data, and a second pair of eyes before `swap()` ever
+     points a leadership screen at it. */
+  "accounting.getCashPlan",
 ];
 
 /** `service.function` → is it pending? */

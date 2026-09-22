@@ -781,11 +781,13 @@ export async function requestPoApproval(
   return afterPo(input.po_no, fromSeam(SERVICE, data, error));
 }
 
-export async function setExpectedDelivery(poNo: string, date: string): Promise<Result<unknown>> {
+export async function setExpectedDelivery(
+  input: { po_no: string; expected_delivery: string | null; reason?: string | null },
+): Promise<Result<PoDetail>> {
   const { data, error } = await db().rpc("set_expected_delivery", {
-    p_po_no: poNo, p_date: date,
+    p_po_no: input.po_no, p_date: input.expected_delivery, p_reason: input.reason ?? null,
   });
-  return fromSeam(SERVICE, data, error);
+  return afterPo(input.po_no, fromSeam(SERVICE, data, error));
 }
 
 export async function markPoResent(poNo: string): Promise<Result<PoDetail>> {
