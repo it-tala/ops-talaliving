@@ -461,7 +461,7 @@ const INBOX_COLUMNS =
   "id, ref_id, origin, status, attachment_id, reported_by, reported_at, "
   + "extracted, money_direction, produced_trx_no, produced_pr_line_no";
 
-function toInboxRow(r: InboxRowDb): EvidenceInboxRow {
+function toInboxRow(r: InboxRowDb): Omit<EvidenceInboxRow, "reported_by_name"> {
   return {
     id: r.id,
     ref_id: r.ref_id,
@@ -489,18 +489,31 @@ function toInboxRow(r: InboxRowDb): EvidenceInboxRow {
   };
 }
 
+/** Who `reported_by` is, spelled out — batched, so a queue of twenty rows is
+ *  one extra query rather than twenty. */
+async function withReporterNames(
+  rows: Omit<EvidenceInboxRow, "reported_by_name">[],
+): Promise<Result<EvidenceInboxRow[]>> {
+  if (rows.length === 0) return ok(SERVICE, []);
+  const ids = [...new Set(rows.map((r) => r.reported_by))];
+  const { data, error } = await core().from("users").select("id, full_name").in("id", ids);
+  if (error) return fail(SERVICE, error);
+  const nameOf = new Map((data ?? []).map((u) => [u.id as string, u.full_name as string]));
+  return ok(SERVICE, rows.map((r) => ({ ...r, reported_by_name: nameOf.get(r.reported_by) ?? null })));
+}
+
 export async function listInbox(): Promise<Result<EvidenceInboxRow[]>> {
   const { data, error } = await db().from("evidence_inbox").select(INBOX_COLUMNS)
     .eq("status", "PENDING").order("reported_at", { ascending: false });
   if (error) return fail(SERVICE, error);
-  return ok(SERVICE, ((data ?? []) as unknown as InboxRowDb[]).map(toInboxRow));
+  return withReporterNames(((data ?? []) as unknown as InboxRowDb[]).map(toInboxRow));
 }
 
 export async function listInboxAll(): Promise<Result<EvidenceInboxRow[]>> {
   const { data, error } = await db().from("evidence_inbox").select(INBOX_COLUMNS)
     .order("reported_at", { ascending: false });
   if (error) return fail(SERVICE, error);
-  return ok(SERVICE, ((data ?? []) as unknown as InboxRowDb[]).map(toInboxRow));
+  return withReporterNames(((data ?? []) as unknown as InboxRowDb[]).map(toInboxRow));
 }
 
 /** Not decoration. If this number grows, people are routing around the normal
@@ -582,7 +595,9 @@ export async function resolveInbox(
   if (!after.data) {
     return notFound(SERVICE, "inbox_row_not_found", `Row ${input.ref_id} not found.`);
   }
-  return ok(SERVICE, toInboxRow(after.data as unknown as InboxRowDb));
+  const named = await withReporterNames([toInboxRow(after.data as unknown as InboxRowDb)]);
+  if (named.error) return named;
+  return ok(SERVICE, named.data[0]);
 }
 
 /* ------------------------------------------------------------------ */

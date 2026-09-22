@@ -85,17 +85,25 @@ export function DocumentPreview({ doc, height = 340 }: { doc: PreviewDoc; height
   /* A real file, once there is one. `onError` catches the case the id
      regex above cannot: a private file the viewer's own session cannot
      open, or a link shaped some other way entirely — either way, the stand-in
-     sheet is a better answer than a broken-image icon. */
+     sheet is a better answer than a broken-image icon.
+     Clicking it opens `doc.url` — the Drive share page itself, already a
+     full-size viewer with its own zoom — rather than building a second,
+     in-app one: the cheaper of the two ways to let someone see it full size. */
   if (isImage && imgSrc && !imgFailed) {
-    return (
+    const img = (
       // eslint-disable-next-line @next/next/no-img-element
       <img
         src={imgSrc} alt={doc.filename}
         onError={() => setImgFailed(true)}
-        className="w-full rounded-xl border border-slate-200 object-contain"
+        className="w-full rounded-xl border border-slate-200 object-contain transition-opacity hover:opacity-90"
         style={{ height }}
       />
     );
+    return doc.url ? (
+      <a href={doc.url} target="_blank" rel="noreferrer" title="Buka ukuran penuh di Google Drive">
+        {img}
+      </a>
+    ) : img;
   }
 
   const read = doc.read ?? {};

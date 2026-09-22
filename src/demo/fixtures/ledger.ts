@@ -159,7 +159,9 @@ export const PAYMENT_ALLOCATIONS: PaymentAllocation[] = [
  * unknown because somebody bought first (ADR-010). Three waiting, one already
  * resolved to a note, one that produced a transaction. If this list grows,
  * people are routing around the normal road. */
-export const EVIDENCE_INBOX: EvidenceInboxRow[] = [
+/* `reported_by_name` is derived, not stated — see the comment on
+   `DemoState.evidence_inbox`. */
+export const EVIDENCE_INBOX: Omit<EvidenceInboxRow, "reported_by_name">[] = [
   /* Two decisions from months back, which exist so the history has a **shape**
      rather than a length (B4, D269). A window that never has anything outside
      it proves nothing: these are what makes *3 dari 5 keputusan, 2 lagi lebih
