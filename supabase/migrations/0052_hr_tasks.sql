@@ -1,4 +1,4 @@
--- 0049_hr_tasks.sql — the tracker, and the rule that makes it worth having.
+-- 0052_hr_tasks.sql — the tracker, and the rule that makes it worth having.
 --
 -- The last two enums the contracts carried and the ladder never did.
 -- `task_status_t` and `task_ref_t` arrived with M51, after `0001_core_types`

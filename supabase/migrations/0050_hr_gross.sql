@@ -1,4 +1,4 @@
--- 0047_hr_gross.sql — what a person is owed for a period, computed on read.
+-- 0050_hr_gross.sql — what a person is owed for a period, computed on read.
 --
 -- The transcription of `payrollLine`. **Contributions are not here and that is
 -- not a gap**: the demo's gross is

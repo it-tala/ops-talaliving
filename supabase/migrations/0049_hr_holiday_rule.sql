@@ -1,4 +1,4 @@
--- 0046_hr_holiday_rule.sql — the owner's answer to F101.
+-- 0049_hr_holiday_rule.sql — the owner's answer to F101.
 --
 -- F101 asked which mark decides a day when somebody is marked *sakit* on a day
 -- the whole office is shut. 0045 shipped with my own reading — the personal

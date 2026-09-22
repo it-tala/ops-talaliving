@@ -77,34 +77,29 @@
  *  finishing B2/B3, and the removal has to come with the fix that earns it.
  */
 export const PENDING_PARITY: readonly string[] = [
-  /* Answers a receipt; the contract promises `LineCoverage`. */
-  "accounting.coverageFor",
-  /* Takes `from?`, answers rows; the contract is `() => CashPlan`. */
-  "accounting.getCashPlan",
-  /* `unknown[]` where the screen reads `AuditRow[]`. */
-  "accounting.historyFor",
-  "accounting.linkPayment",
-  "accounting.listComponents",
-  "accounting.listStatements",
-  "accounting.paymentsForVendor",
-  "accounting.setOverride",
-
-  /* Procurement: the same pattern, at scale. Every one of these answers what
-     the seam returned rather than the row the screen is about to draw. The
-     curation five are gone from here — see the note above. */
-  "procurement.answerFromChat",
-  "procurement.approveRound",
-  "procurement.closeRound",
-  "procurement.confirmReceipt",
-  "procurement.createReceipt",
-  "procurement.getRound",
-  "procurement.listReported",
-  "procurement.listRounds",
-  "procurement.setExpectedDelivery",
-  "procurement.syncRound",
-  /* Positional against object arguments. */
-  "procurement.transferRound",
+  "inventory.stockFromReceipt",
 ];
+
+/* `inventory.stockFromReceipt`: the demo's is synchronous — `draft` is
+   already in memory, so resolving receipt → po_line/pr_line → item is a plain
+   lookup. The real client has no `draft`; the same resolution is a handful of
+   database reads, so the function is necessarily `Promise`-wrapped where the
+   demo's is not. Nothing to fix — a synchronous function cannot read a
+   database, and the caller (procurement's receipt-confirm flow) already
+   awaits it. Named here rather than silently answering a different shape.
+
+   Empty otherwise as of `0091`. `getCashPlan` was the last name here — the twelve-month
+   cash projection, ported to `ops_acct.cash_plan()` as its own migration with
+   its own smoke file (`86_acct_cash_plan.sql`) proving the occurrence dates,
+   the weekly-override spread (D114), the settlement link beating a category
+   guess, the running balance, and the month it goes negative — rather than
+   folded into the batch that closed everything else. Every name that was
+   ever on this list, and what closed it, is `findings.md`'s to keep now that
+   this file's job — being the thing CI checks so the list cannot rot in
+   either direction — is done for the fifty-two functions this codebase
+   started with. The check stays: `check-api-parity.mjs` still fails if a
+   future function drifts from its demo counterpart, it simply has nothing to
+   list today. */
 
 /** `service.function` → is it pending? */
 export function isPendingParity(service: string, fn: string): boolean {

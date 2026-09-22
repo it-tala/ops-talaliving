@@ -70,6 +70,11 @@ const VIEW_CONTRACTS = {
   v_item_view:       "ItemView",
   v_vendor_journey:  { type: "VendorJourney", composed: ["headline"] },
   v_round_summary:   "RoundSummary",
+  /* Read for one column, `line_id` — which lines belong to a round, so
+     `getRoundView()` can fetch them from `v_pr_line` the same way every other
+     line list does. No row here is ever handed to a screen, so there is
+     nothing to cast. */
+  v_line_round:      null,
   /* Read into `LineRow`, a private flat shape this client reshapes into
      `PrLineView` by hand. The reshaping is checked by `tsc`, because nothing
      is cast: `toLineView` names every field it moves. */
@@ -103,7 +108,15 @@ const VIEW_CONTRACTS = {
      stitched on before the result is returned. The intermediate cast is
      genuinely incomplete and the returned value is not. */
   v_statement_line:     { type: "StatementLineView", composed: ["suggestions"] },
-  v_inbox_health:       "InboxHealth",
+  /* Read into an anonymous row and mapped into `InboxHealth` by hand —
+     `by_origin` was a straight `as unknown as InboxHealth` onto a view with
+     no such column, which this script's own contract check would have
+     caught immediately if this entry had said so instead of naming
+     `by_origin` a known gap "behind" a route that was actually live
+     (`/accounting/verifikasi` crashed on it in production). Never cast
+     again, so `tsc` checks the object literal against the function's return
+     type instead. */
+  v_inbox_health:       null,
   /* `fromRows<unknown[]>` — the client hands these straight to a screen that
      reads them structurally, so there is no named contract to compare against.
      Each is a candidate for one; none is a cast that can lie today. */
@@ -116,6 +129,29 @@ const VIEW_CONTRACTS = {
   v_cash_unplanned:       null,
   v_statement_suggestion: null,
   v_vendor_payment:       null,
+
+  /* ── inventory ───────────────────────────────────────────────────────── */
+  /* `by_location`/`group_code`/`group_name` are a second and third read
+     (`v_stock_by_location`, `item_categories`), stitched on in
+     `withGroupAndLocation` — the view itself never had a column for either,
+     the same shape as `v_statement_line`'s `suggestions` above. */
+  v_stock_item:        { type: "StockItemView", composed: ["by_location", "group_code", "group_name"] },
+  /* Read for `location`/`location_name`/`qty` per item and folded into
+     `StockItemView.by_location` by hand — never cast, so nothing here can lie. */
+  v_stock_by_location: null,
+  /* Every column matches `BoardStockView` field for field — ported from
+     `boardStock()` for exactly that (`0094`'s own header). */
+  v_board_stock: "BoardStockView",
+  /* Read into an anonymous row and mapped into `LogPurchaseView` by hand,
+     field by field, with `logs`/`boards`/`warnings`/`vendor_id` built from a
+     second and third read (`log_pieces`, `sawn_boards`, `vendors`) — never
+     cast, so `tsc` checks the object literal against the function's own
+     return type instead. */
+  v_log_purchase: null,
+  /* Same shape as `v_log_purchase` above: mapped by hand into
+     `TimberVendorSummary`, `unsawn_m3` computed from this row's own
+     `log_m3`/`sawn_logs_m3` rather than cast from a column of that name. */
+  v_timber_by_vendor: null,
 
   /* ── marketing ───────────────────────────────────────────────────────── */
   v_market:          "MarketView",
@@ -133,6 +169,14 @@ const VIEW_CONTRACTS = {
   /* Mapped field by field into an anonymous row type, so `tsc` checks every
      one of them and there is no cast to lie. */
   v_followup_queue:  null,
+
+  /* ── john lau ────────────────────────────────────────────────────────── */
+  /* The catalogue, read into a private row shape and mapped field by field
+     into `AssistantTool` — both languages come down and one is chosen in the
+     client, because the list is a menu and a menu is rendering (0038). The
+     mapping names every field it moves, so `tsc` checks it; what `tsc` cannot
+     see, and this can, is whether the view still returns `blocked_reason_id`. */
+  v_tool_catalogue: "CatalogueRow",
 };
 
 /** Views that do **not** satisfy their contract, with what is missing and why
@@ -149,12 +193,14 @@ const VIEW_CONTRACTS = {
  *  it.
  */
 const KNOWN_GAPS = {
-  /* `/procurement/rounds` — also waiting on seven functions in `_pending.ts`.
-     A funded round still pays nobody (A10), so `transfers` is not decoration:
-     without it the screen cannot tell funded from paid. */
-  v_round_summary: ["transfers", "paying_balance", "to_transfer", "remaining_after_payment"],
-  /* `/accounting/verifikasi` — also waiting on five. */
-  v_inbox_health:  ["by_origin"],
+  /* `0087` added `paying_balance`, `to_transfer` and `remaining_after_payment`
+     to the view. `transfers` stays a known gap on purpose: it was never meant
+     to live on this view — `getRoundView()` in `src/lib/api/procurement.ts`
+     reads it from `round_transfers` directly, the same table the demo's
+     `roundSummary()` filters in memory. A funded round still pays nobody
+     (A10), so it is not decoration: without it the screen cannot tell funded
+     from paid. */
+  v_round_summary: ["transfers"],
 };
 
 /* ── the interfaces, from the contracts and from the client ───────────── */

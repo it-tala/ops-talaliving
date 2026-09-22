@@ -26,13 +26,15 @@
 import type {
   Vendor, VendorView, Item, ItemView, Uom, ItemCategory, Project,
   PrLineView, PrApproval, LineNote, LineVariance, ApprovalRequest,
-  VendorJourney, RoundSummary, VarianceReason, Channel, ApprovalBatchView,
-  PoDetail, PoLine, PoStatusView, PurchaseOrder,
+  VendorJourney, RoundSummary, RoundTransfer, VarianceReason, Channel, ApprovalBatchView,
+  PoDetail, PoLine, PoStatusView, PurchaseOrder, Receipt, ReceiptCondition,
   UomCode, PrCategory, PrDocument,
 } from "@/services/procurement/contracts";
+import type { DocKind } from "@/services/documents/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { getActiveLocale } from "@/lib/format";
 import { fail, fromSeam, fromRows, fromPage, invalid, notFound, ok, type Result } from "./_kit";
+import * as documents from "./documents";
 
 const SERVICE = "procurement" as const;
 
@@ -779,11 +781,13 @@ export async function requestPoApproval(
   return afterPo(input.po_no, fromSeam(SERVICE, data, error));
 }
 
-export async function setExpectedDelivery(poNo: string, date: string): Promise<Result<unknown>> {
+export async function setExpectedDelivery(
+  input: { po_no: string; expected_delivery: string | null; reason?: string | null },
+): Promise<Result<PoDetail>> {
   const { data, error } = await db().rpc("set_expected_delivery", {
-    p_po_no: poNo, p_date: date,
+    p_po_no: input.po_no, p_date: input.expected_delivery, p_reason: input.reason ?? null,
   });
-  return fromSeam(SERVICE, data, error);
+  return afterPo(input.po_no, fromSeam(SERVICE, data, error));
 }
 
 export async function markPoResent(poNo: string): Promise<Result<PoDetail>> {
@@ -800,13 +804,13 @@ export async function createReceipt(
     line_no?: string | null;
     po_line_id?: string | null;
     qty_received: number;
-    condition: string;
-    documents: { attachment_id: string; kind: string }[];
+    condition: ReceiptCondition;
+    documents: { attachment_id: string; kind: DocKind }[];
     qc_by?: string | null;
     note?: string | null;
   },
   idempotencyKey?: string,
-): Promise<Result<{ receipt_no: string; status: string; notified: boolean }>> {
+): Promise<Result<{ receipt: Receipt; notified: boolean }>> {
   const { data, error } = await db().rpc("create_receipt", {
     p_qty: input.qty_received,
     p_condition: input.condition,
@@ -817,28 +821,60 @@ export async function createReceipt(
     p_note: input.note ?? null,
     p_key: idempotencyKey ?? null,
   });
-  return fromSeam(SERVICE, data, error);
+  const res = fromSeam<{ receipt_no: string; notified: boolean }>(SERVICE, data, error);
+  if (res.error) return res;
+  const receipt = await getReceipt(res.data.receipt_no);
+  if (receipt.error) return receipt;
+  return ok(SERVICE, { receipt: receipt.data, notified: res.data.notified });
+}
+
+async function getReceipt(receiptNo: string): Promise<Result<Receipt>> {
+  const { data, error } = await db().from("receipts").select("*").eq("receipt_no", receiptNo).maybeSingle();
+  if (error) return fail(SERVICE, error);
+  if (!data) return notFound(SERVICE, "receipt_not_found", `Receipt ${receiptNo} not found.`);
+  return ok(SERVICE, data as Receipt);
 }
 
 /** Roll everything still owed into the open round, opening one if there is
  *  none. Nothing to roll is a `noop` — a successful nothing-happened, which is
  *  a better answer than a 200 that looks like work. */
-export async function syncRound(): Promise<Result<{ round_no: string; added: number }>> {
+export async function syncRound(): Promise<Result<RoundView>> {
   const { data, error } = await db().rpc("sync_round");
-  return fromSeam(SERVICE, data, error);
+  const res = fromSeam<{ round_no: string }>(SERVICE, data, error);
+  if (res.error) return res;
+  return getRoundView(res.data.round_no);
+}
+
+export interface CloseRoundResult {
+  round: RoundView;
+  still_owed: PrLineView[];
 }
 
 /** Closing does not refuse over a line still owed: that line comes back in the
  *  next round through `syncRound`, which is how it stays somebody's problem
- *  without anybody carrying it forward by hand. The count comes back so the
- *  screen can say so. */
+ *  without anybody carrying it forward by hand.
+ *
+ *  The seam answers a **count**; the screen draws the **lines** (`still_owed`
+ *  is what closing released — the step everyone forgets). Reads the round
+ *  after closing rather than recomputing which lines those are: `lines` on
+ *  the freshly-fetched `RoundView` still holds every line that was in this
+ *  round, closed or not, and `coverage.settled` on each is the same column
+ *  `v_pr_line` already computed — not a second reckoning of what "still owed"
+ *  means. */
 export async function closeRound(
   roundNo: string, idempotencyKey?: string,
-): Promise<Result<{ round_no: string; status: string; still_owed: number }>> {
+): Promise<Result<CloseRoundResult>> {
   const { data, error } = await db().rpc("close_round", {
     p_round_no: roundNo, p_key: idempotencyKey ?? null,
   });
-  return fromSeam(SERVICE, data, error);
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  const view = await getRoundView(roundNo);
+  if (view.error) return view;
+  return ok(SERVICE, {
+    round: view.data,
+    still_owed: view.data.lines.filter((l) => !l.coverage.settled),
+  });
 }
 
 /** What the next round would pick up, before anybody presses the button. */
@@ -851,11 +887,19 @@ export async function roundEligible(): Promise<Result<{ line_no_full: string; re
  *  so the webhook handler that verifies Google's signature has one place to land,
  *  and so that `answered_by_email` is visibly a parameter rather than something
  *  taken from the session. Taking it from the session is the bug D69 exists to
- *  prevent. */
+ *  prevent.
+ *
+ *  Still short of the demo's contract on purpose: the seam has nowhere to put
+ *  `approved_qty` / `approved_amount` / `remark` yet (`answer_request` takes
+ *  only `p_token`, `p_approved`, `p_answered_by_email`, `p_instructions`), so
+ *  this does not claim to accept them — a field this function silently
+ *  dropped would be worse than one it never offered. `answerFromChat` stays
+ *  on `PENDING_PARITY` until the seam grows those parameters; what changed is
+ *  the return shape, which now redraws the line instead of echoing the seam. */
 export async function answerFromChat(
   input: { token: string; approved: boolean; answered_by_email: string; instructions?: string | null },
   idempotencyKey?: string,
-): Promise<Result<{ line_no: string; approved: boolean; by: string; channel: string }>> {
+): Promise<Result<PrLineView>> {
   const { data, error } = await db().rpc("answer_request", {
     p_token: input.token,
     p_approved: input.approved,
@@ -863,7 +907,9 @@ export async function answerFromChat(
     p_instructions: input.instructions ?? null,
     p_key: idempotencyKey ?? null,
   });
-  return fromSeam(SERVICE, data, error);
+  const res = fromSeam<{ line_no: string }>(SERVICE, data, error);
+  if (res.error) return res;
+  return getLine(res.data.line_no);
 }
 
 async function getLine(lineNo: string): Promise<Result<PrLineView>> {
@@ -1042,38 +1088,93 @@ export async function mergeVendor(loserId: string, winnerId: string): Promise<Re
 /* Rounds, orders, receiving                                           */
 /* ------------------------------------------------------------------ */
 
-export async function listRounds(): Promise<Result<RoundSummary[]>> {
-  const { data, error } = await db().from("v_round_summary").select("*").order("opened_at", { ascending: false });
-  return fromRows<RoundSummary[]>(SERVICE, data as RoundSummary[], error);
+/** `RoundView`, restated here the way `AuditRow` is in `accounting.ts`: the
+ *  demo declares it locally (`src/demo/api/procurement.ts`), not in the
+ *  shared contracts, because it is `RoundSummary` plus the lines a screen
+ *  draws beside it — the same shape `check-api-parity.mjs` compares
+ *  structurally rather than by import. */
+interface RoundView extends RoundSummary {
+  lines: PrLineView[];
 }
 
-export async function getRound(roundNo: string): Promise<Result<RoundSummary>> {
-  const { data, error } = await db().from("v_round_summary").select("*").eq("round_no", roundNo).single();
-  return fromRows<RoundSummary>(SERVICE, data as RoundSummary, error);
+/** `v_round_summary` (`0087`) carries every `RoundSummary` field including
+ *  the three money figures the demo computes from in-memory state
+ *  (`paying_balance`, `to_transfer`, `remaining_after_payment`); `transfers`
+ *  and `lines` are two more reads next to it, exactly the shape `roundView()`
+ *  assembles in the demo. Not a derivation — every number here already came
+ *  out of a view or a table as itself. */
+async function getRoundView(roundNo: string): Promise<Result<RoundView>> {
+  const { data: summary, error: e1 } = await db()
+    .from("v_round_summary").select("*").eq("round_no", roundNo).maybeSingle();
+  if (e1) return fail(SERVICE, e1);
+  if (!summary) return notFound(SERVICE, "round_not_found", `Round ${roundNo} not found.`);
+  const roundId = (summary as RoundSummary).round_id;
+
+  const [transfersRes, roundLinesRes] = await Promise.all([
+    db().from("round_transfers").select("*").eq("round_id", roundId).order("recorded_at"),
+    db().from("v_line_round").select("line_id").eq("round_no", roundNo),
+  ]);
+  if (transfersRes.error) return fail(SERVICE, transfersRes.error);
+  if (roundLinesRes.error) return fail(SERVICE, roundLinesRes.error);
+
+  const lineIds = (roundLinesRes.data ?? []).map((r) => (r as { line_id: string }).line_id);
+  let lines: PrLineView[] = [];
+  if (lineIds.length) {
+    const { data: lineRows, error: e3 } = await db().from("v_pr_line").select("*").in("id", lineIds);
+    if (e3) return fail(SERVICE, e3);
+    lines = (lineRows ?? []).map((r) => toLineView(r as LineRow));
+  }
+
+  return ok(SERVICE, {
+    ...(summary as RoundSummary),
+    transfers: (transfersRes.data ?? []) as RoundTransfer[],
+    lines,
+  });
 }
 
-export async function approveRound(roundNo: string, idempotencyKey?: string): Promise<Result<unknown>> {
+export async function listRounds(): Promise<Result<RoundView[]>> {
+  const { data, error } = await db().from("v_round_summary").select("round_no")
+    .order("opened_at", { ascending: false });
+  if (error) return fail(SERVICE, error);
+  const views = await Promise.all(
+    (data ?? []).map((r) => getRoundView((r as { round_no: string }).round_no)),
+  );
+  const failed = views.find((v) => v.error);
+  if (failed?.error) return { error: failed.error, meta: failed.meta };
+  return ok(SERVICE, views.map((v) => (v as { data: RoundView }).data));
+}
+
+export async function getRound(roundNo: string): Promise<Result<RoundView>> {
+  return getRoundView(roundNo);
+}
+
+export async function approveRound(roundNo: string, idempotencyKey?: string): Promise<Result<RoundView>> {
   const { data, error } = await db().rpc("approve_round", {
     p_round_no: roundNo, p_key: idempotencyKey ?? null,
   });
-  return fromSeam(SERVICE, data, error);
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return getRoundView(roundNo);
 }
 
 /** Recording an instalment. It moves the round to TRANSFERRED and **makes not
  *  one line PAID** — that is D6, and it is the database's business, not this
  *  file's. */
 export async function transferRound(
-  input: { round_no: string; amount: number; trx_no: string; proof_attachment_id: string },
+  roundNo: string,
+  input: { amount: number; trx_no: string; proof_attachment_id: string },
   idempotencyKey?: string,
-): Promise<Result<unknown>> {
+): Promise<Result<RoundView>> {
   const { data, error } = await db().rpc("transfer_round", {
-    p_round_no: input.round_no,
+    p_round_no: roundNo,
     p_amount: input.amount,
     p_trx_no: input.trx_no,
     p_proof: input.proof_attachment_id,
     p_key: idempotencyKey ?? null,
   });
-  return fromSeam(SERVICE, data, error);
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return getRoundView(roundNo);
 }
 
 /** Rp 12,7 M — for a sentence, not a column. */
@@ -1200,25 +1301,87 @@ export async function closePo(
   return afterPo(input.po_no, fromSeam(SERVICE, data, error));
 }
 
+/** Still short of the demo's contract on purpose: the demo requires
+ *  `delivery_note_attachment_id`, and `confirm_receipt` deliberately does not
+ *  (`0086` — the seam's own smoke test asserts confirming is a person's act,
+ *  not a document's, and reversing that is not this file's call). What
+ *  changed is that the seam now has somewhere to put one *when offered*, and
+ *  the redrawn `Receipt` replaces the bare seam echo. */
 export async function confirmReceipt(
-  input: { receipt_no: string; qc_by?: string | null; note?: string | null },
+  input: {
+    receipt_no: string;
+    delivery_note_attachment_id?: string | null;
+    qc_by?: string | null;
+    note?: string | null;
+  },
   idempotencyKey?: string,
-): Promise<Result<unknown>> {
+): Promise<Result<Receipt>> {
   const { data, error } = await db().rpc("confirm_receipt", {
     p_receipt_no: input.receipt_no,
     p_qc_by: input.qc_by ?? null,
     p_note: input.note ?? null,
     p_key: idempotencyKey ?? null,
+    p_delivery_note_attachment_id: input.delivery_note_attachment_id ?? null,
   });
-  return fromSeam(SERVICE, data, error);
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return getReceipt(input.receipt_no);
 }
 
 /** Arrived and reported, with no signed tanda terima yet. The morning list
- *  (D131). */
-export async function listReported(): Promise<Result<unknown[]>> {
+ *  (D131) — with what the demo's row carries beyond the bare receipt: what it
+ *  was for, and who reported it. */
+export async function listReported(): Promise<Result<(Receipt & {
+  description: string; po_no: string | null; vendor_name: string | null; reported_by_name: string;
+})[]>> {
   const { data, error } = await db().from("receipts").select("*").eq("status", "REPORTED")
     .order("received_at", { ascending: false });
-  return fromRows<unknown[]>(SERVICE, data as unknown[], error);
+  if (error) return fail(SERVICE, error);
+  const receipts = (data ?? []) as Receipt[];
+  if (receipts.length === 0) return ok(SERVICE, []);
+
+  const lineIds = [...new Set(receipts.map((r) => r.line_id).filter((id): id is string => !!id))];
+  const poLineIds = [...new Set(receipts.map((r) => r.po_line_id).filter((id): id is string => !!id))];
+  const userIds = [...new Set(receipts.map((r) => r.received_by))];
+
+  const [prLines, poLines, users] = await Promise.all([
+    lineIds.length
+      ? db().from("pr_lines").select("id, description").in("id", lineIds)
+      : Promise.resolve({ data: [] as { id: string; description: string }[], error: null }),
+    poLineIds.length
+      ? db().from("po_lines").select("id, description, po_id").in("id", poLineIds)
+      : Promise.resolve({ data: [] as { id: string; description: string; po_id: string }[], error: null }),
+    supabaseBrowser().schema("ops_core").from("users").select("id, full_name").in("id", userIds),
+  ]);
+
+  const poIds = [...new Set((poLines.data ?? []).map((l) => l.po_id))];
+  const { data: pos } = poIds.length
+    ? await db().from("purchase_orders").select("id, po_no, vendor_id").in("id", poIds)
+    : { data: [] as { id: string; po_no: string; vendor_id: string }[] };
+  const vendorIds = [...new Set((pos ?? []).map((p) => p.vendor_id))];
+  const { data: vendors } = vendorIds.length
+    ? await db().from("vendors").select("id, name").in("id", vendorIds)
+    : { data: [] as { id: string; name: string }[] };
+
+  const prLineById = new Map((prLines.data ?? []).map((l) => [l.id, l]));
+  const poLineById = new Map((poLines.data ?? []).map((l) => [l.id, l]));
+  const poById = new Map((pos ?? []).map((p) => [p.id, p]));
+  const vendorById = new Map((vendors ?? []).map((v) => [v.id, v]));
+  const userById = new Map((users.data ?? []).map((u) => [u.id, u as { id: string; full_name: string }]));
+
+  const rows = receipts.map((r) => {
+    const poLine = r.po_line_id ? poLineById.get(r.po_line_id) : undefined;
+    const po = poLine ? poById.get(poLine.po_id) : undefined;
+    const prLine = r.line_id ? prLineById.get(r.line_id) : undefined;
+    return {
+      ...r,
+      description: poLine?.description ?? prLine?.description ?? "—",
+      po_no: po?.po_no ?? null,
+      vendor_name: po ? vendorById.get(po.vendor_id)?.name ?? null : null,
+      reported_by_name: userById.get(r.received_by)?.full_name ?? r.received_by,
+    };
+  });
+  return ok(SERVICE, rows);
 }
 
 export async function listVariancesRaw(lineNo: string): Promise<Result<LineVariance[]>> {

@@ -1,4 +1,4 @@
--- 0040_hr_people.sql — the people, and the rule book their pay is computed under.
+-- 0043_hr_people.sql — the people, and the rule book their pay is computed under.
 --
 -- ## Why this starts at 0040 rather than 0023
 --

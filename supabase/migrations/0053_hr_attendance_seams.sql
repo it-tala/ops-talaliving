@@ -1,4 +1,4 @@
--- 0050_hr_attendance_seams.sql — the writes the attendance half does every
+-- 0053_hr_attendance_seams.sql — the writes the attendance half does every
 -- day, and the one the demo does by deleting.
 --
 -- `0040`–`0049` built HR's thirteen tables and twelve views and **not one

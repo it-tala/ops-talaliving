@@ -1,4 +1,4 @@
--- 0041_hr_attendance.sql — the taps, and the marks that are not taps.
+-- 0044_hr_attendance.sql — the taps, and the marks that are not taps.
 --
 -- Two kinds of statement about a day, kept apart on purpose (D142). A scan is
 -- evidence with a machine behind it; a mark is a decision with a person behind

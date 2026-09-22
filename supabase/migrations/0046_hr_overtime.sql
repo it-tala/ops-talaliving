@@ -1,4 +1,4 @@
--- 0043_hr_overtime.sql — two shapes of night, because the paper has two.
+-- 0046_hr_overtime.sql — two shapes of night, because the paper has two.
 --
 -- A **production** sheet is checked by HRD, has its signed form attached, and
 -- is then signed by leadership. Nothing is paid until all three (D145, D146).

@@ -1,4 +1,4 @@
--- 0051_hr_overtime_seams.sql — the sheet, the names on it, the paper form it
+-- 0054_hr_overtime_seams.sql — the sheet, the names on it, the paper form it
 -- often arrives as, and the two signatures that decide it.
 --
 -- `0043` built the tables and `v_overtime_stage`, which already knows the
