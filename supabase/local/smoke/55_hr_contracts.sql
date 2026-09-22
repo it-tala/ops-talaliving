@@ -326,6 +326,14 @@ begin
   -- Berapa poin yang tidak sama dengan yang dijalankan, di baris daftarnya —
   -- supaya layar tidak perlu membuka tiap kontrak untuk tahu mana yang perlu
   -- dibaca.
+  -- Disebut namanya, bukan dihitung: sebuah angka yang meleset menyuruh orang
+  -- berikutnya menebak mana yang hilang, dan itu satu putaran CI yang terbuang.
+  assert (select string_agg(kind::text, ',' order by kind::text)
+            from ops_hr.contract_conflicts() where differs) = 'cuti,keterlambatan',
+    'got ' || coalesce((select string_agg(kind::text || '(' || coalesce(says,'∅')
+                                          || ' vs ' || coalesce(runs,'∅') || ')', ', '
+                                          order by kind::text)
+                          from ops_hr.contract_conflicts() where differs), '(none)');
   assert v.conflict_count = 2, 'cuti dan keterlambatan, got ' || v.conflict_count;
   -- Dan nol untuk yang belum berlaku: kertas yang belum diberlakukan tidak
   -- mengatakan apa pun tentang apa yang dibayarkan hari ini.

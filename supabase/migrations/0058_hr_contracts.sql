@@ -683,7 +683,7 @@ language sql stable set search_path = ops_hr, pg_temp as $$
         when 'cuti'          then s.paid_leave_days::text || ' hari'
         when 'jam_kerja'     then s.schedule_code
         when 'jangka_waktu'  then s.contract_kind::text
-        when 'keterlambatan' then s.value ->> 'mode'
+        when 'keterlambatan' then coalesce(s.rules ->> 'late_mode', 'manual')
         when 'potongan'      then coalesce(s.rules ->> 'undertime_mode', 'off')
         when 'lembur'        then coalesce(s.rules ->> 'overtime_mode', 'statutory')
         end as runs
