@@ -505,11 +505,25 @@ export async function listInboxAll(): Promise<Result<EvidenceInboxRow[]>> {
 
 /** Not decoration. If this number grows, people are routing around the normal
  *  road — attaching from the record — and the reason is worth finding
- *  (ADR-010). */
+ *  (ADR-010).
+ *
+ *  `v_inbox_health` (`0020`) has no `by_origin` column — a view answers flat
+ *  rows, and `InboxOrigin`'s two counts are `from_chat`/`from_web` there,
+ *  never nested. The blind `as unknown as InboxHealth` this used to end on
+ *  hid exactly that: `check-api-parity.mjs` checks declared types, and a
+ *  double cast satisfies it whether or not the value underneath has the
+ *  field at all — `by_origin` was undefined on every real call, and
+ *  `/accounting/verifikasi` read `.chat` off it and crashed the page. */
 export async function getInboxHealth(): Promise<Result<InboxHealth>> {
   const { data, error } = await db().from("v_inbox_health").select("*").maybeSingle();
   if (error) return fail(SERVICE, error);
-  return ok(SERVICE, data as unknown as InboxHealth);
+  if (!data) return notFound(SERVICE, "inbox_health_missing", "The inbox health row could not be read.");
+  return ok(SERVICE, {
+    week_start: data.week_start as string,
+    arrived: data.arrived as number,
+    unresolved: data.unresolved as number,
+    by_origin: { chat: data.from_chat as number, web: data.from_web as number },
+  });
 }
 
 /** Five roads out, **none of which delete** (F26, D94). A document that
