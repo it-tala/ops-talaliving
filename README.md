@@ -70,6 +70,14 @@ pada keadaan awal (nol). Di browser sungguhan normal. Kalau perlu memverifikasi
 grafik lewat screenshot otomatis, matikan animasinya sementara
 (`isAnimationActive={false}`), jangan menyimpulkan grafiknya rusak.
 
+## Akun dan kata sandi — technical debt
+
+Belum ada halaman profil, dan akun belum bisa dibuat atau di-reset dari
+aplikasi. Setiap akun baru dan setiap *lupa sandi* masih dikerjakan lewat SQL
+langsung ke `auth.users` (lihat `supabase/import/RUNLOG.md`). Tercatat sebagai
+**W7** (halaman profil + ganti sandi) dan **W8** (setup akun, sandi sementara,
+wajib ganti saat login pertama, custom SMTP) di `docs/plan/backlog.md`.
+
 ## Yang perlu dibangun berikutnya
 
 Berdasarkan evaluasi, urutan yang disarankan:
