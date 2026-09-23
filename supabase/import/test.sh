@@ -56,10 +56,10 @@ P1=$(q -Atc "select count(*) from ops_procure.projects")
 M1=$(q -Atc "select count(*) from ops_core.legacy_map")
 R1=$(q -Atc "select count(*) from ops_core.legacy_map where outcome = 'refused'")
 
-[ "$V1" = "3" ]  || fail "three vendors land"            "saw $V1"
+[ "$V1" = "5" ]  || fail "five vendors land"             "saw $V1"
 [ "$P1" = "2" ]  || fail "two projects land, not three"  "saw $P1 — the one with no code must be refused"
 [ "$R1" = "2" ]  || fail "two refusals"                  "saw $R1 — expected FAIRMONT and BRI 900"
-pass "3 vendors, 2 projects, 2 refusals"
+pass "5 vendors, 2 projects, 2 refusals"
 
 # The refusals are the deliverable, so their reasons are asserted, not just
 # their count: a refusal with no usable reason is a row somebody has to
@@ -149,13 +149,13 @@ echo "── ledger ────────────────────
 q -q -f "$HERE/03_ledger.sql" >/dev/null
 pass "03_ledger (first run)"
 
-# Twelve legacy rows, four of them unimportable for four different reasons.
+# Sixteen legacy rows, four of them unimportable for four different reasons.
 T1=$(q -Atc "select count(*) from ops_acct.transactions")
-[ "$T1" = "8" ] || fail "eight of twelve transactions land" "saw $T1"
+[ "$T1" = "12" ] || fail "twelve of sixteen transactions land" "saw $T1"
 TR=$(q -Atc "select count(*) from ops_core.legacy_map
               where source_table='public.transactions' and outcome='refused'")
 [ "$TR" = "4" ] || fail "four refusals, one per shape" "saw $TR"
-pass "8 imported, 4 refused"
+pass "12 imported, 4 refused"
 
 # Each refusal names its own reason. Four rows refused under one message would
 # be a list nobody can work through — which is what the refusals are for.
@@ -274,7 +274,7 @@ q -q -f "$HERE/04_lines.sql" >/dev/null
 pass "04_lines (first run)"
 
 L1=$(q -Atc "select count(*) from ops_acct.transaction_lines")
-[ "$L1" = "4" ] || fail "four of five purchase lines land" "saw $L1"
+[ "$L1" = "6" ] || fail "six of seven purchase lines land" "saw $L1"
 LR=$(q -Atc "select count(*) from ops_core.legacy_map
               where source_table='public.item_purchases' and outcome='refused'")
 [ "$LR" = "1" ] || fail "the line on a refused transaction is refused" "saw $LR"
@@ -283,7 +283,7 @@ LR=$(q -Atc "select count(*) from ops_core.legacy_map
 q -Atc "select note from ops_core.legacy_map
          where source_table='public.item_purchases' and outcome='refused'" \
   | grep -q "trx-26-01-06_005" || fail "the refusal names its transaction" "note does not"
-pass "4 lines imported, 1 refused naming its transaction"
+pass "6 lines imported, 1 refused naming its transaction"
 
 # Two lines on one transaction, numbered in the order they were recorded.
 NOS=$(q -Atc "select string_agg(l.line_no::text, ',' order by l.line_no)
@@ -322,8 +322,8 @@ pass "units folded through _units.sql, unknown ones left null"
 MISMATCH=$(q -Atc "select count(*) from (
     select t.id from ops_acct.transactions t join ops_acct.transaction_lines l on l.trx_id=t.id
      group by t.id, t.amount_idr having sum(l.amount) <> t.amount_idr) x")
-[ "$MISMATCH" = "1" ] || fail "a line that does not add up is kept, not adjusted" "saw $MISMATCH"
-pass "the one that does not add up is kept and reported"
+[ "$MISMATCH" = "2" ] || fail "a line that does not add up is kept, not adjusted" "saw $MISMATCH"
+pass "the two that do not add up are kept and reported"
 
 # Nothing derived was written. `last_price` is the catalogue's own arithmetic
 # (A3) and a line is not licence to overwrite it.
@@ -405,6 +405,82 @@ q -Atc "select count(*) from ops_core.legacy_map where source_id='b10b0000-0000-
   | grep -q "^0$" || fail "a blob nothing points at is not imported" "it was"
 pass "an uncited blob is left alone"
 
+echo
+echo "── corrections ─────────────────────────────────────────────────────"
+q -q -f "$HERE/07_corrections.sql" >/dev/null
+pass "07_corrections (first run)"
+
+# ── 1. the line that was filed against the wrong transaction ─────────────
+#
+# `trx-26-01-20_020` says 2.500 and its lines say 1.502.500. Read as a
+# totalling error that is a mistyped amount, and the "fix" turns a bank charge
+# into Rp 1,5 juta. It is not: the 1.500.000 line belongs to
+# `trx-26-01-20_900`, which sits on the same date for exactly that amount with
+# that description and has no lines of its own.
+MOVED=$(q -Atc "select t.trx_no from ops_acct.transaction_lines l
+                  join ops_acct.transactions t on t.id = l.trx_id
+                 where l.amount = 1500000")
+[ "$MOVED" = "trx-26-01-20_900" ] \
+  || fail "the misfiled line moves to the transaction it belongs to" "it is on '$MOVED'"
+
+# **Neither amount is touched.** This is the assertion that would have caught
+# the wrong fix, so it is written as the amount rather than as a comparison.
+A=$(q -Atc "select amount_idr::text from ops_acct.transactions where trx_no='trx-26-01-20_020'")
+[ "$A" = "2500" ] || fail "the bank charge is still a bank charge" "it became $A"
+A=$(q -Atc "select amount_idr::text from ops_acct.transactions where trx_no='trx-26-01-20_900'")
+[ "$A" = "1500000" ] || fail "and the transfer is unchanged" "it became $A"
+
+# Nothing was deleted (A2/A5): the line count is what it was.
+L3=$(q -Atc "select count(*) from ops_acct.transaction_lines")
+[ "$L3" = "$L1" ] || fail "the line is moved, never deleted" "$L1 became $L3"
+
+# Both now agree with their own lines, and the one-line mismatch is untouched —
+# that one is accounting's, from the document, and a script must not settle it.
+MISMATCH=$(q -Atc "select count(*) from (
+    select t.id from ops_acct.transactions t join ops_acct.transaction_lines l on l.trx_id=t.id
+     group by t.id, t.amount_idr having sum(l.amount) <> t.amount_idr) x")
+[ "$MISMATCH" = "1" ] || fail "only the one-line disagreement is left" "saw $MISMATCH"
+pass "line re-filed, both amounts untouched, nothing deleted"
+
+# ── 2. vendors that differ only in punctuation ───────────────────────────
+V=$(q -Atc "select coalesce(v.name,'(null)') from ops_acct.transactions t
+              left join ops_procure.vendors v on v.id = t.vendor_id
+             where t.trx_no = 'trx-26-01-21_021'")
+[ "$V" = "UD SUMBER REJEKI" ] \
+  || fail "'UD. SUMBER-REJEKI' resolves to the vendor it is" "saw '$V'"
+
+# **The one that must not resolve.** `PT TALA-HOME` canonicalises to the same
+# string as both `PT TALA HOME` and `PT TALAHOME`. A rule that picks one of
+# them is a rule that will quietly pick the wrong one on real data.
+V=$(q -Atc "select coalesce(v.name,'(null)') from ops_acct.transactions t
+              left join ops_procure.vendors v on v.id = t.vendor_id
+             where t.trx_no = 'trx-26-01-22_022'")
+[ "$V" = "(null)" ] || fail "an ambiguous name resolves to nothing" "it chose '$V'"
+
+# And no vendor was created to make either of them work.
+VC=$(q -Atc "select count(*) from ops_procure.vendors")
+[ "$VC" = "$V1" ] || fail "no vendor is created by a correction" "$V1 became $VC"
+pass "punctuation resolved, ambiguity refused, nothing created"
+
+# Every change carries its own audit row, with `actor_id` null — a script did
+# this, and the trail must not name a person who did not.
+AU=$(q -Atc "select count(*) from ops_core.audit_log
+              where detail->>'by' = 'supabase/import/07_corrections.sql'")
+[ "$AU" = "2" ] || fail "one audit row per change" "saw $AU"
+NA=$(q -Atc "select count(*) from ops_core.audit_log
+              where detail->>'by' = 'supabase/import/07_corrections.sql' and actor_id is not null")
+[ "$NA" = "0" ] || fail "and none of them names an actor" "$NA do"
+pass "2 audit rows, no actor claimed"
+
+# Idempotent **by shape, not by flag**. A second run finds nothing in that
+# arrangement, so it writes nothing — which is what lets this file be re-run
+# beside the import instead of once, by hand, and remembered.
+q -q -f "$HERE/07_corrections.sql" >/dev/null
+AU2=$(q -Atc "select count(*) from ops_core.audit_log
+               where detail->>'by' = 'supabase/import/07_corrections.sql'")
+[ "$AU2" = "2" ] || fail "a second run corrects nothing again" "$AU became $AU2"
+pass "07_corrections (second run) changed nothing"
+
 # Re-read the map now that every file has run. Taken earlier it would be a
 # count from a different moment, and comparing it with the second run would
 # report a failure that is only the measurement moving.
@@ -417,7 +493,8 @@ q -q -f "$HERE/02_items.sql" >/dev/null
 q -q -f "$HERE/03_ledger.sql" >/dev/null
 q -q -f "$HERE/04_lines.sql" >/dev/null
 q -q -f "$HERE/05_evidence.sql" >/dev/null
-pass "all five files (second run)"
+q -q -f "$HERE/07_corrections.sql" >/dev/null
+pass "all six files (second run)"
 
 V2=$(q -Atc "select count(*) from ops_procure.vendors")
 P2=$(q -Atc "select count(*) from ops_procure.projects")

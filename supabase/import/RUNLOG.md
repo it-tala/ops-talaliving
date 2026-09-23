@@ -5,6 +5,71 @@ One row per run of the scripts beside this file. The database's own record is
 this file is the part a person reads first — which run, why, and what still
 needs a decision.
 
+## 2026-09-23 — step 10, and the map repair that preceded it
+
+Applied through the Supabase MCP `execute_sql`, as every run since 2026-09-21
+has been: outbound TCP to port 5432 is blocked from Claude Code web sessions.
+The psql-only parts (`\set`, `\echo`, the `_run` temp table) were replaced by
+their effect — the run id below is a literal, so the rows are still findable.
+
+### First: 52 transactions with no map row
+
+Found while answering *what is left in accounting*, and it is the failure the
+map exists to prevent. Fifty-two rows the old system wrote after the first run
+were in `ops_acct.transactions` with their `source_ref` and **no
+`legacy_map` row at all** — imported by hand at some point rather than by the
+script. Rp 207.576.530 across 2026-09-16 to 2026-09-21.
+
+No money was duplicated, and the reason is worth writing down rather than
+being relieved about: the insert is `on conflict (source_ref) do nothing`
+against a unique index, so even though the map's guard would have staged all
+52 again, the insert could not have doubled them. The map is the first line
+and the constraint is the second; the second held.
+
+What was lost was the map's *notes* — which of the 52 had a borrowed author,
+an unresolved vendor, no type. Re-running `03_ledger.sql`'s staging and map
+inserts restored them:
+
+| | |
+|---|---:|
+| staged (no map row) | 52 |
+| transactions inserted | **0** |
+| map rows written | **52** |
+| run id | `9b2f4c1a-6d83-4e57-9f20-7c5a1e0b3d44` |
+
+Afterwards every legacy table maps row for row, checked not assumed:
+transactions 3.287 ↔ 3.287, item_purchases 1.194 ↔ 1.194, transaction_docs
+237 ↔ 237, vendors 296 ↔ 296, items 1.020 ↔ 1.020, products 27 ↔ 27.
+
+**The lesson is about the hand-run, not the script.** A statement typed into a
+SQL console to catch up 52 rows does the visible half of the job and skips the
+half that has no visible effect until months later. If it is worth importing,
+it is worth running the file.
+
+### Then: `07_corrections.sql`
+
+| correction | outcome |
+|---|---|
+| `trx-26-07-27_061` — line filed against the wrong transaction | 1 line moved to `trx-26-07-27_900`; neither amount touched; both now agree with their own lines |
+| vendors unresolved through punctuation | 59 transactions across 8 names |
+
+Both are idempotent **by shape, not by flag** — each looks for the exact
+arrangement it repairs. Proved by running each a second time against
+production: 0 rows matched, 0 audit rows written. That is the property that
+lets this file sit beside the import and be re-run with it.
+
+60 rows in `ops_core.audit_log` carry `detail->>'by' =
+'supabase/import/07_corrections.sql'`. Every one has `actor_id` null, on
+purpose: nobody typed these into the application.
+
+### The balances, as of this run
+
+Both systems, to the rupiah, on all five accounts — BCA 064 21.259.068 ·
+BCA 271 4.285.326 · BNI 325 148.132 · JAGO 10.473.352 · PETTY CASH 858.298.
+Against the owner's manual `2026 TALAHOME LEDGERS` workbook, three of four
+agree exactly and BCA 271 differs by Rp 276.782, which is the sheet's to
+settle. `README.md` has the comparison and what could not be checked in it.
+
 ## 2026-09-21 — steps 2–5
 
 Applied through the Supabase MCP `execute_sql` rather than `psql`: outbound TCP
