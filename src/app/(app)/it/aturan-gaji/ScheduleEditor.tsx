@@ -152,7 +152,9 @@ export function ScheduleEditor({
               value={sc.note ?? ""}
               disabled={disabled}
               placeholder="Catatan — yang diketahui tentang pola ini tapi tidak terbaca dari angkanya"
-              onChange={(e) => patchRow(i, { note: e.target.value.trim() === "" ? null : e.target.value })}
+              /* Empty means no note; a value is kept as typed. Trimming here
+                 would eat the first space of a sentence as it is written. */
+              onChange={(e) => patchRow(i, { note: e.target.value === "" ? null : e.target.value })}
               className="mt-2 w-full rounded-lg border border-slate-200 px-2 py-1 text-[12px] text-slate-700 placeholder:text-slate-300 focus:border-brand-400 focus:outline-none disabled:bg-slate-50"
             />
           </div>
@@ -198,12 +200,29 @@ function UnitMap({
   disabled: boolean;
   onChange: (next: Record<string, string>) => void;
 }) {
-  const entries = Object.entries(byUnit).sort(([a], [b]) => a.localeCompare(b));
+  /* **Insertion order, not sorted, and keyed by position.** The unit name is
+     the object's key, so renaming it rewrites the map — and a row keyed by
+     that name is a different row to React after every keystroke, which
+     remounts the input and drops the caret. Sorting would move the row as you
+     type, which does the same thing for a different reason. Order here is the
+     order they were added; `/hrd/jadwal` is where they are read. */
+  const entries = Object.entries(byUnit);
 
-  const rename = (from: string, to: string) => {
+  const rename = (at: number, to: string) => {
     const next: Record<string, string> = {};
-    for (const [u, c] of entries) next[u === from ? to : u] = c;
-    delete next[""];
+    entries.forEach(([u, c], i) => { next[i === at ? to : u] = c; });
+    onChange(next);
+  };
+
+  const setCode = (at: number, code: string) => {
+    const next: Record<string, string> = {};
+    entries.forEach(([u, c], i) => { next[u] = i === at ? code : c; });
+    onChange(next);
+  };
+
+  const drop = (at: number) => {
+    const next: Record<string, string> = {};
+    entries.forEach(([u, c], i) => { if (i !== at) next[u] = c; });
     onChange(next);
   };
 
@@ -217,20 +236,22 @@ function UnitMap({
       </p>
 
       <ul className="mt-2 space-y-1.5">
-        {entries.map(([unit, code]) => (
-          <li key={unit} className="flex flex-wrap items-center gap-2">
+        {entries.map(([unit, code], at) => (
+          // eslint-disable-next-line react/no-array-index-key
+          <li key={at} className="flex flex-wrap items-center gap-2">
             <input
               type="text"
               value={unit}
               disabled={disabled}
-              onChange={(e) => rename(unit, e.target.value)}
+              placeholder="nama unit"
+              onChange={(e) => rename(at, e.target.value)}
               className="h-8 w-40 rounded-lg border border-slate-200 px-2 text-[13px] focus:border-brand-400 focus:outline-none disabled:bg-slate-50"
             />
             <span className="text-[12px] text-slate-400">→</span>
             <select
               value={code}
               disabled={disabled}
-              onChange={(e) => onChange({ ...byUnit, [unit]: e.target.value })}
+              onChange={(e) => setCode(at, e.target.value)}
               className="h-8 rounded-lg border border-slate-200 px-2 text-[13px] focus:border-brand-400 focus:outline-none disabled:bg-slate-50"
             >
               {/* The current value stays selectable even when it names nothing,
@@ -246,11 +267,7 @@ function UnitMap({
             {!disabled && (
               <button
                 type="button"
-                onClick={() => {
-                  const next = { ...byUnit };
-                  delete next[unit];
-                  onChange(next);
-                }}
+                onClick={() => drop(at)}
                 title="Lepaskan unit ini"
                 className="rounded-lg border border-slate-200 p-1 text-slate-400 hover:border-rose-200 hover:text-rose-600"
               >
@@ -270,6 +287,8 @@ function UnitMap({
         <button
           type="button"
           onClick={() => onChange({ ...byUnit, "": schedules[0].code })}
+          /* One blank row at a time: a second would collide with the first on
+             the empty key and silently replace it. */
           disabled={Object.prototype.hasOwnProperty.call(byUnit, "")}
           className="mt-2 flex items-center gap-1 text-[12px] text-brand-700 underline disabled:text-slate-300 disabled:no-underline"
         >
