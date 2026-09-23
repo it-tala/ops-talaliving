@@ -20,7 +20,7 @@ import { ProductDrawer } from "./ProductDrawer";
  *
  *  The production cost is **computed every time this page is read** from the
  *  lines — materials, sub-assemblies, labour — plus the revision's
- *  miskalkulasi (A3, 0106). A draft follows today's catalogue prices; a
+ *  miskalkulasi (A3, 0109). A draft follows today's catalogue prices; a
  *  released revision keeps the rates it was released with. A line with no rate
  *  leaves the cost marked incomplete rather than quietly counting as zero
  *  (D149). It is a cost, never a selling price.

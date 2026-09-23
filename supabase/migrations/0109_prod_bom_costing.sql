@@ -1,4 +1,4 @@
--- 0106_prod_bom_costing.sql — a bill of material that answers *what does one
+-- 0109_prod_bom_costing.sql — a bill of material that answers *what does one
 -- unit cost us to make*.
 --
 -- The owner's brief (2026-09-23), in his order:
@@ -14,7 +14,7 @@
 --
 -- What that changes against `0060`:
 --
---   **Labour is lines** (`0105` added the kind). `products.labour_cost` stays
+--   **Labour is lines** (`0108` added the kind). `products.labour_cost` stays
 --   where it is — nothing is dropped — but nothing reads it for a cost any
 --   more: a typed lump sum next to itemised lines is two answers to one
 --   question.

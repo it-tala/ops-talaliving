@@ -1,4 +1,4 @@
--- 0105_prod_bom_labour_kind.sql — labour becomes a line on the bill of material.
+-- 0108_prod_bom_labour_kind.sql — labour becomes a line on the bill of material.
 --
 -- The owner's shape for costing (2026-09-23): a BOM line is *anything that
 -- costs money to make one unit* — timber at 0,1 m³, coating at 1 litre, and
@@ -8,5 +8,5 @@
 --
 -- Its own file because `alter type … add value` cannot be used in the same
 -- transaction that adds it, and the hosted project applies each migration as
--- one transaction. `0106` is where the new value is used.
+-- one transaction. `0109` is where the new value is used.
 alter type ops_prod.bom_ref_t add value if not exists 'labour';

@@ -42,7 +42,7 @@ export const procurement = swap("procurement", demoProcurement, liveProcurement)
 export const accounting = swap("accounting", demoAccounting, liveAccounting);
 export const documents = swap("documents", demoDocuments, liveDocuments);
 export const inventory = swap("inventory", demoInventory, liveInventory);
-/* The catalogue and BOM half of production (`0106`). Every other production
+/* The catalogue and BOM half of production (`0109`). Every other production
    function is absent from the live module and refuses with its own name. */
 export const production = swap("production", demoProduction, liveProduction);
 

@@ -1,5 +1,5 @@
 /** Implements `/api/v1/production` against the database — the product
- *  catalogue and its bill of materials only (0060, 0106).
+ *  catalogue and its bill of materials only (0060, 0109).
  *
  *  Work orders, progress, vendor legs, the drafting queue and the name
  *  resolver are **not written here yet**. A screen that calls one of them gets

@@ -178,7 +178,7 @@ BOM_COMPONENTS.push(
   c("prd_01", "material", "ITM-0027", 0.2, "box", 0, "Baru: dowel untuk sambungan kaki.", 2),
 );
 
-/* Labour as lines (0106): the workshop's own time, costed like any other
+/* Labour as lines (0109): the workshop's own time, costed like any other
    component — a name, a quantity and a rate. The meja carries it on both its
    released revision and the draft; the drawer box on its own, so the lemari
    that contains two of them is costed with their labour inside. */

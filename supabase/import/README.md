@@ -34,7 +34,9 @@ Each file ends by printing what it did. Read that, not the exit code.
 | 4 | `vendors` → `ops_procure.vendors` | 296 | `01_reference.sql` |
 | 5 | `items` → `ops_procure.items` | 1.020 | `02_items.sql` |
 | 6 | `transactions` → `ops_acct.transactions` | 3.235 | `03_ledger.sql` |
-| 7 | `products` → `ops_prod.products` (+ drawing links) | 27 | `06_products.sql` — needs `0060`–`0066`, `0105`–`0106` |
+| 7 | `item_purchases` → `ops_acct.transaction_lines` | 1.194 | `04_lines.sql` |
+| 8 | `transaction_docs` → `ops_core.attachments` + `attachment_links` | 237 | `05_evidence.sql` |
+| 9 | `products` → `ops_prod.products` (+ drawing links) | 27 | `06_products.sql` — needs `0060`–`0066`, `0108`–`0109` |
 
 ### Step 1 is not an `insert … select`
 
@@ -148,6 +150,65 @@ by removing the one above it: the `legacy_map` gate, `source_ref` unique, and
 from the old. So the number people already quote keeps working, and a
 screenshot from January still finds its row.
 
+### Step 7 — what the money was spent on
+
+`03_ledger.sql` carried 3.221 transactions and every one of them says *Rp
+250.000 to UD SUMBER REJEKI* without saying what was bought. D86 is that a
+purchase is itemised, and the reason is not tidiness: it is what lets a
+catalogue learn a real last-paid price from its own rows rather than from a
+number somebody copied.
+
+Five of the 1.194 are refused — their transaction is one of the fourteen
+`03_ledger.sql` refused for `idr_amount = 0` — and the refusal names that
+transaction, so the two lists join up instead of each looking like an
+unexplained gap.
+
+Two things it deliberately does not do. It does not touch
+`ops_procure.items.last_price`, which is derived state the new system computes
+(A3); writing the legacy value across would destroy the disagreement that is
+the whole signal. And it does not reconcile a line total against its
+transaction: **1.182 of 1.188 sum exactly, three sum over and three sum
+under**, and a line adjusted to make an arithmetic check pass is a fact
+replaced by a preference. The six are printed so somebody asks.
+
+### Step 8 — 237 documents over 148 files
+
+Only 148 of the 237 links are distinct: **28 files are cited by more than one
+transaction**. That is not duplication to clean up — `guide.pay_line` says it
+in the office's own words, *satu bukti transfer boleh menutup beberapa
+pembelian*. So the import writes 148 attachments and 237 links, and the
+separation is the reason `ops_core` has two tables: an attachment is a file, a
+link is a claim about what that file evidences.
+
+`transaction_docs` carries a link and nothing else, so the file's name,
+checksum, size and type come from `public.blobs` — joined on the **link**, not
+on `event_id`, because 63 events have more than one blob and one has eleven.
+All 237 join exactly one blob, measured.
+
+A file cited only by a document on a refused transaction is not imported
+either. An attachment nothing points at reads as filed on an evidence screen.
+
+**982 transactions carry a `drive_link` of their own with no `transaction_docs`
+row, and this import leaves every one alone.** 702 have a file behind the link
+and 280 have nothing but a URL. Most of them are already moving through
+`ops_acct.evidence_inbox`, where a person looks at each and files it; an import
+racing that pipeline would reach the same file from two directions. And a row
+built from a bare URL claims a document exists while knowing nothing about it,
+which is worse than no row.
+
+### The gap step 8 compensates for rather than fixes
+
+**`ops_core.attachments` has no unique key on `url` or `sha256`.** Nothing in
+the schema stops one Drive file existing twice under two ids, and there are now
+two writers: this import and `ops_acct.file_evidence()`, the live capture door
+that has already produced 38 attachments from `ledger_review_queue`.
+
+None of those 38 is one of these 148 today — checked, not assumed — so
+`05_evidence.sql` resolves each file against an existing `url` before creating
+anything. That is a compensation. The fix is a constraint, and adding one would
+change how `file_evidence()` behaves on a retry, which belongs in a migration
+with its own reasoning rather than in an import.
+
 ## What has actually been run
 
 A table, because *is the ledger in yet* is a question somebody asks from a
@@ -161,6 +222,8 @@ a commit message cannot be corrected, so the record lives here.
 | `01_reference.sql` | yes | 296 vendors, 4 projects, 6 accounts mapped |
 | `02_items.sql` | yes | 1.020 items |
 | `03_ledger.sql` | **2026-09-21** | 3.221 imported, 14 refused, all five accounts reconciled |
+| `04_lines.sql` | **2026-09-22** | 1.189 lines on 1.188 transactions, 5 refused |
+| `05_evidence.sql` | **2026-09-22** | 148 files, 226 claims over 197 transactions, 0 refused |
 
 `03_ledger.sql` was run as a **dry run first** — the whole file inside a
 transaction that was rolled back — and the numbers it printed were the numbers
@@ -181,6 +244,67 @@ Of the 3.221: **699 carry the author the old system recorded**, 2.522 are
 posted as `shared@talaliving.com`. The 14 refusals are all `idr_amount = 0`,
 three of them described `void`, so refusing them moved no balance. A second
 run stages **0 rows**, checked against production rather than assumed.
+
+### What steps 7 and 8 found
+
+**Six transactions whose lines do not add up**, and they are two different
+problems wearing the same shape:
+
+| transaction | says | its lines say | difference | lines |
+|---|---:|---:|---:|---:|
+| `trx-26-07-27_061` | 2.500 | 15.850.000 | **+15.847.500** | **2** |
+| `trx-26-07-15_020` | 55.000 | 85.000 | +30.000 | 1 |
+| `trx-26-07-13_093` | 21.001.514 | 21.011.514 | +10.000 | 1 |
+| `trx-26-07-21_020` | 36.000 | 35.000 | −1.000 | 1 |
+| `trx-26-08-26_091` | 5.217.500 | 5.217.000 | −500 | 1 |
+| `trx-26-08-19_040` | 1.970.674 | 1.970.670 | −4 | 1 |
+
+**Five are one line disagreeing with its own row** — a receipt says one thing
+and the ledger another, by between Rp 4 and Rp 30.000. Accounting settles each
+from the document, on the ledger screen. Proved as Anggun against production
+(rolled back): raising 55.000 to 85.000 and lowering 36.000 to 35.000 both land
+and both reconcile.
+
+**The sixth is not a mistyped amount, and reading it as one is the trap.** It
+was described that way here before anybody looked at its lines:
+
+```
+transaction : 2026-07-24  OUT  2.500  BANK CHARGES — "Transfer admin fee"
+its lines   : 2.500       — Transfer admin fee
+              15.847.500  — Transfer funding for pay-26-07-27_01
+```
+
+**The Rp 2.500 is correct.** It is a bank admin fee. The second line is a
+funding transfer that belongs elsewhere — `trx-26-07-27_900` exists on the same
+date for exactly Rp 15.847.500 with the same description. A line was filed
+against the wrong transaction in the old system, and the import carried it
+across faithfully, which is what it is supposed to do.
+
+So the fix is **not** `edit_transaction`. Raising the amount to make the
+arithmetic pass would turn a Rp 2.500 bank charge into Rp 15,85 juta — and that
+correction was demonstrated in a rolled-back session before the lines were
+read, which is how this was caught. What it needs is a line moved or removed,
+and nothing in the web app can do that today.
+
+The general shape, worth keeping: **a total that does not add up says which
+number to distrust only when there is one line.** With two, the disagreement
+may be about which row a line belongs to, and the totals say nothing about
+that.
+
+**Eleven documents repeat a claim another already made** — same file, same
+transaction, same kind — so 237 documents produced 226 links.
+`links_live_idx` collapses them, which is right: two identical claims are one
+claim. Each repeat is recorded in the map pointing at the link that exists.
+
+**One transfer proof evidences nine transactions.** That is the arrangement
+this import was shaped around, and the largest instance of it in the data.
+
+Of the 148 files, **128 carry the uploader the old system recorded** and 20 are
+`shared@talaliving.com`. All 148 have a checksum.
+
+The 38 attachments that the capture pipeline had already filed have no links of
+their own — they came in through `ops_acct.evidence_inbox`, where filing and
+linking are separate acts. None of them was one of these 148.
 
 Left for a person, all of it queryable from `ops_core.legacy_map`:
 

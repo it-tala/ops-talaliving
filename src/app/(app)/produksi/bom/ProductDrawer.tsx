@@ -32,7 +32,7 @@ import { useToast } from "@/store/toast";
  *
  *  A line is a material from the item database, a sub-assembly, or labour —
  *  each with a quantity per unit and a rate. The rate follows the catalogue
- *  until somebody types one; releasing freezes it (0106). The answer is the
+ *  until somebody types one; releasing freezes it (0109). The answer is the
  *  **production cost per item code — not a selling price.**
  */
 export function ProductDrawer({
@@ -891,7 +891,7 @@ function AddLine({ p, busy, run, settle, onDone }: PartProps & { onDone: () => v
 
 /** A component the item database does not have yet. It is created **in** the
  *  item database, uncurated, for procurement to file and price later — not in
- *  a list of production's own (0106's `create_bom_item`). */
+ *  a list of production's own (0109's `create_bom_item`). */
 function NewItem({
   initialName, categories, busy, run, onCancel, onCreated,
 }: {

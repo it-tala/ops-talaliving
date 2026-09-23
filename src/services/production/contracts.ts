@@ -679,7 +679,7 @@ export interface BomComponent {
   rev: number;
   /** A purchased material, another product (a sub-assembly), or **labour** —
    *  the workshop's own time, costed like any other line: 1,5 hari × the day
-   *  rate (0106). */
+   *  rate (0109). */
   kind: BomKind;
   /** `procure.items.code`, another `products.product_code`, or for labour a
    *  code derived from the label (`LABOUR:TUKANG-FINISHING`). */
@@ -886,7 +886,7 @@ export interface ProductView extends Product {
    *  Sub-assemblies are costed by **walking into them** (D257), so a wardrobe
    *  is priced from the plywood its drawer boxes are made of. */
   material_cost: number | null;
-  /** Labour **lines** summed (0106); null where the revision has no labour
+  /** Labour **lines** summed (0109); null where the revision has no labour
    *  line at all — *nobody has put the workshop's time on this* is not *it
    *  takes none*. `Product.labour_cost`, the old typed lump sum, is no longer
    *  read for a cost. */

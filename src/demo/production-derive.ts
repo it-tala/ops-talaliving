@@ -491,7 +491,7 @@ export function bomAt(state: DemoState, product: Product, rev: number | null): B
   return state.bom_components.filter((b) => b.product_id === product.id && b.rev === rev);
 }
 
-/** The rate a line is costed at, and where it came from (0106).
+/** The rate a line is costed at, and where it came from (0109).
  *
  *  A line's own rate wins — typed by the estimator while drafting, or frozen
  *  on release. Without one, a material follows the catalogue (standard price,
@@ -529,7 +529,7 @@ export function miscalcOf(state: DemoState, product: Product, rev: number | null
   return state.bom_revisions.find((r) => r.product_id === product.id && r.rev === rev)?.miscalc_percent ?? 0;
 }
 
-/** What one unit comes to at one revision (0106): materials, labour,
+/** What one unit comes to at one revision (0109): materials, labour,
  *  miskalkulasi on the subtotal, and the production cost — null while any
  *  line has no rate. */
 export function bomCost(
@@ -697,7 +697,7 @@ export function productView(state: DemoState, product: Product, rev?: number | n
 
 /** What one unit of a sub-assembly costs to make, at its **released**
  *  revision — materials, labour and its own miskalkulasi, walking into any
- *  sub-assembly inside it (D257, 0106).
+ *  sub-assembly inside it (D257, 0109).
  *
  *  `seen` carries the chain of product codes being walked; a product that
  *  reappears in its own chain is a cycle and has no finite cost. Null also
@@ -829,7 +829,7 @@ export function explodeBom(
         continue;
       }
       /* Labour is costed, not bought: it has no place on a list of things to
-         purchase (0106). */
+         purchase (0109). */
       if (b.kind === "labour") continue;
       const item = state.items.find((i) => i.code === b.ref_code);
       addLine(b.ref_code, item?.name ?? null, b.uom, amount, path, here.length - 1);
@@ -850,7 +850,7 @@ export function explodeBom(
     sub_assemblies: [...subs.values()].sort((a, b) => a.product_code.localeCompare(b.product_code)),
     unexploded: [...unexploded].sort(),
     cycle,
-    /* Labour lines of the revision being run (0106). Null where there are
+    /* Labour lines of the revision being run (0109). Null where there are
        none: a run of twelve costs twelve times an unknown, which is still
        unknown (D239). */
     ...(() => {

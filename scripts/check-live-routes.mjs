@@ -311,7 +311,7 @@ const MODULE_OF = {
    is exactly as ready as procurement is. Pages it adds later for other
    services' reference data (accounts, asset categories) are still held back
    route by route by the function scan, like everywhere else. */
-/* `production` opens with its catalogue and bill of materials (`0106`) — the
+/* `production` opens with its catalogue and bill of materials (`0109`) — the
    only part of the service `src/lib/api/production.ts` implements. Work
    orders, progress, vendor legs and the drafting queue are absent from that
    client, so the function scan keeps `/produksi/jadwal` and the rest dark and

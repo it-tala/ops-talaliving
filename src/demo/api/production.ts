@@ -674,7 +674,7 @@ export async function saveProduct(
   return view;
 }
 
-/** The draft to write into, opened if there is none (0106's `open_draft`):
+/** The draft to write into, opened if there is none (0109's `open_draft`):
  *  a copy of the newest released revision, manual rates kept and catalogue
  *  rates let go, so the draft follows today's prices again. Returns the rev. */
 function openDraft(productId: string, by: string, byEmail: string): number {
@@ -712,7 +712,7 @@ function openDraft(productId: string, by: string, byEmail: string): number {
 }
 
 /** The code a labour line is filed under — derived from its label, so *one
- *  line per component per revision* still holds (0106). */
+ *  line per component per revision* still holds (0109). */
 function labourCode(label: string): string {
   return "LABOUR:" + label.replace(/[^A-Za-z0-9]+/g, "-").toUpperCase().slice(0, 40);
 }
@@ -721,7 +721,7 @@ function labourCode(label: string): string {
  *
  *  A line is a material from the item database, another product (a
  *  sub-assembly), or **labour** — a name, a quantity and a rate, costed like
- *  the rest (0106). A material's reference is a public code and is not
+ *  the rest (0109). A material's reference is a public code and is not
  *  validated against the catalogue: a workshop knows it needs a steel frame
  *  before procurement has a code for one, and the screen shows unresolved
  *  codes plainly instead (A6, D149).
@@ -876,7 +876,7 @@ export async function removeBomComponent(
   return getProduct(product.product_code);
 }
 
-/** The revision's persentase miskalkulasi (0106) — one margin on the whole
+/** The revision's persentase miskalkulasi (0109) — one margin on the whole
  *  subtotal, owner's choice. Lands on the draft, opening it if needed. */
 export async function setBomMiscalc(
   input: { product_code: string; miscalc_percent: number },
@@ -933,7 +933,7 @@ export async function discardBomDraft(
  *
  *  It goes **into the items database** — *terhubung ke database items* —
  *  uncurated, for procurement to file and price later. The same name already
- *  there is handed back rather than twinned (0106's `create_bom_item`). */
+ *  there is handed back rather than twinned (0109's `create_bom_item`). */
 export async function createBomItem(
   input: {
     name: string;
@@ -1045,7 +1045,7 @@ export async function releaseBom(
     const row = draft.bom_revisions.find((r) => r.product_id === product.id && r.rev === rev);
     if (!row) return;
     /* Freeze: every line keeps the rate it is costed at today, and says where
-       that rate came from (0106). */
+       that rate came from (0109). */
     for (const b of draft.bom_components.filter((x) => x.product_id === product.id && x.rev === rev)) {
       if (b.unit_rate != null) continue;
       const { rate, source } = lineRate(state, b);

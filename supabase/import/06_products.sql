@@ -4,9 +4,9 @@
 -- Source: `public.products` (item_code, name, dimension, drawing_link,
 -- spec_link …). Target: `ops_prod.products`, one row per item code, and each
 -- `drawing_link` filed as a **Gambar Kerja** link on the product — the drawing
--- the BOM screen shows beside the component list (0106).
+-- the BOM screen shows beside the component list (0109).
 --
--- Needs `0060`–`0066` and `0105`–`0106` applied first. Run it like the others
+-- Needs `0060`–`0066` and `0108`–`0109` applied first. Run it like the others
 -- (see README.md); it is idempotent through `ops_core.legacy_map`, so a second
 -- run imports nothing and changes nothing it imported the first time.
 --

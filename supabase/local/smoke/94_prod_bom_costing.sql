@@ -1,4 +1,4 @@
--- prod — what one unit costs to make (0105, 0106).
+-- prod — what one unit costs to make (0108, 0109).
 --
 --   REFUSALS     a labour line with no rate; releasing with an unpriced line;
 --                releasing a draft identical to the last release; a
