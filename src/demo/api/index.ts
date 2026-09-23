@@ -37,6 +37,7 @@ import * as liveInventory from "@/lib/api/inventory";
 import * as liveProduction from "@/lib/api/production";
 import * as liveAssistant from "@/lib/api/assistant";
 import * as liveHr from "@/lib/api/hr";
+import * as liveDelivery from "@/lib/api/delivery";
 
 export const identity = swap("identity", demoIdentity, liveIdentity);
 export const procurement = swap("procurement", demoProcurement, liveProcurement);
@@ -78,7 +79,7 @@ export const marketing = swap("marketing", demoMarketing);
    refusal carries the same name their successes would. Inventing two more
    `ServiceName` values to make this line read nicely would put a name in the
    audit trail that no envelope anywhere else uses. */
-export const delivery = swap("production", demoDelivery);
+export const delivery = swap("production", demoDelivery, liveDelivery);
 export const assistant = swap("procurement", demoAssistant, liveAssistant);
 
 export { isOk } from "@/services/_shared/envelope";

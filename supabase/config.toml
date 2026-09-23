@@ -20,7 +20,7 @@ port = 54321
 # The same setting exists on a hosted project, under Settings → API → Exposed
 # schemas. It has to be set there too, and it is the first thing to check when
 # a deployed screen comes back empty while psql shows the rows.
-schemas = ["public", "graphql_public", "ops_core", "ops_procure", "ops_acct", "ops_hr", "ops_prod", "ops_inv"]
+schemas = ["public", "graphql_public", "ops_core", "ops_procure", "ops_acct", "ops_hr", "ops_prod", "ops_inv", "ops_mkt", "ops_asst", "ops_dlv"]
 # Extra schemas to add to the search_path of every request.
 #
 # **This does NOT make a client's `.from()` or `.rpc()` resolve, and the comment
@@ -42,7 +42,7 @@ schemas = ["public", "graphql_public", "ops_core", "ops_procure", "ops_acct", "o
 #
 # Everything here is still subject to the policies in the migrations — exposing
 # a schema says where to look, never who may read.
-extra_search_path = ["public", "extensions", "ops_core", "ops_procure", "ops_acct", "ops_hr", "ops_prod", "ops_inv"]
+extra_search_path = ["public", "extensions", "ops_core", "ops_procure", "ops_acct", "ops_hr", "ops_prod", "ops_inv", "ops_mkt", "ops_asst", "ops_dlv"]
 # The maximum number of rows returns from a view, table, or stored procedure. Limits payload size
 # for accidental or malicious requests.
 max_rows = 1000

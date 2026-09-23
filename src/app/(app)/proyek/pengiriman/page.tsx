@@ -9,6 +9,7 @@ import { NumberInput } from "@/components/ui/number-input";
 import { cn } from "@/lib/cn";
 import { delivery } from "@/demo/api";
 import { DELIVERY_STATUS_LABEL, type DeliveryStatus, type FulfilmentView } from "@/services/delivery/contracts";
+import { FileEvidence } from "@/components/ui/file-evidence";
 import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
 import { officeToday } from "@/lib/office";
@@ -34,7 +35,7 @@ export default function DeliveryPage() {
   const [ful, reloadFul] = useLoad(() => delivery.listFulfilment(), []);
   const [rows, reload] = useLoad(() => delivery.listDeliveries(), []);
   const [open, setOpen] = useState<FulfilmentView | null>(null);
-  const mayEdit = can("project.update");
+  const mayEdit = can("delivery.create");
 
   function refresh() { reloadFul(); reload(); }
 
@@ -210,16 +211,20 @@ function ArriveButton({ deliveryNo, onDone }: { deliveryNo: string; onDone: () =
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [receiver, setReceiver] = useState("");
+  const [sj, setSj] = useState<{ id: string; name: string } | null>(null);
+  const [photo, setPhoto] = useState<{ id: string; name: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function submit() {
+    if (!sj) return;
     setBusy(true);
+    /* Both halves of the evidence or it has not arrived (D101): the name of
+       whoever signed, and the photo of the surat jalan they signed. */
     const res = await delivery.markArrived({
       delivery_no: deliveryNo,
       received_by: receiver,
-      /* In Phase 1 the file is the demo's stand-in; the rule is that the call
-         refuses without one, which is what is being demonstrated (D101). */
-      surat_jalan_attachment_id: "att_60",
+      surat_jalan_attachment_id: sj.id,
+      photo_attachment_id: photo?.id ?? null,
     });
     setBusy(false);
     if (res.error) { toast("warning", "Belum dicatat", res.error.message); return; }
@@ -231,13 +236,15 @@ function ArriveButton({ deliveryNo, onDone }: { deliveryNo: string; onDone: () =
     return <Button size="sm" variant="outline" onClick={() => setOpen(true)}>Catat sampai</Button>;
   }
   return (
-    <span className="flex items-center gap-1.5">
+    <span className="flex flex-wrap items-center gap-1.5">
       <input
         value={receiver} onChange={(e) => setReceiver(e.target.value)}
         placeholder="Diterima siapa di lokasi?" aria-label="Penerima"
         className="h-8 w-56 rounded-lg border border-slate-200 px-2 text-[13px] focus:border-brand-400 focus:outline-none"
       />
-      <Button size="sm" disabled={busy || !receiver.trim()} onClick={submit}>Simpan</Button>
+      <FileEvidence kind="Surat Jalan Keluar" label="Foto surat jalan bertanda tangan" value={sj} onChange={setSj} />
+      <FileEvidence kind="Foto Lokasi" label="Foto barang (opsional)" value={photo} onChange={setPhoto} accept="image/*" />
+      <Button size="sm" disabled={busy || !receiver.trim() || !sj} onClick={submit}>Simpan</Button>
       <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>Batal</Button>
     </span>
   );
@@ -251,6 +258,10 @@ function DispatchDrawer({ project, onClose, onDone }: {
   const [driver, setDriver] = useState("");
   const [vehicle, setVehicle] = useState("");
   const [busy, setBusy] = useState(false);
+  /* Crates packed for this project and not on any lorry yet — loaded in the
+     same act as the surat jalan, so the label can say *3 dari 5*. */
+  const [crates] = useLoad(() => delivery.listBoxes({ project_code: project.project_code, status: "PACKED" }), [project.project_code]);
+  const [boxes, setBoxes] = useState<string[]>([]);
   const shippable = project.lines.filter((l) => (l.ready_to_ship ?? 0) > 0 || l.made == null);
 
   async function submit() {
@@ -262,7 +273,8 @@ function DispatchDrawer({ project, onClose, onDone }: {
       project_code: project.project_code,
       dispatched_on: officeToday(),
       driver: driver || null, vehicle: vehicle || null, lines,
-    });
+      box_nos: boxes,
+    }, `dlv:${project.project_code}:${JSON.stringify(lines)}:${boxes.join(",")}`);
     setBusy(false);
     if (res.error) { toast(res.error.status === 409 ? "critical" : "warning", "Tidak dibuat", res.error.message); return; }
     toast("success", `Surat jalan ${res.data.delivery_no}`, `${res.data.lines.length} baris berangkat`);
@@ -299,6 +311,20 @@ function DispatchDrawer({ project, onClose, onDone }: {
             <li className="text-[13px] text-slate-500">Tidak ada yang siap kirim di proyek ini.</li>
           )}
         </ul>
+
+        {crates.status === "ready" && crates.data.filter((b) => !b.delivery_id).length > 0 && (
+          <div className="mb-4 rounded-lg border border-slate-200 px-3 py-2">
+            <p className="mb-1 text-[12px] font-medium text-slate-700">Peti yang ikut</p>
+            {crates.data.filter((b) => !b.delivery_id).map((b) => (
+              <label key={b.box_no} className="flex items-center gap-2 py-0.5 text-[12px] text-slate-700">
+                <input type="checkbox" checked={boxes.includes(b.box_no)}
+                  onChange={(e) => setBoxes(e.target.checked ? [...boxes, b.box_no] : boxes.filter((x) => x !== b.box_no))} />
+                <span className="font-mono text-[11px] text-slate-500">{b.box_no}</span>
+                {b.destination} · {b.piece_count} pcs
+              </label>
+            ))}
+          </div>
+        )}
 
         <div className={cn("grid gap-2 sm:grid-cols-2")}>
           <label className="text-[11px] text-slate-500">

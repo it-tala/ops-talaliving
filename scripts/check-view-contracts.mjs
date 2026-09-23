@@ -105,6 +105,15 @@ const VIEW_CONTRACTS = {
      derived view, not the row. */
   v_work_order:      null,
   v_vendor_leg:      null,
+  /* ops_dlv (0132): read as rows and assembled field by field in
+     `src/lib/api/delivery.ts`, the board by `buildFulfilment`. */
+  v_fulfilment_line:   null,
+  v_delivery:          null,
+  v_delivery_line:     null,
+  v_installation:      null,
+  v_installation_line: null,
+  v_snag:              null,
+  v_box:               null,
 
   /* ── core ────────────────────────────────────────────────────────────── */
   v_user_access:     "AccessRow",

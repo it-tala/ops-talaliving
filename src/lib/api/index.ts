@@ -56,6 +56,11 @@ export * as inventory from "./inventory";
    screens dark and opens `/produksi/bom` alone. */
 export * as production from "./production";
 
+/* The last leg (`ops_dlv`, 0131–0132): crates, surat jalan, installation,
+   snags and the BAST. A module, not a service — its envelopes say
+   `production`, the same as the demo's. */
+export * as delivery from "./delivery";
+
 /* ## `marketing` is written and is deliberately not exported here yet
  *
  *  `src/lib/api/marketing.ts` exists, type-checks, and matches the demo on all

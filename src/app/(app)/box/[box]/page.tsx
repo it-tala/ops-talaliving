@@ -37,7 +37,7 @@ export default function BoxScanPage({ params }: { params: Promise<{ box: string 
   const boxNo = decodeURIComponent(box);
   const { can } = useSession();
   const [state, reload] = useLoad(() => delivery.getBox(boxNo), [boxNo]);
-  const mayEdit = can("project.update");
+  const mayEdit = can("delivery.update");
 
   return (
     <div className="mx-auto max-w-xl">

@@ -67,6 +67,7 @@ export const LIVE_ROUTES: readonly string[] = [
   "/accounting/rekening-koran",
   "/accounting/tagihan",
   "/accounting/verifikasi",
+  "/box/[box]",
   "/dashboard",
   "/hrd/absensi",
   "/hrd/berkas-201",
@@ -107,8 +108,13 @@ export const LIVE_ROUTES: readonly string[] = [
   "/procurement/tracker/[vendor]",
   "/produksi/bom",
   "/produksi/jadwal",
+  "/proyek/instalasi",
   "/proyek/order",
+  "/proyek/pengiriman",
+  "/proyek/peti",
+  "/proyek/peti/label",
   "/proyek/produksi",
+  "/proyek/serah-terima",
 ];
 
 /** Is this deployment talking to a database at all?
