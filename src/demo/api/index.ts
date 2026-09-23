@@ -34,19 +34,27 @@ import * as liveProcurement from "@/lib/api/procurement";
 import * as liveAccounting from "@/lib/api/accounting";
 import * as liveDocuments from "@/lib/api/documents";
 import * as liveAssistant from "@/lib/api/assistant";
+import * as liveHr from "@/lib/api/hr";
 
 export const identity = swap("identity", demoIdentity, liveIdentity);
 export const procurement = swap("procurement", demoProcurement, liveProcurement);
 export const accounting = swap("accounting", demoAccounting, liveAccounting);
 export const documents = swap("documents", demoDocuments, liveDocuments);
 
-/* The four services B1–B3 have not reached. No `src/lib/api` module exists for
+/* `hr` is swapped for real since the HR ladder reached the live project
+   (2026-09-23). It is the **partial** case this file was built for: 28 of the
+   demo's 61 functions are written, and the other 33 — payroll, lembur, iuran,
+   kinerja, cuti — become the 501 above rather than falling through to a
+   fixture. Nobody meets one, because `isRouteLive()` keeps those nine screens
+   dark; the refusal is the second line, for the day somebody adds an import. */
+export const hr = swap("hr", demoHr, liveHr);
+
+/* The three services B1–B3 have not reached. No `src/lib/api` module exists for
    any of them, so in live mode every one of their functions refuses with the
    name of the call — which is what `swap` does when handed nothing to swap in.
    Listing them here rather than exporting the demo directly is the whole point:
    the alternative is six services quietly serving fixtures to a business
    booking real money. */
-export const hr = swap("hr", demoHr);
 export const production = swap("production", demoProduction);
 export const inventory = swap("inventory", demoInventory);
 export const marketing = swap("marketing", demoMarketing);

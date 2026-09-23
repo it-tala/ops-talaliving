@@ -266,8 +266,20 @@ const MODULE_OF = {
    other half) and the board rack (no migration yet) are not written in that
    client yet, so `/inventory/log` and `/inventory/papan` stay dark on their
    own — this list only says the module may open, the per-route function scan
-   above still decides which screens in it do. */
-const LIVE_MODULES = ["dashboard", "procurement", "accounting", "it", "settings", "assistant", "inventory"];
+   above still decides which screens in it do.
+
+   `hrd` joins them once `0043`–`0058` are applied (2026-09-23): `ops_hr` has
+   17 tables, 13 views and 61 functions in the live project, so the module can
+   answer honestly about the chain HRD works — the person, their berkas, their
+   contract, the machine's file and the marks on it. Six of its fourteen
+   screens open and the per-route scan above is what decides that, not this
+   line: payroll, lembur, iuran, kinerja and cuti call 33 functions
+   `src/lib/api/hr.ts` has not been given, and two of those five are waiting on
+   the database rather than on TypeScript — payroll's `payroll_figures` is
+   short of nineteen of `PayrollLine`'s fields (C20), and `/hrd/cuti` has no
+   leave-request table at all. `/it/aturan-gaji` is an `it` route that calls
+   `hr.*`, so it stays dark on the function scan too. */
+const LIVE_MODULES = ["dashboard", "procurement", "accounting", "it", "settings", "assistant", "inventory", "hrd"];
 
 const IMPL = Object.fromEntries(LIVE.map((s) => [s, implementedFunctions(s)]));
 

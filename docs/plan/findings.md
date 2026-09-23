@@ -5289,3 +5289,56 @@ the project host. That is exactly the failure class of the schema-cache bug that
 hit ~100 client calls at once, and it is why **no route was switched live in
 this session**. Turning screens on before that setting is confirmed is how the
 same bug ships twice.
+
+## F132 · 2026-09-23 · the route flip had a second gate, and the six screens open onto an empty roster
+
+**What I told the owner it would take.** *Export `hr` from `src/lib/api/index.ts`,
+run `check-live-routes --write`, and the six screens open.* Both halves of that
+were done and **`LIVE_ROUTES` did not change by one line**.
+
+**The gate I had not read.** `check-live-routes.mjs` decides with
+`missing.length === 0 && unimplemented.length === 0 && LIVE_MODULES.includes(mod)`.
+The function scan is the half everybody talks about; `LIVE_MODULES` is a second,
+coarser gate with its own reason written beside it — *a screen that happens to
+call no service at all is not therefore live*. `/inventory/papan` calls nothing
+and is still an inventory screen. Being live has to mean **this module is open
+for business**, not *this file compiled*.
+
+So the export was necessary and not sufficient, and the guard's answer to a
+half-done job was to keep all six dark rather than open them. That is the guard
+working. What was wrong was my description of the work, stated confidently to
+the owner one message earlier — and the thing that made it cheap was that the
+list is **generated and diffed** rather than hand-edited: the mistake showed up
+as *nothing changed*, which is unmissable, instead of as six routes I had typed
+in myself and would have believed.
+
+**What opened, and what the scan held back on its own.** Six of fourteen:
+`/hrd/karyawan`, `/hrd/berkas-201`, `/hrd/absensi`, `/hrd/jadwal`,
+`/hrd/kontrak`, `/hrd/kontrak/[no]`. Payroll's four, `/hrd/lembur`,
+`/hrd/iuran`, `/hrd/kinerja`, `/hrd/cuti` and `/it/aturan-gaji` stayed dark
+because 33 functions are unwritten — no list of mine decided that, and adding
+`hrd` to `LIVE_MODULES` could not have forced them open.
+
+**And now the part nothing in the repo guards.** `ops_hr.employees` has **zero
+rows**, and `supabase/import/` has no HR stage — grep it for `ops_hr` and there
+is nothing. So the screens that just went live read empty tables, which is
+precisely the failure `live.ts`'s own header names:
+
+> it throws, or worse, renders an empty table that reads as *this business has
+> no employees*.
+
+Two things keep that from being a live incident rather than a note. Only
+`shared` and `superadmin` hold the `hrd` module, so no HRD clerk can open the
+screens yet; and these screens are themselves the way data gets in —
+`saveEmployee`, `file_employee_document`, `register_contract` are all reachable
+from them. An empty roster on the first day of a cutover is the expected state.
+
+**The data is there to import.** The legacy `hr` schema in the same project has
+**8 employees and 7 salary rows**. That is an `04_hr.sql` in `supabase/import/`
+with the idempotence the other three stages have — not a large job, and the
+right one to do before anybody is given the `hrd` module.
+
+**The shape worth keeping.** *A guard with two gates needs both named wherever
+the work is described.* I had read the function scan, quoted it accurately, and
+never looked at the line below it. The generated list is what turned an
+incorrect plan into a five-minute correction instead of a wrong claim shipped.
