@@ -239,7 +239,7 @@ export function ComponentDrawer({
                 className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none"
               >
                 <option value="">not fixed</option>
-                {accounts.status === "ready" && accounts.data.map((a) => (
+                {accounts.status === "ready" && accounts.data.filter((a) => a.is_active || a.id === accountId).map((a) => (
                   <option key={a.id} value={a.id}>{a.code}</option>
                 ))}
               </select>

@@ -1,5 +1,5 @@
 /** Implements `/api/v1/accounting` from `03-api.md`. */
-import { ok, invalid, notFound, type Result } from "@/services/_shared/envelope";
+import { ok, noop, invalid, notFound, type Result } from "@/services/_shared/envelope";
 import type { ContributionAuditGroup } from "@/services/hr/contracts";
 import type {
   Account, AccountBalance, Transaction, TransactionView, TransactionTypeCode,
@@ -36,11 +36,208 @@ export async function listAccountRows(): Promise<Result<Account[]>> {
   return ok(SERVICE, getState().accounts);
 }
 
-/** The thirteen types, with the flag that decides whether a row is expected
- *  to name what it bought and who from (D83, D86). */
+/** The types, with the flag that decides whether a row is expected to name
+ *  what it bought and who from (D83, D86). Retired ones included — a picker
+ *  filters them, a filter on the ledger does not. */
 export async function listTypeRows(): Promise<Result<TransactionType[]>> {
   await latency();
-  return ok(SERVICE, getState().transaction_types);
+  return ok(SERVICE, [...getState().transaction_types].sort((a, b) => a.code.localeCompare(b.code)));
+}
+
+/* ------------------------------------------------------------------ */
+/* Master data (0105): accounts and transaction types                  */
+/* ------------------------------------------------------------------ */
+
+/** Accounts are money: accounting write and `post_ledger`, and anything that
+ *  touches a leadership account also `approve_funds` (D87). */
+function accountGuard(touchesLeadership: boolean) {
+  const denied = requireLevel(SERVICE, "accounting", "write") ?? requireAuthority(SERVICE, "post_ledger");
+  if (denied) return denied;
+  return touchesLeadership ? requireAuthority(SERVICE, "approve_funds") : null;
+}
+
+export async function createAccount(input: {
+  code: string; name: string; custody: Account["custody"]; is_paying?: boolean;
+  currency?: string; opening_balance?: number; opened_on?: string;
+}): Promise<Result<Account>> {
+  await latency();
+  const code = input.code.trim().toUpperCase();
+  const currency = (input.currency ?? "IDR").trim().toUpperCase();
+  const denied = accountGuard(input.custody === "leadership");
+  if (denied) return denied;
+  if (!/^[A-Z0-9][A-Z0-9 .\-]{1,23}$/.test(code)) {
+    return invalid(SERVICE, "code_invalid", 'An account code is 2–24 characters: letters, digits, spaces, dots or dashes — e.g. "BCA 271".', { field: "code" });
+  }
+  if (!input.name.trim()) return invalid(SERVICE, "name_required", "An account needs a name.", { field: "name" });
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    return invalid(SERVICE, "currency_invalid", "A currency is a three-letter code, e.g. IDR or USD.", { field: "currency" });
+  }
+  if (input.custody === "leadership" && input.is_paying) {
+    return invalid(SERVICE, "leadership_not_paying", "A leadership account never pays a vendor directly (D87).", { field: "is_paying" });
+  }
+  if (getState().accounts.some((a) => a.code.toUpperCase() === code)) {
+    return conflict(SERVICE, "account_exists", `Account ${code} already exists.`, { field: "code" });
+  }
+  const row: Account = {
+    id: newId("acc"), code, name: input.name.trim(), custody: input.custody,
+    is_paying: input.is_paying ?? false, currency, opening_balance: input.opening_balance ?? 0,
+    opened_on: input.opened_on ?? officeToday(), is_active: true,
+  };
+  apply((draft) => {
+    draft.accounts.push(row);
+    writeAudit(draft, { service: SERVICE, entity: "account", entity_no: code, action: "create", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, row);
+}
+
+export async function updateAccount(
+  code: string,
+  input: {
+    name?: string; custody?: Account["custody"]; is_paying?: boolean; currency?: string;
+    opening_balance?: number; opened_on?: string; is_active?: boolean; reason?: string;
+  },
+): Promise<Result<Account>> {
+  await latency();
+  const state = getState();
+  const a = state.accounts.find((x) => x.code === code);
+  if (!a) return notFound(SERVICE, "account_not_found", "No such account.");
+  const custody = input.custody ?? a.custody;
+  const denied = accountGuard(a.custody === "leadership" || custody === "leadership");
+  if (denied) return denied;
+  if (input.name !== undefined && !input.name.trim()) {
+    return invalid(SERVICE, "name_required", "An account needs a name.", { field: "name" });
+  }
+  const isPaying = input.is_paying ?? a.is_paying;
+  if (custody === "leadership" && isPaying) {
+    return invalid(SERVICE, "leadership_not_paying", "A leadership account never pays a vendor directly (D87).", { field: "is_paying" });
+  }
+  const currency = input.currency?.trim().toUpperCase() ?? a.currency;
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    return invalid(SERVICE, "currency_invalid", "A currency is a three-letter code, e.g. IDR or USD.", { field: "currency" });
+  }
+  if (currency !== a.currency && state.transactions.some((t) => t.account_id === a.id)) {
+    return conflict(SERVICE, "currency_locked", `${code} already has transactions in ${a.currency}; its currency cannot change.`, { field: "currency" });
+  }
+  const reason = input.reason?.trim() || null;
+  const balanceChanged = input.opening_balance !== undefined && input.opening_balance !== a.opening_balance;
+  if (balanceChanged && !reason) {
+    return invalid(SERVICE, "reason_required", "Changing an opening balance moves every balance after it — say why.", { field: "reason" });
+  }
+  const next: Account = {
+    ...a,
+    name: input.name?.trim() ?? a.name, custody, is_paying: isPaying, currency,
+    opening_balance: input.opening_balance ?? a.opening_balance,
+    opened_on: input.opened_on ?? a.opened_on,
+    is_active: input.is_active ?? a.is_active,
+  };
+  if (JSON.stringify(next) === JSON.stringify(a)) return noop(SERVICE, a);
+  apply((draft) => {
+    const d = draft.accounts.find((x) => x.id === a.id)!;
+    Object.assign(d, next);
+    writeAudit(draft, {
+      service: SERVICE, entity: "account", entity_no: code, action: "update", outcome: "ok", reason,
+      detail: balanceChanged ? { opening_balance_before: a.opening_balance, opening_balance_after: next.opening_balance } : null,
+    });
+  });
+  return ok(SERVICE, getState().accounts.find((x) => x.id === a.id)!);
+}
+
+export async function deleteAccount(code: string): Promise<Result<{ code: string; deleted: true }>> {
+  await latency();
+  const state = getState();
+  const a = state.accounts.find((x) => x.code === code);
+  if (!a) return notFound(SERVICE, "account_not_found", "No such account.");
+  const denied = accountGuard(a.custody === "leadership");
+  if (denied) return denied;
+  const trx = state.transactions.filter((t) => t.account_id === a.id).length;
+  const stmt = state.bank_statements.filter((b) => b.account_id === a.id).length;
+  const cash = state.cash_components.filter((c) => c.account_id === a.id).length;
+  if (trx + stmt + cash > 0) {
+    return conflict(SERVICE, "account_in_use",
+      `${code} has ${trx} transaction(s), ${stmt} bank statement(s) and ${cash} planned payment(s). Deactivate it instead.`);
+  }
+  apply((draft) => {
+    draft.accounts = draft.accounts.filter((x) => x.id !== a.id);
+    writeAudit(draft, { service: SERVICE, entity: "account", entity_no: code, action: "delete", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, { code, deleted: true as const });
+}
+
+export async function createTransactionType(input: {
+  code: string; is_purchase?: boolean; auto_complete?: boolean;
+  creates_catalog_item?: boolean; description?: string;
+}): Promise<Result<TransactionType>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "accounting", "write");
+  if (denied) return denied;
+  const code = input.code.trim().replace(/\s+/g, " ").toUpperCase();
+  if (!/^[A-Z0-9][A-Z0-9 &/.\-]{1,39}$/.test(code)) {
+    return invalid(SERVICE, "code_invalid", 'A type is 2–40 characters: letters, digits, spaces, "&", "/", "." or "-" — e.g. "TRANSPORT".', { field: "code" });
+  }
+  if (getState().transaction_types.some((t) => t.code === code)) {
+    return conflict(SERVICE, "type_exists", `${code} already exists.`, { field: "code" });
+  }
+  const row: TransactionType = {
+    code, is_purchase: input.is_purchase ?? true, auto_complete: input.auto_complete ?? false,
+    creates_catalog_item: input.creates_catalog_item ?? false,
+    description: input.description?.trim() || null, is_active: true,
+  };
+  apply((draft) => {
+    draft.transaction_types.push(row);
+    writeAudit(draft, { service: SERVICE, entity: "transaction_type", entity_no: code, action: "create", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, row);
+}
+
+export async function updateTransactionType(
+  code: string,
+  input: {
+    is_purchase?: boolean; auto_complete?: boolean; creates_catalog_item?: boolean;
+    description?: string; is_active?: boolean;
+  },
+): Promise<Result<TransactionType>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "accounting", "write");
+  if (denied) return denied;
+  const t = getState().transaction_types.find((x) => x.code === code);
+  if (!t) return notFound(SERVICE, "type_not_found", "No such transaction type.");
+  const next: TransactionType = {
+    ...t,
+    is_purchase: input.is_purchase ?? t.is_purchase,
+    auto_complete: input.auto_complete ?? t.auto_complete,
+    creates_catalog_item: input.creates_catalog_item ?? t.creates_catalog_item,
+    description: input.description === undefined ? (t.description ?? null) : (input.description.trim() || null),
+    is_active: input.is_active ?? (t.is_active ?? true),
+  };
+  if (JSON.stringify(next) === JSON.stringify({ ...t, description: t.description ?? null, is_active: t.is_active ?? true })) {
+    return noop(SERVICE, t);
+  }
+  apply((draft) => {
+    Object.assign(draft.transaction_types.find((x) => x.code === code)!, next);
+    writeAudit(draft, { service: SERVICE, entity: "transaction_type", entity_no: code, action: "update", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, getState().transaction_types.find((x) => x.code === code)!);
+}
+
+export async function deleteTransactionType(code: string): Promise<Result<{ code: string; deleted: true }>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "accounting", "write");
+  if (denied) return denied;
+  const state = getState();
+  if (!state.transaction_types.some((x) => x.code === code)) {
+    return notFound(SERVICE, "type_not_found", "No such transaction type.");
+  }
+  const trx = state.transactions.filter((t) => t.type_code === code).length;
+  const cash = state.cash_components.filter((c) => c.type_code === code).length;
+  if (trx + cash > 0) {
+    return conflict(SERVICE, "type_in_use",
+      `${code} is on ${trx} transaction(s) and ${cash} planned payment(s). Deactivate it instead.`);
+  }
+  apply((draft) => {
+    draft.transaction_types = draft.transaction_types.filter((x) => x.code !== code);
+    writeAudit(draft, { service: SERVICE, entity: "transaction_type", entity_no: code, action: "delete", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, { code, deleted: true as const });
 }
 
 export async function listTransactions(

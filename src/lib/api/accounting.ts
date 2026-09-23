@@ -139,6 +139,115 @@ export async function listTypeRows(): Promise<Result<TransactionType[]>> {
 }
 
 /* ------------------------------------------------------------------ */
+/* Master data (0105): accounts and transaction types                  */
+/* ------------------------------------------------------------------ */
+
+async function accountByCode(code: string): Promise<Result<Account>> {
+  const { data, error } = await db().from("accounts").select("*").eq("code", code).maybeSingle();
+  if (error) return fail(SERVICE, error);
+  if (!data) return notFound(SERVICE, "account_not_found", "No such account.");
+  return ok(SERVICE, { ...data, opening_balance: Number(data.opening_balance) } as Account);
+}
+
+async function typeByCode(code: string): Promise<Result<TransactionType>> {
+  const { data, error } = await db().from("transaction_types").select("*").eq("code", code).maybeSingle();
+  if (error) return fail(SERVICE, error);
+  if (!data) return notFound(SERVICE, "type_not_found", "No such transaction type.");
+  return ok(SERVICE, data as TransactionType);
+}
+
+/** Accounting write, `post_ledger`, and `approve_funds` for anything touching
+ *  a leadership account — all decided by the seam (`0105`). */
+export async function createAccount(input: {
+  code: string; name: string; custody: Account["custody"]; is_paying?: boolean;
+  currency?: string; opening_balance?: number; opened_on?: string;
+}): Promise<Result<Account>> {
+  const { data, error } = await db().rpc("create_account", {
+    p_code: input.code, p_name: input.name, p_custody: input.custody,
+    p_is_paying: input.is_paying ?? false, p_currency: input.currency ?? "IDR",
+    p_opening_balance: input.opening_balance ?? 0, p_opened_on: input.opened_on ?? null,
+  });
+  const res = fromSeam<{ code: string }>(SERVICE, data, error);
+  if (res.error) return res;
+  return accountByCode(res.data.code);
+}
+
+/** Every field optional; an opening balance change needs `reason`, which the
+ *  audit log keeps with the value before and after. */
+export async function updateAccount(
+  code: string,
+  input: {
+    name?: string; custody?: Account["custody"]; is_paying?: boolean; currency?: string;
+    opening_balance?: number; opened_on?: string; is_active?: boolean; reason?: string;
+  },
+): Promise<Result<Account>> {
+  const { data, error } = await db().rpc("update_account", {
+    p_code: code,
+    p_name: input.name ?? null,
+    p_custody: input.custody ?? null,
+    p_is_paying: input.is_paying ?? null,
+    p_currency: input.currency ?? null,
+    p_opening_balance: input.opening_balance ?? null,
+    p_opened_on: input.opened_on ?? null,
+    p_is_active: input.is_active ?? null,
+    p_reason: input.reason ?? null,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return accountByCode(code);
+}
+
+export async function deleteAccount(code: string): Promise<Result<{ code: string; deleted: true }>> {
+  const { data, error } = await db().rpc("delete_account", { p_code: code });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, { code, deleted: true as const });
+}
+
+export async function createTransactionType(input: {
+  code: string; is_purchase?: boolean; auto_complete?: boolean;
+  creates_catalog_item?: boolean; description?: string;
+}): Promise<Result<TransactionType>> {
+  const { data, error } = await db().rpc("create_transaction_type", {
+    p_code: input.code,
+    p_is_purchase: input.is_purchase ?? true,
+    p_auto_complete: input.auto_complete ?? false,
+    p_creates_catalog_item: input.creates_catalog_item ?? false,
+    p_description: input.description ?? null,
+  });
+  const res = fromSeam<{ code: string }>(SERVICE, data, error);
+  if (res.error) return res;
+  return typeByCode(res.data.code);
+}
+
+export async function updateTransactionType(
+  code: string,
+  input: {
+    is_purchase?: boolean; auto_complete?: boolean; creates_catalog_item?: boolean;
+    description?: string; is_active?: boolean;
+  },
+): Promise<Result<TransactionType>> {
+  const { data, error } = await db().rpc("update_transaction_type", {
+    p_code: code,
+    p_is_purchase: input.is_purchase ?? null,
+    p_auto_complete: input.auto_complete ?? null,
+    p_creates_catalog_item: input.creates_catalog_item ?? null,
+    p_description: input.description ?? null,
+    p_is_active: input.is_active ?? null,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return typeByCode(code);
+}
+
+export async function deleteTransactionType(code: string): Promise<Result<{ code: string; deleted: true }>> {
+  const { data, error } = await db().rpc("delete_transaction_type", { p_code: code });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, { code, deleted: true as const });
+}
+
+/* ------------------------------------------------------------------ */
 /* The ledger                                                          */
 /* ------------------------------------------------------------------ */
 

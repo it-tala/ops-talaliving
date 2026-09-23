@@ -54,7 +54,7 @@ export function TransferForm({
   const fileRef = useRef<HTMLInputElement>(null);
 
   const rows: AccountBalance[] = accounts.status === "ready" ? accounts.data : [];
-  const sources = rows.filter((a) => a.custody === "leadership");
+  const sources = rows.filter((a) => a.custody === "leadership" && a.is_active !== false);
   const target = rows.find((a) => a.code === "BCA 271");
 
   useEffect(() => {

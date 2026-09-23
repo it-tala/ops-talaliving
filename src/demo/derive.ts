@@ -561,6 +561,8 @@ export function accountBalances(state: DemoState): AccountBalance[] {
       currency: acc.currency,
       is_paying: acc.is_paying,
       opening_balance: acc.opening_balance,
+      is_active: acc.is_active,
+      opened_on: acc.opened_on,
       total_in,
       total_out,
       balance: acc.opening_balance + total_in - total_out,

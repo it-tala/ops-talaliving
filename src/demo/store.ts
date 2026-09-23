@@ -31,11 +31,22 @@ let state: DemoState = initialState();
 let hydrated = false;
 const listeners = new Set<() => void>();
 
+/** The signature of the fixtures a snapshot was taken against — never of the
+ *  snapshot itself. Accounts, transaction types and users are editable in the
+ *  sandbox now (Master Data, `0105`); signing the live state meant adding one
+ *  made the saved signature stop matching the fixtures, and the next reload
+ *  threw the whole sandbox away. */
+let fixtureSig: string | null = null;
+function fixtureSignature(): string {
+  if (fixtureSig === null) fixtureSig = stateSignature(initialState());
+  return fixtureSig;
+}
+
 function persist() {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      sig: stateSignature(state),
+      sig: fixtureSignature(),
       state,
     }));
   } catch {
@@ -57,7 +68,7 @@ export function hydrate() {
       /* A snapshot from before the fixtures moved is worse than no snapshot:
        * it looks like the app, and it is missing whatever was just added
        * (F24). Keep it only while the shape and the reference data match. */
-      if (saved.state && saved.sig === stateSignature(fresh)) {
+      if (saved.state && saved.sig === fixtureSignature()) {
         state = { ...fresh, ...saved.state };
       } else {
         state = fresh;
