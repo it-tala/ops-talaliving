@@ -476,3 +476,80 @@ export interface StockItemDetail extends StockItemView {
   /** Requests raised for it that have not been received yet. */
   on_order: { pr_line_no: string; qty: number; need_by: string | null }[];
 }
+
+/* ------------------------------------------------------------------ */
+/* The asset register (0107) — what the company owns and uses rather   */
+/* than sells or builds from: CCTV, PCs, vehicles, tools.              */
+/* ------------------------------------------------------------------ */
+
+export type AssetStatus = "in_use" | "in_storage" | "under_repair" | "disposed" | "lost";
+
+export const ASSET_STATUS_LABEL: Record<AssetStatus, string> = {
+  in_use: "In use",
+  in_storage: "In storage",
+  under_repair: "Under repair",
+  disposed: "Disposed",
+  lost: "Lost",
+};
+
+/** Master data: what kind of thing it is. Retired categories stay on their
+ *  assets and leave the pickers. */
+export interface AssetCategory {
+  code: string;
+  name: string;
+  description: string | null;
+  is_active: boolean;
+}
+
+export interface Asset {
+  id: string;
+  /** The tag on the sticker — `AST-0001`. */
+  asset_no: string;
+  name: string;
+  category_code: string;
+  brand: string | null;
+  model: string | null;
+  /** Serial number, IMEI, or a vehicle's plate. */
+  identifier: string | null;
+  location: string | null;
+  /** Who has it, as people say it — not necessarily somebody with a login. */
+  holder: string | null;
+  status: AssetStatus;
+  acquired_on: string | null;
+  purchase_cost: number | null;
+  /** The supplier, by public code (ADR-004). */
+  vendor_code: string | null;
+  /** The ledger row that paid for it, by public code. */
+  trx_no: string | null;
+  warranty_until: string | null;
+  notes: string | null;
+  /** When it was disposed of or lost. */
+  ended_on: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssetView extends Asset {
+  category_name: string;
+  vendor_name: string | null;
+  document_count: number;
+  warranty_expired: boolean;
+}
+
+/** Everything an asset form can set. Leave a field out to keep it; `""`
+ *  clears a text field and `null` clears a date or number. */
+export interface AssetInput {
+  name?: string;
+  category_code?: string;
+  brand?: string;
+  model?: string;
+  identifier?: string;
+  location?: string;
+  holder?: string;
+  acquired_on?: string | null;
+  purchase_cost?: number | null;
+  vendor_code?: string;
+  trx_no?: string;
+  warranty_until?: string | null;
+  notes?: string;
+}

@@ -6,7 +6,7 @@ import {
   FolderKanban, Hammer, Truck, Wrench, Stamp, Package,
   PencilRuler, ListTree, CalendarClock, CalendarRange, Link2,
   Cpu, ScrollText, Activity, UserCog, KeyRound, Clock, Scale, Factory,
-  Settings, FlaskConical, MessagesSquare, Route, ShieldCheck, Gauge, MessageSquareOff, Database, Ruler, FolderTree, Tags, type LucideIcon,
+  Settings, FlaskConical, MessagesSquare, Route, ShieldCheck, Gauge, MessageSquareOff, Database, Ruler, FolderTree, Tags, MonitorSmartphone, type LucideIcon,
 } from "lucide-react";
 
 /** Menu sebagai DATA, bukan JSX.
@@ -101,6 +101,7 @@ export const NAV: NavSection[] = [
       { label: "Timber", labelKey: "timber", href: "/inventory/log", icon: TreePine, permission: "inventory.read", badge: "core" },
       { label: "Materials & Hardware", labelKey: "materials", href: "/inventory/material", icon: Boxes, permission: "inventory.read", badge: "new" },
       { label: "Stock Adjustments", labelKey: "adjustments", href: "/inventory/penyesuaian", icon: Wrench, permission: "inventory.adjust", badge: "new" },
+      { label: "Assets", href: "/inventory/assets", icon: MonitorSmartphone, permission: "inventory.read", badge: "new" },
     ],
   },
   {
@@ -131,6 +132,7 @@ export const NAV: NavSection[] = [
       { label: "Units", href: "/master-data/units", icon: Ruler, permission: "procurement.read" },
       { label: "Accounts", href: "/master-data/accounts", icon: Landmark, permission: "accounting.read", badge: "new" },
       { label: "Transaction types", href: "/master-data/transaction-types", icon: Tags, permission: "accounting.read", badge: "new" },
+      { label: "Asset categories", href: "/master-data/asset-categories", icon: MonitorSmartphone, permission: "inventory.read", badge: "new" },
     ],
   },
   {
