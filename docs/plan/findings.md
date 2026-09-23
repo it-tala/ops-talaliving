@@ -5544,3 +5544,64 @@ and `day_value` is only ever 0, 0.5 or 1, so a `numeric` sum is exact and the
 rounding never moved a digit. It was removed rather than left: a guard that
 cannot fail is one nobody has tested, and dead code that looks like care is
 worse than none.
+
+---
+
+## F137 · 2026-09-23 · 0105 — adding a parameter does not break a positional call, it changes what it means
+
+`0101` gave `edit_transaction` five arguments, the fourth being `p_reason`.
+`0105` had to add vendor, project and type, and they went where they read best:
+
+```sql
+edit_transaction(p_trx_no, p_amount, p_description,
+                 p_vendor_code, p_project_code, p_type_code,  -- new
+                 p_reason, p_key)
+```
+
+`92_acct_edit_transaction.sql` failed on the next run:
+
+```
+expected ok, got refused / There is no vendor nota says 600.
+```
+
+Thirteen call sites inside the database pass their arguments **positionally**.
+Position 4 had meant *the remark* since `0101`. It now means *the vendor code*,
+so every one of them handed its remark to a lookup.
+
+**Nothing broke. Everything kept working and started meaning something else.**
+The only reason it was loud is that `nota says 600` does not resemble a vendor
+code. A remark reading `V-9001` would have set a vendor, returned `ok`, and
+written an audit row saying the vendor changed — which is the same failure with
+no error attached to it.
+
+PostgREST calls by name, so the web app could not have shown this. Everything
+inside the database calls by position.
+
+This is the sibling of the trap `00_no_overloads.sql` guards. There, adding an
+optional parameter creates a *second* function and every call becomes
+ambiguous — loud, immediate, unmissable. Here it replaces the one function and
+every call silently re-aims. The louder failure is the safer one.
+
+The fix is not clever: **a seam's parameters are only ever appended.**
+
+```sql
+edit_transaction(p_trx_no, p_amount, p_description, p_reason, p_key,
+                 p_vendor_code, p_project_code, p_type_code)  -- new, on the end
+```
+
+`p_key` last is a convention across this ladder and it reads better. It loses,
+because a convention about where an argument sits is worth less than a
+guarantee about what an existing call means.
+
+### The second one, found in the same hour
+
+The first draft of `0105` was written from `0101`'s body — and `0102` had
+already replaced that function the day before, removing the `below_allocated`
+refusal on the owner's instruction. Extending the older body silently
+reinstated a refusal that had been deliberately taken out, one day after the
+decision. `92_` caught it too.
+
+**When a seam has been replaced, the body to extend is the last one, not the
+one whose file you happen to be reading.** `0101` is where the function was
+introduced and is the natural file to open; it has not been the truth since
+`0102`. Nothing about opening it says so.
