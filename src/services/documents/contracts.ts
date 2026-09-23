@@ -13,6 +13,11 @@ export const DOC_KINDS = [
   "Receiving Item",
   "Delivery Note",
   "Purchase Order",
+  /** The supplier's bill, when it is a separate paper from the nota. */
+  "Invoice",
+  /** Our own signed sheet of what arrived and in what state — not the
+   *  supplier's delivery note, which says what was sent (owner, 2026-09-23). */
+  "Receiving Report",
   /** A shop page, a marketplace listing, a quotation somebody sent a link to.
    *  What a request is usually built from before any nota exists (D125). */
   "Reference Link",
@@ -72,6 +77,8 @@ export const PRIMARY_DOC_KINDS: DocKind[] = [
 export const SUPPORTING_DOC_KINDS: DocKind[] = [
   "Delivery Note",
   "Purchase Order",
+  "Invoice",
+  "Receiving Report",
   "Reference Link",
   "Surat Dokter",
   "Surat Lembur",

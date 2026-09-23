@@ -308,6 +308,95 @@ export async function voidTransaction(
   return ok(SERVICE, view);
 }
 
+/** Correcting a row in place (owner, 2026-09-23). Either field may be left
+ *  out to keep it. An amount change needs a remark, may not go below what is
+ *  already applied to requests (A9), and may not contradict a bank statement
+ *  line the row is matched to. The remark is the audit row's reason; the
+ *  values before and after are its detail — the IT audit log reads both. */
+export async function editTransaction(
+  input: { trx_no: string; amount_idr?: number; description?: string; reason?: string },
+  idempotencyKey?: string,
+): Promise<Result<TransactionView>> {
+  await latency();
+  const endpoint = `edit:${input.trx_no}`;
+  const cached = replayed<TransactionView>(SERVICE, endpoint, idempotencyKey);
+  if (cached) return cached;
+
+  const denied = requireAuthority(SERVICE, "post_ledger");
+  if (denied) return denied;
+
+  const state = getState();
+  const trx = state.transactions.find((t) => t.trx_no === input.trx_no);
+  if (!trx) return notFound(SERVICE, "transaction_not_found", `Transaction ${input.trx_no} not found.`);
+  if (trx.status === "VOID") {
+    return conflict(SERVICE, "transaction_void", `${input.trx_no} is VOID — a void row is not edited. Post a new one.`);
+  }
+  if (input.description !== undefined && !input.description.trim()) {
+    return invalid(SERVICE, "description_required", "The description cannot be empty.", { field: "description" });
+  }
+  if (input.amount_idr !== undefined && !(input.amount_idr > 0)) {
+    return invalid(SERVICE, "amount_positive", "The amount must be greater than zero. Direction is its own field.", { field: "amount" });
+  }
+
+  const amount = input.amount_idr ?? trx.amount_idr;
+  const description = input.description?.trim() ?? trx.description;
+  const reason = input.reason?.trim() || null;
+  if (amount === trx.amount_idr && description === trx.description) {
+    return ok(SERVICE, transactionView(state, trx));
+  }
+
+  const detail: Record<string, unknown> = {};
+  let syncLine: string | null = null;
+  if (amount !== trx.amount_idr) {
+    if (!reason) {
+      return invalid(SERVICE, "reason_required", "A remark is required when the amount changes — say why the number was wrong.", { field: "reason" });
+    }
+    const allocated = allocatedTotal(state, trx.id);
+    if (allocated > amount) {
+      return conflict(
+        SERVICE, "below_allocated",
+        `Rp ${allocated.toLocaleString(getActiveLocale())} of this row is already applied to requests; the amount cannot go below that.`,
+      );
+    }
+    if (state.statement_lines.some((l) => l.trx_no === trx.trx_no && (l.status === "matched" || l.status === "booked"))) {
+      return conflict(SERVICE, "statement_matched", "This row is matched to a bank statement line, so the bank's amount is the record. Unmatch it first.");
+    }
+    const lines = state.transaction_lines.filter((l) => l.trx_id === trx.id);
+    if (lines.length === 1 && lines[0].amount === trx.amount_idr) syncLine = lines[0].id;
+    Object.assign(detail, {
+      amount_before: trx.amount_idr, amount_after: amount,
+      lines: lines.length === 0 ? "none" : syncLine ? "updated" : "unchanged",
+    });
+  }
+  if (description !== trx.description) {
+    Object.assign(detail, { description_before: trx.description, description_after: description });
+  }
+
+  apply((draft) => {
+    const t = draft.transactions.find((x) => x.id === trx.id)!;
+    t.amount_idr = amount;
+    t.description = description;
+    if (syncLine) {
+      const l = draft.transaction_lines.find((x) => x.id === syncLine)!;
+      l.amount = amount;
+      if (l.qty && l.unit_price !== null) l.unit_price = Math.round((amount / l.qty) * 100) / 100;
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "transaction", entity_no: trx.trx_no, action: "edit",
+      outcome: "ok", reason, detail,
+    });
+    writeOutbox(draft, {
+      service: SERVICE, event_type: "accounting.transaction.edited",
+      payload: { trx_no: trx.trx_no, ...detail, reason },
+    });
+  });
+
+  const after = getState();
+  const view = transactionView(after, after.transactions.find((t) => t.id === trx.id)!);
+  remember(SERVICE, endpoint, idempotencyKey, view);
+  return ok(SERVICE, view);
+}
+
 /** §10.1 item 15 of the recap: never built in the old web app. Built here. */
 export async function markComplete(trxNo: string): Promise<Result<TransactionView>> {
   await latency();
@@ -406,8 +495,10 @@ export async function allocate(
  */
 export async function historyFor(trxNo: string): Promise<Result<AuditRow[]>> {
   await latency();
+  /* The row's own actions, plus the documents put on and taken off it —
+     `documents.link` files those under the record's own entity. */
   return ok(SERVICE, getState().audit_log.filter(
-    (a) => a.entity === "transaction" && a.entity_no === trxNo,
+    (a) => (a.entity === "transaction" || a.entity === "attachment") && a.entity_no === trxNo,
   ));
 }
 

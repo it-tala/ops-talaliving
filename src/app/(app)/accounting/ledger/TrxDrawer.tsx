@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
-  Ban, CheckCircle2, Link2, ArrowUpRight, History,
+  Ban, CheckCircle2, Link2, ArrowUpRight, History, Pencil,
 } from "lucide-react";
 import { Badge, Button } from "@/components/ui/primitives";
 import { Drawer } from "@/components/ui/drawer";
@@ -14,9 +14,38 @@ import { accounting, documents } from "@/demo/api";
 import type { TransactionDetail } from "@/services/accounting/contracts";
 import type { AuditRow } from "@/demo/state";
 import type { AttachmentView } from "@/services/documents/contracts";
-import { EvidenceStrip, type CoverTarget } from "@/components/ui/evidence-strip";
+import { EvidenceStrip, type CoverTarget, type EvidenceSlot } from "@/components/ui/evidence-strip";
 import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
+
+/** The documents a ledger row is expected to carry (owner, 2026-09-23).
+ *  Money going out is a purchase: its nota, the transfer, a photo of what
+ *  came, and the paper saying it arrived. Money coming in is proven by the
+ *  transfer and, when there is one, the invoice it paid. */
+const OUT_SLOTS: EvidenceSlot[] = [
+  { kind: "Receipt / Invoice / Nota", label: "Receipt / Nota" },
+  { kind: "Invoice", label: "Invoice", optional: true },
+  { kind: "Payment Proof", label: "Payment proof" },
+  { kind: "Receiving Item", label: "Item photo" },
+  { kind: "Receiving Report", label: "Receiving report", optional: true },
+];
+const IN_SLOTS: EvidenceSlot[] = [
+  { kind: "Payment Proof", label: "Payment proof" },
+  { kind: "Invoice", label: "Invoice", optional: true },
+];
+
+/** How a History entry reads. The trail stores the seam's own verb; a person
+ *  reading the row wants to know what happened to it. */
+const ACTION_LABEL: Record<string, string> = {
+  post: "Posted",
+  edit: "Edited",
+  void: "Voided",
+  complete: "Marked completed",
+  link: "Document attached",
+  attach_link: "Document attached",
+  unlink: "Document removed",
+  attach_unlink: "Document removed",
+};
 
 /** One ledger row, and everything that hangs off it.
  *
@@ -28,6 +57,9 @@ import { useSession } from "@/store/session";
  *
  *  Correcting is VOID, never delete (A5): the row stays, the amount goes to
  *  zero, and the reason is mandatory. A deleted row cannot be asked about.
+ *  A wrong amount or description is fixed in place with Edit (owner,
+ *  2026-09-23) — an amount change needs a remark, and the audit log keeps
+ *  both values.
  */
 export function TrxDrawer({
   trxNo, onClose, onChanged,
@@ -50,11 +82,16 @@ export function TrxDrawer({
   const [allocLine, setAllocLine] = useState("");
   const [allocAmount, setAllocAmount] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editAmount, setEditAmount] = useState(0);
+  const [editDesc, setEditDesc] = useState("");
+  const [editReason, setEditReason] = useState("");
   const mayPost = hasAuthority("post_ledger");
 
   useEffect(() => {
     setVoidOpen(false);
     setReason("");
+    setEditOpen(false);
     if (!trxNo) { setTrx(null); setReached([]); return; }
     void load(trxNo);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -118,6 +155,36 @@ export function TrxDrawer({
     onChanged();
   }
 
+  function openEdit() {
+    setEditAmount(trx!.amount_idr);
+    setEditDesc(trx!.description);
+    setEditReason("");
+    setVoidOpen(false);
+    setEditOpen(true);
+  }
+
+  const amountChanged = !!trx && editAmount !== trx.amount_idr;
+  const descChanged = !!trx && editDesc.trim() !== trx.description;
+
+  async function saveEdit() {
+    setBusy(true);
+    const res = await accounting.editTransaction({
+      trx_no: trx!.trx_no,
+      ...(amountChanged ? { amount_idr: editAmount } : {}),
+      ...(descChanged ? { description: editDesc.trim() } : {}),
+      ...(editReason.trim() ? { reason: editReason.trim() } : {}),
+    });
+    setBusy(false);
+    if (res.error) {
+      toast(res.error.status === 403 ? "critical" : "warning", "Not saved", res.error.message);
+      return;
+    }
+    toast("success", `${trx!.trx_no} updated`, "The change and its remark are in the audit log.");
+    setEditOpen(false);
+    await load(trx!.trx_no);
+    onChanged();
+  }
+
   async function complete() {
     setBusy(true);
     const res = await accounting.markComplete(trx!.trx_no);
@@ -145,11 +212,14 @@ export function TrxDrawer({
               behind a deliberate step rather than beside the ordinary action
               (D89) — the button is there, it just cannot be hit by accident. */}
           <button
-            onClick={() => setVoidOpen((v) => !v)}
+            onClick={() => { setEditOpen(false); setVoidOpen((v) => !v); }}
             className="mr-auto text-[12px] text-slate-400 underline decoration-dotted underline-offset-4 hover:text-rose-700"
           >
             Something wrong with this row?
           </button>
+          <Button variant="outline" size="sm" icon={Pencil} disabled={busy} onClick={openEdit}>
+            Edit
+          </Button>
           {trx.status !== "COMPLETED" && (
             <Button variant="outline" size="sm" icon={CheckCircle2} disabled={busy} onClick={complete}>
               Mark completed
@@ -178,6 +248,60 @@ export function TrxDrawer({
           </p>
         )}
 
+        {editOpen && (
+          <div className="space-y-3 rounded-lg border border-brand-200 bg-brand-50/40 px-3 py-3" data-testid="trx-edit">
+            <p className="flex items-center gap-2 text-[13px] font-semibold text-slate-800">
+              <Pencil className="h-4 w-4" /> Edit this entry
+            </p>
+            <div>
+              <label htmlFor="trx-edit-amount" className="block text-xs text-slate-600">Amount</label>
+              <MoneyInput id="trx-edit-amount" value={editAmount} onChange={setEditAmount} className="mt-1" />
+              {amountChanged && (
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Was {formatIDR(trx.amount_idr)}
+                  {trx.allocated_total > 0 && ` · ${formatIDR(trx.allocated_total)} already applied to requests — it cannot go below that`}
+                </p>
+              )}
+            </div>
+            <div>
+              <label htmlFor="trx-edit-desc" className="block text-xs text-slate-600">Description</label>
+              <input
+                id="trx-edit-desc"
+                value={editDesc}
+                onChange={(e) => setEditDesc(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label htmlFor="trx-edit-reason" className="block text-xs text-slate-600">
+                Remarks {amountChanged ? <span className="text-rose-700">— required when the amount changes</span> : "(optional)"}
+              </label>
+              <textarea
+                id="trx-edit-reason"
+                value={editReason}
+                onChange={(e) => setEditReason(e.target.value)}
+                rows={2}
+                placeholder="e.g. the nota says Rp 600.000, the transfer was typed wrong"
+                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setEditOpen(false)} disabled={busy}>Cancel</Button>
+              <Button
+                size="sm"
+                disabled={busy || (!amountChanged && !descChanged) || editAmount <= 0 || !editDesc.trim()
+                  || (amountChanged && !editReason.trim())}
+                onClick={saveEdit}
+              >
+                Save changes
+              </Button>
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Every edit is recorded in the audit log with the old and new values, who made it and the remark.
+            </p>
+          </div>
+        )}
+
         {voidOpen && (
           <div className="space-y-2 rounded-lg border border-rose-200 bg-rose-50/60 px-3 py-3">
             <p className="flex items-center gap-2 text-[13px] font-semibold text-rose-900">
@@ -185,8 +309,8 @@ export function TrxDrawer({
             </p>
             <p className="text-[12px] text-rose-800">
               Only for a row that should never have existed — a double entry, a
-              wrong account. If the amount was simply wrong, void it and post the
-              right one, so both statements survive.
+              wrong account. If only the amount or the description is wrong, use
+              Edit instead.
             </p>
             <label htmlFor="void-reason" className="block text-xs text-rose-900">
               Why is this being voided? Required — a row with no reason cannot be asked about later.
@@ -317,6 +441,7 @@ export function TrxDrawer({
           entityNo={trx.trx_no}
           canEdit={mayPost && trx.status !== "VOID"}
           defaultKind="Receipt / Invoice / Nota"
+          slots={trx.direction === "IN" ? IN_SLOTS : OUT_SLOTS}
           alsoCovers={alsoCovers}
           reachedFrom={reached}
           onChanged={() => { void load(trx!.trx_no); onChanged(); }}
@@ -337,7 +462,7 @@ export function TrxDrawer({
               {history.map((h) => (
                 <li key={h.id} className="rounded-lg border border-slate-200 px-3 py-2 text-[12px]">
                   <p className="text-slate-700">
-                    <span className="font-medium">{h.action}</span>
+                    <span className="font-medium">{ACTION_LABEL[h.action] ?? h.action}</span>
                     {h.outcome !== "ok" && <span className="ml-1 text-rose-700">· {h.outcome}</span>}
                     <span className="text-slate-400"> · {h.actor_email} · {new Date(h.at).toLocaleString()}</span>
                   </p>
