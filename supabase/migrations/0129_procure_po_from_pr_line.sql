@@ -734,6 +734,8 @@ begin
   return ops_core.idem_remember('accounting','post_to_po:' || p_po_no, p_key, res);
 end $$;
 
+-- A new function is executable by PUBLIC, which `anon` inherits (0125).
+revoke execute on function ops_acct.post_to_po(text, numeric, text, text, uuid, date, text, text) from public;
 grant execute on function ops_acct.post_to_po(text, numeric, text, text, uuid, date, text, text) to authenticated;
 
 comment on function ops_acct.post_to_po is
