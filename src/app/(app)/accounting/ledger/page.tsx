@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BookOpen, Paperclip, AlertTriangle, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -43,6 +43,12 @@ export default function LedgerPage() {
   const [typeCode, setTypeCode] = useState("");
   const [showVoid, setShowVoid] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  /* `?trx=` opens that row — the item catalogue's purchase history links
+     here. Read once from the address, like the items page's `?category=`. */
+  useEffect(() => {
+    const trx = new URLSearchParams(window.location.search).get("trx");
+    if (trx) setSelected(trx);
+  }, []);
 
   /* Paged at the service, not sliced in the browser: the real ledger is tens
      of thousands of rows and a screen that fetches them all to show 25 is a

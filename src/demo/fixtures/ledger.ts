@@ -112,12 +112,14 @@ export function trxIdByNo(no: string): string {
   return found.id;
 }
 
+/* Each line names its catalogue item, as every one of production's 1.218
+ * ledger lines does — which is what the item's purchase history reads. */
 export const TRANSACTION_LINES: TransactionLine[] = [
-  { id: "trl_01", trx_id: trxIdByNo("trx-26-08-20_003"), line_no: 1, item_id: null, description: "AMPLAS 120 GRIT", qty: 500, uom: "lembar", unit_price: 8_100, amount: 4_050_000 },
-  { id: "trl_02", trx_id: trxIdByNo("trx-26-08-21_001"), line_no: 1, item_id: null, description: "ENGSEL SENDOK HUBEN", qty: 300, uom: "pcs", unit_price: 18_500, amount: 5_550_000 },
-  { id: "trl_03", trx_id: trxIdByNo("trx-26-08-29_002"), line_no: 1, item_id: null, description: "PLYWOOD 18MM 122X244", qty: 40, uom: "lembar", unit_price: 287_500, amount: 11_500_000 },
-  { id: "trl_04", trx_id: trxIdByNo("trx-26-08-22_001"), line_no: 1, item_id: null, description: "PAKU 5CM", qty: 4, uom: "kg", unit_price: 22_500, amount: 90_000 },
-  { id: "trl_05", trx_id: trxIdByNo("trx-26-08-22_001"), line_no: 2, item_id: null, description: "SEKRUP GYPSUM 1 INCH", qty: 2, uom: "box", unit_price: 47_500, amount: 95_000 },
+  { id: "trl_01", trx_id: trxIdByNo("trx-26-08-20_003"), line_no: 1, item_id: "itm_013", description: "AMPLAS 120 GRIT", qty: 500, uom: "lembar", unit_price: 8_100, amount: 4_050_000 },
+  { id: "trl_02", trx_id: trxIdByNo("trx-26-08-21_001"), line_no: 1, item_id: "itm_024", description: "ENGSEL SENDOK HUBEN", qty: 300, uom: "pcs", unit_price: 18_500, amount: 5_550_000 },
+  { id: "trl_03", trx_id: trxIdByNo("trx-26-08-29_002"), line_no: 1, item_id: "itm_007", description: "PLYWOOD 18MM 122X244", qty: 40, uom: "lembar", unit_price: 287_500, amount: 11_500_000 },
+  { id: "trl_04", trx_id: trxIdByNo("trx-26-08-22_001"), line_no: 1, item_id: "itm_028", description: "PAKU 5CM", qty: 4, uom: "kg", unit_price: 22_500, amount: 90_000 },
+  { id: "trl_05", trx_id: trxIdByNo("trx-26-08-22_001"), line_no: 2, item_id: "itm_027", description: "SEKRUP GYPSUM 1 INCH", qty: 2, uom: "box", unit_price: 47_500, amount: 95_000 },
 ];
 
 /* Coverage, not a paid flag. A line becomes PAID because money actually

@@ -24,7 +24,7 @@
  *  renaming, not a calculation, and it is the only work here.
  */
 import type {
-  Vendor, VendorView, Item, ItemView, Uom, UomConversion, UomDimension, ItemCategory, Project,
+  Vendor, VendorView, Item, ItemView, Uom, UomConversion, UomDimension, ItemCategory, ItemPurchase, Project,
   PrLineView, PrApproval, LineNote, LineVariance, ApprovalRequest,
   VendorJourney, RoundSummary, RoundTransfer, VarianceReason, Channel, ApprovalBatchView,
   PoDetail, PoLine, PoStatusView, PurchaseOrder, Receipt, ReceiptCondition,
@@ -1002,7 +1002,8 @@ export async function getVendor(id: string): Promise<Result<VendorView>> {
 export async function listItems(
   opts: { q?: string; curated?: boolean } = {},
 ): Promise<Result<Item[]>> {
-  let q = db().from("items").select("*").is("merged_into", null);
+  /* A picker's list: merged and archived items are out (`0104`). */
+  let q = db().from("items").select("*").is("merged_into", null).is("archived_at", null);
   if (opts.curated !== undefined) q = q.eq("is_curated", opts.curated);
   if (opts.q) q = q.ilike("name", `%${opts.q}%`);
   const { data, error } = await q.order("name");
@@ -1014,10 +1015,22 @@ export async function listItems(
 const ITEM_LIST_COLUMNS =
   "id, code, name, aka, merged_into, category_code, base_uom, kind, is_curated, "
   + "standard_price, last_price, last_vendor_id, last_purchased_at, created_by, "
-  + "created_at, category_name, last_vendor_name, suggested_price, purchase_count";
+  + "created_at, category_name, last_vendor_name, suggested_price, purchase_count, "
+  + "archived_at, top_category_code, category_path";
 
-export async function listItemViews(opts: { q?: string } = {}): Promise<Result<ItemView[]>> {
+/** The catalogue list. `category` matches an item filed under the category
+ *  itself or under any of its item types; `curated` and `include_archived`
+ *  are the same filters the demo applies — until `0104` this client ignored
+ *  both `category` and `curated`, so the filter on the screen did nothing live. */
+export async function listItemViews(
+  opts: { q?: string; category?: string; curated?: boolean; include_archived?: boolean } = {},
+): Promise<Result<ItemView[]>> {
   let q = db().from("v_item_view").select(ITEM_LIST_COLUMNS).is("merged_into", null);
+  if (!opts.include_archived) q = q.is("archived_at", null);
+  if (opts.curated !== undefined) q = q.eq("is_curated", opts.curated);
+  if (opts.category) {
+    q = q.or(`category_code.eq.${opts.category},top_category_code.eq.${opts.category}`);
+  }
   if (opts.q) q = q.ilike("name", `%${opts.q}%`);
   const { data, error } = await q.order("name");
   if (error) return fail(SERVICE, error);
@@ -1107,6 +1120,124 @@ export async function deleteUomConversion(
 export async function listCategories(): Promise<Result<ItemCategory[]>> {
   const { data, error } = await db().from("item_categories").select("*").order("name");
   return fromRows<ItemCategory[]>(SERVICE, data as ItemCategory[], error);
+}
+
+/* ------------------------------------------------------------------ */
+/* Item master (0104): the category tree, editing, archive, merge      */
+/* ------------------------------------------------------------------ */
+
+async function categoryByCode(code: string): Promise<Result<ItemCategory>> {
+  const { data, error } = await db().from("item_categories").select("*").eq("code", code).maybeSingle();
+  if (error) return fail(SERVICE, error);
+  if (!data) return notFound(SERVICE, "category_not_found", "No such category.");
+  return ok(SERVICE, data as ItemCategory);
+}
+
+/** Two levels, never three; the code is derived from the name by the seam. */
+export async function createCategory(
+  input: { name: string; parent_code?: string | null },
+): Promise<Result<ItemCategory>> {
+  const { data, error } = await db().rpc("create_category", {
+    p_name: input.name, p_parent_code: input.parent_code ?? null,
+  });
+  const res = fromSeam<{ code: string }>(SERVICE, data, error);
+  if (res.error) return res;
+  return categoryByCode(res.data.code);
+}
+
+export async function updateCategory(
+  code: string, input: { name: string; parent_code?: string | null },
+): Promise<Result<ItemCategory>> {
+  const { data, error } = await db().rpc("update_category", {
+    p_code: code, p_name: input.name, p_parent_code: input.parent_code ?? null,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return categoryByCode(code);
+}
+
+export async function deleteCategory(code: string): Promise<Result<{ code: string; deleted: true }>> {
+  const { data, error } = await db().rpc("delete_category", { p_code: code });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, { code, deleted: true as const });
+}
+
+/** Every field but the code, each optional; `standard_price: null` clears the
+ *  price on purpose, which the seam takes as its own flag so that leaving the
+ *  field out can never wipe it. */
+export async function updateItem(
+  id: string,
+  input: {
+    name?: string; category_code?: string; base_uom?: UomCode;
+    kind?: "goods" | "service"; standard_price?: number | null;
+  },
+): Promise<Result<ItemView>> {
+  const code = await codeFor("items", id);
+  if (!code) return notFound(SERVICE, "item_not_found", "Item not found.");
+  const { data, error } = await db().rpc("update_item", {
+    p_code: code,
+    p_name: input.name ?? null,
+    p_category_code: input.category_code ?? null,
+    p_base_uom: input.base_uom ?? null,
+    p_kind: input.kind ?? null,
+    p_standard_price: input.standard_price ?? null,
+    p_clear_standard_price: input.standard_price === null,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return itemViewByCode(code);
+}
+
+export async function archiveItem(id: string, archived: boolean): Promise<Result<ItemView>> {
+  const code = await codeFor("items", id);
+  if (!code) return notFound(SERVICE, "item_not_found", "Item not found.");
+  const { data, error } = await db().rpc("archive_item", { p_code: code, p_archived: archived });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return itemViewByCode(code);
+}
+
+/** A pointer, never a delete (`0104`); answers the survivor. */
+export async function mergeItem(loserId: string, winnerId: string): Promise<Result<ItemView>> {
+  const [loser, winner] = await Promise.all([codeFor("items", loserId), codeFor("items", winnerId)]);
+  if (!loser || !winner) return notFound(SERVICE, "item_not_found", "Item not found.");
+  const { data, error } = await db().rpc("merge_item", { p_loser_code: loser, p_winner_code: winner });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return itemViewByCode(winner);
+}
+
+export async function setItemsCategory(
+  ids: string[], categoryCode: string, curate?: boolean,
+): Promise<Result<{ updated: number; category_code: string }>> {
+  const { data: rows, error: e1 } = await db().from("items").select("code").in("id", ids);
+  if (e1) return fail(SERVICE, e1);
+  const { data, error } = await db().rpc("set_items_category", {
+    p_codes: (rows ?? []).map((r) => (r as { code: string }).code),
+    p_category_code: categoryCode,
+    p_curate: curate ?? null,
+  });
+  return fromSeam<{ updated: number; category_code: string }>(SERVICE, data, error);
+}
+
+/** The item's ledger lines, merged duplicates included. Read through a
+ *  definer function gated by `procurement.read`, so the catalogue can show a
+ *  purchase history without the reader holding accounting's grants. */
+export async function itemPurchases(id: string): Promise<Result<ItemPurchase[]>> {
+  const code = await codeFor("items", id);
+  if (!code) return notFound(SERVICE, "item_not_found", "Item not found.");
+  const { data, error } = await db().rpc("item_purchases", { p_code: code });
+  const res = fromSeam<ItemPurchase[]>(SERVICE, data, error);
+  if (res.error) return res;
+  /* `numeric` arrives as a string from jsonb only when it was one; these are
+     jsonb numbers already, but the contract is strict about it. */
+  return ok(SERVICE, res.data.map((r) => ({
+    ...r,
+    qty: r.qty == null ? null : Number(r.qty),
+    unit_price: r.unit_price == null ? null : Number(r.unit_price),
+    amount: Number(r.amount),
+  })));
 }
 
 export async function listProjects(): Promise<Result<Project[]>> {
