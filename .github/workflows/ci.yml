@@ -107,6 +107,15 @@ jobs:
       - name: every client call names the right schema
         run: node scripts/check-api-schemas.mjs
 
+      # Until the PDF reader exists, every contract clause is typed by a person
+      # into `CLAUSE_FIELDS`, while `ops_hr.clause_value_ok` decides what may be
+      # stored. Two statements of one rule in two languages, neither able to see
+      # the other: a choice added in SQL and forgotten in the form can never be
+      # picked by anyone, and a choice offered by the form that SQL refuses is a
+      # promise broken at the moment somebody presses the button.
+      - name: the clause form matches the constraint behind it
+        run: node scripts/check-clause-fields.mjs
+
       # No Supabase variables here, deliberately. The build has to succeed with
       # none set, because that is how the deployed app runs today — demo mode,
       # browser-held fixtures, no database. `useRealApi()` requires both the

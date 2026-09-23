@@ -8,6 +8,7 @@ import { usePaged } from "@/components/ui/pager";
 import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { hr } from "@/demo/api";
+import type { TimesheetTotal } from "@/services/hr/contracts";
 import { DAY_MARK_SHORT, OVERTIME_STAGE_LABEL, type DayState } from "@/services/hr/contracts";
 import Link from "next/link";
 import { useSession } from "@/store/session";
@@ -121,6 +122,12 @@ export default function TimesheetPage() {
                           </button>
                         </th>
                       ))}
+                      {/* Pertanyaan yang ditanyakan sebelum *hari ini kenapa*:
+                          berapa jam, berapa hari. Dijumlahkan di basis data,
+                          bukan di sini (0067). */}
+                      <th className="sticky right-0 z-10 border-l border-slate-200 bg-slate-50/70 px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        Total
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -153,6 +160,7 @@ export default function TimesheetPage() {
                             </td>
                           );
                         })}
+                        <TotalCell total={s.totals.find((t) => t.employee_no === e.employee_no)} />
                       </tr>
                     ))}
                   </tbody>
@@ -228,5 +236,31 @@ export default function TimesheetPage() {
         />
       )}
     </div>
+  );
+}
+
+
+/** Berapa jam dan berapa hari, di ujung barisnya.
+ *
+ *  **Hari yang belum dibaca dicetak di sebelah totalnya, bukan di catatan
+ *  kaki.** Sebuah periode dengan empat hari yang belum dibaca punya total yang
+ *  pasti terlalu kecil, dan sebuah angka yang terlalu kecil tanpa keterangan
+ *  adalah angka yang dipercaya orang. */
+function TotalCell({ total }: { total?: TimesheetTotal }) {
+  if (!total) return <td className="sticky right-0 border-l border-slate-200 bg-white" />;
+  return (
+    <td className="sticky right-0 z-10 border-l border-slate-200 bg-white px-3 py-1.5 text-right">
+      <span className="block text-[13px] font-semibold tabular-nums text-slate-800">
+        {formatNumber(total.work_hours)} jam
+      </span>
+      <span className="block text-[10px] tabular-nums text-slate-400">
+        {formatNumber(total.days_counted)} hari
+      </span>
+      {total.days_review > 0 && (
+        <span className="mt-0.5 block text-[10px] font-medium tabular-nums text-amber-700">
+          {total.days_review} belum dibaca
+        </span>
+      )}
+    </td>
   );
 }
