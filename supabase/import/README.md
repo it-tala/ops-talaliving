@@ -229,6 +229,7 @@ a commit message cannot be corrected, so the record lives here.
 | `06_products.sql` | **2026-09-23** | 27 products, 27 drawing links |
 | `03_ledger.sql` (again) | **2026-09-23** | 0 imported, **52 map rows repaired** — see below |
 | `07_corrections.sql` | **2026-09-23** | 1 line re-filed, 59 transactions given their vendor |
+| `09_close_recap_lines.sql` | **2026-09-23** | after migration `0122`: 277 lines COMPLETED (75 settled first), 10 approvals removed → WAITING FOR APPROVAL, 11 audit rows |
 | `08_purchase_requests.sql` | **2026-09-23** | 35 documents, 288 lines, 288 approvals, 268 allocations to 264 transactions; 12 lines paid on the sheet with no ledger row |
 
 `03_ledger.sql` was run as a **dry run first** — the whole file inside a
@@ -490,6 +491,22 @@ Left for a person, all of it on screen or in the map:
   `pr_category_t`; `PRODUCTION`, `PAYROLL`, `RECURRING`, `SUPPLIER` and the
   rest are kept in the note, category left null.
 - `ZAKI` and `RFI` have no account; their lines are posted as `shared@`.
+
+### Step 12 — closing what step 11 carried, and reopening ten
+
+Owner, 2026-09-23: every line from the recap sheet is complete, except ten
+that are newly entered and waiting for approval (Listrik Langon, Listrik
+Saripan, Kartu Halo Ejo, Indihome Gudang, Rental Gran Max, BPJS Tenaga Kerja,
+PO Martono Jok, PO Dul Rotan, Belanja Saripan, Support Document Container).
+
+COMPLETED normally needs a transfer proof and a full receiving report. Neither
+was fabricated: migration `0122` adds `ops_procure.line_closures`, a decision
+with a reason and a name, and `v_pr_line_status` reads a closed line as
+COMPLETED. The 75 lines whose money fell short were settled first
+(`line_settlements`), so their coverage no longer reads as owed. The ten had
+their sheet-derived approval rows **removed**, each removal an audit row holding
+the row it removed, rather than countered with `approved = false` — which would
+read as EJO taking a yes back.
 
 ## What the import must never do
 

@@ -300,6 +300,12 @@ export async function listOpenLines(): Promise<Result<PrLineView[]>> {
   return ok(SERVICE, (data as LineRow[]).map(toLineView));
 }
 
+/** One line by its public number, whatever its state — what a screen outside
+ *  procurement (the ledger's allocation list) needs to open it in place. */
+export async function getLineByNo(lineNo: string): Promise<Result<PrLineView>> {
+  return getLine(lineNo);
+}
+
 export async function listAllLines(): Promise<Result<PrLineView[]>> {
   const { data, error } = await db().from("v_pr_line").select("*")
     .not("doc_status", "in", "(DRAFT,CANCELLED)")
