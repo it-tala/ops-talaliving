@@ -1504,6 +1504,31 @@ export interface PayRuleSet {
   created_at: string;
 }
 
+/** Berapa jam dan berapa hari, per orang, untuk satu periode.
+ *
+ *  `days_review` berdiri di sebelah totalnya dan bukan di catatan kaki: sebuah
+ *  periode dengan hari yang belum dibaca punya total yang **pasti terlalu
+ *  kecil**, dan total yang terlalu kecil tanpa keterangan adalah angka yang
+ *  dipercaya orang.
+ *
+ *  `overtime_hours` adalah yang **dilihat mesin**, bukan yang dibayar — lembur
+ *  dibayar dari lembar yang ditandatangani (D145–D147). Ia ada supaya jam
+ *  lewat jam kerja yang belum diklaim siapa pun bisa terlihat. */
+export interface TimesheetTotal {
+  employee_no: string;
+  full_name: string;
+  unit: string | null;
+  /** Nilai periodenya dalam hari: setengah hari adalah 0,5. */
+  days_counted: number;
+  days_complete: number;
+  days_review: number;
+  days_marked: number;
+  days_off: number;
+  work_hours: number;
+  break_hours: number;
+  overtime_hours: number;
+}
+
 export interface PayRuleSetView extends PayRuleSet {
   created_by_name: string;
   /** True for the version a payroll run today would use. */

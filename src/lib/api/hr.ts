@@ -42,7 +42,7 @@ import type {
   OvertimeSheetView, OvertimeLineView, WorkSchedule, ScheduleHours,
   ContractKind, ContractStatus, ClauseKind, ClauseChecklistItem,
   ContractView, ContractDetail, ContractClause, ClauseCoverage, ClauseConflict,
-  PayRules, PayRuleSetView,
+  PayRules, PayRuleSetView, TimesheetTotal,
 } from "@/services/hr/contracts";
 import {
   EMPLOYEE_DOC_CHECKLIST, EMPLOYEE_DOC_LABEL, SENSITIVE_DOC_KINDS,
@@ -635,6 +635,7 @@ export async function getTimesheet(
   days: TimesheetDay[];
   dates: string[];
   employees: { employee_no: string; full_name: string; pay_basis: PayBasis }[];
+  totals: TimesheetTotal[];
   needs_review: number;
   marked: number;
 }>> {
@@ -650,12 +651,29 @@ export async function getTimesheet(
     return fromRows<{
       days: TimesheetDay[]; dates: string[];
       employees: { employee_no: string; full_name: string; pay_basis: PayBasis }[];
-      needs_review: number; marked: number;
+      totals: TimesheetTotal[]; needs_review: number; marked: number;
     }>(SERVICE, null, error);
+  }
+
+  /* Summed in the database, not here. Counting the rows below is counting what
+     `read_day` already decided; adding hours up is arithmetic, and `0057`
+     settled that one — two implementations doing it are two chances to round
+     it differently. */
+  const { data: totals, error: totErr } = await db().rpc("timesheet_totals", {
+    p_from: input.from, p_to: input.to,
+    p_unit: input.unit ?? null, p_employee_no: null,
+  });
+  if (totErr) {
+    return fromRows<{
+      days: TimesheetDay[]; dates: string[];
+      employees: { employee_no: string; full_name: string; pay_basis: PayBasis }[];
+      totals: TimesheetTotal[]; needs_review: number; marked: number;
+    }>(SERVICE, null, totErr);
   }
 
   return ok(SERVICE, {
     days,
+    totals: (totals ?? []) as unknown as TimesheetTotal[],
     dates: [...new Set(days.map((d) => d.work_date))].sort(),
     employees: (people ?? []) as { employee_no: string; full_name: string; pay_basis: PayBasis }[],
     /* Counting rows this function was just handed is not deriving a figure —

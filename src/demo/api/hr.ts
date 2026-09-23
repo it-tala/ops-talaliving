@@ -11,7 +11,7 @@ import type {
   ContributionScheme, ContributionRate, ContributionRoll, Enrolment,
   Task, TaskView, TaskRefKind, KpiView,
   ContractKind, ClauseKind, ClauseChecklistItem, EmploymentContract,
-  ContractView, ContractDetail, ContractClause, ClauseConflict,
+  ContractView, ContractDetail, ContractClause, ClauseConflict, TimesheetTotal, DayState,
 } from "@/services/hr/contracts";
 import {
   SENSITIVE_DOC_KINDS, SCHEME_LABEL, maskDocNo, clauseValueOk,
@@ -227,6 +227,7 @@ export async function getTimesheet(
   days: TimesheetDay[];
   dates: string[];
   employees: { employee_no: string; full_name: string; pay_basis: PayBasis }[];
+  totals: TimesheetTotal[];
   needs_review: number;
   marked: number;
 }>> {
@@ -237,12 +238,33 @@ export async function getTimesheet(
   );
   const days = people.flatMap((e) => timesheet(state, e, input.from, input.to));
   const dates = [...new Set(days.map((d) => d.work_date))].sort();
+  const round2 = (n: number) => Math.round(n * 100) / 100;
   return ok(SERVICE, {
     days,
     dates,
     employees: people.map((e) => ({
       employee_no: e.employee_no, full_name: e.full_name, pay_basis: e.pay_basis,
     })),
+    /* The same per-person roll-up `ops_hr.timesheet_totals` returns. Here it is
+       derived because the demo *is* its own database; the point of the pair is
+       that a screen cannot tell which it got. */
+    totals: people.map((e) => {
+      const mine = days.filter((d) => d.employee_no === e.employee_no);
+      const count = (st: DayState) => mine.filter((d) => d.state === st).length;
+      return {
+        employee_no: e.employee_no,
+        full_name: e.full_name,
+        unit: e.unit ?? null,
+        days_counted: round2(mine.reduce((s, d) => s + d.day_value, 0)),
+        days_complete: count("complete"),
+        days_review: count("review"),
+        days_marked: count("marked"),
+        days_off: count("off"),
+        work_hours: round2(mine.reduce((s, d) => s + d.work_hours, 0)),
+        break_hours: round2(mine.reduce((s, d) => s + d.break_hours, 0)),
+        overtime_hours: round2(mine.reduce((s, d) => s + d.overtime_hours, 0)),
+      };
+    }),
     needs_review: days.filter((d) => d.state === "review").length,
     marked: days.filter((d) => d.state === "marked").length,
   });

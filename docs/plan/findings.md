@@ -5497,3 +5497,50 @@ direct grant that is never the seam.
 
 Eleven mutations now, eleven caught — the eleventh reverts the trigger to an
 invoker and `40_hr` goes red.
+
+## F136 · 2026-09-23 · the chain HRD was promised works; what was missing was the sentence at the end of the row
+
+**The ask narrowed to what matters**: HRD enters a name, a working pattern and
+attendance, and the system says **how many hours and how many days**. Payroll
+later.
+
+**Walked it as the real roles before building anything**, against an empty rule
+book and an empty roster — IT publishes the book through `0059`, HRD adds
+Karjo on the PRODUKSI pattern, a biometric file imports eight taps:
+
+    1 IT terbitkan buku aturan     : ok
+    2 HRD tambah karyawan+jadwal   : ok
+    3 jadwal di /hrd/jadwal        : 2 pola, 0 orang belum tertaut
+    4 impor absensi                : ok · masuk 8 · tak dikenal []
+    5 TOTAL                        : 16.58 jam · 2 hari · 2 hari lengkap
+
+So the chain was already whole and the data was already there. `/hrd/absensi`
+drew every cell and totalled nothing — the question a person asks *first* was
+the one the screen could not answer, and no amount of looking at the migration
+list would have shown that. Walking it did.
+
+**Where the sum belongs.** Adding up rows the client already holds looks like
+assembly, and `0057` had already refused that reasoning for payroll totals in
+words that apply unchanged: *two implementations doing that arithmetic are two
+chances to round it differently*. Hours are a number people carry into a
+conversation about wages. `ops_hr.timesheet_totals` counts once.
+
+**What makes a total honest is the counter beside it.** A period with four
+unread days has a total that is certainly too small, and a number that is too
+small with nothing next to it is a number people believe. So the function does
+not return one figure: it returns days complete, unread, marked and empty, and
+the screen prints *16,58 jam · 2 hari · 4 belum dibaca* in the row itself.
+
+**Two things the mutations found.** A fixture bug that looks exactly like a
+product bug: `generate_series` over two `date`s yields **timestamptz**, so
+`at time zone 'Asia/Makassar'` ran the other way — reading the wall clock
+instead of setting it — and every tap moved eight hours, making clean days read
+as unread. The code was right; my test was lying, and it was lying in the
+direction that would have had me "fixing" `read_day`.
+
+And one mutation **survived**: deleting `round(sum(...), 2)` changed nothing.
+It was right to survive — every day already leaves `span_hours` at two decimals
+and `day_value` is only ever 0, 0.5 or 1, so a `numeric` sum is exact and the
+rounding never moved a digit. It was removed rather than left: a guard that
+cannot fail is one nobody has tested, and dead code that looks like care is
+worse than none.
