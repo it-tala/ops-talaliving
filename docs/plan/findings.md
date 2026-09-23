@@ -5908,3 +5908,40 @@ Found by driving the screen in a browser rather than by reading it. Nothing in
 `tsc`, lint, the smoke suite or any of the eight checkers can see a `useEffect`
 dependency list that is merely incomplete — it is valid code that does less
 than it looks like it does.
+
+---
+
+## F145 · 2026-09-23 · six mutations survived, and every one of them was the harness
+
+The widened payroll line got the usual treatment: break it six ways and check
+the smoke file complains. All six survived.
+
+That is not a result, it is an alarm — six independent breakages cannot all be
+invisible to a test that asserts each of them by name. The cause was the
+harness, not the code. Each mutation re-applied the whole migration file, and
+that file now **opens with `alter type … add attribute`**, which fails on a
+second run with *column already exists*. Under `ON_ERROR_STOP` the file aborted
+at its first statement, the mutated function never replaced the good one, and
+the smoke file passed against code nobody had touched.
+
+Every earlier migration this session was `create or replace` all the way down,
+so re-applying it was idempotent and the harness had always worked. The first
+migration with a one-shot statement in it broke the technique silently, and
+silently in the **reassuring** direction: a surviving mutation reads as *the
+guard is redundant*, not as *the experiment did not run*.
+
+Fixed by applying only the function half. Then six of seven were caught at
+once, which is what the first run should have looked like.
+
+**The seventh was real, and worth more than the other six.** Shifting the
+contributions read to the wrong month changed nothing, because the fixture had
+a single rate version with no end date — every month resolves to the same
+percentage, so *which month* could not matter. The test was asserting a figure
+it had no way to get wrong. A second rate version, effective from June at a
+different percentage, makes March's answer a choice; the mutation now fails.
+
+Two lessons, and the second is the one that generalises. A mutation that
+survives is a question, never a clearance — and the first question is always
+*did the change actually reach the database*. And a fixture with one of
+something cannot test a rule about **choosing** between them: one rate, one
+schedule, one version is the shape in which a selection bug is invisible.

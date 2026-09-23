@@ -43,12 +43,15 @@ import type {
   ContractKind, ContractStatus, ClauseKind, ClauseChecklistItem,
   ContractView, ContractDetail, ContractClause, ClauseCoverage, ClauseConflict,
   PayRules, PayRuleSetView, TimesheetTotal, EffectiveDaysCalendar,
+  PayrollRun, PayrollView, PayrollLine, PayrollAdjustmentView,
+  AdjustmentKind, ContributionScheme,
 } from "@/services/hr/contracts";
 import {
   EMPLOYEE_DOC_CHECKLIST, EMPLOYEE_DOC_LABEL, SENSITIVE_DOC_KINDS,
+  ADJUSTMENT_LABEL, SCHEME_LABEL,
 } from "@/services/hr/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { fromSeam, fromRows, notFound, ok, type Result } from "./_kit";
+import { fromSeam, fromRows, notFound, invalid, ok, type Result } from "./_kit";
 
 const SERVICE = "hr" as const;
 
@@ -163,6 +166,230 @@ export async function listSchedules(): Promise<Result<{
 }>> {
   const { data, error } = await db().rpc("schedule_roll");
   return fromRows(SERVICE, data as never, error);
+}
+
+/* ------------------------------------------------------------------ */
+/* Payroll                                                             */
+/* ------------------------------------------------------------------ */
+//
+// The eight functions the four payroll screens call, and the reason they did
+// not exist until `0119`: `payroll_figures` was eighteen fields short of
+// `PayrollLine`, so a live client could only have half-filled the contract and
+// cast the gap away. `swap()` refused them by name instead, which is the right
+// failure — a screen that renders with half its figures missing looks like a
+// screen that works (ADR-009, and the `inventory` trap that file documents).
+//
+// **These assemble; they do not compute.** Every figure arrives from
+// `run_lines`, `period_lines` and `payroll_totals`. The only thing added in the
+// browser is a **word**: `ADJUSTMENT_LABEL` and `SCHEME_LABEL` turn a `kind`
+// and a `scheme` into Indonesian. That is presentation, not arithmetic, and
+// keeping it here is why the database does not store the same string twice.
+
+/** One row of `run_lines`/`period_lines`, with the labels the contract wants
+ *  put back on. The shape the database returns is deliberately label-free. */
+function toPayrollLine(row: Record<string, unknown>): PayrollLine {
+  const adjustments = (row.adjustments as { kind: AdjustmentKind; amount: number; reason: string }[] ?? [])
+    .map((a) => ({ ...a, label: ADJUSTMENT_LABEL[a.kind] ?? a.kind }));
+  const contributions = (row.contributions as {
+    scheme: ContributionScheme; base: number; employee: number; employer: number;
+  }[] ?? []).map((c) => ({ ...c, label: SCHEME_LABEL[c.scheme] ?? c.scheme }));
+
+  return {
+    ...(row as unknown as PayrollLine),
+    /* `worked_days`/`days_worked` and `open_days`/`days_open` are the same two
+       numbers under two spellings, and `0119` fills both. Read the contract's
+       spelling and fall back to the older one, so a row from anywhere answers. */
+    days_worked: (row.days_worked ?? row.worked_days) as number,
+    days_open: (row.days_open ?? row.open_days) as number,
+    adjustments,
+    contributions,
+  };
+}
+
+export async function listPayrollRuns(): Promise<Result<PayrollRun[]>> {
+  const { data, error } = await db()
+    .from("payroll_runs")
+    .select("id, run_no, period_start, period_end, status, created_at, created_by, "
+          + "approved_at, approved_by, paid_trx_no, note")
+    .order("period_end", { ascending: false });
+  return fromRows<PayrollRun[]>(SERVICE, data as never, error);
+}
+
+/** A period's figures, with or without a run behind them.
+ *
+ *  Shared by `getPayroll`, `previewPayroll` and the two writes, because all
+ *  four answer the same question and only differ in which period they ask
+ *  about. `run_no` null means *nobody has opened this week*: the lines still
+ *  compute, because the figures come from the days either way (A3), and the
+ *  adjustments are empty because an adjustment belongs to a run (D155).
+ */
+async function periodView(
+  run: PayrollRun, useRunLines: boolean,
+): Promise<Result<PayrollView>> {
+  const lines = useRunLines
+    ? await db().rpc("run_lines", { p_run_no: run.run_no })
+    : await db().rpc("period_lines", {
+        p_from: run.period_start, p_to: run.period_end, p_run_no: null,
+      });
+  if (lines.error) return fromRows<PayrollView>(SERVICE, null as never, lines.error);
+
+  const totals = await db().rpc("payroll_totals", {
+    p_from: run.period_start, p_to: run.period_end,
+    p_run_no: run.run_no === "" ? null : run.run_no,
+  });
+  if (totals.error) return fromRows<PayrollView>(SERVICE, null as never, totals.error);
+
+  /* The header figures come from the database rather than from summing the
+     rows just handed over: two implementations adding up money is two chances
+     to round it differently, which is what `payroll_totals` exists to stop. */
+  const t = (Array.isArray(totals.data) ? totals.data[0] : totals.data) as {
+    people: number; gross_total: number; adjustment_total: number;
+    net_total: number; open_days: number; pending_overtime_hours: number;
+  } | null;
+
+  return ok(SERVICE, {
+    ...run,
+    lines: ((lines.data ?? []) as Record<string, unknown>[]).map(toPayrollLine),
+    gross_total: t?.gross_total ?? 0,
+    net_total: t?.net_total ?? 0,
+    adjustment_total: t?.adjustment_total ?? 0,
+    open_days: t?.open_days ?? 0,
+    pending_overtime_hours: t?.pending_overtime_hours ?? 0,
+  });
+}
+
+async function runByNo(runNo: string): Promise<PayrollRun | null> {
+  const { data } = await db()
+    .from("payroll_runs")
+    .select("id, run_no, period_start, period_end, status, created_at, created_by, "
+          + "approved_at, approved_by, paid_trx_no, note")
+    .eq("run_no", runNo).maybeSingle();
+  return (data as PayrollRun | null) ?? null;
+}
+
+export async function getPayroll(runNo: string): Promise<Result<PayrollView>> {
+  const run = await runByNo(runNo);
+  if (!run) return notFound(SERVICE, "run_not_found", `Tidak ada run gaji ${runNo}.`);
+  return periodView(run, true);
+}
+
+/** Any week, run or no run.
+ *
+ *  The workshop is paid weekly and the question HRD asks is *what does this
+ *  week look like*, not *what does run pyr-26-09-06_01 look like* (owner). So
+ *  a period reads on its own; opening a run adds a document, not a
+ *  calculation. The empty `run_no` is deliberate — inventing one here would
+ *  make a payslip printable for a run that does not exist.
+ */
+export async function previewPayroll(
+  input: { period_start: string; period_end: string },
+): Promise<Result<PayrollView & { opened: boolean }>> {
+  if (input.period_end < input.period_start) {
+    return invalid(SERVICE, "period_invalid", "Periodenya berakhir sebelum dimulai.",
+                   { field: "period_end" });
+  }
+  const { data } = await db()
+    .from("payroll_runs")
+    .select("id, run_no, period_start, period_end, status, created_at, created_by, "
+          + "approved_at, approved_by, paid_trx_no, note")
+    .eq("period_start", input.period_start).eq("period_end", input.period_end)
+    .maybeSingle();
+
+  const existing = data as PayrollRun | null;
+  const run: PayrollRun = existing ?? {
+    id: "", run_no: "",
+    period_start: input.period_start, period_end: input.period_end,
+    status: "DRAFT", created_at: new Date().toISOString(), created_by: "",
+    approved_at: null, approved_by: null, paid_trx_no: null, note: null,
+  };
+  const res = await periodView(run, existing !== null);
+  if (res.error) return res as unknown as Result<PayrollView & { opened: boolean }>;
+  return ok(SERVICE, { ...res.data, opened: existing !== null });
+}
+
+export async function openPayroll(
+  input: { period_start: string; period_end: string; note?: string | null },
+  idempotencyKey?: string,
+): Promise<Result<PayrollView>> {
+  const { data, error } = await db().rpc("open_payroll_run", {
+    p_period_start: input.period_start, p_period_end: input.period_end,
+    p_note: input.note ?? null, p_key: idempotencyKey ?? null,
+  });
+  const opened = fromSeam<{ run_no: string }>(SERVICE, data, error);
+  if (opened.error) return opened as unknown as Result<PayrollView>;
+  return getPayroll(opened.data.run_no);
+}
+
+export async function approvePayroll(runNo: string): Promise<Result<PayrollView>> {
+  const { data, error } = await db().rpc("approve_payroll_run", { p_run_no: runNo });
+  const done = fromSeam<{ run_no: string }>(SERVICE, data, error);
+  if (done.error) return done as unknown as Result<PayrollView>;
+  return getPayroll(runNo);
+}
+
+/* ── adjustments ──────────────────────────────────────────────────────── */
+
+export async function listAdjustments(runNo: string): Promise<Result<PayrollAdjustmentView[]>> {
+  const { data, error } = await db()
+    .from("payroll_adjustments")
+    .select("id, run_no, employee_id, kind, amount, reason, created_by, created_at, "
+          + "employees!inner(employee_no, full_name)")
+    .eq("run_no", runNo).is("withdrawn_at", null)
+    .order("created_at");
+  if (error) return fromRows<PayrollAdjustmentView[]>(SERVICE, null as never, error);
+
+  /* Through `unknown`: the embed makes PostgREST's generated row type a union
+     the compiler will not narrow, and `as` on it would be a claim rather than
+     a check either way. The shape is asserted by what is read below. */
+  const rows = ((data ?? []) as unknown as Record<string, unknown>[]).map((r) => {
+    const e = r.employees as { employee_no: string; full_name: string } | null;
+    const { employees: _e, ...rest } = r;
+    return { ...rest, employee_no: e?.employee_no ?? "", full_name: e?.full_name ?? "" };
+  });
+  return fromRows<PayrollAdjustmentView[]>(SERVICE, rows as never, null);
+}
+
+export async function saveAdjustment(
+  input: {
+    run_no: string; employee_no: string; kind: AdjustmentKind;
+    amount: number; reason: string;
+  },
+  idempotencyKey?: string,
+): Promise<Result<PayrollAdjustmentView[]>> {
+  const { data, error } = await db().rpc("add_adjustment", {
+    p_run_no: input.run_no, p_employee_no: input.employee_no, p_kind: input.kind,
+    p_amount: input.amount, p_reason: input.reason, p_key: idempotencyKey ?? null,
+  });
+  const added = fromSeam<unknown>(SERVICE, data, error);
+  if (added.error) return added as unknown as Result<PayrollAdjustmentView[]>;
+  return listAdjustments(input.run_no);
+}
+
+/** Taking one back.
+ *
+ *  The seam takes `adj_no` and the screen holds the row's `id`, because
+ *  `PayrollAdjustment` carries the uuid and not the public number (ADR-004
+ *  going the other way for once). Looked up rather than added to the contract:
+ *  a second identifier on every adjustment, for the sake of one call, is a
+ *  field every client would then have to carry and none would read.
+ */
+export async function removeAdjustment(
+  input: { run_no: string; adjustment_id: string },
+): Promise<Result<PayrollAdjustmentView[]>> {
+  const { data: found } = await db()
+    .from("payroll_adjustments").select("adj_no")
+    .eq("id", input.adjustment_id).maybeSingle();
+  const adjNo = (found as { adj_no: string } | null)?.adj_no;
+  if (!adjNo) {
+    return notFound(SERVICE, "adjustment_not_found", "Penyesuaian itu tidak ada.");
+  }
+
+  const { data, error } = await db().rpc("withdraw_adjustment", {
+    p_adj_no: adjNo, p_reason: "dibatalkan dari layar payroll",
+  });
+  const gone = fromSeam<unknown>(SERVICE, data, error);
+  if (gone.error) return gone as unknown as Result<PayrollAdjustmentView[]>;
+  return listAdjustments(input.run_no);
 }
 
 /* ------------------------------------------------------------------ */

@@ -74,6 +74,14 @@ export const LIVE_ROUTES: readonly string[] = [
   "/hrd/karyawan",
   "/hrd/kontrak",
   "/hrd/kontrak/[no]",
+  /* Lit by `0119`, which brought `payroll_figures` up to the contract, and by
+     the eight live functions that became writable once it had. Until then the
+     seam could only have half-filled `PayrollLine` and cast the gap away — a
+     payroll screen missing half its figures looks like a payroll screen. */
+  "/hrd/payroll",
+  "/hrd/payroll/[run]",
+  "/hrd/payroll/[run]/payslip",
+  "/hrd/payroll/minggu",
   "/inventory/assets",
   "/inventory/log",
   "/inventory/material",
