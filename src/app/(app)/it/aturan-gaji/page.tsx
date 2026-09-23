@@ -366,7 +366,22 @@ export default function PayRulesPage() {
                                       {sc.break_minutes == null ? "belum ditetapkan" : `${sc.break_minutes} menit`}
                                     </td>
                                     <td className="py-1.5 pr-3 tabular-nums text-slate-700">
-                                      {sc.friday_break_minutes == null ? "—" : `${sc.friday_break_minutes} menit`}
+                                      {/* Jumat punya dua tuas dan keduanya berdiri
+                                          sendiri (Q54). Tanda "—" berarti Jumat
+                                          memang hari biasa untuk pola ini, bukan
+                                          bahwa belum ada yang menetapkannya. */}
+                                      {sc.friday_end_minutes == null && sc.friday_break_minutes == null
+                                        ? "—"
+                                        : (
+                                          <>
+                                            {sc.friday_end_minutes != null
+                                              ? `pulang ${clock(sc.friday_end_minutes)}`
+                                              : `pulang ${clock(sc.end_minutes)}`}
+                                            <span className="block text-[11px] text-slate-500">
+                                              istirahat {sc.friday_break_minutes ?? sc.break_minutes ?? "—"} menit
+                                            </span>
+                                          </>
+                                        )}
                                     </td>
                                     <td className="py-1.5 text-slate-500">
                                       {units.length > 0 ? units.join(", ") : "belum ada yang dipasang"}

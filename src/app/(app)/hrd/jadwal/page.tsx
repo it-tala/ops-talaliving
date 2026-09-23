@@ -100,7 +100,15 @@ export default function SchedulePage() {
                           {clock(sc.start_minutes)} – {clock(sc.end_minutes)}
                           <span className="block text-[11px] text-slate-400">
                             istirahat {sc.break_minutes == null ? "—" : `${sc.break_minutes} m`}
-                            {sc.friday_break_minutes != null && ` · Jumat ${sc.friday_break_minutes} m`}
+                            {/* Jumat disebut hanya kalau ia memang berbeda, dan
+                                disebut lengkap: jam pulangnya lebih dulu, karena
+                                itu yang orang rasakan, lalu istirahatnya. */}
+                            {(sc.friday_end_minutes != null || sc.friday_break_minutes != null) && (
+                              <> · Jumat
+                                {sc.friday_end_minutes != null && ` s/d ${clock(sc.friday_end_minutes)}`}
+                                {sc.friday_break_minutes != null && ` istirahat ${sc.friday_break_minutes} m`}
+                              </>
+                            )}
                           </span>
                         </td>
                         <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{hours(sc.hours.daily_hours)}</td>

@@ -5667,3 +5667,63 @@ that has.
 **Still open**: Q45 is reopened for the number it actually asked for, and 240 is
 a convention (20 days × 12) standing in until the owner names his. The demo
 fixture still asserts six days for the same business.
+
+---
+
+## F139 · 2026-09-23 · a shape that can only express the new fact by lying about an old one
+
+Half a day after F138, the same rule book produced a second finding by the
+same route, and this one is about the **shape** rather than the numbers.
+
+D288 set Friday at seven hours because the owner said the week is forty. The
+only Friday lever the schedule row had was `friday_break_minutes`, so seven
+hours for the office had to be bought with a **135-minute break** — 08.00 to
+17.15 less 2¼ hours. Nobody has ever taken a 135-minute break. It was reverse-
+engineered from the total, and it went into production looking exactly like a
+fact somebody had decided.
+
+The owner's correction was one sentence: *jumat pulang lebih awal, bukan 17.15
+tapi 16.30, jam kerjanya 7 jam istirahatnya yang 90 menit.* Not a longer
+break — an **earlier finish**, with D270's original 90 minutes intact all
+along. The number I had written over was the right one.
+
+**This is F91's shape again and it should have been recognised.** F91: Q44 was
+answered a second time and *broke the answer built for it the day before*,
+because `day_start_by_unit` could not hold a Friday, an end time, or a shift
+with no fixed start. Here `friday_break_minutes` could not hold *Friday
+finishes early* — and instead of refusing, it produced a plausible wrong
+number. A shape that cannot express something usually says so by needing a
+value nobody recognises. **135 was that signal, and I read it as arithmetic.**
+The tell was there in the same table: produksi came out at 120 minutes exactly
+and kantor at 135, and two patterns needing two different invented breaks to
+reach the same total is the shape complaining, not the business speaking.
+
+**What the fix is not.** `friday_end_minutes` is nullable, and null here does
+**not** mean D274's *nobody has said*. It means *Friday finishes when every
+other day does*, which is a real answer and the common one. The two Friday
+fields fall back independently, so a pattern that differs only in its finish
+keeps the ordinary break and the other way round — getting that wrong would
+blank a Friday the business has actually decided.
+
+**And the half hour that was left alone.** Produksi comes out at 7,5 hours on
+Friday and 40,5 in the week, not 40. It already stops at 16.30 every day, so
+its Friday is only the longer break. The owner said *40* while correcting the
+**office's** finishing time; whether the workshop also leaves early on Friday
+has never been said. Rounding it to 16.00 to make the table tidy would be F138
+happening a third time in one day — filling an unanswered field with a number
+that looks like a fact. It is left at 40,5 and Q54 says why.
+
+**Cheap for the same reason both times**: zero employees, zero attendance, zero
+payroll runs. Three versions of the rule book now share one date — the demo
+copy, my guess, and the owner's answer — and that is the dated book working,
+not a mess. Reading them in order is the honest record of how the number was
+arrived at.
+
+**Verified, not asserted.** Four mutations of the Friday arithmetic — dropping
+either fallback, treating only the break as making Friday differ, and ignoring
+the finish entirely — each failed the new smoke file for its own reason, the
+last of them reproducing exactly the 7,75 the owner spotted. The TypeScript
+derivation was compiled and run against the same four patterns and returned the
+same four answers as the SQL, which is the only way ADR-009 is a claim rather
+than a hope: there is no unit-test runner in this repo, so demo and live agree
+only where somebody has actually made them agree in front of witnesses.

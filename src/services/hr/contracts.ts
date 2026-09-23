@@ -1354,10 +1354,14 @@ export interface AllowanceWithholdingView extends AllowanceWithholding {
  *    to 16.30 is nine hours with 45 minutes out of it; 08.00 to 17.15 is nine
  *    and a quarter with an hour. Those are the same working day by different
  *    arithmetic, and neither can be derived from the other.
- *  - **Friday has its own break**, because it does here — a longer midday
- *    break, the same for everybody who has one. Null means Friday is like any
- *    other day for this schedule, which is a different fact from *nobody has
- *    said*, and the seed distinguishes them.
+ *  - **Friday has its own break, and its own finishing time.** The break was
+ *    here first and it was not enough: the office works 08.00–17.15 on four
+ *    days and goes home at 16.30 on Friday, so a longer break alone puts the
+ *    week 45 minutes out (Q54). Both are null where Friday is an ordinary day
+ *    for this schedule, which is a different fact from *nobody has said* —
+ *    and null in either one falls back to the ordinary value rather than
+ *    blanking the day, because a Friday that differs in one respect still has
+ *    the other from the rest of the week.
  */
 export interface WorkSchedule {
   code: string;
@@ -1366,8 +1370,13 @@ export interface WorkSchedule {
   start_minutes: number | null;
   end_minutes: number | null;
   break_minutes: number | null;
-  /** Friday's break where it differs. Null = no separate Friday rule stated. */
+  /** Friday's break where it differs. Null = Friday takes `break_minutes`. */
   friday_break_minutes: number | null;
+  /** Friday's finishing time where it differs (Q54). Null = Friday takes
+   *  `end_minutes`. Produksi already stops at 16.30 every day, so its Friday
+   *  is only the longer break; the office stops 45 minutes early and there is
+   *  no way to say that with a break. */
+  friday_end_minutes: number | null;
   /** What is known about it that the numbers do not say — a twelve-hour shift
    *  that may or may not rotate, an end time nobody has fixed. */
   note: string | null;
@@ -1388,7 +1397,8 @@ export interface WorkSchedule {
 export interface ScheduleHours {
   /** Working hours in one ordinary day: end − start − break. */
   daily_hours: number | null;
-  /** Friday, where its break differs. Null when no separate Friday rule. */
+  /** Friday, where its break or its finishing time differs. Null when Friday
+   *  is an ordinary day for this schedule. */
   friday_hours: number | null;
   /** Working days a week, from the rule book's `week_pattern`. */
   days_per_week: number;

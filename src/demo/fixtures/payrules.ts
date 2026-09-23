@@ -182,23 +182,23 @@ export const PAY_RULE_SETS: PayRuleSet[] = [
         {
           code: "PRODUKSI", name: "Produksi",
           start_minutes: 7 * 60 + 30, end_minutes: 16 * 60 + 30,
-          break_minutes: 45, friday_break_minutes: 90, note: null,
+          break_minutes: 45, friday_break_minutes: 90, friday_end_minutes: null, note: null,
         },
         {
           code: "KANTOR", name: "Kantor",
           start_minutes: 8 * 60, end_minutes: 17 * 60 + 15,
-          break_minutes: 60, friday_break_minutes: 90, note: null,
+          break_minutes: 60, friday_break_minutes: 90, friday_end_minutes: null, note: null,
         },
         {
           code: "SATPAM", name: "Satpam — 12 jam",
           start_minutes: null, end_minutes: null,
-          break_minutes: null, friday_break_minutes: null,
+          break_minutes: null, friday_break_minutes: null, friday_end_minutes: null,
           note: "Dua belas jam sehari. Jam mulainya belum pernah disebutkan, dan apakah bergilir siang–malam juga belum — jadi ketepatan waktu orang di jadwal ini tidak bisa diukur sampai ada yang menetapkannya.",
         },
         {
           code: "ART", name: "Asisten rumah tangga",
           start_minutes: 14 * 60, end_minutes: null,
-          break_minutes: null, friday_break_minutes: null,
+          break_minutes: null, friday_break_minutes: null, friday_end_minutes: null,
           note: "Mulai jam 14.00. Jam pulang dan istirahatnya belum ditetapkan.",
         },
       ],
