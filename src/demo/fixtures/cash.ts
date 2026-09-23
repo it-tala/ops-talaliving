@@ -112,6 +112,15 @@ export const CASH_COMPONENTS: CashComponent[] = [
     note: "Satu tagihan untuk JHT, JP, JKK dan JKM.",
     active: true, created_by: "usr_anggun", created_at: "2026-09-01T09:00:00+08:00",
   },
+  {
+    /* Put here by "Create payment schedule" on the asset, not typed (`0110`). */
+    id: "cmp_12", name: "Rent — Generator 20 kVA — workshop (AST-0007)", direction: "OUT", amount: 3_500_000,
+    frequency: "monthly", due_day: 10, due_weekday: null, due_date: null,
+    type_code: null, vendor_id: "vnd_05", account_id: "acc_bni325",
+    scheme_codes: [], starts_on: "2026-06", ends_on: "2027-05", note: "From AST-0007",
+    source_ref: "asset:AST-0007",
+    active: true, created_by: "usr_anggun", created_at: "2026-09-01T09:00:00+08:00",
+  },
 ];
 
 /** A month that is not like the others. Typed once, not re-typed twelve times.

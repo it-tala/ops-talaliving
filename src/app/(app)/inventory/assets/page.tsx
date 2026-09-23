@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MonitorSmartphone, Plus, Pencil, Trash2, History, ShieldAlert, Wrench, Package } from "lucide-react";
+import { MonitorSmartphone, Plus, Pencil, Trash2, History, ShieldAlert, Wrench, Package, FileClock } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader, StatCard, type Tone } from "@/components/ui/primitives";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Drawer, Modal } from "@/components/ui/drawer";
@@ -11,8 +11,10 @@ import { EvidenceStrip, type EvidenceSlot } from "@/components/ui/evidence-strip
 import { formatIDR } from "@/lib/format";
 import { inventory } from "@/demo/api";
 import {
-  ASSET_STATUS_LABEL, type AssetInput, type AssetStatus, type AssetView,
+  ASSET_GONE, ASSET_OWNERSHIP_LABEL, ASSET_STATUS_LABEL, RENT_PERIOD_LABEL,
+  type AssetInput, type AssetOwnership, type AssetStatus, type AssetView, type RentPeriod,
 } from "@/services/inventory/contracts";
+import { RentSchedule } from "./RentSchedule";
 import type { AuditRow } from "@/demo/state";
 import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
@@ -25,13 +27,20 @@ import { useSession } from "@/store/session";
  *  ledger row that paid for it are optional. Photos, the purchase nota and
  *  the warranty card are attached from the drawer, and every change is in the
  *  asset's history.
+ *
+ *  Not everything used is owned (`0110`): a rented generator or a leased car
+ *  carries its rent and contract dates, is flagged as the contract runs out,
+ *  ends by being *returned*, and accounting can put its rent on the payment
+ *  calendar from here.
  */
 const inputClass =
   "mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand-400 focus:outline-none";
 
 const STATUS_TONE: Record<AssetStatus, Tone> = {
-  in_use: "green", in_storage: "slate", under_repair: "amber", disposed: "slate", lost: "red",
+  in_use: "green", in_storage: "slate", under_repair: "amber", disposed: "slate", lost: "red", returned: "slate",
 };
+
+const OWNERSHIP_TONE: Record<AssetOwnership, Tone> = { owned: "slate", rented: "brand", leased: "violet", borrowed: "amber" };
 
 const SLOTS: EvidenceSlot[] = [
   { kind: "Foto", label: "Photo" },
@@ -44,12 +53,15 @@ type Form = {
   name: string; category_code: string; brand: string; model: string; identifier: string;
   location: string; holder: string; acquired_on: string; purchase_cost: number;
   vendor_code: string; trx_no: string; warranty_until: string; notes: string;
+  ownership: AssetOwnership; rent_amount: number; rent_period: "" | RentPeriod; rent_due_day: string;
+  contract_start: string; contract_end: string;
 };
 
 const emptyForm: Form = {
   mode: "create", asset_no: "", name: "", category_code: "", brand: "", model: "", identifier: "",
   location: "", holder: "", acquired_on: "", purchase_cost: 0, vendor_code: "", trx_no: "",
   warranty_until: "", notes: "",
+  ownership: "owned", rent_amount: 0, rent_period: "", rent_due_day: "", contract_start: "", contract_end: "",
 };
 
 export default function AssetsPage() {
@@ -95,6 +107,9 @@ export default function AssetsPage() {
       location: a.location ?? "", holder: a.holder ?? "", acquired_on: a.acquired_on ?? "",
       purchase_cost: a.purchase_cost ?? 0, vendor_code: a.vendor_code ?? "", trx_no: a.trx_no ?? "",
       warranty_until: a.warranty_until ?? "", notes: a.notes ?? "",
+      ownership: a.ownership, rent_amount: a.rent_amount ?? 0, rent_period: a.rent_period ?? "",
+      rent_due_day: a.rent_due_day != null ? String(a.rent_due_day) : "",
+      contract_start: a.contract_start ?? "", contract_end: a.contract_end ?? "",
     });
   }
 
@@ -106,6 +121,18 @@ export default function AssetsPage() {
       acquired_on: form.acquired_on || null, purchase_cost: form.purchase_cost > 0 ? form.purchase_cost : null,
       vendor_code: form.vendor_code, trx_no: form.trx_no,
       warranty_until: form.warranty_until || null, notes: form.notes,
+      /* An owned thing carries no rent or contract; switching to owned clears
+         them, which the seam would otherwise refuse (`rent_on_owned`). */
+      ownership: form.ownership,
+      ...(form.ownership === "owned"
+        ? { rent_amount: null, rent_period: null, rent_due_day: null, contract_start: null, contract_end: null }
+        : {
+            rent_amount: form.rent_amount > 0 ? form.rent_amount : null,
+            rent_period: form.rent_period || null,
+            rent_due_day: form.rent_period === "monthly" && form.rent_due_day ? Number(form.rent_due_day) : null,
+            contract_start: form.contract_start || null,
+            contract_end: form.contract_end || null,
+          }),
     };
     setSaving(true);
     const res = form.mode === "create"
@@ -150,7 +177,12 @@ export default function AssetsPage() {
       header: "Asset",
       render: (a) => (
         <div>
-          <p className="font-medium text-slate-800">{a.name}</p>
+          <p className="font-medium text-slate-800">
+            {a.name}
+            {a.ownership !== "owned" && (
+              <Badge tone={OWNERSHIP_TONE[a.ownership]} className="ml-1.5">{ASSET_OWNERSHIP_LABEL[a.ownership].toLowerCase()}</Badge>
+            )}
+          </p>
           <p className="font-mono text-[11px] text-slate-400">
             {a.asset_no}{a.identifier ? ` · ${a.identifier}` : ""}
           </p>
@@ -175,16 +207,25 @@ export default function AssetsPage() {
         <span className="flex flex-wrap items-center gap-1">
           <Badge tone={STATUS_TONE[a.status]} dot>{ASSET_STATUS_LABEL[a.status]}</Badge>
           {a.warranty_expired && <Badge tone="amber">warranty expired</Badge>}
+          {a.contract_ending && <Badge tone="amber">contract ends {a.contract_end}</Badge>}
+          {a.contract_expired && <Badge tone="red">contract ended {a.contract_end}</Badge>}
         </span>
       ),
     },
     {
       key: "cost",
-      header: "Cost",
+      header: "Cost / rent",
       align: "right",
       render: (a) => a.purchase_cost != null
         ? <span className="tabular-nums text-slate-700">{formatIDR(a.purchase_cost)}</span>
-        : <span className="text-slate-300">&mdash;</span>,
+        : a.rent_amount != null && a.rent_period
+          ? (
+            <span className="tabular-nums text-slate-700">
+              {formatIDR(a.rent_amount)}
+              <span className="block text-[10px] text-slate-400">{RENT_PERIOD_LABEL[a.rent_period]}</span>
+            </span>
+          )
+          : <span className="text-slate-300">&mdash;</span>,
     },
   ];
 
@@ -207,13 +248,17 @@ export default function AssetsPage() {
           const repair = rows.filter((a) => a.status === "under_repair").length;
           const expired = rows.filter((a) => a.warranty_expired).length;
           const cost = rows.reduce((s, a) => s + (a.purchase_cost ?? 0), 0);
+          const notOwned = rows.filter((a) => a.ownership !== "owned");
+          const contractFlags = rows.filter((a) => a.contract_ending || a.contract_expired).length;
           return (
             <>
-              <div className="mb-6 grid gap-4 sm:grid-cols-4">
+              <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
                 <StatCard label="Assets shown" value={rows.length} icon={Package} hint={`${inUse} in use`} />
                 <StatCard label="Under repair" value={repair} icon={Wrench} tone="amber" hint="Out of action right now" />
                 <StatCard label="Warranty expired" value={expired} icon={ShieldAlert} tone="violet" hint="Still in service" />
-                <StatCard label="Recorded cost" value={formatIDR(cost)} icon={MonitorSmartphone} hint="Of the assets shown" />
+                <StatCard label="Rented, leased, borrowed" value={notOwned.length} icon={FileClock} tone="brand"
+                  hint={contractFlags > 0 ? `${contractFlags} contract${contractFlags === 1 ? "" : "s"} ending or ended` : "No contract running out"} />
+                <StatCard label="Recorded cost" value={formatIDR(cost)} icon={MonitorSmartphone} hint="Owned assets shown" />
               </div>
 
               <Card>
@@ -244,7 +289,7 @@ export default function AssetsPage() {
                       </select>
                       <label className="flex items-center gap-1.5 text-[13px] text-slate-600">
                         <input id="asset-gone" type="checkbox" checked={showGone} onChange={(e) => setShowGone(e.target.checked)} />
-                        Show disposed &amp; lost
+                        Show disposed, lost &amp; returned
                       </label>
                       <input
                         id="asset-search" value={q} onChange={(e) => setQ(e.target.value)}
@@ -279,7 +324,9 @@ export default function AssetsPage() {
               className="mr-auto h-8 rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none"
             >
               <option value="">Change status…</option>
-              {(Object.keys(ASSET_STATUS_LABEL) as AssetStatus[]).filter((s) => s !== selected.status).map((s) => (
+              {(Object.keys(ASSET_STATUS_LABEL) as AssetStatus[])
+                .filter((s) => s !== selected.status && (s !== "returned" || selected.ownership !== "owned"))
+                .map((s) => (
                 <option key={s} value={s}>{ASSET_STATUS_LABEL[s]}</option>
               ))}
             </select>
@@ -291,7 +338,12 @@ export default function AssetsPage() {
           <div className="space-y-5 text-sm">
             <div className="flex flex-wrap items-center gap-2">
               <Badge tone={STATUS_TONE[selected.status]} dot>{ASSET_STATUS_LABEL[selected.status]}</Badge>
+              {selected.ownership !== "owned" && (
+                <Badge tone={OWNERSHIP_TONE[selected.ownership]}>{ASSET_OWNERSHIP_LABEL[selected.ownership]}</Badge>
+              )}
               {selected.warranty_expired && <Badge tone="amber">warranty expired</Badge>}
+              {selected.contract_ending && <Badge tone="amber">contract ends {selected.contract_end}</Badge>}
+              {selected.contract_expired && <Badge tone="red">contract ended {selected.contract_end} — still here</Badge>}
               {selected.ended_on && <Badge tone="slate">since {selected.ended_on}</Badge>}
             </div>
 
@@ -307,7 +359,8 @@ export default function AssetsPage() {
                 <input
                   id="asset-status-note" value={statusForm.note}
                   onChange={(e) => setStatusForm({ ...statusForm, note: e.target.value })}
-                  placeholder={statusForm.status === "under_repair" ? "e.g. sent to the service centre" : "e.g. sold to staff, scrapped, stolen"}
+                  placeholder={statusForm.status === "under_repair" ? "e.g. sent to the service centre"
+                    : statusForm.status === "returned" ? "e.g. picked up by the lessor" : "e.g. sold to staff, scrapped, stolen"}
                   className={inputClass}
                 />
                 <div className="flex justify-end gap-2">
@@ -328,9 +381,19 @@ export default function AssetsPage() {
                 ["Serial / plate", selected.identifier ?? "—"],
                 ["Location", selected.location ?? "—"],
                 ["Held by", selected.holder ?? "—"],
-                ["Acquired", selected.acquired_on ?? "—"],
-                ["Cost", selected.purchase_cost != null ? formatIDR(selected.purchase_cost) : "—"],
-                ["Supplier", selected.vendor_name ?? selected.vendor_code ?? "—"],
+                ...(selected.ownership === "owned" ? [
+                  ["Acquired", selected.acquired_on ?? "—"],
+                  ["Cost", selected.purchase_cost != null ? formatIDR(selected.purchase_cost) : "—"],
+                  ["Supplier", selected.vendor_name ?? selected.vendor_code ?? "—"],
+                ] : [
+                  ["Ownership", ASSET_OWNERSHIP_LABEL[selected.ownership]],
+                  [selected.ownership === "borrowed" ? "Lent by" : "Lessor", selected.vendor_name ?? selected.vendor_code ?? "—"],
+                  ["Rent", selected.rent_amount != null && selected.rent_period
+                    ? `${formatIDR(selected.rent_amount)} ${RENT_PERIOD_LABEL[selected.rent_period]}${selected.rent_period === "monthly" && selected.rent_due_day ? `, day ${selected.rent_due_day}` : ""}`
+                    : "—"],
+                  ["Contract", selected.contract_start || selected.contract_end
+                    ? `${selected.contract_start ?? "?"} → ${selected.contract_end ?? "open-ended"}` : "—"],
+                ]),
                 ["Ledger row", selected.trx_no ?? "—"],
                 ["Warranty until", selected.warranty_until ?? "—"],
               ] as [string, string][]).map(([k, v]) => (
@@ -346,6 +409,10 @@ export default function AssetsPage() {
             </dl>
             {selected.notes && (
               <p className="rounded-lg bg-slate-50 px-3 py-2 text-[13px] text-slate-600">{selected.notes}</p>
+            )}
+
+            {selected.ownership !== "owned" && (
+              <RentSchedule asset={selected} onDone={() => void refreshSelected(selected.asset_no)} />
             )}
 
             <EvidenceStrip
@@ -414,6 +481,16 @@ export default function AssetsPage() {
                 </select>
               </div>
               <div>
+                <label htmlFor="as-own" className="block text-sm text-slate-600">Ownership</label>
+                <select id="as-own" value={form.ownership}
+                  onChange={(e) => setForm({ ...form, ownership: e.target.value as AssetOwnership })}
+                  className={inputClass + " bg-white"}>
+                  {(Object.keys(ASSET_OWNERSHIP_LABEL) as AssetOwnership[]).map((o) => (
+                    <option key={o} value={o}>{ASSET_OWNERSHIP_LABEL[o]}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
                 <label htmlFor="as-ident" className="block text-sm text-slate-600">Serial no. / plate</label>
                 <input id="as-ident" value={form.identifier} onChange={(e) => setForm({ ...form, identifier: e.target.value })}
                   placeholder="e.g. DK 8123 ZA" className={inputClass} />
@@ -436,16 +513,65 @@ export default function AssetsPage() {
                 <input id="as-holder" value={form.holder} onChange={(e) => setForm({ ...form, holder: e.target.value })}
                   placeholder="e.g. Made (driver)" className={inputClass} />
               </div>
+              {form.ownership !== "owned" && (
+                <fieldset className="col-span-2 grid grid-cols-2 gap-3 rounded-lg border border-sky-100 bg-sky-50/40 px-3 py-3">
+                  <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-sky-800">Rent &amp; contract</legend>
+                  <div>
+                    <label htmlFor="as-rent" className="block text-sm text-slate-600">
+                      Rent {form.ownership === "borrowed" && <span className="text-slate-400">(if any)</span>}
+                    </label>
+                    <MoneyInput id="as-rent" value={form.rent_amount} onChange={(v) => setForm({ ...form, rent_amount: v })} className="mt-1" />
+                  </div>
+                  <div>
+                    <label htmlFor="as-period" className="block text-sm text-slate-600">Paid</label>
+                    <select id="as-period" value={form.rent_period}
+                      onChange={(e) => setForm({ ...form, rent_period: e.target.value as "" | RentPeriod })}
+                      className={inputClass + " bg-white"}>
+                      <option value="">—</option>
+                      {(Object.keys(RENT_PERIOD_LABEL) as RentPeriod[]).map((p) => (
+                        <option key={p} value={p}>{RENT_PERIOD_LABEL[p]}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="as-cstart" className="block text-sm text-slate-600">Contract start</label>
+                    <input id="as-cstart" type="date" value={form.contract_start}
+                      onChange={(e) => setForm({ ...form, contract_start: e.target.value })} className={inputClass} />
+                  </div>
+                  <div>
+                    <label htmlFor="as-cend" className="block text-sm text-slate-600">Contract end</label>
+                    <input id="as-cend" type="date" value={form.contract_end}
+                      onChange={(e) => setForm({ ...form, contract_end: e.target.value })} className={inputClass} />
+                  </div>
+                  {form.rent_period === "monthly" && (
+                    <div>
+                      <label htmlFor="as-dueday" className="block text-sm text-slate-600">Due on day</label>
+                      <input id="as-dueday" type="number" min={1} max={31} value={form.rent_due_day}
+                        onChange={(e) => setForm({ ...form, rent_due_day: e.target.value })}
+                        placeholder="contract start day" className={inputClass} />
+                    </div>
+                  )}
+                  <p className="col-span-2 text-[11px] text-slate-500">
+                    The supplier code below is the lessor. Accounting puts the rent on the payment calendar from the asset.
+                  </p>
+                </fieldset>
+              )}
               <div>
-                <label htmlFor="as-acq" className="block text-sm text-slate-600">Acquired on</label>
+                <label htmlFor="as-acq" className="block text-sm text-slate-600">
+                  {form.ownership === "owned" ? "Acquired on" : "Arrived on"}
+                </label>
                 <input id="as-acq" type="date" value={form.acquired_on} onChange={(e) => setForm({ ...form, acquired_on: e.target.value })} className={inputClass} />
               </div>
+              {form.ownership === "owned" && (
+                <div>
+                  <label htmlFor="as-cost" className="block text-sm text-slate-600">Purchase cost</label>
+                  <MoneyInput id="as-cost" value={form.purchase_cost} onChange={(v) => setForm({ ...form, purchase_cost: v })} className="mt-1" />
+                </div>
+              )}
               <div>
-                <label htmlFor="as-cost" className="block text-sm text-slate-600">Purchase cost</label>
-                <MoneyInput id="as-cost" value={form.purchase_cost} onChange={(v) => setForm({ ...form, purchase_cost: v })} className="mt-1" />
-              </div>
-              <div>
-                <label htmlFor="as-vendor" className="block text-sm text-slate-600">Supplier code</label>
+                <label htmlFor="as-vendor" className="block text-sm text-slate-600">
+                  {form.ownership === "owned" ? "Supplier code" : form.ownership === "borrowed" ? "Lent by (supplier code)" : "Lessor (supplier code)"}
+                </label>
                 <input id="as-vendor" value={form.vendor_code} onChange={(e) => setForm({ ...form, vendor_code: e.target.value })}
                   placeholder="optional" className={inputClass + " font-mono"} />
               </div>
@@ -476,7 +602,7 @@ export default function AssetsPage() {
             </div>
             {form.mode === "edit" && (
               <p className="text-[11px] text-slate-500">
-                Delete is only for an entry made by mistake. An asset that left is marked disposed or lost, so its record stays.
+                Delete is only for an entry made by mistake. An asset that left is marked disposed, lost or returned, so its record stays.
               </p>
             )}
           </div>

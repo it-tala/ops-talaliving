@@ -9,6 +9,7 @@ import type {
   CashFrequency, CashMonthDetail, CashAmountKind,
   Direction, PaymentAllocation, EvidenceInboxRow, InboxHealth, AllocMethod,
   BankStatementView, DocumentCoverage, TransactionCoverage, MonthlyBills,
+  AssetRentSchedule, AccountCode,
 } from "@/services/accounting/contracts";
 import { getActiveLocale } from "@/lib/format";
 import { officeToday } from "@/lib/office";
@@ -1831,6 +1832,117 @@ export async function getContributionAudit(month?: string): Promise<Result<Contr
   if (denied) return denied;
   const m = month || officeToday().slice(0, 7);
   return ok(SERVICE, contributionAudit(getState(), m));
+}
+
+/** An asset's rent onto the payment calendar, once (`0110`).
+ *
+ *    monthly   one monthly line from the contract's first month to the last
+ *              month whose due day falls before the contract ends
+ *    yearly    a one-off per contract year, from this month on (at most ten)
+ *    upfront   one one-off on the day the contract starts
+ *
+ *  Fixed lines, marked `source_ref = asset:AST-…`. A contract's rent is a
+ *  number on paper, not leadership's estimate, so accounting `write` makes
+ *  them — the live seam gates on `accounting.update` for the same reason. */
+export async function scheduleAssetRent(
+  assetNo: string,
+  opts: { account_code?: AccountCode | null; type_code?: TransactionTypeCode | null } = {},
+): Promise<Result<AssetRentSchedule>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "accounting", "write");
+  if (denied) return denied;
+  const state = getState();
+  const a = state.assets.find((x) => x.asset_no === assetNo);
+  if (!a) return notFound(SERVICE, "asset_not_found", "No such asset.");
+  if (a.ownership === "owned") return invalid(SERVICE, "not_rented", `${assetNo} has no rent to pay.`);
+  if (!a.rent_amount || a.rent_amount <= 0 || !a.rent_period) {
+    return invalid(SERVICE, "rent_missing", "Enter the rent and how often it is paid on the asset first.", { field: "rent_amount" });
+  }
+  if (!a.contract_start) {
+    return invalid(SERVICE, "contract_start_required", "Enter when the contract starts on the asset first.", { field: "contract_start" });
+  }
+  if (a.rent_period === "yearly" && !a.contract_end) {
+    return invalid(SERVICE, "contract_end_required", "Yearly rent needs the contract's end date, so the calendar knows how many years.", { field: "contract_end" });
+  }
+  if (a.status === "disposed" || a.status === "lost" || a.status === "returned") {
+    return conflict(SERVICE, "asset_gone", `${assetNo} is ${a.status} — there is no rent left to pay.`);
+  }
+  const ref = `asset:${assetNo}`;
+  if (state.cash_components.some((c) => c.active && c.source_ref === ref)) {
+    return conflict(SERVICE, "already_scheduled", `The rent for ${assetNo} is already on the payment calendar. Change it there.`);
+  }
+  if (opts.type_code && !state.transaction_types.some((t) => t.code === opts.type_code)) {
+    return invalid(SERVICE, "no_such_type", `There is no transaction type ${opts.type_code}.`, { field: "type_code" });
+  }
+  const account = opts.account_code ? state.accounts.find((x) => x.code === opts.account_code) : undefined;
+  if (opts.account_code && !account) return invalid(SERVICE, "no_such_account", `There is no account ${opts.account_code}.`);
+  const vendorId = a.vendor_code ? state.vendors.find((v) => v.code === a.vendor_code)?.id ?? null : null;
+
+  const name = `Rent — ${a.name} (${assetNo})`;
+  const startMonth = a.contract_start.slice(0, 7);
+  const thisMonth = officeToday().slice(0, 7);
+  type Line = { name: string; frequency: CashFrequency; due_day: number; due_date: string | null; starts_on: string; ends_on: string | null };
+  const lines: Line[] = [];
+  if (a.rent_period === "monthly") {
+    const day = a.rent_due_day ?? Number(a.contract_start.slice(8, 10));
+    let ends: string | null = null;
+    if (a.contract_end) {
+      const endMonth = a.contract_end.slice(0, 7);
+      const [y, m] = endMonth.split("-").map(Number);
+      const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      const lastDue = `${endMonth}-${String(Math.min(day, lastDay)).padStart(2, "0")}`;
+      ends = lastDue >= a.contract_end ? shiftMonth(endMonth, -1) : endMonth;
+      if (ends < startMonth) ends = startMonth;
+    }
+    lines.push({ name, frequency: "monthly", due_day: day, due_date: null, starts_on: startMonth, ends_on: ends });
+  } else {
+    const max = a.rent_period === "upfront" ? 1 : 10;
+    for (let k = 0; k < max; k++) {
+      const on = `${Number(a.contract_start.slice(0, 4)) + k}${a.contract_start.slice(4)}`;
+      if (a.rent_period === "yearly" && on >= a.contract_end!) break;
+      if (on.slice(0, 7) < thisMonth) continue;
+      lines.push({
+        name: a.rent_period === "yearly" ? `${name} · year ${k + 1}` : name,
+        frequency: "once", due_day: Number(on.slice(8, 10)), due_date: on, starts_on: on.slice(0, 7), ends_on: on.slice(0, 7),
+      });
+    }
+  }
+  if (lines.length === 0) {
+    return invalid(SERVICE, "nothing_to_schedule", `Every rent payment for ${assetNo} falls before this month.`);
+  }
+
+  const user = actingUser();
+  const now = new Date().toISOString();
+  const ids: string[] = [];
+  apply((draft) => {
+    for (const l of lines) {
+      const row: CashComponent = {
+        id: newId("cmp"), name: l.name, direction: "OUT", amount: Math.round(a.rent_amount!),
+        frequency: l.frequency, due_day: l.due_day, due_weekday: null, due_date: l.due_date,
+        type_code: opts.type_code ?? null, vendor_id: vendorId, account_id: account?.id ?? null,
+        scheme_codes: [], amount_kind: "fixed", source_ref: ref,
+        starts_on: l.starts_on, ends_on: l.ends_on, note: `From ${assetNo}`,
+        active: true, created_by: user.id, created_at: now,
+      };
+      draft.cash_components.push(row);
+      ids.push(row.id);
+      writeAudit(draft, {
+        service: SERVICE, entity: "cash_component", entity_no: row.id, action: "create", outcome: "ok", reason: null,
+        detail: { name: row.name, amount: row.amount, frequency: row.frequency, source_ref: ref },
+      });
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "asset", entity_no: assetNo, action: "schedule_rent", outcome: "ok", reason: null,
+      detail: { rent_amount: a.rent_amount, rent_period: a.rent_period, lines: ids.length },
+    });
+  });
+  return ok(SERVICE, { asset_no: assetNo, component_ids: ids, lines: ids.length });
+}
+
+function shiftMonth(month: string, by: number): string {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + by, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
 export async function getMonthlyBills(month?: string): Promise<Result<MonthlyBills>> {

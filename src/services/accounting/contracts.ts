@@ -854,6 +854,13 @@ export interface MonthlyBill {
   unusual: boolean;
 }
 
+/** What "Create payment schedule" on a rented asset made (`0110`). */
+export interface AssetRentSchedule {
+  asset_no: string;
+  component_ids: string[];
+  lines: number;
+}
+
 export interface MonthlyBills {
   month: string;
   label: string;

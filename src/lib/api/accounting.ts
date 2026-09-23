@@ -15,7 +15,7 @@ import type {
   TrxStatus, BankStatementView, StatementLineView, StatementMatch,
   TransactionTypeCode, PaymentAllocation, VendorPayment, CashOverride, CashSettlement,
   CashComponent, CashAmountKind, CashPlan, CashMonth, CashMonthDetail, CashDue, CashDayRow,
-  CashCell, CashRow, MonthlyBill, MonthlyBills,
+  CashCell, CashRow, MonthlyBill, MonthlyBills, AssetRentSchedule, AccountCode,
   InboxOrigin, EvidenceInboxRow, IncomingMoney,
   DocumentCoverage, TransactionCoverage, CoverageTransaction,
   CoverageLine, CoveragePayment,
@@ -1289,6 +1289,20 @@ export async function getMonthlyBills(month?: string): Promise<Result<MonthlyBil
     unusual_count: new Set(out.filter((b) => b.unusual).map((b) => b.component_id)).size,
     last_month_total: lastTotal,
   });
+}
+
+/** An asset's rent onto the payment calendar, once (`0110`): fixed lines
+ *  marked with the asset's tag, so a second press is refused. */
+export async function scheduleAssetRent(
+  assetNo: string,
+  opts: { account_code?: AccountCode | null; type_code?: TransactionTypeCode | null } = {},
+): Promise<Result<AssetRentSchedule>> {
+  const { data, error } = await db().rpc("schedule_asset_rent", {
+    p_asset_no: assetNo,
+    p_account_code: opts.account_code ?? null,
+    p_type_code: opts.type_code ?? null,
+  });
+  return fromSeam<AssetRentSchedule>(SERVICE, data, error);
 }
 
 /** The contribution audit — names × rate against what left (D259) — needs the

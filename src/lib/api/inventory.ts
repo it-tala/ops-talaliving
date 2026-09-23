@@ -944,17 +944,19 @@ function toAssetView(r: Record<string, unknown>): AssetView {
   return {
     ...(r as unknown as AssetView),
     purchase_cost: r.purchase_cost == null ? null : Number(r.purchase_cost),
+    rent_amount: r.rent_amount == null ? null : Number(r.rent_amount),
     document_count: Number(r.document_count ?? 0),
+    rent_lines: Number(r.rent_lines ?? 0),
   };
 }
 
-/** The register, newest tag first. Gone assets (disposed, lost) are left out
- *  unless asked for. */
+/** The register, newest tag first. Gone assets (disposed, lost, returned) are
+ *  left out unless asked for. */
 export async function listAssets(
   opts: { q?: string; category?: string; status?: AssetStatus; include_gone?: boolean } = {},
 ): Promise<Result<AssetView[]>> {
   let q = db().from("v_asset").select("*");
-  if (!opts.include_gone && !opts.status) q = q.not("status", "in", "(disposed,lost)");
+  if (!opts.include_gone && !opts.status) q = q.not("status", "in", "(disposed,lost,returned)");
   if (opts.status) q = q.eq("status", opts.status);
   if (opts.category) q = q.eq("category_code", opts.category);
   if (opts.q) {
@@ -996,6 +998,12 @@ export async function createAsset(
     p_warranty_until: input.warranty_until ?? null,
     p_notes: input.notes ?? null,
     p_key: idempotencyKey ?? null,
+    p_ownership: input.ownership ?? null,
+    p_rent_amount: input.rent_amount ?? null,
+    p_rent_period: input.rent_period ?? null,
+    p_rent_due_day: input.rent_due_day ?? null,
+    p_contract_start: input.contract_start ?? null,
+    p_contract_end: input.contract_end ?? null,
   });
   const res = fromSeam<{ asset_no: string }>(SERVICE, data, error);
   if (res.error) return res;
@@ -1006,7 +1014,10 @@ export async function createAsset(
  *  number — sent to the seam as `p_clear`, so leaving a field out can never
  *  wipe it. */
 export async function updateAsset(assetNo: string, input: AssetInput): Promise<Result<AssetView>> {
-  const clear = (["acquired_on", "purchase_cost", "warranty_until"] as const)
+  const clear = ([
+    "acquired_on", "purchase_cost", "warranty_until",
+    "rent_amount", "rent_period", "rent_due_day", "contract_start", "contract_end",
+  ] as const)
     .filter((k) => k in input && input[k] === null);
   const { data, error } = await db().rpc("update_asset", {
     p_asset_no: assetNo,
@@ -1024,6 +1035,12 @@ export async function updateAsset(assetNo: string, input: AssetInput): Promise<R
     p_warranty_until: input.warranty_until ?? null,
     p_notes: input.notes ?? null,
     p_clear: clear,
+    p_ownership: input.ownership ?? null,
+    p_rent_amount: input.rent_amount ?? null,
+    p_rent_period: input.rent_period ?? null,
+    p_rent_due_day: input.rent_due_day ?? null,
+    p_contract_start: input.contract_start ?? null,
+    p_contract_end: input.contract_end ?? null,
   });
   const res = fromSeam(SERVICE, data, error);
   if (res.error) return res;

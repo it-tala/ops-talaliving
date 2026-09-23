@@ -12,6 +12,7 @@ import type {
   BoardStockView, BoardMoveView, BoardMoveKind, NotaScan,
   Asset, AssetView, AssetCategory, AssetStatus, AssetInput,
 } from "@/services/inventory/contracts";
+import { ASSET_GONE, ASSET_OWNERSHIP_LABEL } from "@/services/inventory/contracts";
 import type { DemoState, AuditRow } from "../state";
 import { officeToday } from "@/lib/office";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
@@ -888,20 +889,53 @@ function assetView(state: DemoState, a: Asset): AssetView {
     category_name: state.asset_categories.find((c) => c.code === a.category_code)?.name ?? a.category_code,
     vendor_name: a.vendor_code ? state.vendors.find((v) => v.code === a.vendor_code)?.name ?? null : null,
     document_count: state.attachment_links.filter((l) => (l.entity as string) === "asset" && l.entity_no === a.asset_no).length,
-    warranty_expired: !!a.warranty_until && a.warranty_until < officeToday()
-      && a.status !== "disposed" && a.status !== "lost",
+    warranty_expired: !!a.warranty_until && a.warranty_until < officeToday() && !ASSET_GONE.includes(a.status),
+    contract_ending: a.ownership !== "owned" && !!a.contract_end && !ASSET_GONE.includes(a.status)
+      && a.contract_end >= officeToday() && a.contract_end <= addDays(officeToday(), 30),
+    contract_expired: a.ownership !== "owned" && !!a.contract_end && !ASSET_GONE.includes(a.status)
+      && a.contract_end < officeToday(),
+    rent_lines: state.cash_components.filter((c) => c.active && c.source_ref === `asset:${a.asset_no}`).length,
   };
 }
 
-/** The register, newest tag first. Gone assets (disposed, lost) are left out
- *  unless asked for. */
+function addDays(day: string, n: number): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** The rent rules (`0110`), judged on the row as it will be. */
+function assetRentInvalid(a: Pick<Asset, "ownership" | "rent_amount" | "rent_period" | "rent_due_day" | "contract_start" | "contract_end">) {
+  if (!(a.ownership in ASSET_OWNERSHIP_LABEL)) {
+    return invalid(SERVICE, "ownership_invalid", "Owned, rented, leased or borrowed.", { field: "ownership" });
+  }
+  if (a.ownership === "owned" && (a.rent_amount != null || a.rent_period != null || a.contract_start != null || a.contract_end != null)) {
+    return invalid(SERVICE, "rent_on_owned", "An owned asset has no rent or contract. Clear them, or change who owns it.", { field: "ownership" });
+  }
+  if (a.rent_amount != null && a.rent_amount < 0) {
+    return invalid(SERVICE, "rent_negative", "Rent cannot be negative.", { field: "rent_amount" });
+  }
+  if ((a.rent_amount ?? 0) > 0 && !a.rent_period) {
+    return invalid(SERVICE, "period_required", "Say how often the rent is paid.", { field: "rent_period" });
+  }
+  if (a.rent_due_day != null && (a.rent_due_day < 1 || a.rent_due_day > 31)) {
+    return invalid(SERVICE, "due_day_invalid", "The rent falls due on a day between 1 and 31.", { field: "rent_due_day" });
+  }
+  if (a.contract_start && a.contract_end && a.contract_end < a.contract_start) {
+    return invalid(SERVICE, "contract_dates", "The contract ends before it starts.", { field: "contract_end" });
+  }
+  return null;
+}
+
+/** The register, newest tag first. Gone assets (disposed, lost, returned) are
+ *  left out unless asked for. */
 export async function listAssets(
   opts: { q?: string; category?: string; status?: AssetStatus; include_gone?: boolean } = {},
 ): Promise<Result<AssetView[]>> {
   await latency();
   const state = getState();
   let rows = state.assets;
-  if (!opts.include_gone && !opts.status) rows = rows.filter((a) => a.status !== "disposed" && a.status !== "lost");
+  if (!opts.include_gone && !opts.status) rows = rows.filter((a) => !ASSET_GONE.includes(a.status));
   if (opts.status) rows = rows.filter((a) => a.status === opts.status);
   if (opts.category) rows = rows.filter((a) => a.category_code === opts.category);
   if (opts.q) {
@@ -948,12 +982,20 @@ export async function createAsset(
   const denied = requireModule(SERVICE, "inventory");
   if (denied) return denied;
   if (!input.name.trim()) return invalid(SERVICE, "name_required", "An asset needs a name.", { field: "name" });
-  if (input.status === "disposed" || input.status === "lost") {
+  if (input.status && ASSET_GONE.includes(input.status)) {
     return invalid(SERVICE, "status_invalid", "A new asset is in use, in storage or under repair.", { field: "status" });
   }
   const state = getState();
   const bad = assetRefsInvalid(state, input);
   if (bad) return bad;
+  const rent = {
+    ownership: input.ownership ?? "owned",
+    rent_amount: input.rent_amount ?? null, rent_period: input.rent_period ?? null,
+    rent_due_day: input.rent_due_day ?? null,
+    contract_start: input.contract_start ?? null, contract_end: input.contract_end ?? null,
+  } satisfies Partial<Asset>;
+  const badRent = assetRentInvalid(rent);
+  if (badRent) return badRent;
   const n = Math.max(0, ...state.assets.map((a) => Number(a.asset_no.slice(4)) || 0)) + 1;
   const now = new Date().toISOString();
   const row: Asset = {
@@ -966,6 +1008,7 @@ export async function createAsset(
     vendor_code: blank(input.vendor_code) ?? null, trx_no: blank(input.trx_no) ?? null,
     warranty_until: input.warranty_until ?? null, notes: blank(input.notes) ?? null,
     ended_on: null, created_at: now, updated_at: now,
+    ...rent,
   };
   apply((draft) => {
     draft.assets.push(row);
@@ -1000,6 +1043,17 @@ export async function updateAsset(assetNo: string, input: AssetInput): Promise<R
     if (input[k] !== undefined) next[k] = input[k] ?? null;
   }
   if (input.purchase_cost !== undefined) next.purchase_cost = input.purchase_cost;
+  if (input.rent_amount !== undefined) next.rent_amount = input.rent_amount;
+  if (input.rent_period !== undefined) next.rent_period = input.rent_period;
+  if (input.rent_due_day !== undefined) next.rent_due_day = input.rent_due_day;
+  if (input.contract_start !== undefined) next.contract_start = input.contract_start;
+  if (input.contract_end !== undefined) next.contract_end = input.contract_end;
+  if (input.ownership !== undefined) next.ownership = input.ownership;
+  const badRent = assetRentInvalid(next);
+  if (badRent) return badRent;
+  if (next.ownership === "owned" && a.status === "returned") {
+    return invalid(SERVICE, "ownership_returned", "A returned asset was never ours. Change its status before calling it owned.", { field: "ownership" });
+  }
   const changed: Record<string, unknown> = {};
   for (const k of Object.keys(next) as (keyof Asset)[]) {
     if (next[k] !== a[k]) changed[k] = `${a[k] ?? "—"} → ${next[k] ?? "—"}`;
@@ -1012,8 +1066,9 @@ export async function updateAsset(assetNo: string, input: AssetInput): Promise<R
   return ok(SERVICE, assetView(getState(), getState().assets.find((x) => x.id === a.id)!));
 }
 
-/** Going (disposed, lost) needs a note and dates the end; coming back
- *  clears it. */
+/** Going (disposed, lost) needs a note and dates the end; a rented, leased
+ *  or borrowed thing goes back — `returned`, which dates the end too. Coming
+ *  back clears it. */
 export async function setAssetStatus(
   assetNo: string, status: AssetStatus, note?: string,
 ): Promise<Result<AssetView>> {
@@ -1024,8 +1079,11 @@ export async function setAssetStatus(
   const a = state.assets.find((x) => x.asset_no === assetNo);
   if (!a) return notFound(SERVICE, "asset_not_found", "No such asset.");
   if (a.status === status) return noop(SERVICE, assetView(state, a));
-  const gone = status === "disposed" || status === "lost";
-  if (gone && !note?.trim()) {
+  if (status === "returned" && a.ownership === "owned") {
+    return invalid(SERVICE, "status_invalid", "Only a rented, leased or borrowed asset is returned. An owned one is disposed of.", { field: "status" });
+  }
+  const gone = ASSET_GONE.includes(status);
+  if (status !== "returned" && gone && !note?.trim()) {
     return invalid(SERVICE, "note_required", "Say how it left — sold, scrapped, stolen, where it was last seen.", { field: "note" });
   }
   apply((draft) => {
