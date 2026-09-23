@@ -26,8 +26,12 @@ const NOT_GOODS_WORDS = new Set([
   "payment", "transfer", "tf", "payroll", "gaji", "salary", "thr", "bonus", "refund", "reimburse",
   "reimbursement", "pelunasan", "cicilan", "setor", "setoran", "pajak", "bpjs", "kasbon", "pinjaman",
   "topup", "deposit", "interest", "balance", "dp", "pembayaran", "tagihan", "uang",
+  "funding", "withdrawal", "pemindahan", "reimbursment", "trf",
 ]);
-const NOT_GOODS_PHRASES = ["uang makan", "admin fee", "tarik tunai", "bank charge", "biaya admin", "daily payroll"];
+const NOT_GOODS_PHRASES = [
+  "uang makan", "admin fee", "tarik tunai", "bank charge", "biaya admin", "daily payroll",
+  "petty cash", "bca to", "bni to", "open account",
+];
 
 /** Leading word → the top-level category it usually belongs under. Only
  *  codes that exist are used; the rest are ignored. */
