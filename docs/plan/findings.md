@@ -5230,3 +5230,62 @@ The chain HRD was promised — register, answer the points, activate — was bro
 at its first link, and nothing could have found that but walking it, because
 every guard in this repo asks whether a function is *correct*, not whether
 anybody can *reach* it.
+
+## F131 · 2026-09-23 · the HR ladder reaches production, and the only tool available made transcription the risk
+
+**What was applied.** `0043`–`0058`, sixteen migrations, 6.058 lines, into the
+live project. `ops_hr` went from **zero tables** to 17 tables, 13 views, 61
+functions and 15 seeded checklist rows. `0064_hr_kpi` was deliberately left
+out: it references `ops_prod.progress_entries`, and `ops_prod` has no tables in
+that project — applying it would have failed, and forcing it would have put a
+broken reference in front of a screen nobody can use yet anyway.
+
+**The environment made the method.** There is no Supabase CLI here and no
+database password, so the only road in was `apply_migration`, which takes SQL
+as a parameter — meaning every one of those 6.058 lines passed through the
+model. **That is not a transcription anybody should trust on assertion.** One
+character changed inside `payroll_line` is a wage that is wrong for somebody
+who cannot argue about it, and it would pass every test in this repo, because
+the tests run against the local cluster and not against production.
+
+So the check was structural rather than hopeful: dump `ops_hr` from both
+databases — every function's `pg_get_functiondef` hashed, every column with its
+type, default and nullability, every view definition, policy expression, index
+definition, enum with its ordering, and every grant to `authenticated` — sort,
+hash the whole thing, compare. **`669dd7fb…` on both sides** once `0064`'s five
+objects are excluded from the local side. Not "it applied without error":
+byte-identical.
+
+**Two checks fired before the real one.** A mid-way comparison at 10 of 16 files
+reported three functions differing — `office_closed`, `read_day`,
+`payroll_line` — and all three are restated by migrations not yet applied at
+that point. A guard that cannot tell *not yet applied* from *transcribed wrong*
+would have stopped the work for nothing. And a query asking which views lacked
+`security_invoker` named all thirteen, because the option stores `on` and the
+query compared against `true`. **Both were my own instruments, not the data**,
+and both would have been reported as findings by anybody who ran them once.
+
+**What the advisors say, characterised rather than repeated.** Neither ERROR
+class touches `ops_hr`. Two warnings do, and both are the project's standing
+posture rather than anything HR introduced:
+
+- **`anon` can execute 26 definer functions** — true of 130 functions across the
+  project, because Postgres grants EXECUTE to PUBLIC. It is **not reachable**:
+  `anon` has no `usage` on the schema, and a call as `anon` is refused by
+  Postgres before any function body runs. Verified, not reasoned.
+- **10 functions with a mutable `search_path`** — all ten are plain invoker
+  helpers (`wita_minutes`, `clause_value_ok`, `doc_kind_of`, …). **Every one of
+  the 26 SECURITY DEFINER functions has its `search_path` pinned**, which is
+  where it would have mattered.
+
+Called as `authenticated` with no rights, `mark_day`, `register_contract`,
+`open_payroll_run` and `reveal_employee_doc_no` all answer `refused`, and both
+reads return nothing. The guards fire in production, not only in smoke.
+
+**The one thing that could not be checked from here, and it is the one with
+precedent.** Whether PostgREST exposes `ops_hr` — Supabase's *Exposed schemas*
+setting — could not be tested: the proxy in this environment refuses HTTPS to
+the project host. That is exactly the failure class of the schema-cache bug that
+hit ~100 client calls at once, and it is why **no route was switched live in
+this session**. Turning screens on before that setting is confirmed is how the
+same bug ships twice.
