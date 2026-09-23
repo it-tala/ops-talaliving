@@ -10,8 +10,9 @@ import { NumberInput } from "@/components/ui/number-input";
 import { useLoad } from "@/components/ui/loaded";
 import { formatIDR } from "@/lib/format";
 import { procurement } from "@/demo/api";
-import { UNITS, type UomCode, type Vendor } from "@/services/procurement/contracts";
+import { type UomCode, type Vendor } from "@/services/procurement/contracts";
 import { useToast } from "@/store/toast";
+import { UomOptions } from "@/components/ui/uom-options";
 
 /** Placing an order from the tracker (D100).
  *
@@ -166,7 +167,7 @@ export function NewPo({ onClose, onCreated }: { onClose: () => void; onCreated: 
                     onChange={(e) => setLine(i, { uom: e.target.value as UomCode })}
                     className="mt-1 h-8 w-full rounded-lg border border-slate-200 bg-white px-1.5 text-[13px] focus:border-brand-400 focus:outline-none"
                   >
-                    {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                    <UomOptions current={l.uom} />
                   </select>
                 </div>
                 <div className="sm:col-span-3">

@@ -230,6 +230,44 @@ function routeDirs(dir, out = []) {
 
 const LIVE = liveServices();
 
+/* A route can be entirely correct by every measure this file already takes —
+ * every function it reaches exported by `src/lib/api`, the module in
+ * `LIVE_MODULES` — and still be served 501s in production, because none of
+ * that is what a screen actually calls. A screen calls `src/demo/api/index.ts`
+ * (ADR-009's "one line"), and if that file's `swap("inventory", demoInventory)`
+ * never got its third argument, `inventory` is wired to nothing but the demo
+ * and the 501 stub in every live deployment — invisibly, because nothing
+ * above this line reads that file at all. This is exactly that bug, found
+ * live in production: `src/lib/api/inventory.ts` existed, `LIVE_ROUTES`
+ * correctly listed `/inventory/log`, and the switchboard still refused every
+ * call because `swap()` was never handed the live module.
+ *
+ * So the switchboard is read too, and a service this file already knows is
+ * implemented must be wired with its live module there — the third argument
+ * present, not merely `swap("x", demoX)`. */
+const SWITCHBOARD = join(ROOT, "src/demo/api/index.ts");
+
+function switchboardGaps() {
+  const src = blankNonCode(readFileSync(SWITCHBOARD, "utf8"));
+  const wired = new Map();  // exported binding name -> arg count of its swap() call
+  for (const m of src.matchAll(
+    /export const ([a-zA-Z][A-Za-z0-9_]*)\s*=\s*swap\(\s*[^,]+,\s*[a-zA-Z][A-Za-z0-9_.]*\s*(,\s*[a-zA-Z][A-Za-z0-9_.]*\s*)?\)/g,
+  )) {
+    wired.set(m[1], m[2] !== undefined);
+  }
+  return LIVE.filter((s) => wired.has(s) && !wired.get(s));
+}
+
+const gaps = switchboardGaps();
+if (gaps.length) {
+  console.error(
+    `src/demo/api/index.ts does not pass the live module to swap() for: ${gaps.join(", ")}\n`
+    + `Every screen that calls ${gaps.map((s) => `${s}.*`).join(", ")} meets the 501 stub in `
+    + "live mode regardless of what src/lib/api implements or LIVE_ROUTES lists.",
+  );
+  process.exit(1);
+}
+
 /* `/demo` is the fixtures sandbox and the guided tour. It is demo-only by
    definition, never live, and listing it would be a category error rather than
    a missing implementation. */
@@ -247,6 +285,7 @@ const MODULE_OF = {
   dashboard: "dashboard", hrd: "hrd", procurement: "procurement", inventory: "inventory",
   accounting: "accounting", marketing: "marketing", proyek: "project", produksi: "production",
   it: "it", pengaturan: "settings", "john-lau": "assistant", box: "project",
+  "master-data": "master-data",
 };
 
 /* The modules this deployment opens. Procurement and accounting are the two the
@@ -268,18 +307,23 @@ const MODULE_OF = {
    own — this list only says the module may open, the per-route function scan
    above still decides which screens in it do.
 
-   `hrd` joins them once `0043`–`0058` are applied (2026-09-23): `ops_hr` has
-   17 tables, 13 views and 61 functions in the live project, so the module can
+   `hrd` joins them once `0043`–`0059` are applied (2026-09-23): `ops_hr` has
+   17 tables, 14 views and 64 functions in the live project, so the module can
    answer honestly about the chain HRD works — the person, their berkas, their
-   contract, the machine's file and the marks on it. Six of its fourteen
-   screens open and the per-route scan above is what decides that, not this
-   line: payroll, lembur, iuran, kinerja and cuti call 33 functions
-   `src/lib/api/hr.ts` has not been given, and two of those five are waiting on
-   the database rather than on TypeScript — payroll's `payroll_figures` is
+   contract, the machine's file, the marks on it and what those add up to. Six
+   of its fourteen screens open and the per-route scan above is what decides
+   that, not this line: payroll, lembur, iuran, kinerja and cuti call 33
+   functions `src/lib/api/hr.ts` has not been given, and two of those five wait
+   on the database rather than on TypeScript — payroll's `payroll_figures` is
    short of nineteen of `PayrollLine`'s fields (C20), and `/hrd/cuti` has no
-   leave-request table at all. `/it/aturan-gaji` is an `it` route that calls
-   `hr.*`, so it stays dark on the function scan too. */
-const LIVE_MODULES = ["dashboard", "procurement", "accounting", "it", "settings", "assistant", "inventory", "hrd"];
+   leave-request table at all.
+
+   `master-data` opens with suppliers, items and units (`0099`): the three are
+   procurement's tables, reached through procurement's client, so the module
+   is exactly as ready as procurement is. Pages it adds later for other
+   services' reference data (accounts, asset categories) are still held back
+   route by route by the function scan, like everywhere else. */
+const LIVE_MODULES = ["dashboard", "procurement", "accounting", "it", "settings", "assistant", "inventory", "hrd", "master-data"];
 
 const IMPL = Object.fromEntries(LIVE.map((s) => [s, implementedFunctions(s)]));
 

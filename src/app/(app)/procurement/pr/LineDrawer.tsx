@@ -13,7 +13,7 @@ import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { procurement, documents } from "@/demo/api";
 import {
-  MEETING_STATE_LABEL, UNITS, PR_CATEGORIES,
+  MEETING_STATE_LABEL, PR_CATEGORIES,
   type PrLineView, type UomCode, type PrCategory,
 } from "@/services/procurement/contracts";
 import { useToast } from "@/store/toast";
@@ -22,6 +22,7 @@ import { EvidenceStrip } from "@/components/ui/evidence-strip";
 import { VariancePanel } from "./VariancePanel";
 import { DecisionPanel } from "./DecisionPanel";
 import { PayFromLine } from "./PayFromLine";
+import { UomOptions } from "@/components/ui/uom-options";
 
 /** One item, everything about it.
  *
@@ -196,7 +197,7 @@ export function LineDrawer({
                 <select id="ed-uom" value={draft.uom ?? "pcs"}
                         onChange={(e) => setDraft({ ...draft, uom: e.target.value as UomCode })}
                         className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none">
-                  {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                  <UomOptions current={draft.uom ?? "pcs"} />
                 </select>
               </div>
               <div className="col-span-2">

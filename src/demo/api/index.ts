@@ -33,6 +33,7 @@ import * as liveIdentity from "@/lib/api/identity";
 import * as liveProcurement from "@/lib/api/procurement";
 import * as liveAccounting from "@/lib/api/accounting";
 import * as liveDocuments from "@/lib/api/documents";
+import * as liveInventory from "@/lib/api/inventory";
 import * as liveAssistant from "@/lib/api/assistant";
 import * as liveHr from "@/lib/api/hr";
 
@@ -40,10 +41,11 @@ export const identity = swap("identity", demoIdentity, liveIdentity);
 export const procurement = swap("procurement", demoProcurement, liveProcurement);
 export const accounting = swap("accounting", demoAccounting, liveAccounting);
 export const documents = swap("documents", demoDocuments, liveDocuments);
+export const inventory = swap("inventory", demoInventory, liveInventory);
 
 /* `hr` is swapped for real since the HR ladder reached the live project
-   (2026-09-23). It is the **partial** case this file was built for: 28 of the
-   demo's 61 functions are written, and the other 33 — payroll, lembur, iuran,
+   (2026-09-23). It is the **partial** case this file was built for: 31 of the
+   demo's 64 functions are written, and the other 33 — payroll, lembur, iuran,
    kinerja, cuti — become the 501 above rather than falling through to a
    fixture. Nobody meets one, because `isRouteLive()` keeps those nine screens
    dark; the refusal is the second line, for the day somebody adds an import. */
@@ -53,10 +55,20 @@ export const hr = swap("hr", demoHr, liveHr);
    any of them, so in live mode every one of their functions refuses with the
    name of the call — which is what `swap` does when handed nothing to swap in.
    Listing them here rather than exporting the demo directly is the whole point:
-   the alternative is six services quietly serving fixtures to a business
-   booking real money. */
+   the alternative is five services quietly serving fixtures to a business
+   booking real money.
+
+   `inventory` used to be one of them — `src/lib/api/inventory.ts` had existed
+   since the material-stock PR — but the line stayed here without ever being
+   moved up to the swapped block above, so every inventory screen was served
+   the 501 stub in live mode regardless of what the database actually held.
+   `check-live-routes.mjs` had no way to catch it: it derives `LIVE_ROUTES`
+   from `src/lib/api/index.ts`'s own exports, which were always correct — this
+   file, the one place `ADR-009` says the swap actually happens, was the part
+   nobody re-checked once inventory's real client existed. It is fixed above,
+   and the same trap is why `hr`'s line moved the moment its client was
+   exported rather than at some later tidy-up. */
 export const production = swap("production", demoProduction);
-export const inventory = swap("inventory", demoInventory);
 export const marketing = swap("marketing", demoMarketing);
 /* `delivery` and `assistant` are modules, not services: they already stamp
    their own envelopes `production` and `procurement` respectively, so the

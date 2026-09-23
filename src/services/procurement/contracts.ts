@@ -8,14 +8,16 @@
 /* Vocabulary                                                          */
 /* ------------------------------------------------------------------ */
 
-/** 18 units, exactly as the running system spells them. */
-export const UNITS = [
-  "pcs", "buah", "kg", "gr", "meter", "m2", "m3", "cm", "sak",
-  "box", "roll", "set", "pack", "ltr", "lembar", "batang", "unit", "lusin",
-] as const;
-export type UomCode = (typeof UNITS)[number];
+/** A unit's code. **The database is the list**, not this file: `ops_procure.uom`
+ *  holds 33 units in production and is maintained from Master Data → Units, so
+ *  a fixed union here would hide every unit added there from every picker —
+ *  which is what it did, to the 29 items measured in `carton`. A typo cannot
+ *  get through anyway: every column that stores one is a foreign key to
+ *  `uom.code`, so the database refuses an unknown unit by name. */
+export type UomCode = string;
 
-export type UomDimension = "count" | "mass" | "length" | "area" | "volume";
+export type UomDimension = "count" | "mass" | "length" | "area" | "volume" | "time";
+export const UOM_DIMENSIONS: UomDimension[] = ["count", "mass", "length", "area", "volume", "time"];
 export type ItemKind = "goods" | "service";
 
 export const PR_CATEGORIES = [
@@ -106,6 +108,10 @@ export interface Vendor {
   /** false means RECORDED BUT NOT YET CURATED — visible in lists, absent from
    *  dropdowns. A name a human types is always accepted (owner, 2026-08-05). */
   is_curated: boolean;
+  /** Set when somebody took this vendor out of use. Absent from every picker
+   *  and from the default supplier list; every transaction, request and order
+   *  that names it still does. Reversible. */
+  archived_at?: string | null;
   /** The company line. `pic_phone` is the person you actually call. */
   phone: string | null;
   address: string | null;
@@ -162,6 +168,27 @@ export interface Item {
   last_price: number | null;
   last_vendor_id: string | null;
   last_purchased_at: string | null;
+  /** Out of every picker, kept in every record (`0104`). Reversible. */
+  archived_at?: string | null;
+}
+
+/** One ledger line an item was bought on — the item's purchase history,
+ *  including lines written against items merged into it (`0104`). */
+export interface ItemPurchase {
+  trx_no: string;
+  trx_date: string;
+  status: string;
+  account_code: string;
+  vendor_name: string | null;
+  description: string;
+  qty: number | null;
+  uom: string | null;
+  unit_price: number | null;
+  amount: number;
+  /** The item the line was written against — differs from the one asked
+   *  about when a duplicate was merged into it. */
+  item_code: string;
+  item_name: string;
 }
 
 /** A project is the customer's order, and it is the dimension every other
@@ -854,6 +881,11 @@ export interface ItemSource {
 
 export interface ItemView extends Item {
   category_name: string;
+  /** The top-level category — the item's own category when it is filed at
+   *  the top, its parent when it is filed under an item type. */
+  top_category_code?: string;
+  /** "Packing › Foam Sheet", or just "Packing". */
+  category_path?: string;
   last_vendor_name: string | null;
   sourced_from: ItemSource[];
   /** What a form would prefill: the curated price if there is one, otherwise

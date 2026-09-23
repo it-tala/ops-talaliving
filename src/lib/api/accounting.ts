@@ -15,7 +15,7 @@ import type {
   TrxStatus, BankStatementView, StatementLineView, StatementMatch,
   TransactionTypeCode, PaymentAllocation, VendorPayment, CashOverride, CashSettlement,
   CashComponent, CashPlan, CashMonth, CashMonthDetail, CashDue, CashDayRow,
-  InboxOrigin, EvidenceInboxRow,
+  InboxOrigin, EvidenceInboxRow, IncomingMoney,
   DocumentCoverage, TransactionCoverage, CoverageTransaction,
   CoverageLine, CoveragePayment,
 } from "@/services/accounting/contracts";
@@ -83,6 +83,8 @@ const KIND_CODE: Partial<Record<DocKind, string>> = {
   "Receiving Item": "goods_photo",
   "Delivery Note": "delivery_note",
   "Purchase Order": "purchase_order",
+  Invoice: "invoice",
+  "Receiving Report": "receiving_report",
   "Reference Link": "quotation",
   "Rekening Koran": "rekening_koran",
   "Surat Dokter": "surat_dokter",
@@ -200,7 +202,10 @@ export async function historyFor(trxNo: string): Promise<Result<AuditRow[]>> {
      reasoning). */
   const { data, error } = await supabaseBrowser().schema("ops_core")
     .from("v_audit").select("*")
-    .eq("entity", "transaction").eq("entity_no", trxNo)
+    /* The row's own actions, plus the documents linked to and unlinked from
+       it — `attach_link`/`attach_unlink` file those as `attachment` under the
+       row's code, with the kind and file name in `detail` (`0101`). */
+    .in("entity", ["transaction", "attachment"]).eq("entity_no", trxNo)
     .order("at", { ascending: false });
   return fromRows<AuditRow[]>(SERVICE, data as AuditRow[], error);
 }
@@ -384,6 +389,27 @@ export async function voidTransaction(
      the screen wants it back, now reading VOID, rather than a receipt saying it
      worked. */
   const row = await db().from("v_transaction").select("*").eq("trx_no", voided.data.trx_no).single();
+  return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
+}
+
+/** Correcting a row in place — amount (with a remark) and description
+ *  (`0101`). The seam writes the audit row with the remark as its reason and
+ *  the values before and after as its detail; this reads the row back. */
+export async function editTransaction(
+  input: { trx_no: string; amount_idr?: number; description?: string; reason?: string },
+  idempotencyKey?: string,
+): Promise<Result<TransactionView>> {
+  const { data, error } = await db().rpc("edit_transaction", {
+    p_trx_no: input.trx_no,
+    p_amount: input.amount_idr ?? null,
+    p_description: input.description ?? null,
+    p_reason: input.reason ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const edited = fromSeam<{ trx_no: string }>(SERVICE, data, error);
+  if (edited.error) return edited;
+
+  const row = await db().from("v_transaction").select("*").eq("trx_no", edited.data.trx_no).single();
   return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
 }
 
@@ -615,6 +641,99 @@ export async function resolveInbox(
   const named = await withReporterNames([toInboxRow(after.data as unknown as InboxRowDb)]);
   if (named.error) return named;
   return ok(SERVICE, named.data[0]);
+}
+
+/* ------------------------------------------------------------------ */
+/* Money coming IN — the second road (D81)                             */
+/* ------------------------------------------------------------------ */
+
+/** Money already booked into a paying account, with whatever proof is on it.
+ *
+ *  The round screen reads this rather than asking somebody to retype an
+ *  amount that is already in the ledger. Filtered to IN rows on the account
+ *  that pays suppliers, newest first.
+ */
+export async function listIncoming(
+  opts: { account_code?: string } = {},
+): Promise<Result<IncomingMoney[]>> {
+  const code = opts.account_code ?? "BCA 271";
+  const { data: acc, error: accErr } = await db().from("accounts").select("id").eq("code", code).maybeSingle();
+  if (accErr) return fail(SERVICE, accErr);
+  if (!acc) return ok(SERVICE, []);
+
+  const { data, error } = await db().from("transactions")
+    .select("trx_no, trx_date, amount_idr, description")
+    .eq("account_id", (acc as { id: string }).id).eq("direction", "IN").neq("status", "VOID")
+    .order("trx_date", { ascending: false }).order("trx_no", { ascending: false });
+  if (error) return fail(SERVICE, error);
+  const rows = (data ?? []) as { trx_no: string; trx_date: string; amount_idr: number; description: string }[];
+  if (rows.length === 0) return ok(SERVICE, []);
+
+  const trxNos = rows.map((r) => r.trx_no);
+  const { data: links, error: linkErr } = await core().from("attachment_links")
+    .select("attachment_id, entity_no")
+    .eq("entity", "transaction").eq("kind", "transfer_proof").is("unlinked_at", null)
+    .in("entity_no", trxNos);
+  if (linkErr) return fail(SERVICE, linkErr);
+  const attByTrx = new Map(((links ?? []) as { attachment_id: string; entity_no: string }[])
+    .map((l) => [l.entity_no, l.attachment_id]));
+
+  const attIds = [...new Set(attByTrx.values())];
+  const { data: atts, error: attErr } = attIds.length
+    ? await core().from("attachments").select("id, filename").in("id", attIds)
+    : { data: [] as { id: string; filename: string }[], error: null };
+  if (attErr) return fail(SERVICE, attErr);
+  const filenameOf = new Map(((atts ?? []) as { id: string; filename: string }[]).map((a) => [a.id, a.filename]));
+
+  return ok(SERVICE, rows.map((r) => {
+    const attId = attByTrx.get(r.trx_no) ?? null;
+    return {
+      trx_no: r.trx_no, trx_date: r.trx_date, account_code: code,
+      amount_idr: r.amount_idr, description: r.description,
+      proof_attachment_id: attId, proof_filename: attId ? (filenameOf.get(attId) ?? null) : null,
+    };
+  }));
+}
+
+/** Rows waiting in the inbox that are money coming IN.
+ *
+ *  Almost everything in that inbox is somebody who bought first. A transfer
+ *  proof dropped in chat by leadership is the other direction, and it is
+ *  waiting for a different act by a different person — booking it, not
+ *  matching it to a purchase. */
+export async function listIncomingReview(): Promise<Result<EvidenceInboxRow[]>> {
+  const { data, error } = await db().from("evidence_inbox").select(INBOX_COLUMNS)
+    .eq("status", "PENDING").eq("money_direction", "IN")
+    .order("reported_at", { ascending: false });
+  if (error) return fail(SERVICE, error);
+  return withReporterNames(((data ?? []) as unknown as InboxRowDb[]).map(toInboxRow));
+}
+
+/** Book a chat-uploaded transfer proof as money in.
+ *
+ *  One act: the IN transaction, the document linked to it, and the inbox row
+ *  closed with a pointer to what it produced. The amount is confirmed by a
+ *  person rather than taken from the extraction — the reading is a proposal,
+ *  never a posting (A13).
+ */
+export async function confirmIncoming(
+  input: { ref_id: string; account_id: string; trx_date: string; amount_idr: number; description?: string },
+  idempotencyKey?: string,
+): Promise<Result<IncomingMoney>> {
+  const accountCode = await codeFor("accounts", input.account_id);
+  if (!accountCode) {
+    return invalid(SERVICE, "account_not_found", "Akun itu tidak ada di database.", { field: "account_id" });
+  }
+
+  const { data, error } = await db().rpc("confirm_incoming", {
+    p_ref_id: input.ref_id,
+    p_account_code: accountCode,
+    p_trx_date: input.trx_date,
+    p_amount: input.amount_idr,
+    p_description: input.description ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<IncomingMoney>(SERVICE, data, error);
 }
 
 /* ------------------------------------------------------------------ */

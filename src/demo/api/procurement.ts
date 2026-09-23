@@ -1,7 +1,7 @@
 /** Implements `/api/v1/procurement` from `03-api.md`. */
 import { ok, noop, invalid, notFound, refused, type Result } from "@/services/_shared/envelope";
 import type {
-  Vendor, Item, Uom, Project, ProjectLine, ItemCategory,
+  Vendor, Item, Uom, UomConversion, UomDimension, Project, ProjectLine, ItemCategory, ItemPurchase,
   PrDocument, PrLine, PrLineView, PaymentRound, RoundSummary,
   PurchaseOrder, PoLine, PoStatusView, Receipt, ReceiptCondition, PrCategory, UomCode,
   VendorView, ItemView, VarianceReason, PrApproval, VendorJourney,
@@ -45,6 +45,10 @@ export async function listVendors(opts: { q?: string; curated?: boolean } = {}):
   /* Uncurated vendors are shown and marked in lists; only a dropdown filters
    * them out. `active=false` means RECORDED, NOT YET CURATED — never hidden. */
   if (opts.curated !== undefined) rows = rows.filter((v) => v.is_curated === opts.curated);
+  /* Every caller of this is a picker, and an archived vendor is one nobody
+   * buys from any more — so it never offers one. The supplier list reads
+   * `listVendorViews`, which can still show them. */
+  rows = rows.filter((v) => !v.merged_into && !v.archived_at);
   return ok(SERVICE, rows);
 }
 
@@ -82,7 +86,8 @@ export async function createVendor(input: { name: string }, idempotencyKey?: str
 
 export async function listItems(opts: { q?: string; curated?: boolean } = {}): Promise<Result<Item[]>> {
   await latency();
-  let rows = getState().items;
+  /* A picker's list: merged and archived items are out (`0104`). */
+  let rows = getState().items.filter((i) => !i.merged_into && !i.archived_at);
   if (opts.q) {
     const q = opts.q.toLowerCase();
     rows = rows.filter((i) => i.name.toLowerCase().includes(q) || i.code.toLowerCase().includes(q));
@@ -93,7 +98,131 @@ export async function listItems(opts: { q?: string; curated?: boolean } = {}): P
 
 export async function listUom(): Promise<Result<Uom[]>> {
   await latency();
-  return ok(SERVICE, getState().uom);
+  return ok(SERVICE, [...getState().uom].sort((a, b) => a.code.localeCompare(b.code)));
+}
+
+export async function listUomConversions(): Promise<Result<UomConversion[]>> {
+  await latency();
+  return ok(SERVICE, [...getState().uom_conversions]
+    .sort((a, b) => a.from_uom.localeCompare(b.from_uom) || a.to_uom.localeCompare(b.to_uom)));
+}
+
+/** The code is what every line is written in, forever — short, lower-case, no
+ *  spaces — so `Pcs`, `pcs ` and `pcs` can never become three units. It never
+ *  changes after creation; only the name and dimension do. */
+export async function createUom(
+  input: { code: string; name: string; dimension: UomDimension },
+): Promise<Result<Uom>> {
+  await latency();
+  const code = input.code.trim().toLowerCase();
+  const name = input.name.trim();
+  if (!/^[a-z0-9][a-z0-9_-]{0,19}$/.test(code)) {
+    return invalid(SERVICE, "code_invalid",
+      'A unit code is 1–20 lower-case letters, digits, "-" or "_", with no spaces.', { field: "code" });
+  }
+  if (!name) return invalid(SERVICE, "name_required", "A unit needs a name.", { field: "name" });
+  if (getState().uom.some((u) => u.code === code)) {
+    return conflict(SERVICE, "uom_exists", `The unit "${code}" already exists.`, { field: "code" });
+  }
+  const uom: Uom = { code, name, dimension: input.dimension };
+  apply((draft) => {
+    draft.uom.push(uom);
+    writeAudit(draft, { service: SERVICE, entity: "uom", entity_no: code, action: "create", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, uom);
+}
+
+export async function updateUom(
+  code: string, input: { name: string; dimension: UomDimension },
+): Promise<Result<Uom>> {
+  await latency();
+  const u = getState().uom.find((x) => x.code === code);
+  if (!u) return notFound(SERVICE, "uom_not_found", "No such unit.");
+  const name = input.name.trim();
+  if (!name) return invalid(SERVICE, "name_required", "A unit needs a name.", { field: "name" });
+  if (u.name === name && u.dimension === input.dimension) return noop(SERVICE, u);
+  apply((draft) => {
+    const d = draft.uom.find((x) => x.code === code)!;
+    d.name = name;
+    d.dimension = input.dimension;
+    writeAudit(draft, { service: SERVICE, entity: "uom", entity_no: code, action: "update", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, getState().uom.find((x) => x.code === code)!);
+}
+
+/** Only a unit nothing is measured in. The refusal counts what holds it, so
+ *  the person reading it knows it was not a glitch. */
+export async function deleteUom(code: string): Promise<Result<{ code: string; deleted: true }>> {
+  await latency();
+  const state = getState();
+  if (!state.uom.some((u) => u.code === code)) return notFound(SERVICE, "uom_not_found", "No such unit.");
+  const uses =
+    state.items.filter((i) => i.base_uom === code).length
+    + state.pr_lines.filter((l) => l.uom === code).length
+    + state.po_lines.filter((l) => l.uom === code).length
+    + state.project_lines.filter((l) => l.uom === code).length
+    + state.transaction_lines.filter((l) => l.uom === code).length
+    + state.stock_moves.filter((m) => m.uom === code).length
+    + state.uom_conversions.filter((c) => c.from_uom === code || c.to_uom === code).length;
+  if (uses > 0) {
+    return conflict(SERVICE, "uom_in_use", `"${code}" is used by ${uses} record(s) and cannot be deleted.`);
+  }
+  apply((draft) => {
+    draft.uom = draft.uom.filter((u) => u.code !== code);
+    writeAudit(draft, { service: SERVICE, entity: "uom", entity_no: code, action: "delete", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, { code, deleted: true as const });
+}
+
+/** One row per pair, and never both directions: `lusin → pcs = 12` and
+ *  `pcs → lusin = 0.0833` are one fact written twice, and two copies are how a
+ *  catalogue ends up disagreeing with itself. Saving an existing pair updates it. */
+export async function saveUomConversion(
+  input: { from_uom: string; to_uom: string; factor: number; yield_ratio?: number | null; note?: string | null },
+): Promise<Result<UomConversion>> {
+  await latency();
+  const state = getState();
+  const { from_uom, to_uom, factor } = input;
+  const yieldRatio = input.yield_ratio ?? null;
+  if (!state.uom.some((u) => u.code === from_uom) || !state.uom.some((u) => u.code === to_uom)) {
+    return invalid(SERVICE, "uom_unknown", "Both units must exist.", { field: "from_uom" });
+  }
+  if (from_uom === to_uom) return invalid(SERVICE, "same_uom", "A unit does not convert into itself.", { field: "to_uom" });
+  if (!(factor > 0)) return invalid(SERVICE, "factor_invalid", "The factor must be greater than zero.", { field: "factor" });
+  if (yieldRatio !== null && !(yieldRatio > 0 && yieldRatio <= 1)) {
+    return invalid(SERVICE, "yield_invalid", "Yield is a share of the input: more than 0, at most 1.", { field: "yield_ratio" });
+  }
+  if (state.uom_conversions.some((c) => c.from_uom === to_uom && c.to_uom === from_uom)) {
+    return conflict(SERVICE, "reverse_exists", `${to_uom} → ${from_uom} is already defined; edit that one instead.`);
+  }
+  const note = input.note?.trim() || null;
+  const existing = state.uom_conversions.find((c) => c.from_uom === from_uom && c.to_uom === to_uom);
+  const row: UomConversion = { id: existing?.id ?? newId("uc"), from_uom, to_uom, factor, yield_ratio: yieldRatio, note };
+  apply((draft) => {
+    draft.uom_conversions = [...draft.uom_conversions.filter((c) => c.id !== row.id), row];
+    writeAudit(draft, {
+      service: SERVICE, entity: "uom_conversion", entity_no: `${from_uom}->${to_uom}`,
+      action: existing ? "update" : "create", outcome: "ok", reason: null,
+    });
+  });
+  return ok(SERVICE, row);
+}
+
+export async function deleteUomConversion(
+  fromUom: string, toUom: string,
+): Promise<Result<{ from_uom: string; to_uom: string; deleted: true }>> {
+  await latency();
+  if (!getState().uom_conversions.some((c) => c.from_uom === fromUom && c.to_uom === toUom)) {
+    return notFound(SERVICE, "conversion_not_found", "No such conversion.");
+  }
+  apply((draft) => {
+    draft.uom_conversions = draft.uom_conversions.filter((c) => !(c.from_uom === fromUom && c.to_uom === toUom));
+    writeAudit(draft, {
+      service: SERVICE, entity: "uom_conversion", entity_no: `${fromUom}->${toUom}`,
+      action: "delete", outcome: "ok", reason: null,
+    });
+  });
+  return ok(SERVICE, { from_uom: fromUom, to_uom: toUom, deleted: true as const });
 }
 
 export async function listProjects(): Promise<Result<Project[]>> {
@@ -1697,10 +1826,12 @@ function vendorView(state: ReturnType<typeof getState>, v: Vendor): VendorView {
 /** Search reaches past the vendor's own name into what they supply and what we
  *  have actually bought from them — so typing "thinner" finds the vendor rather
  *  than requiring someone to already know which one it is. */
-export async function listVendorViews(opts: { q?: string } = {}): Promise<Result<VendorView[]>> {
+export async function listVendorViews(
+  opts: { q?: string; include_archived?: boolean } = {},
+): Promise<Result<VendorView[]>> {
   await latency();
   const state = getState();
-  let rows = state.vendors.filter((v) => !v.merged_into);
+  let rows = state.vendors.filter((v) => !v.merged_into && (opts.include_archived || !v.archived_at));
 
   if (opts.q) {
     const q = opts.q.toLowerCase();
@@ -1780,28 +1911,39 @@ export async function mergeVendor(loserId: string, winnerId: string): Promise<Re
 }
 
 function itemView(state: ReturnType<typeof getState>, i: Item): ItemView {
+  const cat = state.item_categories.find((c) => c.code === i.category_code);
+  const parent = cat?.parent_code ? state.item_categories.find((c) => c.code === cat.parent_code) : undefined;
+  /* A merged duplicate's purchases read as the survivor's (`0104`). */
+  const family = new Set([i.id, ...state.items.filter((x) => x.merged_into === i.id).map((x) => x.id)]);
   return {
     ...i,
-    category_name: state.item_categories.find((c) => c.code === i.category_code)?.name ?? i.category_code,
+    category_name: cat?.name ?? i.category_code,
+    top_category_code: cat?.parent_code ?? i.category_code,
+    category_path: parent ? `${parent.name} › ${cat!.name}` : (cat?.name ?? i.category_code),
     last_vendor_name: state.vendors.find((v) => v.id === i.last_vendor_id)?.name ?? null,
     suggested_price: i.standard_price ?? i.last_price,
     sourced_from: itemSources(state, i.id),
-    purchase_count: state.transaction_lines.filter((l) => l.item_id === i.id).length
-      + state.pr_lines.filter((l) => l.item_id === i.id).length,
+    purchase_count: state.transaction_lines.filter((l) => l.item_id && family.has(l.item_id)).length
+      + state.pr_lines.filter((l) => l.item_id && family.has(l.item_id)).length,
   };
 }
 
 export async function listItemViews(
-  opts: { q?: string; category?: string; curated?: boolean } = {},
+  opts: { q?: string; category?: string; curated?: boolean; include_archived?: boolean } = {},
 ): Promise<Result<ItemView[]>> {
   await latency();
   const state = getState();
-  let rows = state.items.filter((i) => !i.merged_into);
+  let rows = state.items.filter((i) => !i.merged_into && (opts.include_archived || !i.archived_at));
   if (opts.q) {
     const q = opts.q.toLowerCase();
     rows = rows.filter((i) => i.name.toLowerCase().includes(q) || i.code.toLowerCase().includes(q));
   }
-  if (opts.category) rows = rows.filter((i) => i.category_code === opts.category);
+  /* A top-level category matches everything filed under its item types. */
+  if (opts.category) {
+    const codes = new Set([opts.category, ...state.item_categories
+      .filter((c) => c.parent_code === opts.category).map((c) => c.code)]);
+    rows = rows.filter((i) => codes.has(i.category_code));
+  }
   /* The other half of the curation rule: a list is where "not yet curated"
    * means "shown and marked", and a DROPDOWN is where it means "absent". */
   if (opts.curated !== undefined) rows = rows.filter((i) => i.is_curated === opts.curated);
@@ -1880,6 +2022,279 @@ export async function curateItem(
   return ok(SERVICE, itemView(getState(), getState().items.find((i) => i.id === id)!));
 }
 
+/* ------------------------------------------------------------------ */
+/* Item master (0104): the category tree, editing, archive, merge      */
+/* ------------------------------------------------------------------ */
+
+function categorySlug(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+}
+
+/** Two levels, never three: a top-level category and the item types under
+ *  it. The item itself is the third level — its specification is its name. */
+export async function createCategory(
+  input: { name: string; parent_code?: string | null },
+): Promise<Result<ItemCategory>> {
+  await latency();
+  const state = getState();
+  const name = input.name.trim();
+  const parentCode = input.parent_code ?? null;
+  if (!name) return invalid(SERVICE, "name_required", "A category needs a name.", { field: "name" });
+  if (parentCode) {
+    const parent = state.item_categories.find((c) => c.code === parentCode);
+    if (!parent) return invalid(SERVICE, "parent_unknown", `No category ${parentCode}.`, { field: "parent_code" });
+    if (parent.parent_code) {
+      return invalid(SERVICE, "too_deep", `${parent.name} is already an item type; types cannot have sub-types. The item itself is the third level.`, { field: "parent_code" });
+    }
+    if (parent.code === "uncurated") {
+      return invalid(SERVICE, "parent_reserved", "\"Not yet curated\" is a holding pen and takes no item types.", { field: "parent_code" });
+    }
+  }
+  if (state.item_categories.some((c) => c.name.toLowerCase() === name.toLowerCase() && c.parent_code === parentCode)) {
+    return conflict(SERVICE, "name_taken", `"${name}" already exists there.`, { field: "name" });
+  }
+  const base = categorySlug(parentCode ? `${parentCode}-${name}` : name) || "category";
+  let code = base;
+  for (let n = 2; state.item_categories.some((c) => c.code === code); n++) code = `${base}-${n}`;
+  const row: ItemCategory = { code, parent_code: parentCode, name };
+  apply((draft) => {
+    draft.item_categories.push(row);
+    writeAudit(draft, { service: SERVICE, entity: "category", entity_no: code, action: "create", outcome: "ok", reason: null, detail: { name, parent_code: parentCode } });
+  });
+  return ok(SERVICE, row);
+}
+
+export async function updateCategory(
+  code: string, input: { name: string; parent_code?: string | null },
+): Promise<Result<ItemCategory>> {
+  await latency();
+  const state = getState();
+  const c = state.item_categories.find((x) => x.code === code);
+  if (!c) return notFound(SERVICE, "category_not_found", "No such category.");
+  const name = input.name.trim();
+  const parentCode = input.parent_code ?? null;
+  if (!name) return invalid(SERVICE, "name_required", "A category needs a name.", { field: "name" });
+  if (code === "uncurated" && parentCode) {
+    return invalid(SERVICE, "reserved", "\"Not yet curated\" stays at the top level.", { field: "parent_code" });
+  }
+  if (parentCode) {
+    if (parentCode === code) return invalid(SERVICE, "parent_self", "A category cannot sit under itself.", { field: "parent_code" });
+    const parent = state.item_categories.find((x) => x.code === parentCode);
+    if (!parent) return invalid(SERVICE, "parent_unknown", `No category ${parentCode}.`, { field: "parent_code" });
+    if (parent.parent_code || parent.code === "uncurated") {
+      return invalid(SERVICE, "too_deep", `${parent.name} cannot hold item types.`, { field: "parent_code" });
+    }
+    if (state.item_categories.some((x) => x.parent_code === code)) {
+      return invalid(SERVICE, "has_children", `${c.name} has item types of its own, so it stays a top-level category.`, { field: "parent_code" });
+    }
+  }
+  if (state.item_categories.some((x) => x.code !== code && x.name.toLowerCase() === name.toLowerCase() && x.parent_code === parentCode)) {
+    return conflict(SERVICE, "name_taken", `"${name}" already exists there.`, { field: "name" });
+  }
+  if (c.name === name && c.parent_code === parentCode) return noop(SERVICE, c);
+  apply((draft) => {
+    const d = draft.item_categories.find((x) => x.code === code)!;
+    writeAudit(draft, {
+      service: SERVICE, entity: "category", entity_no: code, action: "update", outcome: "ok", reason: null,
+      detail: { name_before: d.name, name_after: name, parent_before: d.parent_code, parent_after: parentCode },
+    });
+    d.name = name;
+    d.parent_code = parentCode;
+  });
+  return ok(SERVICE, getState().item_categories.find((x) => x.code === code)!);
+}
+
+export async function deleteCategory(code: string): Promise<Result<{ code: string; deleted: true }>> {
+  await latency();
+  const state = getState();
+  const c = state.item_categories.find((x) => x.code === code);
+  if (!c) return notFound(SERVICE, "category_not_found", "No such category.");
+  if (code === "uncurated") {
+    return invalid(SERVICE, "reserved", "\"Not yet curated\" is where new items land and cannot be deleted.");
+  }
+  const items = state.items.filter((i) => i.category_code === code).length;
+  const children = state.item_categories.filter((x) => x.parent_code === code).length;
+  if (items + children > 0) {
+    return conflict(SERVICE, "category_in_use", `${c.name} still has ${items} item(s) and ${children} item type(s). Move them first.`);
+  }
+  apply((draft) => {
+    draft.item_categories = draft.item_categories.filter((x) => x.code !== code);
+    for (const v of draft.vendors) v.supplied_categories = v.supplied_categories.filter((x) => x !== code);
+    writeAudit(draft, { service: SERVICE, entity: "category", entity_no: code, action: "delete", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, { code, deleted: true as const });
+}
+
+/** Every field but the code, each optional. A new name keeps the old one in
+ *  `aka`; `standard_price: null` clears the price on purpose. */
+export async function updateItem(
+  id: string,
+  input: {
+    name?: string; category_code?: string; base_uom?: UomCode;
+    kind?: "goods" | "service"; standard_price?: number | null;
+  },
+): Promise<Result<ItemView>> {
+  await latency();
+  const state = getState();
+  const item = state.items.find((i) => i.id === id);
+  if (!item) return notFound(SERVICE, "item_not_found", "Item not found.");
+  if (item.merged_into) return invalid(SERVICE, "already_merged", "This item was merged into another; edit that one.");
+  if (input.name !== undefined && !input.name.trim()) {
+    return invalid(SERVICE, "name_required", "An item needs a name.", { field: "name" });
+  }
+  const name = input.name?.trim() ?? item.name;
+  if (name.toLowerCase() !== item.name.toLowerCase()
+      && state.items.some((i) => i.id !== id && !i.merged_into && i.name.toLowerCase() === name.toLowerCase())) {
+    return conflict(SERVICE, "name_taken", `Another item is already called "${name}". If they are the same thing, merge them.`, { field: "name" });
+  }
+  if (input.category_code && !state.item_categories.some((c) => c.code === input.category_code)) {
+    return invalid(SERVICE, "category_unknown", `No category ${input.category_code}.`, { field: "category_code" });
+  }
+  if (input.base_uom && !state.uom.some((u) => u.code === input.base_uom)) {
+    return invalid(SERVICE, "uom_unknown", `No unit ${input.base_uom}.`, { field: "base_uom" });
+  }
+  if (input.standard_price != null && input.standard_price < 0) {
+    return invalid(SERVICE, "price_negative", "A standard price cannot be negative.", { field: "standard_price" });
+  }
+  const next = {
+    name,
+    category_code: input.category_code ?? item.category_code,
+    base_uom: input.base_uom ?? item.base_uom,
+    kind: input.kind ?? item.kind,
+    standard_price: input.standard_price !== undefined ? input.standard_price : item.standard_price,
+  };
+  const before = {
+    name: item.name, category_code: item.category_code, base_uom: item.base_uom,
+    kind: item.kind, standard_price: item.standard_price,
+  };
+  if (JSON.stringify(next) === JSON.stringify(before)) return noop(SERVICE, itemView(state, item));
+  apply((draft) => {
+    const i = draft.items.find((x) => x.id === id)!;
+    if (name !== i.name) {
+      i.aka = [...new Set([...i.aka, i.name])].filter((x) => x.toLowerCase() !== name.toLowerCase());
+    }
+    Object.assign(i, next);
+    writeAudit(draft, {
+      service: SERVICE, entity: "item", entity_no: i.code, action: "update", outcome: "ok", reason: null,
+      detail: { before, after: next },
+    });
+  });
+  return ok(SERVICE, itemView(getState(), getState().items.find((i) => i.id === id)!));
+}
+
+/** Out of every picker, kept in every record. Reversible. */
+export async function archiveItem(id: string, archived: boolean): Promise<Result<ItemView>> {
+  await latency();
+  const state = getState();
+  const item = state.items.find((i) => i.id === id);
+  if (!item) return notFound(SERVICE, "item_not_found", "Item not found.");
+  if (item.merged_into) {
+    return invalid(SERVICE, "already_merged", "This item was merged into another and is already out of every list.");
+  }
+  if (Boolean(item.archived_at) === archived) return noop(SERVICE, itemView(state, item));
+  apply((draft) => {
+    draft.items.find((i) => i.id === id)!.archived_at = archived ? new Date().toISOString() : null;
+    writeAudit(draft, {
+      service: SERVICE, entity: "item", entity_no: item.code,
+      action: archived ? "archive" : "restore", outcome: "ok", reason: null,
+    });
+  });
+  return ok(SERVICE, itemView(getState(), getState().items.find((i) => i.id === id)!));
+}
+
+/** A pointer, never a delete: the loser's history reads as the survivor's.
+ *  Refused while the loser holds stock or sits in a bill of materials, which
+ *  name it by code. */
+export async function mergeItem(loserId: string, winnerId: string): Promise<Result<ItemView>> {
+  await latency();
+  const state = getState();
+  const loser = state.items.find((i) => i.id === loserId);
+  const winner = state.items.find((i) => i.id === winnerId);
+  if (!loser || !winner) return notFound(SERVICE, "item_not_found", "Item not found.");
+  if (loserId === winnerId) return invalid(SERVICE, "merge_into_self", "An item cannot absorb itself.");
+  if (loser.merged_into) return conflict(SERVICE, "already_merged", `${loser.name} has already been merged away.`);
+  if (winner.merged_into) {
+    return invalid(SERVICE, "winner_merged", `${winner.name} was itself merged away; merge into the item it points at.`);
+  }
+  const stock = state.stock_moves.filter((m) => m.item_code === loser.code).length;
+  const bom = state.bom_components.filter((c) => c.kind === "material" && c.ref_code === loser.code).length;
+  if (stock + bom > 0) {
+    return conflict(SERVICE, "item_in_use_by_code",
+      `${loser.name} has ${stock} stock movement(s) and is in ${bom} bill(s) of materials, which name it by code. Move those first.`);
+  }
+  apply((draft) => {
+    const l = draft.items.find((i) => i.id === loserId)!;
+    const w = draft.items.find((i) => i.id === winnerId)!;
+    for (const x of draft.items) if (x.merged_into === loserId) x.merged_into = winnerId;
+    w.aka = [...new Set([...w.aka, ...l.aka, l.name])].filter((x) => x.toLowerCase() !== w.name.toLowerCase());
+    if (l.last_purchased_at && (!w.last_purchased_at || l.last_purchased_at > w.last_purchased_at)) {
+      w.last_price = l.last_price;
+      w.last_vendor_id = l.last_vendor_id;
+      w.last_purchased_at = l.last_purchased_at;
+    }
+    w.base_uom = w.base_uom ?? l.base_uom;
+    l.merged_into = winnerId;
+    writeAudit(draft, { service: SERVICE, entity: "item", entity_no: l.code, action: "merge", outcome: "ok", reason: `into ${w.name}` });
+    writeOutbox(draft, { service: SERVICE, event_type: "procurement.item.merged", payload: { loser: l.code, winner: w.code } });
+  });
+  return ok(SERVICE, itemView(getState(), getState().items.find((i) => i.id === winnerId)!));
+}
+
+/** Filing many at once — the uncurated pile is not opened one drawer at a
+ *  time. Optionally curates them in the same step. */
+export async function setItemsCategory(
+  ids: string[], categoryCode: string, curate?: boolean,
+): Promise<Result<{ updated: number; category_code: string }>> {
+  await latency();
+  const state = getState();
+  if (ids.length === 0) return invalid(SERVICE, "codes_required", "Pick at least one item.", { field: "codes" });
+  if (!state.item_categories.some((c) => c.code === categoryCode)) {
+    return invalid(SERVICE, "category_unknown", `No category ${categoryCode}.`, { field: "category_code" });
+  }
+  const targets = state.items.filter((i) => ids.includes(i.id) && !i.merged_into);
+  apply((draft) => {
+    for (const t of targets) {
+      const i = draft.items.find((x) => x.id === t.id)!;
+      i.category_code = categoryCode;
+      if (curate !== undefined) i.is_curated = curate;
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "item", entity_no: "", action: "set_category", outcome: "ok", reason: null,
+      detail: { category_code: categoryCode, count: targets.length, items: targets.map((t) => t.code).join(", ") },
+    });
+  });
+  return ok(SERVICE, { updated: targets.length, category_code: categoryCode });
+}
+
+/** Every live ledger line the item — or anything merged into it — was
+ *  bought on, newest first. */
+export async function itemPurchases(id: string): Promise<Result<ItemPurchase[]>> {
+  await latency();
+  const state = getState();
+  const item = state.items.find((i) => i.id === id);
+  if (!item) return notFound(SERVICE, "item_not_found", "Item not found.");
+  const family = state.items.filter((i) => i.id === id || i.merged_into === id);
+  const byId = new Map(family.map((i) => [i.id, i]));
+  const rows: ItemPurchase[] = [];
+  for (const l of state.transaction_lines) {
+    const src = l.item_id ? byId.get(l.item_id) : undefined;
+    if (!src) continue;
+    const t = state.transactions.find((x) => x.id === l.trx_id);
+    if (!t || t.status === "VOID") continue;
+    const v = t.vendor_id ? state.vendors.find((x) => x.id === t.vendor_id) : undefined;
+    const vName = v?.merged_into ? state.vendors.find((x) => x.id === v.merged_into)?.name : v?.name;
+    rows.push({
+      trx_no: t.trx_no, trx_date: t.trx_date, status: t.status,
+      account_code: state.accounts.find((a) => a.id === t.account_id)?.code ?? "",
+      vendor_name: vName ?? null,
+      description: l.description, qty: l.qty, uom: l.uom, unit_price: l.unit_price, amount: l.amount,
+      item_code: src.code, item_name: src.name,
+    });
+  }
+  rows.sort((a, b) => b.trx_date.localeCompare(a.trx_date) || b.trx_no.localeCompare(a.trx_no));
+  return ok(SERVICE, rows);
+}
+
 /** Contact and banking details. Kept apart from curation: knowing who to call
  *  does not make a vendor canonical, and a curated vendor with no phone number
  *  is still a gap worth seeing. */
@@ -1897,6 +2312,85 @@ export async function updateVendorContact(
     writeAudit(draft, { service: SERVICE, entity: "vendor", entity_no: v.code, action: "update_contact", outcome: "ok", reason: null });
   });
   return ok(SERVICE, vendorView(getState(), getState().vendors.find((x) => x.id === id)!));
+}
+
+/** The name every picker and printed PO shows. The old spelling joins `aka`,
+ *  so a search for what people used to type still finds the vendor and the
+ *  chat extractor still recognises it. */
+export async function renameVendor(id: string, name: string): Promise<Result<VendorView>> {
+  await latency();
+  const state = getState();
+  const v = state.vendors.find((x) => x.id === id);
+  if (!v) return notFound(SERVICE, "vendor_not_found", "Vendor not found.");
+  const next = name.trim();
+  if (!next) return invalid(SERVICE, "name_required", "A vendor needs a name.", { field: "name" });
+  if (next === v.name) return noop(SERVICE, vendorView(state, v));
+  const clash = state.vendors.find((x) =>
+    x.id !== id && !x.merged_into && x.name.toLowerCase() === next.toLowerCase());
+  if (clash) {
+    return conflict(SERVICE, "name_taken", `${clash.code} already uses the name "${next}" — merge the two instead.`,
+      { field: "name", vendor_code: clash.code });
+  }
+  apply((draft) => {
+    const d = draft.vendors.find((x) => x.id === id)!;
+    /* The old name joins the aliases; the new one leaves them if it was there,
+       so a spelling is never both the name and an alias of itself. */
+    d.aka = [...new Set([...d.aka, d.name])]
+      .filter((a) => a.toLowerCase() !== next.toLowerCase())
+      .sort();
+    d.name = next;
+    writeAudit(draft, { service: SERVICE, entity: "vendor", entity_no: v.code, action: "rename", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, vendorView(getState(), getState().vendors.find((x) => x.id === id)!));
+}
+
+/** Out of every picker, kept in every record. For the vendors something still
+ *  points at — which is nearly all of them — this is the way to stop them
+ *  crowding a dropdown. Reversible. */
+export async function archiveVendor(id: string, archived: boolean): Promise<Result<VendorView>> {
+  await latency();
+  const state = getState();
+  const v = state.vendors.find((x) => x.id === id);
+  if (!v) return notFound(SERVICE, "vendor_not_found", "Vendor not found.");
+  if (v.merged_into) {
+    return invalid(SERVICE, "already_merged", "This vendor was merged into another — archive that one instead.");
+  }
+  if (Boolean(v.archived_at) === archived) return noop(SERVICE, vendorView(state, v));
+  apply((draft) => {
+    draft.vendors.find((x) => x.id === id)!.archived_at = archived ? new Date().toISOString() : null;
+    writeAudit(draft, {
+      service: SERVICE, entity: "vendor", entity_no: v.code,
+      action: archived ? "archive" : "unarchive", outcome: "ok", reason: null,
+    });
+  });
+  return ok(SERVICE, vendorView(getState(), getState().vendors.find((x) => x.id === id)!));
+}
+
+/** Gone for good — and so only a vendor nothing remembers. Anything a
+ *  transaction, request, order, planned payment or item still names is refused
+ *  with the count, and archive offered instead. */
+export async function deleteVendor(id: string): Promise<Result<{ id: string; deleted: true }>> {
+  await latency();
+  const state = getState();
+  const v = state.vendors.find((x) => x.id === id);
+  if (!v) return notFound(SERVICE, "vendor_not_found", "Vendor not found.");
+  const uses =
+    state.transactions.filter((t) => t.vendor_id === id).length
+    + state.pr_lines.filter((l) => l.vendor_id === id).length
+    + state.purchase_orders.filter((p) => p.vendor_id === id).length
+    + state.cash_components.filter((c) => c.vendor_id === id).length
+    + state.items.filter((i) => i.last_vendor_id === id).length
+    + state.vendors.filter((x) => x.merged_into === id).length
+    + state.log_purchases.filter((p) => p.vendor_id === id).length;
+  if (uses > 0) {
+    return conflict(SERVICE, "vendor_in_use",
+      `${v.name} is used by ${uses} record(s) — archive it instead, so the history keeps its name.`);
+  }
+  apply((draft) => {
+    draft.vendors = draft.vendors.filter((x) => x.id !== id);
+    writeAudit(draft, { service: SERVICE, entity: "vendor", entity_no: v.code, action: "delete", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, { id, deleted: true as const });
 }
 
 /** "We need thinner — where do we buy it?" asked directly, without going

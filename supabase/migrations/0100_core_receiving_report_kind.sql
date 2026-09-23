@@ -1,0 +1,12 @@
+-- 0100_core_receiving_report_kind.sql — a receiving report is its own document.
+--
+-- The ledger drawer now asks for five documents by name (owner, 2026-09-23):
+-- the nota, the invoice, the payment proof, a photo of the item, and the
+-- receiving report. Four already have a kind. The receiving report — the
+-- signed sheet saying what arrived and in what state — is not the supplier's
+-- delivery note or surat jalan, which say what was *sent*, so it gets a kind
+-- of its own rather than borrowing one of theirs.
+--
+-- Alone in its file: Postgres will not let a new enum value be used in the
+-- transaction that added it, and `0101` uses it straight away.
+alter type ops_core.doc_kind_t add value if not exists 'receiving_report';
