@@ -5605,3 +5605,65 @@ decision. `92_` caught it too.
 one whose file you happen to be reading.** `0101` is where the function was
 introduced and is the natural file to open; it has not been the truth since
 `0102`. Nothing about opening it says so.
+
+---
+
+## F138 · 2026-09-23 · a default carried from the demo is an assertion about the business, and nobody checked this one
+
+The first real pay rule book went into production yesterday with
+`week_pattern: "6day"` and `effective_days_per_year: 288`. The owner read the
+screen and asked one question: *bukankah jam kerja itu harusnya senin-jumat?*
+
+Neither number was ever his. Both were copied out of
+`src/demo/fixtures/payrules.ts` along with the numbers that **were** his — the
+07.30 start, the 45-minute break, the overtime ladder — and the copy did not
+distinguish between them. Reading the record back afterwards is unambiguous:
+Q44 (D270, D274) answered the **hours**; Q53 (D279) answered **who is on which
+pattern**; and Q45 asked *what is this business's own hari kerja efektif* and
+was closed on 13 September with an answer about **who types the figure**, not
+what the figure is. So Q45 was marked answered while the number it asked for
+had never been spoken. 288 filled the hole, and it looked like a fact because
+it was sitting in a field beside four real ones.
+
+**The book contradicted itself, and the contradiction was readable.**
+`monthly_divisor` was 173, which is 40 × 52 ÷ 12 and means nothing except on a
+forty-hour week. The same object said 48,75 hours a week in its schedules. Two
+fields that must agree, disagreeing — F73's shape exactly, the one this project
+has now hit often enough that it should be the first thing checked when a
+config object is assembled rather than the thing found later.
+
+**What 6day was actually doing.** Not display. `ops_hr.is_rest_day()` reads it,
+and under `6day` only Sunday is a rest day — so Saturday overtime would have
+paid the workday ladder (1,5× then 2×) instead of the rest-day ladder. And the
+rest-day tiers themselves were the six-day rungs of Kepmenaker 102/2004 pasal
+11 (2× to hour 7, then 3×, then 4×); a five-day week runs to hour 8, then 9.
+Switching the pattern without switching the rungs would have left a second,
+quieter contradiction behind the first.
+
+**The expensive one was 288.** `ops_hr.hourly_rate()` computes
+`company = setahun ÷ hari_efektif ÷ jam_sehari`. A denominator 20% too large
+makes the hourly rate 17% too small, and every overtime rupiah rides on it. On
+a five-million pokok with a 25.000 daily allowance the real functions give
+Rp 28.283 under v1 and Rp 33.333 under v2 — three hours of weekday overtime
+moves from Rp 155.557 to Rp 183.332, for one person, once.
+
+**Why it was still cheap to fix.** Zero employees, zero attendance scans, zero
+payroll runs. Not one rupiah had been computed from v1, which is the same
+condition that made D270's backdating safe, so v2 is dated to v1's own date as
+a correction rather than to today as a policy change — the business did not
+move from six days to five this morning, our record of it was wrong. v1 is
+untouched and still in the book (A5).
+
+**The lesson is not "check the config".** It is that seeding production from a
+fixture silently promotes every demo default into a claim about a real company,
+and the defaults are indistinguishable from the answers once they are in the
+same JSON object. What would have caught this is the thing D173 already exists
+for: a rule book is a set of assertions somebody has to sign, so the fields
+nobody has answered should have been **absent or null**, and the screen should
+have said *belum ditetapkan* — the same treatment D274 gives the guard's start
+time. A field that has never been answered should not be able to look like one
+that has.
+
+**Still open**: Q45 is reopened for the number it actually asked for, and 240 is
+a convention (20 days × 12) standing in until the owner names his. The demo
+fixture still asserts six days for the same business.
