@@ -285,6 +285,7 @@ const MODULE_OF = {
   dashboard: "dashboard", hrd: "hrd", procurement: "procurement", inventory: "inventory",
   accounting: "accounting", marketing: "marketing", proyek: "project", produksi: "production",
   it: "it", pengaturan: "settings", "john-lau": "assistant", box: "project",
+  "master-data": "master-data",
 };
 
 /* The modules this deployment opens. Procurement and accounting are the two the
@@ -305,7 +306,12 @@ const MODULE_OF = {
    client yet, so `/inventory/log` and `/inventory/papan` stay dark on their
    own — this list only says the module may open, the per-route function scan
    above still decides which screens in it do. */
-const LIVE_MODULES = ["dashboard", "procurement", "accounting", "it", "settings", "assistant", "inventory"];
+/* `master-data` opens with suppliers, items and units (`0099`): the three are
+   procurement's tables, reached through procurement's client, so the module
+   is exactly as ready as procurement is. Pages it adds later for other
+   services' reference data (accounts, asset categories) are still held back
+   route by route by the function scan, like everywhere else. */
+const LIVE_MODULES = ["dashboard", "procurement", "accounting", "it", "settings", "assistant", "inventory", "master-data"];
 
 const IMPL = Object.fromEntries(LIVE.map((s) => [s, implementedFunctions(s)]));
 

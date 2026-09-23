@@ -77,7 +77,9 @@ export const LIVE_ROUTES: readonly string[] = [
   "/it/pengguna",
   "/it/peran",
   "/john-lau",
-  "/procurement/catalog",
+  "/master-data/items",
+  "/master-data/suppliers",
+  "/master-data/units",
   "/procurement/meeting",
   "/procurement/penerimaan",
   "/procurement/po",
@@ -86,7 +88,6 @@ export const LIVE_ROUTES: readonly string[] = [
   "/procurement/pr",
   "/procurement/pr/documents",
   "/procurement/rounds",
-  "/procurement/supplier",
   "/procurement/tracker",
   "/procurement/tracker/[vendor]",
 ];

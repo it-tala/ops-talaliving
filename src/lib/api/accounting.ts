@@ -83,6 +83,8 @@ const KIND_CODE: Partial<Record<DocKind, string>> = {
   "Receiving Item": "goods_photo",
   "Delivery Note": "delivery_note",
   "Purchase Order": "purchase_order",
+  Invoice: "invoice",
+  "Receiving Report": "receiving_report",
   "Reference Link": "quotation",
   "Rekening Koran": "rekening_koran",
   "Surat Dokter": "surat_dokter",
@@ -200,7 +202,10 @@ export async function historyFor(trxNo: string): Promise<Result<AuditRow[]>> {
      reasoning). */
   const { data, error } = await supabaseBrowser().schema("ops_core")
     .from("v_audit").select("*")
-    .eq("entity", "transaction").eq("entity_no", trxNo)
+    /* The row's own actions, plus the documents linked to and unlinked from
+       it — `attach_link`/`attach_unlink` file those as `attachment` under the
+       row's code, with the kind and file name in `detail` (`0101`). */
+    .in("entity", ["transaction", "attachment"]).eq("entity_no", trxNo)
     .order("at", { ascending: false });
   return fromRows<AuditRow[]>(SERVICE, data as AuditRow[], error);
 }
@@ -384,6 +389,27 @@ export async function voidTransaction(
      the screen wants it back, now reading VOID, rather than a receipt saying it
      worked. */
   const row = await db().from("v_transaction").select("*").eq("trx_no", voided.data.trx_no).single();
+  return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
+}
+
+/** Correcting a row in place — amount (with a remark) and description
+ *  (`0101`). The seam writes the audit row with the remark as its reason and
+ *  the values before and after as its detail; this reads the row back. */
+export async function editTransaction(
+  input: { trx_no: string; amount_idr?: number; description?: string; reason?: string },
+  idempotencyKey?: string,
+): Promise<Result<TransactionView>> {
+  const { data, error } = await db().rpc("edit_transaction", {
+    p_trx_no: input.trx_no,
+    p_amount: input.amount_idr ?? null,
+    p_description: input.description ?? null,
+    p_reason: input.reason ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const edited = fromSeam<{ trx_no: string }>(SERVICE, data, error);
+  if (edited.error) return edited;
+
+  const row = await db().from("v_transaction").select("*").eq("trx_no", edited.data.trx_no).single();
   return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
 }
 
