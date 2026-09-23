@@ -23,7 +23,7 @@ port = 54321
 #
 # `ops_asst` (John Lau: catalogue, router, turns, process knowledge) and
 # `ops_mkt` were missing here while the app reads both through PostgREST — the
-# live walk's harness exposes every `ops_*` schema and found the gap (F151).
+# live walk's harness exposes every `ops_*` schema and found the gap (F152).
 schemas = ["public", "graphql_public", "ops_core", "ops_procure", "ops_acct", "ops_hr", "ops_prod", "ops_inv", "ops_asst", "ops_mkt"]
 # Extra schemas to add to the search_path of every request.
 #

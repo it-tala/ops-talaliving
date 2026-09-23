@@ -6027,7 +6027,7 @@ seventh would not have been.
 Caught by a smoke assertion about a completely different feature. That is what
 those two hundred lines of refusals are for.
 
-## F148 · 2026-09-23 · walking the week as three people found four doors that do not open
+## F149 · 2026-09-23 · walking the week as three people found four doors that do not open
 
 Every seam in procurement had a smoke file, and every smoke file was green.
 The simulation (`supabase/local/smoke/99_sim_procure_to_ledger.sql`) asked a
@@ -6060,7 +6060,7 @@ instead of asserting, so it stays green while the findings are open — and when
 B5 is fixed, the step's own `case` turns it to `OK` without anybody editing the
 simulation.
 
-## F149 · 2026-09-23 · the second walk went all the way to COMPLETED, and found the fifth door on the way
+## F150 · 2026-09-23 · the second walk went all the way to COMPLETED, and found the fifth door on the way
 
 With B5–B8 fixed, the simulation was rewritten to walk the road as it now
 works: the PO is built from the approved line, the deposit is paid from the
@@ -6091,7 +6091,7 @@ detail of a lump-sum payment is *1 lot × the amount paid*. The walk now runs
 37 steps from an empty database to a matched bank line with **no findings**,
 and L02 — the delivery charge — ends PAID beside L01's COMPLETED.
 
-## F150 · 2026-09-23 · the approval rule was complete in the demo and half-built in the database
+## F151 · 2026-09-23 · the approval rule was complete in the demo and half-built in the database
 
 The owner restated the rule for orders — leadership confirms every one,
 either by writing it themselves or by answering a card in Google Chat — and
@@ -6120,7 +6120,7 @@ outbox (it is readable by signed-in users), and the worker reads a card
 through one function rather than a table grant, the shape `0038` chose for
 the capture worker.
 
-## F151 · 2026-09-23 · the first walk through the live screens, and what only a browser could find
+## F152 · 2026-09-23 · the first walk through the live screens, and what only a browser could find
 
 `scripts/e2e/walk-procurement.mjs` walks the procurement week in a real
 browser, in live mode, against the ladder: PostgREST as a static binary and a
@@ -6160,7 +6160,7 @@ The walk is recorded where a browser runs and checked where it lands: CI has
 no browser, but it reads the committed `walk.json` against the knowledge the
 migrations write, so a guide that drifts from the screens fails the build.
 
-## F152 · 2026-09-23 · the sentence the owner used was the one the router half-understood
+## F153 · 2026-09-23 · the sentence the owner used was the one the router half-understood
 
 *buat PO untuk KSA binder 5 liter* — the owner's own example — is matched by
 the keyword router (rule 60, `procurement.draft_po`) with **no arguments**:

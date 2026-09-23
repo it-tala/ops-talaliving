@@ -460,7 +460,7 @@ export interface StageProgress {
  *  nothing else from production, yet it called `listWorkOrders`, whose view
  *  carries stages, vendor legs and BOM drift. That call is not written against
  *  the database yet, so the one road to a PR stayed dark in the live system
- *  for the sake of an optional dropdown (F148, B6). A reference is what the
+ *  for the sake of an optional dropdown (F149, B6). A reference is what the
  *  question needs, and it is answerable from `ops_prod.work_orders` alone. */
 export interface WorkOrderRef {
   wo_no: string;

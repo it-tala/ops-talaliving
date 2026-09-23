@@ -3,7 +3,7 @@
 --
 -- ── what the walk found ──────────────────────────────────────────────────
 --
--- F148: `po_lines` had no column for the request line it fulfils. So *a PO is
+-- F149: `po_lines` had no column for the request line it fulfils. So *a PO is
 -- built from an approved line* was a habit, the goods arriving against an
 -- order never moved the request line past APPROVED, and money had to be
 -- pointed at one side or the other: paid on the line, the order read UNPAID;

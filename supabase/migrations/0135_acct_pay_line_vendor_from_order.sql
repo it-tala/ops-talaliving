@@ -1,6 +1,6 @@
 -- 0135 — a line whose supplier was decided on the order can be paid from its row (B11).
 --
--- Found by the first walk through the live screens (F151): *New request*
+-- Found by the first walk through the live screens (F152): *New request*
 -- allows a line with the vendor *not decided yet* — deliberately, because the
 -- room often picks the supplier after the request. The order then names the
 -- supplier. But `post_from_line` read the vendor from the request line only,

@@ -1,6 +1,6 @@
 -- 0128 — a receipt reads its documents the way every other seam does (B5).
 --
--- Found by the procurement walk (F148): `ReceiveForm` sends the kinds it shows,
+-- Found by the procurement walk (F149): `ReceiveForm` sends the kinds it shows,
 -- *Receiving Item* and *Delivery Note*, and `create_receipt` compared them to
 -- the codes `goods_photo` and `delivery_note`. So a photograph that was there
 -- read as missing, and in the live system no arrival could be recorded at all.
@@ -47,7 +47,7 @@ begin
   -- does, and `post_transaction` has read those through `doc_kind_of` since
   -- 0034. This seam compared the raw string to the code, so a photograph that
   -- was attached read as absent and every live receipt was refused
-  -- `photo_required` (F148). A kind that resolves to nothing is named, rather
+  -- `photo_required` (F149). A kind that resolves to nothing is named, rather
   -- than dropped into the same refusal.
   select jsonb_agg(jsonb_set(d, '{kind}', to_jsonb(ops_core.doc_kind_of(d ->> 'kind')::text))),
          min(d ->> 'kind') filter (where ops_core.doc_kind_of(d ->> 'kind') is null)
