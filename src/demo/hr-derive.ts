@@ -17,7 +17,7 @@ import type {
   PayRules, PayRuleSet, WorkSchedule, ScheduleHours, OvertimeTier, OvertimePart, HourlyBasis,
   AllowanceWithholding, AllowanceWithholdingView,
   ContributionScheme, ContributionRate, Enrolment, ContributionLine, ContributionRoll,
-  Task, TaskView, KpiMeasure, KpiView,
+  Task, TaskView, TaskRoutine, TaskRoutineView, KpiMeasure, KpiView,
   EmployeeFileView, EmployeeDocSlot, EmployeeDocument, EmployeeDocumentView,
   LeaveBalance, LeaveRequest, LeaveRequestView,
 } from "@/services/hr/contracts";
@@ -27,6 +27,9 @@ import {
   SCHEME_LABEL, COMPUTED_SCHEMES,
 } from "@/services/hr/contracts";
 import { scheduleHoursOf } from "@/services/hr/schedule-rules";
+import {
+  addDays, taskPeriodStart, taskPeriodEnd, taskPeriodLabel,
+} from "@/services/hr/task-periods";
 
 const HOURS = 3_600_000;
 
@@ -831,9 +834,29 @@ export function breakAllowanceFor(
   return weekdayOf(workDate) === 5 ? (sc.friday_break_minutes ?? sc.break_minutes) : sc.break_minutes;
 }
 
+/** What somebody has to deal with, first: overdue, then what must be asked
+ *  for today, then blocked, then by date, then the finished ones.
+ *
+ *  Chasing sits **above** blocked and below overdue on purpose — a blocked task
+ *  needs somebody else to move, and a chase is the one thing on this list the
+ *  reader can do right now. Transcribed from `v_task`'s `queue_rank`, and the
+ *  numbers are the same numbers on both sides so a screen can compare them.
+ */
+function queueRank(t: TaskView): number {
+  if (t.status !== "OPEN") return 4;
+  if (t.overdue) return 0;
+  if (t.chase_due) return 1;
+  if (t.blocked_reason) return 2;
+  return 3;
+}
+
 export function taskView(state: DemoState, t: Task, today = officeToday()): TaskView {
   const emp = state.employees.find((e) => e.id === t.assignee_id);
   const by = state.users.find((u) => u.id === t.assigned_by);
+  const chaser = t.chased_by ? state.users.find((u) => u.id === t.chased_by) : null;
+  const routine = t.routine_id
+    ? state.task_routines.find((r) => r.id === t.routine_id)
+    : null;
   const days_left = daysBetweenDates(today, t.due_date);
   const doneDay = t.done_at?.slice(0, 10) ?? null;
   return {
@@ -841,13 +864,61 @@ export function taskView(state: DemoState, t: Task, today = officeToday()): Task
     assignee_name: emp?.full_name ?? "—",
     assignee_no: emp?.employee_no ?? "—",
     assigned_by_name: by?.full_name ?? t.assigned_by,
+    chased_by_name: chaser?.full_name ?? t.chased_by ?? null,
+    routine_no: routine?.routine_no ?? null,
+    routine_cadence: routine?.cadence ?? null,
     days_left,
     /* Blocked is not overdue. A task waiting on somebody else has not been
        failed by the person holding it (D261). */
     overdue: t.status === "OPEN" && t.blocked_reason === null && days_left < 0,
     late: t.status === "DONE" && doneDay !== null && doneDay > t.due_date,
     days_early: doneDay === null ? null : daysBetweenDates(doneDay, t.due_date),
+    acknowledged: t.acknowledged_at !== null,
+    /* Due to be **asked for**, today. Blocked is excluded for the same reason
+       it is excluded from `overdue`: chasing somebody for work that is waiting
+       on a third party is how a tracker teaches people to stop reporting
+       blockers (D261). It goes false when somebody records that they asked,
+       not when the work arrives — two different events, and only one of them
+       belongs to whoever is reading this list. */
+    chase_due: t.status === "OPEN" && t.blocked_reason === null
+      && t.chase_date !== null && t.chased_at === null && t.chase_date <= today,
+    days_to_chase: t.chase_date === null ? null : daysBetweenDates(today, t.chase_date),
+    period_label: t.period_start === null || t.period_end === null ? null
+      : routine ? taskPeriodLabel(routine.cadence, t.period_start)
+      : `${t.period_start} – ${t.period_end}`,
   };
+}
+
+/** A routine as a person reads it — the definition beside what it would raise
+ *  for the period it is in right now, so *setiap tanggal 5* can be checked
+ *  against a real date before anybody commits to it. */
+export function taskRoutineView(
+  state: DemoState, r: TaskRoutine, today = officeToday(),
+): TaskRoutineView {
+  const emp = state.employees.find((e) => e.id === r.assignee_id);
+  const start = taskPeriodStart(r.cadence, today);
+  const raised = state.tasks.filter((t) => t.routine_id === r.id);
+  return {
+    ...r,
+    assignee_name: emp?.full_name ?? "—",
+    assignee_no: emp?.employee_no ?? "—",
+    live: r.ends_on === null || r.ends_on >= today,
+    current_period_start: start,
+    current_period: taskPeriodLabel(r.cadence, start),
+    current_due: addDays(taskPeriodEnd(r.cadence, start), r.due_offset_days),
+    raised_count: raised.length,
+    open_count: raised.filter((t) => t.status === "OPEN").length,
+  };
+}
+
+export function taskRoutineViews(
+  state: DemoState, today = officeToday(),
+): TaskRoutineView[] {
+  return state.task_routines
+    .map((r) => taskRoutineView(state, r, today))
+    /* Live first, then by number. A stopped routine is history and belongs
+       under the ones still expected, not mixed among them. */
+    .sort((a, b) => Number(b.live) - Number(a.live) || a.routine_no.localeCompare(b.routine_no));
 }
 
 export function taskViews(
@@ -861,12 +932,7 @@ export function taskViews(
   return state.tasks
     .filter((t) => (!emp || t.assignee_id === emp.id) && (!filter.status || t.status === filter.status))
     .map((t) => taskView(state, t, today))
-    /* What somebody has to deal with, first: overdue, then blocked, then by
-       date. The same ordering the production board uses, for the same reason. */
-    .sort((a, b) => {
-      const rank = (x: TaskView) => x.status !== "OPEN" ? 3 : x.overdue ? 0 : x.blocked_reason ? 1 : 2;
-      return rank(a) - rank(b) || a.due_date.localeCompare(b.due_date);
-    });
+    .sort((a, b) => queueRank(a) - queueRank(b) || a.due_date.localeCompare(b.due_date));
 }
 
 function daysBetweenDates(from: string, to: string): number {

@@ -96,7 +96,12 @@ begin
   select * into b from ops_hr.v_task where title = 'Tutup PO mahoni';
   assert b.days_left = -3,  'the same three days past, got ' || b.days_left;
   assert not b.overdue,     'BUT a task waiting on somebody else has not been failed by the person holding it (D261)';
-  assert b.queue_rank = 1,  'it sits after the overdue and before the rest, got ' || b.queue_rank;
+  /* Rank 2 since `0124`, not 1: raising the chase — the thing the reader can
+     act on right now, alone — pushed blocked one place down. Its position
+     relative to overdue and to everything ordinary is unchanged, which is what
+     this assertion was always about. */
+  assert b.queue_rank = 2,  'it sits after the overdue and the chases, and before the rest, got ' || b.queue_rank;
+  assert not b.chase_due,   'nothing was ever asked of this one, so it cannot be waiting to be asked for';
 end $$;
 
 /* ── DERIVATION: late, and days_early ──────────────────────────────────── */
@@ -111,7 +116,7 @@ begin
   assert v.late,             'finished five days after its date';
   assert v.days_early = -5,  'negative means late, got ' || v.days_early;
   assert not v.overdue,      'a finished task is never overdue, however late it was';
-  assert v.queue_rank = 3,   'and it leaves the queue, got ' || v.queue_rank;
+  assert v.queue_rank = 4,   'and it leaves the queue, got ' || v.queue_rank;
 
   insert into ops_hr.tasks (title, assignee_id, assigned_by, due_date, status, done_at, done_by)
   values ('Kirim slip gaji','aaaa0000-0000-0000-0000-00000000d101',
@@ -128,7 +133,11 @@ declare ranks int[];
 begin
   select array_agg(queue_rank order by queue_rank, due_date) into ranks
     from ops_hr.v_task where assignee_no = 'B-601';
-  assert ranks = array[0,1,2,3,3],
+  /* Since `0124` the ladder has five rungs, not four: overdue, **due to be
+     asked for**, blocked, ordinary, finished. No task here carries a chase
+     date, so rung 1 is empty — which is itself the thing worth asserting, that
+     adding the chase did not quietly re-rank tasks nobody is chasing. */
+  assert ranks = array[0,2,3,4,4],
     'overdue, blocked, open, then the finished two — got ' || ranks::text;
 end $$;
 

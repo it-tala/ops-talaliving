@@ -29,7 +29,7 @@ import { STOCK_LOCATIONS, STOCK_SETTINGS, STOCK_MOVES } from "./stock";
 import { ASSETS, ASSET_CATEGORIES, ASSET_SERVICES } from "./assets";
 import { PAY_RULE_SETS } from "./payrules";
 import { CONTRIBUTION_RATES, ENROLMENTS } from "./contributions";
-import { TASKS } from "./tasks";
+import { TASKS, TASK_ROUTINES } from "./tasks";
 import { EMPLOYEE_DOCUMENTS, LEAVE_REQUESTS } from "./hrfiles";
 import { CLAUSE_CHECKLIST, CONTRACT_CLAUSES, EMPLOYMENT_CONTRACTS } from "./contracts";
 import { DESIGN_TASKS, DESIGN_REVISIONS, DESIGN_QUESTIONS } from "./design";
@@ -119,6 +119,7 @@ export function initialState(): DemoState {
     contribution_rates: CONTRIBUTION_RATES,
     enrolments: ENROLMENTS,
     tasks: TASKS,
+    task_routines: TASK_ROUTINES,
     pay_rule_sets: PAY_RULE_SETS,
     employee_documents: EMPLOYEE_DOCUMENTS,
     employment_contracts: EMPLOYMENT_CONTRACTS,

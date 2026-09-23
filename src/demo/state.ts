@@ -25,7 +25,7 @@ import type {
   Employee, AttendanceScan, DayMark, OvertimeSheet, OvertimeLine, PayrollRun,
   PayrollAdjustment, PayRuleSet, EmployeeDocument, LeaveRequest,
   AllowanceWithholding, ContributionRate, Enrolment, Task,
-  EmploymentContract, ContractClause, ClauseChecklistItem,
+  EmploymentContract, ContractClause, ClauseChecklistItem, TaskRoutine,
 } from "@/services/hr/contracts";
 import type {
   WorkOrder, ProgressEntry, VendorLeg, Product, BomComponent, BomRevision,
@@ -168,6 +168,10 @@ export interface DemoState {
   /** What one person is expected to do, by a date — the record a KPI over
    *  deliverables has to be built on (D260). */
   tasks: Task[];
+  /** The standing expectations tasks are raised from: what recurs, how often,
+   *  what has to be handed over, and how many days before it is due somebody
+   *  should ask for it (D296). */
+  task_routines: TaskRoutine[];
 
   /* --- production ------------------------------------------------- */
   /** What is being made, in what quantity, by when (D148). */

@@ -46,6 +46,7 @@ import type {
   PayrollRun, PayrollView, PayrollLine, PayrollAdjustmentView,
   AdjustmentKind, ContributionScheme,
   LeaveKind, LeaveStatus, LeaveRequestView, LeaveBalance,
+  TaskStatus, TaskRefKind, TaskView, TaskCadence, TaskRoutineView,
 } from "@/services/hr/contracts";
 import {
   EMPLOYEE_DOC_CHECKLIST, EMPLOYEE_DOC_LABEL, SENSITIVE_DOC_KINDS,
@@ -1354,4 +1355,230 @@ export async function savePayRules(
   if (readErr) return fromRows<PayRuleSetView>(SERVICE, null, readErr);
   if (!row) return notFound(SERVICE, "pay_rules_not_found", String(said.data.version));
   return ok(SERVICE, row as unknown as PayRuleSetView);
+}
+
+/* ------------------------------------------------------------------ */
+/* Tugas: rutin, periode, penagihan, deliverable                       */
+/* ------------------------------------------------------------------ */
+//
+// The nine functions `/hrd/tugas` calls, and the reason `/hrd/kinerja` has sat
+// in the dark since it was built: until `0124` there was no seam to call. The
+// demo wrote straight into its own state, and a live client would have had to
+// insert into `ops_hr.tasks` by hand — which means re-deciding, in TypeScript,
+// which refusals apply. `chase_after_due` and `due_inside_period` are rules,
+// and a rule implemented twice is a rule that will be enforced once.
+//
+// Ordering comes from the database here, as everywhere else: `queue_rank` is a
+// column on `v_task`, so the demo and this client hand the screen the same list
+// in the same order (ADR-009) and no reader has to know how the ladder is
+// numbered.
+
+export async function listTasks(
+  filter: { assignee_no?: string; status?: TaskStatus } = {},
+): Promise<Result<TaskView[]>> {
+  let q = db().from("v_task").select("*")
+    .order("queue_rank", { ascending: true })
+    .order("due_date", { ascending: true });
+  if (filter.assignee_no) q = q.eq("assignee_no", filter.assignee_no);
+  if (filter.status) q = q.eq("status", filter.status);
+  const { data, error } = await q;
+  return fromRows<TaskView[]>(SERVICE, data as never, error);
+}
+
+/** Read one task back through the view.
+ *
+ *  Every write below ends here rather than assembling a row from what it just
+ *  sent. Nine of `TaskView`'s fields are derived — `overdue`, `chase_due`,
+ *  `period_label`, `queue_rank` — and a client that computed them would be a
+ *  second opinion about whether somebody is late.
+ */
+async function taskByNo(taskNo: string): Promise<Result<TaskView>> {
+  const { data, error } = await db()
+    .from("v_task").select("*").eq("task_no", taskNo).maybeSingle();
+  if (error) return fromRows<TaskView>(SERVICE, null as never, error);
+  if (!data) {
+    return notFound(SERVICE, "task_not_found",
+      `Tugas ${taskNo} tersimpan tapi tidak terbaca kembali.`);
+  }
+  return ok(SERVICE, data as unknown as TaskView);
+}
+
+export async function createTask(
+  input: {
+    assignee_no: string;
+    title: string;
+    due_date: string;
+    detail?: string | null;
+    ref_kind?: TaskRefKind;
+    ref_no?: string | null;
+    deliverable?: string | null;
+    period_start?: string | null;
+    period_end?: string | null;
+    chase_date?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<TaskView>> {
+  const { data, error } = await db().rpc("assign_task", {
+    p_assignee_no: input.assignee_no,
+    p_title: input.title,
+    p_due: input.due_date,
+    p_detail: input.detail ?? null,
+    p_deliverable: input.deliverable ?? null,
+    p_period_start: input.period_start ?? null,
+    p_period_end: input.period_end ?? null,
+    p_chase_date: input.chase_date ?? null,
+    p_ref_kind: input.ref_kind ?? "none",
+    p_ref_no: input.ref_no ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const made = fromSeam<{ task_no: string }>(SERVICE, data, error);
+  if (made.error) return made as unknown as Result<TaskView>;
+  return taskByNo(made.data.task_no);
+}
+
+export async function updateTask(
+  input: {
+    task_no: string;
+    action: "done" | "block" | "unblock" | "cancel";
+    reason?: string | null;
+    done_on?: string | null;
+    delivered?: string | null;
+  },
+): Promise<Result<TaskView>> {
+  const { data, error } = await db().rpc("update_task", {
+    p_task_no: input.task_no, p_action: input.action,
+    p_reason: input.reason ?? null, p_delivered: input.delivered ?? null,
+    p_done_on: input.done_on ?? null,
+  });
+  const said = fromSeam<{ task_no: string }>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<TaskView>;
+  return taskByNo(input.task_no);
+}
+
+export async function chaseTask(
+  input: { task_no: string; note?: string | null },
+): Promise<Result<TaskView>> {
+  const { data, error } = await db().rpc("chase_task", {
+    p_task_no: input.task_no, p_note: input.note ?? null,
+  });
+  const said = fromSeam<{ task_no: string }>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<TaskView>;
+  return taskByNo(input.task_no);
+}
+
+export async function acknowledgeTask(
+  input: { task_no: string },
+): Promise<Result<TaskView>> {
+  const { data, error } = await db().rpc("acknowledge_task", { p_task_no: input.task_no });
+  const said = fromSeam<{ task_no: string }>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<TaskView>;
+  return taskByNo(input.task_no);
+}
+
+export async function listTaskRoutines(): Promise<Result<TaskRoutineView[]>> {
+  const { data, error } = await db()
+    .from("v_task_routine").select("*")
+    /* Live first, then by number — a stopped routine is history and belongs
+       under the ones still expected, not mixed among them. `live` is a column
+       on the view, so this is the database's ordering and not a second one. */
+    .order("live", { ascending: false })
+    .order("routine_no", { ascending: true });
+  return fromRows<TaskRoutineView[]>(SERVICE, data as never, error);
+}
+
+async function routineByNo(routineNo: string): Promise<Result<TaskRoutineView>> {
+  const { data, error } = await db()
+    .from("v_task_routine").select("*").eq("routine_no", routineNo).maybeSingle();
+  if (error) return fromRows<TaskRoutineView>(SERVICE, null as never, error);
+  if (!data) {
+    return notFound(SERVICE, "routine_not_found",
+      `Tugas rutin ${routineNo} tersimpan tapi tidak terbaca kembali.`);
+  }
+  return ok(SERVICE, data as unknown as TaskRoutineView);
+}
+
+export async function saveTaskRoutine(
+  input: {
+    routine_no?: string | null;
+    title: string;
+    deliverable: string;
+    assignee_no: string;
+    cadence: TaskCadence;
+    due_offset_days?: number;
+    chase_lead_days?: number;
+    starts_on?: string | null;
+    detail?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<TaskRoutineView>> {
+  const { data, error } = await db().rpc("save_task_routine", {
+    p_routine_no: input.routine_no ?? null,
+    p_title: input.title,
+    p_deliverable: input.deliverable,
+    p_assignee_no: input.assignee_no,
+    p_cadence: input.cadence,
+    p_due_offset_days: input.due_offset_days ?? 0,
+    p_chase_lead_days: input.chase_lead_days ?? 2,
+    p_starts_on: input.starts_on ?? null,
+    p_detail: input.detail ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const made = fromSeam<{ routine_no: string }>(SERVICE, data, error);
+  if (made.error) return made as unknown as Result<TaskRoutineView>;
+  return routineByNo(made.data.routine_no);
+}
+
+export async function endTaskRoutine(
+  input: { routine_no: string; reason: string; on?: string | null },
+): Promise<Result<TaskRoutineView>> {
+  const { data, error } = await db().rpc("end_task_routine", {
+    p_routine_no: input.routine_no, p_reason: input.reason, p_on: input.on ?? null,
+  });
+  const said = fromSeam<{ routine_no: string }>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<TaskRoutineView>;
+  return routineByNo(input.routine_no);
+}
+
+/** Turning the standing expectations into dated tasks.
+ *
+ *  The seam counts what it created and what was already there, and both come
+ *  back untouched. A client that reported only `created` would say "0" for
+ *  *nothing was needed* and "0" for *every insert collided*, and those are not
+ *  the same news.
+ */
+export async function rollTaskRoutines(
+  input: { through?: string | null; backfill_days?: number } = {},
+): Promise<Result<{ through: string; created: number; already_there: number; tasks: TaskView[] }>> {
+  const { data, error } = await db().rpc("roll_task_routines", {
+    p_through: input.through ?? null,
+    p_backfill_days: input.backfill_days ?? 31,
+  });
+  const said = fromSeam<{
+    through: string; created: number; already_there: number;
+    tasks: { task_no: string }[];
+  }>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<{
+    through: string; created: number; already_there: number; tasks: TaskView[];
+  }>;
+
+  /* The seam names the numbers it raised; the rows themselves come back through
+     the view, so `overdue` and `chase_due` are the database's answer and not a
+     client's guess about dates it just sent. */
+  const nos = (said.data.tasks ?? []).map((t) => t.task_no);
+  let rows: TaskView[] = [];
+  if (nos.length > 0) {
+    const { data: raised, error: readErr } = await db()
+      .from("v_task").select("*").in("task_no", nos)
+      .order("due_date", { ascending: true });
+    if (readErr) return fromRows<{
+      through: string; created: number; already_there: number; tasks: TaskView[];
+    }>(SERVICE, null as never, readErr);
+    rows = (raised ?? []) as unknown as TaskView[];
+  }
+  return ok(SERVICE, {
+    through: said.data.through,
+    created: said.data.created,
+    already_there: said.data.already_there,
+    tasks: rows,
+  });
 }

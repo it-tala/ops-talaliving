@@ -74,6 +74,7 @@ export const LIVE_ROUTES: readonly string[] = [
      for a different reason from the payroll ones: they had a seam short of
      its contract, this had nothing underneath it at all. */
   "/hrd/cuti",
+  "/hrd/tugas",
   "/hrd/jadwal",
   "/hrd/karyawan",
   "/hrd/kontrak",

@@ -4,7 +4,7 @@ import {
   Landmark, BookOpen, TrendingUp, PiggyBank, Receipt,
   Megaphone, UserRound, Target, HandCoins, MessageSquare,
   FolderKanban, Hammer, Truck, Wrench, Stamp, Package,
-  PencilRuler, ListTree, CalendarClock, CalendarRange, Link2,
+  PencilRuler, ListTree, ListChecks, CalendarClock, CalendarRange, Link2,
   Cpu, ScrollText, Activity, UserCog, KeyRound, Clock, Scale, Factory,
   Settings, FlaskConical, MessagesSquare, Route, ShieldCheck, Gauge, MessageSquareOff, Database, Ruler, FolderTree, Tags, MonitorSmartphone, type LucideIcon,
 } from "lucide-react";
@@ -69,6 +69,7 @@ export const NAV: NavSection[] = [
       { label: "Payroll", labelKey: "payroll", href: "/hrd/payroll", icon: Wallet, permission: "payroll.read" },
       { label: "Gajian mingguan", labelKey: "payrollWeek", href: "/hrd/payroll/minggu", icon: CalendarRange, permission: "payroll.read", badge: "new" },
       { label: "Statutory contributions", labelKey: "contributions", href: "/hrd/iuran", icon: ShieldCheck, permission: "payroll.read", orPermission: "accounting.read", badge: "new" },
+      { label: "Task monitoring", href: "/hrd/tugas", icon: ListChecks, permission: "hrd.read", badge: "new" },
       { label: "Performance & tasks", labelKey: "performance", href: "/hrd/kinerja", icon: Gauge, permission: "payroll.read", orPermission: "hrd.read", badge: "new" },
       /* Under Payroll, not under IT. Its gate has always been `payroll.read`
        * — HRD owns the rule book — and once the IT heading means "IT and

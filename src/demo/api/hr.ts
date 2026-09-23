@@ -7,6 +7,7 @@ import type {
   AdjustmentKind, PayrollAdjustmentView,
   PayRules, PayRuleSet, PayRuleSetView, WorkSchedule, ScheduleHours,
   EmployeeDocKind, EmployeeFileView, DocNoSource, LeaveBalance, LeaveKind, LeaveRequestView, LeaveStatus,
+  TaskCadence, TaskRoutine, TaskRoutineView,
   AllowanceWithholding, AllowanceWithholdingView,
   ContributionScheme, ContributionRate, ContributionRoll, Enrolment,
   Task, TaskView, TaskRefKind, KpiView,
@@ -25,10 +26,11 @@ import {
   activePayRules, payrollLine, payrollLineWith, scheduleHours, scheduleFor,
   employeeFile, leaveBalance, leaveRequestView, datesBetween,
   contributionRoll, allRolls,
-  taskView, taskViews, kpiView, kpiViews, weekdayOf,
+  taskView, taskViews, taskRoutineView, taskRoutineViews, kpiView, kpiViews, weekdayOf,
 } from "../hr-derive";
 import { latency, actingUser, requireModule, requireLevel, requireAuthority, conflict, replayed, remember } from "./_kit";
 import { officeToday as sharedOfficeToday } from "@/lib/office";
+import { CADENCE_LABEL, addDays, taskPeriodsBetween } from "@/services/hr/task-periods";
 
 const SERVICE = "hr" as const;
 
@@ -2023,6 +2025,14 @@ export async function createTask(
     detail?: string | null;
     ref_kind?: TaskRefKind;
     ref_no?: string | null;
+    /** What has to be handed over. Optional on a one-off task and required on
+     *  a routine, because a standing expectation whose deliverable nobody wrote
+     *  down is the one argued about every period (D296). */
+    deliverable?: string | null;
+    period_start?: string | null;
+    period_end?: string | null;
+    /** The day somebody should ask for it — the answer to *pimpinan lupa*. */
+    chase_date?: string | null;
   },
   idempotencyKey?: string,
 ): Promise<Result<TaskView>> {
@@ -2049,6 +2059,37 @@ export async function createTask(
       { field: "due_date" },
     );
   }
+  /* The same four refusals `ops_hr.assign_task` makes, in the same order and
+     with the same codes — a screen that reads one and not the other would show
+     a different sentence for the same slip (ADR-009). */
+  const pStart = input.period_start ?? null;
+  const pEnd = input.period_end ?? null;
+  if ((pStart === null) !== (pEnd === null)) {
+    return invalid(
+      SERVICE, "period_incomplete",
+      "Periode pengerjaan diisi dua-duanya atau tidak sama sekali — satu tanggal saja bukan periode.",
+      { field: pStart === null ? "period_start" : "period_end" },
+    );
+  }
+  if (pEnd !== null && pStart !== null && pEnd < pStart) {
+    return invalid(SERVICE, "period_backwards",
+      "Periode selesai mendahului periode mulai.", { field: "period_end" });
+  }
+  if (pEnd !== null && input.due_date < pEnd) {
+    return invalid(
+      SERVICE, "due_inside_period",
+      `Jatuh tempo ${input.due_date} jatuh sebelum periodenya selesai (${pEnd}). `
+      + "Pekerjaan tidak bisa ditagih untuk bagian yang belum terjadi.",
+      { field: "due_date" },
+    );
+  }
+  if (input.chase_date && input.chase_date > input.due_date) {
+    return invalid(
+      SERVICE, "chase_after_due",
+      "Tanggal penagihan lewat dari jatuh tempo. Menagih setelah telat bukan menagih — itu sudah terlambat, dan papan sudah menandainya sendiri.",
+      { field: "chase_date" },
+    );
+  }
 
   const user = actingUser();
   let no = "";
@@ -2068,6 +2109,13 @@ export async function createTask(
       done_at: null, done_by: null,
       blocked_reason: null, blocked_at: null,
       cancelled_reason: null,
+      period_start: pStart, period_end: pEnd,
+      chase_date: input.chase_date ?? null,
+      deliverable: input.deliverable?.trim() || null,
+      delivered_note: null,
+      acknowledged_at: null,
+      chased_at: null, chased_by: null, chase_note: null,
+      routine_id: null,
     });
     writeAudit(draft, {
       service: SERVICE, entity: "task", entity_no: no,
@@ -2095,6 +2143,10 @@ export async function updateTask(
     action: "done" | "block" | "unblock" | "cancel";
     reason?: string | null;
     done_on?: string | null;
+    /** What was actually handed over. Never required: refusing to let somebody
+     *  close their own work over an empty text box is how a tracker stops
+     *  being used (A6). Money refuses; this warns. */
+    delivered?: string | null;
   },
 ): Promise<Result<TaskView>> {
   await latency();
@@ -2135,6 +2187,7 @@ export async function updateTask(
         ? `${input.done_on}T12:00:00+08:00`
         : new Date().toISOString();
       row.done_by = user.id;
+      row.delivered_note = input.delivered?.trim() || row.delivered_note;
       row.blocked_reason = null;
       row.blocked_at = null;
     } else if (input.action === "block") {
@@ -2155,6 +2208,354 @@ export async function updateTask(
   });
   const after = getState();
   return ok(SERVICE, taskView(after, after.tasks.find((x) => x.task_no === input.task_no)!));
+}
+
+/** Writing down that somebody was asked.
+ *
+ *  The whole answer to *pimpinan lupa*, and it is one field. The value is not
+ *  in the timestamp — it is in what the timestamp removes the row from:
+ *  `chase_due` goes false, so the next person to open the board is not shown a
+ *  task somebody else already chased an hour ago. It goes false when the asking
+ *  happens, **not** when the work arrives, because those are two different
+ *  events and only one of them belongs to the person doing the asking.
+ *
+ *  Asking twice is allowed and moves the timestamp. Each individual asking is
+ *  in the audit log with its note, which is the one road evidence travels
+ *  (ADR-010).
+ */
+export async function chaseTask(
+  input: { task_no: string; note?: string | null },
+): Promise<Result<TaskView>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+
+  const state = getState();
+  const t = state.tasks.find((x) => x.task_no === input.task_no);
+  if (!t) return notFound(SERVICE, "task_not_found", `No task ${input.task_no}.`);
+  if (t.status !== "OPEN") {
+    return conflict(SERVICE, "task_closed",
+      `${t.task_no} sudah ${t.status} — tidak ada yang perlu ditagih.`);
+  }
+
+  const user = actingUser();
+  apply((draft) => {
+    const row = draft.tasks.find((x) => x.task_no === input.task_no);
+    if (!row) return;
+    row.chased_at = new Date().toISOString();
+    row.chased_by = user.id;
+    row.chase_note = input.note?.trim() || null;
+    writeAudit(draft, {
+      service: SERVICE, entity: "task", entity_no: row.task_no,
+      action: "chase", outcome: "ok", reason: input.note?.trim() || null,
+      detail: { by: user.email, due: row.due_date, chase_date: row.chase_date },
+    });
+  });
+  const after = getState();
+  return ok(SERVICE, taskView(after, after.tasks.find((x) => x.task_no === input.task_no)!));
+}
+
+/** The person it was given to confirming they have it.
+ *
+ *  *Kami ingin memastikan tugas disampaikan dengan jelas* is a requirement of
+ *  its own and not a restatement of the other four. A task is assigned by one
+ *  person and **received** by another, and until the second happens there is no
+ *  evidence it was ever heard.
+ *
+ *  Deliberately not a gate on anything: an unacknowledged task is still due and
+ *  still late when it is late (A6). A rule that let anybody escape a deadline
+ *  by not clicking would be a worse tracker than no acknowledgement at all.
+ */
+export async function acknowledgeTask(
+  input: { task_no: string },
+): Promise<Result<TaskView>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+
+  const state = getState();
+  const t = state.tasks.find((x) => x.task_no === input.task_no);
+  if (!t) return notFound(SERVICE, "task_not_found", `No task ${input.task_no}.`);
+  if (t.acknowledged_at !== null) {
+    return noop(SERVICE, taskView(state, t));
+  }
+
+  const user = actingUser();
+  apply((draft) => {
+    const row = draft.tasks.find((x) => x.task_no === input.task_no);
+    if (!row) return;
+    row.acknowledged_at = new Date().toISOString();
+    writeAudit(draft, {
+      service: SERVICE, entity: "task", entity_no: row.task_no,
+      action: "acknowledge", outcome: "ok", reason: null,
+      detail: { by: user.email },
+    });
+  });
+  const after = getState();
+  return ok(SERVICE, taskView(after, after.tasks.find((x) => x.task_no === input.task_no)!));
+}
+
+/* ── tugas rutin ──────────────────────────────────────────────────────── */
+
+export async function listTaskRoutines(): Promise<Result<TaskRoutineView[]>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+  return ok(SERVICE, taskRoutineViews(getState()));
+}
+
+/** One seam for new and for changed — null `routine_no` creates.
+ *
+ *  What it will **not** change is the cadence, and that refusal is the
+ *  interesting part. One task per routine per period is keyed on the period's
+ *  first day, so turning a monthly routine into a weekly one re-cuts every
+ *  boundary: September's raised task keeps 1 Sep, the weekly generator asks for
+ *  1 Sep as well, and the collision is silent — one week of September quietly
+ *  never gets raised, every month, forever. Ending the routine and starting
+ *  another is one extra click and leaves both histories readable.
+ */
+export async function saveTaskRoutine(
+  input: {
+    routine_no?: string | null;
+    title: string;
+    deliverable: string;
+    assignee_no: string;
+    cadence: TaskCadence;
+    due_offset_days?: number;
+    chase_lead_days?: number;
+    starts_on?: string | null;
+    detail?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<TaskRoutineView>> {
+  await latency();
+  const cached = replayed<TaskRoutineView>(SERVICE, "saveTaskRoutine", idempotencyKey);
+  if (cached) return cached;
+
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+
+  const state = getState();
+  const isNew = !input.routine_no?.trim();
+  if (!input.title.trim()) {
+    return invalid(SERVICE, "title_required", "Tugas rutinnya apa?", { field: "title" });
+  }
+  if (!input.deliverable.trim()) {
+    return invalid(
+      SERVICE, "deliverable_required",
+      "Apa yang harus diserahkan? Tugas rutin tanpa hasil yang disebutkan adalah yang diperdebatkan ulang setiap periode.",
+      { field: "deliverable" },
+    );
+  }
+  const dueOff = input.due_offset_days ?? 0;
+  const chaseLead = input.chase_lead_days ?? 2;
+  if (dueOff < 0 || dueOff > 60 || chaseLead < 0 || chaseLead > 60) {
+    return invalid(SERVICE, "offset_out_of_range",
+      "Tenggat dan penagihan dihitung dalam hari, 0 sampai 60.",
+      { field: "due_offset_days" });
+  }
+  const emp = state.employees.find((e) => e.employee_no === input.assignee_no);
+  if (!emp) return notFound(SERVICE, "employee_not_found", `No employee ${input.assignee_no}.`);
+  if (!emp.active) {
+    return conflict(SERVICE, "employee_left",
+      `${emp.full_name} sudah tidak aktif — tugas rutin baru tidak bisa ditujukan ke sana.`);
+  }
+
+  let existing: TaskRoutine | undefined;
+  if (!isNew) {
+    existing = state.task_routines.find((r) => r.routine_no === input.routine_no);
+    if (!existing) {
+      return notFound(SERVICE, "routine_not_found", `No routine ${input.routine_no}.`);
+    }
+    if (existing.ends_on !== null) {
+      return conflict(SERVICE, "routine_ended",
+        `${existing.routine_no} sudah dihentikan ${existing.ends_on}. Yang sudah berhenti tidak diubah — buat yang baru.`);
+    }
+    if (existing.cadence !== input.cadence) {
+      return conflict(SERVICE, "cadence_is_fixed",
+        `${existing.routine_no} sudah berjalan ${CADENCE_LABEL[existing.cadence].toLowerCase()}. `
+        + "Mengganti iramanya memotong ulang setiap periode dan membuat periode yang sudah terbit bertabrakan dengan yang baru — hentikan yang ini, lalu buat tugas rutin baru.");
+    }
+  }
+
+  const user = actingUser();
+  let no = existing?.routine_no ?? "";
+  apply((draft) => {
+    if (isNew) {
+      no = nextDocNumber(draft, "rtn");
+      draft.task_routines.push({
+        id: newId("rtn"), routine_no: no,
+        title: input.title.trim(),
+        detail: input.detail?.trim() || null,
+        deliverable: input.deliverable.trim(),
+        assignee_id: emp.id,
+        cadence: input.cadence,
+        due_offset_days: dueOff,
+        chase_lead_days: chaseLead,
+        starts_on: input.starts_on || officeToday(),
+        ends_on: null, ended_reason: null,
+        created_by: user.id, created_at: new Date().toISOString(),
+      });
+    } else {
+      const row = draft.task_routines.find((r) => r.routine_no === no);
+      if (!row) return;
+      row.title = input.title.trim();
+      row.detail = input.detail?.trim() || null;
+      row.deliverable = input.deliverable.trim();
+      row.assignee_id = emp.id;
+      row.due_offset_days = dueOff;
+      row.chase_lead_days = chaseLead;
+      row.starts_on = input.starts_on || row.starts_on;
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "task_routine", entity_no: no,
+      action: isNew ? "create" : "update", outcome: "ok", reason: null,
+      detail: { assignee: emp.employee_no, cadence: input.cadence, by: user.email },
+    });
+  });
+
+  const after = getState();
+  const view = taskRoutineView(after, after.task_routines.find((r) => r.routine_no === no)!);
+  remember(SERVICE, "saveTaskRoutine", idempotencyKey, view);
+  return ok(SERVICE, view);
+}
+
+/** Stopping one. Never deletes, and never touches the tasks it already raised:
+ *  last month's report is still owed even if the routine that asked for it has
+ *  been discontinued (A2). */
+export async function endTaskRoutine(
+  input: { routine_no: string; reason: string; on?: string | null },
+): Promise<Result<TaskRoutineView>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+
+  const state = getState();
+  const r = state.task_routines.find((x) => x.routine_no === input.routine_no);
+  if (!r) return notFound(SERVICE, "routine_not_found", `No routine ${input.routine_no}.`);
+  if (r.ends_on !== null) return noop(SERVICE, taskRoutineView(state, r));
+  if (!input.reason?.trim()) {
+    return invalid(
+      SERVICE, "reason_required",
+      "Kenapa dihentikan? Enam bulan lagi pertanyaannya bukan apakah dihentikan, tapi kenapa.",
+      { field: "reason" },
+    );
+  }
+  const on = input.on || officeToday();
+  if (on < r.starts_on) {
+    return invalid(SERVICE, "ends_before_start",
+      `Tanggal berhenti mendahului tanggal mulai (${r.starts_on}).`, { field: "ends_on" });
+  }
+
+  const user = actingUser();
+  apply((draft) => {
+    const row = draft.task_routines.find((x) => x.routine_no === input.routine_no);
+    if (!row) return;
+    row.ends_on = on;
+    row.ended_reason = input.reason.trim();
+    writeAudit(draft, {
+      service: SERVICE, entity: "task_routine", entity_no: row.routine_no,
+      action: "end", outcome: "ok", reason: input.reason.trim(),
+      detail: { by: user.email },
+    });
+  });
+  const after = getState();
+  return ok(SERVICE, taskRoutineView(after, after.task_routines.find((x) => x.routine_no === input.routine_no)!));
+}
+
+/** Turning the standing expectations into dated tasks.
+ *
+ *  Run it as often as you like: one task per routine per period, so a second
+ *  run in the same minute produces the same state. The skipped ones are
+ *  **counted and named back** rather than swallowed — a generator reporting
+ *  "0 created" when it meant "0 needed" and one reporting it when it meant "the
+ *  insert failed" are indistinguishable to the person reading, and only one of
+ *  them is fine.
+ *
+ *  `backfill_days` is the argument worth arguing about. Raising only the period
+ *  that contains today is the obvious rule and it is wrong — a routine nobody
+ *  rolled for five weeks would silently never raise last month's report, which
+ *  is precisely the failure this module was asked to fix. Back-filling from
+ *  `starts_on` is the other obvious rule and is also wrong: a weekly routine
+ *  dated January would drop thirty-five instantly-overdue rows on somebody in
+ *  September, and a board that opens with thirty-five red rows is one nobody
+ *  reads again.
+ */
+export async function rollTaskRoutines(
+  input: { through?: string | null; backfill_days?: number } = {},
+): Promise<Result<{ through: string; created: number; already_there: number; tasks: TaskView[] }>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+
+  const backfill = input.backfill_days ?? 31;
+  if (backfill < 0 || backfill > 365) {
+    return invalid(SERVICE, "backfill_out_of_range",
+      "Penarikan mundur dihitung dalam hari, 0 sampai 365.", { field: "backfill_days" });
+  }
+  const through = input.through || officeToday();
+  const from = addDays(through, -backfill);
+
+  const user = actingUser();
+  const made: string[] = [];
+  let had = 0;
+
+  apply((draft) => {
+    for (const r of [...draft.task_routines].sort((a, b) => a.routine_no.localeCompare(b.routine_no))) {
+      if (r.starts_on > through) continue;
+      if (r.ends_on !== null && r.ends_on < from) continue;
+      const windowFrom = from > r.starts_on ? from : r.starts_on;
+      for (const p of taskPeriodsBetween(r.cadence, windowFrom, through)) {
+        /* A routine that started mid-period does not owe the part before it
+           existed, and one that ended mid-period does not owe the part after. */
+        if (p.end < r.starts_on) continue;
+        if (r.ends_on !== null && p.start > r.ends_on) continue;
+        /* The demo's stand-in for `tasks_routine_period_uq`. Both sides are
+           keyed on the period's first day, and `check-task-periods.mjs` is
+           what keeps them cutting it in the same place. */
+        if (draft.tasks.some((t) => t.routine_id === r.id && t.period_start === p.start)) {
+          had += 1;
+          continue;
+        }
+        const due = addDays(p.end, r.due_offset_days);
+        const leadChase = addDays(due, -r.chase_lead_days);
+        const no = nextDocNumber(draft, "tgs");
+        draft.tasks.push({
+          id: newId("tsk"), task_no: no,
+          title: r.title, detail: r.detail,
+          assignee_id: r.assignee_id, assigned_by: user.id,
+          assigned_at: new Date().toISOString(),
+          due_date: due,
+          ref_kind: "none", ref_no: null,
+          status: "OPEN",
+          done_at: null, done_by: null,
+          blocked_reason: null, blocked_at: null, cancelled_reason: null,
+          period_start: p.start, period_end: p.end,
+          chase_date: leadChase > p.start ? leadChase : p.start,
+          deliverable: r.deliverable, delivered_note: null,
+          acknowledged_at: null,
+          chased_at: null, chased_by: null, chase_note: null,
+          routine_id: r.id,
+        });
+        made.push(no);
+      }
+    }
+    writeAudit(draft, {
+      /* The run, not a row: `entity_no` names what the whole call did, because
+         the individual tasks each carry their own creation in the same log. */
+      service: SERVICE, entity: "task_routine", entity_no: `roll:${through}`,
+      action: "roll", outcome: "ok", reason: null,
+      detail: { through, backfill_days: backfill, created: made.length, already_there: had, by: user.email },
+    });
+  });
+
+  const after = getState();
+  return ok(SERVICE, {
+    through,
+    created: made.length,
+    already_there: had,
+    tasks: after.tasks.filter((t) => made.includes(t.task_no)).map((t) => taskView(after, t)),
+  });
 }
 
 /** The analyzer. **Payroll-level**, like the payslips: this is the most

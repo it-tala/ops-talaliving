@@ -123,14 +123,19 @@ do $$
 declare
   plan jsonb; months jsonb; rows_ jsonb; unplanned jsonb;
   sewa jsonb; payroll jsonb; bonus jsonb;
-  this_month text := to_char(current_date, 'YYYY-MM');
+  /* The **office** day, not the server's. `current_date` is UTC and WITA is
+     eight hours ahead of it, so from 16:00 UTC onwards the two name different
+     days — and `generated_for` below comes from `ops_core.office_day()`. This
+     file passed for sixteen hours a day and went red for the other eight,
+     which is F17 arriving in a test rather than in a screen. */
+  this_month text := to_char(ops_core.office_day(), 'YYYY-MM');
   next_month text := to_char(current_date + interval '1 month', 'YYYY-MM');
   month_after text := to_char(current_date + interval '2 months', 'YYYY-MM');
   december text := to_char(current_date + interval '3 months', 'YYYY-MM');
 begin
   plan := ops_acct.cash_plan();
 
-  assert (plan ->> 'generated_for') = current_date::text, format('got %s', plan ->> 'generated_for');
+  assert (plan ->> 'generated_for') = ops_core.office_day()::text, format('got %s', plan ->> 'generated_for');
   -- 100,000,000 funded, less this month's rent (5,000,000), the unplanned
   -- transport row (750,000), and the early rent paid against next-next
   -- month (5,000,000).
