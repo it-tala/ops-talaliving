@@ -745,3 +745,10 @@ create or replace view ops_acct.v_cash_cell as
 -- reader's rights, as `0020`/`0022` set them (`smoke/17_core_view_invoker`).
 alter view ops_acct.v_cash_event set (security_invoker = on);
 alter view ops_acct.v_cash_cell  set (security_invoker = on);
+
+-- The threshold Monthly bills flags a line at (D229) — the demo has carried it
+-- as a setting since the screen was built; the live reader falls back to 25.
+insert into ops_core.settings (key, value, note) values
+  ('ops.bill_anomaly_percent', '25'::jsonb,
+   'Monthly bills: a line is unusual when its month differs from last month by this many per cent or more.')
+on conflict (key) do nothing;

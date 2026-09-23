@@ -15,14 +15,17 @@ import type {
   TrxStatus, BankStatementView, StatementLineView, StatementMatch,
   TransactionTypeCode, PaymentAllocation, VendorPayment, CashOverride, CashSettlement,
   CashComponent, CashAmountKind, CashPlan, CashMonth, CashMonthDetail, CashDue, CashDayRow,
+  CashCell, CashRow, MonthlyBill, MonthlyBills,
   InboxOrigin, EvidenceInboxRow, IncomingMoney,
   DocumentCoverage, TransactionCoverage, CoverageTransaction,
   CoverageLine, CoveragePayment,
 } from "@/services/accounting/contracts";
 import type { DocKind } from "@/services/documents/contracts";
+import type { ContributionAuditGroup } from "@/services/hr/contracts";
 import type { LineCoverage } from "@/services/procurement/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { getActiveLocale, formatIDRCompact } from "@/lib/format";
+import { officeToday } from "@/lib/office";
 import { fail, fromSeam, fromPage, fromRows, invalid, notFound, ok, type Result } from "./_kit";
 
 const SERVICE = "accounting" as const;
@@ -1084,7 +1087,16 @@ export async function coverageForTransaction(trxNo: string): Promise<Result<Tran
  *  (`short_month` / `short_by` / each month's `closing`), so nothing is
  *  computed here that the database has not already decided. */
 export async function getCashPlan(): Promise<Result<CashPlan>> {
-  const { data, error } = await db().rpc("cash_plan");
+  return planFrom();
+}
+
+/** The same plan anchored at a month's first day (`0108`'s `p_from`) —
+ *  Monthly bills compares a month with the one before it, and the default
+ *  window starts today. */
+async function planFrom(from?: string): Promise<Result<CashPlan>> {
+  const { data, error } = from
+    ? await db().rpc("cash_plan", { p_from: from })
+    : await db().rpc("cash_plan");
   if (error) return fail(SERVICE, error);
   const plan = data as Omit<CashPlan, "months" | "verdict"> & {
     months: Omit<CashMonth, "label">[];
@@ -1175,6 +1187,122 @@ export async function listDue(): Promise<Result<CashDue[]>> {
     .sort((a, b) => a.date.localeCompare(b.date));
 
   return ok(SERVICE, due);
+}
+
+/** The month's bills as a worklist — `monthlyBills()` in the demo, over the
+ *  same `cash_plan()` the calendar reads (D227, D228). Two runs of one seam:
+ *  one anchored at the month shown, one at the month before, so *last month*
+ *  exists at all (F68). Everything below is arithmetic on what those two runs
+ *  already decided, the demo's rules line for line. */
+export async function getMonthlyBills(month?: string): Promise<Result<MonthlyBills>> {
+  const today = officeToday();
+  const m = month || today.slice(0, 7);
+  const prev = previousMonth(m);
+
+  const [planRes, prevRes, setting] = await Promise.all([
+    planFrom(`${m}-01`),
+    planFrom(`${prev}-01`),
+    core().from("settings").select("value").eq("key", "ops.bill_anomaly_percent").maybeSingle(),
+  ]);
+  if (planRes.error) return planRes;
+  if (prevRes.error) return prevRes;
+  const plan = planRes.data;
+  const prevPlan = prevRes.data;
+  const threshold = Number((setting.data as { value?: unknown } | null)?.value ?? 25) || 25;
+
+  /* A month that has ended is worth what it cost; one still running, what it
+     is expected to cost — and a paid estimate, what it came to (`0108`). */
+  const ended = (x: string) => x < today.slice(0, 7);
+  const figure = (cell: CashCell, x: string, estimate: boolean) =>
+    ended(x) || (estimate && cell.state === "PAID") ? cell.actual : Math.max(cell.planned, cell.actual);
+  const isEstimate = (row: CashRow) => row.component.amount_kind === "estimate";
+
+  const lastByComponent = new Map<string, number>();
+  for (const row of prevPlan.rows) {
+    const cell = row.cells.find((c) => c.month === prev);
+    if (cell && cell.state !== "SKIPPED") lastByComponent.set(row.component.id, figure(cell, prev, isEstimate(row)));
+  }
+  const thisByComponent = new Map<string, number>();
+  const occurrences = new Map<string, number>();
+  for (const row of plan.rows) {
+    const cell = row.cells.find((c) => c.month === m);
+    if (cell && cell.state !== "SKIPPED") {
+      thisByComponent.set(row.component.id, figure(cell, m, isEstimate(row)));
+      occurrences.set(row.component.id, cell.events.length);
+    }
+  }
+
+  const bills: MonthlyBill[] = plan.rows
+    .flatMap((row) => row.cells.filter((c) => c.month === m).flatMap((c) => c.events.map((e) => ({ row, event: e }))))
+    .map(({ row, event }) => {
+      const last = lastByComponent.get(row.component.id) ?? null;
+      const thisMonth = thisByComponent.get(row.component.id) ?? 0;
+      const deltaPercent = last == null || last === 0 ? null : Math.round(((thisMonth - last) / last) * 100);
+      const settledGuess = isEstimate(row) && event.state === "PAID";
+      return {
+        component_id: row.component.id,
+        name: event.name,
+        date: event.date,
+        direction: event.direction,
+        planned: Number(event.planned),
+        actual: Number(event.actual),
+        outstanding: settledGuess ? 0 : Math.max(0, event.planned - event.actual),
+        amount_kind: row.component.amount_kind ?? "fixed",
+        variance: settledGuess ? event.actual - event.planned : null,
+        state: event.state,
+        days_away: daysBetween(today, event.date),
+        vendor_name: event.vendor_name,
+        account_code: event.account_code,
+        trx_nos: event.trx_nos,
+        matched_by: event.matched_by,
+        reason: event.reason,
+        month_total: thisMonth,
+        occurrences: occurrences.get(row.component.id) ?? 1,
+        last_month: last,
+        delta: last == null ? null : thisMonth - last,
+        delta_percent: deltaPercent,
+        unusual: deltaPercent != null && Math.abs(deltaPercent) >= threshold,
+      };
+    })
+    .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+
+  const out = bills.filter((b) => b.direction === "OUT" && b.state !== "SKIPPED");
+  const lastTotal = lastByComponent.size > 0
+    ? prevPlan.rows
+        .filter((r) => r.component.direction === "OUT")
+        .reduce((sum, r) => {
+          const c = r.cells.find((x) => x.month === prev);
+          return sum + (c && c.state !== "SKIPPED" ? figure(c, prev, isEstimate(r)) : 0);
+        }, 0)
+    : null;
+
+  return ok(SERVICE, {
+    month: m,
+    label: monthLabel(m),
+    bills,
+    total_planned: out.reduce((s, b) => s + b.planned, 0),
+    total_paid: out.reduce((s, b) => s + b.actual, 0),
+    total_outstanding: out.reduce((s, b) => s + b.outstanding, 0),
+    overdue_count: out.filter((b) => b.state === "OVERDUE").length,
+    overdue_amount: out.filter((b) => b.state === "OVERDUE").reduce((s, b) => s + b.outstanding, 0),
+    due_this_week: out.filter((b) => b.state === "DUE").length,
+    unusual_count: new Set(out.filter((b) => b.unusual).map((b) => b.component_id)).size,
+    last_month_total: lastTotal,
+  });
+}
+
+/** The contribution audit — names × rate against what left (D259) — needs the
+ *  HR roster, and HR has no live client yet (`src/demo/api/index.ts`). With no
+ *  roster there is nothing to reconcile, so the answer is an empty list and
+ *  the Monthly bills card hides itself; refusing instead would take the whole
+ *  bills page down with it. */
+export async function getContributionAudit(_month?: string): Promise<Result<ContributionAuditGroup[]>> {
+  return ok(SERVICE, []);
+}
+
+function previousMonth(month: string): string {
+  const [y, mo] = month.split("-").map(Number);
+  return mo === 1 ? `${y - 1}-12` : `${y}-${String(mo - 1).padStart(2, "0")}`;
 }
 
 /** One line, one month: the cell a calendar draws. Its state is the **worst**
