@@ -50,6 +50,12 @@ export * as assistant from "./assistant";
    lands. */
 export * as inventory from "./inventory";
 
+/* The product catalogue and its bill of materials (`0060`, `0106`) — and
+   nothing else of production yet. Work orders, progress, vendor legs and the
+   drafting queue are not written here, so the check script keeps their
+   screens dark and opens `/produksi/bom` alone. */
+export * as production from "./production";
+
 /* ## `marketing` is written and is deliberately not exported here yet
  *
  *  `src/lib/api/marketing.ts` exists, type-checks, and matches the demo on all

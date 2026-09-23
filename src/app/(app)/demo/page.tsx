@@ -223,13 +223,17 @@ export default function DemoDiagnosticsPage() {
        exactly as it was released, because a work order points at it. */
     const editReleased = await production.saveBomComponent({
       product_code: "PRD-KR-STD", component_id: "bom_011", kind: "material",
-      ref_code: "ITM-0006", qty: 99, uom: "lembar",
+      ref_code: "ITM-0002", qty: 99, uom: "m3",
     });
+    const stillReleased = await production.listBomRevisions("PRD-KR-STD");
+    const rev1Untouched = !editReleased.error && editReleased.data.draft_rev != null
+      && editReleased.data.draft_rev !== 1 && !stillReleased.error
+      && stillReleased.data.some((r) => r.rev === 1 && !r.is_draft);
     results.push({
-      name: "D256 — editing a line on a released BOM revision",
-      expect: "409 revision_released",
-      got: editReleased.error ? `${editReleased.error.status} ${editReleased.error.code}` : "accepted",
-      pass: editReleased.error?.status === 409 && editReleased.error.code === "revision_released",
+      name: "D256 — editing a line on a released BOM revision lands on the draft",
+      expect: "accepted into a new draft, rev 1 untouched",
+      got: editReleased.error ? `${editReleased.error.status} ${editReleased.error.code}` : `draft rev ${editReleased.data.draft_rev}`,
+      pass: rev1Untouched,
     });
 
     const emptyRelease = await production.releaseBom({

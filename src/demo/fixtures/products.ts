@@ -177,3 +177,28 @@ BOM_COMPONENTS.push(
   c("prd_01", "material", "ITM-0032", 2, "pcs", 0, null, 2),
   c("prd_01", "material", "ITM-0027", 0.2, "box", 0, "Baru: dowel untuk sambungan kaki.", 2),
 );
+
+/* Labour as lines (0109): the workshop's own time, costed like any other
+   component — a name, a quantity and a rate. The meja carries it on both its
+   released revision and the draft; the drawer box on its own, so the lemari
+   that contains two of them is costed with their labour inside. */
+const labour = (
+  product_id: string, label: string, qty: number, uom: string, rate: number, rev = 1,
+): BomComponent => {
+  n += 1;
+  return {
+    id: `bom_${String(n).padStart(3, "0")}`, product_id, rev, kind: "labour",
+    ref_code: "LABOUR:" + label.replace(/[^A-Za-z0-9]+/g, "-").toUpperCase(),
+    label, qty, uom, waste_percent: 0, unit_rate: rate, rate_source: "manual", note: null,
+  };
+};
+BOM_COMPONENTS.push(
+  labour("prd_01", "Tukang kayu (potong-rakit)", 3, "hari", 175_000),
+  labour("prd_01", "Tukang finishing", 1, "hari", 150_000),
+  labour("prd_01", "Tukang kayu (potong-rakit)", 3, "hari", 175_000, 2),
+  labour("prd_01", "Tukang finishing", 1, "hari", 150_000, 2),
+  labour("prd_02", "Tukang kayu (potong-rakit)", 1, "hari", 175_000),
+  labour("prd_02", "Tukang finishing", 0.5, "hari", 150_000),
+  labour("prd_07", "Rakit laci + pasang rel", 0.5, "hari", 175_000),
+);
+for (const r of BOM_REVISIONS) r.miscalc_percent = r.product_id === "prd_01" ? 7.5 : 5;

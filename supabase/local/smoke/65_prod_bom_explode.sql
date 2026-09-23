@@ -231,14 +231,16 @@ begin
   assert s.unpriced = 2,   'the same two, and nothing else, got ' || coalesce(s.unpriced::text,'(null)');
   -- A total that quietly omits two lines is the number somebody quotes from.
   assert s.material_cost is null, 'unpriced lines make the run total unknown, not cheap';
-  assert s.labour_total = 2000000, '400.000 × 5, got ' || coalesce(s.labour_total::text,'(null)');
+  -- Labour is BOM lines since 0106. This fixture types it on the product,
+  -- which no longer counts — so the run has no labour figure, not zero.
+  assert s.labour_total is null, 'no labour lines, got ' || coalesce(s.labour_total::text,'(null)');
 
   -- Everything priced, so there is a number.
   s := ops_prod.explode_summary('PRD-LAC-02', 10, 1);
   assert s.lines = 2,      'plywood and sekrup, got ' || coalesce(s.lines::text,'(null)');
   assert s.unpriced = 0,   'both priced, got ' || coalesce(s.unpriced::text,'(null)');
   assert s.material_cost = 3010000, '2.970.000 + 40.000, got ' || coalesce(s.material_cost::text,'(null)');
-  assert s.labour_total = 500000,   '50.000 × 10, got ' || coalesce(s.labour_total::text,'(null)');
+  assert s.labour_total is null,    'labour typed on the product is not a line (0106), got ' || coalesce(s.labour_total::text,'(null)');
 
   -- A run of three costs three times an unknown, which is still unknown (D239).
   s := ops_prod.explode_summary('PRD-ENG-02', 3);

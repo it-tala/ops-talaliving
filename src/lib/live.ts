@@ -98,6 +98,7 @@ export const LIVE_ROUTES: readonly string[] = [
   "/procurement/rounds",
   "/procurement/tracker",
   "/procurement/tracker/[vendor]",
+  "/produksi/bom",
 ];
 
 /** Is this deployment talking to a database at all?

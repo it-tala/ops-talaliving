@@ -36,6 +36,7 @@ Each file ends by printing what it did. Read that, not the exit code.
 | 6 | `transactions` → `ops_acct.transactions` | 3.235 | `03_ledger.sql` |
 | 7 | `item_purchases` → `ops_acct.transaction_lines` | 1.194 | `04_lines.sql` |
 | 8 | `transaction_docs` → `ops_core.attachments` + `attachment_links` | 237 | `05_evidence.sql` |
+| 9 | `products` → `ops_prod.products` (+ drawing links) | 27 | `06_products.sql` — needs `0060`–`0066`, `0108`–`0110` — **applied 2026-09-23: 27 products, 27 drawing links** |
 
 ### Step 1 is not an `insert … select`
 

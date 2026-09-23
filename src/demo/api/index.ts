@@ -34,6 +34,7 @@ import * as liveProcurement from "@/lib/api/procurement";
 import * as liveAccounting from "@/lib/api/accounting";
 import * as liveDocuments from "@/lib/api/documents";
 import * as liveInventory from "@/lib/api/inventory";
+import * as liveProduction from "@/lib/api/production";
 import * as liveAssistant from "@/lib/api/assistant";
 import * as liveHr from "@/lib/api/hr";
 
@@ -42,6 +43,9 @@ export const procurement = swap("procurement", demoProcurement, liveProcurement)
 export const accounting = swap("accounting", demoAccounting, liveAccounting);
 export const documents = swap("documents", demoDocuments, liveDocuments);
 export const inventory = swap("inventory", demoInventory, liveInventory);
+/* The catalogue and BOM half of production (`0109`). Every other production
+   function is absent from the live module and refuses with its own name. */
+export const production = swap("production", demoProduction, liveProduction);
 
 /* `hr` is swapped for real since the HR ladder reached the live project
    (2026-09-23). It is the **partial** case this file was built for: 31 of the
@@ -68,7 +72,6 @@ export const hr = swap("hr", demoHr, liveHr);
    nobody re-checked once inventory's real client existed. It is fixed above,
    and the same trap is why `hr`'s line moved the moment its client was
    exported rather than at some later tidy-up. */
-export const production = swap("production", demoProduction);
 export const marketing = swap("marketing", demoMarketing);
 /* `delivery` and `assistant` are modules, not services: they already stamp
    their own envelopes `production` and `procurement` respectively, so the
