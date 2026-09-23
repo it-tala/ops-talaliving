@@ -67,8 +67,10 @@ purpose: nobody typed these into the application.
 Both systems, to the rupiah, on all five accounts — BCA 064 21.259.068 ·
 BCA 271 4.285.326 · BNI 325 148.132 · JAGO 10.473.352 · PETTY CASH 858.298.
 Against the owner's manual `2026 TALAHOME LEDGERS` workbook, three of four
-agree exactly and BCA 271 differs by Rp 276.782, which is the sheet's to
-settle. `README.md` has the comparison and what could not be checked in it.
+agree exactly and BCA 271 differs by Rp 276.782. **The owner answered the same
+day: new transactions, not yet entered in the sheet** — a timing difference,
+entered when accounting gets to it. `README.md` has the comparison and what
+could not be checked in it.
 
 ## 2026-09-21 — steps 2–5
 

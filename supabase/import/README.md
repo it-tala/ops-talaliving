@@ -271,12 +271,17 @@ JAGO         10.473.352     —              the sheet has no column for it
 ```
 
 Three of four to the rupiah, against a sheet kept by hand, by different people,
-in a different tool. The fourth is **Rp 276.782 on BCA 271**, and the honest
-reading is that it is the sheet's: both systems agree with each other on that
-account, no transaction of that amount exists on either side, and no run of
-recent rows sums to it, so it is not simply a sheet that is a few days behind.
-Somebody with the bank statement settles it; nothing here should be changed to
-make it close.
+in a different tool. The fourth is **Rp 276.782 on BCA 271**, and the reading
+from here was only that it is the sheet's, not this system's: both systems
+agree with each other on that account, no transaction of that amount exists on
+either side, and no run of recent rows sums to it.
+
+**The owner settled it on 2026-09-23: those are new transactions, not yet
+entered in the sheet.** Accounting enters them when they get to it. Nothing
+here changes — and that is the point of writing the difference down rather than
+closing it. A gap that turns out to be a timing difference and a gap that turns
+out to be a lost row look identical from the database; only somebody who knows
+what was spent can tell them apart.
 
 **What could not be checked.** The workbook has 83 tabs and the export
 truncates each one to about 95 rows, so the sheet's own arithmetic — how that
@@ -427,7 +432,7 @@ Nothing below is a bug. Each one is a question a script must not answer.
 | `FAIRMONT` | 5 transactions, Rp 37.087.500. No project row at all — it is the row `01_reference.sql` refused, for having no code. | owner |
 | 5 transactions | lines disagreeing with their own row by Rp 4 to Rp 30.000. Settled from the document, on the ledger screen, with `edit_transaction`. | accounting |
 | 75 `OTHERS` | the legacy row named no type. Indistinguishable on screen from a type somebody chose, which is the actual problem. | accounting |
-| Rp 276.782 | BCA 271, this system against the manual sheet. Both systems agree with each other; the bank statement settles it. | accounting |
+| Rp 276.782 | BCA 271, this system against the manual sheet. **Answered 2026-09-23: new transactions not yet in the sheet.** Entered when accounting gets to it; nothing to fix here. | accounting |
 
 ## What the import must never do
 
