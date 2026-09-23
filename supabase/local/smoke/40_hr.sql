@@ -97,19 +97,44 @@ begin
   end;
 end $$;
 
-/* ── REFUSAL: a pay rule cannot be back-dated (D173) ───────────────────── */
+/* ── REFUSAL: a pay rule cannot reach back past money already paid ─────── */
+--
+-- This used to assert that **any** date before today is refused, which is what
+-- `0043` enforced and what D270 had already overruled ten days earlier: a
+-- correction is *dated to the day the version it corrects began*. What makes
+-- that safe is not the calendar but that nothing has been computed from the
+-- rule yet, and `0059` enforces exactly that (D287, F134). So the test moved
+-- with the rule rather than being deleted with it.
+-- Nothing has been run, so reaching back is allowed and is the whole point.
+insert into ops_hr.pay_rule_sets (version, effective_from, note, rules, created_by)
+values (1, current_date - 30, 'koreksi mundur, belum ada yang dibayar', '{}'::jsonb,
+        'ffffffff-0000-0000-0000-0000000000a1');
+
+-- A run somebody has signed is money computed under the book a back-dated
+-- version would displace, and that is the line. Written as scaffolding rather
+-- than through `open_payroll_run` + `approve_payroll_run`: nobody in this
+-- file's cast holds `payroll.run` or the `approve_funds` authority, and
+-- borrowing them here would blur the separation the rest of the file exists to
+-- show. What is under test is the rule book, not how a run is born.
+reset role;
+insert into ops_hr.payroll_runs (period_start, period_end, status, approved_by, approved_at)
+values (current_date - 20, current_date - 14, 'APPROVED',
+        'ffffffff-0000-0000-0000-0000000000a1', now());
+set local role authenticated;
+set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-0000000000a1';
+
 do $$
 begin
   begin
     insert into ops_hr.pay_rule_sets (version, effective_from, note, rules, created_by)
-    values (1, current_date - 30, 'diam-diam mundur sebulan', '{}'::jsonb,
+    values (2, current_date - 21, 'mundur melewati run yang sudah ditandatangani', '{}'::jsonb,
             'ffffffff-0000-0000-0000-0000000000a1');
-    raise exception 'a back-dated pay rule should be refused';
+    raise exception 'a pay rule reaching back past a signed run should be refused';
   exception when check_violation then null;
   end;
 
   insert into ops_hr.pay_rule_sets (version, effective_from, note, rules, created_by)
-  values (1, current_date, 'versi awal', '{"overtime":{"tiers":[1.5,2]}}'::jsonb,
+  values (2, current_date, 'versi awal', '{"overtime":{"tiers":[1.5,2]}}'::jsonb,
           'ffffffff-0000-0000-0000-0000000000a1');
 end $$;
 

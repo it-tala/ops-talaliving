@@ -1,5 +1,5 @@
 -- inv/acct — rented, leased and borrowed assets, and their rent on the
--- payment calendar (0109, 0110).
+-- payment calendar (0115, 0116).
 --
 --   rina  inventory write            — registers and edits
 --   anggun inventory read + accounting write — schedules the rent

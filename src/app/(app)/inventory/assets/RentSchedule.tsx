@@ -11,7 +11,7 @@ import { RENT_PERIOD_LABEL, type AssetView } from "@/services/inventory/contract
 import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
 
-/** A rented or leased asset's rent, onto the payment calendar (`0110`).
+/** A rented or leased asset's rent, onto the payment calendar (`0116`).
  *
  *  Made once, as fixed lines marked with the asset's tag; after that the
  *  calendar is where the rent is changed. Inventory can see whether it has

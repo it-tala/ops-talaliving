@@ -140,7 +140,9 @@ begin
   assert c.unresolved = 1,        'only the steel frame has no name, got ' || c.unresolved;
   assert c.material_cost is null, 'a total that omits three lines is the number somebody quotes from';
   assert c.priced_subtotal = 340000, '330.000 + 10.000 of what IS priced, got ' || c.priced_subtotal;
-  assert c.labour_cost = 400000,  'typed by a person, carried through, got ' || c.labour_cost;
+  -- Labour is BOM lines since 0106; the typed product figure is no longer
+  -- read for a cost, and a revision with no labour line says so with a null.
+  assert c.labour_cost is null,   'no labour line on this revision, got ' || coalesce(c.labour_cost::text,'(null)');
 end $$;
 
 /* ── release, and what a release makes impossible ──────────────────────── */

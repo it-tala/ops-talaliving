@@ -5,12 +5,12 @@ import {
   type WorkOrder, type WorkOrderView, type ProgressEntry, type ProductView,
   type DesignKind, type DesignTaskView, type RouteCode, type BomExplosion,
   type VendorLegView, type VendorRecord,
-  type WorkAttribution,
+  type WorkAttribution, type BomKind,
 } from "@/services/production/contracts";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
 import {
   workOrderView, workOrderViews, productView, productViews,
-  currentBomRev, draftBomRev, bomAt, bomDiff, bomRevisions, bomRepinnable, explodeBom, bomWouldCycle,
+  currentBomRev, draftBomRev, bomAt, bomDiff, bomRevisions, lineRate, bomRepinnable, explodeBom, bomWouldCycle,
   designQueue, designTaskView, designGaps, officeToday,
   unresolvedNames, workAttribution, openVendorLegs, vendorLegViews, vendorRecords, type UnresolvedName,
 } from "../production-derive";
@@ -674,22 +674,72 @@ export async function saveProduct(
   return view;
 }
 
-/** Putting a component on a bill of material, or changing its quantity.
+/** The draft to write into, opened if there is none (0109's `open_draft`):
+ *  a copy of the newest released revision, manual rates kept and catalogue
+ *  rates let go, so the draft follows today's prices again. Returns the rev. */
+function openDraft(productId: string, by: string, byEmail: string): number {
+  const state = getState();
+  const product = state.products.find((p) => p.id === productId)!;
+  const existing = draftBomRev(state, product);
+  if (existing !== null) return existing;
+  const from = currentBomRev(state, product);
+  const rev = state.bom_revisions
+    .filter((r) => r.product_id === productId)
+    .reduce((a, r) => Math.max(a, r.rev), 0) + 1;
+  const fromRow = state.bom_revisions.find((r) => r.product_id === productId && r.rev === from);
+  apply((draft) => {
+    draft.bom_revisions.push({
+      id: newId("bmr"), product_id: productId, rev,
+      released_at: null, released_by: null, note: null,
+      miscalc_percent: fromRow?.miscalc_percent ?? 0,
+      created_at: new Date().toISOString(), created_by: by,
+    });
+    for (const b of draft.bom_components.filter((x) => x.product_id === productId && x.rev === from)) {
+      const keep = b.rate_source === "manual" || b.kind === "labour";
+      draft.bom_components.push({
+        ...b, id: newId("bom"), rev,
+        unit_rate: keep ? b.unit_rate ?? null : null,
+        rate_source: keep && b.unit_rate != null ? "manual" : null,
+      });
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "bom", entity_no: product.product_code,
+      action: "open_draft", outcome: "ok", reason: null,
+      detail: { rev, copied_from: from, by: byEmail },
+    });
+  });
+  return rev;
+}
+
+/** The code a labour line is filed under — derived from its label, so *one
+ *  line per component per revision* still holds (0109). */
+function labourCode(label: string): string {
+  return "LABOUR:" + label.replace(/[^A-Za-z0-9]+/g, "-").toUpperCase().slice(0, 40);
+}
+
+/** Putting a line on a bill of material, or changing one.
  *
- *  The reference is a **public code** — a catalogue item or another product —
- *  and it is not validated against the catalogue here. A workshop knows it
- *  needs a steel frame before procurement has an item code for one, and
- *  refusing the line would mean the BOM stays in somebody's head. The screen
- *  shows unresolved codes plainly instead (A6, D149).
+ *  A line is a material from the item database, another product (a
+ *  sub-assembly), or **labour** — a name, a quantity and a rate, costed like
+ *  the rest (0109). A material's reference is a public code and is not
+ *  validated against the catalogue: a workshop knows it needs a steel frame
+ *  before procurement has a code for one, and the screen shows unresolved
+ *  codes plainly instead (A6, D149).
+ *
+ *  `unit_rate` left empty follows the catalogue; typed, it is the estimator's
+ *  number. Editing a line of a released revision edits its copy in the draft
+ *  — the released line itself is never touched (A5).
  */
 export async function saveBomComponent(
   input: {
     product_code: string;
     component_id?: string | null;
-    kind: "material" | "product";
-    ref_code: string;
+    kind: BomKind;
+    ref_code?: string;
+    label?: string | null;
     qty: number;
     uom: string;
+    unit_rate?: number | null;
     waste_percent?: number;
     note?: string | null;
   },
@@ -702,114 +752,98 @@ export async function saveBomComponent(
   const product = state.products.find((p) => p.product_code === input.product_code);
   if (!product) return notFound(SERVICE, "product_not_found", `No product ${input.product_code}.`);
 
-  /* Edits land on the **draft**, and there is never more than one (D256). If
-     none is open, this call opens it — copying the current released revision,
-     so editing starts from what is actually being built rather than from
-     nothing. The copy is what keeps the released lines frozen: a draft that
-     pointed back at them would edit a released revision by the back door. */
-  const draftRev = draftBomRev(state, product);
-  const targetRev = draftRev ?? (currentBomRev(state, product) ?? 0) + 1;
-
-  const ref = input.ref_code.trim().toUpperCase();
-  if (!ref) {
-    return invalid(SERVICE, "ref_required", "Komponennya apa?", { field: "ref_code" });
-  }
   if (!input.qty || input.qty <= 0) {
-    return invalid(SERVICE, "qty_required", "Jumlah per unit harus lebih dari nol.", { field: "qty" });
+    return invalid(SERVICE, "qty_required", "Kebutuhan per unit harus lebih dari nol.", { field: "qty" });
+  }
+  if (input.unit_rate != null && input.unit_rate < 0) {
+    return invalid(SERVICE, "negative_rate", "Rate tidak bisa negatif.", { field: "unit_rate" });
+  }
+  const label = input.label?.trim() || null;
+  let ref: string;
+  if (input.kind === "labour") {
+    if (!label) {
+      return invalid(SERVICE, "label_required", "Tenaga kerja apa? Mis. \"Tukang finishing\".", { field: "label" });
+    }
+    if (input.unit_rate == null) {
+      return invalid(SERVICE, "rate_required", "Tenaga kerja butuh rate — upah per hari, per jam, atau per unit.", { field: "unit_rate" });
+    }
+    ref = labourCode(label);
+  } else {
+    ref = (input.ref_code ?? "").trim().toUpperCase();
+    if (!ref) return invalid(SERVICE, "ref_required", "Komponennya apa?", { field: "ref_code" });
   }
   if (input.kind === "product") {
-    /* Not just *itself* — anywhere in the loop (D257). A contains B and B
-       contains A is a cycle nobody typed in one place, and neither edit looks
-       wrong on its own. The message names where the loop closes, because
-       *invalid BOM* is not something anybody can act on. */
+    /* Not just *itself* — anywhere in the loop (D257). */
     const loop = bomWouldCycle(state, product, ref);
     if (loop) {
       return invalid(
         SERVICE, "bom_cycle",
         loop.length === 2
           ? "Sebuah produk tidak bisa menjadi komponen dirinya sendiri."
-          : `Ini membuat lingkaran: ${loop.join(" → ")}. Sebuah rakitan yang memuat dirinya sendiri tidak punya kebutuhan bahan yang terhingga.`,
+          : `Ini membuat lingkaran: ${loop.join(" → ")}. Sebuah rakitan yang memuat dirinya sendiri tidak punya biaya yang terhingga.`,
         { field: "ref_code", cycle: loop },
       );
     }
   }
-  const dup = bomAt(state, product, targetRev).find(
-    (b) => b.ref_code === ref && b.id !== input.component_id,
-  );
-  if (dup) {
-    return conflict(
-      SERVICE, "already_on_bom",
-      `${ref} sudah ada di BOM ini — ubah jumlahnya, jangan tambah baris kedua.`,
-    );
-  }
 
-  /* Editing a line that belongs to a released revision. Refused rather than
-     silently redirected: somebody who opened rev 1 and typed into it means to
-     change rev 1, and quietly writing their edit into rev 2 would be worse
-     than saying no. The message names the way forward. */
-  if (input.component_id) {
-    const existing = state.bom_components.find((b) => b.id === input.component_id);
-    if (existing && existing.rev !== targetRev) {
-      return conflict(
-        SERVICE, "revision_released",
-        `Baris itu milik rev ${existing.rev}, yang sudah dirilis dan tidak bisa diubah lagi — pesanan kerja yang dibuat dengan rev itu harus tetap terbaca seperti apa adanya. Perubahannya masuk ke rev ${targetRev}.`,
-      );
-    }
+  let existing = input.component_id
+    ? state.bom_components.find((b) => b.id === input.component_id && b.product_id === product.id)
+    : undefined;
+  if (input.component_id && !existing) {
+    return notFound(SERVICE, "component_not_found", "Baris itu tidak ada.");
   }
 
   const user = actingUser();
-  const openingDraft = draftRev === null;
+  const rev = openDraft(product.id, user.id, user.email);
+  /* Edited from a released revision: the edit lands on that line's copy. */
+  if (existing && existing.rev !== rev) {
+    const fromRef = existing.ref_code;
+    existing = getState().bom_components.find(
+      (b) => b.product_id === product.id && b.rev === rev && b.ref_code === fromRef,
+    );
+  }
+
+  const dup = bomAt(getState(), product, rev).find((b) => b.ref_code === ref && b.id !== existing?.id);
+  if (dup) {
+    return conflict(
+      SERVICE, "already_on_bom",
+      `${label ?? ref} sudah ada di BOM ini — ubah jumlahnya, jangan tambah baris kedua.`,
+    );
+  }
+
+  const rate = input.unit_rate ?? null;
   apply((draft) => {
-    if (openingDraft) {
-      /* A copy of the released revision, then the edit on top. */
-      draft.bom_revisions.push({
-        id: newId("bmr"), product_id: product.id, rev: targetRev,
-        released_at: null, released_by: null, note: null,
-        created_at: new Date().toISOString(), created_by: user.id,
-      });
-      for (const b of draft.bom_components.filter(
-        (x) => x.product_id === product.id && x.rev === targetRev - 1,
-      )) {
-        draft.bom_components.push({ ...b, id: newId("bom"), rev: targetRev });
-      }
-      writeAudit(draft, {
-        service: SERVICE, entity: "bom", entity_no: product.product_code,
-        action: "open_draft", outcome: "ok", reason: null,
-        detail: { rev: targetRev, copied_from: targetRev - 1, by: user.email },
-      });
-    }
-    const row = input.component_id
-      ? draft.bom_components.find((b) => b.id === input.component_id)
-      : null;
+    const row = existing ? draft.bom_components.find((b) => b.id === existing!.id) : null;
     if (row) {
       Object.assign(row, {
-        kind: input.kind, ref_code: ref, qty: input.qty,
+        kind: input.kind, ref_code: ref, label, qty: input.qty,
         uom: input.uom.trim() || row.uom,
-        waste_percent: input.waste_percent ?? row.waste_percent,
-        note: input.note?.trim() ?? row.note,
+        waste_percent: input.waste_percent ?? 0,
+        unit_rate: rate, rate_source: rate == null ? null : "manual",
+        note: input.note?.trim() || null,
       });
     } else {
       draft.bom_components.push({
-        id: newId("bom"), product_id: product.id, rev: targetRev,
-        kind: input.kind, ref_code: ref, qty: input.qty,
+        id: newId("bom"), product_id: product.id, rev,
+        kind: input.kind, ref_code: ref, label, qty: input.qty,
         uom: input.uom.trim() || "pcs",
         waste_percent: input.waste_percent ?? 0,
+        unit_rate: rate, rate_source: rate == null ? null : "manual",
         note: input.note?.trim() || null,
       });
     }
     writeAudit(draft, {
       service: SERVICE, entity: "bom", entity_no: product.product_code,
-      action: row ? "update_component" : "add_component", outcome: "ok",
+      action: row ? "update_line" : "add_line", outcome: "ok",
       reason: input.note?.trim() ?? null,
-      detail: { rev: targetRev, ref: ref, qty: input.qty, waste: input.waste_percent ?? 0, by: user.email },
+      detail: { rev, ref, qty: input.qty, unit_rate: rate, by: user.email },
     });
   });
   return getProduct(product.product_code);
 }
 
-/** Taking a component off. An act with a name on it like any other — the BOM
- *  is what a purchase request is built from, so "who removed the hinges" is a
- *  question somebody will ask. */
+/** Taking a line off. A line of a released revision is taken off its copy in
+ *  the draft, so *hapus* does what it says without touching the release. */
 export async function removeBomComponent(
   input: { product_code: string; component_id: string },
 ): Promise<Result<ProductView>> {
@@ -820,28 +854,127 @@ export async function removeBomComponent(
   const state = getState();
   const product = state.products.find((p) => p.product_code === input.product_code);
   if (!product) return notFound(SERVICE, "product_not_found", `No product ${input.product_code}.`);
-  const row = state.bom_components.find((b) => b.id === input.component_id);
-  if (!row) return notFound(SERVICE, "component_not_found", "Komponen itu tidak ada.");
-
-  const draftRev = draftBomRev(state, product);
-  const targetRev = draftRev ?? (currentBomRev(state, product) ?? 0) + 1;
-  if (row.rev !== targetRev) {
-    return conflict(
-      SERVICE, "revision_released",
-      `Baris itu milik rev ${row.rev}, yang sudah dirilis. Buka rev ${targetRev} dan hapus di sana — yang lama harus tetap seperti waktu dipakai.`,
-    );
-  }
+  let row = state.bom_components.find((b) => b.id === input.component_id && b.product_id === product.id);
+  if (!row) return notFound(SERVICE, "component_not_found", "Baris itu tidak ada.");
 
   const user = actingUser();
+  const rev = openDraft(product.id, user.id, user.email);
+  if (row.rev !== rev) {
+    const fromRef = row.ref_code;
+    row = getState().bom_components.find((b) => b.product_id === product.id && b.rev === rev && b.ref_code === fromRef);
+    if (!row) return noop(SERVICE, productView(getState(), product));
+  }
+  const gone = row;
   apply((draft) => {
-    draft.bom_components = draft.bom_components.filter((b) => b.id !== input.component_id);
+    draft.bom_components = draft.bom_components.filter((b) => b.id !== gone.id);
     writeAudit(draft, {
       service: SERVICE, entity: "bom", entity_no: product.product_code,
-      action: "remove_component", outcome: "ok", reason: null,
-      detail: { ref: row.ref_code, qty: row.qty, by: user.email },
+      action: "remove_line", outcome: "ok", reason: null,
+      detail: { ref: gone.ref_code, qty: gone.qty, by: user.email },
     });
   });
   return getProduct(product.product_code);
+}
+
+/** The revision's persentase miskalkulasi (0109) — one margin on the whole
+ *  subtotal, owner's choice. Lands on the draft, opening it if needed. */
+export async function setBomMiscalc(
+  input: { product_code: string; miscalc_percent: number },
+): Promise<Result<ProductView>> {
+  await latency();
+  const denied = requireModule(SERVICE, "production");
+  if (denied) return denied;
+  const product = getState().products.find((p) => p.product_code === input.product_code);
+  if (!product) return notFound(SERVICE, "product_not_found", `No product ${input.product_code}.`);
+  if (!(input.miscalc_percent >= 0 && input.miscalc_percent <= 100)) {
+    return invalid(SERVICE, "percent_out_of_range", "Miskalkulasi antara 0 dan 100%.", { field: "miscalc_percent" });
+  }
+  const user = actingUser();
+  const rev = openDraft(product.id, user.id, user.email);
+  apply((draft) => {
+    const r = draft.bom_revisions.find((x) => x.product_id === product.id && x.rev === rev);
+    if (!r) return;
+    const before = r.miscalc_percent ?? 0;
+    r.miscalc_percent = input.miscalc_percent;
+    writeAudit(draft, {
+      service: SERVICE, entity: "bom", entity_no: product.product_code,
+      action: "set_miscalc", outcome: "ok", reason: null,
+      detail: { rev, before, after: input.miscalc_percent, by: user.email },
+    });
+  });
+  return getProduct(product.product_code);
+}
+
+/** Throwing the draft away. Nothing to keep: a draft was never a fact. */
+export async function discardBomDraft(
+  input: { product_code: string },
+): Promise<Result<ProductView>> {
+  await latency();
+  const denied = requireModule(SERVICE, "production");
+  if (denied) return denied;
+  const state = getState();
+  const product = state.products.find((p) => p.product_code === input.product_code);
+  if (!product) return notFound(SERVICE, "product_not_found", `No product ${input.product_code}.`);
+  const rev = draftBomRev(state, product);
+  if (rev === null) return noop(SERVICE, productView(state, product));
+  const user = actingUser();
+  apply((draft) => {
+    draft.bom_components = draft.bom_components.filter((b) => !(b.product_id === product.id && b.rev === rev));
+    draft.bom_revisions = draft.bom_revisions.filter((r) => !(r.product_id === product.id && r.rev === rev));
+    writeAudit(draft, {
+      service: SERVICE, entity: "bom", entity_no: product.product_code,
+      action: "discard_draft", outcome: "ok", reason: null, detail: { rev, by: user.email },
+    });
+  });
+  return getProduct(product.product_code);
+}
+
+/** A component the item database does not have yet, typed from the BOM.
+ *
+ *  It goes **into the items database** — *terhubung ke database items* —
+ *  uncurated, for procurement to file and price later. The same name already
+ *  there is handed back rather than twinned (0109's `create_bom_item`). */
+export async function createBomItem(
+  input: {
+    name: string;
+    category_code?: string;
+    base_uom: string;
+    kind?: "goods" | "service";
+    standard_price?: number | null;
+  },
+): Promise<Result<{ code: string; name: string; existing: boolean }>> {
+  await latency();
+  const denied = requireModule(SERVICE, "production");
+  if (denied) return denied;
+  const name = input.name.trim();
+  if (!name) return invalid(SERVICE, "name_required", "Nama itemnya apa?", { field: "name" });
+  const state = getState();
+  const category = input.category_code ?? "uncurated";
+  if (!state.item_categories.some((c) => c.code === category)) {
+    return invalid(SERVICE, "no_such_category", `Tidak ada kategori ${category}.`, { field: "category_code" });
+  }
+  if (input.standard_price != null && input.standard_price < 0) {
+    return invalid(SERVICE, "negative_price", "Harga tidak bisa negatif.", { field: "standard_price" });
+  }
+  const twin = state.items.find((i) => i.name.toLowerCase() === name.toLowerCase() && !i.merged_into);
+  if (twin) return noop(SERVICE, { code: twin.code, name: twin.name, existing: true });
+
+  const code = `ITM-${String(state.items.length + 1).padStart(4, "0")}`;
+  const user = actingUser();
+  apply((draft) => {
+    draft.items.push({
+      id: newId("itm"), code, name, aka: [], category_code: category,
+      base_uom: input.base_uom as never, kind: input.kind ?? "goods",
+      is_curated: false,
+      standard_price: input.standard_price ?? null, last_price: null,
+      last_vendor_id: null, last_purchased_at: null, merged_into: null,
+    });
+    writeAudit(draft, {
+      service: SERVICE, entity: "item", entity_no: code,
+      action: "create_from_bom", outcome: "ok", reason: null, detail: { name, by: user.email },
+    });
+  });
+  return ok(SERVICE, { code, name, existing: false });
 }
 
 /** Freezing a draft revision (D256).
@@ -889,6 +1022,15 @@ export async function releaseBom(
       { field: "components" },
     );
   }
+  /* A released cost with a hole in it is the number somebody quotes from. */
+  const unpricedLines = productView(state, product, rev).components.filter((c) => c.unit_price == null);
+  if (unpricedLines.length > 0) {
+    return invalid(
+      SERVICE, "unpriced_lines",
+      `Belum ada rate untuk: ${unpricedLines.map((c) => `${c.ref_name ?? c.ref_code} (${c.ref_code})`).join(", ")}. Isi rate-nya dulu — biaya yang dirilis tidak boleh bolong.`,
+      { field: "unit_rate", lines: unpricedLines.map((c) => c.ref_code) },
+    );
+  }
   const diff = bomDiff(state, product, currentBomRev(state, product), rev);
   if (diff.identical) {
     return invalid(
@@ -902,6 +1044,13 @@ export async function releaseBom(
   apply((draft) => {
     const row = draft.bom_revisions.find((r) => r.product_id === product.id && r.rev === rev);
     if (!row) return;
+    /* Freeze: every line keeps the rate it is costed at today, and says where
+       that rate came from (0109). */
+    for (const b of draft.bom_components.filter((x) => x.product_id === product.id && x.rev === rev)) {
+      if (b.unit_rate != null) continue;
+      const { rate, source } = lineRate(state, b);
+      if (rate != null && source !== "none") { b.unit_rate = rate; b.rate_source = source; }
+    }
     row.released_at = new Date().toISOString();
     row.released_by = user.id;
     row.note = input.note.trim();

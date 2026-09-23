@@ -28,7 +28,7 @@ import { useSession } from "@/store/session";
  *  the warranty card are attached from the drawer, and every change is in the
  *  asset's history.
  *
- *  Not everything used is owned (`0110`): a rented generator or a leased car
+ *  Not everything used is owned (`0116`): a rented generator or a leased car
  *  carries its rent and contract dates, is flagged as the contract runs out,
  *  ends by being *returned*, and accounting can put its rent on the payment
  *  calendar from here.

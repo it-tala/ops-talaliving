@@ -55,7 +55,7 @@ import { isRealApi } from "@/lib/supabase/env";
  *  counts functions, a service being listed here no longer implies that every
  *  function of it exists.
  */
-export const LIVE_SERVICES = ["identity", "procurement", "accounting", "inventory"] as const;
+export const LIVE_SERVICES = ["identity", "procurement", "accounting", "inventory", "hr"] as const;
 
 /** Routes whose every service call is implemented. GENERATED — see above.
  *  Regenerate with `node scripts/check-live-routes.mjs --write`.
@@ -68,12 +68,19 @@ export const LIVE_ROUTES: readonly string[] = [
   "/accounting/tagihan",
   "/accounting/verifikasi",
   "/dashboard",
+  "/hrd/absensi",
+  "/hrd/berkas-201",
+  "/hrd/jadwal",
+  "/hrd/karyawan",
+  "/hrd/kontrak",
+  "/hrd/kontrak/[no]",
   "/inventory/assets",
   "/inventory/log",
   "/inventory/material",
   "/inventory/papan",
   "/inventory/penyesuaian",
   "/it/aktivitas",
+  "/it/aturan-gaji",
   "/it/audit",
   "/it/john-lau",
   "/it/pengguna",
@@ -96,6 +103,7 @@ export const LIVE_ROUTES: readonly string[] = [
   "/procurement/rounds",
   "/procurement/tracker",
   "/procurement/tracker/[vendor]",
+  "/produksi/bom",
 ];
 
 /** Is this deployment talking to a database at all?

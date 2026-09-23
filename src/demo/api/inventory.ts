@@ -904,7 +904,7 @@ function addDays(day: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** The rent rules (`0110`), judged on the row as it will be. */
+/** The rent rules (`0116`), judged on the row as it will be. */
 function assetRentInvalid(a: Pick<Asset, "ownership" | "rent_amount" | "rent_period" | "rent_due_day" | "contract_start" | "contract_end">) {
   if (!(a.ownership in ASSET_OWNERSHIP_LABEL)) {
     return invalid(SERVICE, "ownership_invalid", "Owned, rented, leased or borrowed.", { field: "ownership" });

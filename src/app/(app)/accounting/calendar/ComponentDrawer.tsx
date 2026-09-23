@@ -35,7 +35,7 @@ export function ComponentDrawer({
   const [direction, setDirection] = useState<Direction>(component?.direction ?? "OUT");
   const [amount, setAmount] = useState(component?.amount ?? 0);
   /* Fixed must be met; an estimate is settled by whatever the payment came
-     to (`0108`). Rent and instalments are fixed; electricity is not. */
+     to (`0114`). Rent and instalments are fixed; electricity is not. */
   const [amountKind, setAmountKind] = useState<CashAmountKind>(component?.amount_kind ?? "fixed");
   const [frequency, setFrequency] = useState<CashFrequency>(component?.frequency ?? "monthly");
   const [dueDay, setDueDay] = useState(component?.due_day ?? 25);

@@ -484,7 +484,7 @@ export interface StockItemDetail extends StockItemView {
 
 export type AssetStatus = "in_use" | "in_storage" | "under_repair" | "disposed" | "lost" | "returned";
 
-/** Whose it is (`0110`). Anything not owned ends by going back — `returned`. */
+/** Whose it is (`0116`). Anything not owned ends by going back — `returned`. */
 export type AssetOwnership = "owned" | "rented" | "leased" | "borrowed";
 
 export const ASSET_OWNERSHIP_LABEL: Record<AssetOwnership, string> = {

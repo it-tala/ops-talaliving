@@ -10,7 +10,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { MoneyInput } from "@/components/ui/money-input";
 import { formatIDR } from "@/lib/format";
 import { cn } from "@/lib/cn";
-import { accounting, documents } from "@/demo/api";
+import { accounting, documents, procurement, isOk } from "@/demo/api";
 import type { TransactionDetail } from "@/services/accounting/contracts";
 import type { AuditRow } from "@/demo/state";
 import { COMPLETION_DOC_KINDS, type AttachmentView } from "@/services/documents/contracts";
@@ -86,6 +86,18 @@ export function TrxDrawer({
   const [editAmount, setEditAmount] = useState(0);
   const [editDesc, setEditDesc] = useState("");
   const [editReason, setEditReason] = useState("");
+  /* The three references `0105` added. Held as the **code** the seam wants,
+     with `""` meaning *no vendor* — which is a value somebody can choose, not
+     a missing one. That is the whole three-state contract, and the `<select>`
+     carries it naturally: an option whose value is the empty string. */
+  const [editVendor, setEditVendor] = useState("");
+  const [editProject, setEditProject] = useState("");
+  const [editType, setEditType] = useState("");
+  const [refs, setRefs] = useState<{
+    vendors: { id: string; code: string; name: string }[];
+    projects: { id: string; code: string; name: string }[];
+    types: { code: string }[];
+  } | null>(null);
   /* Whether the row carries a receipt / nota or a payment proof — the one
      thing COMPLETED requires (`0103`). Asked of the row's own documents. */
   const [hasCompletionDoc, setHasCompletionDoc] = useState(false);
@@ -131,6 +143,16 @@ export function TrxDrawer({
     })));
   }
 
+  /* `v_transaction` carries `vendor_id` and `vendor_name` but no
+     `vendor_code`, and the seam speaks codes. Resolved from the list rather
+     than by adding a column to a view five screens read — the lookup is local
+     and the view stays what it was. */
+  useEffect(() => {
+    if (!editOpen || !refs || !trx) return;
+    setEditVendor(refs.vendors.find((v) => v.id === trx.vendor_id)?.code ?? "");
+    setEditProject(refs.projects.find((p) => p.id === trx.project_id)?.code ?? "");
+  }, [editOpen, refs, trx]);
+
   if (!trxNo || !trx) return null;
 
   async function allocate() {
@@ -163,16 +185,39 @@ export function TrxDrawer({
     onChanged();
   }
 
-  function openEdit() {
+  /* Loaded when Edit is pressed rather than when the drawer opens: most people
+     open a row to read it, and 296 vendors is not a list to fetch for that. */
+  async function loadRefs() {
+    if (refs) return;
+    const [v, p, t] = await Promise.all([
+      procurement.listVendors(),
+      procurement.listProjects(),
+      accounting.listTypeRows(),
+    ]);
+    setRefs({
+      vendors: isOk(v) ? v.data.map((x) => ({ id: x.id, code: x.code, name: x.name })) : [],
+      projects: isOk(p) ? p.data.map((x) => ({ id: x.id, code: x.code, name: x.name })) : [],
+      types: isOk(t) ? t.data.map((x) => ({ code: x.code })) : [],
+    });
+  }
+
+  async function openEdit() {
     setEditAmount(trx!.amount_idr);
     setEditDesc(trx!.description);
     setEditReason("");
+    setEditType(trx!.type_code);
     setVoidOpen(false);
     setEditOpen(true);
+    await loadRefs();
   }
 
   const amountChanged = !!trx && editAmount !== trx.amount_idr;
   const descChanged = !!trx && editDesc.trim() !== trx.description;
+  const currentVendorCode = refs?.vendors.find((v) => v.id === trx?.vendor_id)?.code ?? "";
+  const vendorChanged = !!trx && !!refs && editVendor !== currentVendorCode;
+  const currentProjectCode = refs?.projects.find((p) => p.id === trx?.project_id)?.code ?? "";
+  const projectChanged = !!trx && !!refs && editProject !== currentProjectCode;
+  const typeChanged = !!trx && editType !== trx.type_code;
 
   async function saveEdit() {
     setBusy(true);
@@ -180,6 +225,11 @@ export function TrxDrawer({
       trx_no: trx!.trx_no,
       ...(amountChanged ? { amount_idr: editAmount } : {}),
       ...(descChanged ? { description: editDesc.trim() } : {}),
+      /* Sent only when changed. An unchanged field left out is *leave it
+         alone*; sending `""` for one nobody touched would clear it. */
+      ...(vendorChanged ? { vendor_code: editVendor } : {}),
+      ...(projectChanged ? { project_code: editProject } : {}),
+      ...(typeChanged ? { type_code: editType } : {}),
       ...(editReason.trim() ? { reason: editReason.trim() } : {}),
     });
     setBusy(false);
@@ -293,6 +343,61 @@ export function TrxDrawer({
                 className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none"
               />
             </div>
+            {/* **Who, what for, and what kind** — `0105`. The import left 59 rows
+                naming a vendor that resolves to nobody, 11 with a project the
+                project table spells differently, and 184 filed `OTHERS`
+                because the legacy row was blank. Every one is a correction
+                somebody can make from a document, and none of them was
+                reachable until these three fields existed. */}
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div>
+                <label htmlFor="trx-edit-vendor" className="block text-xs text-slate-600">Vendor</label>
+                <select
+                  id="trx-edit-vendor" value={editVendor}
+                  onChange={(e) => setEditVendor(e.target.value)}
+                  disabled={!refs}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 text-sm focus:border-brand-400 focus:outline-none disabled:bg-slate-50"
+                >
+                  {/* An explicit *no vendor*, not a blank that means unknown.
+                      Choosing it clears the field; leaving the select alone
+                      does not touch it. */}
+                  <option value="">— no vendor —</option>
+                  {refs?.vendors.map((v) => (
+                    <option key={v.code} value={v.code}>{v.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="trx-edit-project" className="block text-xs text-slate-600">Project</label>
+                <select
+                  id="trx-edit-project" value={editProject}
+                  onChange={(e) => setEditProject(e.target.value)}
+                  disabled={!refs}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 text-sm focus:border-brand-400 focus:outline-none disabled:bg-slate-50"
+                >
+                  <option value="">— no project —</option>
+                  {refs?.projects.map((p) => (
+                    <option key={p.code} value={p.code}>{p.code} · {p.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="trx-edit-type" className="block text-xs text-slate-600">Type</label>
+                <select
+                  id="trx-edit-type" value={editType}
+                  onChange={(e) => setEditType(e.target.value)}
+                  disabled={!refs}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 text-sm focus:border-brand-400 focus:outline-none disabled:bg-slate-50"
+                >
+                  {/* No empty option: `type_code` is not null, and `OTHERS` is
+                      what this system already calls unclassified. */}
+                  {refs?.types.map((t) => (
+                    <option key={t.code} value={t.code}>{t.code}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
             <div>
               <label htmlFor="trx-edit-reason" className="block text-xs text-slate-600">
                 Remarks {amountChanged ? <span className="text-rose-700">— required when the amount changes</span> : "(optional)"}

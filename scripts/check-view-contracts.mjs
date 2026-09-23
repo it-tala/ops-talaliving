@@ -91,6 +91,13 @@ const VIEW_CONTRACTS = {
      have, which is the exact mistake this file exists to catch. */
   v_line_coverage:   null,
 
+  /* ── production ──────────────────────────────────────────────────────── */
+  /* Both read into private flat shapes in `src/lib/api/production.ts` and
+     assembled into `ProductView` by hand, field by field — checked by `tsc`,
+     because nothing past these rows is cast. */
+  v_product_summary: "ProductSummaryRow",
+  v_product_bom:     "BomLineRow",
+
   /* ── core ────────────────────────────────────────────────────────────── */
   v_user_access:     "AccessRow",
   v_attachment:      "AttachmentRow",
@@ -170,6 +177,19 @@ const VIEW_CONTRACTS = {
   /* Mapped field by field into an anonymous row type, so `tsc` checks every
      one of them and there is no cast to lie. */
   v_followup_queue:  null,
+
+  /* ── hr ──────────────────────────────────────────────────────────────── */
+  /* `amount`, `by_name` and `restored_by_name` are the three the table cannot
+     answer on its own, which is the whole reason the view exists (0057). */
+  /* `listContracts` casts the rows straight into `ContractView`;
+     `getContract` stitches the clauses, the checklist coverage and the
+     differences onto the same row, and those three are named as composed. */
+  v_contract: { type: "ContractView", composed: ["clauses", "coverage", "conflicts"] },
+  v_allowance_withholding: "AllowanceWithholdingView",
+  v_pay_rule_set: "PayRuleSetView",
+  /* Read for `stage`, `payable` and `total_hours` and merged onto the sheet
+     rows; nothing is cast into a contract from it. */
+  v_overtime_claim:  null,
 
   /* ── john lau ────────────────────────────────────────────────────────── */
   /* The catalogue, read into a private row shape and mapped field by field

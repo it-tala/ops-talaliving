@@ -11,18 +11,19 @@ import { production } from "@/demo/api";
 import { useSession } from "@/store/session";
 import { ProductDrawer } from "./ProductDrawer";
 
-/** Master data: what we sell and make, and what each one is made of.
+/** Master data: what we sell and make, what each one is made of, and what
+ *  one unit costs us to make.
  *
  *  Two tables, one screen, because they are read together: a product nobody
  *  can price is a bill of material with a hole in it, and the hole is the
  *  thing worth seeing.
  *
- *  The material cost is **computed every time this page is read** from the
- *  components and the catalogue's own prices (A3). It is never stored, because
- *  a stored cost is one that silently stops matching the BOM under it the
- *  first time somebody adds a hinge. And it is never completed by guessing:
- *  a component with no price leaves the total marked incomplete rather than
- *  quietly counting as zero (D149).
+ *  The production cost is **computed every time this page is read** from the
+ *  lines — materials, sub-assemblies, labour — plus the revision's
+ *  miskalkulasi (A3, 0109). A draft follows today's catalogue prices; a
+ *  released revision keeps the rates it was released with. A line with no rate
+ *  leaves the cost marked incomplete rather than quietly counting as zero
+ *  (D149). It is a cost, never a selling price.
  */
 export default function BomPage() {
   const { can } = useSession();
@@ -37,7 +38,7 @@ export default function BomPage() {
       <PageHeader
         breadcrumb="Production"
         title="Produk &amp; Bill of Materials"
-        description="Barang yang dijual ke klien dan kita produksi: ukuran, gambar kerja, gambar jadi, dan komponen tiap unitnya. Biaya bahan dihitung dari katalog setiap kali dibuka — tidak pernah disimpan."
+        description="Per item code: gambar kerja, komponen per unit (bahan, sub-rakitan, tenaga kerja) dengan rate masing-masing, dan biaya produksinya. Bukan harga jual."
         actions={mayEdit ? (
           <Button icon={Plus} onClick={() => { setCreating(true); setOpen(null); }}>Produk baru</Button>
         ) : undefined}
@@ -104,7 +105,7 @@ export default function BomPage() {
                           <th className="px-4 py-2 text-left">Produk</th>
                           <th className="px-4 py-2 text-left">Kategori</th>
                           <th className="px-4 py-2 text-right">Komponen</th>
-                          <th className="px-4 py-2 text-right">Bahan / unit</th>
+                          <th className="px-4 py-2 text-right">Biaya produksi / unit</th>
                           <th className="px-4 py-2 text-left">Kelengkapan</th>
                         </tr>
                       </thead>
@@ -130,16 +131,19 @@ export default function BomPage() {
                               {p.components.length || "—"}
                             </td>
                             <td className="px-4 py-2 text-right">
-                              {p.material_cost == null ? (
+                              {p.components.length === 0 ? (
                                 <span className="text-slate-300">—</span>
+                              ) : p.production_cost == null ? (
+                                <span className="text-[12px] text-amber-700">
+                                  belum lengkap · {p.unpriced} tanpa rate
+                                </span>
                               ) : (
                                 <>
-                                  <span className="tabular-nums text-slate-800">{formatIDR(p.material_cost)}</span>
-                                  {p.unpriced > 0 && (
-                                    <span className="block text-[11px] text-amber-700">
-                                      belum lengkap · {p.unpriced} komponen
-                                    </span>
-                                  )}
+                                  <span className="tabular-nums text-slate-800">{formatIDR(p.production_cost)}</span>
+                                  <span className="block text-[11px] text-slate-400">
+                                    rev {p.viewing_rev}{p.draft_rev != null ? " · draft" : ""}
+                                    {p.labour_cost == null && " · tanpa tenaga kerja"}
+                                  </span>
                                 </>
                               )}
                             </td>
@@ -165,10 +169,10 @@ export default function BomPage() {
                 </Paged>
                 <p className="flex items-start gap-2 border-t border-slate-100 px-4 py-2.5 text-[11px] text-slate-500">
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
-                  Biaya bahan memakai harga standar katalog, atau harga pembelian terakhir kalau
-                  harga standar belum ada. Komponen tanpa harga tidak dihitung nol — totalnya
-                  ditandai belum lengkap. <strong>Ongkos kerja belum termasuk</strong> — berapa
-                  jam kerja satu unit, dan berapa nilainya, belum ditetapkan (Q38).
+                  Biaya produksi = bahan + sub-rakitan + tenaga kerja, ditambah persentase
+                  miskalkulasi. Rate yang tidak diisi mengikuti harga standar katalog, atau harga
+                  beli terakhir; saat BOM dirilis, rate-nya dikunci. Komponen tanpa rate tidak
+                  dihitung nol — totalnya ditandai belum lengkap. <strong>Bukan harga jual.</strong>
                 </p>
               </Card>
             </>

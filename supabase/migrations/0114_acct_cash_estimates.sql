@@ -1,4 +1,4 @@
--- 0108_acct_cash_estimates.sql — a planned payment is either a fixed amount
+-- 0114_acct_cash_estimates.sql — a planned payment is either a fixed amount
 -- or an estimate.
 --
 -- The owner's question (2026-09-23): how does accounting enter recurring
@@ -22,7 +22,7 @@
 -- window (`p_from`): Monthly bills compares a month with the one before it,
 -- which is never inside a window that starts today. `source_ref` names what
 -- created a line when it was not typed by hand — `asset:AST-0004` for an
--- asset's rent (`0110`). Its temp tables are dropped on entry, so it can
+-- asset's rent (`0116`). Its temp tables are dropped on entry, so it can
 -- be called twice in one transaction.
 
 alter table ops_acct.cash_components
@@ -187,7 +187,7 @@ declare
   v_paying_ids  uuid[];
 begin
   -- `p_from` anchors the twelve-month window somewhere other than this
-  -- month (`0108`): Monthly bills compares a month against the one before it,
+  -- month (`0114`): Monthly bills compares a month against the one before it,
   -- and last month is never in a window that starts today. Today — what is
   -- overdue, what is still ahead — stays today either way.
   select array_agg(to_char(date_trunc('month', coalesce(p_from, v_today)) + (n || ' months')::interval, 'YYYY-MM') order by n)
@@ -348,7 +348,7 @@ begin
         if v_skipped then v_state := 'SKIPPED';
         -- An estimate is settled by its payment, whatever the payment was:
         -- the electricity bill that came in under the guess is paid, not
-        -- part-paid (`0108`). A fixed amount still has to be met.
+        -- part-paid (`0114`). A fixed amount still has to be met.
         elsif v_hit_amount > 0 and (v_comp.amount_kind = 'estimate' or v_hit_amount >= v_planned - 1000) then v_state := 'PAID';
         elsif v_hit_amount > 0 then v_state := 'PARTIAL';
         elsif v_date < v_today then v_state := 'OVERDUE';

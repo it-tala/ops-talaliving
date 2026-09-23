@@ -1,4 +1,4 @@
--- 0110_inv_asset_rental.sql — assets the company rents, leases or borrows,
+-- 0116_inv_asset_rental.sql — assets the company rents, leases or borrows,
 -- and the rent that goes onto the payment calendar.
 --
 -- The owner's question (2026-09-23): what about things that are rented? A
@@ -15,7 +15,7 @@
 --   contract       start and end; `v_asset` flags a contract ending within
 --                  thirty days and one that has run out while the thing is
 --                  still here
---   returned       the status a non-owned asset ends in (`0109`); it dates
+--   returned       the status a non-owned asset ends in (`0115`); it dates
 --                  the end like disposed and lost do
 --
 -- `ops_acct.schedule_asset_rent` turns the rent into payment-calendar lines,

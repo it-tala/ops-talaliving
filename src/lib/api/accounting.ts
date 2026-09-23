@@ -507,14 +507,39 @@ export async function voidTransaction(
 /** Correcting a row in place — amount (with a remark) and description
  *  (`0101`). The seam writes the audit row with the remark as its reason and
  *  the values before and after as its detail; this reads the row back. */
+/** Correcting a ledger row in place.
+ *
+ *  `vendor_code`, `project_code` and `type_code` arrived with `0105`, and the
+ *  three-state argument is the part to read carefully:
+ *
+ *    omitted   leave the field as it is
+ *    `""`      take it off — the row has no vendor / no project
+ *    a code    resolve it, or the seam refuses rather than creating one
+ *
+ *  `undefined → null` is what makes *leave it alone* the default, which is the
+ *  behaviour a description-only edit needs: without it, every typo fix would
+ *  quietly clear the vendor. `type_code` has no clearing case — the column is
+ *  `not null`, and `OTHERS` is what this system calls unclassified.
+ */
 export async function editTransaction(
-  input: { trx_no: string; amount_idr?: number; description?: string; reason?: string },
+  input: {
+    trx_no: string;
+    amount_idr?: number;
+    description?: string;
+    vendor_code?: string | null;
+    project_code?: string | null;
+    type_code?: string;
+    reason?: string;
+  },
   idempotencyKey?: string,
 ): Promise<Result<TransactionView>> {
   const { data, error } = await db().rpc("edit_transaction", {
     p_trx_no: input.trx_no,
     p_amount: input.amount_idr ?? null,
     p_description: input.description ?? null,
+    p_vendor_code: input.vendor_code ?? null,
+    p_project_code: input.project_code ?? null,
+    p_type_code: input.type_code ?? null,
     p_reason: input.reason ?? null,
     p_key: idempotencyKey ?? null,
   });
@@ -1090,7 +1115,7 @@ export async function getCashPlan(): Promise<Result<CashPlan>> {
   return planFrom();
 }
 
-/** The same plan anchored at a month's first day (`0108`'s `p_from`) —
+/** The same plan anchored at a month's first day (`0114`'s `p_from`) —
  *  Monthly bills compares a month with the one before it, and the default
  *  window starts today. */
 async function planFrom(from?: string): Promise<Result<CashPlan>> {
@@ -1211,7 +1236,7 @@ export async function getMonthlyBills(month?: string): Promise<Result<MonthlyBil
   const threshold = Number((setting.data as { value?: unknown } | null)?.value ?? 25) || 25;
 
   /* A month that has ended is worth what it cost; one still running, what it
-     is expected to cost — and a paid estimate, what it came to (`0108`). */
+     is expected to cost — and a paid estimate, what it came to (`0114`). */
   const ended = (x: string) => x < today.slice(0, 7);
   const figure = (cell: CashCell, x: string, estimate: boolean) =>
     ended(x) || (estimate && cell.state === "PAID") ? cell.actual : Math.max(cell.planned, cell.actual);
@@ -1291,7 +1316,7 @@ export async function getMonthlyBills(month?: string): Promise<Result<MonthlyBil
   });
 }
 
-/** An asset's rent onto the payment calendar, once (`0110`): fixed lines
+/** An asset's rent onto the payment calendar, once (`0116`): fixed lines
  *  marked with the asset's tag, so a second press is refused. */
 export async function scheduleAssetRent(
   assetNo: string,
@@ -1305,11 +1330,11 @@ export async function scheduleAssetRent(
   return fromSeam<AssetRentSchedule>(SERVICE, data, error);
 }
 
-/** The contribution audit — names × rate against what left (D259) — needs the
- *  HR roster, and HR has no live client yet (`src/demo/api/index.ts`). With no
- *  roster there is nothing to reconcile, so the answer is an empty list and
- *  the Monthly bills card hides itself; refusing instead would take the whole
- *  bills page down with it. */
+/** The contribution audit — names × rate against what left (D259). The demo
+ *  derives it from the roster's schemes (`contributionAudit`); no seam computes
+ *  it against the live roster yet. Until one does the answer is an empty list,
+ *  which the Monthly bills card reads as nothing to show and hides itself;
+ *  refusing instead would take the whole bills page down with it. */
 export async function getContributionAudit(_month?: string): Promise<Result<ContributionAuditGroup[]>> {
   return ok(SERVICE, []);
 }

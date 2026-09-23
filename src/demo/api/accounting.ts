@@ -512,7 +512,18 @@ export async function voidTransaction(
  *  applied to requests is allowed and flagged in the audit detail. The remark is the audit row's reason; the
  *  values before and after are its detail — the IT audit log reads both. */
 export async function editTransaction(
-  input: { trx_no: string; amount_idr?: number; description?: string; reason?: string },
+  input: {
+    trx_no: string;
+    amount_idr?: number;
+    description?: string;
+    /** Omitted keeps it, `""` takes it off, a code resolves it or refuses.
+     *  Three states, because `vendor_id` is nullable and *leave it alone* and
+     *  *clear it* are different instructions (`0105`). */
+    vendor_code?: string | null;
+    project_code?: string | null;
+    type_code?: string;
+    reason?: string;
+  },
   idempotencyKey?: string,
 ): Promise<Result<TransactionView>> {
   await latency();
@@ -539,7 +550,42 @@ export async function editTransaction(
   const amount = input.amount_idr ?? trx.amount_idr;
   const description = input.description?.trim() ?? trx.description;
   const reason = input.reason?.trim() || null;
-  if (amount === trx.amount_idr && description === trx.description) {
+
+  /* The three references, resolved before anything is written — a run that
+     applied the amount and then refused an unknown code would leave the row
+     half corrected, and the screen would have no way to show which half. */
+  let vendorId = trx.vendor_id;
+  if (input.vendor_code !== undefined && input.vendor_code !== null) {
+    if (input.vendor_code.trim() === "") {
+      vendorId = null;
+    } else {
+      const v = state.vendors.find((x) => x.code === input.vendor_code!.trim());
+      if (!v) {
+        return invalid(SERVICE, "no_such_vendor", `There is no vendor ${input.vendor_code.trim()}.`, { field: "vendor_code" });
+      }
+      vendorId = v.id;
+    }
+  }
+  let projectId = trx.project_id;
+  if (input.project_code !== undefined && input.project_code !== null) {
+    if (input.project_code.trim() === "") {
+      projectId = null;
+    } else {
+      const p = state.projects.find((x) => x.code === input.project_code!.trim());
+      if (!p) {
+        return invalid(SERVICE, "no_such_project", `There is no project ${input.project_code.trim()}.`, { field: "project_code" });
+      }
+      projectId = p.id;
+    }
+  }
+  const typeCode = input.type_code?.trim() || trx.type_code;
+  if (typeCode !== trx.type_code && !state.transaction_types.some((ty) => ty.code === typeCode)) {
+    return invalid(SERVICE, "no_such_type", `There is no transaction type ${typeCode}.`, { field: "type_code" });
+  }
+
+  if (amount === trx.amount_idr && description === trx.description
+      && vendorId === trx.vendor_id && projectId === trx.project_id
+      && typeCode === trx.type_code) {
     return ok(SERVICE, transactionView(state, trx));
   }
 
@@ -566,11 +612,31 @@ export async function editTransaction(
   if (description !== trx.description) {
     Object.assign(detail, { description_before: trx.description, description_after: description });
   }
+  /* By code and by name in the trail, never by uuid — an audit row nobody can
+     read without a join is one nobody reads. */
+  if (vendorId !== trx.vendor_id) {
+    Object.assign(detail, {
+      vendor_before: state.vendors.find((v) => v.id === trx.vendor_id)?.name ?? null,
+      vendor_after: state.vendors.find((v) => v.id === vendorId)?.name ?? null,
+    });
+  }
+  if (projectId !== trx.project_id) {
+    Object.assign(detail, {
+      project_before: state.projects.find((p) => p.id === trx.project_id)?.code ?? null,
+      project_after: state.projects.find((p) => p.id === projectId)?.code ?? null,
+    });
+  }
+  if (typeCode !== trx.type_code) {
+    Object.assign(detail, { type_before: trx.type_code, type_after: typeCode });
+  }
 
   apply((draft) => {
     const t = draft.transactions.find((x) => x.id === trx.id)!;
     t.amount_idr = amount;
     t.description = description;
+    t.vendor_id = vendorId;
+    t.project_id = projectId;
+    t.type_code = typeCode as typeof t.type_code;
     if (syncLine) {
       const l = draft.transaction_lines.find((x) => x.id === syncLine)!;
       l.amount = amount;
@@ -1834,7 +1900,7 @@ export async function getContributionAudit(month?: string): Promise<Result<Contr
   return ok(SERVICE, contributionAudit(getState(), m));
 }
 
-/** An asset's rent onto the payment calendar, once (`0110`).
+/** An asset's rent onto the payment calendar, once (`0116`).
  *
  *    monthly   one monthly line from the contract's first month to the last
  *              month whose due day falls before the contract ends

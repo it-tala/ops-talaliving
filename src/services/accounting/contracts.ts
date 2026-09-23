@@ -614,11 +614,11 @@ export interface CashComponent {
    *  tables (ADR-004). */
   scheme_codes: string[];
   /** `fixed` must be met — less is PARTIAL. `estimate` is settled by whatever
-   *  the matched payment came to, and the difference is shown (`0108`).
+   *  the matched payment came to, and the difference is shown (`0114`).
    *  Optional so fixtures written before it read as fixed. */
   amount_kind?: CashAmountKind;
   /** What created the line when nobody typed it — `asset:AST-0004` for an
-   *  asset's rent (`0110`). */
+   *  asset's rent (`0116`). */
   source_ref?: string | null;
   /** `YYYY-MM`, inclusive. `ends_on` null means it keeps going. */
   starts_on: string;
@@ -673,7 +673,7 @@ export interface CashEvent {
   name: string;
   direction: Direction;
   frequency: CashFrequency;
-  /** Fixed or a guess (`0108`). A paid estimate is PAID whatever it came to. */
+  /** Fixed or a guess (`0114`). A paid estimate is PAID whatever it came to. */
   amount_kind?: CashAmountKind;
   month: string;
   date: string;
@@ -854,7 +854,7 @@ export interface MonthlyBill {
   unusual: boolean;
 }
 
-/** What "Create payment schedule" on a rented asset made (`0110`). */
+/** What "Create payment schedule" on a rented asset made (`0116`). */
 export interface AssetRentSchedule {
   asset_no: string;
   component_ids: string[];

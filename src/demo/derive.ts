@@ -1211,7 +1211,7 @@ export function cashPlan(state: DemoState, now = new Date(), windowFrom = now): 
         let evState: CashCellState;
         if (skipped) evState = "SKIPPED";
         /* An estimate is settled by its payment, whatever it came to — the
-           electricity bill under its guess is paid, not part-paid (`0108`). */
+           electricity bill under its guess is paid, not part-paid (`0114`). */
         else if (actual > 0 && (c.amount_kind === "estimate" || actual >= planned - PAYMENT_TOLERANCE_IDR)) evState = "PAID";
         else if (actual > 0) evState = "PARTIAL";
         else if (date < today) evState = "OVERDUE";
@@ -2265,7 +2265,7 @@ export function monthlyBills(
      reads as *we spent this* when the truth is *we spent nothing*. */
   const ended = (m: string) => m < today.slice(0, 7);
   /* A paid estimate is worth what it came to even while its month runs: the
-     guess was only standing in for the bill until the bill came (`0108`). */
+     guess was only standing in for the bill until the bill came (`0114`). */
   const figure = (cell: CashCell, m: string, estimate = false) =>
     ended(m) || (estimate && cell.state === "PAID") ? cell.actual : Math.max(cell.planned, cell.actual);
   const isEstimate = (row: CashRow) => row.component.amount_kind === "estimate";

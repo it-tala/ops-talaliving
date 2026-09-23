@@ -26,6 +26,7 @@
  *  authentication.
  */
 export * as identity from "./identity";
+export * as hr from "./hr";
 export * as procurement from "./procurement";
 export * as accounting from "./accounting";
 /* Reading and writing are here; `upload` and `uploadToInbox` are not, and wait
@@ -49,6 +50,12 @@ export * as assistant from "./assistant";
    lands. */
 export * as inventory from "./inventory";
 
+/* The product catalogue and its bill of materials (`0060`, `0106`) — and
+   nothing else of production yet. Work orders, progress, vendor legs and the
+   drafting queue are not written here, so the check script keeps their
+   screens dark and opens `/produksi/bom` alone. */
+export * as production from "./production";
+
 /* ## `marketing` is written and is deliberately not exported here yet
  *
  *  `src/lib/api/marketing.ts` exists, type-checks, and matches the demo on all
@@ -69,6 +76,35 @@ export * as inventory from "./inventory";
  *  `node scripts/check-live-routes.mjs --write` regenerates `LIVE_ROUTES` and
  *  the eight marketing screens open. Applying migrations to a project another
  *  session is mid-cutover on is not a decision this file gets to make.
+ */
+
+/* ## `hr` is exported, and six of its fourteen screens open
+ *
+ *  The HR block of the ladder — `0043`–`0058` — was applied to the live project
+ *  on 2026-09-23, and `ops_hr` went from zero tables to 17 tables, 13 views and
+ *  61 functions. The condition the previous version of this comment set is met,
+ *  so the line is here.
+ *
+ *  **Six screens, not fourteen, and the arithmetic is the guard's not mine.**
+ *  `check-live-routes.mjs` lists a route only when every `service.function` it
+ *  can reach is exported from here, so `/hrd/lembur`, the four payroll screens,
+ *  `/hrd/iuran`, `/hrd/kinerja` and `/hrd/cuti` stay dark on their own: 33 of
+ *  the demo's 61 functions have no counterpart written yet. What opens is the
+ *  chain HRD actually works — the person, their berkas, their contract, the
+ *  machine's file and the marks on it.
+ *
+ *  Two of those are not merely unwritten. **Payroll's seam is unfinished**:
+ *  `PayrollLine` carries `take_home`, `contributions`, `overtime_parts` and
+ *  sixteen other fields `ops_hr.payroll_figures` does not have (C20), so the
+ *  payroll functions are absent rather than wrong. And **`/hrd/cuti` has no
+ *  database at all** — there is no leave-request table in `ops_hr`, only
+ *  `v_leave_used`, which counts balances out of `day_marks`. Nobody has
+ *  specified who asks and who decides, and inventing that is not this file's
+ *  to do.
+ *
+ *  A function that is missing answers 501 by name rather than crashing (see
+ *  `src/demo/api/_swap.ts`), which is the second line. `isRouteLive()` is the
+ *  first.
  */
 
 export { isOk } from "@/services/_shared/envelope";

@@ -297,7 +297,7 @@ function Section({ title, subtitle, icon, rows, tone, muted }: {
                       )}
                     </>
                   )}
-                  {/* A paid estimate is settled; what it differs by is the news (`0108`). */}
+                  {/* A paid estimate is settled; what it differs by is the news (`0114`). */}
                   {r.variance != null && r.variance !== 0 && (
                     <span className={cn("block text-[10px]", r.variance > 0 ? "text-amber-700" : "text-emerald-700")}>
                       {r.variance > 0 ? "+" : "−"}{formatIDR(Math.abs(r.variance))} dari estimasi

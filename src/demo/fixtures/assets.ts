@@ -60,7 +60,7 @@ export const ASSETS: Asset[] = [
     status: "disposed", acquired_on: "2021-02-01", purchase_cost: 7_200_000, vendor_code: null, trx_no: null,
     warranty_until: null, notes: "Sold to staff", ended_on: "2026-08-30",
   },
-  /* Not ours (`0110`): a generator rented by the month, its rent already on
+  /* Not ours (`0116`): a generator rented by the month, its rent already on
      the calendar; a car leased by the year, its rent not yet; and a projector
      borrowed from a client that has to go back within the fortnight. */
   {
