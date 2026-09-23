@@ -5,6 +5,98 @@ One row per run of the scripts beside this file. The database's own record is
 this file is the part a person reads first — which run, why, and what still
 needs a decision.
 
+## 2026-09-23 — step 11, the PO TRACKER sheet (`08_po_tracker.sql`)
+
+Source: the `PO TRACKER` Google Sheet on the shared drive, read the same day
+as an .xlsx export (the text export truncates tabs). 29 tabs: 25 vendor tabs
+that are PO documents, two tracker summaries, a budget worksheet, a 2025
+FAIRMONT order and a drop-down list. Run id
+`e8d4c1a7-3b52-4f0e-9a61-5c2f7d08b913`. Dry run first (rolled back), then the
+real run; the numbers matched.
+
+| | |
+|---|---:|
+| orders (46 from the sheet, 1 only in the old app) | 47 |
+| order lines | 114 |
+| DP/balance terms, where the tab states a DP % | 22 |
+| allocations written | 86 |
+| … carrying a PR line **and** a PO | 42 |
+| PR RECAP allocations superseded by those | 39 |
+| PR lines given `po_line_id` | 26 |
+| ledger rows given the vendor they paid | 8 |
+| vendors created from the PO header (URECEL V-0298, INOCYCLE V-0297) | 2 |
+| contract value / paid, all 47 | Rp 871.685.811 / 817.417.531 |
+
+After it: **0** transactions allocated beyond their amount, **0** allocations
+pointing at a PO or PR line that does not exist, and the five account
+balances unchanged to the rupiah (BCA 064 21.259.068, BCA 271 4.285.326,
+BNI 325 148.132, JAGO 10.473.352, PETTY CASH 858.298). The live run's last
+statement printed only the total row; the file prints one row per order.
+
+### The PR RECAP import ran the same afternoon, on the same transfers
+
+It finished at 07:00, while this file's first dry run was being built, and it
+had allocated 39 of the transfers this file matched to `pr-…` lines ("BALANCE
+PAYMENT HADI GLASS"). The first dry run was refused by its own guard —
+*trx-26-08-26_015 would be allocated twice* — which is the guard doing its
+job. Owner, 2026-09-23: **match the PR and the transaction and make them
+reference each other.** So the order goes onto the request's allocation:
+each request allocation is superseded by row(s) carrying both numbers, split
+in order where one transfer paid several orders. The money is counted once;
+the request, the order and the transfer all name each other. Remainders stay
+honest: Mandiri's 132.000 stays on its request alone, Jawul's 8.000 that the
+recap left out goes to the order alone.
+
+### Where the sheet and the ledger disagree
+
+The ledger won on money every time. None of these was "fixed"; each is here
+so somebody can.
+
+| order | sheet says | ledger says | reading |
+|---|---|---|---|
+| MARTONO 19082026-01 | DP 5.711.850 | 5.505.000 | 30% of the four jasa-jok lines (18.350.000), before the four TAMBAHAN lines were added. Balance is 6.534.500, not 6.327.650 |
+| DUL ROTAN 06102026 | 122 pcs, 54.900.000 | paid 54.630.000 | payments were sized on 120 pcs; **270.000 owed** for the two extra |
+| DUL ROTAN 06302026 | tab 103.175.000, tracker 101.700.000 | 65.510.000 paid | the tab has paku + staples (1.475.000) the tracker does not; **37.665.000 owed** |
+| NURYANTO 15092026-01 | paid 12.900.000, no date, no proof | one transfer, 5.340.000 (powder coating kanopi) | **7.560.000 not in the ledger** — `legacy_map` `refused` |
+| CHYNTIA BOX 08132026 | 725.900 | 724.768 | the owner confirmed the BI-FAST proof on 19/08; 1.132 short |
+| KSA po-26-08-12_01 (old app) | 6.726.639 | 8.670.957 across four lines | **1.944.318 more than the order** — quantities/prices on the invoice differ from the order the app holds |
+| KSA 18092026-01 | 1.883.089 + binder 1.386.771 | binder paid | top coat + blocking (1.883.089) unpaid |
+| URECEL 280826-02 | 2.298.376 | nothing | unpaid |
+| INOCYCLE, ZENCHEN PO 2, ALBERTO, URECEL PO 1 | tab shows unpaid | paid | the sheet was not updated |
+| KUSAIRI, RUBIATI | "balance to pay" 2.550.000 / 525.000 | fully paid | the tab's TOTAL PAID formula stops one row short |
+| PUTRA TAN | tracker: DP 900.000 on 29/04, 13.065.000 on 10/07 | the other way round | the vendor tab and the ledger agree; the tracker swapped them |
+| HADI GLASS | PO1 40/41 pcs, PO2 21/22 pcs | 13.810.000 = PO2 12.680.000 + PO3 850.000 + PO1 280.000 | the vendor tab (41, 21) adds up to what was paid |
+
+### Ledger rows to a PO vendor with no order on the sheet
+
+Left unlinked. Either there was no PO, or its tab was never made.
+
+| transaction | amount | what |
+|---|---:|---|
+| trx-26-07-14_092 | 3.143.986 | CV CYNTHIA BOX — "PO BOX MIRROR AA-04A" |
+| trx-26-08-19_019 | 4.522.000 | ALUMUNIUM MANDIRI — baby island (on pr-26-08-14_01) |
+| trx-26-08-26_022 | 2.040.000 | "MATA BOR — PT ZENITH", the day after ALBERTO's identical 2.040.000 — **possible double payment** |
+| trx-26-07-14_121 | 13.650.000 | KEMIRAN — jasa bubut AA-40A & LT-02 |
+| trx-26-07-10_003 | 3.450.000 | KEMIRAN — lathe services |
+| trx-26-03-30_002 | 39.025.380 | ZHANCHEN — before the sheet begins |
+| trx-26-07-14_128, trx-26-06-18_006 | 3.660.000, 1.180.000 | ZHANCHEN — NC clear |
+| trx-26-08-10_020, trx-26-04-21_007 | 443.766, 1.085.663 | KSA |
+| trx-26-08-31_030, trx-26-08-31_041 | 238.634, 210.312 | ZHANCHEN freight |
+
+### What was deliberately not done
+
+- **Receipts.** The tabs carry delivery dates, quantities and TTB files. A
+  receipt needs a receiver and, to count, a confirmer (0012); naming people
+  who were not asked is the thing this import does not do. Needs a decision:
+  who signs, and whether history is recorded as REPORTED or CONFIRMED.
+- **Approvals.** `approved_*`/`issued_*` are null on all 47 orders; status
+  alone says ISSUED or CLOSED.
+- **Vendor duplicates.** The orders use one row each, but the master still
+  has CYNTHIA BOX ×3 (V-0104, V-0070, V-0086), EFENDI ×3, DUL ROTAN ×2,
+  JAWUL ×2, KUSAIRI ×2, ZHANCHEN / ASIAN NEW MATERIALS ×3, PUTRA TAN ×2,
+  KSA ×2, MARTONO ×2, RUBIATI ×2, MANDIRI / FAHRUDIN ×2. Merging is the
+  owner's call.
+
 ## 2026-09-23 — step 10, and the map repair that preceded it
 
 Applied through the Supabase MCP `execute_sql`, as every run since 2026-09-21

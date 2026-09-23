@@ -38,6 +38,7 @@ Each file ends by printing what it did. Read that, not the exit code.
 | 8 | `transaction_docs` → `ops_core.attachments` + `attachment_links` | 237 | `05_evidence.sql` |
 | 9 | `products` → `ops_prod.products` (+ drawing links) | 27 | `06_products.sql` — needs `0060`–`0066`, `0108`–`0110` — **applied 2026-09-23: 27 products, 27 drawing links** |
 | 10 | corrections to what the import carried faithfully | 2 | `07_corrections.sql` — **applied 2026-09-23** |
+| 11 | PO TRACKER sheet → `ops_procure.purchase_orders` + lines, tied to the ledger through `payment_allocations` | 47 | `08_po_tracker.sql` — **applied 2026-09-23**; see RUNLOG |
 
 ### Step 1 is not an `insert … select`
 
@@ -228,6 +229,7 @@ a commit message cannot be corrected, so the record lives here.
 | `06_products.sql` | **2026-09-23** | 27 products, 27 drawing links |
 | `03_ledger.sql` (again) | **2026-09-23** | 0 imported, **52 map rows repaired** — see below |
 | `07_corrections.sql` | **2026-09-23** | 1 line re-filed, 59 transactions given their vendor |
+| `08_po_tracker.sql` | **2026-09-23** | 47 orders, 114 lines, 86 allocations (42 carry the PR line too), 39 PR allocations superseded, 26 PR lines tied to a PO line, 8 transactions given their vendor, 2 vendors created |
 
 `03_ledger.sql` was run as a **dry run first** — the whole file inside a
 transaction that was rolled back — and the numbers it printed were the numbers
