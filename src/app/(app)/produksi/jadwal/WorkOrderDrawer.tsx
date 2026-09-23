@@ -12,7 +12,7 @@ import { cn } from "@/lib/cn";
 import { procurement, production, hr, inventory } from "@/demo/api";
 import { Combobox } from "@/components/ui/combobox";
 import { STAGE_NAME, attributionOf, ATTRIBUTION_LABEL, VENDOR_PROCESSES, VENDOR_PROCESS_NAME, type WorkOrderView } from "@/services/production/contracts";
-import { UNITS, type UomCode } from "@/services/procurement/contracts";
+import { useUnits } from "@/components/ui/uom-options";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { officeToday } from "@/lib/office";
@@ -71,6 +71,7 @@ export function WorkOrderDrawer({
   /* The vendor leg (D254). Vendors come from procurement, by public id, read
      at the screen because it spans two services (ADR-004). */
   const [vendorList] = useLoad(() => procurement.listVendors(), []);
+  const units = useUnits();
   const vendors = vendorList.status === "ready" ? vendorList.data : [];
   const [vendorId, setVendorId] = useState("");
   const [expectBack, setExpectBack] = useState("");
@@ -181,10 +182,11 @@ export function WorkOrderDrawer({
         return {
           description: l.ref_name ?? l.ref_code,
           qty: l.qty,
-          /* The BOM's unit is free text; a request line's is a closed list.
-             Passing it through only where it matches keeps the request's own
-             vocabulary intact and leaves the rest for a person to pick. */
-          uom: (UNITS as readonly string[]).includes(l.uom) ? (l.uom as UomCode) : null,
+          /* The BOM's unit is free text; a request line's is a unit the
+             database knows (a foreign key). Passing it through only where it
+             matches keeps the request's own vocabulary intact and leaves the
+             rest for a person to pick. */
+          uom: units?.some((u) => u.code === l.uom) ? l.uom : null,
           unit_price: l.subtotal != null && l.qty > 0 ? Math.round(l.subtotal / l.qty) : null,
           purpose: `BOM ${w.wo_no} rev ${needs.data!.rev ?? "—"} — ${w.item_name}${
             w.project_code ? ` · proyek ${w.project_code}` : ""}${via}${

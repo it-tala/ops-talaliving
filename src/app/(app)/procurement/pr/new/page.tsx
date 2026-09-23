@@ -12,9 +12,10 @@ import { useLoad } from "@/components/ui/loaded";
 import { formatIDR, formatNumber } from "@/lib/format";
 import { procurement, production } from "@/demo/api";
 import {
-  UNITS, PR_CATEGORIES, type UomCode, type PrCategory,
+  PR_CATEGORIES, type UomCode, type PrCategory,
 } from "@/services/procurement/contracts";
 import { useToast } from "@/store/toast";
+import { UomOptions } from "@/components/ui/uom-options";
 
 /** Raise a purchase request.
  *
@@ -234,7 +235,7 @@ export default function NewPurchaseRequestPage() {
                       onChange={(e) => patch(l.key, { uom: e.target.value as UomCode })}
                       className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none"
                     >
-                      {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                      <UomOptions current={l.uom} />
                     </select>
                   </div>
                   <div className="col-span-2">

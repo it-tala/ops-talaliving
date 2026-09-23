@@ -17,9 +17,10 @@ import { DocumentPreview } from "@/components/ui/doc-preview";
 import type { EvidenceInboxRow, TransactionTypeCode, Direction, DocumentCoverage } from "@/services/accounting/contracts";
 import type { AttachmentView } from "@/services/documents/contracts";
 import { TRANSACTION_TYPE_CODES } from "@/services/accounting/contracts";
-import { UNITS, type UomCode } from "@/services/procurement/contracts";
+import { type UomCode } from "@/services/procurement/contracts";
 import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
+import { UomOptions } from "@/components/ui/uom-options";
 
 /** The narrow road: documents whose parent is genuinely unknown.
  *
@@ -653,7 +654,7 @@ function ResolvePanel({
                 <label htmlFor="rv-uom" className="block text-xs text-slate-500">Unit</label>
                 <select id="rv-uom" value={uom} onChange={(e) => setUom(e.target.value as UomCode)}
                   className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none">
-                  {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                  <UomOptions current={uom} />
                 </select>
               </div>
             </div>

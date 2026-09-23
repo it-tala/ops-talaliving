@@ -8,14 +8,16 @@
 /* Vocabulary                                                          */
 /* ------------------------------------------------------------------ */
 
-/** 18 units, exactly as the running system spells them. */
-export const UNITS = [
-  "pcs", "buah", "kg", "gr", "meter", "m2", "m3", "cm", "sak",
-  "box", "roll", "set", "pack", "ltr", "lembar", "batang", "unit", "lusin",
-] as const;
-export type UomCode = (typeof UNITS)[number];
+/** A unit's code. **The database is the list**, not this file: `ops_procure.uom`
+ *  holds 33 units in production and is maintained from Master Data → Units, so
+ *  a fixed union here would hide every unit added there from every picker —
+ *  which is what it did, to the 29 items measured in `carton`. A typo cannot
+ *  get through anyway: every column that stores one is a foreign key to
+ *  `uom.code`, so the database refuses an unknown unit by name. */
+export type UomCode = string;
 
-export type UomDimension = "count" | "mass" | "length" | "area" | "volume";
+export type UomDimension = "count" | "mass" | "length" | "area" | "volume" | "time";
+export const UOM_DIMENSIONS: UomDimension[] = ["count", "mass", "length", "area", "volume", "time"];
 export type ItemKind = "goods" | "service";
 
 export const PR_CATEGORIES = [
@@ -106,6 +108,10 @@ export interface Vendor {
   /** false means RECORDED BUT NOT YET CURATED — visible in lists, absent from
    *  dropdowns. A name a human types is always accepted (owner, 2026-08-05). */
   is_curated: boolean;
+  /** Set when somebody took this vendor out of use. Absent from every picker
+   *  and from the default supplier list; every transaction, request and order
+   *  that names it still does. Reversible. */
+  archived_at?: string | null;
   /** The company line. `pic_phone` is the person you actually call. */
   phone: string | null;
   address: string | null;

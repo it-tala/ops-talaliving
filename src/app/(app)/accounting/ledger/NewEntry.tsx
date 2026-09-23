@@ -16,8 +16,9 @@ import {
 import {
   DOC_KINDS, PRIMARY_DOC_KINDS, type DocKind,
 } from "@/services/documents/contracts";
-import { UNITS, type UomCode } from "@/services/procurement/contracts";
+import { type UomCode } from "@/services/procurement/contracts";
 import { useToast } from "@/store/toast";
+import { UomOptions } from "@/components/ui/uom-options";
 
 /** Writing a row into the ledger, with everything a row is supposed to have.
  *
@@ -229,7 +230,7 @@ export function NewEntry({ onClose, onPosted }: { onClose: () => void; onPosted:
                     onChange={(e) => patch(l.key, { uom: e.target.value as UomCode })}
                     className="mt-1 h-8 w-full rounded-lg border border-slate-200 bg-white px-1.5 text-[13px] focus:border-brand-400 focus:outline-none"
                   >
-                    {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                    <UomOptions current={l.uom} />
                   </select>
                 </div>
                 <div className="sm:col-span-3">

@@ -8,9 +8,10 @@ import { Drawer, Modal } from "@/components/ui/drawer";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { formatIDR, formatNumber } from "@/lib/format";
 import { procurement } from "@/demo/api";
-import { UNITS, type ItemView, type UomCode } from "@/services/procurement/contracts";
+import { type ItemView, type UomCode } from "@/services/procurement/contracts";
 import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
+import { UomOptions } from "@/components/ui/uom-options";
 
 /** The purchasing catalogue.
  *
@@ -117,7 +118,7 @@ export default function CatalogPage() {
   return (
     <div>
       <PageHeader
-        breadcrumb="Procurement"
+        breadcrumb="Master Data"
         title="Catalogue"
         description="What we buy. The catalogue grows by itself as things are purchased; deciding what is a real entry stays a human job."
         actions={mayEdit && <Button icon={Plus} onClick={() => setAdding(true)}>Add item</Button>}
@@ -337,7 +338,7 @@ export default function CatalogPage() {
               onChange={(e) => setForm({ ...form, uom: e.target.value as UomCode })}
               className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none"
             >
-              {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+              <UomOptions current={form.uom} />
             </select>
             <p className="mt-1 text-xs text-slate-500">
               Stock is always held in the base unit. Pack sizes convert to it rather than replacing it.
