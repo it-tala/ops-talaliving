@@ -5342,3 +5342,55 @@ right one to do before anybody is given the `hrd` module.
 the work is described.* I had read the function scan, quoted it accurately, and
 never looked at the line below it. The generated list is what turned an
 incorrect plan into a five-minute correction instead of a wrong claim shipped.
+
+## F133 · 2026-09-23 · the first day works on an empty rule book, and the one thing it cannot do is name a working pattern
+
+**The owner chose the app over an import** — eight people, typed in rather than
+carried across, so HRD reads each record instead of inheriting whatever the
+legacy system held. That makes *can somebody actually do this on day one* the
+question, and it was worth walking rather than assuming.
+
+**Walked against a copy of production's state** — `ops_hr.pay_rule_sets` empty,
+so `rules_on()` returns null and there are no schedules anywhere:
+
+| | |
+|---|---|
+| Add an employee, as the form actually posts | **ok** |
+| Add one naming a working pattern | refused, `schedule_unknown` |
+| Set a pattern afterwards | refused, `schedule_unknown` |
+| Mark a day (sakit, tanggal merah) | **ok** |
+| Register a contract, confirm all ten required clauses, activate | **ok** |
+
+**So it is not the blocker I first called it.** `EmployeeDrawer` posts
+`schedule_code: schedule || null` with an empty dropdown, and `save_employee`
+only validates the code when one is given — the roster, the berkas, the marks
+and the contracts all go in. What is empty is the dropdown itself and
+`/hrd/jadwal`. I said it blocked the path the owner had just chosen; it blocks
+one field of it, and the difference matters because the first version would
+have had somebody waiting on work they did not need.
+
+**The one visible consequence, and it is correct.** A contract whose `jam_kerja`
+clause says `KANTOR` against an employee with no pattern reports
+`jam_kerja (kertas: KANTOR / sistem: ∅)` — one conflict on every contract that
+answers that clause. That is the screen doing its job: the paper promises a
+pattern the system does not have. It will read as noise until the rule book
+exists, and the honest response is to create the rule book rather than to
+soften the comparison.
+
+**Why the rule book cannot be filled in through the app yet.**
+`/it/aturan-gaji` is dark on three functions, and they are not the same size.
+`listPayRules` is a read. `savePayRules` is an ordinary insert seam behind
+`it.update`. **`previewPayRules` is not a client function at all**: it costs a
+whole payroll computed under a rule set *that has not been saved*, and
+`payroll_line_for` calls `rules_on(p_from)` inside itself with no way to inject
+a candidate. Opening that screen means giving the payroll body an optional rule
+book — a fourth touch of the two-hundred-line function — not writing three
+wrappers. Estimating it as three wrappers is the mistake this entry exists to
+stop the next person making.
+
+The numbers are not missing: Produksi 07.30–16.30 with 45 minutes' break and 90
+on Friday, Kantor 08.00–17.15 with 60 and 90, and two patterns nobody has
+finished describing (Satpam's twelve hours, ART from 14.00) sit in
+`src/demo/fixtures/payrules.ts`, from the owner's own Q44/Q53 answers. What is
+missing is a road for them into the live project that is not a hand-written
+insert into a table D173 says is written once and never updated.
