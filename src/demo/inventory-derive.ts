@@ -311,6 +311,23 @@ export function stockItems(state: DemoState): StockItemView[] {
   });
 }
 
+/** Which products' BOMs call for an item, each product's **latest** revision
+ *  only — a line dropped in rev 3 is not a reason to keep buying. A BOM line
+ *  names the catalogue item by **code**, across the seam (ADR-004), so this
+ *  matches on the code, not on an id. */
+export function itemUsedIn(state: DemoState, itemCode: string): StockItemDetail["used_in"] {
+  const latest = new Map<string, number>();
+  for (const c of state.bom_components) latest.set(c.product_id, Math.max(latest.get(c.product_id) ?? 0, c.rev));
+  for (const r of state.bom_revisions) latest.set(r.product_id, Math.max(latest.get(r.product_id) ?? 0, r.rev));
+  return state.bom_components
+    .filter((c) => c.kind === "material" && c.ref_code === itemCode && c.rev === latest.get(c.product_id))
+    .map((c) => {
+      const product = state.products.find((p) => p.id === c.product_id);
+      return { product_code: product?.product_code ?? "—", product_name: product?.name ?? "—", qty_per_unit: c.qty };
+    })
+    .sort((a, b) => a.product_code.localeCompare(b.product_code));
+}
+
 export function stockItemDetail(state: DemoState, itemCode: string): StockItemDetail | null {
   const row = stockItems(state).find((r) => r.item_code === itemCode);
   if (!row) return null;
@@ -324,20 +341,7 @@ export function stockItemDetail(state: DemoState, itemCode: string): StockItemDe
      item nothing is made from is a candidate for the skip, and one that four
      products need is not (D170). */
   const item = state.items.find((i) => i.code === itemCode);
-  const used_in = item
-    /* A BOM line names the catalogue item by **code**, across the seam
-       (ADR-004) — so this matches on the code, not on an id. */
-    ? state.bom_components
-      .filter((c) => c.kind === "material" && c.ref_code === itemCode)
-      .map((c) => {
-        const product = state.products.find((p) => p.id === c.product_id);
-        return {
-          product_code: product?.product_code ?? "—",
-          product_name: product?.name ?? "—",
-          qty_per_unit: c.qty,
-        };
-      })
-    : [];
+  const used_in = item ? itemUsedIn(state, itemCode) : [];
 
   /* Asked for and not yet on the rack. Approved lines only: a request nobody
      has said yes to is not stock arriving. */
