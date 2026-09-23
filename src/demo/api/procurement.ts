@@ -2656,7 +2656,12 @@ export async function lineForPosting(lineNo: string): Promise<Result<{
     qty: approval?.approved ? approval.approved_qty ?? line.qty : line.qty,
     uom: line.uom,
     unit_price: line.unit_price,
-    vendor_id: line.vendor_id,
+    /* The line's own supplier, or the order's when the request left it
+       undecided (B11, 0133) — the same fallback as `post_from_line`. */
+    vendor_id: line.vendor_id ?? (() => {
+      const po = state.purchase_orders.find((p) => p.po_no === orderOfLine(state, line.line_no_full));
+      return po?.vendor_id ?? null;
+    })(),
     project_id: doc?.project_id ?? null,
     already_covered: cov.covered,
     removed: !!line.removed_at,

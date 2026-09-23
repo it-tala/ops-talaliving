@@ -257,7 +257,11 @@ export default function PoDetailPage({ params }: { params: Promise<{ po: string 
               </div>
             )}
 
-            {d.revision > d.sent_revision && (
+            {/* Only an order that has gone out can have changed since it
+                went out. The live ladder starts a draft at revision 1 with
+                nothing sent (0011), so without the status check every draft
+                read as *changed since it was sent* (B12, F151). */}
+            {d.status !== "DRAFT" && d.revision > d.sent_revision && (
               /* Amending an issued order does not go back to leadership — the
                  vendor already has it. What it does mean is that the paper in
                  their hand is wrong (D135). */

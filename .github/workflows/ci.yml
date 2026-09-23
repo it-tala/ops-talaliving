@@ -236,6 +236,14 @@ jobs:
       - name: john lau offers nothing he cannot answer
         run: node scripts/check-john-lau.mjs
 
+      # The guide against the screens. `scripts/e2e/walk-procurement.mjs`
+      # presses the real buttons in live mode and commits what it pressed to
+      # `docs/sop/procurement/walk.json`; this refuses a guide that names a
+      # button the walk did not press, or a walk that did not pass. No browser
+      # here — the walk is recorded where one runs, and checked where it lands.
+      - name: john lau's guide matches the recorded walk
+        run: node scripts/sop/check-knowledge.mjs procurement
+
       # B8's import, proved on a fixture legacy system and run **twice**.
       # Idempotence is the property the whole cutover rests on and the one that
       # is never true by accident: an import against a database somebody is

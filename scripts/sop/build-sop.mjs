@@ -54,6 +54,21 @@ const img = (file) => {
 };
 
 const today = new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+
+/* The live walk, when one has been recorded (`scripts/e2e/walk-procurement.mjs`).
+ * Its screenshots are the real screens against the real database, so they are
+ * preferred over the demo's: a step whose button the walk pressed shows the
+ * walk's picture of pressing it. */
+const WALK = join(DIR, "walk.json");
+const walk = existsSync(WALK) ? JSON.parse(readFileSync(WALK, "utf8")) : null;
+function walkShot(processKey, action) {
+  if (!walk) return null;
+  const a = action.toLowerCase();
+  const hit = walk.steps.find((w) => w.ok && w.shot && w.process === processKey && w.button
+    && a.includes(w.button.toLowerCase().split(" rp")[0].replace("…", "").trim()));
+  return hit?.shot ?? null;
+}
+const walkedIn = (key) => walk ? walk.steps.filter((w) => w.process === key && w.ok).length : 0;
 const temuan = faq.filter((f) => f.question.includes("(sementara)"));
 
 const toc = processes.map((p, i) => `<li><span>${i + 1}.</span> ${esc(p.title)}</li>`).join("");
@@ -68,7 +83,7 @@ const body = processes.map((p, i) => {
       <div class="num">${i + 1}</div>
       <div>
         <h2>${esc(p.title)}</h2>
-        <p class="meta">Layar: <code>${esc(p.route)}</code>${p.permission ? ` · Butuh: <code>${esc(p.permission)}</code>` : ""}</p>
+        <p class="meta">Layar: <code>${esc(p.route)}</code>${p.permission ? ` · Butuh: <code>${esc(p.permission)}</code>` : ""}${walkedIn(p.key) ? ` · <span class="proof">diuji lewat layar live: ${walkedIn(p.key)} langkah</span>` : ""}</p>
       </div>
     </header>
     <p class="purpose">${esc(p.purpose)}</p>
@@ -78,7 +93,7 @@ const body = processes.map((p, i) => {
         <div class="act">${quoteButtons(s.action)}</div>
         ${s.rule ? `<div class="rule"><b>Kenapa:</b> ${esc(s.rule)}</div>` : ""}
         ${s.status_before || s.status_after ? `<div class="status">${esc(s.status_before ?? "—")} <span>→</span> ${esc(s.status_after ?? "—")}</div>` : ""}
-        ${img(s.screenshot)}
+        ${img(walkShot(p.key, s.action) ?? s.screenshot)}
       </li>`).join("")}
     </ol>
     ${qs.length ? `<div class="faq"><h3>Tanya-jawab</h3>${qs.map((f) => `<p><b>${esc(f.question)}</b><br>${esc(f.answer)}</p>`).join("")}</div>` : ""}
@@ -127,13 +142,16 @@ const html = `<!doctype html>
   .temuan li { margin-bottom: 3mm; }
   .temuan li b { color: var(--warn); }
   .note { color: var(--muted); font-size: 9pt; }
+  .proof { color: var(--brand); font-weight: 600; }
 </style></head>
 <body>
   <div class="cover">
     <div class="kicker">SOP · OPS TALALIVING</div>
     <h1>Procurement sampai buku besar</h1>
     <p>Cara memakai sistem, langkah demi langkah, dari menambah supplier sampai mencocokkan rekening koran. Setiap langkah di dokumen ini sudah dijalankan dalam simulasi terhadap database yang sama dengan sistem live.</p>
-    <p class="note">Versi ${esc(today)} · dibuat otomatis dari tabel pengetahuan John Lau (<code>ops_asst.processes</code>). Gambar diambil dari mode demo, jadi angkanya contoh.</p>
+    <p class="note">Versi ${esc(today)} · dibuat otomatis dari tabel pengetahuan John Lau (<code>ops_asst.processes</code>).${walk
+      ? ` Gambar diambil dari uji jalan lewat layar live (${walk.steps.filter((w) => w.ok).length} langkah, ${esc(walk.at.slice(0, 10))}) dengan data uji; yang tidak ada di uji jalan diambil dari mode demo.`
+      : " Gambar diambil dari mode demo, jadi angkanya contoh."}</p>
     <ol>${toc}</ol>
   </div>
 

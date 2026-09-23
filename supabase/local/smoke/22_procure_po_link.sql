@@ -221,4 +221,42 @@ begin
     'and the receipt on the superseded line still counts';
 end $$;
 
+-- ── B11: a line whose supplier was decided on the order is paid from its row ──
+set local request.jwt.claim.sub = '22220000-0000-0000-0000-00000000a11d';
+do $$
+declare r jsonb; doc text; ven text := (select v from t_ctx where k='vendor'); att jsonb;
+begin
+  -- No vendor on the request: the room decides it later.
+  r := ops_procure.create_pr(jsonb_build_array(
+        jsonb_build_object('description','Engsel','qty',20,'uom','pcs','unit_price',15000)));
+  doc := r->'data'->>'doc_no';
+  insert into t_ctx values ('doc_b11', doc);
+  perform ops_procure.submit_pr(doc);
+  att := ops_core.attach_url('https://toko.example/engsel', 'engsel');
+  perform ops_core.attach_link((att->'data'->>'attachment_id')::uuid, 'pr_line', doc || '-L01', 'quotation');
+end $$;
+set local request.jwt.claim.sub = '22220000-0000-0000-0000-00000000ce00';
+select ops_procure.approve_line((select v from t_ctx where k='doc_b11') || '-L01', true, null, null, null, null);
+set local request.jwt.claim.sub = '22220000-0000-0000-0000-00000000f11a';
+do $$
+declare r jsonb; doc text := (select v from t_ctx where k='doc_b11'); att uuid := (select v::uuid from t_ctx where k='proof');
+begin
+  r := ops_acct.post_from_line(p_line_no => doc || '-L01', p_amount => 300000,
+        p_account_code => 'BCA 271', p_type_code => 'SUPPLIERS', p_attachment_id => att);
+  assert r->'error'->>'code' = 'vendor_required', format('not ordered and no vendor: still nobody it was bought from, got %s', r);
+end $$;
+set local request.jwt.claim.sub = '22220000-0000-0000-0000-00000000a11d';
+select ops_procure.create_po((select v from t_ctx where k='vendor'), jsonb_build_array(jsonb_build_object(
+  'description','Engsel','qty',20,'uom','pcs','unit_price',15000,'pr_line_no', (select v from t_ctx where k='doc_b11') || '-L01')));
+set local request.jwt.claim.sub = '22220000-0000-0000-0000-00000000f11a';
+do $$
+declare r jsonb; doc text := (select v from t_ctx where k='doc_b11'); att uuid := (select v::uuid from t_ctx where k='proof');
+begin
+  r := ops_acct.post_from_line(p_line_no => doc || '-L01', p_amount => 300000,
+        p_account_code => 'BCA 271', p_type_code => 'SUPPLIERS', p_attachment_id => att, p_trx_date => ops_core.office_day() + 1);
+  assert ops_core.said_ok(r), format('ordered on a PO, so the order names the supplier (B11), got %s', r);
+  assert (select v.name from ops_acct.transactions t join ops_procure.vendors v on v.id = t.vendor_id
+           where t.trx_no = r->'data'->>'trx_no') = 'CV LINK UJI', 'and the ledger row names it';
+end $$;
+
 rollback;

@@ -6120,3 +6120,43 @@ outbox (it is readable by signed-in users), and the worker reads a card
 through one function rather than a table grant, the shape `0038` chose for
 the capture worker.
 
+## F151 · 2026-09-23 · the first walk through the live screens, and what only a browser could find
+
+`scripts/e2e/walk-procurement.mjs` walks the procurement week in a real
+browser, in live mode, against the ladder: PostgREST as a static binary and a
+three-endpoint auth stub (`scripts/e2e/local-stack.mjs`), because the Supabase
+images cannot be pulled from here. The only thing not real is the Drive hop of
+an upload; the walk intercepts it and does the route's database half as the
+signed-in person. 22 steps, three people, from an empty request to a matched
+bank line. Both approval roads are walked: staff ask and Evin confirms;
+Evin writes his own and it is confirmed on creation.
+
+What it found, none of which the SQL walk could have:
+
+- **B11** — *New request* lets a line leave its vendor *not decided yet*, and
+  the order decides it. `post_from_line` read only the line's vendor, so the
+  delivery charge could not be paid from its row. The SQL fixture put a vendor
+  on every line, so it never met the case the form invites.
+- **B12** — every live draft order said *Changed since it was sent*. The
+  ladder starts a draft at revision 1 with nothing sent; the demo at 0/0. The
+  demo is where every screen was built, so nobody had ever seen a live draft.
+- **`config.toml` did not expose `ops_asst` or `ops_mkt`**, both read by the
+  app through PostgREST. The harness exposes every `ops_*` schema and so did
+  not trip on it; reading the file to write the harness is what found it. The
+  hosted project's *Exposed schemas* setting needs the same check.
+- **The guide named a button that does not exist.** *Approve this* is the
+  checkbox column's header; the button is *Approve N · Rp…*. And attaching a
+  price said *dari laci baris* where the drawer asks for a type and a button.
+  `scripts/sop/check-knowledge.mjs` compares the walk's buttons to the guide
+  and refused both on its first run (`0134`).
+
+And one that was not the walk's to find but surfaced while running it:
+`86_acct_cash_plan` compared `office_day()` with `current_date`, so it failed
+every evening between 16:00 and 24:00 UTC, when Makassar is already on the
+next day. The test now uses the office's day, as the system does — the same
+shape as F146, a test asserting against a clock the code does not use.
+
+The walk is recorded where a browser runs and checked where it lands: CI has
+no browser, but it reads the committed `walk.json` against the knowledge the
+migrations write, so a guide that drifts from the screens fails the build.
+
