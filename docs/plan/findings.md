@@ -6086,3 +6086,8 @@ Two smaller things worth keeping:
   says *Rp 0 paid* on an order Rina paid in full. Correct by the policies, and
   probably surprising on a screen; noted, not changed.
 
+B9 was closed the same day by the owner's choice (D298, `0129`): the ledger
+detail of a lump-sum payment is *1 lot × the amount paid*. The walk now runs
+37 steps from an empty database to a matched bank line with **no findings**,
+and L02 — the delivery charge — ends PAID beside L01's COMPLETED.
+

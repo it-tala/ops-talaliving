@@ -354,9 +354,9 @@ begin
     trx || ' — dicatat di baris PR, tetapi PO ikut lunas karena alokasinya menyebut PO-nya.');
 
   -- The delivery charge has no quantity (D75), and SUPPLIERS is a purchase
-  -- type that asks every detail line for one (`line_detail_required`). Logged,
-  -- not asserted away: paying a lump-sum line as a supplier purchase is a road
-  -- the requests board offers and the ledger refuses.
+  -- type that asks every detail line for one. Refused `line_detail_required`
+  -- until 0129 (B9, D298): the ledger detail now says 1 lot at the amount paid.
+  -- Still logged rather than asserted, so a regression reads as a finding.
   r := ops_core.attach_file('sim/bukti-ongkir.jpg','bukti-ongkir.jpg','image/jpeg',90000,null,'upload');
   proof := (r->'data'->>'attachment_id')::uuid;
   r := ops_acct.post_from_line(p_line_no => doc || '-L02', p_amount => 250000,
@@ -364,7 +364,10 @@ begin
   select status::text into st from ops_procure.v_pr_line_status where line_no_full = doc || '-L02';
   perform pg_temp.log('6. Pembayaran','Bayar ongkir (baris tanpa jumlah) dari barisnya, jenis SUPPLIERS','Rina','/procurement/pr',
     'ops_acct.post_from_line', case when ops_core.said_ok(r) then 'OK' else 'TEMUAN' end, 'baris L02: ' || st,
-    case when ops_core.said_ok(r) then null else
+    case when ops_core.said_ok(r) then
+      'Detail buku besar: ' || (select format('%s %s × %s', tl.qty, tl.uom, tl.unit_price)
+        from ops_acct.transaction_lines tl join ops_acct.transactions t on t.id = tl.trx_id
+       where t.trx_no = r->'data'->>'trx_no' limit 1) || ' — baris PR-nya tetap tanpa jumlah.' else
       coalesce(r->'error'->>'code','?') || ' — jenis SUPPLIERS mewajibkan jumlah dan harga satuan di detail, padahal baris jasa lump-sum memang tidak punya jumlah (D75). Layar menawarkan jalan ini, buku besar menolaknya.' end);
 
   select balance into bal_after from ops_acct.v_account_balance where code = 'BCA 271';

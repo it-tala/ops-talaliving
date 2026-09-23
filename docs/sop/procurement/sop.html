@@ -316,7 +316,7 @@
         <figure><img src="07-ledger.jpg" alt=""></figure>
       </li>
     </ol>
-    <div class="faq"><h3>Tanya-jawab</h3><p><b>Siapa yang boleh mencatat pembayaran?</b><br>Hanya keuangan yang memegang wewenang post_ledger, dan selalu dengan bukti transfer.</p></div>
+    <div class="faq"><h3>Tanya-jawab</h3><p><b>Siapa yang boleh mencatat pembayaran?</b><br>Hanya keuangan yang memegang wewenang post_ledger, dan selalu dengan bukti transfer.</p><p><b>Bagaimana membayar baris tanpa jumlah, seperti ongkir atau jasa borongan?</b><br>Sama seperti baris lain: buka lacinya di Procurement → Requests, lalu tekan "Post Rp… to the ledger". Di buku besar, detailnya tercatat sebagai 1 lot × nominal yang dibayar. Baris PR-nya sendiri tetap tanpa jumlah, karena memang tidak pernah dikutip per satuan.</p></div>
     <p class="next">Berikutnya: <b>Melengkapi transaksi di buku besar</b></p>
   </section>
   <section class="proc">
@@ -407,9 +407,5 @@
     
   </section>
 
-  <section class="temuan">
-    <h2>Temuan simulasi — yang belum berjalan sesuai SOP</h2>
-    <p>Simulasi menemukan langkah-langkah berikut yang belum berjalan seperti yang ditulis di atas. Sudah dilaporkan ke IT; sampai diperbaiki, ikuti catatan di bawah.</p>
-    <ol><li><b>Kenapa bayar ongkir ditolak line_detail_required?</b><br>Jenis transaksi pembelian (misalnya SUPPLIERS) mewajibkan jumlah dan harga satuan, sedangkan baris jasa seperti ongkir memang tidak punya jumlah. Sudah dilaporkan ke IT. Sementara: catat di Accounting → Ledger dengan tombol "Post to the ledger" (detail 1 × nominal), lalu di laci transaksinya tekan "Point this money at that line" ke baris ongkir.</li></ol>
-  </section>
+  
 </body></html>

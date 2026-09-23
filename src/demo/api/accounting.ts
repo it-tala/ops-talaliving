@@ -1171,8 +1171,11 @@ export async function postFromLine(
        what price — so the ledger row can be read without opening the PR. */
     draft.transaction_lines.push({
       id: newId("trl"), trx_id: trxId, line_no: 1, item_id: null,
-      description: line.description, qty: line.qty, uom: line.uom as never,
-      unit_price: line.unit_price, amount: input.amount,
+      /* A lump-sum line has no quantity (D75); its payment is described as
+         1 lot at the amount paid, the same as `post_from_line` (0129, D298). */
+      description: line.description,
+      qty: line.qty ?? 1, uom: (line.qty == null ? "lot" : line.uom) as never,
+      unit_price: line.qty == null ? input.amount : line.unit_price, amount: input.amount,
     });
     draft.attachment_links.push({
       id: newId("lnk"), attachment_id: input.attachment_id,
