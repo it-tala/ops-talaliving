@@ -41,6 +41,10 @@ export function MarkDay({
   const [kind, setKind] = useState<DayMarkKind>("holiday");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
+  /* A mark is withdrawn rather than deleted, and a withdrawal with no sentence
+     is refused by the database (C19). */
+  const [undoing, setUndoing] = useState(false);
+  const [undoReason, setUndoReason] = useState("");
 
   async function mark() {
     setBusy(true);
@@ -56,13 +60,14 @@ export function MarkDay({
 
   async function unmark(markId: string) {
     setBusy(true);
-    const res = await hr.unmarkDay(markId);
+    const res = await hr.unmarkDay(markId, undoReason);
     setBusy(false);
     if (res.error) {
       toast(res.error.status === 403 ? "critical" : "warning", "Not removed", res.error.message);
       return;
     }
-    toast("success", "Mark removed", `${date} is back to what the machine recorded.`);
+    setUndoing(false); setUndoReason("");
+    toast("success", "Mark withdrawn", `${date} is back to what the machine recorded.`);
     reload();
     onDone();
   }
@@ -92,10 +97,34 @@ export function MarkDay({
                     Already marked — {DAY_MARK_LABEL[existing.kind]}
                   </p>
                   <p className="mt-0.5 text-[12px] text-violet-900">{existing.reason}</p>
-                  <Button size="sm" variant="ghost" icon={Undo2} className="mt-2" disabled={busy}
-                    onClick={() => unmark(existing.id)}>
-                    Remove this mark
-                  </Button>
+                  {!undoing && (
+                    <Button size="sm" variant="ghost" icon={Undo2} className="mt-2" disabled={busy}
+                      onClick={() => setUndoing(true)}>
+                      Withdraw this mark
+                    </Button>
+                  )}
+                  {undoing && (
+                    <div className="mt-2">
+                      <input
+                        value={undoReason} onChange={(e) => setUndoReason(e.target.value)}
+                        placeholder="Kenapa ditarik — salah tanggal, bukan tanggal merah…"
+                        className="h-9 w-full rounded-lg border border-violet-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                      />
+                      <p className="mt-1 text-[11px] text-violet-800">
+                        Tandanya tetap tercatat. Yang dibaca orang berikutnya adalah alasannya.
+                      </p>
+                      <div className="mt-2 flex justify-end gap-2">
+                        <Button size="sm" variant="ghost" disabled={busy}
+                          onClick={() => { setUndoing(false); setUndoReason(""); }}>
+                          Batal
+                        </Button>
+                        <Button size="sm" icon={Undo2} disabled={busy || !undoReason.trim()}
+                          onClick={() => unmark(existing.id)}>
+                          Withdraw
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <p className="text-[13px] text-slate-600">

@@ -5044,3 +5044,503 @@ The mutation that proves the second reader learned is worth keeping in mind as a
 shape: it withdraws an adjustment and then reads **the same figure from both
 sides**, the run's total and the person's payslip. A test that checked only the
 first would have passed with the payslip still paying money somebody took back.
+
+## F127 · 2026-09-22 · 0048 — a mask over a column the reader can select is a decoration
+
+**What `0048` does.** `enrolments.member_no` holds a BPJS membership number,
+typed off the card because the card is the only place it exists. `v_enrolment`
+returns `member_no_masked` and never the number, with a comment citing D196.
+
+**What the table does.** `enrol_read` is `for select to authenticated using
+(has_permission('hrd.read') or has_permission('payroll.read'))`, over every
+column, and `0040` granted `select on all tables in schema ops_hr`. So:
+
+```sql
+select member_no from ops_hr.enrolments;
+```
+
+answers in full to anybody who can open the screen the mask is on. The masking
+is real in the view and buys nothing, because the view is not the only road to
+the row — it is one projection of a table the same reader may select directly
+through PostgREST.
+
+**Why a view cannot fix it.** Every view in this ladder is `security_invoker =
+on` and `0037` asserts there are exactly two exceptions. An invoker view reads
+with the caller's privileges, so a column the view can read is a column the
+caller can read. The mask can only be enforced where the caller's privileges
+stop, which means one of: a column privilege (`revoke select (col)`), a definer
+function, or a separate table with no policy.
+
+**What `0053` does instead**, for the same rule over a worse secret. The table
+has **no read policy and no select grant at all**, and the only road to a row
+is `employee_documents_of()` — a definer function that asks
+`has_permission('hrd.read')` itself and blanks the number before it leaves the
+database for the five kinds that identify a person. The screen gets the mask,
+the length, and whether the length is what the kind wants, which is enough to
+say *this reading is wrong* without showing a digit. A mutation proves the
+table itself cannot be selected, because without that assertion the whole
+arrangement reduces to `0048`'s.
+
+**The general shape.** *Where a secret is masked decides whether it is masked.*
+A projection that removes a column protects the people who read that
+projection; it protects nothing when the reader can also name the table. With
+PostgREST every table is an endpoint, so "the screen only calls the view" is
+not a property of the system — it is a hope about the client.
+
+**`0048` is not fixed here.** Its enrolment seams are not written yet, and the
+fix is the same shape: no select grant, one definer read. It belongs with those
+seams rather than as a drive-by change to a table whose write road does not
+exist. Until then the exposure is a membership number readable by HR and
+payroll, who are the two roles allowed to see it on the screen anyway — which
+is why this is a finding and not an incident.
+
+## F128 · 2026-09-22 · the parity check was scoped to the export list, so the two clients most likely to have drifted were the two nobody compared
+
+**What it read.** `check-api-parity.mjs` builds a TypeScript probe that assigns
+every real client function to the demo's type of the same name. Which services
+it opens came from `liveServices()` — a regex over the `export * as …` lines in
+`src/lib/api/index.ts`.
+
+That was itself a fix. The list had been four names typed out, and `assistant`
+was written, exported and swapped in without appearing in it, so the one check
+that exists to stop the two clients drifting said `ok` about a module it had
+never opened. Reading a file rather than keeping a list was the right move.
+
+**The wrong file.** `index.ts` is the list of services whose **routes are
+live**, which is a different question from whether their shapes agree. A
+service is exported when there is a database behind it; it is written long
+before. Two modules were in that gap — `marketing`, written and held back
+because `ops_mkt` has no tables in the project, and now `hr`, written and held
+back for the same reason plus an unfinished payroll half.
+
+So the check covered every module that had already been proved in production
+and skipped both of the ones that had never been compared to anything. The day
+either is exported is the day its drift arrives, all at once, on the screens.
+
+**It now reads the directory**: every `src/lib/api/*.ts` with a demo twin. That
+immediately put `hr`'s twenty-one functions under the probe, which found
+exactly one disagreement — `unmarkDay`, where the demo deletes a mark and the
+database withdraws it, so the signature had to grow a reason (C18). One real
+finding on the first run of a widened guard is the usual return.
+
+**The shape worth keeping.** *A guard's scope is a claim about what is at
+risk.* Scoping it to what is already live inverts the claim: the newest,
+least-exercised code is the code most likely to be wrong and the least likely
+to be covered. This is the second time that has happened to this same check —
+the hand-kept list had the same property for the same reason — and both times
+the fix was to widen the scope to *everything of this kind that exists* rather
+than to *everything of this kind that is switched on*.
+
+## F129 · 2026-09-22 · 0058 — a CHECK constraint over a predicate that can return NULL is a constraint that passes
+
+**What was written.** `clause_value_ok(kind, value)` decides whether a clause's
+structured reading has the shape its kind requires — a `gaji_pokok` must carry
+an amount and a unit, a `keterlambatan` must name a mode the rule book also
+uses. It is enforced twice: as a CHECK on `contract_clauses`, and as a refusal
+in the two seams so the caller gets a sentence rather than an exception.
+
+```sql
+select case p_kind
+  when 'gaji_pokok' then
+    (p_value ->> 'amount') ~ '^[0-9]+$' and p_value ->> 'per' in ('month','day','hour')
+  ...
+  else true end
+```
+
+**What it did.** `'{"amount":"180000"}' ->> 'per'` is NULL. `NULL in ('month',
+…)` is NULL. `true and NULL` is NULL. So the function returned NULL, and both
+enforcement points let the row through:
+
+- a CHECK constraint **passes** on NULL — only `false` rejects;
+- `if not ops_hr.clause_value_ok(...) then` never fires, because `not NULL` is
+  NULL and a plpgsql `if` over NULL takes the else branch.
+
+A clause with an amount and no unit was accepted by a function whose entire job
+was to refuse exactly that. The smoke caught it on the first run — the assertion
+read `satuannya belum disebut, got (null)`, and `(null)` was the error code that
+never came.
+
+**The fix is one word**: `coalesce(case … end, false)`. Unknown is not
+permission.
+
+**Why this shape is worth remembering.** SQL's three-valued logic turns a
+missing field into *unknown* rather than *false*, and every enforcement point in
+Postgres treats unknown as permission: CHECK passes, RLS `using` passes the row
+through as invisible rather than refused, `WHERE` drops it. So **the more fields
+a validator reads, the more likely it is that a partly-filled input makes it
+answer NULL** — and a validator whose job is to reject half-filled input is
+precisely the one most exposed to it.
+
+Two habits follow, both cheap. A boolean function used as a guard should be
+total: wrap the body in `coalesce(…, false)` so there is no third answer. And
+the mutation that proves it exists is not *does the rule work* but **does the
+rule still work when the field it reads is absent** — the version of this
+finding's mutation is `coalesce(…, true)`, which is the bug restated, and it is
+now in the suite.
+
+## F130 · 2026-09-22 · the only way to answer a contract clause was to type its JSON, and the two statements of the rule could not see each other
+
+**The screen shipped with a developer's input.** `0058` gives every clause a
+shaped answer — `{"amount":"180000","per":"day"}` for a wage, `{"mode":
+"pro_rata"}` for lateness — and `ops_hr.clause_value_ok` refuses anything else.
+Tahap B built the screen around that, and the field it built was a one-line box
+with the JSON as its placeholder.
+
+That is defensible while a machine is going to fill it in: the reader (tahap C)
+proposes the value, a person reads the sentence beside it and presses
+*Konfirmasi*, and nobody types a brace. Tahap C is now deferred — *sementara
+biar diisi manual saja dulu* — and **the fallback path became the only path**.
+It was never designed to be one. An HRD clerk cannot be asked to know that
+`per` takes `month` and not `bulan`, and the refusal they would get names a
+`check` constraint.
+
+**The deferral is what exposed it, not a bug report.** Nothing was broken. Every
+guard was green, and the screen worked exactly as written for the person who
+wrote it. What changed was which of two paths carries the traffic, and the
+quality of a fallback is invisible until it stops being one.
+
+**Two statements of one rule.** Replacing the box with real fields creates the
+actual risk: the option list now lives in `CLAUSE_FIELDS` (TypeScript) *and* in
+`clause_value_ok` (SQL), and neither can see the other. Both drifts are silent
+and neither is caught by `tsc` — the `Record<ClauseKind, …>` makes the *kinds*
+exhaustive and says nothing about the inside:
+
+- **SQL grows a choice the form lacks.** The choice cannot be picked by anyone,
+  ever. The only symptom is a value that never appears in the data, which reads
+  as *nobody chose it*.
+- **The form offers a choice SQL refuses.** Worse, because it looks like it
+  worked right up to the button.
+
+`scripts/check-clause-fields.mjs` parses both and refuses any disagreement. It
+does not re-implement the rule — the constraint still decides — it only refuses
+the drift. Six mutations, three from each side, all caught naming the kind and
+printing both sides.
+
+**Its first run failed for the wrong reason,** which was worth the ten minutes:
+the parser sliced each field on brace boundaries, and an options list is itself
+made of `{ value, label }` objects, so it read a one-choice field and reported
+six disagreements that did not exist. *A guard that fails on its first run has
+not proved it works — it has proved it fails.* Mutating it afterwards is what
+separated the two.
+
+**The second gap the deferral opened.** `registerContract` existed in both
+clients, passed parity, and **no screen called it**. With a machine in the loop
+that is a gap; with manual entry it means contracts cannot be created at all.
+The chain HRD was promised — register, answer the points, activate — was broken
+at its first link, and nothing could have found that but walking it, because
+every guard in this repo asks whether a function is *correct*, not whether
+anybody can *reach* it.
+
+## F131 · 2026-09-23 · the HR ladder reaches production, and the only tool available made transcription the risk
+
+**What was applied.** `0043`–`0058`, sixteen migrations, 6.058 lines, into the
+live project. `ops_hr` went from **zero tables** to 17 tables, 13 views, 61
+functions and 15 seeded checklist rows. `0064_hr_kpi` was deliberately left
+out: it references `ops_prod.progress_entries`, and `ops_prod` has no tables in
+that project — applying it would have failed, and forcing it would have put a
+broken reference in front of a screen nobody can use yet anyway.
+
+**The environment made the method.** There is no Supabase CLI here and no
+database password, so the only road in was `apply_migration`, which takes SQL
+as a parameter — meaning every one of those 6.058 lines passed through the
+model. **That is not a transcription anybody should trust on assertion.** One
+character changed inside `payroll_line` is a wage that is wrong for somebody
+who cannot argue about it, and it would pass every test in this repo, because
+the tests run against the local cluster and not against production.
+
+So the check was structural rather than hopeful: dump `ops_hr` from both
+databases — every function's `pg_get_functiondef` hashed, every column with its
+type, default and nullability, every view definition, policy expression, index
+definition, enum with its ordering, and every grant to `authenticated` — sort,
+hash the whole thing, compare. **`669dd7fb…` on both sides** once `0064`'s five
+objects are excluded from the local side. Not "it applied without error":
+byte-identical.
+
+**Two checks fired before the real one.** A mid-way comparison at 10 of 16 files
+reported three functions differing — `office_closed`, `read_day`,
+`payroll_line` — and all three are restated by migrations not yet applied at
+that point. A guard that cannot tell *not yet applied* from *transcribed wrong*
+would have stopped the work for nothing. And a query asking which views lacked
+`security_invoker` named all thirteen, because the option stores `on` and the
+query compared against `true`. **Both were my own instruments, not the data**,
+and both would have been reported as findings by anybody who ran them once.
+
+**What the advisors say, characterised rather than repeated.** Neither ERROR
+class touches `ops_hr`. Two warnings do, and both are the project's standing
+posture rather than anything HR introduced:
+
+- **`anon` can execute 26 definer functions** — true of 130 functions across the
+  project, because Postgres grants EXECUTE to PUBLIC. It is **not reachable**:
+  `anon` has no `usage` on the schema, and a call as `anon` is refused by
+  Postgres before any function body runs. Verified, not reasoned.
+- **10 functions with a mutable `search_path`** — all ten are plain invoker
+  helpers (`wita_minutes`, `clause_value_ok`, `doc_kind_of`, …). **Every one of
+  the 26 SECURITY DEFINER functions has its `search_path` pinned**, which is
+  where it would have mattered.
+
+Called as `authenticated` with no rights, `mark_day`, `register_contract`,
+`open_payroll_run` and `reveal_employee_doc_no` all answer `refused`, and both
+reads return nothing. The guards fire in production, not only in smoke.
+
+**The one thing that could not be checked from here, and it is the one with
+precedent.** Whether PostgREST exposes `ops_hr` — Supabase's *Exposed schemas*
+setting — could not be tested: the proxy in this environment refuses HTTPS to
+the project host. That is exactly the failure class of the schema-cache bug that
+hit ~100 client calls at once, and it is why **no route was switched live in
+this session**. Turning screens on before that setting is confirmed is how the
+same bug ships twice.
+
+## F132 · 2026-09-23 · the route flip had a second gate, and the six screens open onto an empty roster
+
+**What I told the owner it would take.** *Export `hr` from `src/lib/api/index.ts`,
+run `check-live-routes --write`, and the six screens open.* Both halves of that
+were done and **`LIVE_ROUTES` did not change by one line**.
+
+**The gate I had not read.** `check-live-routes.mjs` decides with
+`missing.length === 0 && unimplemented.length === 0 && LIVE_MODULES.includes(mod)`.
+The function scan is the half everybody talks about; `LIVE_MODULES` is a second,
+coarser gate with its own reason written beside it — *a screen that happens to
+call no service at all is not therefore live*. `/inventory/papan` calls nothing
+and is still an inventory screen. Being live has to mean **this module is open
+for business**, not *this file compiled*.
+
+So the export was necessary and not sufficient, and the guard's answer to a
+half-done job was to keep all six dark rather than open them. That is the guard
+working. What was wrong was my description of the work, stated confidently to
+the owner one message earlier — and the thing that made it cheap was that the
+list is **generated and diffed** rather than hand-edited: the mistake showed up
+as *nothing changed*, which is unmissable, instead of as six routes I had typed
+in myself and would have believed.
+
+**What opened, and what the scan held back on its own.** Six of fourteen:
+`/hrd/karyawan`, `/hrd/berkas-201`, `/hrd/absensi`, `/hrd/jadwal`,
+`/hrd/kontrak`, `/hrd/kontrak/[no]`. Payroll's four, `/hrd/lembur`,
+`/hrd/iuran`, `/hrd/kinerja`, `/hrd/cuti` and `/it/aturan-gaji` stayed dark
+because 33 functions are unwritten — no list of mine decided that, and adding
+`hrd` to `LIVE_MODULES` could not have forced them open.
+
+**And now the part nothing in the repo guards.** `ops_hr.employees` has **zero
+rows**, and `supabase/import/` has no HR stage — grep it for `ops_hr` and there
+is nothing. So the screens that just went live read empty tables, which is
+precisely the failure `live.ts`'s own header names:
+
+> it throws, or worse, renders an empty table that reads as *this business has
+> no employees*.
+
+Two things keep that from being a live incident rather than a note. Only
+`shared` and `superadmin` hold the `hrd` module, so no HRD clerk can open the
+screens yet; and these screens are themselves the way data gets in —
+`saveEmployee`, `file_employee_document`, `register_contract` are all reachable
+from them. An empty roster on the first day of a cutover is the expected state.
+
+**The data is there to import.** The legacy `hr` schema in the same project has
+**8 employees and 7 salary rows**. That is an `04_hr.sql` in `supabase/import/`
+with the idempotence the other three stages have — not a large job, and the
+right one to do before anybody is given the `hrd` module.
+
+**The shape worth keeping.** *A guard with two gates needs both named wherever
+the work is described.* I had read the function scan, quoted it accurately, and
+never looked at the line below it. The generated list is what turned an
+incorrect plan into a five-minute correction instead of a wrong claim shipped.
+
+## F133 · 2026-09-23 · the first day works on an empty rule book, and the one thing it cannot do is name a working pattern
+
+**The owner chose the app over an import** — eight people, typed in rather than
+carried across, so HRD reads each record instead of inheriting whatever the
+legacy system held. That makes *can somebody actually do this on day one* the
+question, and it was worth walking rather than assuming.
+
+**Walked against a copy of production's state** — `ops_hr.pay_rule_sets` empty,
+so `rules_on()` returns null and there are no schedules anywhere:
+
+| | |
+|---|---|
+| Add an employee, as the form actually posts | **ok** |
+| Add one naming a working pattern | refused, `schedule_unknown` |
+| Set a pattern afterwards | refused, `schedule_unknown` |
+| Mark a day (sakit, tanggal merah) | **ok** |
+| Register a contract, confirm all ten required clauses, activate | **ok** |
+
+**So it is not the blocker I first called it.** `EmployeeDrawer` posts
+`schedule_code: schedule || null` with an empty dropdown, and `save_employee`
+only validates the code when one is given — the roster, the berkas, the marks
+and the contracts all go in. What is empty is the dropdown itself and
+`/hrd/jadwal`. I said it blocked the path the owner had just chosen; it blocks
+one field of it, and the difference matters because the first version would
+have had somebody waiting on work they did not need.
+
+**The one visible consequence, and it is correct.** A contract whose `jam_kerja`
+clause says `KANTOR` against an employee with no pattern reports
+`jam_kerja (kertas: KANTOR / sistem: ∅)` — one conflict on every contract that
+answers that clause. That is the screen doing its job: the paper promises a
+pattern the system does not have. It will read as noise until the rule book
+exists, and the honest response is to create the rule book rather than to
+soften the comparison.
+
+**Why the rule book cannot be filled in through the app yet.**
+`/it/aturan-gaji` is dark on three functions, and they are not the same size.
+`listPayRules` is a read. `savePayRules` is an ordinary insert seam behind
+`it.update`. **`previewPayRules` is not a client function at all**: it costs a
+whole payroll computed under a rule set *that has not been saved*, and
+`payroll_line_for` calls `rules_on(p_from)` inside itself with no way to inject
+a candidate. Opening that screen means giving the payroll body an optional rule
+book — a fourth touch of the two-hundred-line function — not writing three
+wrappers. Estimating it as three wrappers is the mistake this entry exists to
+stop the next person making.
+
+The numbers are not missing: Produksi 07.30–16.30 with 45 minutes' break and 90
+on Friday, Kantor 08.00–17.15 with 60 and 90, and two patterns nobody has
+finished describing (Satpam's twelve hours, ART from 14.00) sit in
+`src/demo/fixtures/payrules.ts`, from the owner's own Q44/Q53 answers. What is
+missing is a road for them into the live project that is not a hand-written
+insert into a table D173 says is written once and never updated.
+
+## F134 · 2026-09-23 · three guards in the ladder were each refusing a decision the log had already taken
+
+**The ask.** Open `/it/aturan-gaji` so the business can publish its own pay
+scheme — *kita mungkin punya skema baru bulan ini tapi menunggu skema baru
+rilis itu bodoh*. Conditional on one thing: that it can then be **changed
+easily** from the app.
+
+**The first thing to say back is that a version is never edited.** `pay_rule_sets`
+is written once (D173), so "changing" the scheme means publishing the next
+version. That is better than what was asked for — last month stays computable
+under last month's book — but it makes one question load-bearing: *can a
+version that turns out wrong be corrected?*
+
+**Three guards said no, and a recorded decision said yes.** D270, from
+2026-09-13, is explicit: *the new version is dated to the day v3 began, not to
+today*, because the workshop always started at 07.30 and dating the fix from
+today *would have the system assert something false about September*. Against
+that:
+
+- `pay_rule_sets.effective_from` was **`unique`** (`0043`) — the second version
+  on a date could never be written at all;
+- `pay_rules_not_backdated` refused any date before today (`0043`, tightened in
+  `0047`);
+- and the demo seam refused `effective_from <= latest`.
+
+So `rules_on`'s `order by effective_from desc, version desc` — a tie-break
+whose own comment cites D270 — **was a branch that could not fire**, and the
+demo's fixture carrying v3 and v4 on `2026-09-01` was data no seam could have
+produced. Three independent guards, each individually reasonable, collectively
+refusing something the log had settled ten days earlier.
+
+**What D270 actually conditions on is money, and money is checkable.** The
+decision names it: *what makes the backdating safe is `late_mode: "manual"` —
+not one rupiah has ever been computed from this rule*. That is not a statement
+about the calendar, and the calendar was the wrong thing to guard. The rule now
+is: a version may take effect on or before today only while **no run that has
+left DRAFT covers any day from that date onward**. APPROVED is somebody's
+signature; PAID is money that moved. A DRAFT run has paid nobody. The
+mid-period refusal from `0047` is untouched and keeps its own separate reason.
+
+**Two gaps found only by walking the screen's actual caller.** `/it/aturan-gaji`
+is reached with `it.update` (`src/lib/nav.ts`), and `0043`'s read policy admits
+only `hrd.read` or `payroll.read` — **the one role D173 puts in charge of the
+rule book could not read it**. And a preview walks every employee's timesheet
+under RLS, so an IT user would have previewed an empty company; it is
+`security definer` and asks for `it.update` itself.
+
+**The preview, and the copy that was not made.** A preview is the whole payroll
+computed twice, the second time under a book that has not been saved, and
+`payroll_line_for` calls `rules_on(p_from)` inside itself. The obvious answer
+is a fourth copy of that two-hundred-line body taking an extra argument. F126's
+rule — what a field costs is how much code must be re-emitted to carry it —
+pointed the other way: restate `rules_on`, which is nine lines, and let it read
+a transaction-local setting that exactly one function sets. Action at a
+distance is a real cost and it is named in one place; two hundred lines copied
+a fourth time is a cost that never stops being paid. The smoke asserts the
+setting is gone afterwards, because a preview that forgets to clear it turns
+every later read in that transaction into a lie nobody would see.
+
+Ten mutations, ten caught — including the two that matter most here: restoring
+the unique constraint (the D270 correction stops working) and dropping the
+`version` tie-break (`rules_on` picks the version being corrected).
+
+## F135 · 2026-09-23 · a trigger that reads a table under the caller's RLS cannot guard against what the caller cannot see
+
+**Found by a test failing for the wrong reason, twice.** `40_hr` was updated to
+assert the new rule — a version may reach back only while no signed run covers
+those days — and it kept reporting *should be refused*. The guard was right;
+a probe inside the file showed why:
+
+    PROBE runs non-draft: 0, current_role: authenticated
+
+Zero. The row was there. **`pay_rules_not_backdated` is a plain trigger
+function**, so its `select … from ops_hr.payroll_runs` runs under the writer's
+RLS — and the writer is IT, who holds `it.update` and none of payroll's
+permissions. The guard looked at an empty table and waved the insert through.
+
+**The seam never noticed, which is why it survived review.** `save_pay_rules`
+is `security definer` and reads every run, so every path through the screen is
+protected and every test through the seam passes. What is unguarded is the
+**direct write**: `0043` grants `insert` on `pay_rule_sets` to `authenticated`
+under an `it.update` policy, so the same person can `POST /rest/v1/pay_rule_sets`
+and put a back-dated version under a signed payroll run with nothing in the way.
+
+**And it is older than today's work.** `0047`'s mid-period check — *a version
+lands between periods, never inside one* — reads `payroll_runs` from the same
+trigger and has been blind in the same way since it was written. It has never
+refused anything for anybody without `payroll.read`, and nothing said so,
+because the only tests that exercise it come through a definer seam.
+
+The fix is one word, `security definer` on the trigger, and it is worth the
+paragraph beside it: a trigger is the last line, reached when the seam is
+bypassed, and a last line that inherits the bypasser's blindness is decoration.
+
+**What made it visible.** Not review — the code reads correctly, and it passed
+ten mutations through the seam. It was a test written against a *different
+caller* than the seam uses. The shape to keep: **a guard is only proved by the
+weakest caller that can reach the thing it guards**, and for a table with a
+direct grant that is never the seam.
+
+Eleven mutations now, eleven caught — the eleventh reverts the trigger to an
+invoker and `40_hr` goes red.
+
+## F136 · 2026-09-23 · the chain HRD was promised works; what was missing was the sentence at the end of the row
+
+**The ask narrowed to what matters**: HRD enters a name, a working pattern and
+attendance, and the system says **how many hours and how many days**. Payroll
+later.
+
+**Walked it as the real roles before building anything**, against an empty rule
+book and an empty roster — IT publishes the book through `0059`, HRD adds
+Karjo on the PRODUKSI pattern, a biometric file imports eight taps:
+
+    1 IT terbitkan buku aturan     : ok
+    2 HRD tambah karyawan+jadwal   : ok
+    3 jadwal di /hrd/jadwal        : 2 pola, 0 orang belum tertaut
+    4 impor absensi                : ok · masuk 8 · tak dikenal []
+    5 TOTAL                        : 16.58 jam · 2 hari · 2 hari lengkap
+
+So the chain was already whole and the data was already there. `/hrd/absensi`
+drew every cell and totalled nothing — the question a person asks *first* was
+the one the screen could not answer, and no amount of looking at the migration
+list would have shown that. Walking it did.
+
+**Where the sum belongs.** Adding up rows the client already holds looks like
+assembly, and `0057` had already refused that reasoning for payroll totals in
+words that apply unchanged: *two implementations doing that arithmetic are two
+chances to round it differently*. Hours are a number people carry into a
+conversation about wages. `ops_hr.timesheet_totals` counts once.
+
+**What makes a total honest is the counter beside it.** A period with four
+unread days has a total that is certainly too small, and a number that is too
+small with nothing next to it is a number people believe. So the function does
+not return one figure: it returns days complete, unread, marked and empty, and
+the screen prints *16,58 jam · 2 hari · 4 belum dibaca* in the row itself.
+
+**Two things the mutations found.** A fixture bug that looks exactly like a
+product bug: `generate_series` over two `date`s yields **timestamptz**, so
+`at time zone 'Asia/Makassar'` ran the other way — reading the wall clock
+instead of setting it — and every tap moved eight hours, making clean days read
+as unread. The code was right; my test was lying, and it was lying in the
+direction that would have had me "fixing" `read_day`.
+
+And one mutation **survived**: deleting `round(sum(...), 2)` changed nothing.
+It was right to survive — every day already leaves `span_hours` at two decimals
+and `day_value` is only ever 0, 0.5 or 1, so a `numeric` sum is exact and the
+rounding never moved a digit. It was removed rather than left: a guard that
+cannot fail is one nobody has tested, and dead code that looks like care is
+worse than none.
