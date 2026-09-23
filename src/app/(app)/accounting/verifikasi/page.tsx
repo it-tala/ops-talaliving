@@ -1,5 +1,6 @@
 "use client";
 
+import { TypeOptions } from "@/components/ui/type-options";
 import { useEffect, useState } from "react";
 import {
   Inbox, FileText, Receipt, Undo2, Link2, StickyNote, XCircle, AlertTriangle, Check,
@@ -16,7 +17,6 @@ import { accounting, documents, procurement } from "@/demo/api";
 import { DocumentPreview } from "@/components/ui/doc-preview";
 import type { EvidenceInboxRow, TransactionTypeCode, Direction, DocumentCoverage } from "@/services/accounting/contracts";
 import type { AttachmentView } from "@/services/documents/contracts";
-import { TRANSACTION_TYPE_CODES } from "@/services/accounting/contracts";
 import { type UomCode } from "@/services/procurement/contracts";
 import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
@@ -396,7 +396,7 @@ function ResolvePanel({
   const [trxNo, setTrxNo] = useState("");
   const [reason, setReason] = useState("");
 
-  const accountRows = accounts.status === "ready" ? accounts.data : [];
+  const accountRows = accounts.status === "ready" ? accounts.data.filter((a) => a.is_active !== false) : [];
 
   /* The reading proposed a vendor; the form offers it rather than making
      somebody retype a name that is already on the screen. Still a proposal:
@@ -621,7 +621,7 @@ function ResolvePanel({
               <label htmlFor="rv-type" className="block text-xs text-slate-500">Type</label>
               <select id="rv-type" value={typeCode} onChange={(e) => setTypeCode(e.target.value as TransactionTypeCode)}
                 className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none">
-                {TRANSACTION_TYPE_CODES.map((c) => <option key={c} value={c}>{c}</option>)}
+                <TypeOptions current={typeCode} />
               </select>
             </div>
             <div className="sm:col-span-2">

@@ -1,5 +1,6 @@
 "use client";
 
+import { TypeOptions } from "@/components/ui/type-options";
 import { useEffect, useRef, useState } from "react";
 import { Banknote, Upload, Link2 } from "lucide-react";
 import { Button } from "@/components/ui/primitives";
@@ -8,7 +9,7 @@ import { formatIDR } from "@/lib/format";
 import { accounting, documents } from "@/demo/api";
 import type { PrLineView } from "@/services/procurement/contracts";
 import {
-  TRANSACTION_TYPE_CODES, type AccountBalance, type TransactionTypeCode,
+  type AccountBalance, type TransactionTypeCode,
 } from "@/services/accounting/contracts";
 import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
@@ -52,7 +53,7 @@ export function PayFromLine({
     if (!mayPost) return;
     void accounting.listAccounts().then((r) => {
       if (!r.data) return;
-      const paying = r.data.filter((a) => a.is_paying);
+      const paying = r.data.filter((a) => a.is_paying && a.is_active !== false);
       setAccounts(paying);
       setAccountId((cur) => cur || paying[0]?.account_id || "");
     });
@@ -140,7 +141,7 @@ export function PayFromLine({
             onChange={(e) => setType(e.target.value as TransactionTypeCode)}
             className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none"
           >
-            {TRANSACTION_TYPE_CODES.map((t) => <option key={t} value={t}>{t}</option>)}
+            <TypeOptions current={type} />
           </select>
         </div>
       </div>

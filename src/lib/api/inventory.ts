@@ -22,6 +22,7 @@ import type {
   StockLocation, StockMove, StockMoveView, StockItemView, StockItemDetail,
   LogMeasure, LogPiece, LogPieceView, SawnBoard, SawnBoardView, LogPurchaseView,
   TimberVendorSummary, BoardStockView, BoardMoveView, BoardMoveKind, NotaScan,
+  AssetView, AssetCategory, AssetStatus, AssetInput,
 } from "@/services/inventory/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fail, fromRows, fromSeam, invalid, noop, notFound, ok, conflict, type Result } from "./_kit";
@@ -915,4 +916,187 @@ export async function moveBoards(
   const res = fromSeam(SERVICE, data, error);
   if (res.error) return res;
   return listBoardStock();
+}
+
+
+/* ------------------------------------------------------------------ */
+/* The asset register (0107)                                           */
+/* ------------------------------------------------------------------ */
+
+/** `src/demo/state.ts`'s `AuditRow`, restated rather than imported — this
+ *  module does not depend on the demo (see `src/lib/api/accounting.ts`). */
+interface AuditRow {
+  id: string;
+  at: string;
+  actor_id: string;
+  actor_email: string;
+  service: string;
+  entity: string;
+  entity_no: string;
+  action: string;
+  outcome: "ok" | "refused" | "duplicate" | "noop";
+  reason: string | null;
+  detail?: Record<string, unknown> | null;
+}
+
+/** `numeric` and `bigint` arrive as strings or numbers; the contract says number. */
+function toAssetView(r: Record<string, unknown>): AssetView {
+  return {
+    ...(r as unknown as AssetView),
+    purchase_cost: r.purchase_cost == null ? null : Number(r.purchase_cost),
+    rent_amount: r.rent_amount == null ? null : Number(r.rent_amount),
+    document_count: Number(r.document_count ?? 0),
+    rent_lines: Number(r.rent_lines ?? 0),
+  };
+}
+
+/** The register, newest tag first. Gone assets (disposed, lost, returned) are
+ *  left out unless asked for. */
+export async function listAssets(
+  opts: { q?: string; category?: string; status?: AssetStatus; include_gone?: boolean } = {},
+): Promise<Result<AssetView[]>> {
+  let q = db().from("v_asset").select("*");
+  if (!opts.include_gone && !opts.status) q = q.not("status", "in", "(disposed,lost,returned)");
+  if (opts.status) q = q.eq("status", opts.status);
+  if (opts.category) q = q.eq("category_code", opts.category);
+  if (opts.q) {
+    /* Quoted, so a comma or bracket typed into the box is search text, not
+       PostgREST filter syntax. */
+    const needle = `"%${opts.q.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}%"`;
+    q = q.or(["asset_no", "name", "brand", "model", "identifier", "location", "holder"]
+      .map((c) => `${c}.ilike.${needle}`).join(","));
+  }
+  const { data, error } = await q.order("asset_no", { ascending: false });
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, (data ?? []).map((r) => toAssetView(r as Record<string, unknown>)));
+}
+
+export async function getAsset(assetNo: string): Promise<Result<AssetView>> {
+  const { data, error } = await db().from("v_asset").select("*").eq("asset_no", assetNo).maybeSingle();
+  if (error) return fail(SERVICE, error);
+  if (!data) return notFound(SERVICE, "asset_not_found", "No such asset.");
+  return ok(SERVICE, toAssetView(data as Record<string, unknown>));
+}
+
+export async function createAsset(
+  input: AssetInput & { name: string; category_code: string; status?: AssetStatus },
+  idempotencyKey?: string,
+): Promise<Result<AssetView>> {
+  const { data, error } = await db().rpc("create_asset", {
+    p_name: input.name,
+    p_category_code: input.category_code,
+    p_brand: input.brand ?? null,
+    p_model: input.model ?? null,
+    p_identifier: input.identifier ?? null,
+    p_location: input.location ?? null,
+    p_holder: input.holder ?? null,
+    p_status: input.status ?? "in_use",
+    p_acquired_on: input.acquired_on ?? null,
+    p_purchase_cost: input.purchase_cost ?? null,
+    p_vendor_code: input.vendor_code ?? null,
+    p_trx_no: input.trx_no ?? null,
+    p_warranty_until: input.warranty_until ?? null,
+    p_notes: input.notes ?? null,
+    p_key: idempotencyKey ?? null,
+    p_ownership: input.ownership ?? null,
+    p_rent_amount: input.rent_amount ?? null,
+    p_rent_period: input.rent_period ?? null,
+    p_rent_due_day: input.rent_due_day ?? null,
+    p_contract_start: input.contract_start ?? null,
+    p_contract_end: input.contract_end ?? null,
+  });
+  const res = fromSeam<{ asset_no: string }>(SERVICE, data, error);
+  if (res.error) return res;
+  return getAsset(res.data.asset_no);
+}
+
+/** Leave a field out to keep it; `""` clears a text field, `null` a date or
+ *  number — sent to the seam as `p_clear`, so leaving a field out can never
+ *  wipe it. */
+export async function updateAsset(assetNo: string, input: AssetInput): Promise<Result<AssetView>> {
+  const clear = ([
+    "acquired_on", "purchase_cost", "warranty_until",
+    "rent_amount", "rent_period", "rent_due_day", "contract_start", "contract_end",
+  ] as const)
+    .filter((k) => k in input && input[k] === null);
+  const { data, error } = await db().rpc("update_asset", {
+    p_asset_no: assetNo,
+    p_name: input.name ?? null,
+    p_category_code: input.category_code ?? null,
+    p_brand: input.brand ?? null,
+    p_model: input.model ?? null,
+    p_identifier: input.identifier ?? null,
+    p_location: input.location ?? null,
+    p_holder: input.holder ?? null,
+    p_acquired_on: input.acquired_on ?? null,
+    p_purchase_cost: input.purchase_cost ?? null,
+    p_vendor_code: input.vendor_code ?? null,
+    p_trx_no: input.trx_no ?? null,
+    p_warranty_until: input.warranty_until ?? null,
+    p_notes: input.notes ?? null,
+    p_clear: clear,
+    p_ownership: input.ownership ?? null,
+    p_rent_amount: input.rent_amount ?? null,
+    p_rent_period: input.rent_period ?? null,
+    p_rent_due_day: input.rent_due_day ?? null,
+    p_contract_start: input.contract_start ?? null,
+    p_contract_end: input.contract_end ?? null,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return getAsset(assetNo);
+}
+
+export async function setAssetStatus(
+  assetNo: string, status: AssetStatus, note?: string,
+): Promise<Result<AssetView>> {
+  const { data, error } = await db().rpc("set_asset_status", {
+    p_asset_no: assetNo, p_status: status, p_note: note ?? null,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return getAsset(assetNo);
+}
+
+export async function deleteAsset(assetNo: string): Promise<Result<{ asset_no: string; deleted: true }>> {
+  const { data, error } = await db().rpc("delete_asset", { p_asset_no: assetNo });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, { asset_no: assetNo, deleted: true as const });
+}
+
+/** The asset's own edits and status changes, and documents put on or taken
+ *  off it (`0101` files those as `attachment` under the asset's tag). */
+export async function assetHistory(assetNo: string): Promise<Result<AuditRow[]>> {
+  const { data, error } = await core().from("v_audit").select("*")
+    .in("entity", ["asset", "attachment"]).eq("entity_no", assetNo)
+    .order("at", { ascending: false });
+  return fromRows<AuditRow[]>(SERVICE, data as AuditRow[], error);
+}
+
+export async function listAssetCategories(): Promise<Result<AssetCategory[]>> {
+  const { data, error } = await db().from("asset_categories").select("*").order("name");
+  return fromRows<AssetCategory[]>(SERVICE, data as AssetCategory[], error);
+}
+
+export async function saveAssetCategory(
+  input: { code: string; name: string; description?: string; is_active?: boolean },
+): Promise<Result<AssetCategory>> {
+  const { data, error } = await db().rpc("save_asset_category", {
+    p_code: input.code, p_name: input.name,
+    p_description: input.description ?? null, p_is_active: input.is_active ?? null,
+  });
+  const res = fromSeam<{ code: string }>(SERVICE, data, error);
+  if (res.error) return res;
+  const { data: row, error: e2 } = await db().from("asset_categories").select("*").eq("code", res.data.code).maybeSingle();
+  if (e2) return fail(SERVICE, e2);
+  if (!row) return notFound(SERVICE, "category_not_found", "No such category.");
+  return ok(SERVICE, row as AssetCategory);
+}
+
+export async function deleteAssetCategory(code: string): Promise<Result<{ code: string; deleted: true }>> {
+  const { data, error } = await db().rpc("delete_asset_category", { p_code: code });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, { code, deleted: true as const });
 }

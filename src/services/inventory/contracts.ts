@@ -476,3 +476,122 @@ export interface StockItemDetail extends StockItemView {
   /** Requests raised for it that have not been received yet. */
   on_order: { pr_line_no: string; qty: number; need_by: string | null }[];
 }
+
+/* ------------------------------------------------------------------ */
+/* The asset register (0107) — what the company owns and uses rather   */
+/* than sells or builds from: CCTV, PCs, vehicles, tools.              */
+/* ------------------------------------------------------------------ */
+
+export type AssetStatus = "in_use" | "in_storage" | "under_repair" | "disposed" | "lost" | "returned";
+
+/** Whose it is (`0116`). Anything not owned ends by going back — `returned`. */
+export type AssetOwnership = "owned" | "rented" | "leased" | "borrowed";
+
+export const ASSET_OWNERSHIP_LABEL: Record<AssetOwnership, string> = {
+  owned: "Owned",
+  rented: "Rented",
+  leased: "Leased",
+  borrowed: "Borrowed",
+};
+
+export type RentPeriod = "monthly" | "yearly" | "upfront";
+
+export const RENT_PERIOD_LABEL: Record<RentPeriod, string> = {
+  monthly: "per month",
+  yearly: "per year",
+  upfront: "once, up front",
+};
+
+/** The statuses an asset leaves the register by. */
+export const ASSET_GONE: readonly AssetStatus[] = ["disposed", "lost", "returned"];
+
+export const ASSET_STATUS_LABEL: Record<AssetStatus, string> = {
+  in_use: "In use",
+  in_storage: "In storage",
+  under_repair: "Under repair",
+  disposed: "Disposed",
+  lost: "Lost",
+  returned: "Returned",
+};
+
+/** Master data: what kind of thing it is. Retired categories stay on their
+ *  assets and leave the pickers. */
+export interface AssetCategory {
+  code: string;
+  name: string;
+  description: string | null;
+  is_active: boolean;
+}
+
+export interface Asset {
+  id: string;
+  /** The tag on the sticker — `AST-0001`. */
+  asset_no: string;
+  name: string;
+  category_code: string;
+  brand: string | null;
+  model: string | null;
+  /** Serial number, IMEI, or a vehicle's plate. */
+  identifier: string | null;
+  location: string | null;
+  /** Who has it, as people say it — not necessarily somebody with a login. */
+  holder: string | null;
+  status: AssetStatus;
+  acquired_on: string | null;
+  purchase_cost: number | null;
+  /** The supplier, by public code (ADR-004). */
+  vendor_code: string | null;
+  /** The ledger row that paid for it, by public code. */
+  trx_no: string | null;
+  warranty_until: string | null;
+  notes: string | null;
+  /** When it was disposed of, lost or returned. */
+  ended_on: string | null;
+  ownership: AssetOwnership;
+  /** Per `rent_period`. For a rented thing `vendor_code` is the lessor. */
+  rent_amount: number | null;
+  rent_period: RentPeriod | null;
+  /** Day of the month monthly rent falls due; the contract's start day when unset. */
+  rent_due_day: number | null;
+  contract_start: string | null;
+  contract_end: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssetView extends Asset {
+  category_name: string;
+  vendor_name: string | null;
+  document_count: number;
+  warranty_expired: boolean;
+  /** Not owned, still here, and the contract ends within thirty days. */
+  contract_ending: boolean;
+  /** Not owned, still here, and the contract has already ended. */
+  contract_expired: boolean;
+  /** Payment-calendar lines made from this asset's rent. */
+  rent_lines: number;
+}
+
+/** Everything an asset form can set. Leave a field out to keep it; `""`
+ *  clears a text field and `null` clears a date or number. */
+export interface AssetInput {
+  name?: string;
+  category_code?: string;
+  brand?: string;
+  model?: string;
+  identifier?: string;
+  location?: string;
+  holder?: string;
+  acquired_on?: string | null;
+  purchase_cost?: number | null;
+  vendor_code?: string;
+  trx_no?: string;
+  warranty_until?: string | null;
+  notes?: string;
+  ownership?: AssetOwnership;
+  rent_amount?: number | null;
+  rent_period?: RentPeriod | null;
+  rent_due_day?: number | null;
+  contract_start?: string | null;
+  contract_end?: string | null;
+}

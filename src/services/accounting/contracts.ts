@@ -4,39 +4,20 @@
 /* Vocabulary — copied verbatim. Do not tidy the spelling.             */
 /* ------------------------------------------------------------------ */
 
-/** The five accounts, spelled exactly as production spells them. */
-export const ACCOUNT_CODES = [
-  "PETTY CASH",
-  "BNI 325",
-  "BCA 271",
-  "JAGO",
-  "BCA 064",
-  "BCA USD 081",
-] as const;
-export type AccountCode = (typeof ACCOUNT_CODES)[number];
+/** An account's code — what everybody in the building calls it ("BCA 271").
+ *  Read from `ops_acct.accounts`, maintained on Master Data › Accounts
+ *  (`0105`); it used to be a hard-coded list here. */
+export type AccountCode = string;
 
 /** Accounting holds three and they pay vendors; leadership holds two and they
  *  never pay a vendor directly — money only enters them via a statement. */
 export type AccountCustody = "accounting" | "leadership";
 
-/** Thirteen types. `RECCURING` keeps its doubled C: it is the value in the
- *  data, and correcting the spelling here would simply fail to match. */
-export const TRANSACTION_TYPE_CODES = [
-  "RECCURING - UTILITIES",
-  "CREDIT CARD",
-  "PREPAID VENDOR",
-  "SUPPLIERS",
-  "BANK CHARGES",
-  "ONLINE",
-  "CHINA",
-  "RECCURING - PAYROLL",
-  "CASHFLOW",
-  "OTHERS",
-  "PRODUCTION",
-  "OFFICE",
-  "WAREHOUSE",
-] as const;
-export type TransactionTypeCode = (typeof TRANSACTION_TYPE_CODES)[number];
+/** A transaction type's code, spelled as the data spells it — `RECCURING`
+ *  keeps its doubled C. Read from `ops_acct.transaction_types`, maintained on
+ *  Master Data › Transaction types (`0105`). The hard-coded list of thirteen
+ *  that used to live here missed five of production's eighteen. */
+export type TransactionTypeCode = string;
 
 export type Direction = "IN" | "OUT";
 
@@ -82,6 +63,10 @@ export interface TransactionType {
    *  now; turning the rule on later is a data change, not a code change. */
   auto_complete: boolean;
   creates_catalog_item: boolean;
+  /** What the type is for, in a sentence — shown beside the picker. */
+  description?: string | null;
+  /** Retired types stay on their rows and leave the pickers (`0105`). */
+  is_active?: boolean;
 }
 
 export interface Transaction {
@@ -408,6 +393,11 @@ export interface AccountBalance {
   currency: string;
   is_paying: boolean;
   opening_balance: number;
+  /** A deactivated account keeps its balance and history and leaves the
+   *  pickers (`0105`). */
+  is_active?: boolean;
+  /** The date the opening balance is as of. */
+  opened_on?: string;
   total_in: number;
   total_out: number;
   /** opening + in − out, excluding VOID. The database owns this number (D9);
@@ -590,6 +580,8 @@ export type CashFrequency = "weekly" | "monthly" | "once";
  *  finds what actually happened. Claims are resolved most-specific-first, and
  *  one ledger row is only ever claimed once (D110).
  */
+export type CashAmountKind = "fixed" | "estimate";
+
 export interface CashComponent {
   id: string;
   name: string;
@@ -621,6 +613,13 @@ export interface CashComponent {
    *  public code, resolved at the seam — accounting does not reach into HR's
    *  tables (ADR-004). */
   scheme_codes: string[];
+  /** `fixed` must be met — less is PARTIAL. `estimate` is settled by whatever
+   *  the matched payment came to, and the difference is shown (`0114`).
+   *  Optional so fixtures written before it read as fixed. */
+  amount_kind?: CashAmountKind;
+  /** What created the line when nobody typed it — `asset:AST-0004` for an
+   *  asset's rent (`0116`). */
+  source_ref?: string | null;
   /** `YYYY-MM`, inclusive. `ends_on` null means it keeps going. */
   starts_on: string;
   ends_on: string | null;
@@ -674,6 +673,8 @@ export interface CashEvent {
   name: string;
   direction: Direction;
   frequency: CashFrequency;
+  /** Fixed or a guess (`0114`). A paid estimate is PAID whatever it came to. */
+  amount_kind?: CashAmountKind;
   month: string;
   date: string;
   planned: number;
@@ -814,8 +815,13 @@ export interface MonthlyBill {
   direction: Direction;
   planned: number;
   actual: number;
-  /** `planned − actual`, floored at zero. What is still to go out. */
+  /** `planned − actual`, floored at zero. What is still to go out. A paid
+   *  estimate owes nothing, whatever it came to. */
   outstanding: number;
+  amount_kind: CashAmountKind;
+  /** `actual − planned` on a paid estimate: what the bill really came to
+   *  against the guess. Null on a fixed line and on an estimate not yet paid. */
+  variance: number | null;
   state: CashCellState;
   /** Negative once the date has passed. */
   days_away: number;
@@ -846,6 +852,13 @@ export interface MonthlyBill {
   /** Set when the difference is large enough to be worth a look. Never blocks,
    *  and the threshold is a setting rather than a number in the code. */
   unusual: boolean;
+}
+
+/** What "Create payment schedule" on a rented asset made (`0116`). */
+export interface AssetRentSchedule {
+  asset_no: string;
+  component_ids: string[];
+  lines: number;
 }
 
 export interface MonthlyBills {

@@ -1,14 +1,15 @@
 /** Implements `/api/v1/accounting` from `03-api.md`. */
-import { ok, invalid, notFound, type Result } from "@/services/_shared/envelope";
+import { ok, noop, invalid, notFound, type Result } from "@/services/_shared/envelope";
 import type { ContributionAuditGroup } from "@/services/hr/contracts";
 import type {
   Account, AccountBalance, Transaction, TransactionView, TransactionTypeCode,
   IncomingMoney, TransactionDetail, AllocationView, TransactionLine, TransactionType,
   VendorPayment, FundingView, FundingDetail,
   CashPlan, CashDue, CashComponent, CashOverride, CashSettlement,
-  CashFrequency, CashMonthDetail,
+  CashFrequency, CashMonthDetail, CashAmountKind,
   Direction, PaymentAllocation, EvidenceInboxRow, InboxHealth, AllocMethod,
   BankStatementView, DocumentCoverage, TransactionCoverage, MonthlyBills,
+  AssetRentSchedule, AccountCode,
 } from "@/services/accounting/contracts";
 import { getActiveLocale } from "@/lib/format";
 import { officeToday } from "@/lib/office";
@@ -36,11 +37,208 @@ export async function listAccountRows(): Promise<Result<Account[]>> {
   return ok(SERVICE, getState().accounts);
 }
 
-/** The thirteen types, with the flag that decides whether a row is expected
- *  to name what it bought and who from (D83, D86). */
+/** The types, with the flag that decides whether a row is expected to name
+ *  what it bought and who from (D83, D86). Retired ones included — a picker
+ *  filters them, a filter on the ledger does not. */
 export async function listTypeRows(): Promise<Result<TransactionType[]>> {
   await latency();
-  return ok(SERVICE, getState().transaction_types);
+  return ok(SERVICE, [...getState().transaction_types].sort((a, b) => a.code.localeCompare(b.code)));
+}
+
+/* ------------------------------------------------------------------ */
+/* Master data (0105): accounts and transaction types                  */
+/* ------------------------------------------------------------------ */
+
+/** Accounts are money: accounting write and `post_ledger`, and anything that
+ *  touches a leadership account also `approve_funds` (D87). */
+function accountGuard(touchesLeadership: boolean) {
+  const denied = requireLevel(SERVICE, "accounting", "write") ?? requireAuthority(SERVICE, "post_ledger");
+  if (denied) return denied;
+  return touchesLeadership ? requireAuthority(SERVICE, "approve_funds") : null;
+}
+
+export async function createAccount(input: {
+  code: string; name: string; custody: Account["custody"]; is_paying?: boolean;
+  currency?: string; opening_balance?: number; opened_on?: string;
+}): Promise<Result<Account>> {
+  await latency();
+  const code = input.code.trim().toUpperCase();
+  const currency = (input.currency ?? "IDR").trim().toUpperCase();
+  const denied = accountGuard(input.custody === "leadership");
+  if (denied) return denied;
+  if (!/^[A-Z0-9][A-Z0-9 .\-]{1,23}$/.test(code)) {
+    return invalid(SERVICE, "code_invalid", 'An account code is 2–24 characters: letters, digits, spaces, dots or dashes — e.g. "BCA 271".', { field: "code" });
+  }
+  if (!input.name.trim()) return invalid(SERVICE, "name_required", "An account needs a name.", { field: "name" });
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    return invalid(SERVICE, "currency_invalid", "A currency is a three-letter code, e.g. IDR or USD.", { field: "currency" });
+  }
+  if (input.custody === "leadership" && input.is_paying) {
+    return invalid(SERVICE, "leadership_not_paying", "A leadership account never pays a vendor directly (D87).", { field: "is_paying" });
+  }
+  if (getState().accounts.some((a) => a.code.toUpperCase() === code)) {
+    return conflict(SERVICE, "account_exists", `Account ${code} already exists.`, { field: "code" });
+  }
+  const row: Account = {
+    id: newId("acc"), code, name: input.name.trim(), custody: input.custody,
+    is_paying: input.is_paying ?? false, currency, opening_balance: input.opening_balance ?? 0,
+    opened_on: input.opened_on ?? officeToday(), is_active: true,
+  };
+  apply((draft) => {
+    draft.accounts.push(row);
+    writeAudit(draft, { service: SERVICE, entity: "account", entity_no: code, action: "create", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, row);
+}
+
+export async function updateAccount(
+  code: string,
+  input: {
+    name?: string; custody?: Account["custody"]; is_paying?: boolean; currency?: string;
+    opening_balance?: number; opened_on?: string; is_active?: boolean; reason?: string;
+  },
+): Promise<Result<Account>> {
+  await latency();
+  const state = getState();
+  const a = state.accounts.find((x) => x.code === code);
+  if (!a) return notFound(SERVICE, "account_not_found", "No such account.");
+  const custody = input.custody ?? a.custody;
+  const denied = accountGuard(a.custody === "leadership" || custody === "leadership");
+  if (denied) return denied;
+  if (input.name !== undefined && !input.name.trim()) {
+    return invalid(SERVICE, "name_required", "An account needs a name.", { field: "name" });
+  }
+  const isPaying = input.is_paying ?? a.is_paying;
+  if (custody === "leadership" && isPaying) {
+    return invalid(SERVICE, "leadership_not_paying", "A leadership account never pays a vendor directly (D87).", { field: "is_paying" });
+  }
+  const currency = input.currency?.trim().toUpperCase() ?? a.currency;
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    return invalid(SERVICE, "currency_invalid", "A currency is a three-letter code, e.g. IDR or USD.", { field: "currency" });
+  }
+  if (currency !== a.currency && state.transactions.some((t) => t.account_id === a.id)) {
+    return conflict(SERVICE, "currency_locked", `${code} already has transactions in ${a.currency}; its currency cannot change.`, { field: "currency" });
+  }
+  const reason = input.reason?.trim() || null;
+  const balanceChanged = input.opening_balance !== undefined && input.opening_balance !== a.opening_balance;
+  if (balanceChanged && !reason) {
+    return invalid(SERVICE, "reason_required", "Changing an opening balance moves every balance after it — say why.", { field: "reason" });
+  }
+  const next: Account = {
+    ...a,
+    name: input.name?.trim() ?? a.name, custody, is_paying: isPaying, currency,
+    opening_balance: input.opening_balance ?? a.opening_balance,
+    opened_on: input.opened_on ?? a.opened_on,
+    is_active: input.is_active ?? a.is_active,
+  };
+  if (JSON.stringify(next) === JSON.stringify(a)) return noop(SERVICE, a);
+  apply((draft) => {
+    const d = draft.accounts.find((x) => x.id === a.id)!;
+    Object.assign(d, next);
+    writeAudit(draft, {
+      service: SERVICE, entity: "account", entity_no: code, action: "update", outcome: "ok", reason,
+      detail: balanceChanged ? { opening_balance_before: a.opening_balance, opening_balance_after: next.opening_balance } : null,
+    });
+  });
+  return ok(SERVICE, getState().accounts.find((x) => x.id === a.id)!);
+}
+
+export async function deleteAccount(code: string): Promise<Result<{ code: string; deleted: true }>> {
+  await latency();
+  const state = getState();
+  const a = state.accounts.find((x) => x.code === code);
+  if (!a) return notFound(SERVICE, "account_not_found", "No such account.");
+  const denied = accountGuard(a.custody === "leadership");
+  if (denied) return denied;
+  const trx = state.transactions.filter((t) => t.account_id === a.id).length;
+  const stmt = state.bank_statements.filter((b) => b.account_id === a.id).length;
+  const cash = state.cash_components.filter((c) => c.account_id === a.id).length;
+  if (trx + stmt + cash > 0) {
+    return conflict(SERVICE, "account_in_use",
+      `${code} has ${trx} transaction(s), ${stmt} bank statement(s) and ${cash} planned payment(s). Deactivate it instead.`);
+  }
+  apply((draft) => {
+    draft.accounts = draft.accounts.filter((x) => x.id !== a.id);
+    writeAudit(draft, { service: SERVICE, entity: "account", entity_no: code, action: "delete", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, { code, deleted: true as const });
+}
+
+export async function createTransactionType(input: {
+  code: string; is_purchase?: boolean; auto_complete?: boolean;
+  creates_catalog_item?: boolean; description?: string;
+}): Promise<Result<TransactionType>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "accounting", "write");
+  if (denied) return denied;
+  const code = input.code.trim().replace(/\s+/g, " ").toUpperCase();
+  if (!/^[A-Z0-9][A-Z0-9 &/.\-]{1,39}$/.test(code)) {
+    return invalid(SERVICE, "code_invalid", 'A type is 2–40 characters: letters, digits, spaces, "&", "/", "." or "-" — e.g. "TRANSPORT".', { field: "code" });
+  }
+  if (getState().transaction_types.some((t) => t.code === code)) {
+    return conflict(SERVICE, "type_exists", `${code} already exists.`, { field: "code" });
+  }
+  const row: TransactionType = {
+    code, is_purchase: input.is_purchase ?? true, auto_complete: input.auto_complete ?? false,
+    creates_catalog_item: input.creates_catalog_item ?? false,
+    description: input.description?.trim() || null, is_active: true,
+  };
+  apply((draft) => {
+    draft.transaction_types.push(row);
+    writeAudit(draft, { service: SERVICE, entity: "transaction_type", entity_no: code, action: "create", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, row);
+}
+
+export async function updateTransactionType(
+  code: string,
+  input: {
+    is_purchase?: boolean; auto_complete?: boolean; creates_catalog_item?: boolean;
+    description?: string; is_active?: boolean;
+  },
+): Promise<Result<TransactionType>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "accounting", "write");
+  if (denied) return denied;
+  const t = getState().transaction_types.find((x) => x.code === code);
+  if (!t) return notFound(SERVICE, "type_not_found", "No such transaction type.");
+  const next: TransactionType = {
+    ...t,
+    is_purchase: input.is_purchase ?? t.is_purchase,
+    auto_complete: input.auto_complete ?? t.auto_complete,
+    creates_catalog_item: input.creates_catalog_item ?? t.creates_catalog_item,
+    description: input.description === undefined ? (t.description ?? null) : (input.description.trim() || null),
+    is_active: input.is_active ?? (t.is_active ?? true),
+  };
+  if (JSON.stringify(next) === JSON.stringify({ ...t, description: t.description ?? null, is_active: t.is_active ?? true })) {
+    return noop(SERVICE, t);
+  }
+  apply((draft) => {
+    Object.assign(draft.transaction_types.find((x) => x.code === code)!, next);
+    writeAudit(draft, { service: SERVICE, entity: "transaction_type", entity_no: code, action: "update", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, getState().transaction_types.find((x) => x.code === code)!);
+}
+
+export async function deleteTransactionType(code: string): Promise<Result<{ code: string; deleted: true }>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "accounting", "write");
+  if (denied) return denied;
+  const state = getState();
+  if (!state.transaction_types.some((x) => x.code === code)) {
+    return notFound(SERVICE, "type_not_found", "No such transaction type.");
+  }
+  const trx = state.transactions.filter((t) => t.type_code === code).length;
+  const cash = state.cash_components.filter((c) => c.type_code === code).length;
+  if (trx + cash > 0) {
+    return conflict(SERVICE, "type_in_use",
+      `${code} is on ${trx} transaction(s) and ${cash} planned payment(s). Deactivate it instead.`);
+  }
+  apply((draft) => {
+    draft.transaction_types = draft.transaction_types.filter((x) => x.code !== code);
+    writeAudit(draft, { service: SERVICE, entity: "transaction_type", entity_no: code, action: "delete", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, { code, deleted: true as const });
 }
 
 export async function listTransactions(
@@ -1063,6 +1261,7 @@ export async function addComponent(
     starts_on?: string;
     ends_on?: string | null;
     note?: string | null;
+    amount_kind?: CashAmountKind;
   },
   idempotencyKey?: string,
 ): Promise<Result<CashComponent>> {
@@ -1141,6 +1340,7 @@ export async function addComponent(
       vendor_id: input.vendor_id ?? null,
       account_id: input.account_id ?? null,
       scheme_codes: [],
+      amount_kind: input.amount_kind ?? "fixed",
       starts_on: frequency === "once"
         ? (input.due_date ?? thisMonth).slice(0, 7)
         : input.starts_on ?? thisMonth,
@@ -1175,7 +1375,10 @@ export async function addComponent(
  *  people quietly bend (D84). */
 export async function updateComponent(
   id: string,
-  patch: { name?: string; amount?: number; due_day?: number; ends_on?: string | null; note?: string | null; active?: boolean },
+  patch: {
+    name?: string; amount?: number; due_day?: number; ends_on?: string | null;
+    note?: string | null; active?: boolean; amount_kind?: CashAmountKind;
+  },
 ): Promise<Result<CashComponent>> {
   await latency();
   /* Q24 (D233): the estimates on the cash calendar belong to leadership alone.
@@ -1209,6 +1412,7 @@ export async function updateComponent(
       ...(patch.ends_on !== undefined ? { ends_on: patch.ends_on } : {}),
       ...(patch.note !== undefined ? { note: patch.note?.trim() || null } : {}),
       ...(patch.active !== undefined ? { active: patch.active } : {}),
+      ...(patch.amount_kind !== undefined ? { amount_kind: patch.amount_kind } : {}),
     });
     updated = row;
     writeAudit(draft, {
@@ -1694,6 +1898,117 @@ export async function getContributionAudit(month?: string): Promise<Result<Contr
   if (denied) return denied;
   const m = month || officeToday().slice(0, 7);
   return ok(SERVICE, contributionAudit(getState(), m));
+}
+
+/** An asset's rent onto the payment calendar, once (`0116`).
+ *
+ *    monthly   one monthly line from the contract's first month to the last
+ *              month whose due day falls before the contract ends
+ *    yearly    a one-off per contract year, from this month on (at most ten)
+ *    upfront   one one-off on the day the contract starts
+ *
+ *  Fixed lines, marked `source_ref = asset:AST-…`. A contract's rent is a
+ *  number on paper, not leadership's estimate, so accounting `write` makes
+ *  them — the live seam gates on `accounting.update` for the same reason. */
+export async function scheduleAssetRent(
+  assetNo: string,
+  opts: { account_code?: AccountCode | null; type_code?: TransactionTypeCode | null } = {},
+): Promise<Result<AssetRentSchedule>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "accounting", "write");
+  if (denied) return denied;
+  const state = getState();
+  const a = state.assets.find((x) => x.asset_no === assetNo);
+  if (!a) return notFound(SERVICE, "asset_not_found", "No such asset.");
+  if (a.ownership === "owned") return invalid(SERVICE, "not_rented", `${assetNo} has no rent to pay.`);
+  if (!a.rent_amount || a.rent_amount <= 0 || !a.rent_period) {
+    return invalid(SERVICE, "rent_missing", "Enter the rent and how often it is paid on the asset first.", { field: "rent_amount" });
+  }
+  if (!a.contract_start) {
+    return invalid(SERVICE, "contract_start_required", "Enter when the contract starts on the asset first.", { field: "contract_start" });
+  }
+  if (a.rent_period === "yearly" && !a.contract_end) {
+    return invalid(SERVICE, "contract_end_required", "Yearly rent needs the contract's end date, so the calendar knows how many years.", { field: "contract_end" });
+  }
+  if (a.status === "disposed" || a.status === "lost" || a.status === "returned") {
+    return conflict(SERVICE, "asset_gone", `${assetNo} is ${a.status} — there is no rent left to pay.`);
+  }
+  const ref = `asset:${assetNo}`;
+  if (state.cash_components.some((c) => c.active && c.source_ref === ref)) {
+    return conflict(SERVICE, "already_scheduled", `The rent for ${assetNo} is already on the payment calendar. Change it there.`);
+  }
+  if (opts.type_code && !state.transaction_types.some((t) => t.code === opts.type_code)) {
+    return invalid(SERVICE, "no_such_type", `There is no transaction type ${opts.type_code}.`, { field: "type_code" });
+  }
+  const account = opts.account_code ? state.accounts.find((x) => x.code === opts.account_code) : undefined;
+  if (opts.account_code && !account) return invalid(SERVICE, "no_such_account", `There is no account ${opts.account_code}.`);
+  const vendorId = a.vendor_code ? state.vendors.find((v) => v.code === a.vendor_code)?.id ?? null : null;
+
+  const name = `Rent — ${a.name} (${assetNo})`;
+  const startMonth = a.contract_start.slice(0, 7);
+  const thisMonth = officeToday().slice(0, 7);
+  type Line = { name: string; frequency: CashFrequency; due_day: number; due_date: string | null; starts_on: string; ends_on: string | null };
+  const lines: Line[] = [];
+  if (a.rent_period === "monthly") {
+    const day = a.rent_due_day ?? Number(a.contract_start.slice(8, 10));
+    let ends: string | null = null;
+    if (a.contract_end) {
+      const endMonth = a.contract_end.slice(0, 7);
+      const [y, m] = endMonth.split("-").map(Number);
+      const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      const lastDue = `${endMonth}-${String(Math.min(day, lastDay)).padStart(2, "0")}`;
+      ends = lastDue >= a.contract_end ? shiftMonth(endMonth, -1) : endMonth;
+      if (ends < startMonth) ends = startMonth;
+    }
+    lines.push({ name, frequency: "monthly", due_day: day, due_date: null, starts_on: startMonth, ends_on: ends });
+  } else {
+    const max = a.rent_period === "upfront" ? 1 : 10;
+    for (let k = 0; k < max; k++) {
+      const on = `${Number(a.contract_start.slice(0, 4)) + k}${a.contract_start.slice(4)}`;
+      if (a.rent_period === "yearly" && on >= a.contract_end!) break;
+      if (on.slice(0, 7) < thisMonth) continue;
+      lines.push({
+        name: a.rent_period === "yearly" ? `${name} · year ${k + 1}` : name,
+        frequency: "once", due_day: Number(on.slice(8, 10)), due_date: on, starts_on: on.slice(0, 7), ends_on: on.slice(0, 7),
+      });
+    }
+  }
+  if (lines.length === 0) {
+    return invalid(SERVICE, "nothing_to_schedule", `Every rent payment for ${assetNo} falls before this month.`);
+  }
+
+  const user = actingUser();
+  const now = new Date().toISOString();
+  const ids: string[] = [];
+  apply((draft) => {
+    for (const l of lines) {
+      const row: CashComponent = {
+        id: newId("cmp"), name: l.name, direction: "OUT", amount: Math.round(a.rent_amount!),
+        frequency: l.frequency, due_day: l.due_day, due_weekday: null, due_date: l.due_date,
+        type_code: opts.type_code ?? null, vendor_id: vendorId, account_id: account?.id ?? null,
+        scheme_codes: [], amount_kind: "fixed", source_ref: ref,
+        starts_on: l.starts_on, ends_on: l.ends_on, note: `From ${assetNo}`,
+        active: true, created_by: user.id, created_at: now,
+      };
+      draft.cash_components.push(row);
+      ids.push(row.id);
+      writeAudit(draft, {
+        service: SERVICE, entity: "cash_component", entity_no: row.id, action: "create", outcome: "ok", reason: null,
+        detail: { name: row.name, amount: row.amount, frequency: row.frequency, source_ref: ref },
+      });
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "asset", entity_no: assetNo, action: "schedule_rent", outcome: "ok", reason: null,
+      detail: { rent_amount: a.rent_amount, rent_period: a.rent_period, lines: ids.length },
+    });
+  });
+  return ok(SERVICE, { asset_no: assetNo, component_ids: ids, lines: ids.length });
+}
+
+function shiftMonth(month: string, by: number): string {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + by, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
 export async function getMonthlyBills(month?: string): Promise<Result<MonthlyBills>> {

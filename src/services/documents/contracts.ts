@@ -130,7 +130,9 @@ export type LinkEntity =
   /** A product's drawings — master data, not evidence of an event (D150). */
   | "product"
   /** Somebody's own file: KTP, ijazah, the contract they signed (D177). */
-  | "employee";
+  | "employee"
+  /** A photo of the thing, its purchase nota, its warranty card (`0106`). */
+  | "asset";
 
 /** A piece of evidence — a **file or a link**, never both.
  *
