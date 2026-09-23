@@ -201,6 +201,16 @@ jobs:
       - name: view contracts
         run: node scripts/check-view-contracts.mjs
 
+      # The schedule rule, stated twice because ADR-009 makes it two systems,
+      # and compared case by case. `/it/aturan-gaji` lets somebody type the
+      # working patterns now, so what a pattern may say has a person on the
+      # other end of it — and a demo that refuses differently from the database
+      # has rehearsed the wrong sentence. Needs both halves at once: the
+      # TypeScript module is compiled and executed, and the same battery is put
+      # to `ops_hr.schedule_problem()`.
+      - name: schedule rules say the same thing in both places
+        run: node scripts/check-schedule-rules.mjs
+
       # John Lau's suggestions, put through his own router.
       #
       # F64 is the dock offering `stoknya menipis` while the rule said `stok

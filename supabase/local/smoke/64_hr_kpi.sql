@@ -25,7 +25,7 @@ insert into ops_core.user_modules (user_id, module, level) values
   ('ffffffff-0000-0000-0000-000000001101','production','write');
 
 insert into ops_hr.employees (id, employee_no, full_name, unit, schedule_code, pay_basis, base_rate) values
-  ('aaaa0000-0000-0000-0000-000000001101','B-701','Joko Susilo','Produksi','produksi','daily',180000),
+  ('aaaa0000-0000-0000-0000-000000001101','B-701','Joko Susilo','Produksi','PRODUKSI','daily',180000),
   ('aaaa0000-0000-0000-0000-000000001102','B-702','Slamet','Satpam',null,'monthly',3500000);
 
 -- **No `day_starts_minutes`.** The guard has no schedule and the book states no
@@ -35,9 +35,9 @@ insert into ops_hr.pay_rule_sets (version, effective_from, note, rules, created_
  (1, current_date, 'versi uji kpi', '{
    "week_pattern": "6day",
    "late_grace_minutes": 15,
-   "schedules": [{"code":"produksi","name":"Produksi","start_minutes":450,"end_minutes":990,
+   "schedules": [{"code":"PRODUKSI","name":"Produksi","start_minutes":450,"end_minutes":990,
                   "break_minutes":45,"friday_break_minutes":90,"note":null}],
-   "schedule_by_unit": {"Produksi":"produksi"}
+   "schedule_by_unit": {"Produksi":"PRODUKSI"}
  }'::jsonb, 'ffffffff-0000-0000-0000-000000001101');
 
 set local role authenticated;

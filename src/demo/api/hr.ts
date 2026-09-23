@@ -14,7 +14,7 @@ import type {
   ContractView, ContractDetail, ContractClause, ClauseConflict, TimesheetTotal, DayState,
 } from "@/services/hr/contracts";
 import {
-  SENSITIVE_DOC_KINDS, SCHEME_LABEL, maskDocNo, clauseValueOk,
+  SENSITIVE_DOC_KINDS, SCHEME_LABEL, maskDocNo, clauseValueOk, scheduleProblem,
 } from "@/services/hr/contracts";
 import type { DocKind } from "@/services/documents/contracts";
 import type { DemoState } from "../state";
@@ -2449,6 +2449,35 @@ export async function listPayRules(): Promise<Result<PayRuleSetView[]>> {
  *  latest version — backdating would rewrite payslips that have been handed
  *  out, which is the one thing a pay system must not do quietly.
  */
+/** Who would lose their pattern, worded exactly as `ops_hr.schedules_in_use_lost`
+ *  words it (ADR-009). The one schedule rule that cannot live in the shared
+ *  pure module, because it has to read the roster.
+ *
+ *  Removing a pattern people are on does not move them anywhere: they simply
+ *  stop having hours, and `/hrd/jadwal` stops listing them, because their
+ *  `schedule_code` is neither null nor found. Refused rather than warned —
+ *  A6 warns, except where it reaches pay.
+ */
+function schedulesInUseLost(state: DemoState, rules: PayRules): string | null {
+  const kept = new Set((rules.schedules ?? []).map((s) => s.code));
+  const groups = new Map<string, string[]>();
+  for (const e of [...state.employees].sort((a, b) => a.employee_no.localeCompare(b.employee_no))) {
+    if (!e.active || e.schedule_code == null || kept.has(e.schedule_code)) continue;
+    const names = groups.get(e.schedule_code) ?? [];
+    names.push(e.full_name);
+    groups.set(e.schedule_code, names);
+  }
+  if (groups.size === 0) return null;
+  return [...groups.keys()].sort()
+    .map((code) => `${code} (${groups.get(code)!.length} orang: ${groups.get(code)!.join(", ")})`)
+    .join("; ");
+}
+
+const SCHEDULE_IN_USE = (lost: string) =>
+  `Buku baru tidak memuat pola yang masih dipakai: ${lost}. Orangnya tidak jatuh `
+  + "ke jadwal lain — mereka berhenti punya jam sama sekali dan hilang dari "
+  + "layar jadwal. Pindahkan dulu, lalu terbitkan versinya.";
+
 export async function savePayRules(
   input: { effective_from: string; note: string; rules: PayRules },
   idempotencyKey?: string,
@@ -2474,6 +2503,16 @@ export async function savePayRules(
   }
 
   const state = getState();
+
+  /* The same rule the database states in `ops_hr.schedule_problem()`, and held
+     level with it by `check-schedule-rules.mjs` — down to the sentence, because
+     a demo that rehearses a different refusal has rehearsed the wrong thing. */
+  const problem = scheduleProblem(input.rules.schedules ?? [], input.rules.schedule_by_unit ?? {});
+  if (problem) return invalid(SERVICE, problem.code, problem.message, { field: "schedules" });
+
+  const lost = schedulesInUseLost(state, input.rules);
+  if (lost) return conflict(SERVICE, "schedule_in_use", SCHEDULE_IN_USE(lost));
+
   const latest = [...state.pay_rule_sets].sort((a, b) => a.effective_from.localeCompare(b.effective_from)).pop();
   if (latest && input.effective_from <= latest.effective_from) {
     return invalid(
@@ -2554,10 +2593,18 @@ export async function previewPayRules(
   period: string;
   before_total: number;
   after_total: number;
+  schedules_lost: string | null;
   lines: { employee_no: string; full_name: string; before: number; after: number; note: string }[];
 }>> {
   await latency();
   const state = getState();
+
+  /* Checked before anything is computed: a broken pattern does not produce a
+     wrong preview, it produces one that silently leaves people out — the worst
+     kind to show somebody who is about to press save. */
+  const problem = scheduleProblem(input.rules.schedules ?? [], input.rules.schedule_by_unit ?? {});
+  if (problem) return invalid(SERVICE, problem.code, problem.message, { field: "schedules" });
+
   const people = state.employees.filter(
     (e) => e.joined_on <= input.period_end && (e.left_on === null || e.left_on >= input.period_start),
   );
@@ -2597,6 +2644,10 @@ export async function previewPayRules(
     period: `${input.period_start} → ${input.period_end}`,
     before_total: lines.reduce((s, l) => s + l.before, 0),
     after_total: lines.reduce((s, l) => s + l.after, 0),
+    /* Said on the preview and not only at save, because moving somebody off a
+       pattern is work the screen should ask for before the version is written,
+       not after it is refused. */
+    schedules_lost: schedulesInUseLost(state, input.rules),
     lines: lines.filter((l) => l.before !== l.after),
   });
 }

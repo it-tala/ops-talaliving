@@ -38,7 +38,7 @@ insert into ops_hr.pay_rule_sets (version, effective_from, note, rules, created_
  }'::jsonb, 'ffffffff-0000-0000-0000-000000005801');
 
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"ffffffff-0000-0000-0000-000000005801"}';
+set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-000000005801';
 
 -- Jam per pola, diambil dari jawaban `schedule_roll()` sendiri dan bukan
 -- dihitung ulang di sini — sebuah uji yang mengulang aritmatika yang diujinya

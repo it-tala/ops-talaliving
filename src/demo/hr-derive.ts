@@ -26,6 +26,7 @@ import {
   EMPLOYEE_DOC_CHECKLIST, EMPLOYEE_DOC_LABEL, SENSITIVE_DOC_KINDS, DOC_NO_DIGITS, maskDocNo,
   SCHEME_LABEL, COMPUTED_SCHEMES,
 } from "@/services/hr/contracts";
+import { scheduleHoursOf } from "@/services/hr/schedule-rules";
 
 const HOURS = 3_600_000;
 
@@ -812,46 +813,12 @@ export function dayStartFor(rules: PayRules, employee: Employee): number | null 
  *  it would be a figure about a person nobody has written the hours down for.
  */
 export function scheduleHours(rules: PayRules, sc: WorkSchedule): ScheduleHours {
-  const days_per_week = rules.week_pattern === "5day" ? 5 : 6;
-  const missing: string[] = [];
-  if (sc.start_minutes == null) missing.push("jam masuk");
-  if (sc.end_minutes == null) missing.push("jam pulang");
-  if (sc.break_minutes == null) missing.push("istirahat");
-
-  if (missing.length > 0) {
-    return {
-      daily_hours: null, friday_hours: null, days_per_week,
-      weekly_hours: null, monthly_hours: null,
-      blocked_by: `Belum ada ${missing.join(", ")} — jamnya belum bisa dihitung.`,
-    };
-  }
-
-  const span = (sc.end_minutes as number) - (sc.start_minutes as number);
-  const daily_hours = Math.round(((span - (sc.break_minutes as number)) / 60) * 100) / 100;
-
-  /* Friday differs in two ways and either one is enough (Q54): a longer break,
-     an earlier finish, or both. Whichever is not stated falls back to the
-     ordinary day rather than blanking Friday — the office's Friday is 16.30
-     *and* the usual 90-minute break, and reading the missing half as unknown
-     would lose a day the business has actually decided. */
-  const friday_end = sc.friday_end_minutes ?? (sc.end_minutes as number);
-  const friday_break = sc.friday_break_minutes ?? (sc.break_minutes as number);
-  const friday_differs = sc.friday_end_minutes != null || sc.friday_break_minutes != null;
-  const friday_hours = !friday_differs
-    ? null
-    : Math.round(((friday_end - (sc.start_minutes as number) - friday_break) / 60) * 100) / 100;
-
-  /* Friday counted at its own length where it has one: three quarters of an
-     hour on one day of five is most of an hour a week. */
-  const weekly_hours = friday_hours == null
-    ? Math.round(daily_hours * days_per_week * 100) / 100
-    : Math.round((daily_hours * (days_per_week - 1) + friday_hours) * 100) / 100;
-
-  return {
-    daily_hours, friday_hours, days_per_week, weekly_hours,
-    monthly_hours: Math.round((weekly_hours * 52 / 12) * 100) / 100,
-    blocked_by: null,
-  };
+  /* The arithmetic itself moved to `@/services/hr/schedule-rules`, because
+     `/it/aturan-gaji` needs it for a row nobody has saved yet and a third copy
+     of the Friday rule is how two of three come to agree. What stays here is
+     the one thing that is about the rule *book* rather than the pattern: how
+     many days the week has. */
+  return scheduleHoursOf(sc, rules.week_pattern === "5day" ? 5 : 6);
 }
 
 /** The break this schedule allows on this date — Friday differs here. Null

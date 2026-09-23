@@ -1001,6 +1001,10 @@ export async function previewPayRules(
   period: string;
   before_total: number;
   after_total: number;
+  /** Patterns this candidate book drops that people are still on, named with
+   *  them — `null` when it strands nobody. Shown before save, because moving
+   *  somebody off a pattern is work to do first, not a refusal to hit. */
+  schedules_lost: string | null;
   lines: { employee_no: string; full_name: string; before: number; after: number; note: string }[];
 }>> {
   const { data, error } = await db().rpc("preview_pay_rules", {

@@ -34,7 +34,7 @@ insert into ops_hr.pay_rule_sets (version, effective_from, note, rules, created_
    "undertime_mode": "off",
    "overtime_mode": "statutory",
    "schedules": [
-     {"code":"produksi","name":"Produksi","start_minutes":450,"end_minutes":990,
+     {"code":"PRODUKSI","name":"Produksi","start_minutes":450,"end_minutes":990,
       "break_minutes":45,"friday_break_minutes":90,"note":null}
    ]
  }'::jsonb, 'ffffffff-0000-0000-0000-000000005801');
@@ -50,7 +50,7 @@ set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-000000005801';
 
 insert into ops_hr.employees (id, employee_no, full_name, unit, schedule_code, pay_basis,
                               base_rate, allowance_rate, paid_leave_days)
-values ('aaaa5800-0000-0000-0000-0000000000e1','B-0012','Karjo Susanto','Produksi','produksi',
+values ('aaaa5800-0000-0000-0000-0000000000e1','B-0012','Karjo Susanto','Produksi','PRODUKSI',
         'daily', 180000, 20000, 12);
 
 /* ── REFUSAL: grant baca tidak mendaftarkan apa pun ─────────────────────── */
@@ -269,7 +269,7 @@ begin
   perform ops_hr.confirm_clause(v_no,'tunjangan','Tunjangan kehadiran Rp 20.000 per hari masuk.', 1,
                                 '{"amount":"20000","per":"day"}'::jsonb);
   perform ops_hr.confirm_clause(v_no,'jam_kerja','Jam kerja 07.30 sampai 16.30, enam hari seminggu.', 2,
-                                '{"schedule_code":"produksi"}'::jsonb);
+                                '{"schedule_code":"PRODUKSI"}'::jsonb);
   perform ops_hr.confirm_clause(v_no,'jangka_waktu','Perjanjian ini berlaku satu tahun.', 1,
                                 '{"kind":"PKWT"}'::jsonb);
   perform ops_hr.confirm_clause(v_no,'masa_percobaan','Masa percobaan tiga bulan sejak tanggal mulai.', 1,
@@ -432,7 +432,7 @@ begin
   perform ops_hr.confirm_clause(v_new,'tunjangan','Tunjangan Rp 20.000 per hari.', 1,
                                 '{"amount":"20000","per":"day"}'::jsonb);
   perform ops_hr.confirm_clause(v_new,'jam_kerja','Jam kerja tetap.', 2,
-                                '{"schedule_code":"produksi"}'::jsonb);
+                                '{"schedule_code":"PRODUKSI"}'::jsonb);
   perform ops_hr.confirm_clause(v_new,'cuti','Cuti 12 hari.', 3, '{"days":"12"}'::jsonb);
   perform ops_hr.confirm_clause(v_new,'jangka_waktu','Tanpa batas waktu.', 1,
                                 '{"kind":"PKWTT"}'::jsonb);

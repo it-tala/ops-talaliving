@@ -5741,3 +5741,94 @@ telling the truth about this week all along while the schedules contradicted it
 right; one number copied into two rows would have looked identical and proved
 nothing. The rule book ends the day with four versions sharing one date, and
 reading them in order is the record of how the figure was arrived at.
+
+---
+
+## F140 · 2026-09-23 · the fixtures had been saying something the business never said, and only a guard could hear it
+
+Making the working patterns editable meant the database had to start refusing
+what a person can type, because `employees.schedule_code` is a **text key into
+versioned jsonb** and there is no foreign key that can catch a typo. The first
+rule written was the shape of a code.
+
+It failed six smoke files on the first run. All six carried `"code":"produksi"`
+in lower case while the real rule book, the demo fixture and every screen used
+`PRODUKSI`. Nothing was broken by it — the comparison is exact and each fixture
+was internally consistent — so it had sat there since M57 as a second spelling
+of a key that has no spelling rules.
+
+**That is the interesting part.** A key with two spellings is not a bug until
+somebody types the other one, and the moment the screen lets them, it is one:
+`produksi` and `PRODUKSI` are two patterns that look identical in a list and
+match nothing of each other's. The fixtures were the early symptom of a rule
+that had never been written down, and the only thing that could hear them was
+the rule itself, on the day it was written.
+
+The rule was also **wrong on its first run, in the other direction**. It
+refused `shift-malam` — a hyphen — and a hyphen threatens nothing. Two of this
+repo's own code families allow one (`0099`, `0107`). The refusal had to relax,
+and the relaxation is pinned by two cases, one accepting `SHIFT-MALAM` and one
+still refusing `shift-malam`, so *the hyphen was allowed* cannot quietly become
+*the case rule was dropped*.
+
+The lesson is about which way a guard is allowed to be wrong on its first run:
+too strict is cheap and shows itself immediately, and too loose looks exactly
+like working.
+
+---
+
+## F141 · 2026-09-23 · doing nothing is a grant, and the mutation found it
+
+`ops_hr.schedules_in_use_lost()` answers *who would lose their pattern* with
+employee **names**, and it is `security definer` so that IT — who publishes the
+rule book and has no `hrd.read` — is guarded rather than waved through. Both
+properties are correct. Together they are a hole.
+
+Postgres grants `EXECUTE` to `PUBLIC` on a new function by default. Writing
+nothing about privileges is therefore not *leaving it alone*; it is publishing
+it. A definer function that reads the roster and is executable by PUBLIC means
+**anybody holding any account at all** could ask for the roster, one pattern at
+a time. The check was tested and correct; its reachability was never considered.
+
+It was not found by review. The mutation run said something better: removing
+`security definer` from that function **did not fail the smoke file**, because
+it is only ever called from inside `save_pay_rules` and `preview_pay_rules`,
+which are definer themselves — a function called from a definer already runs
+with the definer's rights. So the flag was carrying no weight on the path the
+test exercised. Asking *why does this mutation survive* is what surfaced the
+one path where the flag does carry weight: a direct call. And a direct call was
+exactly what nothing had revoked.
+
+Closed with the idiom this repo already has for internal guards — `revoke
+execute … from public`, as `ops_core.bootstrap_admin`, `ops_acct.account_guard`
+and `ops_inv.asset_refs_invalid` each do — and the smoke file now asserts the
+denial, so the grant cannot come back quietly.
+
+**A second thing this cost, worth writing down.** The first attempt to prove
+the fix reported that the leak was still open. It was not: `create or replace
+function` does not reset privileges, so the grant written by an earlier run of
+the same file was still sitting on the function in the scratch database. Only a
+clean `rebuild.sh` answers a question about privileges. An iterated database is
+not the database the ladder describes, and on grants specifically it will lie
+in the safe-looking direction.
+
+---
+
+## F142 · 2026-09-23 · the screen was already telling people something that had stopped being true
+
+`/it/aturan-gaji`'s divisor example ended with a sentence explaining why the
+two hourly rates differ: *173 mengandaikan minggu 40 jam, dan kantor ini tidak
+bekerja 40 jam seminggu.*
+
+Since version 4 of the rule book, written the same morning, this office works
+exactly 40 hours a week — both patterns, by different arithmetic (D290). The
+sentence had been true when somebody wrote it under a six-day book, and it
+became a confident, specific, wrong statement the moment the book changed,
+sitting directly under a correct calculation.
+
+Nothing could have caught it. It is prose, and prose that restates a fact the
+data now owns is a second copy of that fact — F73's shape again, in a paragraph
+rather than a column. It was found only because the same screen was open for
+another reason. Rewritten to explain the *relationship* (the two agree when the
+effective-days figure and the divisor are consistent) rather than to assert the
+number, because the relationship stays true when the number moves.

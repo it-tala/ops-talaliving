@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Scale, History, Play, AlertTriangle, Clock } from "lucide-react";
+import { ScheduleEditor } from "./ScheduleEditor";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { NumberInput } from "@/components/ui/number-input";
@@ -53,13 +54,6 @@ const UNDERTIME_MODE_LABEL: Record<UndertimeMode, string> = {
   pro_rata: "Dipotong per jam kurang",
   half_day_step: "Kurang lebih dari setengah hari → potong ½ hari",
 };
-
-/** Minutes from midnight as a clock face, and **an honest blank** where the
- *  business has not stated one — never 00.00, which would read as midnight. */
-function clock(minutes: number | null): string {
-  if (minutes == null) return "belum ditetapkan";
-  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}.${String(minutes % 60).padStart(2, "0")}`;
-}
 
 export default function PayRulesPage() {
   const { can } = useSession();
@@ -327,76 +321,15 @@ export default function PayRulesPage() {
                         />
                       </div>
 
-                      {/* Five patterns, not a start time per unit (Q44, D274).
-                          What a schedule does not say is left blank and named
-                          as unstated — the guard's twelve hours begin at a time
-                          nobody has fixed, and a number invented here becomes a
-                          lateness figure that looks measured. */}
+                      {/* Patterns, not a start time per unit (Q44, D274) — and
+                          editable since D291, because the office's Friday was
+                          wrong for a day while the fix waited on a deploy. What
+                          a schedule does not say stays blank and named as
+                          unstated: a number invented here becomes a lateness
+                          figure that looks measured. */}
                       <div>
                         <p className="mb-1 text-[12px] font-medium text-slate-700">Jadwal kerja</p>
-                        <div className="overflow-x-auto">
-                          <table className="w-full min-w-[520px] text-[12px]">
-                            <thead>
-                              <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400">
-                                <th className="py-1 pr-3 font-medium">Pola</th>
-                                <th className="py-1 pr-3 font-medium">Masuk</th>
-                                <th className="py-1 pr-3 font-medium">Pulang</th>
-                                <th className="py-1 pr-3 font-medium">Istirahat</th>
-                                <th className="py-1 pr-3 font-medium">Jumat</th>
-                                <th className="py-1 font-medium">Unit</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                              {(rules.schedules ?? []).map((sc) => {
-                                const units = Object.entries(rules.schedule_by_unit ?? {})
-                                  .filter(([, code]) => code === sc.code).map(([u]) => u);
-                                return (
-                                  <tr key={sc.code} className="align-top">
-                                    <td className="py-1.5 pr-3 text-slate-800">
-                                      {sc.name}
-                                      {sc.note && (
-                                        <span className="block max-w-[260px] whitespace-normal text-[11px] text-amber-700">
-                                          {sc.note}
-                                        </span>
-                                      )}
-                                    </td>
-                                    <td className="py-1.5 pr-3 tabular-nums text-slate-700">{clock(sc.start_minutes)}</td>
-                                    <td className="py-1.5 pr-3 tabular-nums text-slate-700">{clock(sc.end_minutes)}</td>
-                                    <td className="py-1.5 pr-3 tabular-nums text-slate-700">
-                                      {sc.break_minutes == null ? "belum ditetapkan" : `${sc.break_minutes} menit`}
-                                    </td>
-                                    <td className="py-1.5 pr-3 tabular-nums text-slate-700">
-                                      {/* Jumat punya dua tuas dan keduanya berdiri
-                                          sendiri (Q54). Tanda "—" berarti Jumat
-                                          memang hari biasa untuk pola ini, bukan
-                                          bahwa belum ada yang menetapkannya. */}
-                                      {sc.friday_end_minutes == null && sc.friday_break_minutes == null
-                                        ? "—"
-                                        : (
-                                          <>
-                                            {sc.friday_end_minutes != null
-                                              ? `pulang ${clock(sc.friday_end_minutes)}`
-                                              : `pulang ${clock(sc.end_minutes)}`}
-                                            <span className="block text-[11px] text-slate-500">
-                                              istirahat {sc.friday_break_minutes ?? sc.break_minutes ?? "—"} menit
-                                            </span>
-                                          </>
-                                        )}
-                                    </td>
-                                    <td className="py-1.5 text-slate-500">
-                                      {units.length > 0 ? units.join(", ") : "belum ada yang dipasang"}
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                              {(rules.schedules ?? []).length === 0 && (
-                                <tr><td colSpan={6} className="py-2 text-slate-500">
-                                  Buku aturan ini belum punya jadwal kerja; semua unit memakai jam masuk perusahaan di atas.
-                                </td></tr>
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
+                        <ScheduleEditor rules={rules} disabled={!mayEdit} onChange={set} />
                         <p className="mt-1 text-[11px] text-slate-500">
                           Jadwal yang jam masuknya belum ditetapkan tidak bisa dipakai menilai ketepatan waktu —
                           orang di jadwal itu terbaca <strong>tidak terukur</strong>, bukan tepat waktu. Istirahat
@@ -492,6 +425,18 @@ export default function PayRulesPage() {
                         subtitle={`Bruto ${formatIDR(preview.before_total)} → ${formatIDR(preview.after_total)}`}
                         icon={Scale}
                       />
+                      {/* Said before saving, not as the refusal afterwards:
+                          moving somebody off a pattern is work to do first, and
+                          a version that strands people is refused by the seam
+                          either way (D291). */}
+                      {preview.schedules_lost && (
+                        <p className="border-b border-rose-100 bg-rose-50 px-5 py-2.5 text-[12px] text-rose-900">
+                          <strong className="font-medium">Ada yang kehilangan jadwalnya.</strong>{" "}
+                          Buku ini tidak memuat pola yang masih dipakai: {preview.schedules_lost}. Orangnya
+                          tidak pindah ke jadwal lain — mereka berhenti punya jam sama sekali dan hilang
+                          dari layar jadwal. Pindahkan dulu, lalu terbitkan versinya.
+                        </p>
+                      )}
                       <ul className="divide-y divide-slate-100">
                         {preview.lines.length === 0 && (
                           <li className="px-5 py-4 text-[13px] text-slate-500">
@@ -701,8 +646,9 @@ function HourlyExample({ rules }: { rules: PayRules }) {
       <p className="mt-1 text-slate-500">
         Yang dipakai: <strong className="text-slate-700">{formatIDR(chosen)}</strong> per jam
         {gap !== 0 && <> — {Math.abs(gap)}% {gap > 0 ? "lebih tinggi" : "lebih rendah"} dari yang satunya</>}.
-        Selisihnya bukan pembulatan: 173 mengandaikan minggu 40 jam, dan kantor ini tidak bekerja 40 jam
-        seminggu.
+        Selisihnya bukan pembulatan: 173 mengandaikan minggu 40 jam, dan hari kerja efektif setahun
+        yang dipakai di sini belum tentu sepadan dengan angka itu — kalau keduanya sejalan, kedua
+        hitungan akan bertemu.
       </p>
     </div>
   );
