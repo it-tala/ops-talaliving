@@ -12,6 +12,8 @@ import { formatIDR } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { accounting, documents, procurement, isOk } from "@/demo/api";
 import type { TransactionDetail } from "@/services/accounting/contracts";
+import type { PrLineView } from "@/services/procurement/contracts";
+import { LineDrawer } from "../../procurement/pr/LineDrawer";
 import type { AuditRow } from "@/demo/state";
 import { COMPLETION_DOC_KINDS, type AttachmentView } from "@/services/documents/contracts";
 import { EvidenceStrip, type CoverTarget, type EvidenceSlot } from "@/components/ui/evidence-strip";
@@ -102,11 +104,16 @@ export function TrxDrawer({
      thing COMPLETED requires (`0103`). Asked of the row's own documents. */
   const [hasCompletionDoc, setHasCompletionDoc] = useState(false);
   const mayPost = hasAuthority("post_ledger");
+  /* The request line an allocation names, opened on top of this panel rather
+     than by navigating to procurement: closing it lands back on this row. */
+  const [openLine, setOpenLine] = useState<PrLineView | null>(null);
+  const [openingLine, setOpeningLine] = useState<string | null>(null);
 
   useEffect(() => {
     setVoidOpen(false);
     setReason("");
     setEditOpen(false);
+    setOpenLine(null);
     if (!trxNo) { setTrx(null); setReached([]); return; }
     void load(trxNo);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -243,6 +250,23 @@ export function TrxDrawer({
     onChanged();
   }
 
+  async function showLine(lineNo: string) {
+    setOpeningLine(lineNo);
+    const res = await procurement.getLineByNo(lineNo);
+    setOpeningLine(null);
+    if (res.error) { toast("warning", "Cannot open the request", res.error.message); return; }
+    setOpenLine(res.data);
+  }
+
+  async function removeLine(l: PrLineView) {
+    const res = await procurement.removeLine({ line_no: l.line_no_full });
+    if (res.error) { toast("warning", "Not removed", res.error.message); return; }
+    toast("success", "Removed", `${l.line_no_full} is no longer needed.`);
+    setOpenLine(null);
+    await load(trx!.trx_no);
+    onChanged();
+  }
+
   async function complete() {
     setBusy(true);
     const res = await accounting.markComplete(trx!.trx_no);
@@ -257,6 +281,7 @@ export function TrxDrawer({
   }
 
   return (
+    <>
     <Drawer
       open={!!trxNo}
       onClose={onClose}
@@ -507,20 +532,41 @@ export function TrxDrawer({
           )}
           {trx.allocations.length > 0 ? (
             <ul className="mb-3 divide-y divide-slate-100 rounded-lg border border-slate-200">
-              {trx.allocations.map((a) => (
-                <li key={a.id} className={cn("px-3 py-2 text-[13px]", a.superseded_by && "opacity-50")}>
+              {trx.allocations.map((a) => {
+                const body = (
                   <div className="flex items-center gap-3">
                     <span className="min-w-0 flex-1">
                       <span className="block text-slate-700">{a.line_description ?? a.pr_line_no ?? a.po_no}</span>
                       <span className="block font-mono text-[10px] text-slate-400">
                         {a.pr_line_no ?? a.po_no} · {a.method}
                         {a.superseded_by && " · superseded"}
+                        {openingLine === a.pr_line_no && " · opening…"}
                       </span>
                     </span>
                     <span className="tabular-nums text-slate-800">{formatIDR(a.amount)}</span>
+                    {a.pr_line_no && <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-slate-400" />}
                   </div>
-                </li>
-              ))}
+                );
+                return (
+                  <li key={a.id} className={cn("text-[13px]", a.superseded_by && "opacity-50")}>
+                    {/* A request line opens on top of this panel; a PO has no
+                        panel of its own yet, so it stays plain text. */}
+                    {a.pr_line_no ? (
+                      <button
+                        type="button"
+                        onClick={() => void showLine(a.pr_line_no!)}
+                        disabled={!!openingLine}
+                        className="w-full px-3 py-2 text-left hover:bg-slate-50 focus:bg-slate-50 focus:outline-none"
+                        title={`Open ${a.pr_line_no}`}
+                      >
+                        {body}
+                      </button>
+                    ) : (
+                      <div className="px-3 py-2">{body}</div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           ) : (
             <p className="mb-3 text-[13px] text-slate-500">
@@ -614,12 +660,30 @@ export function TrxDrawer({
             <ArrowUpRight className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
               Reaches{" "}
-              <span className="font-mono text-slate-600">{trx.pr_line_nos.join(", ")}</span>{" "}
+              {trx.pr_line_nos.map((no, i) => (
+                <span key={no}>
+                  {i > 0 && ", "}
+                  <button
+                    type="button"
+                    onClick={() => void showLine(no)}
+                    className="font-mono text-slate-600 underline decoration-dotted underline-offset-2 hover:text-brand-700"
+                  >
+                    {no}
+                  </button>
+                </span>
+              ))}{" "}
               on the requests board — same money, read from the other end.
             </span>
           </p>
         )}
       </div>
     </Drawer>
+    <LineDrawer
+      line={openLine}
+      onClose={() => setOpenLine(null)}
+      onChanged={async (l) => { setOpenLine(l); await load(trx.trx_no); onChanged(); }}
+      onRemove={removeLine}
+    />
+    </>
   );
 }
