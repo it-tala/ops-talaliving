@@ -486,7 +486,7 @@ export async function postFromLine(
   return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
 }
 
-/** Paying an order from its own screen (B8, `ops_acct.post_to_po`, 0127).
+/** Paying an order from its own screen (B8, `ops_acct.post_to_po`, 0129).
  *  The seam splits the money across the order's linked request lines; this
  *  passes the arguments and re-reads the row, like `postFromLine`. */
 export async function postToPo(

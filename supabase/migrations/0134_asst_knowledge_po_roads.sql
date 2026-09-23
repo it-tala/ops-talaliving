@@ -1,4 +1,4 @@
--- 0132 — the guide says both roads to a confirmed order (0131, D267, D69).
+-- 0134 — the guide says both roads to a confirmed order (0133, D267, D69).
 --
 -- Written as the database now behaves. The Chat half is honest about the one
 -- piece still missing — the worker that turns `po.approval_requested` into a

@@ -1,12 +1,16 @@
--- 0133 — a line whose supplier was decided on the order can be paid from its row (B11).
+-- 0131 — a lump-sum request line can be paid from its row (B9, D298).
 --
--- Found by the first walk through the live screens (F151): *New request*
--- allows a line with the vendor *not decided yet* — deliberately, because the
--- room often picks the supplier after the request. The order then names the
--- supplier. But `post_from_line` read the vendor from the request line only,
--- and a purchase type refuses a posting with no vendor (`vendor_required`), so
--- a line bought on an order could not be paid from its own row. The SQL walk
--- never met it because its fixture put a vendor on every line.
+-- Found by the second procurement walk (F149): paying the delivery charge — a
+-- line with no quantity, by design (D75) — from *Post Rp… to the ledger* as
+-- SUPPLIERS was refused `line_detail_required`, because a purchase type asks
+-- every detail line for a quantity and a unit price, and `post_from_line`
+-- passed the line's own, which are empty. The requests board offers that
+-- button on every approved line.
+--
+-- Owner's choice (2026-09-23): the detail is **1 lot × the amount paid**.
+-- Only the ledger's detail line says so; the request line keeps no quantity,
+-- so nothing downstream starts computing a price per unit that was never
+-- quoted. A line with a quantity is posted exactly as before.
 
 create or replace function ops_acct.post_from_line(p_line_no text, p_amount numeric, p_account_code text, p_type_code text, p_attachment_id uuid, p_trx_date date DEFAULT NULL::date, p_document_kind text DEFAULT 'Payment Proof'::text, p_key text DEFAULT NULL::text)
  RETURNS jsonb
@@ -36,16 +40,8 @@ begin
   -- The project hangs off the **document**, not the line: a request is raised
   -- for one project and its lines inherit it. Reading it from the line would
   -- find no column, which is how the first draft of this seam failed.
-  -- The supplier is the line's own, or — when the request left it to be
-  -- decided — the supplier of the order the line was bought on (B11, D297).
-  -- A line with neither is still refused by `post_transaction`: a purchase has
-  -- somebody it was bought from.
   select pl.id, pl.line_no_full, pl.description, pl.qty, pl.uom, pl.unit_price,
-         pl.removed_at,
-         coalesce(v.code, (select ov.code from ops_procure.purchase_orders op
-                             join ops_procure.vendors ov on ov.id = op.vendor_id
-                            where op.po_no = ops_procure.order_of_line(pl.line_no_full))) as vendor_code,
-         pj.code as project_code
+         pl.removed_at, v.code as vendor_code, pj.code as project_code
     into l
     from ops_procure.pr_lines pl
     join ops_procure.pr_documents d on d.id = pl.doc_id

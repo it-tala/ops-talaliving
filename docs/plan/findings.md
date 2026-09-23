@@ -6086,7 +6086,7 @@ Two smaller things worth keeping:
   says *Rp 0 paid* on an order Rina paid in full. Correct by the policies, and
   probably surprising on a screen; noted, not changed.
 
-B9 was closed the same day by the owner's choice (D298, `0129`): the ledger
+B9 was closed the same day by the owner's choice (D298, `0131`): the ledger
 detail of a lump-sum payment is *1 lot × the amount paid*. The walk now runs
 37 steps from an empty database to a matched bank line with **no findings**,
 and L02 — the delivery charge — ends PAID beside L01's COMPLETED.
@@ -6107,7 +6107,7 @@ found three gaps the demo had been hiding:
   it. `/demo/chat` stands in for the whole road, convincingly enough that the
   absence did not show.
 
-The first two are `0131`. The third needs an answer about infrastructure the
+The first two are `0133`. The third needs an answer about infrastructure the
 repository cannot see (B10). The general lesson is the one the parity check
 cannot catch: **a function that exists only in the demo is not a pending
 function, it is an unbuilt one**, and nothing lists it. `answerPoFromChat`
@@ -6148,7 +6148,7 @@ What it found, none of which the SQL walk could have:
   checkbox column's header; the button is *Approve N · Rp…*. And attaching a
   price said *dari laci baris* where the drawer asks for a type and a button.
   `scripts/sop/check-knowledge.mjs` compares the walk's buttons to the guide
-  and refused both on its first run (`0134`).
+  and refused both on its first run (`0136`).
 
 And one that was not the walk's to find but surfaced while running it:
 `86_acct_cash_plan` compared `office_day()` with `current_date`, so it failed

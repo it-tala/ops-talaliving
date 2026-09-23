@@ -6,7 +6,7 @@
 -- screen, in the order a real week happens, and every step is written into
 -- `sim_log` with who did it, which seam did the work, what came back and what
 -- status it left behind. `supabase/local/simulate.sh` prints that log; the SOP
--- (`docs/sop/`) and John Lau's process knowledge (`0124`) were written from it.
+-- (`docs/sop/`) and John Lau's process knowledge (`0126`) were written from it.
 --
 -- Three people, with the grants the real roles carry:
 --   Andi — staf procurement: procurement write
@@ -282,7 +282,7 @@ begin
   perform pg_temp.log('5. Penerimaan','Catat barang datang tanpa foto','Andi','/procurement/tracker/[vendor]',
     'ops_procure.create_receipt','DITOLAK', null, 'photo_required — foto barang selalu wajib.');
 
-  -- Exactly what `ReceiveForm.tsx` sends: the display labels (B5, 0126).
+  -- Exactly what `ReceiveForm.tsx` sends: the display labels (B5, 0128).
   r := ops_procure.create_receipt(10, 'GOOD', jsonb_build_array(
         jsonb_build_object('attachment_id', photo, 'kind','Receiving Item'),
         jsonb_build_object('attachment_id', tt,    'kind','Delivery Note')), null, pol);
@@ -355,7 +355,7 @@ begin
 
   -- The delivery charge has no quantity (D75), and SUPPLIERS is a purchase
   -- type that asks every detail line for one. Refused `line_detail_required`
-  -- until 0129 (B9, D298): the ledger detail now says 1 lot at the amount paid.
+  -- until 0131 (B9, D298): the ledger detail now says 1 lot at the amount paid.
   -- Still logged rather than asserted, so a regression reads as a finding.
   r := ops_core.attach_file('sim/bukti-ongkir.jpg','bukti-ongkir.jpg','image/jpeg',90000,null,'upload');
   proof := (r->'data'->>'attachment_id')::uuid;

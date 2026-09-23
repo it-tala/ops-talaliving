@@ -1,4 +1,4 @@
--- procure — the two roads to a confirmed order (0131, D267, D69).
+-- procure — the two roads to a confirmed order (0133, D267, D69).
 --
 --   Leadership writes it   → confirmed in the same act, self_confirmed, and
 --                            asking chat about it again is refused.

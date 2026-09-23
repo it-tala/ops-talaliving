@@ -1,4 +1,4 @@
--- 0126 — a receipt reads its documents the way every other seam does (B5).
+-- 0128 — a receipt reads its documents the way every other seam does (B5).
 --
 -- Found by the procurement walk (F148): `ReceiveForm` sends the kinds it shows,
 -- *Receiving Item* and *Delivery Note*, and `create_receipt` compared them to

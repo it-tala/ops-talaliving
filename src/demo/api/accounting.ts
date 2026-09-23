@@ -1172,7 +1172,7 @@ export async function postFromLine(
     draft.transaction_lines.push({
       id: newId("trl"), trx_id: trxId, line_no: 1, item_id: null,
       /* A lump-sum line has no quantity (D75); its payment is described as
-         1 lot at the amount paid, the same as `post_from_line` (0129, D298). */
+         1 lot at the amount paid, the same as `post_from_line` (0131, D298). */
       description: line.description,
       qty: line.qty ?? 1, uom: (line.qty == null ? "lot" : line.uom) as never,
       unit_price: line.qty == null ? input.amount : line.unit_price, amount: input.amount,
@@ -1211,7 +1211,7 @@ export async function postFromLine(
  *  newest first — the list the liquidation report opens from (D106). */
 
 /** Paying an order from its own screen (B8) — the demo twin of
- *  `ops_acct.post_to_po` (0127). One ledger row; the amount split across the
+ *  `ops_acct.post_to_po` (0129). One ledger row; the amount split across the
  *  order's linked request lines by value, the rest on the order alone. */
 export async function postToPo(
   input: {

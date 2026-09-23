@@ -1,4 +1,4 @@
--- 0127 — an order knows which request line it buys, and money paid on either
+-- 0129 — an order knows which request line it buys, and money paid on either
 --        side reads on both (B7, B8).
 --
 -- ── what the walk found ──────────────────────────────────────────────────
@@ -62,7 +62,7 @@ alter table ops_procure.po_lines
 create index po_lines_pr_line_idx on ops_procure.po_lines (pr_line_id) where pr_line_id is not null;
 comment on column ops_procure.po_lines.pr_line_id is
   'The approved request line this order line buys, when there is one. Checked in create_po: '
-  'approved, not on another live order, same unit. Kept on superseded lines. (0127, B7)';
+  'approved, not on another live order, same unit. Kept on superseded lines. (0129, B7)';
 
 -- The live order a request line is on, if any.
 create or replace function ops_procure.order_of_line(p_line_no text)
@@ -739,4 +739,4 @@ grant execute on function ops_acct.post_to_po(text, numeric, text, text, uuid, d
 comment on function ops_acct.post_to_po is
   'Pays an issued order from its own screen: one ledger row, split across the order''s linked '
   'request lines by value, the rest on the order alone. post_ledger, proof required, never above '
-  'what is outstanding. (0127, B8)';
+  'what is outstanding. (0129, B8)';

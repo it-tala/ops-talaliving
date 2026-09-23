@@ -6,7 +6,7 @@
  *
  *  The SOP a person prints and the answers John Lau's model gives are read
  *  from the **same rows**: `ops_asst.processes`, `process_steps`,
- *  `process_faq` (0124). Writing the SOP by hand beside them would be two
+ *  `process_faq` (0126). Writing the SOP by hand beside them would be two
  *  statements of how the PO screen works, and the first time somebody fixed
  *  one the other would be wrong with nobody noticing. So a step is changed by
  *  a migration, and both the PDF and the model follow.

@@ -16,7 +16,7 @@ import { useSession } from "@/store/session";
  *
  *  Until this existed the only road for money was a request line, so an
  *  order's deposit could fall due with no button anywhere that paid it, and a
- *  line paid instead left the order reading UNPAID (F148). `post_to_po` writes
+ *  line paid instead left the order reading UNPAID (F149). `post_to_po` writes
  *  one ledger row and splits it across the order's linked request lines by
  *  value — so the requests board and this page agree without anybody pointing
  *  the money twice.
