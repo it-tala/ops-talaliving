@@ -1,5 +1,5 @@
-/** Periods, as arithmetic — the one piece of the task module that exists
- *  twice.
+/** Calendar arithmetic that HR states **twice** — once here and once in SQL —
+ *  and that `scripts/check-task-periods.mjs` keeps identical.
  *
  *  ## Why this file has no imports
  *
@@ -30,6 +30,16 @@
  *  is a calendar fact and has no clock in it; going through a local `Date`
  *  would put the browser's timezone into a figure the database computed in
  *  WITA, which is F17 arriving by another road.
+ *
+ *  ## Why the age bands live here too
+ *
+ *  They are the same kind of thing and they carry the same risk. WLKP counts
+ *  people by age band (`0125`), the demo and the database each compute the
+ *  band, and two copies of a boundary is how somebody aged exactly twenty-five
+ *  ends up in both `18_24` and `25_34` — or in neither. The bands are not about
+ *  tasks, and the file's name says periods; what the file actually is, and has
+ *  been since the gate was written, is *the HR calendar arithmetic that has to
+ *  agree with `ops_hr`*. One module and one gate beats a second of each.
  */
 
 /** How often a standing expectation comes round. Mirrors
@@ -210,4 +220,63 @@ export const PERIOD_CASES: { cadence: Cadence; on: string }[] = [
   { cadence: "SEMESTER",  on: "2026-07-01" },
   { cadence: "ANNUAL",    on: "2026-12-31" },
   { cadence: "ANNUAL",    on: "2026-01-01" },
+];
+
+
+/* ── age, and the bands WLKP counts by ────────────────────────────────────
+ *
+ *  Mirrors `ops_hr.age_on()` and `ops_hr.age_band()`, and checked against them
+ *  case by case. Never stored on either side: a stored age is wrong every
+ *  morning until something writes to the row (A3).
+ */
+
+/** Completed years from `born` to `on`. Null propagates — an age computed from
+ *  a date of birth nobody recorded is not zero, it is unknown. */
+export function ageOn(born: string | null, on: string): number | null {
+  if (!born) return null;
+  const b = parse(born);
+  const d = parse(on);
+  let age = d.getUTCFullYear() - b.getUTCFullYear();
+  /* Completed years, so a birthday later this year has not happened yet.
+     Comparing month-and-day as one number avoids the two-branch version, which
+     is where the off-by-one on 1 January lives. */
+  const bMd = (b.getUTCMonth() + 1) * 100 + b.getUTCDate();
+  const dMd = (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
+  if (dMd < bMd) age -= 1;
+  return age;
+}
+
+/** The band an age falls in, keyed exactly as `ops_hr.age_band()` returns it.
+ *  The words for these keys are `AGE_BAND_LABEL` in the contracts; only the
+ *  boundaries are here, and only once. */
+export function ageBand(age: number | null): string {
+  if (age === null) return "tidak_diketahui";
+  if (age < 18) return "di_bawah_18";
+  if (age < 25) return "18_24";
+  if (age < 35) return "25_34";
+  if (age < 45) return "35_44";
+  if (age < 55) return "45_54";
+  return "55_ke_atas";
+}
+
+/** Put to both implementations by the same script as `PERIOD_CASES`.
+ *
+ *  Every boundary is exercised from both sides — a day before the birthday and
+ *  the birthday itself — because that is the only pair that can tell
+ *  *completed years* from *years started*. Plus a leap-day birthday in a
+ *  non-leap year, which is the case a hand-rolled month/day comparison gets
+ *  wrong.
+ */
+export const AGE_CASES: { born: string; on: string }[] = [
+  { born: "1990-05-04", on: "2026-05-03" },   // day before: still 35
+  { born: "1990-05-04", on: "2026-05-04" },   // birthday: 36
+  { born: "2008-09-24", on: "2026-09-23" },   // 17 — under 18 by one day
+  { born: "2008-09-24", on: "2026-09-24" },   // 18 — the band moves
+  { born: "2001-12-31", on: "2027-01-01" },   // across a year end
+  { born: "2002-01-01", on: "2026-12-31" },   // 24, not 25
+  { born: "1992-02-29", on: "2026-02-28" },   // leap birthday, non-leap year
+  { born: "1992-02-29", on: "2026-03-01" },
+  { born: "1971-06-15", on: "2026-06-15" },   // 55 exactly — the top band
+  { born: "1971-06-16", on: "2026-06-15" },   // 54 — one day short of it
+  { born: "2026-01-01", on: "2026-01-01" },   // 0
 ];

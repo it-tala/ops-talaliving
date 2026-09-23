@@ -75,6 +75,7 @@ export const LIVE_ROUTES: readonly string[] = [
      its contract, this had nothing underneath it at all. */
   "/hrd/cuti",
   "/hrd/tugas",
+  "/hrd/wlkp",
   "/hrd/jadwal",
   "/hrd/karyawan",
   "/hrd/kontrak",

@@ -30,6 +30,7 @@ import { ASSETS, ASSET_CATEGORIES, ASSET_SERVICES } from "./assets";
 import { PAY_RULE_SETS } from "./payrules";
 import { CONTRIBUTION_RATES, ENROLMENTS } from "./contributions";
 import { TASKS, TASK_ROUTINES } from "./tasks";
+import { EMPLOYEE_IDENTITIES } from "./identity";
 import { EMPLOYEE_DOCUMENTS, LEAVE_REQUESTS } from "./hrfiles";
 import { CLAUSE_CHECKLIST, CONTRACT_CLAUSES, EMPLOYMENT_CONTRACTS } from "./contracts";
 import { DESIGN_TASKS, DESIGN_REVISIONS, DESIGN_QUESTIONS } from "./design";
@@ -120,6 +121,7 @@ export function initialState(): DemoState {
     enrolments: ENROLMENTS,
     tasks: TASKS,
     task_routines: TASK_ROUTINES,
+    employee_identities: EMPLOYEE_IDENTITIES,
     pay_rule_sets: PAY_RULE_SETS,
     employee_documents: EMPLOYEE_DOCUMENTS,
     employment_contracts: EMPLOYMENT_CONTRACTS,

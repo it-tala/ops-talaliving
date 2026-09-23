@@ -304,6 +304,163 @@ export interface OvertimeLine {
 }
 
 /* ------------------------------------------------------------------ */
+/* Data diri untuk WLKP — the dimensions the regulator counts by        */
+/* ------------------------------------------------------------------ */
+
+/** Wajib Lapor Ketenagakerjaan asks for a headcount broken down seven ways.
+ *  Four of them had no data behind them anywhere in this system, so the report
+ *  could not be produced at all — not approximately: at all (D297).
+ *
+ *  These fields live in their own table with **no read policy**, not as columns
+ *  on `employees`, for the reason `EmployeeDocument` already carries: that
+ *  table is readable by every `payroll.read` account, and a date of birth on it
+ *  would have been readable by all of them the day it was added (D196). Reads
+ *  go through one seam that asks the permission itself.
+ *
+ *  **Every field is nullable and null is not a category.** Today none of it has
+ *  been collected. A `disabled` of `false` means somebody asked and the answer
+ *  was no; `null` means nobody has asked, and a report that folds the second
+ *  into the first is finished-looking and wrong. Same rule as `KpiMeasure`:
+ *  unmeasured is not zero.
+ */
+export type Sex = "L" | "P";
+
+/** The ladder WLKP's own form uses. `TIDAK_TAMAT_SD` is a real answer and a
+ *  common one in a workshop; leaving it out would push those people into `SD`,
+ *  which is a wrong figure rather than a missing one. */
+export type Education =
+  | "TIDAK_TAMAT_SD" | "SD" | "SMP" | "SMA" | "SMK"
+  | "D1" | "D2" | "D3" | "D4" | "S1" | "S2" | "S3";
+
+export type Citizenship = "WNI" | "WNA";
+
+export type MaritalStatus = "BELUM_KAWIN" | "KAWIN" | "CERAI_HIDUP" | "CERAI_MATI";
+
+export const SEX_LABEL: Record<Sex, string> = { L: "Laki-laki", P: "Perempuan" };
+
+export const EDUCATION_LABEL: Record<Education, string> = {
+  TIDAK_TAMAT_SD: "Tidak tamat SD", SD: "SD", SMP: "SMP", SMA: "SMA", SMK: "SMK",
+  D1: "D1", D2: "D2", D3: "D3", D4: "D4", S1: "S1", S2: "S2", S3: "S3",
+};
+
+export const MARITAL_LABEL: Record<MaritalStatus, string> = {
+  BELUM_KAWIN: "Belum kawin", KAWIN: "Kawin",
+  CERAI_HIDUP: "Cerai hidup", CERAI_MATI: "Cerai mati",
+};
+
+/** The age bands the form asks for. Keys match `ops_hr.age_band()` exactly —
+ *  two copies of a boundary is how somebody aged exactly 25 gets counted
+ *  twice, so the boundaries live in SQL and only the words live here. */
+export const AGE_BAND_LABEL: Record<string, string> = {
+  di_bawah_18: "Di bawah 18", "18_24": "18–24", "25_34": "25–34",
+  "35_44": "35–44", "45_54": "45–54", "55_ke_atas": "55 ke atas",
+  tidak_diketahui: "Belum diisi",
+};
+
+/** Which of the six a person is still missing. Field names, never values. */
+export type IdentityField =
+  | "tanggal_lahir" | "jenis_kelamin" | "pendidikan"
+  | "kewarganegaraan" | "disabilitas" | "status_kawin";
+
+export const IDENTITY_FIELD_LABEL: Record<IdentityField, string> = {
+  tanggal_lahir: "Tanggal lahir", jenis_kelamin: "Jenis kelamin",
+  pendidikan: "Pendidikan", kewarganegaraan: "Kewarganegaraan",
+  disabilitas: "Disabilitas", status_kawin: "Status kawin",
+};
+
+/** The stored half — one row per person, no history. A date of birth does not
+ *  change, and the three that can (education, marital status, citizenship) are
+ *  corrected rather than appended, with the audit log holding who corrected
+ *  them and **which fields**, never their values (D196). */
+export interface EmployeeIdentity {
+  employee_id: string;
+  born_on: string | null;
+  sex: Sex | null;
+  education: Education | null;
+  citizenship: Citizenship | null;
+  nationality: string | null;
+  disabled: boolean | null;
+  disability_note: string | null;
+  marital_status: MaritalStatus | null;
+  updated_by: string | null;
+  updated_at: string;
+}
+
+export interface EmployeeIdentityView {
+  employee_id: string;
+  employee_no: string;
+  full_name: string;
+  position: string | null;
+  unit: string | null;
+  active: boolean;
+  joined_on: string | null;
+  born_on: string | null;
+  /** Derived from `born_on` against the office day, never stored (A3). Null
+   *  when nobody has recorded a date of birth. */
+  age: number | null;
+  age_band: string;
+  sex: Sex | null;
+  education: Education | null;
+  citizenship: Citizenship | null;
+  /** Only for WNA, and required for them: *tenaga kerja asing* is counted by
+   *  country on the form. */
+  nationality: string | null;
+  /** Nullable on purpose. `false` is an answer; `null` is nobody having
+   *  asked. */
+  disabled: boolean | null;
+  disability_note: string | null;
+  marital_status: MaritalStatus | null;
+  /** The fields still empty for this person — what turns *the report is not
+   *  ready* into a list of people to go and ask. */
+  missing: IdentityField[];
+  /** PKWT or PKWTT, from the contract that covers today **and was activated**.
+   *  Null when there is none: a draft nobody signed does not describe anybody's
+   *  status. */
+  contract_kind: string | null;
+  updated_at: string | null;
+}
+
+export interface WlkpBucket {
+  key: string;
+  count: number;
+}
+
+/** The recap the form is transcribed from: **counts and nothing else.**
+ *
+ *  No name leaves the seam behind this, which is why it opens to `hrd.read`
+ *  *or* `payroll.read` while the person-by-person list stays on `hrd.read`
+ *  alone. *Berapa orang* is a different question from *siapa*, and only the
+ *  first one is on the form.
+ *
+ *  Every dimension carries its own `tidak_diketahui` bucket and the counts add
+ *  to `headcount` in all of them. That property is asserted in SQL, because the
+ *  failure it catches is silent: a breakdown that quietly drops the unknowns
+ *  looks finished and is short by nine people.
+ */
+export interface WlkpRecap {
+  /** WLKP is filed **for a date**, and who was employed on 31 December is not
+   *  answerable from `active` alone — somebody who left in November is inactive
+   *  now and was staff then. */
+  asof: string;
+  headcount: number;
+  complete: number;
+  incomplete: number;
+  by: {
+    jenis_kelamin: WlkpBucket[];
+    kelompok_umur: WlkpBucket[];
+    pendidikan: WlkpBucket[];
+    kewarganegaraan: WlkpBucket[];
+    disabilitas: WlkpBucket[];
+    status_kawin: WlkpBucket[];
+    jabatan: WlkpBucket[];
+    status_hubungan_kerja: WlkpBucket[];
+  };
+  nationalities: { country: string; count: number }[];
+  /** Which field is holding the report up, and for how many people. */
+  missing_by_field: Partial<Record<IdentityField, number>>;
+}
+
+/* ------------------------------------------------------------------ */
 /* Tasks, and measuring people — the one module that scores a person    */
 /* ------------------------------------------------------------------ */
 

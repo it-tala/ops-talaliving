@@ -70,6 +70,7 @@ export const NAV: NavSection[] = [
       { label: "Gajian mingguan", labelKey: "payrollWeek", href: "/hrd/payroll/minggu", icon: CalendarRange, permission: "payroll.read", badge: "new" },
       { label: "Statutory contributions", labelKey: "contributions", href: "/hrd/iuran", icon: ShieldCheck, permission: "payroll.read", orPermission: "accounting.read", badge: "new" },
       { label: "Task monitoring", href: "/hrd/tugas", icon: ListChecks, permission: "hrd.read", badge: "new" },
+      { label: "Wajib Lapor (WLKP)", href: "/hrd/wlkp", icon: ClipboardList, permission: "hrd.read", orPermission: "payroll.read", badge: "new" },
       { label: "Performance & tasks", labelKey: "performance", href: "/hrd/kinerja", icon: Gauge, permission: "payroll.read", orPermission: "hrd.read", badge: "new" },
       /* Under Payroll, not under IT. Its gate has always been `payroll.read`
        * — HRD owns the rule book — and once the IT heading means "IT and

@@ -26,6 +26,7 @@ import type {
   PayrollAdjustment, PayRuleSet, EmployeeDocument, LeaveRequest,
   AllowanceWithholding, ContributionRate, Enrolment, Task,
   EmploymentContract, ContractClause, ClauseChecklistItem, TaskRoutine,
+  EmployeeIdentity,
 } from "@/services/hr/contracts";
 import type {
   WorkOrder, ProgressEntry, VendorLeg, Product, BomComponent, BomRevision,
@@ -172,6 +173,11 @@ export interface DemoState {
    *  what has to be handed over, and how many days before it is due somebody
    *  should ask for it (D296). */
   task_routines: TaskRoutine[];
+  /** The dimensions WLKP counts people by — date of birth, sex, education,
+   *  citizenship, disability, marital status (D297). Its own table, not columns
+   *  on `employees`, because `employees` is readable by every payroll account
+   *  and this is not (D196). */
+  employee_identities: EmployeeIdentity[];
 
   /* --- production ------------------------------------------------- */
   /** What is being made, in what quantity, by when (D148). */

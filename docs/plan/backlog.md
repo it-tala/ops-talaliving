@@ -89,3 +89,33 @@ and I numbered them while agreeing what to do first.
 | W3 | **The PDF a vendor receives should carry its own signature** — answered: a **QR resolving to our own PO page** (D244). Still Phase 2: a vendor has no account here, so it needs a public read route and a token scoped per order. The PO screen now renders the QR **inside the app** with a note saying exactly that, and it is deliberately not printed on the vendor's PDF — a QR that fails for the person holding it is worse than no QR | Raised 2026-09-11, answered 2026-09-13. The two other candidates are dead: a scanned signature survives a photocopier and therefore proves nothing, a cryptographic one nobody in this trade can verify. The QR also catches an amended order presented as the original, because what the vendor sees is live |
 | W4 | ~~**QR per box, as the marker for installation**~~ — **built 2026-09-13 (M52)**, D262/D263 — the owner's second sentence on Q29, and a different thing from W3 | Raised 2026-09-13 (D244). A purchase order is one document with one QR; an installation needs a code **per box** that survives being carried to a site, and resolves to what is inside it and where it goes. Not built by widening W3 |
 | W1 | ~~Receiving reported by whoever actually saw the goods arrive~~ | **answered and built** 2026-09-11 (D131). The owner's answer changed the shape: there *is* a procurement team with access, so accountability was never in doubt — the problem is only that goods arrive outside working hours. So receiving split into a report (photo, anyone present) and a confirmation (tanda terima, procurement). The Chat route is no longer required for it: the same two acts work from the app tonight, and a bot can produce the report later without changing anything |
+
+## Kepatuhan ketenagakerjaan — audited 2026-09-24, mostly not built
+
+The owner asked *compliance ke dinas tenaga kerja itu gimana* and the answer was
+nothing: `WLKP`, `Disnaker`, `Kemnaker`, `UMK`, `peraturan perusahaan`,
+`pesangon` and `bukti potong` appeared nowhere in this repository. The HR module
+was built to run attendance and payroll, which it does, and a regulator asks
+different questions.
+
+**C1 was built the same day (D297). Everything below it was deliberately
+deferred by the owner — *abaikan 2–4* — and is recorded here rather than
+dropped.** The mapping is against the obligations that are commonly known to
+apply to a twelve-person PT; which of them actually bind this company is for
+whoever handles its filings to confirm, and this table is the database half of
+that conversation, not legal advice.
+
+| # | Kewajiban | Status hari ini | Yang kurang |
+|---|---|---|---|
+| C1 | ~~**WLKP** — lapor tahunan, rincian menurut tujuh dimensi~~ | **built 2026-09-24 (D297)** — `0125`, `/hrd/wlkp` | data dirinya sendiri masih harus dikumpulkan dari dua belas orang; layarnya menyebut siapa kurang apa |
+| C2 | **Upah minimum (UMK)** | tidak dimodelkan di mana pun | tidak ada angka UMK dan tidak ada yang memeriksa `base_rate` terhadapnya. Sistem akan membayar di bawah minimum tanpa berkata apa-apa. Bentuk yang benar adalah peringatan, bukan penolakan (A6): boleh ada alasan sah, yang tidak boleh adalah diam |
+| C3 | **Batas lembur** — 4 jam/hari, 18 jam/minggu | tangga pengalinya benar (D173–176), batasnya tidak ada | satu peringatan di `/hrd/lembur` saat sebuah sheet melewatinya. Tidak ada pula catatan persetujuan pekerja: `overtime_sheets` punya tanda tangan pimpinan, dan surat perintah lembur adalah dokumen yang berbeda |
+| C4 | **Cuti tahunan 12 hari** | kolomnya ada, isinya nol untuk **12 dari 12** orang di produksi | ini data, bukan kode. Selama nol, setiap pengajuan dihitung tidak berbayar dan payroll memotong orang yang berhak |
+| C5 | **Jenis cuti yang wajib ada** | `leave_kind_t` hanya `cuti`, `izin`, `sakit` | cuti melahirkan, cuti haid, dan cuti karena alasan penting adalah hak dengan aturan berbeda-beda, dan sekarang ketiganya masuk ke `izin` |
+| C6 | **Pencatatan PKWT ke Disnaker** — 3 hari kerja | PKWT/PKWTT dimodelkan lengkap dengan daftar periksa klausul (`0058`) | tidak ada yang melacak apakah sudah dicatatkan dan kapan; tidak ada pemeriksaan batas 5 tahun; tidak ada uang kompensasi PKWT |
+| C7 | **Peraturan Perusahaan** — wajib ≥10 karyawan, daftar ulang 2 tahun | tidak ada tempatnya sama sekali | 12 karyawan, jadi ini berlaku. Satu baris dengan tanggal berlaku dan tanggal kedaluwarsa sudah cukup untuk mulai |
+| C8 | **BPJS TK + Kesehatan** | rangkanya lengkap — `enrolments`, `contribution_rates`, audit rekap (D227, D259) | **0 pendaftaran tercatat di produksi**, dan `/hrd/iuran` masih gelap: 6 fungsi live client belum ditulis |
+| C9 | **PPh 21 / bukti potong 1721-A1** | sengaja tidak dihitung (D140) | keputusan yang masih berlaku dan masih benar — potongan yang salah lebih buruk daripada yang tidak ada. Tapi artinya payroll berhenti di bruto dan pajaknya dikerjakan di luar sistem. Tidak ada kolom PTKP dan NPWP hanya ada sebagai berkas pindaian |
+| C10 | **Surat Peringatan** | hanya sebagai jenis dokumen pindaian | SP punya masa berlaku. *Apakah SP1 orang ini masih hidup* tidak bisa dijawab dari sebuah file di folder |
+| C11 | **K3 / kecelakaan kerja** | tidak ada register insiden | klaim JKK perlu laporan 2×24 jam, dan yang dilaporkan harus dicatat sebelum bisa dilaporkan |
+| C12 | **PHK & pesangon** | `left_on` tanpa alasan dan tanpa jenis | masa kerja ada, hak tidak dihitung, dan perputaran karyawan tidak bisa dilaporkan |

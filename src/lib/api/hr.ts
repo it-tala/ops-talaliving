@@ -47,6 +47,7 @@ import type {
   AdjustmentKind, ContributionScheme,
   LeaveKind, LeaveStatus, LeaveRequestView, LeaveBalance,
   TaskStatus, TaskRefKind, TaskView, TaskCadence, TaskRoutineView,
+  Sex, Education, Citizenship, MaritalStatus, EmployeeIdentityView, WlkpRecap,
 } from "@/services/hr/contracts";
 import {
   EMPLOYEE_DOC_CHECKLIST, EMPLOYEE_DOC_LABEL, SENSITIVE_DOC_KINDS,
@@ -1581,4 +1582,82 @@ export async function rollTaskRoutines(
     already_there: said.data.already_there,
     tasks: rows,
   });
+}
+
+/* ------------------------------------------------------------------ */
+/* Data diri untuk WLKP                                                */
+/* ------------------------------------------------------------------ */
+//
+// Three RPCs and no view, which is the whole point. `ops_hr.employee_identity`
+// has no read policy at all — a client that could select the table could select
+// a date of birth, and the permission check inside the seam would be decoration
+// (F127, the same shape as `employee_documents` in `0056`). So there is nothing
+// here for `check-view-contracts.mjs` to map, because there is no view to read.
+//
+// Nothing below computes anything. `age`, `age_band` and `missing` come out of
+// the seam; a client that worked out somebody's age from their birthday would
+// be a second opinion about which band they fall in, and the recap is counted
+// by exactly those bands.
+
+export async function listEmployeeIdentities(
+  filter: { employee_no?: string } = {},
+): Promise<Result<EmployeeIdentityView[]>> {
+  const { data, error } = await db().rpc("employee_identities", {
+    p_employee_no: filter.employee_no ?? null,
+  });
+  return fromRows<EmployeeIdentityView[]>(SERVICE, data as never, error);
+}
+
+export async function saveEmployeeIdentity(
+  input: {
+    employee_no: string;
+    born_on?: string | null;
+    sex?: Sex | null;
+    education?: Education | null;
+    citizenship?: Citizenship | null;
+    nationality?: string | null;
+    disabled?: boolean | null;
+    disability_note?: string | null;
+    marital_status?: MaritalStatus | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<EmployeeIdentityView>> {
+  const { data, error } = await db().rpc("save_employee_identity", {
+    p_employee_no: input.employee_no,
+    p_born_on: input.born_on ?? null,
+    p_sex: input.sex ?? null,
+    p_education: input.education ?? null,
+    p_citizenship: input.citizenship ?? null,
+    p_nationality: input.nationality ?? null,
+    p_disabled: input.disabled ?? null,
+    p_disability_note: input.disability_note ?? null,
+    p_marital_status: input.marital_status ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const said = fromSeam<{ employee_no: string }>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<EmployeeIdentityView>;
+
+  /* Read back through the seam rather than assembling the row from what was
+     just sent: `missing` and `age_band` are derived, and the screen decides who
+     still needs chasing from them. */
+  const back = await listEmployeeIdentities({ employee_no: input.employee_no });
+  if (back.error) return back as unknown as Result<EmployeeIdentityView>;
+  if (back.data.length === 0) {
+    return notFound(SERVICE, "employee_not_found",
+      `Data diri ${input.employee_no} tersimpan tapi tidak terbaca kembali.`);
+  }
+  return ok(SERVICE, back.data[0]);
+}
+
+/** The recap, for a date.
+ *
+ *  Answers `null` rather than a refusal when the caller may not see it, which
+ *  is the same shape `effectiveDaysCalendar` uses: the screen shows nothing
+ *  instead of a number nobody was meant to see (`0118`).
+ */
+export async function getWlkpRecap(
+  input: { asof?: string | null } = {},
+): Promise<Result<WlkpRecap | null>> {
+  const { data, error } = await db().rpc("wlkp_recap", { p_asof: input.asof ?? null });
+  return fromRows<WlkpRecap | null>(SERVICE, data as never, error);
 }

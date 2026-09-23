@@ -8,6 +8,8 @@ import type {
   PayRules, PayRuleSet, PayRuleSetView, WorkSchedule, ScheduleHours,
   EmployeeDocKind, EmployeeFileView, DocNoSource, LeaveBalance, LeaveKind, LeaveRequestView, LeaveStatus,
   TaskCadence, TaskRoutine, TaskRoutineView,
+  Sex, Education, Citizenship, MaritalStatus,
+  EmployeeIdentity, EmployeeIdentityView, WlkpRecap,
   AllowanceWithholding, AllowanceWithholdingView,
   ContributionScheme, ContributionRate, ContributionRoll, Enrolment,
   Task, TaskView, TaskRefKind, KpiView,
@@ -27,10 +29,11 @@ import {
   employeeFile, leaveBalance, leaveRequestView, datesBetween,
   contributionRoll, allRolls,
   taskView, taskViews, taskRoutineView, taskRoutineViews, kpiView, kpiViews, weekdayOf,
+  employeeIdentityViews, wlkpRecap,
 } from "../hr-derive";
 import { latency, actingUser, requireModule, requireLevel, requireAuthority, conflict, replayed, remember } from "./_kit";
 import { officeToday as sharedOfficeToday } from "@/lib/office";
-import { CADENCE_LABEL, addDays, taskPeriodsBetween } from "@/services/hr/task-periods";
+import { CADENCE_LABEL, addDays, taskPeriodsBetween, ageOn } from "@/services/hr/task-periods";
 
 const SERVICE = "hr" as const;
 
@@ -3392,4 +3395,136 @@ export async function setEmployeeSchedule(
     });
   });
   return ok(SERVICE, saved!);
+}
+
+/* ── data diri untuk WLKP ─────────────────────────────────────────────────
+ *
+ *  Three endpoints, and the split between them is the point. The **recap** is
+ *  counts and nothing else, so it opens to anybody who can already see the
+ *  roster; the **list** is dates of birth, so it does not. *Berapa orang* is a
+ *  different question from *siapa*, and only the first one is on the form
+ *  (D196, D297).
+ */
+
+export async function listEmployeeIdentities(
+  filter: { employee_no?: string } = {},
+): Promise<Result<EmployeeIdentityView[]>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+  return ok(SERVICE, employeeIdentityViews(getState(), filter));
+}
+
+export async function saveEmployeeIdentity(
+  input: {
+    employee_no: string;
+    born_on?: string | null;
+    sex?: Sex | null;
+    education?: Education | null;
+    citizenship?: Citizenship | null;
+    nationality?: string | null;
+    disabled?: boolean | null;
+    disability_note?: string | null;
+    marital_status?: MaritalStatus | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<EmployeeIdentityView>> {
+  await latency();
+  const cached = replayed<EmployeeIdentityView>(SERVICE, "saveEmployeeIdentity", idempotencyKey);
+  if (cached) return cached;
+
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+
+  const state = getState();
+  const emp = state.employees.find((e) => e.employee_no === input.employee_no);
+  if (!emp) return notFound(SERVICE, "employee_not_found", `No employee ${input.employee_no}.`);
+
+  const today = officeToday();
+  const nat = input.nationality?.trim() || null;
+  const note = input.disability_note?.trim() || null;
+
+  /* The same six refusals `ops_hr.save_employee_identity()` makes, in the same
+     order and with the same codes — a screen that reads one and not the other
+     would show a different sentence for the same slip (ADR-009). */
+  if (input.born_on && input.born_on > today) {
+    return invalid(SERVICE, "born_in_the_future",
+      `Tanggal lahir ${input.born_on} belum terjadi.`, { field: "born_on" });
+  }
+  if (input.born_on && input.born_on < "1930-01-01") {
+    return invalid(SERVICE, "born_too_long_ago",
+      `Tanggal lahir ${input.born_on} hampir pasti salah ketik tahunnya.`, { field: "born_on" });
+  }
+  if (emp.joined_on && input.born_on) {
+    const atJoining = ageOn(input.born_on, emp.joined_on);
+    if (atJoining !== null && atJoining < 15) {
+      return invalid(SERVICE, "born_after_joining",
+        `Umur ${atJoining} tahun pada tanggal masuk (${emp.joined_on}) — salah satu dari dua tanggal itu keliru.`,
+        { field: "born_on" });
+    }
+  }
+  if (input.citizenship === "WNA" && !nat) {
+    return invalid(SERVICE, "nationality_required",
+      "WNA dilaporkan per negara, jadi negaranya harus disebut.", { field: "nationality" });
+  }
+  if (input.citizenship === "WNI" && nat) {
+    return invalid(SERVICE, "nationality_not_for_wni",
+      "WNI tidak perlu negara terpisah.", { field: "nationality" });
+  }
+  if (note && input.disabled !== true) {
+    return invalid(SERVICE, "note_without_a_yes",
+      "Keterangan disabilitas hanya untuk yang jawabannya ya.", { field: "disability_note" });
+  }
+
+  const user = actingUser();
+  apply((draft) => {
+    const row: EmployeeIdentity = {
+      employee_id: emp.id,
+      born_on: input.born_on ?? null,
+      sex: input.sex ?? null,
+      education: input.education ?? null,
+      citizenship: input.citizenship ?? null,
+      nationality: nat,
+      disabled: input.disabled ?? null,
+      disability_note: note,
+      marital_status: input.marital_status ?? null,
+      updated_by: user.id,
+      updated_at: new Date().toISOString(),
+    };
+    const at = draft.employee_identities.findIndex((x) => x.employee_id === emp.id);
+    if (at >= 0) draft.employee_identities[at] = row;
+    else draft.employee_identities.push(row);
+
+    writeAudit(draft, {
+      service: SERVICE, entity: "employee_identity", entity_no: emp.employee_no,
+      action: "save", outcome: "ok", reason: null,
+      /* **Field names, never values.** An audit row that repeats a date of
+         birth has copied the thing this table exists to keep in one place. */
+      detail: {
+        by: user.email,
+        fields: [
+          input.born_on ? "tanggal_lahir" : null,
+          input.sex ? "jenis_kelamin" : null,
+          input.education ? "pendidikan" : null,
+          input.citizenship ? "kewarganegaraan" : null,
+          input.disabled === null || input.disabled === undefined ? null : "disabilitas",
+          input.marital_status ? "status_kawin" : null,
+        ].filter((f): f is string => f !== null),
+      },
+    });
+  });
+
+  const after = getState();
+  const view = employeeIdentityViews(after, { employee_no: input.employee_no })[0];
+  remember(SERVICE, "saveEmployeeIdentity", idempotencyKey, view);
+  return ok(SERVICE, view);
+}
+
+export async function getWlkpRecap(
+  input: { asof?: string | null } = {},
+): Promise<Result<WlkpRecap | null>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+  return ok(SERVICE, wlkpRecap(getState(), input.asof ?? null));
 }

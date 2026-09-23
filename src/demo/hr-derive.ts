@@ -20,6 +20,7 @@ import type {
   Task, TaskView, TaskRoutine, TaskRoutineView, KpiMeasure, KpiView,
   EmployeeFileView, EmployeeDocSlot, EmployeeDocument, EmployeeDocumentView,
   LeaveBalance, LeaveRequest, LeaveRequestView,
+  EmployeeIdentity, EmployeeIdentityView, IdentityField, WlkpBucket, WlkpRecap,
 } from "@/services/hr/contracts";
 import {
   ADJUSTMENT_LABEL, DAY_MARK_SHORT,
@@ -28,7 +29,7 @@ import {
 } from "@/services/hr/contracts";
 import { scheduleHoursOf } from "@/services/hr/schedule-rules";
 import {
-  addDays, taskPeriodStart, taskPeriodEnd, taskPeriodLabel,
+  addDays, taskPeriodStart, taskPeriodEnd, taskPeriodLabel, ageOn, ageBand,
 } from "@/services/hr/task-periods";
 
 const HOURS = 3_600_000;
@@ -1710,5 +1711,147 @@ export function leaveRequestView(state: DemoState, r: LeaveRequest): LeaveReques
     clashes: dates.filter((d) => state.day_marks.some(
       (m) => m.work_date === d && (m.employee_id === r.employee_id || m.employee_id === null),
     )),
+  };
+}
+
+/* ── data diri untuk WLKP ─────────────────────────────────────────────── */
+
+/** The contract in force **on a date** and actually activated.
+ *
+ *  A draft nobody signed does not describe anybody's employment status, and a
+ *  contract that ended in June does not describe it in September. Transcribed
+ *  from the same predicate `ops_hr.wlkp_recap()` uses, down to the `status`
+ *  check — the two are compared by nothing, so they are kept identical by
+ *  reading the same sentence twice.
+ */
+function contractKindOn(state: DemoState, employeeId: string, on: string): string | null {
+  const live = state.employment_contracts
+    .filter((c) => c.employee_id === employeeId && c.status === "active"
+      && c.effective_from <= on
+      && (c.ends_on === null || c.ends_on >= on)
+      && (c.ended_on === null || c.ended_on >= on))
+    .sort((a, b) => b.effective_from.localeCompare(a.effective_from));
+  return live[0]?.kind ?? null;
+}
+
+/** Which of the six this person is still missing.
+ *
+ *  `disabled` counts as answered when it is `false` — somebody asked, and no is
+ *  an answer. Only `null` is a gap, which is the whole reason the column is a
+ *  nullable boolean and not a `not null default false`.
+ */
+function missingIdentityFields(i: EmployeeIdentity | undefined): IdentityField[] {
+  const out: IdentityField[] = [];
+  if (!i?.born_on) out.push("tanggal_lahir");
+  if (!i?.sex) out.push("jenis_kelamin");
+  if (!i?.education) out.push("pendidikan");
+  if (!i?.citizenship) out.push("kewarganegaraan");
+  if (i?.disabled === undefined || i?.disabled === null) out.push("disabilitas");
+  if (!i?.marital_status) out.push("status_kawin");
+  return out;
+}
+
+export function employeeIdentityViews(
+  state: DemoState,
+  filter: { employee_no?: string } = {},
+  today = officeToday(),
+): EmployeeIdentityView[] {
+  return state.employees
+    .filter((e) => !filter.employee_no || e.employee_no === filter.employee_no)
+    .map((e) => {
+      const i = state.employee_identities.find((x) => x.employee_id === e.id);
+      const age = ageOn(i?.born_on ?? null, today);
+      return {
+        employee_id: e.id, employee_no: e.employee_no, full_name: e.full_name,
+        position: e.position, unit: e.unit, active: e.active, joined_on: e.joined_on,
+        born_on: i?.born_on ?? null,
+        age, age_band: ageBand(age),
+        sex: i?.sex ?? null,
+        education: i?.education ?? null,
+        citizenship: i?.citizenship ?? null,
+        nationality: i?.nationality ?? null,
+        disabled: i?.disabled ?? null,
+        disability_note: i?.disability_note ?? null,
+        marital_status: i?.marital_status ?? null,
+        missing: missingIdentityFields(i),
+        contract_kind: contractKindOn(state, e.id, today),
+        updated_at: i?.updated_at ?? null,
+      };
+    })
+    /* Active first, then by number, and the code-unit comparison the SQL pins
+       with `collate "C"` — `en_US.UTF-8` and JS disagree about case, and a
+       list ordered two ways is F143 (`Workshop` before `office`). */
+    .sort((a, b) => Number(b.active) - Number(a.active)
+      || (a.employee_no < b.employee_no ? -1 : a.employee_no > b.employee_no ? 1 : 0));
+}
+
+/** The recap, counted eight ways.
+ *
+ *  `asof` decides who is counted, not `active`: WLKP is filed for a date, and
+ *  somebody who left in November was staff on the 31 December before it.
+ *  Ages are taken on that date too — a report about last year that ages
+ *  everybody to today moves people between bands.
+ */
+export function wlkpRecap(state: DemoState, asof?: string | null): WlkpRecap {
+  const d = asof || officeToday();
+  const people = state.employees
+    .filter((e) => (e.joined_on ?? "1900-01-01") <= d && (e.left_on === null || e.left_on >= d))
+    .map((e) => {
+      const i = state.employee_identities.find((x) => x.employee_id === e.id);
+      return {
+        position: e.position?.trim() || "tidak_diketahui",
+        sex: i?.sex ?? "tidak_diketahui",
+        band: ageBand(ageOn(i?.born_on ?? null, d)),
+        education: i?.education ?? "tidak_diketahui",
+        citizenship: i?.citizenship ?? "tidak_diketahui",
+        nationality: i?.citizenship === "WNA" ? i.nationality : null,
+        disability: i?.disabled === undefined || i?.disabled === null
+          ? "tidak_diketahui" : i.disabled ? "ya" : "tidak",
+        marital: i?.marital_status ?? "tidak_diketahui",
+        status: contractKindOn(state, e.id, d) ?? "tanpa_kontrak",
+        missing: missingIdentityFields(i),
+      };
+    });
+
+  /* Counted, then ordered largest first with ties broken by key — the same
+     `order by n desc, key collate "C"` the seam uses, because a screen that
+     redraws its bars in a different order after a save looks broken. */
+  const bucket = (pick: (p: (typeof people)[number]) => string): WlkpBucket[] => {
+    const m = new Map<string, number>();
+    for (const p of people) m.set(pick(p), (m.get(pick(p)) ?? 0) + 1);
+    return [...m.entries()]
+      .map(([key, count]) => ({ key, count }))
+      .sort((a, b) => b.count - a.count
+        || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  };
+
+  const missingBy: Partial<Record<IdentityField, number>> = {};
+  for (const p of people) {
+    for (const f of p.missing) missingBy[f] = (missingBy[f] ?? 0) + 1;
+  }
+
+  const nat = new Map<string, number>();
+  for (const p of people) if (p.nationality) nat.set(p.nationality, (nat.get(p.nationality) ?? 0) + 1);
+
+  return {
+    asof: d,
+    headcount: people.length,
+    complete: people.filter((p) => p.missing.length === 0).length,
+    incomplete: people.filter((p) => p.missing.length > 0).length,
+    by: {
+      jenis_kelamin: bucket((p) => p.sex),
+      kelompok_umur: bucket((p) => p.band),
+      pendidikan: bucket((p) => p.education),
+      kewarganegaraan: bucket((p) => p.citizenship),
+      disabilitas: bucket((p) => p.disability),
+      status_kawin: bucket((p) => p.marital),
+      jabatan: bucket((p) => p.position),
+      status_hubungan_kerja: bucket((p) => p.status),
+    },
+    nationalities: [...nat.entries()]
+      .map(([country, count]) => ({ country, count }))
+      .sort((a, b) => b.count - a.count
+        || (a.country < b.country ? -1 : a.country > b.country ? 1 : 0)),
+    missing_by_field: missingBy,
   };
 }
