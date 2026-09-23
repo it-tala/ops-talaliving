@@ -1,4 +1,4 @@
-import type { Asset, AssetCategory } from "@/services/inventory/contracts";
+import type { Asset, AssetCategory, AssetService } from "@/services/inventory/contracts";
 
 /** The non-production asset register (`0107`), seeded with the categories the
  *  migration seeds and a handful of assets that show each thing the screen
@@ -86,5 +86,26 @@ export const ASSETS: Asset[] = [
     warranty_until: null, notes: "Lent by the client for the launch", ended_on: null,
     ownership: "borrowed", rent_amount: null, rent_period: null, rent_due_day: null,
     contract_start: "2026-09-01", contract_end: "2026-10-05",
+  },
+];
+
+/** The service log (`0121`): the pickup's oil changes, the next one due in
+ *  ten days so the flag shows, and a repair on the printer that explains why
+ *  it is out. */
+export const ASSET_SERVICES: Omit<AssetService, "vendor_name">[] = [
+  {
+    id: "asv_001", asset_no: "AST-0004", service_date: "2026-03-28", kind: "service",
+    description: "Ganti oli + filter oli", vendor_code: null, cost: 385_000, trx_no: null,
+    next_due: "2026-06-28", recorded_by: "usr_anggun", recorded_at: "2026-03-28T10:00:00+08:00",
+  },
+  {
+    id: "asv_002", asset_no: "AST-0004", service_date: "2026-07-03", kind: "service",
+    description: "Ganti oli, cek rem, spooring", vendor_code: null, cost: 640_000, trx_no: null,
+    next_due: "2026-10-03", recorded_by: "usr_anggun", recorded_at: "2026-07-03T10:00:00+08:00",
+  },
+  {
+    id: "asv_003", asset_no: "AST-0005", service_date: "2026-09-15", kind: "repair",
+    description: "Paper jam — fuser unit replaced", vendor_code: null, cost: 1_150_000, trx_no: null,
+    next_due: null, recorded_by: "usr_anggun", recorded_at: "2026-09-15T14:00:00+08:00",
   },
 ];

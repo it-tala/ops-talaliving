@@ -570,6 +570,47 @@ export interface AssetView extends Asset {
   contract_expired: boolean;
   /** Payment-calendar lines made from this asset's rent. */
   rent_lines: number;
+  /** The service log (`0121`): the latest job's date, the next one due as
+   *  the latest job set it, and whether that falls within two weeks. */
+  last_service_on: string | null;
+  next_service_due: string | null;
+  service_due: boolean;
+  service_count: number;
+}
+
+export type AssetServiceKind = "service" | "repair" | "inspection" | "other";
+
+export const ASSET_SERVICE_KIND_LABEL: Record<AssetServiceKind, string> = {
+  service: "Service",
+  repair: "Repair",
+  inspection: "Inspection",
+  other: "Other",
+};
+
+/** One job done on an asset — `v_asset_service` (`0121`). */
+export interface AssetService {
+  id: string;
+  asset_no: string;
+  service_date: string;
+  kind: AssetServiceKind;
+  description: string;
+  vendor_code: string | null;
+  vendor_name: string | null;
+  cost: number | null;
+  trx_no: string | null;
+  next_due: string | null;
+  recorded_by: string | null;
+  recorded_at: string;
+}
+
+export interface AssetServiceInput {
+  service_date: string;
+  description: string;
+  kind?: AssetServiceKind;
+  vendor_code?: string;
+  cost?: number | null;
+  trx_no?: string;
+  next_due?: string | null;
 }
 
 /** Everything an asset form can set. Leave a field out to keep it; `""`

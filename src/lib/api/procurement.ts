@@ -25,6 +25,7 @@
  */
 import type {
   Vendor, VendorView, Item, ItemView, Uom, UomConversion, UomDimension, ItemCategory, ItemPurchase, Project,
+  ItemGroupSuggestion,
   PrLineView, PrApproval, LineNote, LineVariance, ApprovalRequest,
   VendorJourney, RoundSummary, RoundTransfer, VarianceReason, Channel, ApprovalBatchView,
   PoDetail, PoLine, PoStatusView, PurchaseOrder, Receipt, ReceiptCondition,
@@ -33,6 +34,7 @@ import type {
 import type { DocKind } from "@/services/documents/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { getActiveLocale } from "@/lib/format";
+import { suggestItemGroups as suggestGroups } from "@/services/procurement/suggest";
 import { fail, fromSeam, fromRows, fromPage, invalid, notFound, ok, type Result } from "./_kit";
 import * as documents from "./documents";
 
@@ -302,6 +304,22 @@ export async function listOpenLines(): Promise<Result<PrLineView[]>> {
 
 export async function listAllLines(): Promise<Result<PrLineView[]>> {
   const { data, error } = await db().from("v_pr_line").select("*")
+    .not("doc_status", "in", "(DRAFT,CANCELLED)")
+    .is("removed_at", null)
+    .order("submitted_at", { ascending: false });
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, (data as LineRow[]).map(toLineView));
+}
+
+/** Every request line that asked for this item — merged duplicates' lines
+ *  included, newest first. The item drawer's "requested" half (Master Data
+ *  phase 5): what was asked for, by whom, and where it stands. */
+export async function itemRequestLines(itemId: string): Promise<Result<PrLineView[]>> {
+  const { data: merged, error: e1 } = await db().from("items").select("id").eq("merged_into", itemId);
+  if (e1) return fail(SERVICE, e1);
+  const ids = [itemId, ...((merged ?? []) as { id: string }[]).map((m) => m.id)];
+  const { data, error } = await db().from("v_pr_line").select("*")
+    .in("item_id", ids)
     .not("doc_status", "in", "(DRAFT,CANCELLED)")
     .is("removed_at", null)
     .order("submitted_at", { ascending: false });
@@ -1196,6 +1214,36 @@ export async function archiveItem(id: string, archived: boolean): Promise<Result
   const res = fromSeam(SERVICE, data, error);
   if (res.error) return res;
   return itemViewByCode(code);
+}
+
+/** Many at once, with the reason written once (`0120`). */
+export async function archiveItems(
+  ids: string[], reason?: string,
+): Promise<Result<{ archived: number; codes: string[] }>> {
+  if (ids.length === 0) return invalid(SERVICE, "codes_required", "Pick at least one item.", { field: "codes" });
+  const { data: rows, error: e1 } = await db().from("items").select("code").in("id", ids);
+  if (e1) return fail(SERVICE, e1);
+  const { data, error } = await db().rpc("archive_items", {
+    p_codes: (rows ?? []).map((r) => (r as { code: string }).code),
+    p_reason: reason ?? null,
+  });
+  return fromSeam<{ archived: number; codes: string[] }>(SERVICE, data, error);
+}
+
+/** Proposed item types for the uncurated pile — the same pure function the
+ *  demo runs (`services/procurement/suggest.ts`), over every uncurated,
+ *  live item. One read of names, not of the catalogue view. */
+export async function suggestItemGroups(): Promise<Result<ItemGroupSuggestion[]>> {
+  const [pile, cats] = await Promise.all([
+    db().from("items").select("id, name, category_code")
+      .eq("is_curated", false).is("merged_into", null).is("archived_at", null).limit(5000),
+    listCategories(),
+  ]);
+  if (pile.error) return fail(SERVICE, pile.error);
+  if (cats.error) return cats;
+  return ok(SERVICE, suggestGroups(
+    (pile.data ?? []) as { id: string; name: string; category_code: string }[], cats.data,
+  ));
 }
 
 /** A pointer, never a delete (`0104`); answers the survivor. */
