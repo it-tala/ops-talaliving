@@ -14,7 +14,7 @@ import type {
   TransactionType, Direction, AllocMethod, InboxStatus, InboxHealth,
   TrxStatus, BankStatementView, StatementLineView, StatementMatch,
   TransactionTypeCode, PaymentAllocation, VendorPayment, CashOverride, CashSettlement,
-  CashComponent, CashPlan, CashMonth, CashMonthDetail, CashDue, CashDayRow,
+  CashComponent, CashAmountKind, CashPlan, CashMonth, CashMonthDetail, CashDue, CashDayRow,
   InboxOrigin, EvidenceInboxRow, IncomingMoney,
   DocumentCoverage, TransactionCoverage, CoverageTransaction,
   CoverageLine, CoveragePayment,
@@ -1229,6 +1229,7 @@ export async function saveComponent(input: {
   account_code?: string | null;
   starts_on?: string | null;
   note?: string | null;
+  amount_kind?: CashAmountKind;
 }): Promise<Result<unknown>> {
   const { data, error } = await db().rpc("save_cash_component", {
     p_name: input.name,
@@ -1244,6 +1245,7 @@ export async function saveComponent(input: {
     p_starts_on: input.starts_on ?? null,
     p_note: input.note ?? null,
     p_id: input.id ?? null,
+    p_amount_kind: input.amount_kind ?? null,
   });
   return fromSeam(SERVICE, data, error);
 }
@@ -1282,6 +1284,7 @@ export async function addComponent(input: {
   starts_on?: string;
   ends_on?: string | null;
   note?: string | null;
+  amount_kind?: CashAmountKind;
 }): Promise<Result<CashComponent>> {
   const { data, error } = await db().rpc("save_cash_component", {
     p_name: input.name,
@@ -1299,6 +1302,7 @@ export async function addComponent(input: {
     p_id: null,
     p_ends_on: input.ends_on ?? null,
     p_active: true,
+    p_amount_kind: input.amount_kind ?? "fixed",
   });
   const saved = fromSeam<{ component_id: string }>(SERVICE, data, error);
   if (saved.error) return saved;
@@ -1318,7 +1322,10 @@ export async function addComponent(input: {
  *  does not blank out the line's vendor, category or due date. */
 export async function updateComponent(
   id: string,
-  patch: { name?: string; amount?: number; due_day?: number; ends_on?: string | null; note?: string | null; active?: boolean },
+  patch: {
+    name?: string; amount?: number; due_day?: number; ends_on?: string | null;
+    note?: string | null; active?: boolean; amount_kind?: CashAmountKind;
+  },
 ): Promise<Result<CashComponent>> {
   const current = await db().from("cash_components").select("*").eq("id", id).maybeSingle();
   if (current.error) return fail(SERVICE, current.error);
@@ -1341,6 +1348,7 @@ export async function updateComponent(
     p_id: id,
     p_ends_on: patch.ends_on !== undefined ? patch.ends_on : row.ends_on,
     p_active: patch.active ?? row.active,
+    p_amount_kind: patch.amount_kind ?? null,
   });
   const saved = fromSeam(SERVICE, data, error);
   if (saved.error) return saved;

@@ -580,6 +580,8 @@ export type CashFrequency = "weekly" | "monthly" | "once";
  *  finds what actually happened. Claims are resolved most-specific-first, and
  *  one ledger row is only ever claimed once (D110).
  */
+export type CashAmountKind = "fixed" | "estimate";
+
 export interface CashComponent {
   id: string;
   name: string;
@@ -611,6 +613,13 @@ export interface CashComponent {
    *  public code, resolved at the seam — accounting does not reach into HR's
    *  tables (ADR-004). */
   scheme_codes: string[];
+  /** `fixed` must be met — less is PARTIAL. `estimate` is settled by whatever
+   *  the matched payment came to, and the difference is shown (`0108`).
+   *  Optional so fixtures written before it read as fixed. */
+  amount_kind?: CashAmountKind;
+  /** What created the line when nobody typed it — `asset:AST-0004` for an
+   *  asset's rent (`0110`). */
+  source_ref?: string | null;
   /** `YYYY-MM`, inclusive. `ends_on` null means it keeps going. */
   starts_on: string;
   ends_on: string | null;
@@ -664,6 +673,8 @@ export interface CashEvent {
   name: string;
   direction: Direction;
   frequency: CashFrequency;
+  /** Fixed or a guess (`0108`). A paid estimate is PAID whatever it came to. */
+  amount_kind?: CashAmountKind;
   month: string;
   date: string;
   planned: number;
@@ -804,8 +815,13 @@ export interface MonthlyBill {
   direction: Direction;
   planned: number;
   actual: number;
-  /** `planned − actual`, floored at zero. What is still to go out. */
+  /** `planned − actual`, floored at zero. What is still to go out. A paid
+   *  estimate owes nothing, whatever it came to. */
   outstanding: number;
+  amount_kind: CashAmountKind;
+  /** `actual − planned` on a paid estimate: what the bill really came to
+   *  against the guess. Null on a fixed line and on an estimate not yet paid. */
+  variance: number | null;
   state: CashCellState;
   /** Negative once the date has passed. */
   days_away: number;

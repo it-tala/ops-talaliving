@@ -6,7 +6,7 @@ import type {
   IncomingMoney, TransactionDetail, AllocationView, TransactionLine, TransactionType,
   VendorPayment, FundingView, FundingDetail,
   CashPlan, CashDue, CashComponent, CashOverride, CashSettlement,
-  CashFrequency, CashMonthDetail,
+  CashFrequency, CashMonthDetail, CashAmountKind,
   Direction, PaymentAllocation, EvidenceInboxRow, InboxHealth, AllocMethod,
   BankStatementView, DocumentCoverage, TransactionCoverage, MonthlyBills,
 } from "@/services/accounting/contracts";
@@ -1194,6 +1194,7 @@ export async function addComponent(
     starts_on?: string;
     ends_on?: string | null;
     note?: string | null;
+    amount_kind?: CashAmountKind;
   },
   idempotencyKey?: string,
 ): Promise<Result<CashComponent>> {
@@ -1272,6 +1273,7 @@ export async function addComponent(
       vendor_id: input.vendor_id ?? null,
       account_id: input.account_id ?? null,
       scheme_codes: [],
+      amount_kind: input.amount_kind ?? "fixed",
       starts_on: frequency === "once"
         ? (input.due_date ?? thisMonth).slice(0, 7)
         : input.starts_on ?? thisMonth,
@@ -1306,7 +1308,10 @@ export async function addComponent(
  *  people quietly bend (D84). */
 export async function updateComponent(
   id: string,
-  patch: { name?: string; amount?: number; due_day?: number; ends_on?: string | null; note?: string | null; active?: boolean },
+  patch: {
+    name?: string; amount?: number; due_day?: number; ends_on?: string | null;
+    note?: string | null; active?: boolean; amount_kind?: CashAmountKind;
+  },
 ): Promise<Result<CashComponent>> {
   await latency();
   /* Q24 (D233): the estimates on the cash calendar belong to leadership alone.
@@ -1340,6 +1345,7 @@ export async function updateComponent(
       ...(patch.ends_on !== undefined ? { ends_on: patch.ends_on } : {}),
       ...(patch.note !== undefined ? { note: patch.note?.trim() || null } : {}),
       ...(patch.active !== undefined ? { active: patch.active } : {}),
+      ...(patch.amount_kind !== undefined ? { amount_kind: patch.amount_kind } : {}),
     });
     updated = row;
     writeAudit(draft, {

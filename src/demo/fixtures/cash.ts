@@ -25,7 +25,7 @@ export const CASH_COMPONENTS: CashComponent[] = [
     active: true, created_by: "usr_anggun", created_at: "2026-09-01T09:00:00+08:00",
   },
   {
-    id: "cmp_02", name: "Workshop electricity", direction: "OUT", amount: 4_300_000,
+    id: "cmp_02", name: "Workshop electricity", direction: "OUT", amount: 4_300_000, amount_kind: "estimate",
     frequency: "monthly", due_day: 24, due_weekday: null, due_date: null,
     type_code: "RECCURING - UTILITIES", vendor_id: null, account_id: "acc_bni325",
     scheme_codes: [], starts_on: "2026-01", ends_on: null, note: null,
