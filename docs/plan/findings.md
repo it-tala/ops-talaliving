@@ -5727,3 +5727,17 @@ derivation was compiled and run against the same four patterns and returned the
 same four answers as the SQL, which is the only way ADR-009 is a claim rather
 than a hope: there is no unit-test runner in this repo, so demo and live agree
 only where somebody has actually made them agree in front of witnesses.
+
+**Addendum, same day.** The half hour was not left open for long: asked, and
+answered — *jumat produksi pulang 16.00* (D290). 07.30 to 16.00 less the 90
+minutes is 420, which is seven hours exactly, and produksi's week closes at
+40,00 alongside kantor's. Worth recording *why* that is reassuring rather than
+suspicious: the two patterns reach the same total by **different** arithmetic —
+the office leaves 45 minutes early, the workshop 30 — because their ordinary
+days are different lengths against different breaks. Both also land on 173,33
+hours a month, which is `monthly_divisor` 173, the field that was quietly
+telling the truth about this week all along while the schedules contradicted it
+(F138). Two independent routes arriving at the same number is the book being
+right; one number copied into two rows would have looked identical and proved
+nothing. The rule book ends the day with four versions sharing one date, and
+reading them in order is the record of how the figure was arrived at.

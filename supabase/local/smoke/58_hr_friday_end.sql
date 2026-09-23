@@ -15,17 +15,20 @@ insert into auth.users (id, email, raw_user_meta_data) values
 insert into ops_core.user_modules (user_id, module, level) values
   ('ffffffff-0000-0000-0000-000000005801','hrd','write');
 
--- Empat pola yang membelah ruang jawabannya. KANTOR adalah kasus yang
+-- Empat pola yang membelah ruang jawabannya: kedua kolom Jumat terisi, hanya
+-- istirahat, hanya jam pulang, dan tidak satu pun. KANTOR adalah kasus yang
 -- menyebabkan kolom ini ada: 08.00–17.15 empat hari, Jumat pulang 16.30,
 -- istirahat tetap 90 menit — tepat 7 jam, dan tidak bisa dikatakan dengan
--- istirahat saja tanpa mengarang angka 135 menit yang tak pernah diambil siapa pun.
+-- istirahat saja tanpa mengarang angka 135 menit yang tak pernah diambil
+-- siapa pun. Tiga pola sisanya adalah pola uji dan bukan potret bisnisnya;
+-- yang mereka jaga adalah aturan fallback-nya, bukan jam siapa pun.
 insert into ops_hr.pay_rule_sets (version, effective_from, note, rules, created_by) values
  (1, current_date - 30, 'uji', '{
    "week_pattern":"5day","day_starts_minutes":480,
    "schedules":[
      {"code":"KANTOR","name":"Kantor","start_minutes":480,"end_minutes":1035,
       "break_minutes":60,"friday_break_minutes":90,"friday_end_minutes":990,"note":null},
-     {"code":"PRODUKSI","name":"Produksi","start_minutes":450,"end_minutes":990,
+     {"code":"ISTIRAHAT","name":"Istirahat Jumat saja","start_minutes":450,"end_minutes":990,
       "break_minutes":45,"friday_break_minutes":90,"friday_end_minutes":null,"note":null},
      {"code":"PULANG","name":"Pulang awal saja","start_minutes":480,"end_minutes":1020,
       "break_minutes":60,"friday_break_minutes":null,"friday_end_minutes":960,"note":null},
@@ -59,12 +62,17 @@ begin
         assert f = 7.00, 'KANTOR jumat: ' || f;
         assert w = 40.00, 'KANTOR minggu: ' || w;
 
-      -- Jam pulang Jumat null: jatuh ke 16.30, hari biasa. Yang berbeda hanya
-      -- istirahatnya. 07.30–16.30 kurang 90' = 7,5 — bukan kosong.
-      when 'PRODUKSI' then
-        assert d = 8.25, 'PRODUKSI harian: ' || d;
-        assert f = 7.50, 'PRODUKSI jumat jatuh ke jam pulang biasa: ' || coalesce(f::text,'(null)');
-        assert w = 40.50, 'PRODUKSI minggu: ' || w;
+      -- Jam pulang Jumat null: jatuh ke jam pulang biasa, bukan ke kosong.
+      -- Yang berbeda hanya istirahatnya. 07.30–16.30 kurang 90' = 7,5.
+      --
+      -- Pola uji, bukan potret bisnisnya: bengkel sungguhan pulang 16.00 pada
+      -- Jumat (D290). Yang diuji di sini adalah **fallback**-nya, dan angka
+      -- 7,5 justru harus tetap muncul supaya sebuah pola yang memang hanya
+      -- beda istirahat tidak ikut terhapus jam Jumatnya.
+      when 'ISTIRAHAT' then
+        assert d = 8.25, 'ISTIRAHAT harian: ' || d;
+        assert f = 7.50, 'ISTIRAHAT jumat jatuh ke jam pulang biasa: ' || coalesce(f::text,'(null)');
+        assert w = 40.50, 'ISTIRAHAT minggu: ' || w;
 
       -- Kebalikannya: istirahat Jumat null, jatuh ke 60'. Yang berbeda hanya
       -- jam pulangnya. 08.00–16.00 kurang 60' = 7,0.
