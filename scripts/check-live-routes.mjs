@@ -305,8 +305,20 @@ const MODULE_OF = {
    other half) and the board rack (no migration yet) are not written in that
    client yet, so `/inventory/log` and `/inventory/papan` stay dark on their
    own — this list only says the module may open, the per-route function scan
-   above still decides which screens in it do. */
-/* `master-data` opens with suppliers, items and units (`0099`): the three are
+   above still decides which screens in it do.
+
+   `hrd` joins them once `0043`–`0059` are applied (2026-09-23): `ops_hr` has
+   17 tables, 14 views and 64 functions in the live project, so the module can
+   answer honestly about the chain HRD works — the person, their berkas, their
+   contract, the machine's file, the marks on it and what those add up to. Six
+   of its fourteen screens open and the per-route scan above is what decides
+   that, not this line: payroll, lembur, iuran, kinerja and cuti call 33
+   functions `src/lib/api/hr.ts` has not been given, and two of those five wait
+   on the database rather than on TypeScript — payroll's `payroll_figures` is
+   short of nineteen of `PayrollLine`'s fields (C20), and `/hrd/cuti` has no
+   leave-request table at all.
+
+   `master-data` opens with suppliers, items and units (`0099`): the three are
    procurement's tables, reached through procurement's client, so the module
    is exactly as ready as procurement is. Pages it adds later for other
    services' reference data (accounts, asset categories) are still held back
@@ -316,7 +328,7 @@ const MODULE_OF = {
    orders, progress, vendor legs and the drafting queue are absent from that
    client, so the function scan keeps `/produksi/jadwal` and the rest dark and
    lets `/produksi/bom` through on its own. */
-const LIVE_MODULES = ["dashboard", "procurement", "accounting", "it", "settings", "assistant", "inventory", "master-data", "production"];
+const LIVE_MODULES = ["dashboard", "procurement", "accounting", "it", "settings", "assistant", "inventory", "hrd", "master-data", "production"];
 
 const IMPL = Object.fromEntries(LIVE.map((s) => [s, implementedFunctions(s)]));
 

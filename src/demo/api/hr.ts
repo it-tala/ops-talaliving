@@ -10,8 +10,12 @@ import type {
   AllowanceWithholding, AllowanceWithholdingView,
   ContributionScheme, ContributionRate, ContributionRoll, Enrolment,
   Task, TaskView, TaskRefKind, KpiView,
+  ContractKind, ClauseKind, ClauseChecklistItem, EmploymentContract,
+  ContractView, ContractDetail, ContractClause, ClauseConflict, TimesheetTotal, DayState,
 } from "@/services/hr/contracts";
-import { SENSITIVE_DOC_KINDS, SCHEME_LABEL, maskDocNo } from "@/services/hr/contracts";
+import {
+  SENSITIVE_DOC_KINDS, SCHEME_LABEL, maskDocNo, clauseValueOk,
+} from "@/services/hr/contracts";
 import type { DocKind } from "@/services/documents/contracts";
 import type { DemoState } from "../state";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
@@ -223,6 +227,7 @@ export async function getTimesheet(
   days: TimesheetDay[];
   dates: string[];
   employees: { employee_no: string; full_name: string; pay_basis: PayBasis }[];
+  totals: TimesheetTotal[];
   needs_review: number;
   marked: number;
 }>> {
@@ -233,12 +238,33 @@ export async function getTimesheet(
   );
   const days = people.flatMap((e) => timesheet(state, e, input.from, input.to));
   const dates = [...new Set(days.map((d) => d.work_date))].sort();
+  const round2 = (n: number) => Math.round(n * 100) / 100;
   return ok(SERVICE, {
     days,
     dates,
     employees: people.map((e) => ({
       employee_no: e.employee_no, full_name: e.full_name, pay_basis: e.pay_basis,
     })),
+    /* The same per-person roll-up `ops_hr.timesheet_totals` returns. Here it is
+       derived because the demo *is* its own database; the point of the pair is
+       that a screen cannot tell which it got. */
+    totals: people.map((e) => {
+      const mine = days.filter((d) => d.employee_no === e.employee_no);
+      const count = (st: DayState) => mine.filter((d) => d.state === st).length;
+      return {
+        employee_no: e.employee_no,
+        full_name: e.full_name,
+        unit: e.unit ?? null,
+        days_counted: round2(mine.reduce((s, d) => s + d.day_value, 0)),
+        days_complete: count("complete"),
+        days_review: count("review"),
+        days_marked: count("marked"),
+        days_off: count("off"),
+        work_hours: round2(mine.reduce((s, d) => s + d.work_hours, 0)),
+        break_hours: round2(mine.reduce((s, d) => s + d.break_hours, 0)),
+        overtime_hours: round2(mine.reduce((s, d) => s + d.overtime_hours, 0)),
+      };
+    }),
     needs_review: days.filter((d) => d.state === "review").length,
     marked: days.filter((d) => d.state === "marked").length,
   });
@@ -605,10 +631,37 @@ function viewWithholding(state: DemoState, w: AllowanceWithholding): AllowanceWi
   };
 }
 
-export async function unmarkDay(markId: string): Promise<Result<{ removed: string }>> {
+/** Taking a mark back.
+ *
+ *  **The reason is not optional, and that is the database talking.** A day mark
+ *  is withdrawn there and never deleted (A2): *kenapa tanggal empat belas
+ *  ditandai sakit lalu tidak* is asked three months later by the person whose
+ *  payslip it is, and a row that is gone answers with silence. A withdrawal
+ *  with no sentence is refused by the seam, so the parameter is in the contract
+ *  — C19.
+ *
+ *  Where the two implementations still differ, and it is worth naming: the
+ *  database keeps the row with `withdrawn_at`, `withdrawn_by` and the sentence
+ *  on it, while this one still splices the array and keeps the sentence in the
+ *  audit trail alone. Nine places read `day_marks` in the fixtures and every
+ *  one of them would have to learn the flag (F123's arithmetic again); until
+ *  they do, the demo remembers **why** and forgets **what**, which is a
+ *  divergence in what survives rather than in what either answers.
+ */
+export async function unmarkDay(
+  markId: string, reason: string,
+): Promise<Result<{ removed: string }>> {
   await latency();
   const denied = requireModule(SERVICE, "hrd");
   if (denied) return denied;
+
+  if (!reason?.trim()) {
+    return invalid(
+      SERVICE, "reason_required",
+      "Kenapa ditarik? Tandanya tetap tercatat; yang dibaca orang berikutnya adalah alasannya.",
+      { field: "reason" },
+    );
+  }
 
   const state = getState();
   const mark = state.day_marks.find((m) => m.id === markId);
@@ -619,8 +672,8 @@ export async function unmarkDay(markId: string): Promise<Result<{ removed: strin
     draft.day_marks = draft.day_marks.filter((m) => m.id !== markId);
     writeAudit(draft, {
       service: SERVICE, entity: "day_mark", entity_no: `${mark.work_date}/${mark.employee_id ?? "ALL"}`,
-      action: "unmark", outcome: "ok", reason: mark.reason,
-      detail: { kind: mark.kind, by: user.email },
+      action: "unmark", outcome: "ok", reason: reason.trim(),
+      detail: { kind: mark.kind, marked_because: mark.reason, by: user.email },
     });
   });
   return ok(SERVICE, { removed: markId });
@@ -1340,6 +1393,435 @@ const EMPLOYEE_DOC_TO_DOC_KIND: Record<EmployeeDocKind, DocKind> = {
   sp: "Surat Peringatan",
   lainnya: "Others",
 };
+
+/* ── Kontrak kerja ────────────────────────────────────────────────────────
+ *
+ *  HRD yang membuat kontraknya; yang tidak pernah ada adalah jawaban atas *apa
+ *  isinya*. **Kontrak diperiksa terhadap sistem, bukan dimuat ke dalamnya** —
+ *  sebuah klausul tidak menulis apa pun, dan yang dihasilkannya adalah selisih
+ *  antara yang tertulis dan yang dijalankan (A3, D155).
+ */
+
+/** Poin yang ditanyakan pada setiap kontrak, dan mana yang wajib. */
+export async function listClauseChecklist(): Promise<Result<ClauseChecklistItem[]>> {
+  await latency();
+  return ok(SERVICE, [...getState().clause_checklist].sort((a, b) => a.sort - b.sort));
+}
+
+function contractView(state: DemoState, c: EmploymentContract): ContractView {
+  const emp = state.employees.find((e) => e.id === c.employee_id);
+  const mine = state.contract_clauses.filter((cl) => cl.contract_no === c.contract_no);
+  const probation = mine.find((cl) => cl.kind === "masa_percobaan" && cl.confirmed);
+  const months = probation?.value?.months ? Number(probation.value.months) : null;
+
+  let probation_until: string | null = null;
+  if (months != null) {
+    const d = new Date(`${c.effective_from}T00:00:00+08:00`);
+    d.setMonth(d.getMonth() + months);
+    probation_until = d.toISOString().slice(0, 10);
+  }
+
+  const today = officeToday();
+  return {
+    ...c,
+    employee_no: emp?.employee_no ?? "",
+    full_name: emp?.full_name ?? "",
+    ends_in_days: c.ends_on
+      ? Math.round((Date.parse(`${c.ends_on}T00:00:00+08:00`)
+                    - Date.parse(`${today}T00:00:00+08:00`)) / 86_400_000)
+      : null,
+    probation_until,
+    required_missing: state.clause_checklist.filter(
+      (k) => k.required && !mine.some((cl) => cl.kind === k.kind && cl.confirmed)).length,
+    clauses_confirmed: mine.filter((cl) => cl.confirmed).length,
+    clauses_proposed: mine.filter((cl) => !cl.confirmed).length,
+    conflict_count: contractConflicts(state, c).filter((f) => f.differs).length,
+  };
+}
+
+/** Selisih terhadap yang benar-benar dijalankan — alasan seluruh layar ini ada.
+ *
+ *  Klausul per orang dibandingkan dengan baris karyawannya, klausul kebijakan
+ *  dengan buku aturan yang berlaku, dan **tidak satu pun diterapkan**: yang
+ *  berbeda dilaporkan beserta kedua sisinya supaya yang membacanya tahu apa
+ *  yang sedang ia putuskan.
+ */
+function contractConflicts(state: DemoState, c: EmploymentContract): ClauseConflict[] {
+  if (c.status !== "active") return [];
+  const emp = state.employees.find((e) => e.id === c.employee_id);
+  if (!emp) return [];
+  const rules = activePayRules(state, sharedOfficeToday()).rules as unknown as Record<string, string>;
+
+  return state.contract_clauses
+    .filter((cl) => cl.contract_no === c.contract_no && cl.confirmed)
+    .map((cl) => {
+      const v = cl.value ?? {};
+      const says: string | null =
+        cl.kind === "gaji_pokok" || cl.kind === "tunjangan" ? `${v.amount} / ${v.per}`
+        : cl.kind === "cuti" ? `${v.days} hari`
+        : cl.kind === "jam_kerja" ? v.schedule_code ?? null
+        : cl.kind === "jangka_waktu" ? v.kind ?? null
+        : cl.kind === "keterlambatan" || cl.kind === "potongan" || cl.kind === "lembur"
+          ? v.mode ?? null
+        : null;
+      const runs: string | null =
+        cl.kind === "gaji_pokok"
+          ? `${emp.base_rate} / ${emp.pay_basis === "monthly" ? "month" : emp.pay_basis === "daily" ? "day" : "hour"}`
+        : cl.kind === "tunjangan" ? `${emp.allowance_rate} / day`
+        : cl.kind === "cuti" ? `${emp.paid_leave_days} hari`
+        : cl.kind === "jam_kerja" ? emp.schedule_code ?? null
+        : cl.kind === "jangka_waktu" ? c.kind
+        : cl.kind === "keterlambatan" ? rules.late_mode ?? "manual"
+        : cl.kind === "potongan" ? rules.undertime_mode ?? "off"
+        : cl.kind === "lembur" ? rules.overtime_mode ?? "statutory"
+        : null;
+      return {
+        kind: cl.kind, says, runs,
+        comparable: says != null,
+        /* Yang tidak bisa dibandingkan tidak pernah "berbeda": kedua sisinya
+           null. Melaporkannya akan memenuhi daftar dengan hal yang tidak bisa
+           diperbaiki siapa pun, dan daftar seperti itu berhenti dibaca. */
+        differs: says !== runs,
+        bears_on: state.clause_checklist.find((k) => k.kind === cl.kind)?.bears_on ?? null,
+        quote: cl.quote,
+      };
+    });
+}
+
+function contractDetail(state: DemoState, c: EmploymentContract): ContractDetail {
+  const mine = state.contract_clauses.filter((cl) => cl.contract_no === c.contract_no);
+  return {
+    ...contractView(state, c),
+    clauses: mine,
+    coverage: [...state.clause_checklist].sort((a, b) => a.sort - b.sort).map((k) => {
+      const cl = mine.find((x) => x.kind === k.kind);
+      return {
+        kind: k.kind, required: k.required, what: k.what,
+        present: cl != null, confirmed: cl?.confirmed ?? false,
+        source: cl?.source ?? null,
+      };
+    }),
+    conflicts: contractConflicts(state, c),
+  };
+}
+
+export async function listContracts(
+  opts: { employee_no?: string } = {},
+): Promise<Result<ContractView[]>> {
+  await latency();
+  const state = getState();
+  const rows = state.employment_contracts
+    .filter((c) => {
+      if (!opts.employee_no) return true;
+      const emp = state.employees.find((e) => e.id === c.employee_id);
+      return emp?.employee_no === opts.employee_no;
+    })
+    .map((c) => contractView(state, c))
+    /* Yang belum lengkap dulu, lalu yang paling cepat habis: dua alasan orang
+       membuka layar ini. */
+    .sort((a, b) => {
+      if ((a.required_missing > 0) !== (b.required_missing > 0)) return a.required_missing > 0 ? -1 : 1;
+      const ax = a.ends_in_days ?? 99999;
+      const bx = b.ends_in_days ?? 99999;
+      if (ax !== bx) return ax - bx;
+      return a.full_name.localeCompare(b.full_name);
+    });
+  return ok(SERVICE, rows);
+}
+
+export async function getContract(contractNo: string): Promise<Result<ContractDetail>> {
+  await latency();
+  const state = getState();
+  const c = state.employment_contracts.find((x) => x.contract_no === contractNo);
+  if (!c) return notFound(SERVICE, "contract_not_found", `Tidak ada kontrak ${contractNo}.`);
+  return ok(SERVICE, contractDetail(state, c));
+}
+
+/** Kertasnya boleh menyusul — itulah gunanya `draft`. Yang tidak boleh adalah
+ *  **diberlakukan** tanpa kertasnya. */
+export async function registerContract(
+  input: {
+    employee_no: string; kind: ContractKind; effective_from: string;
+    ends_on?: string | null; attachment_id?: string | null;
+    sha256?: string | null; note?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<ContractView>> {
+  await latency();
+  const cached = replayed<ContractView>(SERVICE, "registerContract", idempotencyKey);
+  if (cached) return cached;
+
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+
+  const state = getState();
+  const emp = state.employees.find((e) => e.employee_no === input.employee_no);
+  if (!emp) return notFound(SERVICE, "employee_not_found", `Tidak ada karyawan ${input.employee_no}.`);
+
+  if (input.kind === "PKWT" && !input.ends_on) {
+    return invalid(SERVICE, "end_date_required",
+      "PKWT selalu punya tanggal berakhir. Kalau tidak ada, yang dibuat adalah PKWTT.",
+      { field: "ends_on" });
+  }
+  if (input.kind === "PKWTT" && input.ends_on) {
+    return invalid(SERVICE, "end_date_not_allowed",
+      "PKWTT tidak punya tanggal berakhir. Kontrak tanpa waktu yang berakhir membantah dirinya sendiri.",
+      { field: "ends_on" });
+  }
+  if (input.ends_on && input.ends_on < input.effective_from) {
+    return invalid(SERVICE, "period_invalid", "Berakhir sebelum mulai berlaku.", { field: "ends_on" });
+  }
+
+  let contractNo = "";
+  apply((draft) => {
+    contractNo = nextDocNumber(draft, "kkj");
+    draft.employment_contracts.unshift({
+      id: newId("kkj"), contract_no: contractNo, employee_id: emp.id,
+      kind: input.kind, effective_from: input.effective_from,
+      ends_on: input.ends_on ?? null, status: "draft",
+      sha256: input.sha256?.trim() || null,
+      attachment_id: input.attachment_id ?? null,
+      superseded_by: null, ended_on: null, ended_reason: null,
+      note: input.note?.trim() || null,
+    });
+    /* Satu jalan untuk berkas: kalau ada kertasnya, ia masuk jalur bukti
+       seperti setiap dokumen lain (ADR-010). */
+    if (input.attachment_id) {
+      draft.attachment_links.push({
+        id: newId("lnk"), attachment_id: input.attachment_id,
+        entity: "employee", entity_no: emp.employee_no, kind: "Kontrak Kerja",
+        linked_by: actingUser().id, linked_at: new Date().toISOString(),
+      });
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "contract", entity_no: contractNo,
+      action: "register", outcome: "ok", reason: null,
+      detail: { employee: emp.employee_no, kind: input.kind, by: actingUser().email },
+    });
+  });
+  const view = contractView(getState(), getState().employment_contracts.find(
+    (c) => c.contract_no === contractNo)!);
+  remember(SERVICE, "registerContract", idempotencyKey, view);
+  return ok(SERVICE, view);
+}
+
+/** Jalan untuk mesin. Dua sifat yang membuatnya aman: usulan **tidak pernah
+ *  lahir terkonfirmasi**, dan usulan **tidak menimpa jawaban orang** — membaca
+ *  ulang dokumen yang sama besok boleh mengganti usulan kemarin, tidak boleh
+ *  mengganti tanda tangan. */
+export async function proposeClause(
+  input: {
+    contract_no: string; kind: ClauseKind; quote: string;
+    page?: number | null; value?: Record<string, string> | null;
+  },
+): Promise<Result<ContractDetail>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+
+  const state = getState();
+  const c = state.employment_contracts.find((x) => x.contract_no === input.contract_no);
+  if (!c) return notFound(SERVICE, "contract_not_found", `Tidak ada kontrak ${input.contract_no}.`);
+  if (!input.quote?.trim()) {
+    return invalid(SERVICE, "quote_required",
+      "Klausul tanpa kalimat aslinya adalah angka yang tidak bisa dibantah di meja.",
+      { field: "quote" });
+  }
+  if (!clauseValueOk(input.kind, input.value ?? null)) {
+    return invalid(SERVICE, "value_shape",
+      `Bacaan untuk ${input.kind} tidak berbentuk seperti yang diminta jenisnya.`,
+      { field: "value", kind: input.kind });
+  }
+  const existing = state.contract_clauses.find(
+    (cl) => cl.contract_no === input.contract_no && cl.kind === input.kind);
+  if (existing?.confirmed) {
+    return conflict(SERVICE, "already_confirmed",
+      `${input.kind} sudah dikonfirmasi orang. Bacaan mesin tidak menimpa tanda tangan.`);
+  }
+
+  apply((draft) => {
+    const row = {
+      contract_no: input.contract_no, kind: input.kind, quote: input.quote.trim(),
+      page: input.page ?? null, value: input.value ?? null,
+      source: "extracted" as const, confirmed: false, confirmed_at: null,
+      proposed_at: new Date().toISOString(),
+    };
+    const i = draft.contract_clauses.findIndex(
+      (cl) => cl.contract_no === input.contract_no && cl.kind === input.kind);
+    if (i >= 0) draft.contract_clauses[i] = row; else draft.contract_clauses.push(row);
+    writeAudit(draft, {
+      service: SERVICE, entity: "contract_clause", entity_no: input.contract_no,
+      action: "propose", outcome: "ok", reason: null,
+      detail: { kind: input.kind, by: actingUser().email },
+    });
+  });
+  return getContract(input.contract_no);
+}
+
+/** Jalan untuk orang, dan satu-satunya yang menghasilkan klausul yang dipercaya
+ *  laporan mana pun.
+ *
+ *  `source` disimpulkan, tidak diminta: kalau kalimat dan bacaannya sama persis
+ *  dengan usulan mesin, orangnya setuju dan ini tetap `extracted`; kalau
+ *  diubah, ini `typed`. Nanti *berapa persen bacaan mesin diterima apa adanya*
+ *  adalah satu hitungan atas kolom ini.
+ */
+export async function confirmClause(
+  input: {
+    contract_no: string; kind: ClauseKind; quote: string;
+    page?: number | null; value?: Record<string, string> | null;
+  },
+): Promise<Result<ContractDetail>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+
+  const state = getState();
+  const c = state.employment_contracts.find((x) => x.contract_no === input.contract_no);
+  if (!c) return notFound(SERVICE, "contract_not_found", `Tidak ada kontrak ${input.contract_no}.`);
+  if (!input.quote?.trim()) {
+    return invalid(SERVICE, "quote_required",
+      "Kalimat aslinya dari kontrak — itu yang dibaca orang berikutnya.", { field: "quote" });
+  }
+  if (!clauseValueOk(input.kind, input.value ?? null)) {
+    return invalid(SERVICE, "value_shape",
+      `Bacaan untuk ${input.kind} tidak berbentuk seperti yang diminta jenisnya.`,
+      { field: "value", kind: input.kind });
+  }
+
+  const existing = state.contract_clauses.find(
+    (cl) => cl.contract_no === input.contract_no && cl.kind === input.kind);
+  /* Kontrak yang berjalan boleh **dilengkapi** dan tidak boleh **diubah**:
+     mengisi poin yang belum pernah dijawab adalah mencatat apa yang sudah
+     tertulis di kertas, mengubah jawaban yang sudah ditandatangani adalah
+     kontrak baru. */
+  if (c.status !== "draft" && existing?.confirmed) {
+    return conflict(SERVICE, "already_confirmed",
+      `${input.contract_no} sudah ${c.status} dan ${input.kind} sudah dijawab. `
+      + "Syarat yang berubah adalah kontrak baru, bukan suntingan atas yang lama.");
+  }
+
+  const same = existing?.source === "extracted"
+    && existing.quote === input.quote.trim()
+    && JSON.stringify(existing.value ?? null) === JSON.stringify(input.value ?? null);
+
+  apply((draft) => {
+    const row = {
+      contract_no: input.contract_no, kind: input.kind, quote: input.quote.trim(),
+      page: input.page ?? null, value: input.value ?? null,
+      source: (same ? "extracted" : "typed") as DocNoSource,
+      confirmed: true, confirmed_at: new Date().toISOString(),
+      proposed_at: existing?.proposed_at ?? new Date().toISOString(),
+    };
+    const i = draft.contract_clauses.findIndex(
+      (cl) => cl.contract_no === input.contract_no && cl.kind === input.kind);
+    if (i >= 0) draft.contract_clauses[i] = row; else draft.contract_clauses.push(row);
+    writeAudit(draft, {
+      service: SERVICE, entity: "contract_clause", entity_no: input.contract_no,
+      action: "confirm", outcome: "ok", reason: null,
+      detail: { kind: input.kind, source: row.source, by: actingUser().email },
+    });
+  });
+  return getContract(input.contract_no);
+}
+
+export async function activateContract(
+  contractNo: string, idempotencyKey?: string,
+): Promise<Result<ContractDetail>> {
+  await latency();
+  const cached = replayed<ContractDetail>(SERVICE, "activateContract", idempotencyKey);
+  if (cached) return cached;
+
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+
+  const state = getState();
+  const c = state.employment_contracts.find((x) => x.contract_no === contractNo);
+  if (!c) return notFound(SERVICE, "contract_not_found", `Tidak ada kontrak ${contractNo}.`);
+  if (c.status !== "draft") {
+    return conflict(SERVICE, "already_decided", `${contractNo} sudah ${c.status}.`);
+  }
+  /* Kontrak yang berlaku tanpa berkas yang ditandatangani adalah kesepakatan
+     lisan dengan nomor dokumen di depannya. */
+  if (!c.attachment_id) {
+    return invalid(SERVICE, "paper_required",
+      "Berkas yang ditandatangani belum terlampir. Tanpa kertasnya, yang diberlakukan hanya catatan.",
+      { field: "attachment_id" });
+  }
+
+  const missing = [...state.clause_checklist]
+    .sort((a, b) => a.sort - b.sort)
+    .filter((k) => k.required && !state.contract_clauses.some(
+      (cl) => cl.contract_no === contractNo && cl.kind === k.kind && cl.confirmed))
+    .map((k) => k.kind);
+  if (missing.length > 0) {
+    return invalid(SERVICE, "clauses_missing",
+      `Belum terkonfirmasi: ${missing.join(", ")}. Kontrak yang berlaku tanpa poin wajibnya `
+      + "adalah kontrak yang tidak bisa dijawab waktu ditanya.",
+      { field: "clauses", missing });
+  }
+
+  apply((draft) => {
+    /* Yang sebelumnya digantikan, tidak dihapus (A5). */
+    const prev = draft.employment_contracts.find(
+      (x) => x.employee_id === c.employee_id && x.status === "active");
+    if (prev) { prev.status = "superseded"; prev.superseded_by = contractNo; }
+    const row = draft.employment_contracts.find((x) => x.contract_no === contractNo)!;
+    row.status = "active";
+    writeAudit(draft, {
+      service: SERVICE, entity: "contract", entity_no: contractNo,
+      action: "activate", outcome: "ok", reason: null,
+      detail: { supersedes: prev?.contract_no ?? null, by: actingUser().email },
+    });
+  });
+  const res = await getContract(contractNo);
+  if (res.data) remember(SERVICE, "activateContract", idempotencyKey, res.data);
+  return res;
+}
+
+export async function endContract(
+  input: { contract_no: string; ended_on: string; reason: string },
+): Promise<Result<ContractView>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+
+  const state = getState();
+  const c = state.employment_contracts.find((x) => x.contract_no === input.contract_no);
+  if (!c) return notFound(SERVICE, "contract_not_found", `Tidak ada kontrak ${input.contract_no}.`);
+  if (c.status !== "active") {
+    return conflict(SERVICE, "not_active", `${input.contract_no} sedang ${c.status}, bukan berjalan.`);
+  }
+  if (!input.reason?.trim()) {
+    return invalid(SERVICE, "reason_required",
+      "Kenapa berakhir — habis masa, mengundurkan diri, diakhiri. Itu yang ditanyakan enam bulan lagi.",
+      { field: "reason" });
+  }
+
+  apply((draft) => {
+    const row = draft.employment_contracts.find((x) => x.contract_no === input.contract_no)!;
+    row.status = "ended";
+    row.ended_on = input.ended_on;
+    row.ended_reason = input.reason.trim();
+    writeAudit(draft, {
+      service: SERVICE, entity: "contract", entity_no: input.contract_no,
+      action: "end", outcome: "ok", reason: input.reason.trim(),
+      detail: { ended_on: input.ended_on, by: actingUser().email },
+    });
+  });
+  return ok(SERVICE, contractView(getState(), getState().employment_contracts.find(
+    (x) => x.contract_no === input.contract_no)!));
+}
+
+/** Bentuk yang wajib dibawa tiap jenis — kembar dari `clause_value_ok()` di
+ *  `0058`, dan kosakatanya harus sama dengan buku aturan (`pro_rata`,
+ *  `half_day_step`), kalau tidak perbandingannya hanya membandingkan dua ejaan.
+ *
+ *  `?? false` di setiap cabang bukan hiasan: di SQL, `null in (...)` adalah
+ *  NULL dan sebuah CHECK meloloskan NULL — F129 adalah cerita tentang fungsi
+ *  yang seluruh tugasnya menolak bentuk tidak lengkap justru meloloskannya.
+ *  Di sini `undefined` punya masalah yang sama bentuknya.
+ */
 
 /* ── Cuti & izin ──────────────────────────────────────────────────────────
  *
@@ -2269,8 +2751,6 @@ export async function approvePayroll(runNo: string): Promise<Result<PayrollView>
   });
   return getPayroll(runNo);
 }
-
-
 
 /* ── Working patterns, as HR maintains them (Q53, D279) ────────────────
  *

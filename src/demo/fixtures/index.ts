@@ -30,6 +30,7 @@ import { PAY_RULE_SETS } from "./payrules";
 import { CONTRIBUTION_RATES, ENROLMENTS } from "./contributions";
 import { TASKS } from "./tasks";
 import { EMPLOYEE_DOCUMENTS, LEAVE_REQUESTS } from "./hrfiles";
+import { CLAUSE_CHECKLIST, CONTRACT_CLAUSES, EMPLOYMENT_CONTRACTS } from "./contracts";
 import { DESIGN_TASKS, DESIGN_REVISIONS, DESIGN_QUESTIONS } from "./design";
 import { BANK_STATEMENTS, STATEMENT_LINES } from "./statements";
 import { MARKETS, PROPERTIES, PROPERTY_AGENTS, SALES_REPS, REFERRALS, SCRAPE_ROWS } from "./marketing";
@@ -119,6 +120,9 @@ export function initialState(): DemoState {
     tasks: TASKS,
     pay_rule_sets: PAY_RULE_SETS,
     employee_documents: EMPLOYEE_DOCUMENTS,
+    employment_contracts: EMPLOYMENT_CONTRACTS,
+    contract_clauses: CONTRACT_CLAUSES,
+    clause_checklist: CLAUSE_CHECKLIST,
     leave_requests: LEAVE_REQUESTS,
     design_tasks: DESIGN_TASKS,
     design_revisions: DESIGN_REVISIONS,

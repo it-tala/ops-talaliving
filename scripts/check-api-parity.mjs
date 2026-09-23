@@ -51,7 +51,7 @@
  *    node scripts/check-api-parity.mjs
  */
 
-import { readFileSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, dirname, resolve } from "node:path";
 
@@ -66,17 +66,26 @@ const ROOT = resolve(dirname(new URL(import.meta.url).pathname), "..");
    appearing here — so the one check that exists to stop the two clients
    drifting would have said `ok` about a module it never opened. A guard with a
    hand-kept scope is a guard that stops covering the newest thing first, which
-   is the thing most likely to be wrong. `check-live-routes.mjs` reads the same
-   file for the same reason. `marketing` is written but deliberately not
-   exported yet (see `src/lib/api/index.ts`), so reading the export list rather
-   than a hand-kept name means nothing has to remember to add it here when it
-   is. */
-function liveServices() {
-  const src = readFileSync(join(ROOT, "src/lib/api/index.ts"), "utf8");
-  return [...src.matchAll(/^export \* as (\w+) from "\.\/(\w+)"/gm)].map((m) => m[1]);
+   is the thing most likely to be wrong.
+
+   **And it reads the directory, not the export list.** It read
+   `src/lib/api/index.ts` for a while, which is the list of services whose
+   *routes are live* — a different question. `marketing` and `hr` are both
+   written, both type-check, and both deliberately unexported until their
+   migrations reach the project, so under that rule the two modules most likely
+   to have drifted were the two nobody was comparing. The day they are exported
+   is the worst possible day to find out. Parity is about whether the shapes
+   agree; going live is about whether there is a database behind them. */
+function writtenServices() {
+  return readdirSync(join(ROOT, "src/lib/api"))
+    .filter((f) => f.endsWith(".ts") && !f.startsWith("_"))
+    .map((f) => f.replace(/\.ts$/, ""))
+    /* A real client with no demo twin is not a pair to compare. */
+    .filter((svc) => existsSync(join(ROOT, `src/demo/api/${svc}.ts`)))
+    .sort();
 }
 
-const SERVICES = liveServices();
+const SERVICES = writtenServices();
 
 /** Every `export function` / `export async function` name in a module. */
 function exportedFunctions(path) {
