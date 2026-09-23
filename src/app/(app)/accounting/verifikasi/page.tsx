@@ -357,6 +357,23 @@ export default function InboxPage() {
   );
 }
 
+/** One row of what a nota says. `key` is a client-side identity so React can
+ *  tell two lines apart while they are being typed — the database has no
+ *  opinion about it and never sees it. */
+interface LineDraft {
+  key: number;
+  description: string;
+  qty: number;
+  uom: UomCode;
+  unit_price: number;
+}
+
+/** Qty × price, rounded once. The line's amount is never typed: a total that
+ *  disagrees with its own two factors is a third number nobody can check. */
+function lineAmount(l: LineDraft): number {
+  return Math.round(l.qty * l.unit_price);
+}
+
 function ResolvePanel({
   row, file, mayResolve, onDone, toast,
 }: {
@@ -368,6 +385,7 @@ function ResolvePanel({
 }) {
   const [accounts] = useLoad(() => accounting.listAccounts(), []);
   const [vendors] = useLoad(() => procurement.listVendors({}), []);
+  const [projects] = useLoad(() => procurement.listProjects(), []);
   const [recent] = useLoad(() => accounting.listTransactions({ limit: 40 }), []);
   const filename = file?.filename ?? row.attachment_id;
   /* Re-read on every document, because *what does this paper already cover*
@@ -390,8 +408,37 @@ function ResolvePanel({
   const [vendorId, setVendorId] = useState("");
   const [description, setDescription] = useState(row.extracted.note ?? "");
   const [amount, setAmount] = useState(row.extracted.amount_idr ?? 0);
+  const [projectId, setProjectId] = useState("");
+  /* `qty`/`uom` belong to the **retro request line** road only: that road
+     writes one `pr_line`, and one line has one quantity. The transaction road
+     below carries its own list instead — see `lines`. */
   const [qty, setQty] = useState(1);
   const [uom, setUom] = useState<UomCode>("pcs");
+
+  /* ── What the nota says, line by line ──────────────────────────────────
+   *
+   * Owner, 2026-09-23: *alih alih konfirmasi tiap baris, buat per dokumen
+   * saja … beberapa line sekaligus berupa deskripsi, qty, satuan, harga —
+   * sementara tanggal, vendor, dan project sama semua.*
+   *
+   * That is what a nota is: one header, several things bought. It starts as
+   * one line carrying the whole reading, because most notas are one thing and
+   * an empty grid is a form somebody has to fill before they can read it.
+   *
+   * **`unit_price` is typed, not derived.** Until now the screen computed it
+   * as `amount / qty`, which is backwards from the paper — the price per item
+   * is printed on the nota and the total is the sum. Deriving it meant two
+   * lines at different prices could not be expressed at all. */
+  const [lines, setLines] = useState<LineDraft[]>([
+    { key: 1, description: row.extracted.note ?? "", qty: 1, uom: "pcs",
+      unit_price: row.extracted.amount_idr ?? 0 },
+  ]);
+  const linesTotal = lines.reduce((n, l) => n + lineAmount(l), 0);
+  /* Shown live rather than left to the seam's refusal. The refusal is the net
+     that stops a nota read as 3 items of 5 being booked as whole (§14 in
+     john-lau's backlog); this is so nobody meets it by surprise after filling
+     the form. */
+  const linesAgree = lines.length === 0 || linesTotal === amount;
   const [purpose, setPurpose] = useState("");
   const [trxNo, setTrxNo] = useState("");
   const [reason, setReason] = useState("");
@@ -455,9 +502,38 @@ function ResolvePanel({
         lineNo = line.data.line_no_full;
       }
 
+      /* **One call, for the plain transaction road.**
+       *
+       * This used to be `postTransaction` and then `resolveInbox`, and the
+       * toast below still carried the failure that shape allows: *Posted,
+       * inbox unchanged* — a document already in the ledger and still in the
+       * queue, which the next person confirms again. `bookEvidence` does both
+       * or neither (0124).
+       *
+       * The retro road keeps the old two-step path on purpose: it also writes
+       * a request line and allocates against it, and those are different acts
+       * that `book_evidence` deliberately does not know about. */
+      if (road === "transaction") {
+        const booked = await accounting.bookEvidence({
+          ref_id: row.ref_id,
+          trx_date: date, account_id: accountId, direction, amount_idr: amount,
+          type_code: typeCode, vendor_id: vendorId || null, project_id: projectId || null,
+          description: description.trim() || filename,
+          lines: lines.map((l) => ({
+            description: l.description.trim() || description.trim() || filename,
+            qty: l.qty, uom: l.uom, unit_price: l.unit_price, amount: lineAmount(l),
+          })),
+        });
+        if (booked.error) { toast("warning", "Not booked", booked.error.message); return; }
+        toast("success", `Posted ${booked.data.trx_no}`,
+          `${formatIDR(amount)} · ${lines.length} baris`);
+        onDone();
+        return;
+      }
+
       const posted = await accounting.postTransaction({
         trx_date: date, account_id: accountId, direction, amount_idr: amount,
-        type_code: typeCode, vendor_id: vendorId || null,
+        type_code: typeCode, vendor_id: vendorId || null, project_id: projectId || null,
         description: description.trim() || filename,
         source_ref: `inbox:${row.ref_id}`,
         lines: [{
@@ -496,7 +572,11 @@ function ResolvePanel({
   const canRun = mayResolve && (
     road === "note" || road === "reject" ? reason.trim().length > 0
       : road === "link" ? !!trxNo
-        : !!accountId && amount > 0
+        /* The button is disabled while the lines disagree, and the reason is
+           shown beside them. The seam refuses this too — the screen refusing
+           first is a courtesy, not the control (D220: the database decides). */
+        : road === "transaction" ? !!accountId && amount > 0 && linesAgree
+          : !!accountId && amount > 0
   );
 
   return (
@@ -645,29 +725,133 @@ function ResolvePanel({
                 </p>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label htmlFor="rv-qty" className="block text-xs text-slate-500">Qty</label>
-                <NumberInput id="rv-qty" value={qty} min={0} onChange={setQty} className="mt-1" />
-              </div>
-              <div>
-                <label htmlFor="rv-uom" className="block text-xs text-slate-500">Unit</label>
-                <select id="rv-uom" value={uom} onChange={(e) => setUom(e.target.value as UomCode)}
-                  className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none">
-                  <UomOptions current={uom} />
-                </select>
-              </div>
+            <div>
+              <label htmlFor="rv-project" className="block text-xs text-slate-500">Project</label>
+              <select id="rv-project" value={projectId} onChange={(e) => setProjectId(e.target.value)}
+                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none">
+                <option value="">No project</option>
+                {projects.status === "ready" && projects.data.map((pr) => (
+                  <option key={pr.id} value={pr.id}>{pr.code} — {pr.name}</option>
+                ))}
+              </select>
+              <p className="mt-1 text-[11px] text-slate-500">
+                One nota, one project — it is shared by every line below.
+              </p>
             </div>
+            {road === "retro_pr_line" && (
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label htmlFor="rv-qty" className="block text-xs text-slate-500">Qty</label>
+                  <NumberInput id="rv-qty" value={qty} min={0} onChange={setQty} className="mt-1" />
+                </div>
+                <div>
+                  <label htmlFor="rv-uom" className="block text-xs text-slate-500">Unit</label>
+                  <select id="rv-uom" value={uom} onChange={(e) => setUom(e.target.value as UomCode)}
+                    className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none">
+                    <UomOptions current={uom} />
+                  </select>
+                </div>
+              </div>
+            )}
             <div className="sm:col-span-2">
               <label htmlFor="rv-amount" className="block text-xs text-slate-500">
                 Amount <span className="text-slate-400">— the reading proposed {row.extracted.amount_idr != null ? formatIDR(row.extracted.amount_idr) : "nothing"}</span>
               </label>
               <MoneyInput id="rv-amount" value={amount} onChange={setAmount} className="mt-1" />
               <p className="mt-1 text-[11px] text-slate-500">
-                {qty > 0 && `${qty} ${uom} × ${formatIDR(unitPrice)} — `}
+                {road === "retro_pr_line" && qty > 0 && `${qty} ${uom} × ${formatIDR(unitPrice)} — `}
                 posting is you agreeing with the number, not the extraction being believed.
               </p>
             </div>
+            {road === "transaction" && (
+              <div className="sm:col-span-2">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-xs text-slate-500">What is on the nota</span>
+                  <button type="button"
+                    onClick={() => setLines((ls) => [
+                      ...ls,
+                      { key: Math.max(0, ...ls.map((l) => l.key)) + 1,
+                        description: "", qty: 1, uom: "pcs", unit_price: 0 },
+                    ])}
+                    className="text-[11px] font-medium text-brand-700 hover:underline">
+                    + baris
+                  </button>
+                </div>
+
+                <div className="mt-1 space-y-2">
+                  {lines.map((l, i) => (
+                    <div key={l.key} className="grid grid-cols-12 items-end gap-1.5">
+                      <div className="col-span-12 sm:col-span-5">
+                        <label htmlFor={`rv-l-desc-${l.key}`} className="sr-only">Barang baris {i + 1}</label>
+                        <input id={`rv-l-desc-${l.key}`} value={l.description}
+                          placeholder="e.g. PAKU 5CM"
+                          onChange={(e) => setLines((ls) => ls.map((x) =>
+                            x.key === l.key ? { ...x, description: e.target.value } : x))}
+                          className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-brand-400 focus:outline-none" />
+                      </div>
+                      <div className="col-span-3 sm:col-span-2">
+                        <label htmlFor={`rv-l-qty-${l.key}`} className="sr-only">Qty baris {i + 1}</label>
+                        <NumberInput id={`rv-l-qty-${l.key}`} value={l.qty} min={0}
+                          onChange={(v) => setLines((ls) => ls.map((x) =>
+                            x.key === l.key ? { ...x, qty: v } : x))} />
+                      </div>
+                      <div className="col-span-3 sm:col-span-2">
+                        <label htmlFor={`rv-l-uom-${l.key}`} className="sr-only">Satuan baris {i + 1}</label>
+                        <select id={`rv-l-uom-${l.key}`} value={l.uom}
+                          onChange={(e) => setLines((ls) => ls.map((x) =>
+                            x.key === l.key ? { ...x, uom: e.target.value as UomCode } : x))}
+                          className="h-9 w-full rounded-lg border border-slate-200 bg-white px-1.5 text-sm focus:border-brand-400 focus:outline-none">
+                          <UomOptions current={l.uom} />
+                        </select>
+                      </div>
+                      <div className="col-span-5 sm:col-span-2">
+                        <label htmlFor={`rv-l-price-${l.key}`} className="sr-only">Harga satuan baris {i + 1}</label>
+                        <MoneyInput id={`rv-l-price-${l.key}`} value={l.unit_price}
+                          onChange={(v) => setLines((ls) => ls.map((x) =>
+                            x.key === l.key ? { ...x, unit_price: v } : x))} />
+                      </div>
+                      <div className="col-span-1 flex justify-end">
+                        {lines.length > 1 && (
+                          <button type="button" aria-label={`Hapus baris ${i + 1}`}
+                            onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))}
+                            className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                            <XCircle className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* The sum, against the document total, always visible. A nota
+                    read as 3 items of 5 is invisible line by line and obvious
+                    here — which is the whole reason the unit of review moved
+                    from the line to the document. */}
+                <div className={cn(
+                  "mt-2 flex items-center justify-between rounded-lg px-3 py-2 text-sm",
+                  linesAgree ? "bg-slate-50 text-slate-600" : "bg-amber-50 text-amber-900",
+                )}>
+                  <span>
+                    {lines.length} baris berjumlah <strong>{formatIDR(linesTotal)}</strong>
+                  </span>
+                  {linesAgree
+                    ? <span className="inline-flex items-center gap-1 text-[12px]"><Check className="h-3.5 w-3.5" /> cocok</span>
+                    : (
+                      <span className="inline-flex items-center gap-1 text-[12px]">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        selisih {formatIDR(linesTotal - amount)} dari {formatIDR(amount)}
+                      </span>
+                    )}
+                </div>
+                {!linesAgree && (
+                  <p className="mt-1 text-[11px] text-amber-800">
+                    Tambahkan baris untuk sisanya, atau perbaiki salah satunya. Nota yang
+                    terbaca sebagian tidak bisa dibukukan seolah-olah utuh.
+                  </p>
+                )}
+              </div>
+            )}
+
             {road === "retro_pr_line" && (
               <div className="sm:col-span-2">
                 <label htmlFor="rv-purpose" className="block text-xs text-slate-500">What it was for</label>
