@@ -1169,8 +1169,6 @@ export async function deleteAssetCategory(code: string): Promise<Result<{ code: 
 
 /* ── material against a Job Order (0130) ─────────────────────────────── */
 
-const prod = () => supabaseBrowser().schema("ops_prod");
-
 /** Material out to a Job Order, every line or none (`issue_for_work_order`,
  *  which runs each line through `issue_stock`). */
 export async function issueForWorkOrder(
