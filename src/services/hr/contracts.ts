@@ -1642,6 +1642,44 @@ export interface PayrollView extends PayrollRun {
   pending_overtime_hours: number;
 }
 
+/** The year's working days, counted from the calendar the business already
+ *  keeps rather than typed from a convention (Q45, D292).
+ *
+ *  D271 settled that IT types `effective_days_per_year` and that the monthly
+ *  average is derived from it. What it never settled was **the number**, and
+ *  the number reaches pay: `hourly_rate()` divides a year's wage by it, so
+ *  twenty days of error moves every overtime rupiah by eight per cent.
+ *
+ *  Everything here is evidence for that one typed field, never a replacement
+ *  for it. The three parts are printed so the total can be read instead of
+ *  trusted — and `holidays_recorded` is the honest limit: a calendar with no
+ *  tanggal merah in it counts every weekday as worked, and the screen says so
+ *  rather than rounding the answer down to look plausible.
+ */
+export interface EffectiveDaysCalendar {
+  year: number;
+  week_pattern: string;
+  days_per_week: number;
+  calendar_days: number;
+  /** Saturdays and Sundays, or Sundays alone, by the pattern. */
+  weekly_rest_days: number;
+  /** Office-wide holidays somebody has entered for this year. */
+  holidays_recorded: number;
+  /** Of those, the ones falling on a day that would otherwise be worked — a
+   *  tanggal merah on a Sunday costs the business nothing. */
+  holidays_on_workdays: number;
+  /** `calendar_days − weekly_rest_days − holidays_on_workdays`, and counted
+   *  once by `is_rest_day` rather than by that subtraction; the parts only
+   *  explain it. */
+  working_days: number;
+  /** What the rule book says today. */
+  typed: number | null;
+  /** `typed − working_days`. Negative means the book counts fewer days than
+   *  the calendar does, which is usually tanggal merah nobody has entered. */
+  difference: number | null;
+  holidays: { work_date: string; reason: string | null }[];
+}
+
 /* ------------------------------------------------------------------ */
 /* What a working pattern may say                                      */
 /* ------------------------------------------------------------------ */

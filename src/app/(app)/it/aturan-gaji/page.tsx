@@ -5,6 +5,7 @@ import { Scale, History, Play, AlertTriangle, Clock } from "lucide-react";
 import { ScheduleEditor } from "./ScheduleEditor";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
+import { officeToday } from "@/lib/office";
 import { NumberInput } from "@/components/ui/number-input";
 import { Paged } from "@/components/ui/pager";
 import { formatIDR, formatNumber } from "@/lib/format";
@@ -155,11 +156,13 @@ export default function PayRulesPage() {
 
                       <Field
                         label="Hari kerja efektif setahun"
-                        hint={`Enam hari seminggu = 312 hari, dikurangi tanggal merah dan cuti bersama. Angkanya milik perusahaan, bukan hitungan layar ini — IT yang mengisi, HRD dan payroll membacanya (Q45). Rata-rata per bulan: ${(rules.effective_days_per_year / 12).toFixed(1)} hari, diturunkan dari angka setahun dan tidak pernah disimpan terpisah.`}
+                        hint={`Angkanya milik perusahaan, bukan hitungan layar ini — IT yang mengisi, HRD dan payroll membacanya (D271). Yang baru di bawah adalah buktinya: kalender perusahaan sendiri, diuraikan, supaya angka ini diperiksa dan bukan diwarisi (Q45). Rata-rata per bulan: ${(rules.effective_days_per_year / 12).toFixed(1)} hari, diturunkan dari angka setahun dan tidak pernah disimpan terpisah.`}
                         value={rules.effective_days_per_year}
                         onChange={(v) => set({ effective_days_per_year: v })}
                         disabled={!mayEdit}
                       />
+
+                      <EffectiveDaysNote rules={rules} />
 
                       <Field
                         label="Pembagi gaji bulanan (peraturan)"
@@ -649,6 +652,82 @@ function HourlyExample({ rules }: { rules: PayRules }) {
         Selisihnya bukan pembulatan: 173 mengandaikan minggu 40 jam, dan hari kerja efektif setahun
         yang dipakai di sini belum tentu sepadan dengan angka itu — kalau keduanya sejalan, kedua
         hitungan akan bertemu.
+      </p>
+    </div>
+  );
+}
+
+/** What the calendar counts, beside the figure IT types (Q45, D292).
+ *
+ *  D271 settled who types `hari kerja efektif` and that the monthly average is
+ *  derived from it. It never settled the number — and the number divides a
+ *  year's wage into an hourly rate, so twenty days of error moves every
+ *  overtime rupiah by eight per cent. 288 reached production as a demo default
+ *  (F138) and 240 replaced it as a better convention; both were nobody's
+ *  decision.
+ *
+ *  This does not replace the field. It prints the arithmetic the business's own
+ *  calendar already supports, so the typed figure becomes something checked
+ *  rather than inherited — and it prints **what the calendar does not know**,
+ *  because a year with no tanggal merah entered counts every weekday as worked.
+ *  A gap of nineteen days is not an error in the count; it is nineteen days
+ *  nobody has written down, and saying so is the only way it gets fixed.
+ *
+ *  Loaded on the pattern, not on the typed figure: counting a year of days on
+ *  every keystroke would be rude, and the difference is arithmetic the browser
+ *  can do against the number already on screen.
+ */
+function EffectiveDaysNote({ rules }: { rules: PayRules }) {
+  const { session } = useSession();
+  const year = Number(officeToday().slice(0, 4));
+  /* The acting user is in the deps, and it has to be: the seam answers **null**
+     to somebody without `payroll.read` or `it.update`, so this is a read whose
+     answer depends on who is asking. Keyed on the rules alone it cached the
+     first answer for ever — in demo mode, where the acting user changes from
+     the header, that is a permission-shaped figure going stale on screen. It
+     would have shown up in production too, on the first person promoted while
+     the tab was open. */
+  const [cal] = useLoad(
+    () => hr.effectiveDaysCalendar({ rules, year }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rules.week_pattern, year, session?.user.id],
+  );
+
+  if (cal.status !== "ready" || !cal.data) return null;
+  const c = cal.data;
+  const gap = rules.effective_days_per_year - c.working_days;
+
+  return (
+    <div className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-[12px] text-slate-600">
+      <p className="font-medium text-slate-700">
+        Kalender {c.year} menghitung {formatNumber(c.working_days)} hari kerja
+      </p>
+      <p className="mt-1">
+        {formatNumber(c.calendar_days)} hari setahun − {formatNumber(c.weekly_rest_days)} hari
+        istirahat mingguan (pola {c.days_per_week} hari) − {formatNumber(c.holidays_on_workdays)} tanggal
+        merah yang jatuh di hari kerja.
+      </p>
+      {c.holidays_recorded === 0 ? (
+        <p className="mt-1 text-amber-700">
+          <strong className="font-medium">Belum ada satu pun tanggal merah {c.year} yang tercatat</strong>,
+          jadi hitungan di atas menganggap semua hari kerja dimasuki. Selisih{" "}
+          {formatNumber(Math.abs(gap))} hari terhadap angka yang diketik kemungkinan besar adalah
+          hari-hari itu — bukan kesalahan hitung, melainkan hari yang belum dimasukkan siapa pun.
+        </p>
+      ) : (
+        <p className="mt-1 text-slate-500">
+          {formatNumber(c.holidays_recorded)} tanggal merah tercatat untuk {c.year}
+          {c.holidays_recorded > c.holidays_on_workdays && (
+            <> — {formatNumber(c.holidays_recorded - c.holidays_on_workdays)} di antaranya jatuh di hari
+              yang memang sudah libur dan tidak mengurangi apa pun</>
+          )}.
+        </p>
+      )}
+      <p className="mt-1">
+        Yang diketik: <strong className="text-slate-700">{formatNumber(rules.effective_days_per_year)}</strong>{" "}
+        {gap === 0
+          ? "— sama dengan hitungan kalender."
+          : `— ${formatNumber(Math.abs(gap))} hari ${gap < 0 ? "lebih sedikit" : "lebih banyak"} dari hitungan kalender.`}
       </p>
     </div>
   );

@@ -1436,7 +1436,11 @@ export function undertimeOf(
 
 /** 1 Monday … 7 Sunday, from a `YYYY-MM-DD` string without going near a
  *  timezone (F39). */
-function weekdayOf(key: string): number {
+/** ISO weekday: Monday 1 … Sunday 7, matching `extract(isodow)` so the two
+ *  implementations compare the same numbers. Exported because the effective
+ *  days calendar needs it too, and a third copy of a day-of-week rule is a
+ *  third chance to get Sunday wrong. */
+export function weekdayOf(key: string): number {
   const [y, m, d] = key.split("-").map(Number);
   const js = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
   return js === 0 ? 7 : js;

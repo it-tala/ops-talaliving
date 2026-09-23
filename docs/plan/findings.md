@@ -5871,3 +5871,40 @@ twice needs. A case with two dangling units named in different cases is in the
 battery, so the pin cannot be removed quietly — though, and this is the part to
 remember, that case would pass on a `C` database even without the pin. The case
 guards the intent; only reading the collation guarded the fact.
+
+---
+
+## F144 · 2026-09-23 · a read whose answer depends on who is asking, cached on what is being asked about
+
+The new calendar note on `/it/aturan-gaji` rendered nothing. Not an error, not
+a blank figure — the component simply was not there, and every gate was green.
+
+`ops_hr.effective_days_calendar()` answers **null** to anybody without
+`payroll.read` or `it.update`, because it is evidence beside a field and a
+screen opened without the right does not want a number it should not show.
+That makes it a read whose answer depends on the reader. Its `useLoad` deps
+were `[rules.week_pattern, year]` — what is being asked *about*, and nothing
+about who is asking.
+
+So the first fetch ran as the demo's default user, who has no IT access, got
+null, and cached it. Switching to the IT account changed nothing that the deps
+watched, so nothing re-ran, and the evidence stayed invisible for the one
+person it was built for.
+
+**The demo is where it showed, not where it lives.** In production nobody
+switches identity from the header — they get promoted, and the first person
+granted `it.update` while the tab was open would have seen exactly this: a
+screen that stays empty until it is reloaded, for no stated reason. A stale
+permission-shaped read looks identical to a permission correctly denied, which
+is why it would have been reported as *the button does nothing* rather than as
+a bug with a shape.
+
+Fixed by putting the acting user in the deps. The general rule, worth keeping:
+**if a seam can answer differently for two people, the reader's identity is
+part of the question, and caching keyed only on the subject is caching the
+wrong thing.**
+
+Found by driving the screen in a browser rather than by reading it. Nothing in
+`tsc`, lint, the smoke suite or any of the eight checkers can see a `useEffect`
+dependency list that is merely incomplete — it is valid code that does less
+than it looks like it does.

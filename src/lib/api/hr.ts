@@ -42,7 +42,7 @@ import type {
   OvertimeSheetView, OvertimeLineView, WorkSchedule, ScheduleHours,
   ContractKind, ContractStatus, ClauseKind, ClauseChecklistItem,
   ContractView, ContractDetail, ContractClause, ClauseCoverage, ClauseConflict,
-  PayRules, PayRuleSetView, TimesheetTotal,
+  PayRules, PayRuleSetView, TimesheetTotal, EffectiveDaysCalendar,
 } from "@/services/hr/contracts";
 import {
   EMPLOYEE_DOC_CHECKLIST, EMPLOYEE_DOC_LABEL, SENSITIVE_DOC_KINDS,
@@ -1013,6 +1013,23 @@ export async function previewPayRules(
     p_to: input.period_end,
   });
   return fromSeam(SERVICE, data, error);
+}
+
+/** The calendar's own count, for the figure IT types (Q45, D292).
+ *
+ *  A read rather than part of `listPayRules`, because it is asked *about a
+ *  candidate* — the draft on screen, whose `week_pattern` may differ from the
+ *  book in force — and because counting a year of days is not something to do
+ *  on every list. Null where the caller may not see it; the seam decides, not
+ *  this function.
+ */
+export async function effectiveDaysCalendar(
+  input: { rules: PayRules; year: number },
+): Promise<Result<EffectiveDaysCalendar | null>> {
+  const { data, error } = await db().rpc("effective_days_calendar", {
+    p_rules: input.rules, p_year: input.year,
+  });
+  return fromRows(SERVICE, data as never, error);
 }
 
 export async function savePayRules(

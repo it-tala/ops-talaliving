@@ -12,6 +12,7 @@ import type {
   Task, TaskView, TaskRefKind, KpiView,
   ContractKind, ClauseKind, ClauseChecklistItem, EmploymentContract,
   ContractView, ContractDetail, ContractClause, ClauseConflict, TimesheetTotal, DayState,
+  EffectiveDaysCalendar,
 } from "@/services/hr/contracts";
 import {
   SENSITIVE_DOC_KINDS, SCHEME_LABEL, maskDocNo, clauseValueOk, scheduleProblem,
@@ -24,7 +25,7 @@ import {
   activePayRules, payrollLine, payrollLineWith, scheduleHours, scheduleFor,
   employeeFile, leaveBalance, leaveRequestView, datesBetween,
   contributionRoll, allRolls,
-  taskView, taskViews, kpiView, kpiViews,
+  taskView, taskViews, kpiView, kpiViews, weekdayOf,
 } from "../hr-derive";
 import { latency, actingUser, requireModule, requireLevel, requireAuthority, conflict, replayed, remember } from "./_kit";
 import { officeToday as sharedOfficeToday } from "@/lib/office";
@@ -2481,6 +2482,85 @@ const SCHEDULE_IN_USE = (lost: string) =>
   `Buku baru tidak memuat pola yang masih dipakai: ${lost}. Orangnya tidak jatuh `
   + "ke jadwal lain — mereka berhenti punya jam sama sekali dan hilang dari "
   + "layar jadwal. Pindahkan dulu, lalu terbitkan versinya.";
+
+/** The calendar's own count (Q45, D292), from the demo's own day marks.
+ *
+ *  Worded and decomposed exactly as `ops_hr.effective_days_calendar()` does,
+ *  for the reason every pair in this file shares (ADR-009). The one thing it
+ *  must not do differently is count a tanggal merah that falls on a rest day:
+ *  a holiday on a Sunday costs the business nothing, and subtracting it twice
+ *  is how a figure that reaches pay drifts low.
+ */
+export async function effectiveDaysCalendar(
+  input: { rules: PayRules; year: number },
+): Promise<Result<EffectiveDaysCalendar | null>> {
+  await latency();
+  /* The pair the screen itself opens on (D271): payroll reads the figure, IT
+     changes it. Null rather than a refusal — this is evidence beside a field,
+     and a screen somebody may open without it should simply not show it. */
+  const user = actingUser();
+  const rank = { read: 0, write: 1, admin: 2 } as const;
+  const holds = (module: string, level: "read" | "write" | "admin") => {
+    const held = user.modules.find((m) => m.module === module);
+    return !!held && rank[held.level] >= rank[level];
+  };
+  if (!holds("payroll", "read") && !holds("it", "write")) return ok(SERVICE, null);
+  if (!Number.isInteger(input.year) || input.year < 1900 || input.year > 2999) {
+    return ok(SERVICE, null);
+  }
+
+  const state = getState();
+  const fiveDay = input.rules.week_pattern === "5day";
+  const isWeeklyRest = (iso: string) => {
+    const wd = weekdayOf(iso);
+    return fiveDay ? wd >= 6 : wd === 7;
+  };
+
+  /* No `withdrawn_at` filter, and that is not an omission: this implementation
+     **removes** a withdrawn mark from the array rather than flagging it, which
+     `unmarkDay` above states as a deliberate divergence — the demo remembers
+     why in the audit trail and forgets what. Filtering on a field that does not
+     exist here would read as caution and do nothing. */
+  const shut = new Set(
+    state.day_marks
+      .filter((m) => m.employee_id === null && m.kind === "holiday")
+      .map((m) => m.work_date),
+  );
+
+  const days: string[] = [];
+  for (let d = new Date(Date.UTC(input.year, 0, 1));
+       d.getUTCFullYear() === input.year;
+       d.setUTCDate(d.getUTCDate() + 1)) {
+    days.push(d.toISOString().slice(0, 10));
+  }
+
+  const weekly_rest_days = days.filter(isWeeklyRest).length;
+  const holidays_on_workdays = days.filter((d) => shut.has(d) && !isWeeklyRest(d)).length;
+  /* Counted the same way the database counts it — once, over the combined
+     rule — rather than by the subtraction the screen prints. */
+  const working_days = days.filter((d) => !(shut.has(d) || isWeeklyRest(d))).length;
+
+  const holidays = state.day_marks
+    .filter((m) => m.employee_id === null && m.kind === "holiday"
+                && m.work_date.slice(0, 4) === String(input.year))
+    .sort((a, b) => (a.work_date < b.work_date ? -1 : a.work_date > b.work_date ? 1 : 0))
+    .map((m) => ({ work_date: m.work_date, reason: m.reason ?? null }));
+
+  const typed = input.rules.effective_days_per_year ?? null;
+  return ok(SERVICE, {
+    year: input.year,
+    week_pattern: input.rules.week_pattern,
+    days_per_week: fiveDay ? 5 : 6,
+    calendar_days: days.length,
+    weekly_rest_days,
+    holidays_recorded: holidays.length,
+    holidays_on_workdays,
+    working_days,
+    typed,
+    difference: typed == null ? null : typed - working_days,
+    holidays,
+  });
+}
 
 export async function savePayRules(
   input: { effective_from: string; note: string; rules: PayRules },
