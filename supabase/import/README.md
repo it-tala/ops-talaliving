@@ -246,21 +246,49 @@ run stages **0 rows**, checked against production rather than assumed.
 
 ### What steps 7 and 8 found
 
-**Six transactions whose lines do not add up**, and one of them is not a
-rounding slip:
+**Six transactions whose lines do not add up**, and they are two different
+problems wearing the same shape:
 
-| transaction | says | its lines say | difference |
-|---|---:|---:|---:|
-| `trx-26-07-27_061` | 2.500 | 15.850.000 | **+15.847.500** |
-| `trx-26-07-15_020` | 55.000 | 85.000 | +30.000 |
-| `trx-26-07-13_093` | 21.001.514 | 21.011.514 | +10.000 |
-| `trx-26-07-21_020` | 36.000 | 35.000 | −1.000 |
-| `trx-26-08-26_091` | 5.217.500 | 5.217.000 | −500 |
-| `trx-26-08-19_040` | 1.970.674 | 1.970.670 | −4 |
+| transaction | says | its lines say | difference | lines |
+|---|---:|---:|---:|---:|
+| `trx-26-07-27_061` | 2.500 | 15.850.000 | **+15.847.500** | **2** |
+| `trx-26-07-15_020` | 55.000 | 85.000 | +30.000 | 1 |
+| `trx-26-07-13_093` | 21.001.514 | 21.011.514 | +10.000 | 1 |
+| `trx-26-07-21_020` | 36.000 | 35.000 | −1.000 | 1 |
+| `trx-26-08-26_091` | 5.217.500 | 5.217.000 | −500 | 1 |
+| `trx-26-08-19_040` | 1.970.674 | 1.970.670 | −4 | 1 |
 
-The first is worth somebody's attention today: a transaction recorded as Rp
-2.500 against Rp 15,85 juta of itemised purchases. Neither number was changed —
-which of the two is wrong is a question for whoever has the receipt.
+**Five are one line disagreeing with its own row** — a receipt says one thing
+and the ledger another, by between Rp 4 and Rp 30.000. Accounting settles each
+from the document, on the ledger screen. Proved as Anggun against production
+(rolled back): raising 55.000 to 85.000 and lowering 36.000 to 35.000 both land
+and both reconcile.
+
+**The sixth is not a mistyped amount, and reading it as one is the trap.** It
+was described that way here before anybody looked at its lines:
+
+```
+transaction : 2026-07-24  OUT  2.500  BANK CHARGES — "Transfer admin fee"
+its lines   : 2.500       — Transfer admin fee
+              15.847.500  — Transfer funding for pay-26-07-27_01
+```
+
+**The Rp 2.500 is correct.** It is a bank admin fee. The second line is a
+funding transfer that belongs elsewhere — `trx-26-07-27_900` exists on the same
+date for exactly Rp 15.847.500 with the same description. A line was filed
+against the wrong transaction in the old system, and the import carried it
+across faithfully, which is what it is supposed to do.
+
+So the fix is **not** `edit_transaction`. Raising the amount to make the
+arithmetic pass would turn a Rp 2.500 bank charge into Rp 15,85 juta — and that
+correction was demonstrated in a rolled-back session before the lines were
+read, which is how this was caught. What it needs is a line moved or removed,
+and nothing in the web app can do that today.
+
+The general shape, worth keeping: **a total that does not add up says which
+number to distrust only when there is one line.** With two, the disagreement
+may be about which row a line belongs to, and the totals say nothing about
+that.
 
 **Eleven documents repeat a claim another already made** — same file, same
 transaction, same kind — so 237 documents produced 226 links.
