@@ -97,7 +97,16 @@ reset role;
 do $$
 declare a record;
 begin
-  select * into a from ops_core.audit_log where action = 'service_delete' order by at desc limit 1;
+  /* `outcome = 'ok'` dan `id desc`, dua-duanya perlu. Blok di atas memanggil
+     `delete_asset_service` **dua kali** — sekali berhasil, sekali untuk
+     membuktikan barangnya sudah hilang — jadi ada dua baris `service_delete`
+     dengan `at` yang sama persis, sebab `now()` adalah waktu transaksi.
+     Tanpa saringan outcome, yang dimaksud adalah yang berhasil; tanpa `id`,
+     mana yang terakhir terserah planner. Yang ini dulu lolos karena
+     kebetulan, dan gagal satu kali dari sekian (F146). */
+  select * into a from ops_core.audit_log
+   where action = 'service_delete' and outcome = 'ok'
+   order by at desc, id desc limit 1;
   assert a.reason = 'Wrong asset' and a.detail ->> 'description' = 'Cuci AC rutin', 'audited, got ' || row_to_json(a)::text;
 end $$;
 

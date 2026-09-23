@@ -5945,3 +5945,42 @@ survives is a question, never a clearance — and the first question is always
 *did the change actually reach the database*. And a fixture with one of
 something cannot test a rule about **choosing** between them: one rate, one
 schedule, one version is the shape in which a selection bug is invisible.
+
+---
+
+## F146 · 2026-09-23 · `now()` is the transaction's clock, so "the latest audit row" was a coin toss
+
+Merging `main` brought three new smoke files in, and the suite failed one of
+them — once. Run again, it passed. Run alone, five times, it passed. Two fresh
+rebuilds with a full suite each, both green. That is the worst shape a failure
+comes in, because every instinct after the second green run is to call it
+noise.
+
+`ops_core.audit_log.at` defaults to `now()`, and `now()` in Postgres is the
+**transaction** timestamp — `select now() = now()` is true, and every row a
+transaction writes carries the same instant. Three smoke files read back *the
+latest* audit row with `order by at desc limit 1`, and one of them,
+`99_inv_asset_services`, calls `delete_asset_service` twice on purpose: once
+successfully, once more to prove the thing is gone. Two rows, one action, one
+identical timestamp, and which one `limit 1` returns is the planner's choice.
+
+Proved rather than argued: two rows inserted in one transaction, then the same
+query with and without a tiebreak — `count(distinct at)` is 1, and the two
+orderings return **different rows**.
+
+Adding `id desc` made it deterministic and immediately turned the file red
+0/5, which is the part worth keeping. The tiebreak had not broken the test; it
+had revealed that the test was reading the **refusal** and had been passing on
+the accident that an untied sort usually returned the other row. The
+assertion's actual subject is the successful delete, and its two sibling files
+say so in their own queries — `and outcome = 'ok'` — while this one did not.
+Both clauses are needed and neither alone is enough: the filter says which row
+is meant, the tiebreak says which of the remaining ones is last.
+
+The general rule this leaves: **a timestamp written by `now()` cannot order
+rows within one transaction**, so any "most recent" read over an audit trail
+needs the sequence as a tiebreak. All three files have it now; two of them
+were already correct on the filter and only needed the hardening.
+
+Not my file, and fixed anyway: an intermittent failure in the shared suite is
+a red CI for whoever pushes next, and the diagnosis was already in hand.

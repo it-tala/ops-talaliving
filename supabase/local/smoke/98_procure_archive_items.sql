@@ -58,7 +58,7 @@ do $$
 declare a record;
 begin
   select * into a from ops_core.audit_log where entity = 'item' and action = 'archive_many' and outcome = 'ok'
-   order by at desc limit 1;
+   order by at desc, id desc limit 1;
   assert a.reason = 'Payment descriptions, not items' and (a.detail ->> 'count')::int = 2
      and a.detail -> 'codes' @> '["ZZ-AI-1","ZZ-AI-2"]'::jsonb,
     'one audit row with reason and codes, got ' || row_to_json(a)::text;
