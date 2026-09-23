@@ -191,6 +191,18 @@ actually needs. A Google Chat bot, a WhatsApp notifier, an accounting export,
 a Sheets mirror — each becomes a subscriber, and none of them can slow down
 or fail a money write.
 
+> **Narrowed by D288 (owner, 2026-09-23):** *google chat hanya dipakai untuk
+> ingest chat + file upload dari channel dan notifikasi web app.* Chat carries
+> material **in** and notifications **out**, and decides nothing. The "In, via
+> the API" list below — approve, hold, reject, confirm receiving, acknowledge —
+> is superseded; those stay on the web app. The "exception road" is no longer an
+> exception but the ordinary way files arrive, through
+> `POST /api/chat/events` → `ops_acct.file_evidence` (D289, `0038`).
+>
+> The original statement is kept below because the reasoning still holds for
+> the half that survived, and because a decision quietly deleted is a decision
+> somebody re-argues from scratch.
+
 **Google Chat's role, stated** (owner, 2026-09-10). Chat is **notification,
 confirmation, and the interface for people who do not have web access**. It is
 no longer the intake door for evidence. Concretely:

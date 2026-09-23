@@ -129,7 +129,7 @@ split by what they are actually good at:
 | Door | What it is for |
 |---|---|
 | **Web** | the record. Evidence is attached *from* the PR line or the ledger row it belongs to (ADR-010). Accounting works here |
-| **Google Chat** | notification, confirmation, and the interface for people who never log into the web app — approve a line, confirm receiving with a photo, acknowledge. Plus the one exception intake: a purchase made before any PR existed |
+| **Google Chat** | **narrowed by D288 (2026-09-23): ingest and notification only.** Messages and their file uploads come in from the channel and land in the accounting inbox; the web app sends notifications out. Approving, confirming receipt and acknowledging are **not** done here — they stay on the web app, because answering in Chat would need the answerer's own session and a signed webhook has none |
 
 `channel` still exists on every decision row, because an approval from a Chat
 card and an approval from the web are the same fact through different doors.
