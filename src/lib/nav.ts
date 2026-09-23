@@ -1,4 +1,5 @@
 import {
+  FileSignature,
   LayoutDashboard, Users, CalendarCheck, FileBadge, Wallet,
   ShoppingCart, ClipboardList, FileText, PackageCheck, Boxes, TreePine,
   Landmark, BookOpen, TrendingUp, PiggyBank, Receipt,
@@ -152,6 +153,7 @@ export const NAV: NavSection[] = [
     icon: FolderKanban,
     items: [
       { label: "Projects", labelKey: "orders", href: "/proyek/order", icon: FolderKanban, permission: "project.read", badge: "core" },
+      { label: "Quotations", labelKey: "quotations", href: "/proyek/quotation", icon: FileSignature, permission: "project.read", badge: "new" },
       { label: "Cost vs projection", labelKey: "costVsPlan", href: "/proyek/produksi", icon: Scale, permission: "project.read", badge: "new" },
       { label: "Delivery", labelKey: "delivery", href: "/proyek/pengiriman", icon: Truck, permission: "project.read", orPermission: "delivery.read", badge: "new" },
       { label: "Packing boxes & labels", labelKey: "boxes", href: "/proyek/peti", icon: Package, permission: "project.read", orPermission: "delivery.read", badge: "new" },

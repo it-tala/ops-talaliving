@@ -91,6 +91,8 @@ export function initialState(): DemoState {
       archived_at: null,
     })),
     project_status_log: [],
+    quotations: [],
+    quotation_lines: [],
 
     pr_documents: PR_DOCUMENTS,
     pr_lines: PR_LINES,

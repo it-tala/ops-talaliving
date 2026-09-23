@@ -114,6 +114,10 @@ const VIEW_CONTRACTS = {
   v_installation_line: null,
   v_snag:              null,
   v_box:               null,
+  /* The quotation (0133): rows converted field by field in
+     `src/lib/api/quotation.ts`; the contract is the one the client builds. */
+  v_quotation:         "QuotationView",
+  v_quotation_line:    "QuotationLineView",
 
   /* ── core ────────────────────────────────────────────────────────────── */
   v_user_access:     "AccessRow",

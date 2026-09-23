@@ -61,6 +61,10 @@ export * as production from "./production";
    `production`, the same as the demo's. */
 export * as delivery from "./delivery";
 
+/* The quotation (0133): a released BOM priced for the client, sent, revised
+   and accepted into the order. A module of `project`, stamped `procurement`. */
+export * as quotation from "./quotation";
+
 /* ## `marketing` is written and is deliberately not exported here yet
  *
  *  `src/lib/api/marketing.ts` exists, type-checks, and matches the demo on all

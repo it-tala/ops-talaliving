@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import {
-  Check, Hammer, History, ListTree, Package, Pencil, Plus, Save, Trash2, UserPlus, X,
+  Check, FileSignature, Hammer, History, ListTree, Package, Pencil, Plus, Save, Trash2, UserPlus, X,
 } from "lucide-react";
 import { Drawer } from "@/components/ui/drawer";
 import { Badge, Button } from "@/components/ui/primitives";
@@ -13,7 +13,8 @@ import { NumberInput } from "@/components/ui/number-input";
 import { UomOptions } from "@/components/ui/uom-options";
 import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
-import { procurement, production } from "@/demo/api";
+import { procurement, production, quotation } from "@/demo/api";
+import { QUOTATION_STATUSES } from "@/services/quotation/contracts";
 import {
   PROJECT_STATUSES, PROJECT_STATUS_LABEL,
   type ClientView, type ProjectLineView, type ProjectStatus, type ProjectView,
@@ -246,6 +247,8 @@ function ExistingProject({ code, onClose, onChanged }: { code: string; onClose: 
               )}
             </div>
 
+            <Quotations code={code} />
+
             <Loaded state={lines} onRetry={reloadLines} skeletonRows={3}>
               {(rows) => <OrderLines p={p} rows={rows} mayEdit={mayEdit} onChanged={() => { reloadLines(); reloadProject(); onChanged(); }} />}
             </Loaded>
@@ -274,6 +277,43 @@ function ExistingProject({ code, onClose, onChanged }: { code: string; onClose: 
         )}
       </Loaded>
     </Drawer>
+  );
+}
+
+/* ── what was offered ────────────────────────────────────────────────────── */
+
+/** The project's quotations, and the way to start one: a quotation is priced
+ *  from the released BOMs and, once the client accepts, becomes the lines
+ *  below (0133). */
+function Quotations({ code }: { code: string }) {
+  const { can } = useSession();
+  const [rows] = useLoad(() => quotation.listQuotations({ project_code: code }), [code]);
+  const list = rows.status === "ready" ? rows.data : [];
+  const draft = list.find((x) => x.status === "DRAFT");
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-[13px]">
+      <FileSignature className="h-4 w-4 text-slate-400" />
+      <span className="font-semibold text-slate-800">Quotation</span>
+      {list.length === 0 && <span className="text-[12px] text-slate-400">belum ada</span>}
+      {list.map((x) => {
+        const st = QUOTATION_STATUSES.find((s) => s.code === x.status)!;
+        return (
+          <Link key={x.quote_no} href={`/proyek/quotation/${encodeURIComponent(x.quote_no)}`}
+            className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 ring-1 ring-inset ring-slate-200 hover:bg-slate-50",
+              !x.is_current && x.status !== "ACCEPTED" && "opacity-60")}>
+            <span className="font-mono text-[11px]">{x.quote_no}</span>
+            <Badge tone={st.tone}>{st.label}</Badge>
+            {x.grand_total != null && <span className="tabular-nums text-[12px] text-slate-600">{formatIDR(x.grand_total)}</span>}
+          </Link>
+        );
+      })}
+      {can("project.create") && (
+        <Link href={draft ? `/proyek/quotation/${encodeURIComponent(draft.quote_no)}` : `/proyek/quotation?project=${encodeURIComponent(code)}`}
+          className="ml-auto">
+          <Button size="sm" variant="outline" icon={draft ? Pencil : Plus}>{draft ? "Lanjutkan draft" : "Buat quotation"}</Button>
+        </Link>
+      )}
+    </div>
   );
 }
 
