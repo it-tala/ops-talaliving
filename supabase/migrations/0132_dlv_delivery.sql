@@ -923,3 +923,18 @@ grant execute on function
   ops_dlv.close_snag(text, text, text),
   ops_dlv.record_handover(text, date, text, text, uuid, text, text)
   to authenticated;
+
+-- Signed-in callers only (`core_execute_grants`).
+revoke execute on function
+  ops_dlv.pack_box(text, text, jsonb, text, text, text),
+  ops_dlv.load_boxes(text, text[]),
+  ops_dlv.scan_box(text, text),
+  ops_dlv.mark_box_installed(text, text),
+  ops_dlv.flag_box_problem(text, text, text),
+  ops_dlv.create_delivery(text, date, jsonb, text, text, text, text[], text),
+  ops_dlv.mark_arrived(text, text, uuid, uuid),
+  ops_dlv.record_installation(text, date, jsonb, text, text, text),
+  ops_dlv.raise_snag(text, text, text, text, uuid, uuid),
+  ops_dlv.close_snag(text, text, text),
+  ops_dlv.record_handover(text, date, text, text, uuid, text, text)
+  from public;

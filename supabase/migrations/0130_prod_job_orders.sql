@@ -601,3 +601,16 @@ begin
 end $$;
 
 grant execute on function ops_inv.issue_for_work_order(text, text, jsonb, text, text) to authenticated;
+
+-- Signed-in callers only, the rule `core_execute_grants` set for every
+-- security definer function: a function is born executable by `public`, and
+-- these are granted to `authenticated` above.
+revoke execute on function
+  ops_prod.create_work_order(text, numeric, text, date, text, text, text, text, text, uuid, text),
+  ops_prod.record_progress(text, text, numeric, date, text, uuid, text, text, text),
+  ops_prod.close_work_order(text, text),
+  ops_prod.repin_bom(text, text),
+  ops_prod.send_to_vendor(text, text, text, numeric, date, text, text),
+  ops_prod.receive_from_vendor(text, numeric, date, text),
+  ops_inv.issue_for_work_order(text, text, jsonb, text, text)
+  from public;
