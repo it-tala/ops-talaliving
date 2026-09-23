@@ -496,6 +496,16 @@ export async function itemRequestLines(itemId: string): Promise<Result<PrLineVie
     .sort((a, b) => (b.submitted_at ?? "").localeCompare(a.submitted_at ?? "")));
 }
 
+/** One line by its public number, whatever its state — what a screen outside
+ *  procurement (the ledger's allocation list) needs to open it in place. */
+export async function getLineByNo(lineNo: string): Promise<Result<PrLineView>> {
+  await latency();
+  const state = getState();
+  const line = state.pr_lines.find((l) => l.line_no_full === lineNo);
+  if (!line) return notFound(SERVICE, "line_not_found", `Line ${lineNo} not found.`);
+  return ok(SERVICE, prLineView(state, line));
+}
+
 /** Every line including settled ones, for the "show everything" view. */
 export async function listAllLines(): Promise<Result<PrLineView[]>> {
   await latency();
