@@ -44,6 +44,7 @@ function toView(r: Row): QuotationView {
     project_code: r.project_code as string,
     project_name: r.project_name as string,
     client_name: s(r.client_name),
+    client_code: s(r.client_code),
     client_contact: s(r.client_contact),
     client_address: s(r.client_address),
     location: s(r.location),

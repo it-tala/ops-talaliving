@@ -221,6 +221,7 @@ select
   p.code                                         as project_code,
   p.name                                         as project_name,
   coalesce(c.name, p.client_name)                as client_name,
+  c.code                                         as client_code,
   c.contact_name                                 as client_contact,
   c.address                                      as client_address,
   p.location,

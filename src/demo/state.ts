@@ -35,6 +35,7 @@ import type {
   Delivery, DeliveryLine, PackingBox, BoxLine, Installation, InstallationLine, Snag, Handover,
 } from "@/services/delivery/contracts";
 import type { Quotation, QuotationLine } from "@/services/quotation/contracts";
+import type { ClientActivity } from "@/services/crm/contracts";
 
 export interface DemoUser extends User {
   modules: ModuleGrant[];
@@ -98,6 +99,8 @@ export interface DemoState {
   /** Quotations to the client, revision by revision, and their lines (0133). */
   quotations: Quotation[];
   quotation_lines: QuotationLine[];
+  /** What was said to each client, and what to do next (0134). */
+  client_activities: ClientActivity[];
 
   pr_documents: PrDocument[];
   pr_lines: PrLine[];

@@ -72,6 +72,8 @@ export interface QuotationView extends Quotation {
   project_code: string;
   project_name: string;
   client_name: string | null;
+  /** The master client's code; null for a project typed before the master. */
+  client_code: string | null;
   client_contact: string | null;
   client_address: string | null;
   location: string | null;

@@ -109,6 +109,7 @@ function quotationView(state: DemoState, q: Quotation, see: boolean, today: stri
     project_code: p.code,
     project_name: p.name,
     client_name: c?.name ?? p.client_name,
+    client_code: c?.code ?? null,
     client_contact: c?.contact_name ?? null,
     client_address: c?.address ?? null,
     location: p.location,

@@ -10,6 +10,7 @@ import { formatIDR } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { procurement, quotation } from "@/demo/api";
 import { QUOTATION_STATUSES, type QuotationStatus } from "@/services/quotation/contracts";
+import { SalesSummaryStrip } from "@/components/crm/sales-summary";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 
@@ -103,6 +104,8 @@ export default function QuotationsPage() {
             .filter((x) => `${x.quote_no} ${x.project_code} ${x.project_name} ${x.client_name ?? ""}`
               .toLowerCase().includes(q.toLowerCase()));
           return (
+            <>
+            <SalesSummaryStrip rows={all} />
             <Card>
               <CardHeader
                 title={`${shown.length} quotation`}
@@ -196,6 +199,7 @@ export default function QuotationsPage() {
                 )}
               </Paged>
             </Card>
+            </>
           );
         }}
       </Loaded>

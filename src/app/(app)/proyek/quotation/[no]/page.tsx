@@ -17,6 +17,7 @@ import {
   type QuotationDetail, type QuotationLineView, type QuotationView,
 } from "@/services/quotation/contracts";
 import { pctOk, quotePrice } from "@/services/quotation/pricing";
+import { ActivityLog } from "@/components/crm/activity-log";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 
@@ -153,6 +154,19 @@ function Editor({ d, reload, source }: { d: QuotationDetail; reload: () => void;
       <Terms q={q} editable={editable} seeCost={seeCost} onSaved={reload} />
       <Lines q={q} rows={d.lines} editable={editable} seeCost={seeCost} onChanged={reload} />
       <Totals q={q} seeCost={seeCost} />
+
+      {/* What the client said about this quotation, and when to ask again —
+          the nudge a sent quotation needs (0134). A project with no master
+          client has nobody to log against, so it is not offered. */}
+      {q.client_code && (
+        <div className="mt-4">
+          <ActivityLog
+            title="Komunikasi dengan klien"
+            filter={{ quote_no: q.quote_no }}
+            fixed={{ client_code: q.client_code, project_code: q.project_code, quote_no: q.quote_no }}
+          />
+        </div>
+      )}
 
       {d.revisions.length > 1 && (
         <Card className="mt-4">

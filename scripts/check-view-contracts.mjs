@@ -118,6 +118,8 @@ const VIEW_CONTRACTS = {
      `src/lib/api/quotation.ts`; the contract is the one the client builds. */
   v_quotation:         "QuotationView",
   v_quotation_line:    "QuotationLineView",
+  /* The client log (0134), converted field by field in `src/lib/api/crm.ts`. */
+  v_client_activity:   "ClientActivityView",
 
   /* ── core ────────────────────────────────────────────────────────────── */
   v_user_access:     "AccessRow",

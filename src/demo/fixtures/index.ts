@@ -93,6 +93,7 @@ export function initialState(): DemoState {
     project_status_log: [],
     quotations: [],
     quotation_lines: [],
+    client_activities: [],
 
     pr_documents: PR_DOCUMENTS,
     pr_lines: PR_LINES,

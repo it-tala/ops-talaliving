@@ -54,7 +54,7 @@ const LIVE_TS = join(ROOT, "src/lib/live.ts");
    it is what screens import. */
 const ALL_SERVICES = [
   "identity", "procurement", "accounting", "documents",
-  "hr", "production", "inventory", "marketing", "delivery", "quotation", "assistant",
+  "hr", "production", "inventory", "marketing", "delivery", "quotation", "crm", "assistant",
 ];
 
 /* Implemented = exported by `src/lib/api/index.ts`. Read rather than assumed,

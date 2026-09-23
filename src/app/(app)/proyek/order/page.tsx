@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { FolderKanban, Plus, Search } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
@@ -30,6 +31,12 @@ export default function ProjectsPage() {
   const [creating, setCreating] = useState(false);
   const [status, setStatus] = useState<ProjectStatus | "OPEN" | "ALL">("OPEN");
   const [q, setQ] = useState("");
+  /* `?open=CODE` opens that project's drawer — how the client page links here. */
+  const params = useSearchParams();
+  useEffect(() => {
+    const code = params.get("open");
+    if (code) { setOpen(code); setCreating(false); }
+  }, [params]);
 
   return (
     <div>

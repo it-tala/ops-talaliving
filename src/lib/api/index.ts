@@ -65,6 +65,10 @@ export * as delivery from "./delivery";
    and accepted into the order. A module of `project`, stamped `procurement`. */
 export * as quotation from "./quotation";
 
+/* The client log (0134): contacts and follow-ups, per client, project and
+   quotation. Stamped `procurement`, checked against `project`. */
+export * as crm from "./crm";
+
 /* ## `marketing` is written and is deliberately not exported here yet
  *
  *  `src/lib/api/marketing.ts` exists, type-checks, and matches the demo on all
