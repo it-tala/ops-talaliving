@@ -674,6 +674,50 @@ export async function saveProduct(
   return view;
 }
 
+/** An order line becomes an item code (0111's `product_from_order_line`).
+ *
+ *  The product is created from the line — its description, its unit — unless
+ *  the code already exists, in which case the line is linked to it: the same
+ *  lounge chair ordered by two hotels is one item code with one BOM. */
+export async function createProductFromOrderLine(
+  input: { project_code: string; line_id: string; product_code: string; name?: string | null; category?: string | null },
+): Promise<Result<{ product_code: string; existing: boolean }>> {
+  await latency();
+  const denied = requireModule(SERVICE, "production");
+  if (denied) return denied;
+  const state = getState();
+  const project = state.projects.find((p) => p.code === input.project_code);
+  const line = project ? state.project_lines.find((l) => l.id === input.line_id && l.project_id === project.id) : undefined;
+  if (!line) return notFound(SERVICE, "line_not_found", "Baris pesanan itu tidak ada.");
+  const code = input.product_code.trim().toUpperCase();
+  if (!code) {
+    return invalid(SERVICE, "code_required", "Item code-nya apa? Kode ini dipakai di gambar, BOM dan SPK.", { field: "product_code" });
+  }
+  const existing = state.products.some((p) => p.product_code === code);
+  const user = actingUser();
+  apply((draft) => {
+    if (!existing) {
+      draft.products.push({
+        id: newId("prd"), product_code: code,
+        name: input.name?.trim() || line.description,
+        category: input.category?.trim() || "Belum dikategorikan",
+        uom: line.uom, description: null,
+        length_mm: null, width_mm: null, height_mm: null, dimension_note: null,
+        lead_time_days: null, stages: null, labour_cost: null, labour_note: null,
+        active: true, note: null,
+      });
+    }
+    const row = draft.project_lines.find((l) => l.id === line.id);
+    if (row) row.product_code = code;
+    writeAudit(draft, {
+      service: SERVICE, entity: "product", entity_no: code,
+      action: "from_order_line", outcome: "ok", reason: null,
+      detail: { project: input.project_code, existing, by: user.email },
+    });
+  });
+  return ok(SERVICE, { product_code: code, existing });
+}
+
 /** The draft to write into, opened if there is none (0109's `open_draft`):
  *  a copy of the newest released revision, manual rates kept and catalogue
  *  rates let go, so the draft follows today's prices again. Returns the rev. */

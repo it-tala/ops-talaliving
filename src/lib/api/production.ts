@@ -510,3 +510,20 @@ export async function attachProductDrawing(
   });
   return thenProduct(input.product_code, data, error);
 }
+
+/** An order line becomes an item code — or is linked to one that exists
+ *  (0111's `product_from_order_line`). */
+export async function createProductFromOrderLine(
+  input: { project_code: string; line_id: string; product_code: string; name?: string | null; category?: string | null },
+): Promise<Result<{ product_code: string; existing: boolean }>> {
+  const { data, error } = await db().rpc("product_from_order_line", {
+    p_project_code: input.project_code,
+    p_line_id: input.line_id,
+    p_product_code: input.product_code,
+    p_name: input.name ?? null,
+    p_category: input.category ?? null,
+  });
+  const res = fromSeam<{ product_code: string; existing: boolean }>(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, { product_code: res.data.product_code, existing: res.data.existing });
+}

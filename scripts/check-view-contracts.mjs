@@ -97,6 +97,10 @@ const VIEW_CONTRACTS = {
      because nothing past these rows is cast. */
   v_product_summary: "ProductSummaryRow",
   v_product_bom:     "BomLineRow",
+  /* The order screens (0111): rows carry every field of `ProjectView` /
+     `ProjectLineView`; numerics are converted by hand in the client. */
+  v_project:         "ProjectView",
+  v_project_line:    "ProjectLineView",
 
   /* ── core ────────────────────────────────────────────────────────────── */
   v_user_access:     "AccessRow",

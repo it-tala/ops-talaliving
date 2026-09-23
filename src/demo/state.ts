@@ -3,7 +3,7 @@ import type {
 } from "@/services/identity/contracts";
 import type { AssistantTurn } from "@/services/assistant/contracts";
 import type {
-  Vendor, Uom, UomConversion, ItemCategory, Item, Project, ProjectLine,
+  Vendor, Uom, UomConversion, ItemCategory, Item, Project, ProjectLine, Client, ProjectStatusChange,
   PrDocument, PrLine, PrApproval, PaymentRound, PaymentRoundLine,
   Receipt, LineSettlement, PurchaseOrder, PoLine, PoScheduleTerm, LineVariance,
   LineNote, ApprovalRequest, ApprovalBatch, RoundTransfer,
@@ -86,6 +86,10 @@ export interface DemoState {
   projects: Project[];
   /** What the customer actually ordered, line by line (D150). */
   project_lines: ProjectLine[];
+  /** The client master (0111). */
+  clients: Client[];
+  /** Every move of every project's status (0111). */
+  project_status_log: (ProjectStatusChange & { project_id: string })[];
 
   pr_documents: PrDocument[];
   pr_lines: PrLine[];

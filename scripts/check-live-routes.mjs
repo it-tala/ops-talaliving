@@ -327,8 +327,11 @@ const MODULE_OF = {
    only part of the service `src/lib/api/production.ts` implements. Work
    orders, progress, vendor legs and the drafting queue are absent from that
    client, so the function scan keeps `/produksi/jadwal` and the rest dark and
-   lets `/produksi/bom` through on its own. */
-const LIVE_MODULES = ["dashboard", "procurement", "accounting", "it", "settings", "assistant", "inventory", "hrd", "master-data", "production"];
+   lets `/produksi/bom` through on its own.
+   `project` opens with the order screen (`0111`): `/proyek/order` is live, and
+   every other `/proyek` screen stays dark behind the functions it still
+   waits for. */
+const LIVE_MODULES = ["dashboard", "procurement", "accounting", "it", "settings", "assistant", "inventory", "hrd", "master-data", "production", "project"];
 
 const IMPL = Object.fromEntries(LIVE.map((s) => [s, implementedFunctions(s)]));
 

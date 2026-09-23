@@ -1,26 +1,35 @@
 "use client";
 
 import { useState } from "react";
-import { Hammer, Package, Plus, Save, Trash2 } from "lucide-react";
 import Link from "next/link";
+import {
+  Check, History, ListTree, Package, Pencil, Plus, Save, Trash2, UserPlus, X,
+} from "lucide-react";
 import { Drawer } from "@/components/ui/drawer";
 import { Badge, Button } from "@/components/ui/primitives";
 import { Loaded, useLoad } from "@/components/ui/loaded";
 import { MoneyInput } from "@/components/ui/money-input";
 import { NumberInput } from "@/components/ui/number-input";
+import { UomOptions } from "@/components/ui/uom-options";
 import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { procurement, production } from "@/demo/api";
+import {
+  PROJECT_STATUSES, PROJECT_STATUS_LABEL,
+  type ClientView, type ProjectLineView, type ProjectStatus, type ProjectView,
+} from "@/services/procurement/contracts";
+import { ClientDrawer } from "../../master-data/clients/ClientDrawer";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 
-/** One project: its master data, and what is being made for it.
+/** One customer's order: who ordered, where it stands, what they ordered and
+ *  when it ships — and, per line, the item code the BOM is written against
+ *  (owner's brief, 2026-09-23).
  *
- *  The second half is composed at the screen (ADR-004) — production is asked
- *  for its own work orders and they are matched on `project_code`, the public
- *  code that crosses the seam. It is the cheapest possible demonstration of
- *  why the code must never be edited: everything that references this project
- *  references it by that string (D149).
+ *  An order line is typed in the client's words the day it is signed. It
+ *  becomes an **item code** with one click — or is linked to one that already
+ *  exists, because the same lounge chair ordered by two hotels is one code
+ *  with one BOM — and from there its production cost is one click away.
  */
 export function ProjectDrawer({
   code, onClose, onChanged,
@@ -29,380 +38,537 @@ export function ProjectDrawer({
   onClose: () => void;
   onChanged: () => void;
 }) {
+  if (!code) return <NewProject onClose={onClose} onChanged={onChanged} />;
+  return <ExistingProject code={code} onClose={onClose} onChanged={onChanged} />;
+}
+
+const inputCls = "h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none disabled:bg-slate-50 disabled:text-slate-500";
+
+/* ── the project's own facts, shared by new and existing ──────────────────── */
+
+interface Facts {
+  code: string; name: string; client_code: string; location: string; pic: string;
+  started_on: string; target_date: string; contract_value: number; note: string;
+}
+
+const factsOf = (p: ProjectView | null): Facts => ({
+  code: p?.code ?? "", name: p?.name ?? "", client_code: p?.client_code ?? "",
+  location: p?.location ?? "", pic: p?.pic ?? "",
+  started_on: p?.started_on ?? "", target_date: p?.target_date ?? "",
+  contract_value: p?.contract_value ?? 0, note: p?.note ?? "",
+});
+
+function FactsForm({
+  f, set, isNew, disabled,
+}: {
+  f: Facts;
+  set: (patch: Partial<Facts>) => void;
+  isNew: boolean;
+  disabled: boolean;
+}) {
+  const { can } = useSession();
+  const [clients, reloadClients] = useLoad(() => procurement.listClients(), []);
+  const [adding, setAdding] = useState(false);
+
+  const text = (key: keyof Facts, label: string, placeholder?: string, type = "text") => (
+    <label className="block text-xs text-slate-500">{label}
+      <input
+        type={type} value={String(f[key])} onChange={(e) => set({ [key]: e.target.value } as Partial<Facts>)}
+        placeholder={placeholder} disabled={disabled} className={cn(inputCls, "mt-1")}
+      />
+    </label>
+  );
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {isNew ? (
+        <label className="block text-xs text-slate-500">Kode proyek
+          <input
+            value={f.code} onChange={(e) => set({ code: e.target.value })} disabled={disabled}
+            placeholder="kosongkan — nomor berikutnya dibuat otomatis"
+            className={cn(inputCls, "mt-1 font-mono")}
+          />
+        </label>
+      ) : null}
+      {text("name", "Nama proyek", "mis. VILLA BABY ISLAND")}
+      <div className="sm:col-span-2">
+        <span className="block text-xs text-slate-500">Klien</span>
+        <div className="mt-1 flex gap-1.5">
+          <select
+            value={f.client_code} onChange={(e) => set({ client_code: e.target.value })} disabled={disabled}
+            aria-label="Klien" className={cn(inputCls, "bg-white")}
+          >
+            <option value="">— internal / stok, tanpa klien —</option>
+            {(clients.status === "ready" ? clients.data : []).map((c: ClientView) => (
+              <option key={c.code} value={c.code}>{c.name} · {c.code}</option>
+            ))}
+          </select>
+          {!disabled && can("project.create") && (
+            <Button variant="outline" icon={UserPlus} onClick={() => setAdding(true)}>Klien baru</Button>
+          )}
+        </div>
+      </div>
+      {text("location", "Lokasi", "Nusa Dua")}
+      {text("pic", "Penanggung jawab", "nama PIC internal")}
+      {text("started_on", "Mulai", undefined, "date")}
+      {text("target_date", "Jadwal kirim", undefined, "date")}
+      <label className="block text-xs text-slate-500">Nilai kontrak
+        <MoneyInput value={f.contract_value} onChange={(v) => set({ contract_value: v })} disabled={disabled} className="mt-1" />
+      </label>
+      {text("note", "Catatan", "mis. termin 3 kali, DP sudah masuk")}
+      {adding && (
+        <ClientDrawer
+          client={null}
+          onClose={() => setAdding(false)}
+          onSaved={(c) => { setAdding(false); reloadClients(); set({ client_code: c.code }); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function NewProject({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
   const { can } = useSession();
   const { toast } = useToast();
-  const [existing] = useLoad(
-    () => (code ? procurement.getProject(code) : Promise.resolve({ data: null, meta: null } as never)),
-    [code],
-  );
-  const [orders] = useLoad(() => production.listWorkOrders({ include_done: true }), []);
-  const [lines, reloadLines] = useLoad(
-    () => (code ? procurement.listProjectLines(code) : Promise.resolve({ data: [], meta: null } as never)),
-    [code],
-  );
-  const [products] = useLoad(() => production.listProducts(), []);
-  const [draft, setDraft] = useState({ product_code: "", description: "", qty: 1, uom: "unit", unit_price: 0 });
-  const [lineBusy, setLineBusy] = useState(false);
-  const mayEdit = can("procurement.update");
-
-  const p = existing.status === "ready" ? existing.data : null;
-  const [form, setForm] = useState({
-    code: "", name: "", client_name: "", location: "", pic: "",
-    started_on: "", target_date: "", contract_value: 0, is_active: true, note: "",
-  });
-  const [ready, setReady] = useState(false);
+  const [f, setF] = useState<Facts>(factsOf(null));
   const [busy, setBusy] = useState(false);
 
-  /* Fill the form once the record arrives. A controlled form seeded from a
-     load has to wait for it, and doing that with a flag rather than an effect
-     keeps the "new project" case identical to the "edit" one. */
-  if (p && !ready) {
-    setForm({
-      code: p.code, name: p.name,
-      client_name: p.client_name ?? "", location: p.location ?? "", pic: p.pic ?? "",
-      started_on: p.started_on ?? "", target_date: p.target_date ?? "",
-      contract_value: p.contract_value ?? 0,
-      is_active: p.is_active, note: p.note ?? "",
-    });
-    setReady(true);
-  }
-
-  const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
-
-  async function addLine() {
-    if (!code) return;
-    setLineBusy(true);
-    const res = await procurement.saveProjectLine({
-      project_code: code,
-      product_code: draft.product_code || null,
-      description: draft.description,
-      qty: draft.qty,
-      uom: draft.uom,
-      unit_price: draft.unit_price > 0 ? draft.unit_price : null,
-    });
-    setLineBusy(false);
-    if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", "Tidak ditambahkan", res.error.message); return; }
-    toast("success", "Baris pesanan ditambahkan", `${draft.description} · ${draft.qty} ${draft.uom}`);
-    setDraft({ product_code: "", description: "", qty: 1, uom: "unit", unit_price: 0 });
-    reloadLines();
-  }
-
-  async function removeLine(lineId: string, label: string) {
-    if (!code) return;
-    setLineBusy(true);
-    const res = await procurement.removeProjectLine({ project_code: code, line_id: lineId });
-    setLineBusy(false);
-    if (res.error) { toast("warning", "Tidak dihapus", res.error.message); return; }
-    toast("success", "Baris dihapus", label);
-    reloadLines();
-  }
-
-  async function save() {
+  async function create() {
     setBusy(true);
     const res = await procurement.saveProject({
-      code: form.code,
-      name: form.name,
-      client_name: form.client_name || null,
-      location: form.location || null,
-      pic: form.pic || null,
-      started_on: form.started_on || null,
-      target_date: form.target_date || null,
-      contract_value: form.contract_value > 0 ? form.contract_value : null,
-      is_active: form.is_active,
-      note: form.note || null,
+      code: f.code.trim() || null, name: f.name, client_code: f.client_code || null,
+      location: f.location || null, pic: f.pic || null,
+      started_on: f.started_on || null, target_date: f.target_date || null,
+      contract_value: f.contract_value > 0 ? f.contract_value : null, note: f.note || null,
     });
     setBusy(false);
-    if (res.error) {
-      toast(res.error.status === 403 ? "critical" : "warning", "Tidak tersimpan", res.error.message);
-      return;
-    }
-    toast("success", code ? "Proyek diperbarui" : "Proyek dibuat", `${res.data.code} · ${res.data.name}`);
+    if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", "Tidak tersimpan", res.error.message); return; }
+    toast("success", "Proyek dibuat", `${res.data.code} · ${res.data.name} — status Inquiry`);
     onChanged();
     onClose();
   }
 
-  const field = (
-    id: string, label: string, value: string,
-    onChange: (v: string) => void, placeholder?: string, type = "text",
-  ) => (
-    <div>
-      <label htmlFor={id} className="block text-xs text-slate-500">{label}</label>
-      <input
-        id={id} type={type} value={value} onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder} disabled={!mayEdit}
-        className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none disabled:bg-slate-50 disabled:text-slate-500"
-      />
-    </div>
+  return (
+    <Drawer
+      open onClose={onClose} width="max-w-xl" title="Proyek baru"
+      subtitle="Kodenya dipakai di PR, SPK dan ledger — sekali dibuat, tidak pernah diubah."
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={busy}>Batal</Button>
+          <Button icon={Save} onClick={create} disabled={busy || !f.name.trim() || !can("project.create")}>Simpan</Button>
+        </div>
+      }
+    >
+      <FactsForm f={f} set={(patch) => setF((x) => ({ ...x, ...patch }))} isNew disabled={!can("project.create")} />
+      <p className="mt-3 text-[11px] text-slate-500">
+        Item yang dipesan ditambahkan setelah proyek tersimpan. Status awalnya <strong>Inquiry</strong>.
+      </p>
+    </Drawer>
   );
+}
+
+/* ── an existing project ─────────────────────────────────────────────────── */
+
+function ExistingProject({ code, onClose, onChanged }: { code: string; onClose: () => void; onChanged: () => void }) {
+  const { can } = useSession();
+  const { toast } = useToast();
+  const [project, reloadProject] = useLoad(() => procurement.getProject(code), [code]);
+  const [lines, reloadLines] = useLoad(() => procurement.listProjectLines(code), [code]);
+  const [history, reloadHistory] = useLoad(() => procurement.listProjectHistory(code), [code]);
+  const mayEdit = can("project.update");
+  const [editing, setEditing] = useState(false);
+  const [f, setF] = useState<Facts>(factsOf(null));
+  const [busy, setBusy] = useState(false);
+
+  const reloadAll = () => { reloadProject(); reloadLines(); reloadHistory(); onChanged(); };
+
+  async function saveFacts() {
+    setBusy(true);
+    const res = await procurement.saveProject({
+      code, name: f.name, client_code: f.client_code || null,
+      location: f.location || null, pic: f.pic || null,
+      started_on: f.started_on || null, target_date: f.target_date || null,
+      contract_value: f.contract_value > 0 ? f.contract_value : null, note: f.note || null,
+    });
+    setBusy(false);
+    if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", "Tidak tersimpan", res.error.message); return; }
+    toast("success", "Proyek diperbarui", res.data.name);
+    setEditing(false);
+    reloadAll();
+  }
 
   return (
     <Drawer
-      open onClose={onClose} width="max-w-xl"
-      title={code ? (p?.name ?? code) : "Proyek baru"}
-      subtitle={code ? `${code}${p?.client_name ? ` · ${p.client_name}` : ""}` : "Kodenya dipakai di PR, SPK dan ledger — sekali dibuat, tidak pernah diubah."}
-      footer={mayEdit ? (
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="ghost" onClick={onClose} disabled={busy}>Batal</Button>
-          <Button icon={Save} onClick={save} disabled={busy || !form.code.trim() || !form.name.trim()}>
-            {busy ? "Menyimpan…" : "Simpan"}
-          </Button>
-        </div>
-      ) : undefined}
+      open onClose={onClose} width="max-w-5xl"
+      title={project.status === "ready" ? project.data.name : code}
+      subtitle={project.status === "ready"
+        ? `${code}${project.data.client_display ? ` · ${project.data.client_display}` : " · internal"}`
+        : code}
     >
-      <div className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div>
-            <label htmlFor="pr-code" className="block text-xs text-slate-500">Kode</label>
-            <input
-              id="pr-code" value={form.code}
-              onChange={(e) => set({ code: e.target.value })}
-              disabled={!!code || !mayEdit}
-              placeholder="25013"
-              className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 font-mono text-sm focus:border-brand-400 focus:outline-none disabled:bg-slate-50 disabled:text-slate-500"
-            />
-            {code && <p className="mt-1 text-[11px] text-slate-500">Tetap — setiap PR, SPK dan baris ledger menunjuk kode ini.</p>}
-          </div>
-          {field("pr-name", "Nama proyek", form.name, (v) => set({ name: v }), "HOTEL UBUD")}
-          {field("pr-client", "Klien", form.client_name, (v) => set({ client_name: v }), "Ubud Green Hospitality")}
-          {field("pr-loc", "Lokasi", form.location, (v) => set({ location: v }), "Ubud")}
-          {field("pr-pic", "Penanggung jawab", form.pic, (v) => set({ pic: v }), "Evin Jonathan")}
-          <div>
-            <label htmlFor="pr-value" className="block text-xs text-slate-500">Nilai kontrak</label>
-            <MoneyInput id="pr-value" value={form.contract_value} onChange={(v) => set({ contract_value: v })} className="mt-1" />
-            <p className="mt-1 text-[11px] text-slate-500">Nilai pesanan yang disepakati, bukan faktur.</p>
-          </div>
-          {field("pr-start", "Mulai", form.started_on, (v) => set({ started_on: v }), undefined, "date")}
-          {field("pr-target", "Target selesai", form.target_date, (v) => set({ target_date: v }), undefined, "date")}
-        </div>
+      <Loaded state={project} onRetry={reloadProject}>
+        {(p) => (
+          <div className="space-y-5">
+            <StatusBar p={p} mayEdit={mayEdit} onChanged={reloadAll} />
 
-        {field("pr-note", "Catatan", form.note, (v) => set({ note: v }), "Termin 3 kali, DP sudah masuk.")}
-
-        {mayEdit && (
-          <label className="flex items-center gap-2 text-[13px] text-slate-700">
-            <input
-              type="checkbox" checked={form.is_active}
-              onChange={(e) => set({ is_active: e.target.checked })}
-              className="h-4 w-4 rounded border-slate-300"
-            />
-            Proyek masih berjalan
-            <span className="text-[11px] text-slate-500">
-              — menonaktifkan tidak menghapus apa pun, catatannya tetap terbaca.
-            </span>
-          </label>
-        )}
-
-        {/* What the client actually ordered, and how much of it exists.
-            Ordered comes from this service; made and finished are read from
-            production and matched on the **product code**, which is the reason
-            a product has one (D150). */}
-        {code && (
-          <Loaded state={lines} onRetry={reloadLines} skeletonRows={3}>
-            {(rows) => (
-              <Loaded state={orders} skeletonRows={2}>
-                {(wos) => {
-                  const mine = wos.filter((w) => w.project_code === code);
-                  const total = rows.reduce((a, l) => a + (l.unit_price ?? 0) * l.qty, 0);
-                  return (
-                    <div className="rounded-xl border border-slate-200 px-4 py-3">
-                      <p className="flex items-center gap-2 text-[13px] font-medium text-slate-800">
-                        <Package className="h-4 w-4 text-slate-400" />
-                        Item dipesan ({rows.length})
-                      </p>
-                      <div className="mt-2 overflow-x-auto">
-                        <table className="w-full border-collapse text-[12px]">
-                          <thead>
-                            <tr className="border-b border-slate-200 text-[10px] uppercase tracking-wide text-slate-500">
-                              <th className="py-1.5 text-left">Item</th>
-                              <th className="py-1.5 text-right">Dipesan</th>
-                              <th className="py-1.5 text-right">Dibuat</th>
-                              <th className="py-1.5 text-right">Selesai</th>
-                              <th className="py-1.5 text-right">Nilai</th>
-                              {mayEdit && <th />}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {rows.map((l) => {
-                              const forLine = l.product_code
-                                ? mine.filter((w) => w.product_code === l.product_code)
-                                : [];
-                              const made = forLine.reduce((a, w) => a + w.qty, 0);
-                              const done = forLine.reduce((a, w) => a + w.completed, 0);
-                              return (
-                                <tr key={l.id} className="border-b border-slate-100 last:border-0">
-                                  <td className="py-1.5">
-                                    <span className="block text-slate-800">{l.description}</span>
-                                    <span className="block font-mono text-[10px] text-slate-400">
-                                      {l.product_code ?? "tanpa kode produk"}
-                                      {l.note && ` · ${l.note}`}
-                                    </span>
-                                  </td>
-                                  <td className="py-1.5 text-right tabular-nums text-slate-800">
-                                    {formatNumber(l.qty)} {l.uom}
-                                  </td>
-                                  <td className={cn(
-                                    "py-1.5 text-right tabular-nums",
-                                    !l.product_code ? "text-slate-300"
-                                      : made === 0 ? "text-amber-700"
-                                        : made !== l.qty ? "text-amber-700" : "text-slate-700",
-                                  )}>
-                                    {l.product_code ? formatNumber(made) : "—"}
-                                  </td>
-                                  <td className="py-1.5 text-right tabular-nums text-slate-700">
-                                    {l.product_code ? formatNumber(done) : "—"}
-                                  </td>
-                                  <td className="py-1.5 text-right tabular-nums text-slate-600">
-                                    {l.unit_price == null ? "—" : formatIDR(l.unit_price * l.qty)}
-                                  </td>
-                                  {mayEdit && (
-                                    <td className="py-1.5 text-right">
-                                      <Button size="sm" variant="ghost" icon={Trash2} disabled={lineBusy}
-                                        onClick={() => removeLine(l.id, l.description)}>
-                                        <span className="sr-only">Hapus</span>
-                                      </Button>
-                                    </td>
-                                  )}
-                                </tr>
-                              );
-                            })}
-                            {rows.length === 0 && (
-                              <tr><td colSpan={mayEdit ? 6 : 5} className="py-4 text-center text-slate-500">
-                                Belum ada item yang dicatat untuk pesanan ini.
-                              </td></tr>
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-
-                      {/* Ordered but not started is the number this table
-                          exists to make visible. */}
-                      {rows.some((l) => l.product_code && mine.filter((w) => w.product_code === l.product_code).length === 0) && (
-                        <p className="mt-2 text-[11px] text-amber-800">
-                          Ada item yang belum punya pesanan kerja sama sekali.
-                        </p>
-                      )}
-                      {total > 0 && (
-                        <p className="mt-2 text-right text-[12px] text-slate-600">
-                          Jumlah baris: <strong className="tabular-nums text-slate-800">{formatIDR(total)}</strong>
-                          {p?.contract_value != null && total !== p.contract_value && (
-                            <span className="ml-2 text-amber-700">
-                              {" "}
-                              beda {formatIDR(Math.abs(total - p.contract_value))} dari nilai kontrak
-                            </span>
-                          )}
-                        </p>
-                      )}
-
-                      {mayEdit && (
-                        <Loaded state={products} skeletonRows={1}>
-                          {(prods) => (
-                            <div className="mt-3 border-t border-slate-100 pt-3">
-                              <div className="grid gap-2 sm:grid-cols-[1fr_70px_70px]">
-                                <select
-                                  value={draft.product_code}
-                                  onChange={(e) => {
-                                    const found = prods.find((x) => x.product_code === e.target.value);
-                                    setDraft({
-                                      ...draft,
-                                      product_code: e.target.value,
-                                      description: found?.name ?? draft.description,
-                                      uom: found?.uom ?? draft.uom,
-                                    });
-                                  }}
-                                  aria-label="Produk"
-                                  className="h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
-                                >
-                                  <option value="">Item di luar katalog…</option>
-                                  {prods.map((x) => (
-                                    <option key={x.product_code} value={x.product_code}>
-                                      {x.name} · {x.product_code}
-                                    </option>
-                                  ))}
-                                </select>
-                                <NumberInput value={draft.qty} min={0} max={9999} onChange={(v) => setDraft({ ...draft, qty: v })} />
-                                <input
-                                  value={draft.uom} onChange={(e) => setDraft({ ...draft, uom: e.target.value })}
-                                  aria-label="Satuan"
-                                  className="h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
-                                />
-                              </div>
-                              <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_150px_auto]">
-                                <input
-                                  value={draft.description}
-                                  onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-                                  placeholder="Keterangan seperti tertulis di pesanan klien"
-                                  className="h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
-                                />
-                                <MoneyInput value={draft.unit_price} onChange={(v) => setDraft({ ...draft, unit_price: v })} />
-                                <Button size="sm" icon={Plus} disabled={lineBusy || !draft.description.trim() || draft.qty <= 0}
-                                  onClick={addLine}>
-                                  Tambah
-                                </Button>
-                              </div>
-                              <p className="mt-1 text-[11px] text-slate-500">
-                                Harga satuan boleh kosong kalau pesanannya dihargai borongan.
-                              </p>
-                            </div>
-                          )}
-                        </Loaded>
-                      )}
+            <div className="rounded-xl border border-slate-200 px-4 py-3">
+              {editing ? (
+                <>
+                  <FactsForm f={f} set={(patch) => setF((x) => ({ ...x, ...patch }))} isNew={false} disabled={busy} />
+                  <div className="mt-3 flex justify-end gap-2">
+                    <Button size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={busy}>Batal</Button>
+                    <Button size="sm" icon={Save} onClick={saveFacts} disabled={busy || !f.name.trim()}>Simpan</Button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-wrap items-start gap-x-8 gap-y-2 text-[13px]">
+                  {([
+                    ["Klien", p.client_display ?? "internal / stok"],
+                    ["Kontak", [p.client_contact, p.client_phone].filter(Boolean).join(" · ") || "—"],
+                    ["Lokasi", p.location ?? "—"],
+                    ["PIC", p.pic ?? "—"],
+                    ["Mulai", p.started_on ?? "—"],
+                    ["Jadwal kirim", p.target_date ?? "—"],
+                    ["Nilai kontrak", p.contract_value == null ? "—" : formatIDR(p.contract_value)],
+                  ] as [string, string][]).map(([k, v]) => (
+                    <div key={k}>
+                      <span className="block text-[11px] uppercase tracking-wide text-slate-400">{k}</span>
+                      <span className="text-slate-800">{v}</span>
                     </div>
-                  );
-                }}
-              </Loaded>
-            )}
-          </Loaded>
-        )}
-
-        {code && (
-          <Loaded state={orders} skeletonRows={2}>
-            {(all) => {
-              const mine = all.filter((w) => w.project_code === code);
-              return (
-                <div className="rounded-xl border border-slate-200 px-4 py-3">
-                  <p className="flex items-center gap-2 text-[13px] font-medium text-slate-800">
-                    <Hammer className="h-4 w-4 text-slate-400" />
-                    Pesanan kerja ({mine.length})
-                  </p>
-                  {mine.length === 0 ? (
-                    <p className="mt-1 text-[12px] text-slate-500">
-                      Belum ada pesanan kerja yang menunjuk proyek ini.
-                    </p>
-                  ) : (
-                    <ul className="mt-2 divide-y divide-slate-100 text-[12px]">
-                      {mine.map((w) => (
-                        <li key={w.id} className="flex flex-wrap items-center gap-2 py-1.5">
-                          <span className="flex-1 text-slate-700">
-                            {w.item_name}
-                            <span className="ml-2 font-mono text-[10px] text-slate-400">{w.wo_no}</span>
-                          </span>
-                          <span className="tabular-nums text-slate-600">
-                            {formatNumber(w.completed)}/{formatNumber(w.qty)} {w.uom}
-                          </span>
-                          {w.status === "DONE"
-                            ? <Badge tone="slate">selesai</Badge>
-                            : w.late
-                              ? <Badge tone="red" dot>terlambat {Math.abs(w.days_left)} hari</Badge>
-                              : <Badge tone="slate">{w.days_left} hari lagi</Badge>}
-                        </li>
-                      ))}
-                    </ul>
+                  ))}
+                  {mayEdit && (
+                    <Button size="sm" variant="ghost" icon={Pencil} className="ml-auto"
+                      onClick={() => { setF(factsOf(p)); setEditing(true); }}>
+                      Ubah
+                    </Button>
                   )}
-                  <Link href="/produksi/jadwal">
-                    <Button size="sm" variant="outline" className="mt-2">Buka papan produksi</Button>
-                  </Link>
+                  {p.note && <p className="w-full text-[12px] text-slate-500">{p.note}</p>}
                 </div>
-              );
-            }}
-          </Loaded>
-        )}
+              )}
+            </div>
 
-        {p?.contract_value != null && (
-          <p className="text-[11px] text-slate-500">
-            Nilai kontrak {formatIDR(p.contract_value)}. Belanja terhadap proyek ini dibaca dari
-            ledger — lihat <Link href="/accounting/liquidation" className="underline">likuidasi</Link>.
-          </p>
+            <Loaded state={lines} onRetry={reloadLines} skeletonRows={3}>
+              {(rows) => <OrderLines p={p} rows={rows} mayEdit={mayEdit} onChanged={() => { reloadLines(); reloadProject(); onChanged(); }} />}
+            </Loaded>
+
+            <Loaded state={history} skeletonRows={1}>
+              {(h) => h.length === 0 ? null : (
+                <details className="rounded-xl border border-slate-200 px-4 py-2.5 text-[12px] text-slate-600">
+                  <summary className="flex cursor-pointer select-none items-center gap-1.5 text-slate-700">
+                    <History className="h-3.5 w-3.5 text-slate-400" /> Riwayat status ({h.length})
+                  </summary>
+                  <ul className="mt-2 space-y-1">
+                    {h.map((c, i) => (
+                      <li key={i}>
+                        <span className="text-slate-400">{c.changed_at.slice(0, 16).replace("T", " ")}</span>{" · "}
+                        {c.from_status ? `${PROJECT_STATUS_LABEL(c.from_status)} → ` : ""}
+                        <strong className="font-medium text-slate-800">{PROJECT_STATUS_LABEL(c.to_status)}</strong>
+                        {c.changed_by && <span className="text-slate-400"> · {c.changed_by}</span>}
+                        {c.reason && <span className="block pl-4 text-slate-500">“{c.reason}”</span>}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </Loaded>
+          </div>
         )}
-      </div>
+      </Loaded>
     </Drawer>
   );
+}
+
+/* ── where the order stands ──────────────────────────────────────────────── */
+
+function StatusBar({ p, mayEdit, onChanged }: { p: ProjectView; mayEdit: boolean; onChanged: () => void }) {
+  const { toast } = useToast();
+  const [busy, setBusy] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [reason, setReason] = useState("");
+  const current = p.status ?? "INQUIRY";
+
+  async function move(status: ProjectStatus, why?: string) {
+    setBusy(true);
+    const res = await procurement.setProjectStatus({ code: p.code, status, reason: why ?? null });
+    setBusy(false);
+    if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", "Status tidak berubah", res.error.message); return; }
+    toast("success", "Status diperbarui", PROJECT_STATUS_LABEL(status));
+    setCancelling(false); setReason("");
+    onChanged();
+  }
+
+  const flow = PROJECT_STATUSES.filter((s) => s.code !== "CANCELLED");
+  const at = flow.findIndex((s) => s.code === current);
+
+  return (
+    <div className={cn("rounded-xl border px-4 py-3", current === "CANCELLED" ? "border-rose-200 bg-rose-50/50" : "border-slate-200")}>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {flow.map((s, i) => (
+          <button
+            key={s.code} disabled={!mayEdit || busy || s.code === current}
+            onClick={() => move(s.code)}
+            title={mayEdit ? `Pindah ke ${s.label}` : undefined}
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full px-3 py-1 text-[12px] font-medium ring-1 ring-inset transition-colors",
+              s.code === current ? "bg-brand-600 text-white ring-brand-600"
+                : current !== "CANCELLED" && i < at ? "bg-brand-50 text-brand-700 ring-brand-200"
+                  : "bg-white text-slate-500 ring-slate-200",
+              mayEdit && s.code !== current && "hover:bg-slate-50",
+            )}
+          >
+            {current !== "CANCELLED" && i < at && <Check className="h-3 w-3" />}
+            {s.label}
+          </button>
+        ))}
+        <span className="flex-1" />
+        {current === "CANCELLED" ? (
+          <Badge tone="red">Batal</Badge>
+        ) : mayEdit && (
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => setCancelling((v) => !v)}>Batalkan…</Button>
+        )}
+      </div>
+      {cancelling && (
+        <div className="mt-2 flex gap-1.5">
+          <input
+            autoFocus value={reason} onChange={(e) => setReason(e.target.value)}
+            placeholder="Kenapa dibatalkan? — dibaca orang yang nanti bertanya"
+            aria-label="Alasan pembatalan" className={inputCls}
+          />
+          <Button size="sm" variant="danger" disabled={busy || !reason.trim()} onClick={() => move("CANCELLED", reason)}>
+            Batalkan proyek
+          </Button>
+        </div>
+      )}
+      <p className="mt-1.5 text-[11px] text-slate-500">
+        Klik status untuk memindahkan — maju atau mundur. Setiap perpindahan tercatat di riwayat.
+      </p>
+    </div>
+  );
+}
+
+/* ── what they ordered ───────────────────────────────────────────────────── */
+
+interface LineDraft {
+  description: string; product_code: string; qty: number; uom: string;
+  unit_price: number; delivery_date: string; note: string;
+}
+
+const draftOf = (l: ProjectLineView | null, p: ProjectView): LineDraft => ({
+  description: l?.description ?? "", product_code: l?.product_code ?? "",
+  qty: l?.qty ?? 1, uom: l?.uom ?? "pcs", unit_price: l?.unit_price ?? 0,
+  delivery_date: l?.delivery_date ?? p.target_date ?? "", note: l?.note ?? "",
+});
+
+function OrderLines({
+  p, rows, mayEdit, onChanged,
+}: {
+  p: ProjectView;
+  rows: ProjectLineView[];
+  mayEdit: boolean;
+  onChanged: () => void;
+}) {
+  const { can } = useSession();
+  const { toast } = useToast();
+  const [products] = useLoad(() => production.listProducts({ include_inactive: true }), []);
+  const [editing, setEditing] = useState<string | "new" | null>(null);
+  const [d, setD] = useState<LineDraft>(draftOf(null, p));
+  const [busy, setBusy] = useState(false);
+  const [coding, setCoding] = useState<string | null>(null);
+  const [newCode, setNewCode] = useState("");
+
+  async function save(lineId: string | null) {
+    setBusy(true);
+    const res = await procurement.saveProjectLine({
+      project_code: p.code, line_id: lineId,
+      product_code: d.product_code || null, description: d.description, qty: d.qty, uom: d.uom,
+      unit_price: d.unit_price > 0 ? d.unit_price : null, delivery_date: d.delivery_date || null,
+      note: d.note || null,
+    });
+    setBusy(false);
+    if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", "Tidak tersimpan", res.error.message); return; }
+    toast("success", lineId ? "Item diperbarui" : "Item ditambahkan", `${d.description} · ${formatNumber(d.qty)} ${d.uom}`);
+    setEditing(null);
+    onChanged();
+  }
+
+  async function remove(l: ProjectLineView) {
+    if (!window.confirm(`Hapus “${l.description}” dari pesanan?`)) return;
+    setBusy(true);
+    const res = await procurement.removeProjectLine({ project_code: p.code, line_id: l.id });
+    setBusy(false);
+    if (res.error) { toast("warning", "Tidak dihapus", res.error.message); return; }
+    toast("success", "Item dihapus", l.description);
+    onChanged();
+  }
+
+  async function makeCode(l: ProjectLineView) {
+    setBusy(true);
+    const res = await production.createProductFromOrderLine({
+      project_code: p.code, line_id: l.id, product_code: newCode,
+    });
+    setBusy(false);
+    if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", "Item code tidak dibuat", res.error.message); return; }
+    toast("success", res.data.existing ? "Ditautkan ke item code yang ada" : "Item code dibuat",
+      `${res.data.product_code} — BOM-nya bisa disusun sekarang`);
+    setCoding(null); setNewCode("");
+    onChanged();
+  }
+
+  const known = products.status === "ready" ? products.data : [];
+  const withCost = rows.filter((l) => l.product_production_cost != null);
+  const costTotal = withCost.reduce((a, l) => a + (l.product_production_cost ?? 0) * l.qty, 0);
+
+  const editRow = (lineId: string | null) => (
+    <tr className="border-b border-slate-100 bg-brand-50/40 align-top">
+      <td className="px-3 py-2">
+        <input autoFocus value={d.description} onChange={(e) => setD({ ...d, description: e.target.value })}
+          placeholder="Barangnya — sesuai bahasa klien" aria-label="Deskripsi" className={cn(inputCls, "h-8")} />
+        <input value={d.product_code} onChange={(e) => setD({ ...d, product_code: e.target.value.toUpperCase() })}
+          list="order-products" placeholder="item code (opsional)" aria-label="Item code"
+          className={cn(inputCls, "mt-1 h-7 font-mono text-[12px]")} />
+        <input value={d.note} onChange={(e) => setD({ ...d, note: e.target.value })}
+          placeholder="catatan (opsional)" aria-label="Catatan" className={cn(inputCls, "mt-1 h-7 text-[12px]")} />
+      </td>
+      <td className="px-3 py-2">
+        <div className="flex justify-end gap-1">
+          <NumberInput size="sm" value={d.qty} min={0} max={999_999} step={0.01} onChange={(v) => setD({ ...d, qty: v })} className="!w-20" />
+          <select value={d.uom} onChange={(e) => setD({ ...d, uom: e.target.value })} aria-label="Satuan"
+            className="h-8 rounded-lg border border-slate-200 bg-white px-1 text-[12px]">
+            <UomOptions current={d.uom} />
+          </select>
+        </div>
+      </td>
+      <td className="px-3 py-2">
+        <div className="w-32"><MoneyInput size="sm" value={d.unit_price} onChange={(v) => setD({ ...d, unit_price: v })} /></div>
+      </td>
+      <td className="px-3 py-2">
+        <input type="date" value={d.delivery_date} onChange={(e) => setD({ ...d, delivery_date: e.target.value })}
+          aria-label="Tanggal kirim" className="h-8 rounded-lg border border-slate-200 px-1.5 text-[12px]" />
+      </td>
+      <td />
+      <td className="whitespace-nowrap px-2 py-2 text-right">
+        <button onClick={() => save(lineId)} disabled={busy || !d.description.trim() || d.qty <= 0}
+          aria-label="Simpan" className="rounded p-1 text-emerald-700 hover:bg-emerald-50 disabled:opacity-40">
+          <Check className="h-4 w-4" />
+        </button>
+        <button onClick={() => setEditing(null)} aria-label="Batal" className="rounded p-1 text-slate-400 hover:bg-slate-100">
+          <X className="h-4 w-4" />
+        </button>
+      </td>
+    </tr>
+  );
+
+  return (
+    <div className="rounded-xl border border-slate-200">
+      <datalist id="order-products">
+        {known.map((x) => <option key={x.product_code} value={x.product_code}>{x.name}</option>)}
+      </datalist>
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-2.5">
+        <Package className="h-4 w-4 text-slate-400" />
+        <p className="text-[13px] font-semibold text-slate-800">Item dipesan</p>
+        <span className="text-[12px] text-slate-400">
+          {rows.length} baris
+          {p.lines_without_item_code > 0 && ` · ${p.lines_without_item_code} belum punya item code`}
+        </span>
+        {mayEdit && editing === null && (
+          <Button size="sm" icon={Plus} className="ml-auto" onClick={() => { setD(draftOf(null, p)); setEditing("new"); }}>
+            Tambah item
+          </Button>
+        )}
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[820px] border-collapse text-[13px]">
+          <thead>
+            <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
+              <th className="px-3 py-2 text-left">Item</th>
+              <th className="px-3 py-2 text-right">Jumlah</th>
+              <th className="px-3 py-2 text-right">Harga jual / unit</th>
+              <th className="px-3 py-2 text-left">Kirim</th>
+              <th className="px-3 py-2 text-left">Item code &amp; BOM</th>
+              {mayEdit && <th className="w-16" />}
+            </tr>
+          </thead>
+          <tbody>
+            {editing === "new" && editRow(null)}
+            {rows.map((l) => editing === l.id ? <FragmentRow key={l.id}>{editRow(l.id)}</FragmentRow> : (
+              <tr key={l.id} className="border-b border-slate-100 last:border-0 align-top">
+                <td className="px-3 py-2">
+                  <span className="block text-slate-800">{l.description}</span>
+                  {l.note && <span className="block text-[11px] text-slate-400">{l.note}</span>}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-700">
+                  {formatNumber(l.qty)} {l.uom}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-700">
+                  {l.unit_price == null ? <span className="text-slate-300">—</span> : formatIDR(l.unit_price)}
+                  {l.unit_price != null && <span className="block text-[11px] text-slate-400">{formatIDR(l.unit_price * l.qty)}</span>}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-slate-600">{l.delivery_date ?? <span className="text-slate-300">—</span>}</td>
+                <td className="px-3 py-2">
+                  {l.product_code ? (
+                    <>
+                      <Link href={`/produksi/bom?open=${encodeURIComponent(l.product_code)}`}
+                        className="inline-flex items-center gap-1 font-mono text-[12px] font-medium text-brand-700 hover:underline">
+                        <ListTree className="h-3.5 w-3.5" />{l.product_code}
+                      </Link>
+                      <span className="block text-[11px] text-slate-500">
+                        {!l.product_exists ? <span className="text-amber-700">belum ada di katalog produk</span>
+                          : l.product_current_rev == null && l.product_draft_rev == null ? <span className="text-amber-700">belum ada BOM</span>
+                            : l.product_production_cost == null ? <span className="text-amber-700">BOM belum lengkap</span>
+                              : <>biaya {formatIDR(l.product_production_cost)} / {l.uom}{l.product_draft_rev != null && " · draft"}</>}
+                      </span>
+                    </>
+                  ) : coding === l.id ? (
+                    <div className="flex gap-1">
+                      <input autoFocus value={newCode} onChange={(e) => setNewCode(e.target.value.toUpperCase())}
+                        list="order-products" placeholder="mis. SG-01A" aria-label="Item code baru"
+                        className={cn(inputCls, "h-8 w-28 font-mono text-[12px]")} />
+                      <Button size="sm" disabled={busy || !newCode.trim()} onClick={() => makeCode(l)}>OK</Button>
+                      <button onClick={() => setCoding(null)} aria-label="Batal" className="rounded p-1 text-slate-400"><X className="h-4 w-4" /></button>
+                    </div>
+                  ) : can("production.create") ? (
+                    <Button size="sm" variant="outline" disabled={busy} onClick={() => { setCoding(l.id); setNewCode(""); }}>
+                      Jadikan item code
+                    </Button>
+                  ) : (
+                    <span className="text-[11px] text-slate-400">belum ada item code</span>
+                  )}
+                </td>
+                {mayEdit && (
+                  <td className="whitespace-nowrap px-2 py-2 text-right">
+                    <button onClick={() => { setD(draftOf(l, p)); setEditing(l.id); }} disabled={busy} aria-label="Ubah"
+                      className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><Pencil className="h-3.5 w-3.5" /></button>
+                    <button onClick={() => remove(l)} disabled={busy} aria-label="Hapus"
+                      className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-700"><Trash2 className="h-3.5 w-3.5" /></button>
+                  </td>
+                )}
+              </tr>
+            ))}
+            {rows.length === 0 && editing !== "new" && (
+              <tr><td colSpan={mayEdit ? 6 : 5} className="px-3 py-8 text-center text-[13px] text-slate-500">
+                Belum ada item. Tambahkan apa saja yang dipesan klien — tiap baris nanti bisa dijadikan item code untuk BOM.
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex flex-wrap justify-end gap-x-8 gap-y-1 border-t border-slate-100 px-4 py-2.5 text-[12px] text-slate-600">
+        <span>
+          Nilai pesanan{" "}
+          <strong className="tabular-nums text-slate-800">{p.order_value == null ? "—" : formatIDR(p.order_value)}</strong>
+          {p.unpriced_lines > 0 && <span className="text-amber-700"> · {p.unpriced_lines} tanpa harga</span>}
+        </span>
+        <span>
+          Biaya produksi (dari BOM){" "}
+          <strong className="tabular-nums text-slate-800">{withCost.length === 0 ? "—" : formatIDR(costTotal)}</strong>
+          {withCost.length > 0 && withCost.length < rows.length && (
+            <span className="text-amber-700"> · baru {withCost.length} dari {rows.length} item</span>
+          )}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function FragmentRow({ children }: { children: React.ReactNode }) {
+  return <>{children}</>;
 }

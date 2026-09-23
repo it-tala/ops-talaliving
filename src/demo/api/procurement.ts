@@ -6,7 +6,10 @@ import type {
   PurchaseOrder, PoLine, PoStatusView, Receipt, ReceiptCondition, PrCategory, UomCode,
   VendorView, ItemView, VarianceReason, PrApproval, VendorJourney,
   ApprovalRequestView, ApprovalBatchView, PoDetail, PoApprovalView,
+  ProjectView, ProjectLineView, ProjectStatus, ProjectStatusChange, Client, ClientView,
 } from "@/services/procurement/contracts";
+import type { DemoState } from "../state";
+import { productView } from "../production-derive";
 import type { PrLine as PrLineRow } from "@/services/procurement/contracts";
 import { PROBLEM_CONDITIONS, COUNTING_CONDITIONS, VARIANCE_REASON_LABEL } from "@/services/procurement/contracts";
 import type { DocKind } from "@/services/documents/contracts";
@@ -230,113 +233,206 @@ export async function listProjects(): Promise<Result<Project[]>> {
   return ok(SERVICE, [...getState().projects].sort((a, b) => b.code.localeCompare(a.code)));
 }
 
-export async function getProject(code: string): Promise<Result<Project>> {
+/** A project as the order screens read it: its client, and what its lines add
+ *  up to (0111's `v_project`). */
+function projectView(state: DemoState, p: Project): ProjectView {
+  const client = p.client_id ? state.clients.find((c) => c.id === p.client_id) : undefined;
+  const lines = state.project_lines.filter((l) => l.project_id === p.id);
+  const priced = lines.filter((l) => l.unit_price != null);
+  const dates = lines.map((l) => l.delivery_date).filter((d): d is string => !!d).sort();
+  return {
+    ...p,
+    status: p.status ?? (p.is_active ? "IN_PRODUCTION" : "DONE"),
+    client_code: client?.code ?? null,
+    client_display: client?.name ?? p.client_name,
+    client_contact: client?.contact_name ?? null,
+    client_phone: client?.phone ?? null,
+    line_count: lines.length,
+    lines_without_item_code: lines.filter((l) => !l.product_code).length,
+    order_value: priced.length ? priced.reduce((a, l) => a + l.qty * (l.unit_price ?? 0), 0) : null,
+    unpriced_lines: lines.length - priced.length,
+    next_delivery: dates[0] ?? null,
+  };
+}
+
+export async function listProjectViews(): Promise<Result<ProjectView[]>> {
   await latency();
-  const found = getState().projects.find((p) => p.code === code);
+  const state = getState();
+  return ok(SERVICE, [...state.projects].sort((a, b) => b.code.localeCompare(a.code)).map((p) => projectView(state, p)));
+}
+
+export async function getProject(code: string): Promise<Result<ProjectView>> {
+  await latency();
+  const state = getState();
+  const found = state.projects.find((p) => p.code === code);
   if (!found) return notFound(SERVICE, "project_not_found", `No project ${code}.`);
-  return ok(SERVICE, found);
+  return ok(SERVICE, projectView(state, found));
+}
+
+export async function listProjectHistory(code: string): Promise<Result<ProjectStatusChange[]>> {
+  await latency();
+  const state = getState();
+  const found = state.projects.find((p) => p.code === code);
+  if (!found) return notFound(SERVICE, "project_not_found", `No project ${code}.`);
+  return ok(SERVICE, state.project_status_log
+    .filter((l) => l.project_id === found.id)
+    .sort((a, b) => b.changed_at.localeCompare(a.changed_at))
+    .map(({ project_id: _p, ...rest }) => rest));
 }
 
 /** Master data for a customer's order.
  *
  *  The **code** is set once and never edited: it is on purchase request lines,
  *  on work orders and on ledger rows, and every one of those references is by
- *  code at the seam (ADR-004). A code that moves is a set of references that
- *  break silently, which is the one failure nobody notices until a report is
- *  wrong (D149).
+ *  code at the seam (ADR-004). Left empty, the next number after the highest
+ *  numeric code is minted (0111). The client is picked from the master.
  */
 export async function saveProject(
   input: {
-    code: string;
+    code?: string | null;
     name: string;
-    client_name?: string | null;
+    client_code?: string | null;
     location?: string | null;
     pic?: string | null;
     started_on?: string | null;
     target_date?: string | null;
     contract_value?: number | null;
-    is_active?: boolean;
     note?: string | null;
   },
   idempotencyKey?: string,
-): Promise<Result<Project>> {
+): Promise<Result<ProjectView>> {
   await latency();
-  const cached = replayed<Project>(SERVICE, "saveProject", idempotencyKey);
+  const cached = replayed<ProjectView>(SERVICE, "saveProject", idempotencyKey);
   if (cached) return cached;
 
-  const denied = requireModule(SERVICE, "procurement");
+  const denied = requireModule(SERVICE, "project");
   if (denied) return denied;
 
-  const code = input.code.trim();
-  if (!code) {
-    return invalid(SERVICE, "code_required", "Kode proyek dipakai di PR, SPK dan ledger.", { field: "code" });
-  }
   if (!input.name.trim()) {
     return invalid(SERVICE, "name_required", "Proyeknya dikenal dengan nama apa?", { field: "name" });
   }
   if (input.target_date && input.started_on && input.target_date < input.started_on) {
-    return invalid(
-      SERVICE, "dates_reversed",
-      "Tanggal target lebih awal dari tanggal mulai.",
-      { field: "target_date" },
-    );
+    return invalid(SERVICE, "dates_reversed", "Tanggal kirim lebih awal dari tanggal mulai.", { field: "target_date" });
+  }
+  const state = getState();
+  const client = input.client_code ? state.clients.find((c) => c.code === input.client_code) : undefined;
+  if (input.client_code && !client) {
+    return invalid(SERVICE, "client_unknown", `Tidak ada klien ${input.client_code}.`, { field: "client_code" });
+  }
+
+  let code = (input.code ?? "").trim();
+  if (!code) {
+    const nums = state.projects.map((p) => p.code).filter((c) => /^\d+$/.test(c)).map(Number);
+    code = String(nums.length ? Math.max(...nums) + 1 : Number(new Date().getFullYear().toString().slice(2) + "001"));
   }
 
   const user = actingUser();
-  const existing = getState().projects.find((p) => p.code === code);
-  let saved: Project | null = null;
+  const existing = state.projects.find((p) => p.code === code);
   apply((draft) => {
     if (existing) {
       const row = draft.projects.find((p) => p.code === code);
       if (!row) return;
-      const before = { name: row.name, contract_value: row.contract_value, is_active: row.is_active };
       Object.assign(row, {
         name: input.name.trim(),
-        client_name: input.client_name?.trim() ?? row.client_name,
-        location: input.location?.trim() ?? row.location,
-        pic: input.pic?.trim() ?? row.pic,
-        started_on: input.started_on ?? row.started_on,
-        target_date: input.target_date ?? row.target_date,
-        contract_value: input.contract_value ?? row.contract_value,
-        is_active: input.is_active ?? row.is_active,
-        note: input.note?.trim() ?? row.note,
+        client_id: client?.id ?? null,
+        client_name: client?.name ?? null,
+        location: input.location?.trim() || null,
+        pic: input.pic?.trim() || null,
+        started_on: input.started_on || null,
+        target_date: input.target_date || null,
+        contract_value: input.contract_value ?? null,
+        note: input.note?.trim() || null,
       });
-      saved = row;
       writeAudit(draft, {
         service: SERVICE, entity: "project", entity_no: code,
-        action: "update", outcome: "ok", reason: null,
-        detail: { before, after: { name: row.name, contract_value: row.contract_value, is_active: row.is_active }, by: user.email },
+        action: "update", outcome: "ok", reason: null, detail: { by: user.email },
       });
     } else {
       const row: Project = {
         id: newId("prj"), code,
         name: input.name.trim(),
-        is_active: input.is_active ?? true,
-        client_name: input.client_name?.trim() || null,
+        is_active: true,
+        status: "INQUIRY",
+        status_changed_at: new Date().toISOString(),
+        client_id: client?.id ?? null,
+        client_name: client?.name ?? null,
         location: input.location?.trim() || null,
         pic: input.pic?.trim() || null,
-        started_on: input.started_on ?? null,
-        target_date: input.target_date ?? null,
+        started_on: input.started_on || null,
+        target_date: input.target_date || null,
         contract_value: input.contract_value ?? null,
         note: input.note?.trim() || null,
       };
       draft.projects.push(row);
-      saved = row;
+      draft.project_status_log.push({
+        project_id: row.id, from_status: null, to_status: "INQUIRY", reason: "proyek dibuat",
+        changed_by: user.email, changed_at: new Date().toISOString(),
+      });
       writeAudit(draft, {
         service: SERVICE, entity: "project", entity_no: code,
-        action: "create", outcome: "ok", reason: null,
-        detail: { name: row.name, client: row.client_name, by: user.email },
+        action: "create", outcome: "ok", reason: null, detail: { name: row.name, by: user.email },
       });
     }
   });
-  const view = saved as Project | null;
-  if (!view) return invalid(SERVICE, "not_saved", "Proyek tidak tersimpan.", { field: "code" });
-  remember(SERVICE, "saveProject", idempotencyKey, view);
-  return ok(SERVICE, view);
+  const view = await getProject(code);
+  if (view.data) remember(SERVICE, "saveProject", idempotencyKey, view.data);
+  return view;
 }
 
-/** The customer's order, line by line (D150). */
-export async function listProjectLines(code: string): Promise<Result<ProjectLine[]>> {
+/** Where the order stands. Any status may follow any other, every move is
+ *  logged, and cancelling says why (0111). */
+export async function setProjectStatus(
+  input: { code: string; status: ProjectStatus; reason?: string | null },
+): Promise<Result<ProjectView>> {
+  await latency();
+  const denied = requireModule(SERVICE, "project");
+  if (denied) return denied;
+  const state = getState();
+  const p = state.projects.find((x) => x.code === input.code);
+  if (!p) return notFound(SERVICE, "project_not_found", `No project ${input.code}.`);
+  const from = p.status ?? (p.is_active ? "IN_PRODUCTION" : "DONE");
+  if (from === input.status) return noop(SERVICE, projectView(state, p));
+  if (input.status === "CANCELLED" && !input.reason?.trim()) {
+    return invalid(SERVICE, "reason_required", "Kenapa dibatalkan? Satu kalimat — pertanyaan ini pasti datang lagi.", { field: "reason" });
+  }
+  const user = actingUser();
+  apply((draft) => {
+    const row = draft.projects.find((x) => x.code === input.code);
+    if (!row) return;
+    row.status = input.status;
+    row.status_changed_at = new Date().toISOString();
+    row.is_active = input.status !== "DONE" && input.status !== "CANCELLED";
+    draft.project_status_log.push({
+      project_id: row.id, from_status: from, to_status: input.status,
+      reason: input.reason?.trim() || null, changed_by: user.email, changed_at: new Date().toISOString(),
+    });
+    writeAudit(draft, {
+      service: SERVICE, entity: "project", entity_no: row.code,
+      action: "set_status", outcome: "ok", reason: input.reason?.trim() || null,
+      detail: { from, to: input.status, by: user.email },
+    });
+  });
+  return getProject(input.code);
+}
+
+function lineView(state: DemoState, project: Project, l: ProjectLine): ProjectLineView {
+  const product = l.product_code ? state.products.find((x) => x.product_code === l.product_code) : undefined;
+  const pv = product ? productView(state, product) : null;
+  return {
+    ...l,
+    delivery_date: l.delivery_date ?? null,
+    project_code: project.code,
+    product_name: product?.name ?? null,
+    product_exists: !!product,
+    product_current_rev: pv?.current_rev ?? null,
+    product_draft_rev: pv?.draft_rev ?? null,
+    product_production_cost: pv?.production_cost ?? null,
+  };
+}
+
+/** The customer's order, line by line (D150), each with its item code
+ *  resolved. */
+export async function listProjectLines(code: string): Promise<Result<ProjectLineView[]>> {
   await latency();
   const state = getState();
   const project = state.projects.find((p) => p.code === code);
@@ -345,17 +441,14 @@ export async function listProjectLines(code: string): Promise<Result<ProjectLine
     SERVICE,
     state.project_lines
       .filter((l) => l.project_id === project.id)
-      .sort((a, b) => a.line_no - b.line_no),
+      .sort((a, b) => a.line_no - b.line_no)
+      .map((l) => lineView(state, project, l)),
   );
 }
 
-/** Adding a line to an order, or correcting one.
- *
- *  The product is carried as a **code**, and it is not validated against the
- *  catalogue: an order gets typed the day it is signed, which is often before
- *  anybody has drawn the thing. A line with no product code is legitimate too —
- *  installation, delivery, a one-off nobody will make twice (A6).
- */
+/** Adding a line to an order, or correcting one. The item code is not
+ *  validated against the catalogue: an order is typed the day it is signed,
+ *  often before anybody has drawn the thing (A6). */
 export async function saveProjectLine(
   input: {
     project_code: string;
@@ -365,11 +458,12 @@ export async function saveProjectLine(
     qty: number;
     uom: string;
     unit_price?: number | null;
+    delivery_date?: string | null;
     note?: string | null;
   },
-): Promise<Result<ProjectLine[]>> {
+): Promise<Result<ProjectLineView[]>> {
   await latency();
-  const denied = requireModule(SERVICE, "procurement");
+  const denied = requireModule(SERVICE, "project");
   if (denied) return denied;
 
   const state = getState();
@@ -381,36 +475,36 @@ export async function saveProjectLine(
   if (!input.qty || input.qty <= 0) {
     return invalid(SERVICE, "qty_required", "Pesanan nol bukan pesanan.", { field: "qty" });
   }
+  if (!state.uom.some((u) => u.code === input.uom)) {
+    return invalid(SERVICE, "no_such_uom", `Tidak ada satuan ${input.uom}.`, { field: "uom" });
+  }
 
   const user = actingUser();
   apply((draft) => {
     const row = input.line_id ? draft.project_lines.find((l) => l.id === input.line_id) : null;
+    const values = {
+      product_code: input.product_code?.trim().toUpperCase() || null,
+      description: input.description.trim(),
+      qty: input.qty,
+      uom: input.uom,
+      unit_price: input.unit_price ?? null,
+      delivery_date: input.delivery_date || null,
+      note: input.note?.trim() || null,
+    };
     if (row) {
-      Object.assign(row, {
-        product_code: input.product_code?.trim().toUpperCase() || null,
-        description: input.description.trim(),
-        qty: input.qty,
-        uom: input.uom.trim() || row.uom,
-        unit_price: input.unit_price ?? row.unit_price,
-        note: input.note?.trim() ?? row.note,
-      });
+      Object.assign(row, values);
     } else {
       const used = draft.project_lines.filter((l) => l.project_id === project.id);
       draft.project_lines.push({
         id: newId("prl"), project_id: project.id,
-        line_no: used.length + 1,
-        product_code: input.product_code?.trim().toUpperCase() || null,
-        description: input.description.trim(),
-        qty: input.qty,
-        uom: input.uom.trim() || "unit",
-        unit_price: input.unit_price ?? null,
-        note: input.note?.trim() || null,
+        line_no: used.reduce((a, l) => Math.max(a, l.line_no), 0) + 1,
+        ...values,
       });
     }
     writeAudit(draft, {
       service: SERVICE, entity: "project", entity_no: project.code,
       action: row ? "update_line" : "add_line", outcome: "ok", reason: null,
-      detail: { product: input.product_code ?? null, qty: input.qty, by: user.email },
+      detail: { product: values.product_code, qty: input.qty, by: user.email },
     });
   });
   return listProjectLines(project.code);
@@ -418,9 +512,9 @@ export async function saveProjectLine(
 
 export async function removeProjectLine(
   input: { project_code: string; line_id: string },
-): Promise<Result<ProjectLine[]>> {
+): Promise<Result<ProjectLineView[]>> {
   await latency();
-  const denied = requireModule(SERVICE, "procurement");
+  const denied = requireModule(SERVICE, "project");
   if (denied) return denied;
 
   const state = getState();
@@ -439,6 +533,96 @@ export async function removeProjectLine(
     });
   });
   return listProjectLines(project.code);
+}
+
+/* ── the client master (0111) ─────────────────────────────────────────── */
+
+function clientView(state: DemoState, c: Client): ClientView {
+  const projects = state.projects.filter((p) => p.client_id === c.id);
+  return {
+    ...c,
+    project_count: projects.length,
+    active_project_count: projects.filter((p) => p.is_active).length,
+  };
+}
+
+export async function listClients(
+  opts: { include_archived?: boolean } = {},
+): Promise<Result<ClientView[]>> {
+  await latency();
+  const state = getState();
+  return ok(SERVICE, state.clients
+    .filter((c) => opts.include_archived || !c.archived_at)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((c) => clientView(state, c)));
+}
+
+export async function saveClient(
+  input: {
+    code?: string | null;
+    name: string;
+    contact_name?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    address?: string | null;
+    npwp?: string | null;
+    note?: string | null;
+  },
+): Promise<Result<ClientView>> {
+  await latency();
+  const denied = requireModule(SERVICE, "project");
+  if (denied) return denied;
+  const name = input.name.trim();
+  if (!name) return invalid(SERVICE, "name_required", "Nama kliennya siapa?", { field: "name" });
+  const state = getState();
+  const existing = input.code ? state.clients.find((c) => c.code === input.code) : undefined;
+  if (input.code && !existing) return notFound(SERVICE, "client_not_found", `Tidak ada klien ${input.code}.`);
+  const twin = state.clients.find((c) => !c.archived_at && c.name.toLowerCase() === name.toLowerCase() && c.id !== existing?.id);
+  if (twin) return conflict(SERVICE, "client_exists", `${twin.name} sudah ada sebagai ${twin.code}.`, { code: twin.code });
+
+  const values = {
+    name,
+    contact_name: input.contact_name?.trim() || null,
+    phone: input.phone?.trim() || null,
+    email: input.email?.trim() || null,
+    address: input.address?.trim() || null,
+    npwp: input.npwp?.trim() || null,
+    note: input.note?.trim() || null,
+  };
+  const code = existing?.code ?? `CL-${String(state.clients.length + 1).padStart(4, "0")}`;
+  const user = actingUser();
+  apply((draft) => {
+    if (existing) {
+      const row = draft.clients.find((c) => c.id === existing.id)!;
+      Object.assign(row, values);
+      for (const p of draft.projects.filter((x) => x.client_id === row.id)) p.client_name = name;
+    } else {
+      draft.clients.push({ id: newId("cl"), code, archived_at: null, ...values });
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "client", entity_no: code,
+      action: existing ? "update" : "create", outcome: "ok", reason: null, detail: { name, by: user.email },
+    });
+  });
+  const row = getState().clients.find((c) => c.code === code)!;
+  return ok(SERVICE, clientView(getState(), row));
+}
+
+export async function archiveClient(
+  input: { code: string; archived: boolean },
+): Promise<Result<ClientView>> {
+  await latency();
+  const denied = requireModule(SERVICE, "project");
+  if (denied) return denied;
+  const state = getState();
+  const c = state.clients.find((x) => x.code === input.code);
+  if (!c) return notFound(SERVICE, "client_not_found", `Tidak ada klien ${input.code}.`);
+  if (!!c.archived_at === input.archived) return noop(SERVICE, clientView(state, c));
+  apply((draft) => {
+    const row = draft.clients.find((x) => x.code === input.code)!;
+    row.archived_at = input.archived ? new Date().toISOString() : null;
+  });
+  return ok(SERVICE, clientView(getState(), getState().clients.find((x) => x.code === input.code)!));
 }
 
 /** Every request line raised from one work order's bill of material.
