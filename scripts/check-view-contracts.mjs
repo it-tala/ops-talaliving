@@ -147,6 +147,7 @@ const VIEW_CONTRACTS = {
      `withGroupAndLocation` — the view itself never had a column for either,
      the same shape as `v_statement_line`'s `suggestions` above. */
   v_stock_item:        { type: "StockItemView", composed: ["by_location", "group_code", "group_name"] },
+  v_asset:             "AssetView",
   /* Read for `location`/`location_name`/`qty` per item and folded into
      `StockItemView.by_location` by hand — never cast, so nothing here can lie. */
   v_stock_by_location: null,

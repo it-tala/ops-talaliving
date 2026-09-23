@@ -102,6 +102,9 @@ export function MonthDrawer({ month, onClose }: { month: string; onClose: () => 
                     {r.frequency === "once" && (
                       <span className="ml-1.5 rounded bg-violet-50 px-1.5 py-0.5 text-[10px] text-violet-700">one-off</span>
                     )}
+                    {r.amount_kind === "estimate" && (
+                      <span className="ml-1.5 rounded bg-sky-50 px-1.5 py-0.5 text-[10px] text-sky-700" title="An estimate — any matched payment settles it">estimate</span>
+                    )}
                     {r.carries_override && r.reason && (
                       <span className="block text-[11px] text-violet-700">{r.reason}</span>
                     )}
@@ -109,6 +112,9 @@ export function MonthDrawer({ month, onClose }: { month: string; onClose: () => 
                       <span className="block text-[11px] text-slate-500">
                         {r.matched_by === "category" ? "≈ " : <Link2 className="mr-1 inline h-3 w-3" />}
                         {formatIDR(r.actual)} actually went out · {r.trx_nos.join(", ")}
+                        {r.amount_kind === "estimate" && r.state === "PAID" && r.actual !== r.planned && (
+                          <> · {r.actual > r.planned ? "+" : "−"}{formatIDR(Math.abs(r.actual - r.planned))} against the estimate</>
+                        )}
                       </span>
                     )}
                   </span>

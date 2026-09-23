@@ -65,7 +65,14 @@ insert into public.vendors (vendor_id, name, aka, active, created_at, address, p
   ('aaaa0000-0000-0000-0000-000000000002', 'TOKO BESI JAYA',
      null, false, '2026-01-03', null, '', ''),
   ('aaaa0000-0000-0000-0000-000000000003', '  CV ANUGERAH  ',
-     '[]'::jsonb, true, '2026-01-04', null, null, null);
+     '[]'::jsonb, true, '2026-01-04', null, null, null),
+  -- Two names that become the same string once the punctuation is taken out.
+  -- `07_corrections.sql` resolves a vendor by exactly that canonical form, so
+  -- these are the pair that must make it refuse rather than pick one.
+  ('aaaa0000-0000-0000-0000-000000000004', 'PT TALA HOME',
+     null, true, '2026-01-05', null, null, null),
+  ('aaaa0000-0000-0000-0000-000000000005', 'PT TALAHOME',
+     null, true, '2026-01-05', null, null, null);
 
 drop table if exists public.items cascade;
 create table public.items (
@@ -194,6 +201,29 @@ insert into public.transactions
   ('trx-26-01-09_008','l8',gen_random_uuid(),null,
    '2026-01-09',null,'KATERING RAPAT',null,
    'KATERING','BNI 325','OUT',42000,'COMPLETED','2026-01-09 09:00+07'),
+  -- ── the four `07_corrections.sql` is aimed at ────────────────────────
+  --
+  -- A bank charge and, on the same day, the funding transfer whose purchase
+  -- line was filed against it. Both on PETTY CASH so the reconciliation above
+  -- is untouched: they come in on both sides and cancel.
+  ('trx-26-01-20_020','l20',gen_random_uuid(),null,
+   '2026-01-20',null,'Transfer admin fee',null,
+   'SUPPLIERS','PETTY CASH','OUT',2500,'COMPLETED','2026-01-20 09:00+07'),
+  ('trx-26-01-20_900','l21',gen_random_uuid(),null,
+   '2026-01-20',null,'Transfer funding for pay-26-01-20_01',null,
+   'CASHFLOW','PETTY CASH','IN',1500000,'COMPLETED','2026-01-20 09:05+07'),
+  -- A vendor name that is `UD SUMBER REJEKI` with different punctuation. The
+  -- import must leave it null; the correction must resolve it.
+  ('trx-26-01-21_021','l22',gen_random_uuid(),null,
+   '2026-01-21',null,'BELI PAKU','UD. SUMBER-REJEKI',
+   'SUPPLIERS','PETTY CASH','OUT',60000,'COMPLETED','2026-01-21 09:00+07'),
+  -- And one whose canonical form matches **two** vendors. It must stay null
+  -- through both — a name that becomes ambiguous when the punctuation goes is
+  -- not a name this system gets to choose between.
+  ('trx-26-01-22_022','l23',gen_random_uuid(),null,
+   '2026-01-22',null,'SEWA TRUK','PT TALA-HOME',
+   'SUPPLIERS','PETTY CASH','OUT',70000,'COMPLETED','2026-01-22 09:00+07'),
+
   -- no type → OTHERS, and noted
   ('trx-26-01-10_009','l9',gen_random_uuid(),null,
    '2026-01-10',null,'ADMIN FEE AIR MINUM GALON',null,
@@ -265,7 +295,20 @@ insert into public.item_purchases
   -- that does not exist is not a line.
   ('ccc00000-0000-0000-0000-000000000005','trx-26-01-06_005',
    'bbbb0000-0000-0000-0000-000000000005','PAKU BETON',null,
-   10,'kg',2500,25000,'2026-01-06','2026-01-06 09:01+07');
+   10,'kg',2500,25000,'2026-01-06','2026-01-06 09:01+07'),
+
+  -- ── the misfiled line ────────────────────────────────────────────────
+  --
+  -- Two pushes minutes apart; the second named the first one's `trx_id`. The
+  -- import carries both across as written, which leaves `trx-26-01-20_020`
+  -- saying 2.500 while its lines say 1.502.500 — and reading *that* as a
+  -- mistyped amount is the trap `07_corrections.sql` exists to not fall into.
+  ('ccc00000-0000-0000-0000-000000000006','trx-26-01-20_020',
+   'bbbb0000-0000-0000-0000-000000000001','Transfer admin fee',null,
+   1,null,2500,2500,'2026-01-20','2026-01-20 09:01+07'),
+  ('ccc00000-0000-0000-0000-000000000007','trx-26-01-20_020',
+   'bbbb0000-0000-0000-0000-000000000002','Transfer funding for pay-26-01-20_01',null,
+   null,null,null,1500000,'2026-01-20','2026-01-20 09:06+07');
 
 -- ── the documents behind the money, for 05 ───────────────────────────────
 --

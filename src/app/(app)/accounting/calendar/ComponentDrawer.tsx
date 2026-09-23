@@ -9,7 +9,7 @@ import { NumberInput } from "@/components/ui/number-input";
 import { useLoad } from "@/components/ui/loaded";
 import { formatIDR } from "@/lib/format";
 import { accounting } from "@/demo/api";
-import type { CashComponent, CashFrequency, Direction, TransactionTypeCode } from "@/services/accounting/contracts";
+import type { CashAmountKind, CashComponent, CashFrequency, Direction, TransactionTypeCode } from "@/services/accounting/contracts";
 import { useToast } from "@/store/toast";
 
 /** One line on the calendar: what it is, how much, and the day it is due.
@@ -34,6 +34,9 @@ export function ComponentDrawer({
   const [name, setName] = useState(component?.name ?? "");
   const [direction, setDirection] = useState<Direction>(component?.direction ?? "OUT");
   const [amount, setAmount] = useState(component?.amount ?? 0);
+  /* Fixed must be met; an estimate is settled by whatever the payment came
+     to (`0114`). Rent and instalments are fixed; electricity is not. */
+  const [amountKind, setAmountKind] = useState<CashAmountKind>(component?.amount_kind ?? "fixed");
   const [frequency, setFrequency] = useState<CashFrequency>(component?.frequency ?? "monthly");
   const [dueDay, setDueDay] = useState(component?.due_day ?? 25);
   const [weekday, setWeekday] = useState(component?.due_weekday ?? 5);
@@ -47,10 +50,10 @@ export function ComponentDrawer({
     setBusy(true);
     const res = component
       ? await accounting.updateComponent(component.id, {
-        name, amount, due_day: dueDay, note: note || null,
+        name, amount, due_day: dueDay, note: note || null, amount_kind: amountKind,
       })
       : await accounting.addComponent({
-        name, direction, amount, frequency,
+        name, direction, amount, frequency, amount_kind: amountKind,
         due_day: dueDay,
         due_weekday: frequency === "weekly" ? weekday : null,
         due_date: frequency === "once" ? onceDate : null,
@@ -166,14 +169,32 @@ export function ComponentDrawer({
 
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
+            <div className="mb-2 inline-flex rounded-lg border border-slate-200 p-0.5 text-[12px]" role="radiogroup" aria-label="Amount kind">
+              {([["fixed", "Fixed amount"], ["estimate", "Estimate"]] as [CashAmountKind, string][]).map(([k, label]) => (
+                <button
+                  key={k} type="button" role="radio" aria-checked={amountKind === k}
+                  id={`cc-kind-${k}`}
+                  onClick={() => setAmountKind(k)}
+                  className={amountKind === k
+                    ? "rounded-md bg-brand-600 px-2.5 py-1 font-medium text-white"
+                    : "rounded-md px-2.5 py-1 text-slate-600 hover:bg-slate-50"}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <label htmlFor="cc-amount" className="block text-xs text-slate-500">
-              {frequency === "weekly" ? "Estimate, each run" : frequency === "once" ? "Amount" : "Estimate, every month"}
+              {amountKind === "fixed"
+                ? (frequency === "weekly" ? "Amount, each run" : frequency === "once" ? "Amount" : "Amount, every month")
+                : (frequency === "weekly" ? "Estimate, each run" : frequency === "once" ? "Estimate" : "Estimate, every month")}
             </label>
             <MoneyInput id="cc-amount" value={amount} onChange={setAmount} className="mt-1" />
             <p className="mt-1 text-[11px] text-slate-500">
-              {frequency === "weekly"
-                ? `Per run — about ${formatIDR(amount * 4)} in a four-week month, ${formatIDR(amount * 5)} in a five-week one.`
-                : "Roughly is fine. Actual is shown beside it, so next month's estimate is better."}
+              {amountKind === "fixed"
+                ? "Rent, instalments, base pay: a payment below this shows as part-paid."
+                : frequency === "weekly"
+                  ? `Per run — about ${formatIDR(amount * 4)} in a four-week month, ${formatIDR(amount * 5)} in a five-week one. Any matching payment settles it.`
+                  : "Electricity, water, fuel: roughly is fine. Any matching payment settles it, and the difference is shown."}
             </p>
           </div>
 
@@ -239,7 +260,7 @@ export function ComponentDrawer({
                 className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none"
               >
                 <option value="">not fixed</option>
-                {accounts.status === "ready" && accounts.data.map((a) => (
+                {accounts.status === "ready" && accounts.data.filter((a) => a.is_active || a.id === accountId).map((a) => (
                   <option key={a.id} value={a.id}>{a.code}</option>
                 ))}
               </select>

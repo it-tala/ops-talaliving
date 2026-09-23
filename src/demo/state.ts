@@ -19,7 +19,7 @@ import type {
 } from "@/services/marketing/contracts";
 import type {
   LogPurchase, LogPiece, SawnBoard, BoardMove,
-  StockLocation, StockMove, StockSetting,
+  StockLocation, StockMove, StockSetting, Asset, AssetCategory,
 } from "@/services/inventory/contracts";
 import type {
   Employee, AttendanceScan, DayMark, OvertimeSheet, OvertimeLine, PayrollRun,
@@ -206,6 +206,11 @@ export interface DemoState {
   assistant_turns: AssistantTurn[];
   /** Append-only. A mistake is another move with a reason (A5, D171). */
   stock_moves: StockMove[];
+
+  /* --- inventory: assets (0107) ------------------------------------ */
+  /** What the company owns and uses rather than sells: CCTV, PCs, vehicles. */
+  asset_categories: AssetCategory[];
+  assets: Asset[];
 
   /* --- inventory: timber ------------------------------------------- */
   /** Logs are bought by the load and used as boards — two quantities with a

@@ -561,6 +561,8 @@ export function accountBalances(state: DemoState): AccountBalance[] {
       currency: acc.currency,
       is_paying: acc.is_paying,
       opening_balance: acc.opening_balance,
+      is_active: acc.is_active,
+      opened_on: acc.opened_on,
       total_in,
       total_out,
       balance: acc.opening_balance + total_in - total_out,
@@ -1208,7 +1210,9 @@ export function cashPlan(state: DemoState, now = new Date(), windowFrom = now): 
 
         let evState: CashCellState;
         if (skipped) evState = "SKIPPED";
-        else if (actual > 0 && actual >= planned - PAYMENT_TOLERANCE_IDR) evState = "PAID";
+        /* An estimate is settled by its payment, whatever it came to — the
+           electricity bill under its guess is paid, not part-paid (`0114`). */
+        else if (actual > 0 && (c.amount_kind === "estimate" || actual >= planned - PAYMENT_TOLERANCE_IDR)) evState = "PAID";
         else if (actual > 0) evState = "PARTIAL";
         else if (date < today) evState = "OVERDUE";
         else evState = daysBetween(today, date) <= 7 ? "DUE" : "PLANNED";
@@ -1218,6 +1222,7 @@ export function cashPlan(state: DemoState, now = new Date(), windowFrom = now): 
           name: c.name,
           direction: c.direction,
           frequency: c.frequency,
+          amount_kind: c.amount_kind ?? "fixed",
           month,
           date,
           planned,
@@ -1238,7 +1243,7 @@ export function cashPlan(state: DemoState, now = new Date(), windowFrom = now): 
       const worst: CashCellState = skipped ? "SKIPPED"
         : events.some((e) => e.state === "OVERDUE") ? "OVERDUE"
           : events.some((e) => e.state === "DUE") ? "DUE"
-            : actual > 0 && actual >= planned - PAYMENT_TOLERANCE_IDR ? "PAID"
+            : actual > 0 && (c.amount_kind === "estimate" || actual >= planned - PAYMENT_TOLERANCE_IDR) ? "PAID"
               : actual > 0 ? "PARTIAL" : "PLANNED";
 
       return {
@@ -1299,15 +1304,17 @@ export function cashPlan(state: DemoState, now = new Date(), windowFrom = now): 
     const cells = rows.map((r) => ({ row: r, cell: r.cells[i] }));
     /* A part-paid bill keeps its remainder: dropping a whole line because half
        of it went out would forecast a month that cannot happen. */
-    const stillToCome = (c: CashCell) =>
-      month === current ? Math.max(c.planned - c.actual, 0) : c.planned;
+    const stillToCome = (c: CashCell, estimate = false) =>
+      month === current
+        ? (estimate && c.actual > 0 ? 0 : Math.max(c.planned - c.actual, 0))
+        : c.planned;
 
     const planned_in = cells
       .filter((x) => x.row.component.direction === "IN")
-      .reduce((s, x) => s + stillToCome(x.cell), 0);
+      .reduce((s, x) => s + stillToCome(x.cell, x.row.component.amount_kind === "estimate"), 0);
     const planned_out = cells
       .filter((x) => x.row.component.direction === "OUT")
-      .reduce((s, x) => s + stillToCome(x.cell), 0);
+      .reduce((s, x) => s + stillToCome(x.cell, x.row.component.amount_kind === "estimate"), 0);
 
     running += planned_in - planned_out;
 
@@ -2257,8 +2264,11 @@ export function monthlyBills(
      finished month let a line nobody paid fall back to its estimate, which
      reads as *we spent this* when the truth is *we spent nothing*. */
   const ended = (m: string) => m < today.slice(0, 7);
-  const figure = (cell: CashCell, m: string) =>
-    ended(m) ? cell.actual : Math.max(cell.planned, cell.actual);
+  /* A paid estimate is worth what it came to even while its month runs: the
+     guess was only standing in for the bill until the bill came (`0114`). */
+  const figure = (cell: CashCell, m: string, estimate = false) =>
+    ended(m) || (estimate && cell.state === "PAID") ? cell.actual : Math.max(cell.planned, cell.actual);
+  const isEstimate = (row: CashRow) => row.component.amount_kind === "estimate";
 
   /* Keyed by component and summed over the month. A weekly line has four or
      five events in a month, and *is this bill unusual* is a question about the
@@ -2268,7 +2278,7 @@ export function monthlyBills(
   const lastByComponent = new Map<string, number>();
   for (const row of prevPlan.rows) {
     const cell = row.cells.find((c) => c.month === prev);
-    if (cell && cell.state !== "SKIPPED") lastByComponent.set(row.component.id, figure(cell, prev));
+    if (cell && cell.state !== "SKIPPED") lastByComponent.set(row.component.id, figure(cell, prev, isEstimate(row)));
   }
 
   /* The same figure for the month being shown, so the two sides of every
@@ -2278,7 +2288,7 @@ export function monthlyBills(
   for (const row of plan.rows) {
     const cell = row.cells.find((c) => c.month === month);
     if (cell && cell.state !== "SKIPPED") {
-      thisByComponent.set(row.component.id, figure(cell, month));
+      thisByComponent.set(row.component.id, figure(cell, month, isEstimate(row)));
       occurrences.set(row.component.id, cell.events.length);
     }
   }
@@ -2298,6 +2308,7 @@ export function monthlyBills(
       const deltaPercent = last == null || last === 0
         ? null
         : Math.round(((thisMonth - last) / last) * 100);
+      const settledGuess = isEstimate(row) && event.state === "PAID";
       return {
         component_id: row.component.id,
         name: event.name,
@@ -2305,7 +2316,9 @@ export function monthlyBills(
         direction: event.direction,
         planned: event.planned,
         actual: event.actual,
-        outstanding: Math.max(0, event.planned - event.actual),
+        outstanding: settledGuess ? 0 : Math.max(0, event.planned - event.actual),
+        amount_kind: row.component.amount_kind ?? "fixed",
+        variance: settledGuess ? event.actual - event.planned : null,
         state: event.state,
         days_away: daysBetween(today, event.date),
         vendor_name: event.vendor_name,
@@ -2329,7 +2342,7 @@ export function monthlyBills(
         .filter((r) => r.component.direction === "OUT")
         .reduce((sum, r) => {
           const c = r.cells.find((x) => x.month === prev);
-          return sum + (c && c.state !== "SKIPPED" ? figure(c, prev) : 0);
+          return sum + (c && c.state !== "SKIPPED" ? figure(c, prev, isEstimate(r)) : 0);
         }, 0)
     : null;
 

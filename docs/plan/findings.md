@@ -5605,3 +5605,139 @@ decision. `92_` caught it too.
 one whose file you happen to be reading.** `0101` is where the function was
 introduced and is the natural file to open; it has not been the truth since
 `0102`. Nothing about opening it says so.
+
+---
+
+## F138 · 2026-09-23 · a default carried from the demo is an assertion about the business, and nobody checked this one
+
+The first real pay rule book went into production yesterday with
+`week_pattern: "6day"` and `effective_days_per_year: 288`. The owner read the
+screen and asked one question: *bukankah jam kerja itu harusnya senin-jumat?*
+
+Neither number was ever his. Both were copied out of
+`src/demo/fixtures/payrules.ts` along with the numbers that **were** his — the
+07.30 start, the 45-minute break, the overtime ladder — and the copy did not
+distinguish between them. Reading the record back afterwards is unambiguous:
+Q44 (D270, D274) answered the **hours**; Q53 (D279) answered **who is on which
+pattern**; and Q45 asked *what is this business's own hari kerja efektif* and
+was closed on 13 September with an answer about **who types the figure**, not
+what the figure is. So Q45 was marked answered while the number it asked for
+had never been spoken. 288 filled the hole, and it looked like a fact because
+it was sitting in a field beside four real ones.
+
+**The book contradicted itself, and the contradiction was readable.**
+`monthly_divisor` was 173, which is 40 × 52 ÷ 12 and means nothing except on a
+forty-hour week. The same object said 48,75 hours a week in its schedules. Two
+fields that must agree, disagreeing — F73's shape exactly, the one this project
+has now hit often enough that it should be the first thing checked when a
+config object is assembled rather than the thing found later.
+
+**What 6day was actually doing.** Not display. `ops_hr.is_rest_day()` reads it,
+and under `6day` only Sunday is a rest day — so Saturday overtime would have
+paid the workday ladder (1,5× then 2×) instead of the rest-day ladder. And the
+rest-day tiers themselves were the six-day rungs of Kepmenaker 102/2004 pasal
+11 (2× to hour 7, then 3×, then 4×); a five-day week runs to hour 8, then 9.
+Switching the pattern without switching the rungs would have left a second,
+quieter contradiction behind the first.
+
+**The expensive one was 288.** `ops_hr.hourly_rate()` computes
+`company = setahun ÷ hari_efektif ÷ jam_sehari`. A denominator 20% too large
+makes the hourly rate 17% too small, and every overtime rupiah rides on it. On
+a five-million pokok with a 25.000 daily allowance the real functions give
+Rp 28.283 under v1 and Rp 33.333 under v2 — three hours of weekday overtime
+moves from Rp 155.557 to Rp 183.332, for one person, once.
+
+**Why it was still cheap to fix.** Zero employees, zero attendance scans, zero
+payroll runs. Not one rupiah had been computed from v1, which is the same
+condition that made D270's backdating safe, so v2 is dated to v1's own date as
+a correction rather than to today as a policy change — the business did not
+move from six days to five this morning, our record of it was wrong. v1 is
+untouched and still in the book (A5).
+
+**The lesson is not "check the config".** It is that seeding production from a
+fixture silently promotes every demo default into a claim about a real company,
+and the defaults are indistinguishable from the answers once they are in the
+same JSON object. What would have caught this is the thing D173 already exists
+for: a rule book is a set of assertions somebody has to sign, so the fields
+nobody has answered should have been **absent or null**, and the screen should
+have said *belum ditetapkan* — the same treatment D274 gives the guard's start
+time. A field that has never been answered should not be able to look like one
+that has.
+
+**Still open**: Q45 is reopened for the number it actually asked for, and 240 is
+a convention (20 days × 12) standing in until the owner names his. The demo
+fixture still asserts six days for the same business.
+
+---
+
+## F139 · 2026-09-23 · a shape that can only express the new fact by lying about an old one
+
+Half a day after F138, the same rule book produced a second finding by the
+same route, and this one is about the **shape** rather than the numbers.
+
+D288 set Friday at seven hours because the owner said the week is forty. The
+only Friday lever the schedule row had was `friday_break_minutes`, so seven
+hours for the office had to be bought with a **135-minute break** — 08.00 to
+17.15 less 2¼ hours. Nobody has ever taken a 135-minute break. It was reverse-
+engineered from the total, and it went into production looking exactly like a
+fact somebody had decided.
+
+The owner's correction was one sentence: *jumat pulang lebih awal, bukan 17.15
+tapi 16.30, jam kerjanya 7 jam istirahatnya yang 90 menit.* Not a longer
+break — an **earlier finish**, with D270's original 90 minutes intact all
+along. The number I had written over was the right one.
+
+**This is F91's shape again and it should have been recognised.** F91: Q44 was
+answered a second time and *broke the answer built for it the day before*,
+because `day_start_by_unit` could not hold a Friday, an end time, or a shift
+with no fixed start. Here `friday_break_minutes` could not hold *Friday
+finishes early* — and instead of refusing, it produced a plausible wrong
+number. A shape that cannot express something usually says so by needing a
+value nobody recognises. **135 was that signal, and I read it as arithmetic.**
+The tell was there in the same table: produksi came out at 120 minutes exactly
+and kantor at 135, and two patterns needing two different invented breaks to
+reach the same total is the shape complaining, not the business speaking.
+
+**What the fix is not.** `friday_end_minutes` is nullable, and null here does
+**not** mean D274's *nobody has said*. It means *Friday finishes when every
+other day does*, which is a real answer and the common one. The two Friday
+fields fall back independently, so a pattern that differs only in its finish
+keeps the ordinary break and the other way round — getting that wrong would
+blank a Friday the business has actually decided.
+
+**And the half hour that was left alone.** Produksi comes out at 7,5 hours on
+Friday and 40,5 in the week, not 40. It already stops at 16.30 every day, so
+its Friday is only the longer break. The owner said *40* while correcting the
+**office's** finishing time; whether the workshop also leaves early on Friday
+has never been said. Rounding it to 16.00 to make the table tidy would be F138
+happening a third time in one day — filling an unanswered field with a number
+that looks like a fact. It is left at 40,5 and Q54 says why.
+
+**Cheap for the same reason both times**: zero employees, zero attendance, zero
+payroll runs. Three versions of the rule book now share one date — the demo
+copy, my guess, and the owner's answer — and that is the dated book working,
+not a mess. Reading them in order is the honest record of how the number was
+arrived at.
+
+**Verified, not asserted.** Four mutations of the Friday arithmetic — dropping
+either fallback, treating only the break as making Friday differ, and ignoring
+the finish entirely — each failed the new smoke file for its own reason, the
+last of them reproducing exactly the 7,75 the owner spotted. The TypeScript
+derivation was compiled and run against the same four patterns and returned the
+same four answers as the SQL, which is the only way ADR-009 is a claim rather
+than a hope: there is no unit-test runner in this repo, so demo and live agree
+only where somebody has actually made them agree in front of witnesses.
+
+**Addendum, same day.** The half hour was not left open for long: asked, and
+answered — *jumat produksi pulang 16.00* (D290). 07.30 to 16.00 less the 90
+minutes is 420, which is seven hours exactly, and produksi's week closes at
+40,00 alongside kantor's. Worth recording *why* that is reassuring rather than
+suspicious: the two patterns reach the same total by **different** arithmetic —
+the office leaves 45 minutes early, the workshop 30 — because their ordinary
+days are different lengths against different breaks. Both also land on 173,33
+hours a month, which is `monthly_divisor` 173, the field that was quietly
+telling the truth about this week all along while the schedules contradicted it
+(F138). Two independent routes arriving at the same number is the book being
+right; one number copied into two rows would have looked identical and proved
+nothing. The rule book ends the day with four versions sharing one date, and
+reading them in order is the record of how the figure was arrived at.

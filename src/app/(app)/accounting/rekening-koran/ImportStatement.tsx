@@ -187,7 +187,7 @@ export function ImportStatement({ onClose, onDone }: { onClose: () => void; onDo
                 onChange={(e) => setForm({ ...form, account_code: e.target.value })}
                 className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
               >
-                {accs.map((a) => (
+                {accs.filter((a) => a.is_active !== false || a.code === form.account_code).map((a) => (
                   <option key={a.code} value={a.code}>
                     {a.code} — {a.name}{a.currency !== "IDR" ? ` (${a.currency})` : ""}
                   </option>

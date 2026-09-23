@@ -33,10 +33,11 @@ Each file ends by printing what it did. Read that, not the exit code.
 | 3 | `projects` → `ops_procure.projects` | 5 | `01_reference.sql` |
 | 4 | `vendors` → `ops_procure.vendors` | 296 | `01_reference.sql` |
 | 5 | `items` → `ops_procure.items` | 1.020 | `02_items.sql` |
-| 6 | `transactions` → `ops_acct.transactions` | 3.235 | `03_ledger.sql` |
+| 6 | `transactions` → `ops_acct.transactions` | 3.287 | `03_ledger.sql` |
 | 7 | `item_purchases` → `ops_acct.transaction_lines` | 1.194 | `04_lines.sql` |
 | 8 | `transaction_docs` → `ops_core.attachments` + `attachment_links` | 237 | `05_evidence.sql` |
 | 9 | `products` → `ops_prod.products` (+ drawing links) | 27 | `06_products.sql` — needs `0060`–`0066`, `0108`–`0110` — **applied 2026-09-23: 27 products, 27 drawing links** |
+| 10 | corrections to what the import carried faithfully | 2 | `07_corrections.sql` — **applied 2026-09-23** |
 
 ### Step 1 is not an `insert … select`
 
@@ -224,6 +225,9 @@ a commit message cannot be corrected, so the record lives here.
 | `03_ledger.sql` | **2026-09-21** | 3.221 imported, 14 refused, all five accounts reconciled |
 | `04_lines.sql` | **2026-09-22** | 1.189 lines on 1.188 transactions, 5 refused |
 | `05_evidence.sql` | **2026-09-22** | 148 files, 226 claims over 197 transactions, 0 refused |
+| `06_products.sql` | **2026-09-23** | 27 products, 27 drawing links |
+| `03_ledger.sql` (again) | **2026-09-23** | 0 imported, **52 map rows repaired** — see below |
+| `07_corrections.sql` | **2026-09-23** | 1 line re-filed, 59 transactions given their vendor |
 
 `03_ledger.sql` was run as a **dry run first** — the whole file inside a
 transaction that was rolled back — and the numbers it printed were the numbers
@@ -231,19 +235,78 @@ the real run produced. That is worth doing again for anything that touches
 money: it costs one minute and it is the only way to see a reconciliation
 before committing to it.
 
+These are the figures as of **2026-09-23**, not as of the first run. The old
+system is still live and still writing, so this table is a snapshot with a date
+on it; an undated balance in a document is a balance somebody will quote next
+month.
+
 ```
 account      ours           legacy         verdict
 BCA 064      21.259.068     21.259.068     agrees
-BCA 271      18.662.986     18.662.986     agrees
-BNI 325         648.132        648.132     agrees
+BCA 271       4.285.326      4.285.326     agrees
+BNI 325         148.132        148.132     agrees
 JAGO         10.473.352     10.473.352     agrees
-PETTY CASH      557.168        557.168     agrees
+PETTY CASH      858.298        858.298     agrees
 ```
 
-Of the 3.221: **699 carry the author the old system recorded**, 2.522 are
-posted as `shared@talaliving.com`. The 14 refusals are all `idr_amount = 0`,
-three of them described `void`, so refusing them moved no balance. A second
-run stages **0 rows**, checked against production rather than assumed.
+**3.273 transactions against the legacy table's 3.287.** The fourteen that did
+not come across are all `idr_amount = 0`, three of them described `void`, so
+refusing them moved no balance — which is why the five accounts still agree to
+the rupiah. 699 carry the author the old system recorded; the rest are posted
+as `shared@talaliving.com`. A second run stages **0 rows**, checked against
+production rather than assumed.
+
+### The manual ledger, checked against both
+
+The owner's `2026 TALAHOME LEDGERS` workbook keeps its own running balance per
+account, in the summary row above the header of the main 2026 tab. Against it:
+
+```
+account      this system    manual sheet   verdict
+BCA 064      21.259.068     21.259.068     agrees
+BNI 325         148.132        148.132     agrees
+PETTY CASH      858.298        858.298     agrees
+BCA 271       4.285.326      4.008.544     differs by 276.782
+JAGO         10.473.352     —              the sheet has no column for it
+```
+
+Three of four to the rupiah, against a sheet kept by hand, by different people,
+in a different tool. The fourth is **Rp 276.782 on BCA 271**, and the reading
+from here was only that it is the sheet's, not this system's: both systems
+agree with each other on that account, no transaction of that amount exists on
+either side, and no run of recent rows sums to it.
+
+**The owner settled it on 2026-09-23: those are new transactions, not yet
+entered in the sheet.** Accounting enters them when they get to it. Nothing
+here changes — and that is the point of writing the difference down rather than
+closing it. A gap that turns out to be a timing difference and a gap that turns
+out to be a lost row look identical from the database; only somebody who knows
+what was spent can tell them apart.
+
+**What could not be checked.** The workbook has 83 tabs and the export
+truncates each one to about 95 rows, so the sheet's own arithmetic — how that
+summary row is reached from its ledger — was not verified, only its result. One
+of those tabs is an `AI LEDGER — LIVE SUMMARY` written by the old Apps Script
+system; it is not an independent witness and was not used.
+
+### The 52 rows that had no map entry
+
+Found on 2026-09-23 and worth recording, because it is the failure
+`ops_core.legacy_map` exists to prevent. Fifty-two transactions the old system
+wrote after the first run were in `ops_acct.transactions` with their
+`source_ref`, and had **no row in the map at all** — imported by hand rather
+than by the script.
+
+No money was duplicated, and the reason is worth keeping: the insert is
+`on conflict (source_ref) do nothing` against a unique index, so a re-run could
+not have doubled them even though the map's guard would have staged them.
+Belt and braces, and the braces held.
+
+What was lost was the map's notes — which of those 52 had a borrowed author,
+an unresolved vendor, a missing type. Re-running `03_ledger.sql` restored
+them: **0 transactions inserted, 52 map rows written.** Every legacy table now
+maps row for row — transactions 3.287, item_purchases 1.194, transaction_docs
+237, vendors 296, items 1.020, products 27.
 
 ### What steps 7 and 8 found
 
@@ -252,7 +315,7 @@ problems wearing the same shape:
 
 | transaction | says | its lines say | difference | lines |
 |---|---:|---:|---:|---:|
-| `trx-26-07-27_061` | 2.500 | 15.850.000 | **+15.847.500** | **2** |
+| `trx-26-07-27_061` — **fixed** | 2.500 | 15.850.000 | **+15.847.500** | **2** |
 | `trx-26-07-15_020` | 55.000 | 85.000 | +30.000 | 1 |
 | `trx-26-07-13_093` | 21.001.514 | 21.011.514 | +10.000 | 1 |
 | `trx-26-07-21_020` | 36.000 | 35.000 | −1.000 | 1 |
@@ -283,8 +346,18 @@ across faithfully, which is what it is supposed to do.
 So the fix is **not** `edit_transaction`. Raising the amount to make the
 arithmetic pass would turn a Rp 2.500 bank charge into Rp 15,85 juta — and that
 correction was demonstrated in a rolled-back session before the lines were
-read, which is how this was caught. What it needs is a line moved or removed,
-and nothing in the web app can do that today.
+read, which is how this was caught. What it needs is a line moved, and nothing
+in the web app can do that: `transaction_lines` carries an insert policy and no
+update or delete policy at all, so no grant in the system lets anyone re-file a
+line from a screen. That is deliberate — moving money between rows is not an
+edit — and it makes this SQL or nothing.
+
+**Done, 2026-09-23**, by `07_corrections.sql`: the line moved to
+`trx-26-07-27_900`, neither transaction's amount touched, one `refile` row in
+`ops_core.audit_log` carrying the before and the after, and the map annotated.
+Both transactions now agree with their own lines. `actor_id` on that audit row
+is null on purpose — a script did it, and `detail` says which script; naming a
+person there would be the audit trail telling its first lie.
 
 The general shape, worth keeping: **a total that does not add up says which
 number to distrust only when there is one line.** With two, the disagreement
@@ -317,6 +390,49 @@ Left for a person, all of it queryable from `ops_core.legacy_map`:
 There is no screen for that list yet. It is the obvious next thing, alongside
 `item_purchases` (1.194 rows → `ops_acct.transaction_lines`) and
 `transaction_docs` (237 → evidence).
+
+### Vendors that did not resolve, and the eight that did on 2026-09-23
+
+`03_ledger.sql` matches a vendor by the name as written, or leaves it null.
+Eleven legacy names did not match. Eight were the **same name with different
+punctuation**, and `07_corrections.sql` resolved them — 59 transactions:
+
+```
+ALMART                    AL MART                  V-0002   39 trx
+ALRIZKY JAYANA            AL RIZKY JAYANA          V-0059    6
+MR DIY                    MR D.I.Y.                V-0028    7
+GRAN MAX-SUNARNO          GRAN MAX - SUNARNO       V-0094    2
+GRAN MAX-ANDI             GRAN MAX - ANDI          V-0071    2
+MOJO INDAH,               MOJO INDAH               V-0097    1
+FAHRUL JATI-  JAMALLUDIN  FAHRUL JATI- JAMALLUDIN  V-0199    1
+FAFA KONVEKSI-SUNARNO     FAFA KONVEKSI - SUNARNO  V-0110    1
+```
+
+**This is canonicalisation, not fuzzy matching**, and insisting on the
+difference is the point. Strip everything that is not a letter or a digit and
+the two strings are byte-for-byte equal — no threshold, no edit distance, no
+judgement. The rule also refuses to act unless exactly one vendor canonicalises
+to that form, which matters: `TALA HOME PT` and `TALAHOME PT` both become
+`TALAHOMEPT`, and a name that becomes ambiguous when the punctuation goes has
+to resolve to nothing rather than to a coin toss.
+
+The import itself still must not do this. It carries what the old system wrote.
+Deciding that two spellings are one vendor is a *reading* of the data, and a
+reading belongs in a correction somebody can argue with, not in a join that
+runs silently over 3.287 rows.
+
+### What is left, and who decides it
+
+Nothing below is a bug. Each one is a question a script must not answer.
+
+| | what it is | who |
+|---|---|---|
+| 3 vendors | `GOLDEN SWALAYAN`, `TOKO SRC ZURIYAH`, `UD. SENGON LAUT CILACAP` — one transaction each, Rp 2.888.500 together. No vendor of that name exists; creating one is a decision. | owner |
+| `CHAIR PHILIPPINES` | 6 transactions, Rp 7.512.200. The project table spells it `CHAIR PHILIPHINES` — **PP against PH**, a different spelling, not different punctuation. Canonicalising does not make them equal and it must not be made to. | owner |
+| `FAIRMONT` | 5 transactions, Rp 37.087.500. No project row at all — it is the row `01_reference.sql` refused, for having no code. | owner |
+| 5 transactions | lines disagreeing with their own row by Rp 4 to Rp 30.000. Settled from the document, on the ledger screen, with `edit_transaction`. | accounting |
+| 75 `OTHERS` | the legacy row named no type. Indistinguishable on screen from a type somebody chose, which is the actual problem. | accounting |
+| Rp 276.782 | BCA 271, this system against the manual sheet. **Answered 2026-09-23: new transactions not yet in the sheet.** Entered when accounting gets to it; nothing to fix here. | accounting |
 
 ## What the import must never do
 
