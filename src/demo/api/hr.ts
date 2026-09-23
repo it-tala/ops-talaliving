@@ -2461,7 +2461,11 @@ export async function listPayRules(): Promise<Result<PayRuleSetView[]>> {
 function schedulesInUseLost(state: DemoState, rules: PayRules): string | null {
   const kept = new Set((rules.schedules ?? []).map((s) => s.code));
   const groups = new Map<string, string[]>();
-  for (const e of [...state.employees].sort((a, b) => a.employee_no.localeCompare(b.employee_no))) {
+  /* Plain code-unit order, matching `collate "C"` on the SQL side rather
+     than a locale-aware compare — the two seams have to build the same
+     sentence, and `localeCompare` and `en_US.UTF-8` do not agree on
+     punctuation or on case (F143). */
+  for (const e of [...state.employees].sort((a, b) => (a.employee_no < b.employee_no ? -1 : a.employee_no > b.employee_no ? 1 : 0))) {
     if (!e.active || e.schedule_code == null || kept.has(e.schedule_code)) continue;
     const names = groups.get(e.schedule_code) ?? [];
     names.push(e.full_name);

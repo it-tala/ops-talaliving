@@ -198,9 +198,17 @@ begin
      pointing at nothing: nothing falls back to the company clock and says so,
      while a dangling code resolves to no schedule at all and reads as
      *belum ditetapkan* for everybody in that unit, with no sign of why. */
+  /* `collate "C"` is load-bearing, not tidiness. The demo reports the first
+     problem too, and it sorts with JavaScript's code-unit order; this database
+     collates `en_US.UTF-8`, which puts `office` before `Workshop` where
+     JavaScript puts `Workshop` first. With two dangling units the two seams
+     would name different ones — and no test would ever have said so, because
+     the scratch cluster and the CI container both happen to collate like `C`.
+     A parity gate whose environments agree with one side is blind to exactly
+     this (F143). */
   for u in
     select key, value from jsonb_each_text(coalesce(p_rules -> 'schedule_by_unit', '{}'::jsonb))
-    order by key
+    order by key collate "C"
   loop
     if not (u.value = any(seen)) then
       return jsonb_build_object('code','unit_unknown_code',
@@ -228,7 +236,10 @@ language sql stable security definer set search_path = ops_hr, pg_temp as $$
   ),
   lost as (
     select e.schedule_code, count(*) as n,
-           string_agg(e.full_name, ', ' order by e.employee_no) as names
+           -- Same reason as `schedule_problem`'s unit loop: the demo builds
+           -- this sentence with a code-unit sort, so the order is pinned to
+           -- one that does not move with the database's locale (F143).
+           string_agg(e.full_name, ', ' order by e.employee_no collate "C") as names
       from ops_hr.employees e
      where e.active
        and e.schedule_code is not null
@@ -237,7 +248,7 @@ language sql stable security definer set search_path = ops_hr, pg_temp as $$
   )
   select string_agg(
            format('%s (%s orang: %s)', l.schedule_code, l.n, l.names),
-           '; ' order by l.schedule_code)
+           '; ' order by l.schedule_code collate "C")
     from lost l
 $$;
 

@@ -193,6 +193,10 @@ export function scheduleProblems(
      pointing at nothing: nothing falls back to the company clock and says so,
      while a dangling code resolves to no schedule at all and reads as
      *belum ditetapkan* for everybody in that unit, with no sign of why. */
+  /* `.sort()` is code-unit order, and the SQL side pins itself to `collate
+     "C"` to match it. Not cosmetic: `en_US.UTF-8` orders `office` before
+     `Workshop` where this puts `Workshop` first, so with two dangling units
+     the two seams would name different ones (F143). */
   for (const unit of Object.keys(scheduleByUnit ?? {}).sort()) {
     const wanted = scheduleByUnit[unit];
     if (!seen.has(wanted)) {
@@ -260,6 +264,10 @@ export const SCHEDULE_CASES: ScheduleCase[] = (() => {
     /* Istirahat Jumat kosong: yang dipakai istirahat biasa, dan terhadap jam
        pulang Jumat yang lebih awal ia bisa jadi kepanjangan. */
     { name: "istirahat biasa kepanjangan untuk Jumat pendek", schedules: [sc({ break_minutes: 500, end_minutes: 1035, friday_end_minutes: 960, friday_break_minutes: null })], schedule_by_unit: {}, expect: "friday_break_too_long" },
+    /* Dua unit menggantung sekaligus, dan namanya sengaja beda kapital:
+       urutan mana yang dilaporkan lebih dulu tidak boleh bergantung pada
+       collation basis datanya (F143). */
+    { name: "dua unit menggantung — yang mana dilaporkan dulu", schedules: [sc({})], schedule_by_unit: { Workshop: "PRODUKSI", office: "GUDANG" }, expect: "unit_unknown_code" },
     { name: "unit menunjuk pola yang tidak ada", schedules: [sc({})], schedule_by_unit: { Workshop: "PRODUKSI" }, expect: "unit_unknown_code" },
     /* Urutan dilaporkannya penting: baris dulu, baru pemetaan unit. */
     { name: "baris rusak dilaporkan sebelum unit", schedules: [sc({ code: "kantor" })], schedule_by_unit: { Workshop: "PRODUKSI" }, expect: "code_shape" },

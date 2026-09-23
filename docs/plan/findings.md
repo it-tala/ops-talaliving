@@ -5832,3 +5832,42 @@ rather than a column. It was found only because the same screen was open for
 another reason. Rewritten to explain the *relationship* (the two agree when the
 effective-days figure and the divisor are consistent) rather than to assert the
 number, because the relationship stays true when the number moves.
+
+---
+
+## F143 · 2026-09-23 · the parity gate could not see this, because its two databases both agreed with the wrong side
+
+`ops_hr.schedule_problem()` and the TypeScript module both report the **first**
+problem, so anything that decides *which is first* is part of the rule. Two
+dangling unit mappings are ordered before being reported: the SQL said
+`order by key`, the TypeScript said `.sort()`.
+
+`.sort()` is UTF-16 code-unit order. `order by key` is the database's
+collation. They are not the same, and the disagreement is ordinary rather than
+exotic — with units named `Workshop` and `office`, JavaScript reports
+`Workshop` first and a database collating `en_US.UTF-8` reports `office`, since
+that collation sorts case-insensitively at the first level. Two seams, same
+input, different sentence: precisely what `check-schedule-rules.mjs` exists to
+refuse.
+
+**And it would have refused nothing.** The scratch cluster this was built on
+collates `C`, and so, as far as this could be told, does the container CI runs
+against. Both agree with JavaScript. The gate would have stayed green through
+every run while production — `en_US.UTF-8`, checked rather than assumed —
+answered differently on the one machine that matters.
+
+That is the failure mode worth naming: a parity check inherits the environment
+it runs in, and an environment that happens to agree with one of the two sides
+turns the check into a rehearsal of that side. It was found by reading the diff
+for what could differ **between here and production**, not by running anything;
+nothing that could be run would have said it.
+
+Fixed by pinning rather than by matching a locale: `collate "C"` on all three
+orderings in `0117` (the unit loop, the names inside a lost pattern, and the
+patterns themselves), and plain code-unit comparison on the demo side in place
+of `localeCompare`, which has the same disagreement with `C` that `en_US` has.
+The rule now orders the same way on any database, which is what a rule stated
+twice needs. A case with two dangling units named in different cases is in the
+battery, so the pin cannot be removed quietly — though, and this is the part to
+remember, that case would pass on a `C` database even without the pin. The case
+guards the intent; only reading the collation guarded the fact.
