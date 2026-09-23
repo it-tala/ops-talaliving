@@ -292,3 +292,17 @@ Custom SMTP also lifts the send limit to 30 new users per hour and lets the
 address be one people recognise, rather than a Supabase default that looks like
 phishing to anybody careful.
 
+
+### 2026-09-23: Danis added, six passwords reset for IT to hand out
+
+At the owner's request: `danis@talaliving.com` was created in the same shape as
+`03_chat_users.sql` (confirmed, one `auth.identities` row, 0 modules, 0
+authorities: D24, and nobody has said what Danis may open yet). Then Putri,
+Cintya, Ryan, Dewi, Evin and Danis were each given a new 16-character temporary
+password, **including Putri and Cintya, whose own passwords stopped working**.
+The owner will hand them out and people change them on `/set-password` once
+their modules are ready. Each hash was verified with `crypt()` the way GoTrue
+checks it; all six values are distinct. One `audit_log` row per person
+(`password.reset`, `actor_id` null). The plaintext is not recorded here or
+anywhere else in the repository. W8 in `docs/plan/backlog.md` is what ends
+this being SQL.
