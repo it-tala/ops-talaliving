@@ -20,6 +20,7 @@ that only shows what is left teaches nobody anything.
 | B7 | ~~**PO tidak tersambung ke baris PR**~~ | `ops_procure.po_lines` · `/procurement/po` | **fixed** 2026-09-23 — `0127`, D297: `po_lines.pr_line_id`, optional, checked in `create_po` (approved, one live order, same unit, not a lump sum). Arrivals on the order move the request line; *From request line* on the New PO form |
 | B8 | ~~**Termin PO tidak bisa dibayar dari layar mana pun**~~ | `/procurement/po/[po]` | **fixed** 2026-09-23 — `0127`, D297: `ops_acct.post_to_po` and *Pay this order*; an allocation names the line and the order, so one payment reads on both and is counted once on each |
 | B9 | ~~**Ongkir (baris tanpa jumlah) tidak bisa dibayar dari barisnya dengan jenis SUPPLIERS**~~ | `/procurement/pr` · `ops_acct.post_from_line` | **fixed** 2026-09-23 — `0129`, D298 (owner chose option 1): the ledger detail of a lump-sum payment is *1 lot × the amount paid*; the request line keeps no quantity. The walk now ends with no findings |
+| B10 | **Kartu persetujuan PO belum sampai ke Google Chat** — `request_po_approval` memancarkan `procurement.po.approval_requested`, dan `po_approval_card` / `answer_po_approval` sudah siap untuk worker, tetapi belum ada worker yang mengirim kartu dan menerima jawabannya | outbox → Google Chat | open — 2026-09-23 (F150). Needs the owner: which Chat app sends it (the existing John Lau v01 bot, or a new Chat app on this Worker) and who administers it in Google Workspace |
 
 ## Scheduled — the owner's answers of 2026-09-11
 

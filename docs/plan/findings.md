@@ -6091,3 +6091,32 @@ detail of a lump-sum payment is *1 lot × the amount paid*. The walk now runs
 37 steps from an empty database to a matched bank line with **no findings**,
 and L02 — the delivery charge — ends PAID beside L01's COMPLETED.
 
+## F150 · 2026-09-23 · the approval rule was complete in the demo and half-built in the database
+
+The owner restated the rule for orders — leadership confirms every one,
+either by writing it themselves or by answering a card in Google Chat — and
+checking the ladder against that sentence, rather than against the demo,
+found three gaps the demo had been hiding:
+
+- `create_po` never self-confirmed. D267 was built in `src/demo` only, so a
+  CEO's own order in the live system waited for the CEO to ask himself.
+- There was **no seam for the chat answer** to an order. `answer_request`
+  exists for request lines; for orders the token was minted and nothing could
+  ever redeem it.
+- **No worker delivers the card.** The outbox holds the event; nothing reads
+  it. `/demo/chat` stands in for the whole road, convincingly enough that the
+  absence did not show.
+
+The first two are `0131`. The third needs an answer about infrastructure the
+repository cannot see (B10). The general lesson is the one the parity check
+cannot catch: **a function that exists only in the demo is not a pending
+function, it is an unbuilt one**, and nothing lists it. `answerPoFromChat`
+and `listPoApprovals` are demo-only by design — a browser must not answer
+for the CEO — and that is exactly why their live counterparts had to be
+looked for by hand.
+
+Two smaller things the smoke file pinned: the token never travels in the
+outbox (it is readable by signed-in users), and the worker reads a card
+through one function rather than a table grant, the shape `0038` chose for
+the capture worker.
+

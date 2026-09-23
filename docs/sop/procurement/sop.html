@@ -193,14 +193,14 @@
         
       </li>
       <li>
-        <div class="act">Buka PO-nya dari daftar Purchase Orders, lalu tekan <b class="btn">Ask leadership to confirm</b>.</div>
-        <div class="rule"><b>Kenapa:</b> PO tidak bisa di-issue sebelum dikonfirmasi pimpinan (not_approved), karena PO adalah janji atas nama perusahaan.</div>
+        <div class="act">Kalau Anda staf: buka PO-nya dari daftar Purchase Orders, lalu tekan <b class="btn">Ask leadership to confirm</b>. Permintaan persetujuan dikirim ke Google Chat pemegang approve_goods. Kalau Anda pimpinan dan membuat PO sendiri, langkah ini dan berikutnya tidak perlu — konfirmasinya sudah tercatat saat PO dibuat.</div>
+        <div class="rule"><b>Kenapa:</b> PO tidak bisa di-issue sebelum dikonfirmasi pimpinan (not_approved), karena PO adalah janji atas nama perusahaan. PO yang sudah dikonfirmasi tidak dikirim lagi ke Chat (already_approved).</div>
         <div class="status">PO: DRAFT <span>→</span> PO: DRAFT · menunggu konfirmasi</div>
         <figure><img src="04-po-detail.jpg" alt=""></figure>
       </li>
       <li>
-        <div class="act">Pimpinan membuka PO yang sama dan menekan <b class="btn">Confirm it</b>.</div>
-        <div class="rule"><b>Kenapa:</b> Kalau pembuat PO sendiri memegang approve_goods, ia bisa langsung mengonfirmasi; sistem mencatatnya sebagai dikonfirmasi sendiri (tidak ada orang kedua yang memeriksa).</div>
+        <div class="act">Pimpinan menjawab dari kartu di Google Chat (setuju, atau tolak dengan alasan), atau membuka PO yang sama di aplikasi dan menekan <b class="btn">Confirm it</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Jawaban dari Chat hanya diterima dari orang yang dikirimi kartu, dan dicatat atas nama akunnya — bukan akun laptop rapat (D69). Menolak wajib dengan alasan. Kalau pembuat PO sendiri memegang approve_goods, sistem mencatatnya sebagai dikonfirmasi sendiri: tidak ada orang kedua yang memeriksa.</div>
         <div class="status">PO: DRAFT <span>→</span> PO: DRAFT · dikonfirmasi</div>
         
       </li>
@@ -211,7 +211,7 @@
         <figure><img src="04-po-print.jpg" alt=""></figure>
       </li>
     </ol>
-    <div class="faq"><h3>Tanya-jawab</h3><p><b>Kenapa tombol Issue ditolak not_approved?</b><br>PO harus dikonfirmasi pimpinan dulu. Tekan "Ask leadership to confirm", tunggu pimpinan menekan "Confirm it", baru "Issue and send it".</p><p><b>Kenapa baris PR tidak muncul di pilihan "From request line"?</b><br>Yang muncul hanya baris yang sudah APPROVED (atau PAID), punya jumlah, belum dihapus, dan vendornya sama atau belum ditentukan. Kalau baris itu sudah ada di PO lain, sistem menolak dengan nama PO-nya.</p></div>
+    <div class="faq"><h3>Tanya-jawab</h3><p><b>Kenapa tombol Issue ditolak not_approved?</b><br>PO harus dikonfirmasi pimpinan dulu. Tekan "Ask leadership to confirm", tunggu pimpinan menekan "Confirm it", baru "Issue and send it".</p><p><b>Kenapa baris PR tidak muncul di pilihan "From request line"?</b><br>Yang muncul hanya baris yang sudah APPROVED (atau PAID), punya jumlah, belum dihapus, dan vendornya sama atau belum ditentukan. Kalau baris itu sudah ada di PO lain, sistem menolak dengan nama PO-nya.</p><p><b>Siapa yang harus menyetujui PO?</b><br>Selalu pimpinan (pemegang approve_goods). Kalau pimpinan sendiri yang membuat PO, konfirmasinya tercatat otomatis saat dibuat. Kalau staf yang membuat, staf menekan "Ask leadership to confirm" dan pimpinan menjawab dari Google Chat atau dari halaman PO.</p></div>
     <p class="next">Berikutnya: <b>Mencatat barang datang (penerimaan)</b></p>
   </section>
   <section class="proc">
@@ -407,5 +407,9 @@
     
   </section>
 
-  
+  <section class="temuan">
+    <h2>Temuan simulasi — yang belum berjalan sesuai SOP</h2>
+    <p>Simulasi menemukan langkah-langkah berikut yang belum berjalan seperti yang ditulis di atas. Sudah dilaporkan ke IT; sampai diperbaiki, ikuti catatan di bawah.</p>
+    <ol><li><b>Kenapa kartu persetujuan PO belum muncul di Google Chat pimpinan?</b><br>Permintaannya sudah tercatat dan ditujukan ke pimpinan, tetapi pengirim kartu ke Google Chat untuk PO belum dipasang. Sementara itu pimpinan membuka PO di aplikasi (banner "Waiting on leadership") dan menekan "Confirm it".</li></ol>
+  </section>
 </body></html>
