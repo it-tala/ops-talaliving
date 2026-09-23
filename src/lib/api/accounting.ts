@@ -395,14 +395,39 @@ export async function voidTransaction(
 /** Correcting a row in place — amount (with a remark) and description
  *  (`0101`). The seam writes the audit row with the remark as its reason and
  *  the values before and after as its detail; this reads the row back. */
+/** Correcting a ledger row in place.
+ *
+ *  `vendor_code`, `project_code` and `type_code` arrived with `0105`, and the
+ *  three-state argument is the part to read carefully:
+ *
+ *    omitted   leave the field as it is
+ *    `""`      take it off — the row has no vendor / no project
+ *    a code    resolve it, or the seam refuses rather than creating one
+ *
+ *  `undefined → null` is what makes *leave it alone* the default, which is the
+ *  behaviour a description-only edit needs: without it, every typo fix would
+ *  quietly clear the vendor. `type_code` has no clearing case — the column is
+ *  `not null`, and `OTHERS` is what this system calls unclassified.
+ */
 export async function editTransaction(
-  input: { trx_no: string; amount_idr?: number; description?: string; reason?: string },
+  input: {
+    trx_no: string;
+    amount_idr?: number;
+    description?: string;
+    vendor_code?: string | null;
+    project_code?: string | null;
+    type_code?: string;
+    reason?: string;
+  },
   idempotencyKey?: string,
 ): Promise<Result<TransactionView>> {
   const { data, error } = await db().rpc("edit_transaction", {
     p_trx_no: input.trx_no,
     p_amount: input.amount_idr ?? null,
     p_description: input.description ?? null,
+    p_vendor_code: input.vendor_code ?? null,
+    p_project_code: input.project_code ?? null,
+    p_type_code: input.type_code ?? null,
     p_reason: input.reason ?? null,
     p_key: idempotencyKey ?? null,
   });
