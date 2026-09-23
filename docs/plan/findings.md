@@ -6026,3 +6026,37 @@ seventh would not have been.
 
 Caught by a smoke assertion about a completely different feature. That is what
 those two hundred lines of refusals are for.
+
+## F148 · 2026-09-23 · walking the week as three people found four doors that do not open
+
+Every seam in procurement had a smoke file, and every smoke file was green.
+The simulation (`supabase/local/smoke/99_sim_procure_to_ledger.sql`) asked a
+different question: not *does this seam work* but *can Andi, Evin and Rina get
+from an empty database to a matched bank line using only what the screens
+send*. Thirty-five steps. Four of them could not be taken as the SOP would
+describe them (backlog B5–B8).
+
+**The one that matters most is B5, and it hid in plain sight.** `05_procure_lifecycle`
+calls `create_receipt` with `'kind','goods_photo'` — the code — and passes.
+The live screen sends `'Receiving Item'` — the label — because every other
+evidence road in the application accepts labels through `doc_kind_of`. This
+one does not. So the smoke file proved the seam against an input no screen
+produces, and the screen was never put against the seam. The simulation
+passes exactly what `ReceiveForm.tsx` passes, and gets `photo_required` with a
+photo attached. **A test that calls a seam the way its author thinks it is
+called proves the author, not the seam.**
+
+B6 is the same shape from the other side: `/procurement/pr/new` is the only
+road to a PR, and `check-live-routes` correctly keeps it shut because one
+optional dropdown reads `production`. Nothing is broken; the rule is right and
+the page is dark. A derived gate is only as fine-grained as the thing it walks.
+
+B7 and B8 are not bugs but a missing join: the PO never learnt which request
+line it buys, so a payment can be allocated to the line or to the order and
+never both, and the order's deposit reads UNPAID after it is paid.
+
+The walk is kept as a smoke file rather than a document. It logs `TEMUAN`
+instead of asserting, so it stays green while the findings are open — and when
+B5 is fixed, the step's own `case` turns it to `OK` without anybody editing the
+simulation.
+

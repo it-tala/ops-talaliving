@@ -156,6 +156,7 @@ API inventory and the estimate.
 | B7 | Smoke + RLS matrix tests | 2 | TODO | one refusal and one derivation per schema |
 | B8 | Data migration from Sheets + `john-lau` | 2–8 | TODO | `phase-2/04-data-migration.md` measures it and the owner answered its gate. No longer the open-ended item |
 | B9 | Parallel run and cutover | 2–3 | TODO | both systems in use, figures reconciled daily |
+| V1 | **Verifikasi per modul, mulai procurement → buku besar** — simulasi, SOP, pengetahuan proses, John Lau sebagai pemandu (AI) | 1 | **DONE for procurement** | 2026-09-23. `99_sim_procure_to_ledger.sql` walks the week as three people (35 steps, run by `smoke.sh`; `simulate.sh` prints the log to `docs/sop/procurement/simulasi-log.md`). It found **four** things that do not work as the steps say — see F148 and backlog B5–B8. The walk is written into `ops_asst.processes/process_steps/process_faq` (0124/0125), and **both** the SOP PDF (`scripts/sop/build-sop.mjs` → `docs/sop/procurement/sop.pdf`) and John Lau's model read those rows (D296). John Lau keeps his conversation across page changes *and* reloads, and marks the step for the open screen. **Next module: HR**, the same way. Owner: set `ASSISTANT_LLM_API_KEY` (Gemini) on the Worker |
 
 **The ordering rule.** Per **schema**, not per layer: finish `procure` from
 table to view to swapped screen before starting `acct`. A vertical slice

@@ -19,7 +19,7 @@
 import { ok, invalid, notFound, refused, type Result } from "@/services/_shared/envelope";
 import type {
   AssistantReply, AssistantTurn, AssistantTool, AnswerFact, AssistantDraft,
-  UnmatchedPrompt, RouterHealth, RouterRule,
+  UnmatchedPrompt, RouterHealth, RouterRule, AskContext,
 } from "@/services/assistant/contracts";
 import { getState, apply, newId, writeAudit } from "../store";
 import { latency, actingUser, requireModule, replayed, remember } from "./_kit";
@@ -75,8 +75,9 @@ function store(turn: AssistantTurn) {
   apply((draft) => { draft.assistant_turns.push(turn); });
 }
 
-/** Asking. */
-export async function ask(prompt: string): Promise<Result<AssistantReply>> {
+/** Asking. `context` is accepted and unused: the demo has no model, so the
+ *  screen somebody is on changes nothing about a keyword match. */
+export async function ask(prompt: string, context?: AskContext): Promise<Result<AssistantReply>> {
   await latency();
   const denied = requireModule(SERVICE, "procurement");
   if (denied) {

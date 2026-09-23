@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8">
+<title>SOP procurement — Tala Living</title>
+<style>
+  @page { size: A4; margin: 16mm 14mm 18mm; }
+  :root { --brand: #2f6b52; --ink: #1e293b; --muted: #64748b; --line: #e2e8f0; --warn: #b45309; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", system-ui, -apple-system, sans-serif; color: var(--ink); font-size: 10.5pt; line-height: 1.5; margin: 0; background: #fff; }
+  .cover { height: 250mm; display: flex; flex-direction: column; justify-content: center; page-break-after: always; }
+  .cover .kicker { color: var(--brand); font-weight: 700; letter-spacing: .12em; font-size: 10pt; text-transform: uppercase; }
+  .cover h1 { font-size: 30pt; margin: 6mm 0 3mm; line-height: 1.15; }
+  .cover p { color: var(--muted); max-width: 140mm; }
+  .cover ol { list-style: none; padding: 0; margin-top: 10mm; columns: 2; }
+  .cover ol li { padding: 1.5mm 0; border-bottom: 1px solid var(--line); break-inside: avoid; }
+  .cover ol span { color: var(--brand); font-weight: 700; display: inline-block; width: 7mm; }
+  .intro { page-break-after: always; }
+  h2 { margin: 0; font-size: 16pt; }
+  h3 { font-size: 11pt; margin: 0 0 2mm; }
+  .proc { page-break-before: always; }
+  .proc header { display: flex; gap: 4mm; align-items: center; border-bottom: 2px solid var(--brand); padding-bottom: 3mm; margin-bottom: 3mm; }
+  .num { background: var(--brand); color: #fff; width: 11mm; height: 11mm; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13pt; flex: none; }
+  .meta { margin: 1mm 0 0; color: var(--muted); font-size: 9pt; }
+  code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 8.8pt; background: #f1f5f9; padding: 0 1.2mm; border-radius: 1mm; }
+  .purpose { background: #f0f7f3; border-left: 3px solid var(--brand); padding: 2.5mm 3.5mm; margin: 0 0 4mm; }
+  .steps { padding-left: 6mm; margin: 0; }
+  .steps > li { margin: 0 0 4mm; padding-left: 1mm; }
+  .steps > li::marker { color: var(--brand); font-weight: 700; }
+  .act { font-weight: 600; }
+  .btn { background: #e8f1ec; color: var(--brand); border: 1px solid #b9d5c6; border-radius: 1.2mm; padding: 0 1.4mm; font-weight: 700; white-space: nowrap; }
+  .rule { color: #334155; font-size: 9.5pt; margin-top: 1mm; }
+  .status { display: inline-block; margin-top: 1.2mm; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 8.5pt; background: #f8fafc; border: 1px solid var(--line); border-radius: 1mm; padding: .4mm 2mm; }
+  .status span { color: var(--brand); font-weight: 700; }
+  figure { margin: 2.5mm 0 0; break-inside: avoid; }
+  figure img { width: 100%; border: 1px solid var(--line); border-radius: 1.5mm; }
+  .faq { margin-top: 4mm; border-top: 1px solid var(--line); padding-top: 3mm; font-size: 9.5pt; break-inside: avoid; }
+  .faq p { margin: 0 0 2mm; }
+  .next { color: var(--muted); font-size: 9.5pt; border-top: 1px dashed var(--line); padding-top: 2mm; }
+  .temuan { page-break-before: always; }
+  .temuan li { margin-bottom: 3mm; }
+  .temuan li b { color: var(--warn); }
+  .note { color: var(--muted); font-size: 9pt; }
+</style></head>
+<body>
+  <div class="cover">
+    <div class="kicker">SOP · OPS TALALIVING</div>
+    <h1>Procurement sampai buku besar</h1>
+    <p>Cara memakai sistem, langkah demi langkah, dari menambah supplier sampai mencocokkan rekening koran. Setiap langkah di dokumen ini sudah dijalankan dalam simulasi terhadap database yang sama dengan sistem live.</p>
+    <p class="note">Versi 23 September 2026 · dibuat otomatis dari tabel pengetahuan John Lau (<code>ops_asst.processes</code>). Gambar diambil dari mode demo, jadi angkanya contoh.</p>
+    <ol><li><span>1.</span> Menambah supplier dan barang</li><li><span>2.</span> Membuat permintaan pembelian (PR)</li><li><span>3.</span> Persetujuan barang (papan rapat dan Google Chat)</li><li><span>4.</span> Membuat, mengonfirmasi dan mengirim purchase order (PO)</li><li><span>5.</span> Mencatat barang datang (penerimaan)</li><li><span>6.</span> Membayar baris PR dan mencatatnya ke buku besar</li><li><span>7.</span> Melengkapi transaksi di buku besar</li><li><span>8.</span> Verifikasi bukti yang masuk (kotak verifikasi)</li><li><span>9.</span> Mencocokkan rekening koran dengan buku besar</li></ol>
+  </div>
+
+  <section class="intro">
+    <h2>Sebelum mulai</h2>
+    <p><b>Siapa mengerjakan apa.</b> Staf procurement membuat PR, PO dan mencatat barang datang. Pimpinan (pemegang <code>approve_goods</code>) menyetujui barang dan mengonfirmasi PO. Keuangan (pemegang <code>post_ledger</code>) mencatat pembayaran ke buku besar, memverifikasi bukti, dan mencocokkan rekening koran. Tombol yang bukan bagian Anda tetap terlihat, tapi sistem akan menolak dengan alasan yang jelas.</p>
+    <p><b>Satuan kerjanya adalah baris.</b> Satu PR bisa berisi banyak baris, dan tiap baris disetujui, dibayar dan diterima sendiri-sendiri. Status baris dihitung sistem, tidak pernah diketik.</p>
+    <p><b>Tanya John Lau kapan saja.</b> Tombol <b class="btn">John Lau</b> ada di pojok kanan bawah setiap halaman. Tanyakan "bagaimana cara membuat PO?" atau "saya sudah submit PR, terus apa?". Panduannya tetap terbuka saat Anda pindah halaman, dan langkah yang sesuai dengan halaman yang sedang dibuka ditandai <b class="btn">you are here</b>. Percakapan tersimpan, jadi tidak hilang walaupun halaman di-refresh.</p>
+    <figure><img src="10-john-lau.jpg" alt=""></figure>
+  </section>
+
+  
+  <section class="proc">
+    <header>
+      <div class="num">1</div>
+      <div>
+        <h2>Menambah supplier dan barang</h2>
+        <p class="meta">Layar: <code>/master-data/suppliers</code> · Butuh: <code>procurement.create</code></p>
+      </div>
+    </header>
+    <p class="purpose">Supplier dan barang adalah daftar yang dipakai semua dokumen. Nama yang diketik selalu diterima supaya pembelian tidak terjadi di luar sistem; kurasi (merapikan dan menggabungkan duplikat) dilakukan belakangan.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka Master data → Suppliers, tekan tombol tambah, ketik nama supplier.</div>
+        <div class="rule"><b>Kenapa:</b> Nama apa pun diterima dan langsung bisa dipakai. Supplier baru belum dikurasi: muncul di daftar, belum muncul di dropdown pilihan sampai dikurasi.</div>
+        <div class="status">— <span>→</span> belum dikurasi</div>
+        <figure><img src="01-suppliers.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Buka Master data → Items untuk menambah barang: nama, kategori, dan satuan dasar.</div>
+        <div class="rule"><b>Kenapa:</b> Kategori harus dipilih dari daftar yang ada; kategori yang tidak dikenal ditolak (no_such_category). Kode barang dibuat otomatis (I-00001).</div>
+        
+        
+      </li>
+      <li>
+        <div class="act">Kalau satuannya belum ada, tambahkan di Master data → Units, beserta konversinya.</div>
+        <div class="rule"><b>Kenapa:</b> Satuan dan konversi harus benar karena jumlah di PR, PO dan stok dihitung dari situ.</div>
+        
+        
+      </li>
+    </ol>
+    
+    <p class="next">Berikutnya: <b>Membuat permintaan pembelian (PR)</b></p>
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">2</div>
+      <div>
+        <h2>Membuat permintaan pembelian (PR)</h2>
+        <p class="meta">Layar: <code>/procurement/pr/new</code> · Butuh: <code>procurement.create</code></p>
+      </div>
+    </header>
+    <p class="purpose">PR adalah permintaan barang atau jasa, satu dokumen berisi beberapa baris. Satuan kerjanya adalah baris: tiap baris disetujui, dibayar dan diterima sendiri-sendiri.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka Procurement → Requests, tekan <b class="btn">New request</b>.</div>
+        
+        
+        <figure><img src="02-pr-board.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Pilih proyek, lalu isi tiap baris: barang, vendor, jumlah, satuan dan harga satuan. Nilai baris dihitung dari jumlah × harga.</div>
+        <div class="rule"><b>Kenapa:</b> Baris jasa (misalnya ongkos kirim) tidak punya jumlah: nominalnya diketik langsung. Kalau dihitung ulang dari jumlah × harga, hasilnya nol.</div>
+        <div class="status">— <span>→</span> PR: DRAFT</div>
+        <figure><img src="02-pr-new.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Tekan <b class="btn">Submit for approval</b>. Kalau belum siap, simpan sebagai draft dulu.</div>
+        <div class="rule"><b>Kenapa:</b> PR tanpa baris ditolak (lines_required). PR yang sudah disubmit tidak bisa disubmit lagi (already_submitted).</div>
+        <div class="status">PR: DRAFT <span>→</span> PR: SUBMITTED · baris: WAITING FOR APPROVAL</div>
+        
+      </li>
+      <li>
+        <div class="act">Lampirkan bukti harga di tiap baris (penawaran, link toko, atau chat vendor) dari laci baris.</div>
+        <div class="rule"><b>Kenapa:</b> Baris tanpa bukti harga tidak bisa dikirim untuk disetujui dan tidak bisa disetujui (support_required).</div>
+        
+        
+      </li>
+    </ol>
+    <div class="faq"><h3>Tanya-jawab</h3><p><b>Apa bedanya status PR dan status baris?</b><br>Dokumen PR hanya DRAFT atau SUBMITTED. Yang bergerak adalah barisnya: WAITING FOR APPROVAL → APPROVED → PAID → COMPLETED. Status baris dihitung dari persetujuan dan pembayaran, tidak diketik.</p></div>
+    <p class="next">Berikutnya: <b>Persetujuan barang (papan rapat dan Google Chat)</b></p>
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">3</div>
+      <div>
+        <h2>Persetujuan barang (papan rapat dan Google Chat)</h2>
+        <p class="meta">Layar: <code>/procurement/meeting</code> · Butuh: <code>wewenang approve_goods</code></p>
+      </div>
+    </header>
+    <p class="purpose">Pimpinan memutuskan baris mana yang boleh dibeli dan berapa nilainya. Persetujuan barang berbeda dari persetujuan uang, dan harus ada sebelum memesan ke vendor. Setiap angka yang disetujui harus punya bukti harga.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka Procurement → Meeting board. Baris yang menunggu keputusan ada di sini, dengan total yang diminta.</div>
+        
+        <div class="status">baris: WAITING FOR APPROVAL <span>→</span> —</div>
+        <figure><img src="03-meeting.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Kalau pimpinan tidak di ruangan: centang barisnya lalu tekan <b class="btn">Send N to the approver on Chat</b>. Kartu persetujuan dikirim ke Google Chat pemegang approve_goods.</div>
+        <div class="rule"><b>Kenapa:</b> Yang dikirim harus punya bukti harga, karena pimpinan tidak bisa memeriksa angka tanpa bukti dari HP. Kalau tidak ada yang memegang approve_goods, pengiriman ditolak (no_approver).</div>
+        <div class="status">— <span>→</span> menunggu jawaban</div>
+        
+      </li>
+      <li>
+        <div class="act">Pimpinan menjawab dari kartu di Google Chat: setuju atau tidak.</div>
+        <div class="rule"><b>Kenapa:</b> Yang tercatat adalah akun pimpinan yang menjawab, bukan laptop rapat.</div>
+        <div class="status">baris: WAITING FOR APPROVAL <span>→</span> baris: APPROVED</div>
+        
+      </li>
+      <li>
+        <div class="act">Kalau diputuskan di rapat: pemegang approve_goods mencentang baris, boleh mengurangi jumlah atau nominalnya, menambah instruksi, lalu tekan <b class="btn">Approve this</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Staf procurement tidak bisa menyetujui (authority_required). Nominal yang disetujui boleh lebih kecil dari yang diminta; yang diminta tetap tercatat.</div>
+        <div class="status">baris: WAITING FOR APPROVAL <span>→</span> baris: APPROVED</div>
+        
+      </li>
+    </ol>
+    <div class="faq"><h3>Tanya-jawab</h3><p><b>Siapa yang bisa menyetujui?</b><br>Hanya orang yang memegang wewenang approve_goods. Staf procurement tidak bisa menyetujui barisnya sendiri. Kartu Chat dikirim ke pemegang wewenang itu, bukan ke nama yang ditulis tangan.</p><p><b>Kenapa kirim ke Chat ditolak support_required?</b><br>Baris yang dikirim belum punya bukti harga. Lampirkan penawaran, link toko, atau tangkapan chat vendor di laci baris PR, lalu kirim lagi.</p></div>
+    <p class="next">Berikutnya: <b>Membuat, mengonfirmasi dan mengirim purchase order (PO)</b></p>
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">4</div>
+      <div>
+        <h2>Membuat, mengonfirmasi dan mengirim purchase order (PO)</h2>
+        <p class="meta">Layar: <code>/procurement/po</code> · Butuh: <code>procurement.create</code></p>
+      </div>
+    </header>
+    <p class="purpose">PO adalah janji atas nama perusahaan kepada vendor. Dibuat sebagai draft, dikonfirmasi pimpinan, lalu di-issue. Sebelum di-issue tidak ada yang kita hutangi; sesudahnya uang muka (DP) sudah menjadi kewajiban.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka Procurement → Purchase Orders (atau Tracker), tekan <b class="btn">Add new PO</b>, pilih vendor.</div>
+        <div class="rule"><b>Kenapa:</b> Pastikan baris PR-nya sudah APPROVED dulu.</div>
+        
+        <figure><img src="04-new-po.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Isi barisnya: barang, jumlah, satuan, harga satuan. Isi persen DP kalau ada uang muka, dan tanggal barang diharapkan datang. Tekan <b class="btn">Create the draft</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Harga kosong ditolak (price_required) — nilai kontrak harus disepakati. Kalau ada DP, sistem membuat dua termin: DP saat PO di-issue dan pelunasan saat barang diterima.</div>
+        <div class="status">— <span>→</span> PO: DRAFT</div>
+        
+      </li>
+      <li>
+        <div class="act">Buka PO-nya dari daftar Purchase Orders, lalu tekan <b class="btn">Ask leadership to confirm</b>.</div>
+        <div class="rule"><b>Kenapa:</b> PO tidak bisa di-issue sebelum dikonfirmasi pimpinan (not_approved), karena PO adalah janji atas nama perusahaan.</div>
+        <div class="status">PO: DRAFT <span>→</span> PO: DRAFT · menunggu konfirmasi</div>
+        <figure><img src="04-po-detail.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Pimpinan membuka PO yang sama dan menekan <b class="btn">Confirm it</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Kalau pembuat PO sendiri memegang approve_goods, ia bisa langsung mengonfirmasi; sistem mencatatnya sebagai dikonfirmasi sendiri (tidak ada orang kedua yang memeriksa).</div>
+        <div class="status">PO: DRAFT <span>→</span> PO: DRAFT · dikonfirmasi</div>
+        
+      </li>
+      <li>
+        <div class="act">Tekan <b class="btn">Issue and send it</b>, lalu cetak PO dari halaman cetaknya.</div>
+        <div class="rule"><b>Kenapa:</b> Sesudah di-issue, DP sudah menjadi kewajiban dan muncul sebagai "Payable now". Yang dicetak adalah dokumennya, tanpa menu dan sidebar.</div>
+        <div class="status">PO: DRAFT <span>→</span> PO: ISSUED</div>
+        <figure><img src="04-po-print.jpg" alt=""></figure>
+      </li>
+    </ol>
+    <div class="faq"><h3>Tanya-jawab</h3><p><b>Kenapa tombol Issue ditolak not_approved?</b><br>PO harus dikonfirmasi pimpinan dulu. Tekan "Ask leadership to confirm", tunggu pimpinan menekan "Confirm it", baru "Issue and send it".</p></div>
+    <p class="next">Berikutnya: <b>Mencatat barang datang (penerimaan)</b></p>
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">5</div>
+      <div>
+        <h2>Mencatat barang datang (penerimaan)</h2>
+        <p class="meta">Layar: <code>/procurement/tracker</code> · Butuh: <code>procurement.create</code></p>
+      </div>
+    </header>
+    <p class="purpose">Barang yang datang dicatat terhadap baris PO, dengan foto barang (wajib) dan tanda terima yang ditandatangani. Tanpa tanda terima, penerimaan hanya dilaporkan dan belum dihitung sebagai barang diterima.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka Procurement → Tracker, pilih vendornya, lalu tekan <b class="btn">Record arrival</b> di baris PO yang barangnya datang.</div>
+        
+        
+        <figure><img src="05-receive.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Isi jumlah yang datang dan kondisinya. Unggah foto barang (wajib) dan tanda terima yang ditandatangani, lalu tekan <b class="btn">Record what arrived</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Tanpa foto ditolak (photo_required). Dengan foto dan tanda terima sekaligus, penerimaan langsung CONFIRMED dan dihitung sebagai barang diterima.</div>
+        <div class="status">— <span>→</span> penerimaan: CONFIRMED</div>
+        
+      </li>
+      <li>
+        <div class="act">Kalau tanda terima belum ada (misalnya barang datang malam), catat dengan foto saja. Besoknya buka Procurement → Penerimaan, tekan <b class="btn">Complete it</b> lalu <b class="btn">Confirm it</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Penerimaan yang baru dilaporkan (REPORTED) belum bernilai apa pun sampai ada orang yang mengonfirmasi.</div>
+        <div class="status">penerimaan: REPORTED <span>→</span> penerimaan: CONFIRMED</div>
+        <figure><img src="05-penerimaan.jpg" alt=""></figure>
+      </li>
+    </ol>
+    <div class="faq"><h3>Tanya-jawab</h3><p><b>Apakah stok gudang bertambah otomatis saat barang diterima?</b><br>Belum. Penerimaan di procurement belum tersambung ke stok inventory; stok masuk dicatat terpisah di modul inventory.</p></div>
+    <p class="next">Berikutnya: <b>Membayar baris PR dan mencatatnya ke buku besar</b></p>
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">6</div>
+      <div>
+        <h2>Membayar baris PR dan mencatatnya ke buku besar</h2>
+        <p class="meta">Layar: <code>/procurement/pr</code> · Butuh: <code>wewenang post_ledger</code></p>
+      </div>
+    </header>
+    <p class="purpose">Membayar dan menulis baris buku besar adalah satu tindakan: uang keluar dari rekening, tercatat sebagai transaksi, dan langsung dialokasikan ke baris PR yang dibayar. Hanya keuangan (pemegang post_ledger) yang bisa, dan selalu dengan bukti transfer.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka Procurement → Requests, klik baris yang sudah APPROVED untuk membuka lacinya.</div>
+        <div class="rule"><b>Kenapa:</b> Yang dibayar adalah baris yang sudah disetujui.</div>
+        <div class="status">baris: APPROVED <span>→</span> —</div>
+        <figure><img src="06-pay-line.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Di bagian pembayaran, pilih rekening sumber, jenis transaksi (misalnya SUPPLIERS), nominal, dan unggah bukti transfer.</div>
+        <div class="rule"><b>Kenapa:</b> Tanpa bukti transfer ditolak (evidence_required). Staf procurement tidak bisa mencatat pembayaran (authority_required) — hanya pemegang post_ledger.</div>
+        
+        
+      </li>
+      <li>
+        <div class="act">Tekan <b class="btn">Post Rp… to the ledger</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Satu tindakan menulis transaksi di buku besar dan mengalokasikan uangnya ke baris PR. Saldo rekening langsung berkurang.</div>
+        <div class="status">baris: APPROVED <span>→</span> transaksi: POSTED · baris: PAID</div>
+        
+      </li>
+      <li>
+        <div class="act">Transaksinya bisa dilihat di Accounting → Ledger.</div>
+        
+        
+        <figure><img src="07-ledger.jpg" alt=""></figure>
+      </li>
+    </ol>
+    <div class="faq"><h3>Tanya-jawab</h3><p><b>Siapa yang boleh mencatat pembayaran?</b><br>Hanya keuangan yang memegang wewenang post_ledger, dan selalu dengan bukti transfer.</p></div>
+    <p class="next">Berikutnya: <b>Melengkapi transaksi di buku besar</b></p>
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">7</div>
+      <div>
+        <h2>Melengkapi transaksi di buku besar</h2>
+        <p class="meta">Layar: <code>/accounting/ledger</code> · Butuh: <code>wewenang post_ledger</code></p>
+      </div>
+    </header>
+    <p class="purpose">Transaksi yang sudah tercatat (POSTED) ditandai lengkap (COMPLETED) kalau nota atau bukti transfernya sudah menempel. Ini tanda bahwa transaksi itu sudah bisa dipertanggungjawabkan.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka Accounting → Ledger, klik transaksinya untuk membuka lacinya.</div>
+        
+        <div class="status">transaksi: POSTED <span>→</span> —</div>
+        
+      </li>
+      <li>
+        <div class="act">Pastikan nota atau bukti transfer sudah menempel, lalu tekan <b class="btn">Mark completed</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Tanpa nota atau bukti transfer ditolak (document_required).</div>
+        <div class="status">transaksi: POSTED <span>→</span> transaksi: COMPLETED</div>
+        
+      </li>
+    </ol>
+    <div class="faq"><h3>Tanya-jawab</h3><p><b>Apa bedanya POSTED dan COMPLETED?</b><br>POSTED berarti uangnya sudah tercatat di buku besar. COMPLETED berarti dokumennya (nota atau bukti transfer) sudah lengkap menempel.</p></div>
+    <p class="next">Berikutnya: <b>Mencocokkan rekening koran dengan buku besar</b></p>
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">8</div>
+      <div>
+        <h2>Verifikasi bukti yang masuk (kotak verifikasi)</h2>
+        <p class="meta">Layar: <code>/accounting/verifikasi</code> · Butuh: <code>wewenang resolve_inbox</code></p>
+      </div>
+    </header>
+    <p class="purpose">Foto nota dan bukti yang dikirim dari lapangan lewat Chat masuk ke kotak verifikasi sebagai PENDING. Keuangan memutuskan: jadikan transaksi, tempelkan ke transaksi yang ada, catat saja, atau tolak dengan alasan. Tidak ada yang dibuang.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka Accounting → Verifikasi. Bukti yang dikirim dari Chat menunggu di sini sebagai PENDING.</div>
+        
+        <div class="status">— <span>→</span> PENDING</div>
+        <figure><img src="08-verifikasi.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Pilih jalannya: <b class="btn">Make a transaction</b> (jadi transaksi baru), <b class="btn">Link to a row</b> (tempel ke transaksi yang sudah ada), <b class="btn">Retro request line</b> (dibeli dulu, disetujui belakangan), <b class="btn">Note</b> (catat saja), atau <b class="btn">Reject</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Menolak wajib dengan alasan (reason_required), supaya pengirim tahu kenapa.</div>
+        <div class="status">PENDING <span>→</span> CONFIRMED / ATTACHED / NOTED / REJECTED</div>
+        
+      </li>
+    </ol>
+    
+    
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">9</div>
+      <div>
+        <h2>Mencocokkan rekening koran dengan buku besar</h2>
+        <p class="meta">Layar: <code>/accounting/rekening-koran</code> · Butuh: <code>accounting.create</code></p>
+      </div>
+    </header>
+    <p class="purpose">Rekening koran dari bank diunggah per periode, lalu tiap baris bank dicocokkan dengan transaksi di buku besar. Ini bukti bahwa yang tercatat benar-benar keluar atau masuk bank.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka Accounting → Rekening koran, unggah file rekening koran untuk satu rekening dan satu periode, lalu tekan <b class="btn">Masukkan N baris</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Periode yang sama tidak bisa diunggah dua kali (period_already_uploaded).</div>
+        <div class="status">— <span>→</span> baris bank: unmatched</div>
+        <figure><img src="09-rekening-koran.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Untuk tiap baris bank, pilih saran di bawah <b class="btn">Mirip dengan:</b> untuk mencocokkannya dengan transaksi buku besar.</div>
+        <div class="rule"><b>Kenapa:</b> Nominal atau arah yang berbeda ditolak (amount_differs, direction_differs).</div>
+        <div class="status">baris bank: unmatched <span>→</span> baris bank: matched</div>
+        
+      </li>
+      <li>
+        <div class="act">Baris bank yang belum ada di buku besar (misalnya biaya admin) dibukukan langsung dengan <b class="btn">Bukukan</b>, atau dilewati dengan alasan.</div>
+        <div class="rule"><b>Kenapa:</b> Membukukan dari rekening koran tetap menulis transaksi, jadi perlu wewenang post_ledger.</div>
+        <div class="status">baris bank: unmatched <span>→</span> baris bank: booked / ignored</div>
+        
+      </li>
+    </ol>
+    <div class="faq"><h3>Tanya-jawab</h3><p><b>Kenapa pencocokan ditolak amount_differs?</b><br>Nominal di baris bank tidak sama dengan nominal transaksi di buku besar. Periksa lagi transaksinya; jangan dicocokkan ke transaksi yang berbeda nominalnya.</p></div>
+    
+  </section>
+
+  <section class="temuan">
+    <h2>Temuan simulasi — yang belum berjalan sesuai SOP</h2>
+    <p>Simulasi menemukan langkah-langkah berikut yang belum berjalan seperti yang ditulis di atas. Sudah dilaporkan ke IT; sampai diperbaiki, ikuti catatan di bawah.</p>
+    <ol><li><b>Kenapa halaman New request tidak bisa dibuka?</b><br>Saat ini halaman /procurement/pr/new masih ikut memuat daftar work order dari modul produksi, yang belum aktif di sistem live, jadi halamannya belum dibuka. Sudah dilaporkan ke IT; sementara itu PR dibuat oleh admin.</li><li><b>Apakah PO otomatis tersambung ke baris PR?</b><br>Belum. Saat ini PO dibuat terpisah dari baris PR: sistem belum mencatat baris PR mana yang dibeli oleh PO tersebut. Pastikan sendiri baris PR-nya sudah APPROVED sebelum membuat PO.</li><li><b>Kenapa penerimaan ditolak photo_required padahal foto sudah diunggah?</b><br>Ini kesalahan sistem yang sudah ditemukan saat simulasi: layar penerimaan mengirim jenis dokumen dengan nama tampilan, sedangkan database mengharapkan kodenya. Sudah dilaporkan ke IT untuk diperbaiki.</li><li><b>Bagaimana membayar DP PO?</b><br>Belum ada tombol untuk membayar termin PO langsung. Pembayaran dicatat ke baris PR yang disetujui lewat "Post Rp… to the ledger". Termin di halaman PO akan tetap terbaca belum dibayar sampai fiturnya tersedia.</li></ol>
+  </section>
+</body></html>

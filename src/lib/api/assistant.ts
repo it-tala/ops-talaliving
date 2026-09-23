@@ -52,7 +52,7 @@
  */
 import type {
   AssistantReply, AssistantTurn, AssistantTool, AnswerFact, AssistantDraft,
-  UnmatchedPrompt, RouterHealth, RouterRule,
+  UnmatchedPrompt, RouterHealth, RouterRule, AskContext,
 } from "@/services/assistant/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fail, fromSeam, fromRows, invalid, ok, refused, type Result } from "./_kit";
@@ -246,7 +246,7 @@ async function record(prompt: string, t: TurnDraft): Promise<Result<TurnRow>> {
   return fromSeam<TurnRow>(SERVICE, data, error);
 }
 
-export async function ask(prompt: string): Promise<Result<AssistantReply>> {
+export async function ask(prompt: string, context?: AskContext): Promise<Result<AssistantReply>> {
   const lang = getActiveLang();
   const id = lang === "id";
 
@@ -267,6 +267,21 @@ export async function ask(prompt: string): Promise<Result<AssistantReply>> {
      things people expected John Lau to understand, and the evidence for
      deciding whether a model is worth it (0039). */
   if (!match) {
+    /* **A model, when this deployment has one** (D296). The keyword router
+       stays first and stays the only road to a figure: a sentence it
+       recognises is answered exactly as before. What a model changes is this
+       branch — *how do I…* in words nobody wrote a rule for — and it answers
+       from the process knowledge (0124), never from business data. A
+       deployment with no model answers 501 and falls through to the honest
+       *I do not understand* below, which is still John Lau as he was. */
+    const explained = await explain(prompt, context, lang);
+    if (explained) {
+      if (!isOk(explained)) return explained;
+      return ok(SERVICE, {
+        turn: toTurn(explained.data, email),
+        understood_as: explained.data.understood_as ?? "",
+      });
+    }
     const res = await record(prompt, {
       kind: "unknown",
       text: id
@@ -374,6 +389,36 @@ export async function ask(prompt: string): Promise<Result<AssistantReply>> {
   });
   if (!isOk(res)) return res;
   return ok(SERVICE, { turn: toTurn(res.data, email), understood_as: understood });
+}
+
+/** The model's answer, recorded as a turn — or null when this deployment
+ *  has no model, which is the caller's cue to say *I do not understand*.
+ *
+ *  Any other failure is returned rather than swallowed: a model that is
+ *  configured and broken is IT's problem to see, and folding it into *I do not
+ *  understand* would hide a wrong key behind a sentence about the question. */
+async function explain(
+  prompt: string, context: AskContext | undefined, lang: "en" | "id",
+): Promise<Result<TurnRow> | null> {
+  let res: Response;
+  try {
+    res = await fetch("/api/assistant/explain", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt, pathname: context?.pathname ?? null, lang }),
+    });
+  } catch {
+    return null;
+  }
+  if (res.status === 501 || res.status === 404) return null;
+  const body = await res.json().catch(() => null) as
+    { data?: TurnRow; error?: { code: string; message: string } } | null;
+  if (!res.ok || !body?.data) {
+    return refused(SERVICE, body?.error?.code ?? "llm_failed",
+      body?.error?.message ?? (lang === "id" ? "John Lau tidak bisa menjawab sekarang." : "John Lau cannot answer right now."),
+      { status: res.status });
+  }
+  return ok(SERVICE, body.data);
 }
 
 /** The figures, each from the same call the screen makes.
