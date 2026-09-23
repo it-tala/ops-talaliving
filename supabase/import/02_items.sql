@@ -40,29 +40,11 @@ begin;
 create temp table _run on commit drop as
   select gen_random_uuid() as run_id;
 
-/* The mapping, as a table rather than a `case` a hundred lines long — so it can
- * be read, argued with, and added to without touching the insert below.
- *
- * Only the folds and the new codes are here. A legacy unit that already matches
- * an `ops_procure.uom` code after lower-casing needs no row: the join finds it.
+/* The unit vocabulary lives in `_units.sql`, shared with `04_lines.sql`, which
+ * reads the same column on a different table. Two copies of *what does `dus`
+ * mean* is how the catalogue and the ledger end up disagreeing about a carton.
  */
-create temp table _unit_map (legacy text primary key, uom text) on commit drop;
-insert into _unit_map (legacy, uom) values
-  -- fold onto units that already existed
-  ('liter','ltr'), ('l','ltr'), ('btg','batang'), ('m','meter'),
-  ('cbm','m3'), ('pak','pack'), ('dz','lusin'),
-  -- the English additions from 0031
-  ('orang','person'), ('pax','person'), ('person','person'),
-  ('dus','carton'), ('dos','carton'), ('ds','carton'),
-  ('kaleng','can'), ('blek','can'),
-  ('galon','gallon'), ('botol','bottle'), ('rim','ream'),
-  ('ball','bale'), ('bg','bag'),
-  ('pail','pail'), ('lot','lot'), ('drum','drum'), ('ml','ml'),
-  ('day','day'), ('week','week'), ('month','month');
-  -- Deliberately absent: `fil`, `gendel`, `ltrset`, `roll/pcs`, `pail/drum`.
-  -- The last two name two units at once, which is not a unit; the first three
-  -- are not recognisable from here. Nine items, and they arrive with no unit
-  -- and their original text kept, rather than with a guess.
+\ir _units.sql
 
 create temp table _staged on commit drop as
 select i.item_id,
