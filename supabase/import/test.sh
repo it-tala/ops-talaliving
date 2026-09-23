@@ -267,6 +267,144 @@ DIFF=$(q -Atc "with ours as (
   || fail "and the differences are exactly the refused rows" "saw $DIFF"
 pass "the two gaps are exactly the four refusals"
 
+
+echo
+echo "── lines ───────────────────────────────────────────────────────────"
+q -q -f "$HERE/04_lines.sql" >/dev/null
+pass "04_lines (first run)"
+
+L1=$(q -Atc "select count(*) from ops_acct.transaction_lines")
+[ "$L1" = "4" ] || fail "four of five purchase lines land" "saw $L1"
+LR=$(q -Atc "select count(*) from ops_core.legacy_map
+              where source_table='public.item_purchases' and outcome='refused'")
+[ "$LR" = "1" ] || fail "the line on a refused transaction is refused" "saw $LR"
+# And the refusal points at the transaction's own row, so the two lists join up
+# rather than each looking like an unexplained gap.
+q -Atc "select note from ops_core.legacy_map
+         where source_table='public.item_purchases' and outcome='refused'" \
+  | grep -q "trx-26-01-06_005" || fail "the refusal names its transaction" "note does not"
+pass "4 lines imported, 1 refused naming its transaction"
+
+# Two lines on one transaction, numbered in the order they were recorded.
+NOS=$(q -Atc "select string_agg(l.line_no::text, ',' order by l.line_no)
+                from ops_acct.transaction_lines l join ops_acct.transactions t on t.id=l.trx_id
+               where t.trx_no='trx-26-01-04_003'")
+[ "$NOS" = "1,2" ] || fail "lines on one transaction are numbered from 1" "saw $NOS"
+pass "line_no runs 1,2 within a transaction"
+
+# `item_raw` is what somebody typed; the item name is where it was filed. The
+# line carries the first, and falls back to the second only when it is blank.
+D=$(q -Atc "select l.description from ops_acct.transaction_lines l join ops_acct.transactions t on t.id=l.trx_id
+             where t.trx_no='trx-26-01-02_001'")
+[ "$D" = 'SEKRUP 3" GALVANIS' ] || fail "the line says what was written on it" "saw '$D'"
+D=$(q -Atc "select description from ops_acct.transaction_lines where amount = 90000")
+[ "$D" = "CAT DASAR" ] || fail "a blank item_raw falls back to the item name" "saw '$D'"
+pass "description is what was typed, or the item's name"
+
+# The shared unit map, reached from a second file. `hari` and `duss` were added
+# for these rows; `liter` and `PCS` already worked for 02.
+for pair in "100000:pcs" "160000:ltr" "30000:day"; do
+  amt="${pair%%:*}"; want="${pair##*:}"
+  got=$(q -Atc "select coalesce(uom,'(none)') from ops_acct.transaction_lines where amount=$amt")
+  [ "$got" = "$want" ] || fail "the line of $amt takes unit $want" "saw '$got'"
+done
+# And one nobody here can read arrives with none rather than a guess.
+U=$(q -Atc "select coalesce(uom,'(none)') from ops_acct.transaction_lines where amount=90000")
+[ "$U" = "(none)" ] || fail "an unreadable unit is not guessed" "saw '$U'"
+q -Atc "select note from ops_core.legacy_map
+         where source_id='ccc00000-0000-0000-0000-000000000003'" \
+  | grep -q "slop" || fail "and its text is kept" "note lost it"
+pass "units folded through _units.sql, unknown ones left null"
+
+# A line that does not sum to its transaction is imported as it stands. Six of
+# the 1.188 real ones do not add up, and a line adjusted so an arithmetic check
+# passes is a fact replaced by a preference.
+MISMATCH=$(q -Atc "select count(*) from (
+    select t.id from ops_acct.transactions t join ops_acct.transaction_lines l on l.trx_id=t.id
+     group by t.id, t.amount_idr having sum(l.amount) <> t.amount_idr) x")
+[ "$MISMATCH" = "1" ] || fail "a line that does not add up is kept, not adjusted" "saw $MISMATCH"
+pass "the one that does not add up is kept and reported"
+
+# Nothing derived was written. `last_price` is the catalogue's own arithmetic
+# (A3) and a line is not licence to overwrite it.
+LP=$(q -Atc "select coalesce(last_price::text,'(null)') from ops_procure.items where name='SEKRUP 3 INCI'")
+[ "$LP" = "(null)" ] || [ "$LP" != "1000" ] || fail "the import does not rewrite last_price" "saw $LP"
+pass "no derived state written"
+
+
+echo
+echo "── evidence ────────────────────────────────────────────────────────"
+q -q -f "$HERE/05_evidence.sql" >/dev/null
+pass "05_evidence (first run)"
+
+# **Five doc rows over four files, and only three files land.** The counts are
+# the assertion: an import that made one attachment per doc row would produce
+# five, and would have erased the fact that one transfer proof covered two
+# purchases.
+A1=$(q -Atc "select count(*) from ops_core.attachments")
+K1=$(q -Atc "select count(*) from ops_core.attachment_links")
+[ "$A1" = "3" ] || fail "three files, not six doc rows" "saw $A1 attachments"
+# Six documents, four claims: one is refused, and one repeats another exactly.
+[ "$K1" = "4" ] || fail "six documents make four distinct claims" "saw $K1 links"
+pass "3 files, 4 claims from 6 documents"
+
+# Two identical claims are one claim, and the map says so — otherwise *fewer
+# links than documents* is a discrepancy somebody finds later with no
+# explanation attached.
+q -Atc "select note from ops_core.legacy_map where source_id='d0c00000-0000-0000-0000-000000000006'" \
+  | grep -q "repeats a claim" || fail "a repeated claim says it repeats one" "note does not"
+MAPPED=$(q -Atc "select count(*) from ops_core.legacy_map where source_table='public.transaction_docs'")
+[ "$MAPPED" = "6" ] || fail "every document is accounted for either way" "saw $MAPPED of 6"
+pass "the repeat is recorded, not lost"
+
+# The one that matters: one file, two transactions.
+SHARED=$(q -Atc "select count(*) from ops_core.attachment_links k
+                   join ops_core.attachments a on a.id=k.attachment_id
+                  where a.filename='1SharedProofAAA.jpg'")
+[ "$SHARED" = "2" ] || fail "one transfer proof covers two purchases" "saw $SHARED links"
+DUP=$(q -Atc "select count(*) from ops_core.attachments where filename='1SharedProofAAA.jpg'")
+[ "$DUP" = "1" ] || fail "and it is one file, not two" "saw $DUP copies"
+pass "one proof, two transactions, one file"
+
+# A file whose only mention is on a refused transaction must not arrive either.
+# An attachment nothing points at reads as filed on an evidence screen.
+ORPH=$(q -Atc "select count(*) from ops_core.attachments a
+                where not exists (select 1 from ops_core.attachment_links k where k.attachment_id=a.id)")
+[ "$ORPH" = "0" ] || fail "no attachment arrives with nothing pointing at it" "saw $ORPH"
+Q=$(q -Atc "select count(*) from ops_core.attachments where filename like '1OrphanDDD%'")
+[ "$Q" = "0" ] || fail "the file behind a refused document stays out" "it was imported"
+pass "no orphan files"
+
+# `filename` is not null and Drive gave none, so it is the file's own id plus an
+# extension from its mime — the way the live capture pipeline already spells it.
+F=$(q -Atc "select filename from ops_core.attachments where sha256='d4e5f6'")
+[ "$F" = "1NotaBBB.pdf" ] || fail "the filename is the drive id and its type" "saw '$F'"
+pass "filename built from the file's own identity"
+
+# The old vocabulary is the new one: these labels resolve verbatim, and a blank
+# type is filed Others rather than guessed.
+KINDS=$(q -Atc "select string_agg(kind::text, ',' order by kind::text) from (
+    select distinct kind from ops_core.attachment_links) x")
+[ "$KINDS" = "nota,other,transfer_proof" ] || fail "document types resolve verbatim" "saw $KINDS"
+q -Atc "select note from ops_core.legacy_map where source_id='d0c00000-0000-0000-0000-000000000004'" \
+  | grep -q "indistinguishable" || fail "a blank type is noted as such" "note does not say"
+pass "types resolve, blank ones noted"
+
+# The uploader the old system recorded is recovered; the rest fall back, and the
+# map says which is which.
+UP=$(q -Atc "select u.email::text from ops_core.attachments a join ops_core.users u on u.id=a.uploaded_by
+              where a.filename='1SharedProofAAA.jpg'")
+[ "$UP" = "evin@talaliving.com" ] || fail "a recorded uploader is recovered" "saw '$UP'"
+UP=$(q -Atc "select u.email::text from ops_core.attachments a join ops_core.users u on u.id=a.uploaded_by
+              where a.filename='1NotaBBB.pdf'")
+[ "$UP" = "shared@talaliving.com" ] || fail "and one with no event falls back" "saw '$UP'"
+pass "uploader recovered where recorded"
+
+# A blob nothing cites is not evidence. Most of the 1.442 real ones are like it.
+q -Atc "select count(*) from ops_core.legacy_map where source_id='b10b0000-0000-0000-0000-000000000004'" \
+  | grep -q "^0$" || fail "a blob nothing points at is not imported" "it was"
+pass "an uncited blob is left alone"
+
 # Re-read the map now that every file has run. Taken earlier it would be a
 # count from a different moment, and comparing it with the second run would
 # report a failure that is only the measurement moving.
@@ -277,7 +415,9 @@ echo "── second run — the one that matters ──────────�
 q -q -f "$HERE/01_reference.sql" >/dev/null
 q -q -f "$HERE/02_items.sql" >/dev/null
 q -q -f "$HERE/03_ledger.sql" >/dev/null
-pass "01_reference + 02_items + 03_ledger (second run)"
+q -q -f "$HERE/04_lines.sql" >/dev/null
+q -q -f "$HERE/05_evidence.sql" >/dev/null
+pass "all five files (second run)"
 
 V2=$(q -Atc "select count(*) from ops_procure.vendors")
 P2=$(q -Atc "select count(*) from ops_procure.projects")
@@ -285,6 +425,9 @@ M2=$(q -Atc "select count(*) from ops_core.legacy_map")
 A2=$(q -Atc "select count(*) from ops_acct.accounts")
 I2=$(q -Atc "select count(*) from ops_procure.items")
 T2=$(q -Atc "select count(*) from ops_acct.transactions")
+L2=$(q -Atc "select count(*) from ops_acct.transaction_lines")
+A2=$(q -Atc "select count(*) from ops_core.attachments")
+K2=$(q -Atc "select count(*) from ops_core.attachment_links")
 RUNS=$(q -Atc "select count(distinct run_id) from ops_core.legacy_map")
 
 [ "$V2" = "$V1" ] || fail "re-running imports no vendor twice"  "$V1 then $V2"
@@ -293,8 +436,11 @@ RUNS=$(q -Atc "select count(distinct run_id) from ops_core.legacy_map")
 [ "$I2" = "$I1" ] || fail "re-running imports no item twice"    "$I1 then $I2"
 # The one that would be a duplicate of money rather than of a reference row.
 [ "$T2" = "$T1" ] || fail "re-running books no transaction twice" "$T1 then $T2"
+[ "$L2" = "$L1" ] || fail "re-running lines no purchase twice"   "$L1 then $L2"
+[ "$A2" = "$A1" ] || fail "re-running files no document twice"   "$A1 then $A2"
+[ "$K2" = "$K1" ] || fail "re-running claims nothing twice"      "$K1 then $K2"
 [ "$M2" = "$M1" ] || fail "the map does not grow on a re-run"   "$M1 then $M2"
-[ "$RUNS" = "3" ] || fail "three files, three run ids on the first pass" "saw $RUNS"
+[ "$RUNS" = "5" ] || fail "five files, five run ids on the first pass" "saw $RUNS"
 pass "second run changed nothing"
 
 echo
