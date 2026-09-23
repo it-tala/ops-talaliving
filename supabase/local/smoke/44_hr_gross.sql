@@ -27,7 +27,7 @@ insert into ops_core.user_modules (user_id, module, level) values
 
 insert into ops_hr.employees
   (id, employee_no, full_name, unit, schedule_code, pay_basis, base_rate, allowance_rate, daily_hours)
-values ('aaaa0000-0000-0000-0000-0000000000b1','B-401','Joko Susilo','Produksi','produksi',
+values ('aaaa0000-0000-0000-0000-0000000000b1','B-401','Joko Susilo','Produksi','PRODUKSI',
         'daily', 180000, 25000, 8);
 
 insert into ops_hr.pay_rule_sets (version, effective_from, note, rules, created_by) values
@@ -47,9 +47,9 @@ insert into ops_hr.pay_rule_sets (version, effective_from, note, rules, created_
    "hourly_basis": "company",
    "effective_days_per_year": 300,
    "hourly_includes_allowance": true,
-   "schedules": [{"code":"produksi","name":"Produksi","start_minutes":450,"end_minutes":990,
+   "schedules": [{"code":"PRODUKSI","name":"Produksi","start_minutes":450,"end_minutes":990,
                   "break_minutes":45,"friday_break_minutes":90,"note":null}],
-   "schedule_by_unit": {"Produksi":"produksi"}
+   "schedule_by_unit": {"Produksi":"PRODUKSI"}
  }'::jsonb, 'ffffffff-0000-0000-0000-0000000000f1');
 
 set local role authenticated;

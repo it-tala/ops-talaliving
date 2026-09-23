@@ -5741,3 +5741,288 @@ telling the truth about this week all along while the schedules contradicted it
 right; one number copied into two rows would have looked identical and proved
 nothing. The rule book ends the day with four versions sharing one date, and
 reading them in order is the record of how the figure was arrived at.
+
+---
+
+## F140 · 2026-09-23 · the fixtures had been saying something the business never said, and only a guard could hear it
+
+Making the working patterns editable meant the database had to start refusing
+what a person can type, because `employees.schedule_code` is a **text key into
+versioned jsonb** and there is no foreign key that can catch a typo. The first
+rule written was the shape of a code.
+
+It failed six smoke files on the first run. All six carried `"code":"produksi"`
+in lower case while the real rule book, the demo fixture and every screen used
+`PRODUKSI`. Nothing was broken by it — the comparison is exact and each fixture
+was internally consistent — so it had sat there since M57 as a second spelling
+of a key that has no spelling rules.
+
+**That is the interesting part.** A key with two spellings is not a bug until
+somebody types the other one, and the moment the screen lets them, it is one:
+`produksi` and `PRODUKSI` are two patterns that look identical in a list and
+match nothing of each other's. The fixtures were the early symptom of a rule
+that had never been written down, and the only thing that could hear them was
+the rule itself, on the day it was written.
+
+The rule was also **wrong on its first run, in the other direction**. It
+refused `shift-malam` — a hyphen — and a hyphen threatens nothing. Two of this
+repo's own code families allow one (`0099`, `0107`). The refusal had to relax,
+and the relaxation is pinned by two cases, one accepting `SHIFT-MALAM` and one
+still refusing `shift-malam`, so *the hyphen was allowed* cannot quietly become
+*the case rule was dropped*.
+
+The lesson is about which way a guard is allowed to be wrong on its first run:
+too strict is cheap and shows itself immediately, and too loose looks exactly
+like working.
+
+---
+
+## F141 · 2026-09-23 · doing nothing is a grant, and the mutation found it
+
+`ops_hr.schedules_in_use_lost()` answers *who would lose their pattern* with
+employee **names**, and it is `security definer` so that IT — who publishes the
+rule book and has no `hrd.read` — is guarded rather than waved through. Both
+properties are correct. Together they are a hole.
+
+Postgres grants `EXECUTE` to `PUBLIC` on a new function by default. Writing
+nothing about privileges is therefore not *leaving it alone*; it is publishing
+it. A definer function that reads the roster and is executable by PUBLIC means
+**anybody holding any account at all** could ask for the roster, one pattern at
+a time. The check was tested and correct; its reachability was never considered.
+
+It was not found by review. The mutation run said something better: removing
+`security definer` from that function **did not fail the smoke file**, because
+it is only ever called from inside `save_pay_rules` and `preview_pay_rules`,
+which are definer themselves — a function called from a definer already runs
+with the definer's rights. So the flag was carrying no weight on the path the
+test exercised. Asking *why does this mutation survive* is what surfaced the
+one path where the flag does carry weight: a direct call. And a direct call was
+exactly what nothing had revoked.
+
+Closed with the idiom this repo already has for internal guards — `revoke
+execute … from public`, as `ops_core.bootstrap_admin`, `ops_acct.account_guard`
+and `ops_inv.asset_refs_invalid` each do — and the smoke file now asserts the
+denial, so the grant cannot come back quietly.
+
+**A second thing this cost, worth writing down.** The first attempt to prove
+the fix reported that the leak was still open. It was not: `create or replace
+function` does not reset privileges, so the grant written by an earlier run of
+the same file was still sitting on the function in the scratch database. Only a
+clean `rebuild.sh` answers a question about privileges. An iterated database is
+not the database the ladder describes, and on grants specifically it will lie
+in the safe-looking direction.
+
+---
+
+## F142 · 2026-09-23 · the screen was already telling people something that had stopped being true
+
+`/it/aturan-gaji`'s divisor example ended with a sentence explaining why the
+two hourly rates differ: *173 mengandaikan minggu 40 jam, dan kantor ini tidak
+bekerja 40 jam seminggu.*
+
+Since version 4 of the rule book, written the same morning, this office works
+exactly 40 hours a week — both patterns, by different arithmetic (D290). The
+sentence had been true when somebody wrote it under a six-day book, and it
+became a confident, specific, wrong statement the moment the book changed,
+sitting directly under a correct calculation.
+
+Nothing could have caught it. It is prose, and prose that restates a fact the
+data now owns is a second copy of that fact — F73's shape again, in a paragraph
+rather than a column. It was found only because the same screen was open for
+another reason. Rewritten to explain the *relationship* (the two agree when the
+effective-days figure and the divisor are consistent) rather than to assert the
+number, because the relationship stays true when the number moves.
+
+---
+
+## F143 · 2026-09-23 · the parity gate could not see this, because its two databases both agreed with the wrong side
+
+`ops_hr.schedule_problem()` and the TypeScript module both report the **first**
+problem, so anything that decides *which is first* is part of the rule. Two
+dangling unit mappings are ordered before being reported: the SQL said
+`order by key`, the TypeScript said `.sort()`.
+
+`.sort()` is UTF-16 code-unit order. `order by key` is the database's
+collation. They are not the same, and the disagreement is ordinary rather than
+exotic — with units named `Workshop` and `office`, JavaScript reports
+`Workshop` first and a database collating `en_US.UTF-8` reports `office`, since
+that collation sorts case-insensitively at the first level. Two seams, same
+input, different sentence: precisely what `check-schedule-rules.mjs` exists to
+refuse.
+
+**And it would have refused nothing.** The scratch cluster this was built on
+collates `C`, and so, as far as this could be told, does the container CI runs
+against. Both agree with JavaScript. The gate would have stayed green through
+every run while production — `en_US.UTF-8`, checked rather than assumed —
+answered differently on the one machine that matters.
+
+That is the failure mode worth naming: a parity check inherits the environment
+it runs in, and an environment that happens to agree with one of the two sides
+turns the check into a rehearsal of that side. It was found by reading the diff
+for what could differ **between here and production**, not by running anything;
+nothing that could be run would have said it.
+
+Fixed by pinning rather than by matching a locale: `collate "C"` on all three
+orderings in `0117` (the unit loop, the names inside a lost pattern, and the
+patterns themselves), and plain code-unit comparison on the demo side in place
+of `localeCompare`, which has the same disagreement with `C` that `en_US` has.
+The rule now orders the same way on any database, which is what a rule stated
+twice needs. A case with two dangling units named in different cases is in the
+battery, so the pin cannot be removed quietly — though, and this is the part to
+remember, that case would pass on a `C` database even without the pin. The case
+guards the intent; only reading the collation guarded the fact.
+
+---
+
+## F144 · 2026-09-23 · a read whose answer depends on who is asking, cached on what is being asked about
+
+The new calendar note on `/it/aturan-gaji` rendered nothing. Not an error, not
+a blank figure — the component simply was not there, and every gate was green.
+
+`ops_hr.effective_days_calendar()` answers **null** to anybody without
+`payroll.read` or `it.update`, because it is evidence beside a field and a
+screen opened without the right does not want a number it should not show.
+That makes it a read whose answer depends on the reader. Its `useLoad` deps
+were `[rules.week_pattern, year]` — what is being asked *about*, and nothing
+about who is asking.
+
+So the first fetch ran as the demo's default user, who has no IT access, got
+null, and cached it. Switching to the IT account changed nothing that the deps
+watched, so nothing re-ran, and the evidence stayed invisible for the one
+person it was built for.
+
+**The demo is where it showed, not where it lives.** In production nobody
+switches identity from the header — they get promoted, and the first person
+granted `it.update` while the tab was open would have seen exactly this: a
+screen that stays empty until it is reloaded, for no stated reason. A stale
+permission-shaped read looks identical to a permission correctly denied, which
+is why it would have been reported as *the button does nothing* rather than as
+a bug with a shape.
+
+Fixed by putting the acting user in the deps. The general rule, worth keeping:
+**if a seam can answer differently for two people, the reader's identity is
+part of the question, and caching keyed only on the subject is caching the
+wrong thing.**
+
+Found by driving the screen in a browser rather than by reading it. Nothing in
+`tsc`, lint, the smoke suite or any of the eight checkers can see a `useEffect`
+dependency list that is merely incomplete — it is valid code that does less
+than it looks like it does.
+
+---
+
+## F145 · 2026-09-23 · six mutations survived, and every one of them was the harness
+
+The widened payroll line got the usual treatment: break it six ways and check
+the smoke file complains. All six survived.
+
+That is not a result, it is an alarm — six independent breakages cannot all be
+invisible to a test that asserts each of them by name. The cause was the
+harness, not the code. Each mutation re-applied the whole migration file, and
+that file now **opens with `alter type … add attribute`**, which fails on a
+second run with *column already exists*. Under `ON_ERROR_STOP` the file aborted
+at its first statement, the mutated function never replaced the good one, and
+the smoke file passed against code nobody had touched.
+
+Every earlier migration this session was `create or replace` all the way down,
+so re-applying it was idempotent and the harness had always worked. The first
+migration with a one-shot statement in it broke the technique silently, and
+silently in the **reassuring** direction: a surviving mutation reads as *the
+guard is redundant*, not as *the experiment did not run*.
+
+Fixed by applying only the function half. Then six of seven were caught at
+once, which is what the first run should have looked like.
+
+**The seventh was real, and worth more than the other six.** Shifting the
+contributions read to the wrong month changed nothing, because the fixture had
+a single rate version with no end date — every month resolves to the same
+percentage, so *which month* could not matter. The test was asserting a figure
+it had no way to get wrong. A second rate version, effective from June at a
+different percentage, makes March's answer a choice; the mutation now fails.
+
+Two lessons, and the second is the one that generalises. A mutation that
+survives is a question, never a clearance — and the first question is always
+*did the change actually reach the database*. And a fixture with one of
+something cannot test a rule about **choosing** between them: one rate, one
+schedule, one version is the shape in which a selection bug is invisible.
+
+---
+
+## F146 · 2026-09-23 · `now()` is the transaction's clock, so "the latest audit row" was a coin toss
+
+Merging `main` brought three new smoke files in, and the suite failed one of
+them — once. Run again, it passed. Run alone, five times, it passed. Two fresh
+rebuilds with a full suite each, both green. That is the worst shape a failure
+comes in, because every instinct after the second green run is to call it
+noise.
+
+`ops_core.audit_log.at` defaults to `now()`, and `now()` in Postgres is the
+**transaction** timestamp — `select now() = now()` is true, and every row a
+transaction writes carries the same instant. Three smoke files read back *the
+latest* audit row with `order by at desc limit 1`, and one of them,
+`99_inv_asset_services`, calls `delete_asset_service` twice on purpose: once
+successfully, once more to prove the thing is gone. Two rows, one action, one
+identical timestamp, and which one `limit 1` returns is the planner's choice.
+
+Proved rather than argued: two rows inserted in one transaction, then the same
+query with and without a tiebreak — `count(distinct at)` is 1, and the two
+orderings return **different rows**.
+
+Adding `id desc` made it deterministic and immediately turned the file red
+0/5, which is the part worth keeping. The tiebreak had not broken the test; it
+had revealed that the test was reading the **refusal** and had been passing on
+the accident that an untied sort usually returned the other row. The
+assertion's actual subject is the successful delete, and its two sibling files
+say so in their own queries — `and outcome = 'ok'` — while this one did not.
+Both clauses are needed and neither alone is enough: the filter says which row
+is meant, the tiebreak says which of the remaining ones is last.
+
+The general rule this leaves: **a timestamp written by `now()` cannot order
+rows within one transaction**, so any "most recent" read over an audit trail
+needs the sequence as a tiebreak. All three files have it now; two of them
+were already correct on the filter and only needed the hardening.
+
+Not my file, and fixed anyway: an intermittent failure in the shared suite is
+a red CI for whoever pushes next, and the diagnosis was already in hand.
+
+---
+
+## F147 · 2026-09-23 · a grant copied from six migrations re-opened the one table that had been closed
+
+The new leave table needed a table-level grant — RLS narrows what a role may
+see, but a role with no grant meets `permission denied` before any policy is
+consulted. Every HR migration from `0043` to `0052` says the same line, so I
+said it too:
+
+    grant select on all tables in schema ops_hr to authenticated;
+
+`53_hr_people_seams` failed immediately, on an assertion written a fortnight
+earlier: *a number nobody may read is a table nobody may select*.
+
+`0056` revokes select on `ops_hr.employee_documents`, because the document
+numbers in it are readable only through a view that masks them (D196). Every
+blanket grant in the ladder is numbered **below** that revoke, so the revoke
+had always run last and always won. `0123` is the first one above it. The
+idiom had been safe for exactly as long as no table in the schema had been
+closed again, and nothing about the line says so.
+
+**What makes this worth writing down is how it presented.** Nothing in the
+migration looked wrong; it was copied verbatim from six places that are all
+correct. The failure was not in the statement but in its **position in the
+ladder**, which is the one property a copied line does not carry with it. A
+reviewer reading the diff would have seen a familiar line in a familiar place.
+
+Narrowed to `grant select on ops_hr.leave_requests`, and proved both ways
+afterwards rather than assumed: `has_table_privilege` now answers false for
+`employee_documents` and true for `leave_requests`.
+
+The general rule: **`on all tables in schema` is not idempotent with respect to
+a later revoke — it is a reversal of it.** In a ladder that only ever grows,
+any blanket grant is a statement about every table added *before* it and every
+decision taken *after* it, and the second half is invisible at the point of
+writing. The six earlier copies should probably be narrowed too, but they are
+correct where they stand and rewriting applied migrations is its own hazard; a
+seventh would not have been.
+
+Caught by a smoke assertion about a completely different feature. That is what
+those two hundred lines of refusals are for.
