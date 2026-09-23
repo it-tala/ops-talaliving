@@ -130,7 +130,7 @@ declare
 begin
   plan := ops_acct.cash_plan();
 
-  assert (plan ->> 'generated_for') = current_date::text, format('got %s', plan ->> 'generated_for');
+  assert (plan ->> 'generated_for') = ops_core.office_day()::text, format('got %s', plan ->> 'generated_for');
   -- 100,000,000 funded, less this month's rent (5,000,000), the unplanned
   -- transport row (750,000), and the early rent paid against next-next
   -- month (5,000,000).
