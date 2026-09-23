@@ -21,7 +21,7 @@ import {
   monthlyBills, contributionAudit,
 } from "../derive";
 import { latency, actingUser, requireAuthority, requireModule, requireLevel, conflict, replayed, remember, paged } from "./_kit";
-import { PRIMARY_DOC_KINDS, type DocKind } from "@/services/documents/contracts";
+import { PRIMARY_DOC_KINDS, COMPLETION_DOC_KINDS, type DocKind } from "@/services/documents/contracts";
 import * as procurement from "./procurement";
 
 const SERVICE = "accounting" as const;
@@ -404,6 +404,21 @@ export async function markComplete(trxNo: string): Promise<Result<TransactionVie
   if (!trx) return notFound(SERVICE, "transaction_not_found", `Transaction ${trxNo} not found.`);
   if (trx.status === "COMPLETED") {
     return conflict(SERVICE, "already_complete", `${trxNo} is already COMPLETED — nothing changed.`);
+  }
+  if (trx.status === "VOID") {
+    return conflict(SERVICE, "transaction_void", `${trxNo} is VOID and cannot be completed.`);
+  }
+  /* COMPLETED means the paperwork is on it (owner, 2026-09-23): at least a
+     receipt / nota or a payment proof. */
+  const hasDoc = getState().attachment_links.some(
+    (l) => l.entity === "transaction" && l.entity_no === trxNo && COMPLETION_DOC_KINDS.includes(l.kind),
+  );
+  if (!hasDoc) {
+    return invalid(
+      SERVICE, "document_required",
+      "Attach a receipt / nota or a payment proof before marking this row completed.",
+      { field: "documents" },
+    );
   }
 
   apply((draft) => {

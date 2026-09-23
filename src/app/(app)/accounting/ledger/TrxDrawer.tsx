@@ -13,7 +13,7 @@ import { cn } from "@/lib/cn";
 import { accounting, documents } from "@/demo/api";
 import type { TransactionDetail } from "@/services/accounting/contracts";
 import type { AuditRow } from "@/demo/state";
-import type { AttachmentView } from "@/services/documents/contracts";
+import { COMPLETION_DOC_KINDS, type AttachmentView } from "@/services/documents/contracts";
 import { EvidenceStrip, type CoverTarget, type EvidenceSlot } from "@/components/ui/evidence-strip";
 import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
@@ -86,6 +86,9 @@ export function TrxDrawer({
   const [editAmount, setEditAmount] = useState(0);
   const [editDesc, setEditDesc] = useState("");
   const [editReason, setEditReason] = useState("");
+  /* Whether the row carries a receipt / nota or a payment proof — the one
+     thing COMPLETED requires (`0103`). Asked of the row's own documents. */
+  const [hasCompletionDoc, setHasCompletionDoc] = useState(false);
   const mayPost = hasAuthority("post_ledger");
 
   useEffect(() => {
@@ -98,11 +101,16 @@ export function TrxDrawer({
   }, [trxNo]);
 
   async function load(no: string) {
-    const [detail, trail] = await Promise.all([
+    const [detail, trail, docs] = await Promise.all([
       accounting.getTransaction(no),
       accounting.historyFor(no),
+      documents.byEntity("transaction", no),
     ]);
     if (trail.data) setHistory(trail.data);
+    setHasCompletionDoc((docs.data ?? []).some((a) => a.links.some(
+      (l) => l.entity === "transaction" && l.entity_no === no
+        && (COMPLETION_DOC_KINDS as string[]).includes(l.kind),
+    )));
     if (!detail.data) return;
     setTrx(detail.data);
     setAllocAmount(detail.data.unallocated);
@@ -220,8 +228,16 @@ export function TrxDrawer({
           <Button variant="outline" size="sm" icon={Pencil} disabled={busy} onClick={openEdit}>
             Edit
           </Button>
+          {trx.status !== "COMPLETED" && !hasCompletionDoc && (
+            <span className="text-[11px] text-slate-500">Needs a nota or payment proof to complete</span>
+          )}
           {trx.status !== "COMPLETED" && (
-            <Button variant="outline" size="sm" icon={CheckCircle2} disabled={busy} onClick={complete}>
+            <Button
+              variant="outline" size="sm" icon={CheckCircle2}
+              disabled={busy || !hasCompletionDoc}
+              title={hasCompletionDoc ? undefined : "Attach a receipt / nota or a payment proof first"}
+              onClick={complete}
+            >
               Mark completed
             </Button>
           )}

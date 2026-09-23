@@ -16,6 +16,9 @@
 --                amount <= 0; an empty description; a VOID row; a row
 --                matched to a statement line
 --   DERIVATIONS  attach_link / attach_unlink now say which file and kind
+--
+--   0103         complete_transaction needs a live nota or payment proof;
+--                a receiving report alone is not enough; a VOID row refused
 
 begin;
 
@@ -149,6 +152,29 @@ begin
   assert r ->> 'outcome' = 'ok', 'but its description can still be fixed, got ' || (r ->> 'outcome');
 end $$;
 
+/* ── 0103: COMPLETED needs a nota or a payment proof ──────────────────── */
+do $$
+declare r jsonb;
+begin
+  -- Only a receiving report on it (unlinked above) — nothing at all live.
+  r := ops_acct.complete_transaction('trx-edit-1');
+  assert r -> 'error' ->> 'code' = 'document_required', 'no nota/proof should refuse, got ' || coalesce(r -> 'error' ->> 'code', r ->> 'outcome');
+
+  -- A receiving report is not enough by itself.
+  r := ops_core.attach_link('44440000-0000-0000-0000-0000000000e1','transaction','trx-edit-1','Receiving Report');
+  r := ops_acct.complete_transaction('trx-edit-1');
+  assert r -> 'error' ->> 'code' = 'document_required', 'a receiving report alone is not enough, got ' || coalesce(r -> 'error' ->> 'code', r ->> 'outcome');
+
+  -- A payment proof is.
+  r := ops_core.attach_link('44440000-0000-0000-0000-0000000000e1','transaction','trx-edit-1','Payment Proof');
+  r := ops_acct.complete_transaction('trx-edit-1');
+  assert r ->> 'outcome' = 'ok', 'a payment proof completes it, got ' || (r ->> 'outcome') || ' / ' || coalesce(r -> 'error' ->> 'message', '');
+
+  -- A void row is not completed.
+  r := ops_acct.complete_transaction('trx-edit-3');
+  assert r -> 'error' ->> 'code' = 'transaction_void', 'a void row cannot be completed, got ' || coalesce(r -> 'error' ->> 'code', r ->> 'outcome');
+end $$;
+
 reset role;
 
 do $$
@@ -176,7 +202,8 @@ begin
    where entity = 'attachment' and entity_no = 'trx-edit-1'
      and action in ('attach_link','attach_unlink')
      and detail ->> 'kind' = 'receiving_report' and detail ->> 'file' = 'receiving-report.jpg';
-  assert n = 2, 'link and unlink should both say which file and kind, got ' || n;
+  -- link, unlink, and the second link in the 0103 block.
+  assert n = 3, 'link and unlink should both say which file and kind, got ' || n;
 end $$;
 
 -- Every kind still has a label and a drive (0005, 0035).
