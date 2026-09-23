@@ -2,7 +2,7 @@
 import { refused, ok, invalid, notFound, noop, isOk, type Result } from "@/services/_shared/envelope";
 import {
   PROCESS_STAGES, RETIRED_STAGES, VENDOR_PROCESSES, VENDOR_PROCESS_NAME, DESIGN_KIND_LABEL, ROUTE, STAGE_NAME, goodsOnSite,
-  type WorkOrder, type WorkOrderView, type ProgressEntry, type ProductView,
+  type WorkOrder, type WorkOrderView, type WorkOrderRef, type ProgressEntry, type ProductView,
   type DesignKind, type DesignTaskView, type RouteCode, type BomExplosion,
   type VendorLegView, type VendorRecord,
   type WorkAttribution, type BomKind,
@@ -32,6 +32,15 @@ export async function listWorkOrders(
   await latency();
   const rows = workOrderViews(getState());
   return ok(SERVICE, opts.include_done ? rows : rows.filter((w) => w.status === "OPEN"));
+}
+
+/** Open work orders, as references for a picker (B6). Oldest due first. */
+export async function listOpenWorkOrderRefs(): Promise<Result<WorkOrderRef[]>> {
+  await latency();
+  return ok(SERVICE, getState().work_orders
+    .filter((w) => w.status === "OPEN")
+    .sort((a, b) => a.due_date.localeCompare(b.due_date))
+    .map((w) => ({ wo_no: w.wo_no, item_name: w.item_name, project_code: w.project_code ?? null, due_date: w.due_date })));
 }
 
 export async function getWorkOrder(woNo: string): Promise<Result<WorkOrderView>> {

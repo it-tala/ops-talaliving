@@ -18,6 +18,7 @@ import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { AmendLine } from "./AmendLine";
 import { ClosePo } from "./ClosePo";
+import { PayPo } from "./PayPo";
 
 /** One order, end to end.
  *
@@ -360,6 +361,8 @@ export default function PoDetailPage({ params }: { params: Promise<{ po: string 
               </div>
             </Card>
 
+            <PayPo po={d} onPosted={reload} />
+
             <Card className="mb-4">
               <CardHeader
                 title="Payment terms"
@@ -388,6 +391,13 @@ export default function PoDetailPage({ params }: { params: Promise<{ po: string 
                     render: (l) => (
                       <span className="block max-w-[340px] whitespace-normal break-words text-[13px] text-slate-800">
                         {l.description}
+                        {/* The request line it buys (B7) — arrivals here move it,
+                            and money paid here reaches it. */}
+                        {l.pr_line_no && (
+                          <Link href="/procurement/pr" className="mt-0.5 block font-mono text-[11px] text-brand-700 hover:underline">
+                            {l.pr_line_no}
+                          </Link>
+                        )}
                       </span>
                     ),
                   },

@@ -19,7 +19,7 @@ import {
   accountBalances, transactionView, allocatedTotal, inboxHealth, lineCoverage,
   lineStatus, fundings, fundingView, cashPlan, cashDue, cashMonthDetail,
   bankStatementView, bankStatementViews, documentCoverage, transactionCoverage,
-  monthlyBills, contributionAudit,
+  monthlyBills, contributionAudit, orderOfLine,
 } from "../derive";
 import { latency, actingUser, requireAuthority, requireModule, requireLevel, conflict, replayed, remember, paged } from "./_kit";
 import { PRIMARY_DOC_KINDS, COMPLETION_DOC_KINDS, type DocKind } from "@/services/documents/contracts";
@@ -746,7 +746,9 @@ export async function allocate(
 
   const user = actingUser();
   const alloc: PaymentAllocation = {
-    id: newId("alc"), trx_id: trx.id, pr_line_no: input.pr_line_no, po_no: null,
+    /* A line on an order is paid on the order too (B8); the order is found
+       from the link, never taken from the caller. */
+    id: newId("alc"), trx_id: trx.id, pr_line_no: input.pr_line_no, po_no: orderOfLine(state, input.pr_line_no),
     amount: input.amount, method: input.method ?? "transfer", superseded_by: null,
     allocated_by: user.id, allocated_at: new Date().toISOString(),
   };
@@ -1161,7 +1163,7 @@ export async function postFromLine(
       posted_by: user.id, posted_at: new Date().toISOString(), void_reason: null,
     });
     draft.payment_allocations.push({
-      id: newId("alc"), trx_id: trxId, pr_line_no: input.line_no, po_no: null,
+      id: newId("alc"), trx_id: trxId, pr_line_no: input.line_no, po_no: orderOfLine(draft, input.line_no),
       amount: input.amount, method: "transfer", superseded_by: null,
       allocated_by: user.id, allocated_at: new Date().toISOString(),
     });
@@ -1204,6 +1206,117 @@ export async function postFromLine(
 
 /** Every transfer of operating money into an account that pays people,
  *  newest first — the list the liquidation report opens from (D106). */
+
+/** Paying an order from its own screen (B8) — the demo twin of
+ *  `ops_acct.post_to_po` (0127). One ledger row; the amount split across the
+ *  order's linked request lines by value, the rest on the order alone. */
+export async function postToPo(
+  input: {
+    po_no: string;
+    amount: number;
+    account_id: string;
+    trx_date: string;
+    type_code: TransactionTypeCode;
+    attachment_id: string;
+    document_kind?: DocKind;
+  },
+  idempotencyKey?: string,
+): Promise<Result<TransactionView>> {
+  await latency();
+  const endpoint = `postToPo:${input.po_no}`;
+  const cached = replayed<TransactionView>(SERVICE, endpoint, idempotencyKey);
+  if (cached) return cached;
+
+  const denied = requireAuthority(SERVICE, "post_ledger");
+  if (denied) return denied;
+
+  const state = getState();
+  const po = state.purchase_orders.find((p) => p.po_no === input.po_no);
+  if (!po) return invalid(SERVICE, "po_not_found", `Order ${input.po_no} does not exist.`, { field: "po_no" });
+  if (po.status === "DRAFT") {
+    return conflict(SERVICE, "not_issued", `${input.po_no} has not been issued — nothing is owed on an order the vendor has not received.`);
+  }
+  if (po.status === "CLOSED" || po.status === "CANCELLED") {
+    return conflict(SERVICE, "order_closed", `${input.po_no} is ${po.status.toLowerCase()}.`);
+  }
+  if (!(input.amount > 0)) {
+    return invalid(SERVICE, "amount_positive", "A payment is more than nothing.", { field: "amount" });
+  }
+  const live = state.po_lines.filter((l) => l.po_id === po.id && l.superseded_by === null);
+  const contract = live.reduce((t, l) => t + l.line_total, 0);
+  const paid = state.payment_allocations
+    .filter((a) => a.superseded_by === null && a.po_no === po.po_no
+      && state.transactions.find((t) => t.id === a.trx_id)?.status !== "VOID")
+    .reduce((t, a) => t + a.amount, 0);
+  const outstanding = Math.max(contract - paid, 0);
+  if (input.amount > outstanding) {
+    return invalid(SERVICE, "over_contract",
+      `Only ${outstanding} is still outstanding on ${input.po_no}. Money beyond the contract is a question for the vendor, not a payment on this order.`,
+      { field: "amount", outstanding });
+  }
+  if (!input.attachment_id) {
+    return invalid(SERVICE, "evidence_required",
+      "A payment needs its proof. Attach the transfer receipt before recording it.", { field: "attachment_id" });
+  }
+
+  const user = actingUser();
+  let trxNo = "";
+  apply((draft) => {
+    trxNo = nextDocNumber(draft, "trx");
+    const trxId = newId("trx");
+    const now = new Date().toISOString();
+    draft.transactions.unshift({
+      id: trxId, trx_no: trxNo, trx_date: input.trx_date,
+      account_id: input.account_id, direction: "OUT", amount_idr: input.amount,
+      type_code: input.type_code, vendor_id: po.vendor_id, project_id: null,
+      description: `Pembayaran ${input.po_no}`,
+      remark: null, status: "POSTED", source_ref: `po:${input.po_no}:${input.trx_date}:${input.amount}`,
+      posted_by: user.id, posted_at: now, void_reason: null,
+    });
+    draft.transaction_lines.push({
+      id: newId("trl"), trx_id: trxId, line_no: 1, item_id: null,
+      description: `Pembayaran ${input.po_no}`, qty: 1, uom: "unit" as never,
+      unit_price: input.amount, amount: input.amount,
+    });
+    let spent = 0;
+    for (const l of live) {
+      if (!l.pr_line_id || contract <= 0) continue;
+      const lineNo = draft.pr_lines.find((p) => p.id === l.pr_line_id)?.line_no_full;
+      const share = Math.min(Math.round(input.amount * l.line_total / contract), input.amount - spent);
+      if (!lineNo || share <= 0) continue;
+      draft.payment_allocations.push({
+        id: newId("alc"), trx_id: trxId, pr_line_no: lineNo, po_no: input.po_no,
+        amount: share, method: "transfer", superseded_by: null, allocated_by: user.id, allocated_at: now,
+      });
+      spent += share;
+    }
+    if (input.amount - spent > 0) {
+      draft.payment_allocations.push({
+        id: newId("alc"), trx_id: trxId, pr_line_no: null, po_no: input.po_no,
+        amount: input.amount - spent, method: "transfer", superseded_by: null, allocated_by: user.id, allocated_at: now,
+      });
+    }
+    draft.attachment_links.push({
+      id: newId("lnk"), attachment_id: input.attachment_id,
+      entity: "transaction", entity_no: trxNo, kind: input.document_kind ?? "Payment Proof",
+      linked_by: user.id, linked_at: now,
+    });
+    writeAudit(draft, {
+      service: SERVICE, entity: "transaction", entity_no: trxNo,
+      action: "post_to_po", outcome: "ok", reason: input.po_no,
+      detail: { amount: input.amount, po_no: input.po_no, type: input.type_code },
+    });
+    writeOutbox(draft, {
+      service: SERVICE, event_type: "accounting.allocation.recorded",
+      payload: { trx_no: trxNo, po_no: input.po_no, amount: input.amount },
+    });
+  });
+
+  const view = transactionView(getState(), getState().transactions.find((t) => t.trx_no === trxNo)!);
+  remember(SERVICE, endpoint, idempotencyKey, view);
+  return ok(SERVICE, view);
+}
+
 export async function listFundings(): Promise<Result<FundingView[]>> {
   await latency();
   return ok(SERVICE, fundings(getState()));

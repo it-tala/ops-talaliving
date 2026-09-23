@@ -24,7 +24,7 @@
  */
 import type {
   BomDiff, BomDiffLine, BomDiffShape, BomKind, BomLineView, BomRevisionView,
-  ProductDrawing, ProductDrawingEntry, ProductView, RateSource,
+  ProductDrawing, ProductDrawingEntry, ProductView, RateSource, WorkOrderRef,
 } from "@/services/production/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fail, fromSeam, notFound, ok, type Result } from "./_kit";
@@ -509,4 +509,21 @@ export async function attachProductDrawing(
     p_key: null,
   });
   return thenProduct(input.product_code, data, error);
+}
+
+/* ── work orders, as references ────────────────────────────────────────── */
+
+/** Open work orders for the *which job is this for* picker on a new request
+ *  (B6). Read from the table, not `v_work_order`: a picker needs four columns,
+ *  and the view's stages and vendor legs are what keep `listWorkOrders` itself
+ *  unwritten. `work_orders` is readable by anybody signed in (`wo_read`,
+ *  0061), so staf procurement sees the same list the floor does. */
+export async function listOpenWorkOrderRefs(): Promise<Result<WorkOrderRef[]>> {
+  const { data, error } = await db()
+    .from("work_orders")
+    .select("wo_no,item_name,project_code,due_date")
+    .eq("status", "OPEN")
+    .order("due_date");
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, (data ?? []) as WorkOrderRef[]);
 }

@@ -6060,3 +6060,29 @@ instead of asserting, so it stays green while the findings are open — and when
 B5 is fixed, the step's own `case` turns it to `OK` without anybody editing the
 simulation.
 
+## F149 · 2026-09-23 · the second walk went all the way to COMPLETED, and found the fifth door on the way
+
+With B5–B8 fixed, the simulation was rewritten to walk the road as it now
+works: the PO is built from the approved line, the deposit is paid from the
+order's page, the balance from the line. L01 now goes WAITING FOR APPROVAL →
+APPROVED → PARTIAL (arrived, not settled) → COMPLETED, and its order DRAFT →
+ISSUED → PARTIAL → SETTLED, every rupiah counted once on each side. The first
+walk never got a line past PAID.
+
+**Going further is what found B9.** The first walk paid only L01, a line with
+a quantity. The second paid the delivery charge too — the lump-sum line D75
+exists to protect — and `post_from_line` handed the ledger a detail line with
+no quantity under SUPPLIERS, a purchase type that insists on one. Refused
+`line_detail_required`. The requests board offers that button on every
+approved line. Nothing had ever pressed it on a lump sum.
+
+Two smaller things worth keeping:
+
+- **The shape assertion in `14_procure_po_board` earned its place.** Adding
+  `pr_line_no` to the drawer's lines and not the tracker's failed there
+  within one run — exactly the drift it was written for.
+- **A procurement-only reader sees no payments at all.** `v_po_status` is
+  `security_invoker` and the allocations are accounting's, so Andi's PO page
+  says *Rp 0 paid* on an order Rina paid in full. Correct by the policies, and
+  probably surprising on a screen; noted, not changed.
+

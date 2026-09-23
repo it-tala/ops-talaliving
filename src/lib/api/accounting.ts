@@ -486,6 +486,43 @@ export async function postFromLine(
   return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
 }
 
+/** Paying an order from its own screen (B8, `ops_acct.post_to_po`, 0127).
+ *  The seam splits the money across the order's linked request lines; this
+ *  passes the arguments and re-reads the row, like `postFromLine`. */
+export async function postToPo(
+  input: {
+    po_no: string;
+    amount: number;
+    account_id: string;
+    trx_date: string;
+    type_code: TransactionTypeCode;
+    attachment_id: string;
+    document_kind?: DocKind;
+  },
+  idempotencyKey?: string,
+): Promise<Result<TransactionView>> {
+  const accountCode = await codeFor("accounts", input.account_id);
+  if (!accountCode) {
+    return invalid(SERVICE, "account_not_found",
+      "Akun itu tidak ada di database.", { field: "account_id" });
+  }
+  const { data, error } = await db().rpc("post_to_po", {
+    p_po_no:         input.po_no,
+    p_amount:        input.amount,
+    p_account_code:  accountCode,
+    p_type_code:     input.type_code,
+    p_attachment_id: input.attachment_id || null,
+    p_trx_date:      input.trx_date,
+    p_document_kind: input.document_kind ?? "Payment Proof",
+    p_key:           idempotencyKey ?? null,
+  });
+  const posted = fromSeam<{ trx_no: string }>(SERVICE, data, error);
+  if (posted.error) return posted;
+  const row = await db()
+    .from("v_transaction").select("*").eq("trx_no", posted.data.trx_no).single();
+  return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
+}
+
 /** VOID keeps the row and the amount, with a reason beside it (A5, D84). The
  *  correction is a new row; this one stays, saying what was once believed. */
 export async function voidTransaction(

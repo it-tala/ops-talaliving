@@ -46,7 +46,7 @@
     <h1>Procurement sampai buku besar</h1>
     <p>Cara memakai sistem, langkah demi langkah, dari menambah supplier sampai mencocokkan rekening koran. Setiap langkah di dokumen ini sudah dijalankan dalam simulasi terhadap database yang sama dengan sistem live.</p>
     <p class="note">Versi 23 September 2026 · dibuat otomatis dari tabel pengetahuan John Lau (<code>ops_asst.processes</code>). Gambar diambil dari mode demo, jadi angkanya contoh.</p>
-    <ol><li><span>1.</span> Menambah supplier dan barang</li><li><span>2.</span> Membuat permintaan pembelian (PR)</li><li><span>3.</span> Persetujuan barang (papan rapat dan Google Chat)</li><li><span>4.</span> Membuat, mengonfirmasi dan mengirim purchase order (PO)</li><li><span>5.</span> Mencatat barang datang (penerimaan)</li><li><span>6.</span> Membayar baris PR dan mencatatnya ke buku besar</li><li><span>7.</span> Melengkapi transaksi di buku besar</li><li><span>8.</span> Verifikasi bukti yang masuk (kotak verifikasi)</li><li><span>9.</span> Mencocokkan rekening koran dengan buku besar</li></ol>
+    <ol><li><span>1.</span> Menambah supplier dan barang</li><li><span>2.</span> Membuat permintaan pembelian (PR)</li><li><span>3.</span> Persetujuan barang (papan rapat dan Google Chat)</li><li><span>4.</span> Membuat, mengonfirmasi dan mengirim purchase order (PO)</li><li><span>5.</span> Mencatat barang datang (penerimaan)</li><li><span>6.</span> Membayar PO (DP atau termin) dari halaman PO</li><li><span>7.</span> Membayar baris PR dan mencatatnya ke buku besar</li><li><span>8.</span> Melengkapi transaksi di buku besar</li><li><span>9.</span> Verifikasi bukti yang masuk (kotak verifikasi)</li><li><span>10.</span> Mencocokkan rekening koran dengan buku besar</li></ol>
   </div>
 
   <section class="intro">
@@ -181,13 +181,13 @@
     <ol class="steps">
       
       <li>
-        <div class="act">Buka Procurement → Purchase Orders (atau Tracker), tekan <b class="btn">Add new PO</b>, pilih vendor.</div>
-        <div class="rule"><b>Kenapa:</b> Pastikan baris PR-nya sudah APPROVED dulu.</div>
+        <div class="act">Buka Procurement → Purchase Orders (atau Tracker), tekan <b class="btn">Add new PO</b>, pilih vendor. Di tiap baris, pilih baris PR yang sudah disetujui di <b class="btn">From request line</b> — barang, jumlah, satuan dan harganya terisi dari yang disetujui.</div>
+        <div class="rule"><b>Kenapa:</b> Hanya baris yang sudah APPROVED yang bisa dipesan (line_not_approved), satu baris PR hanya di satu PO yang masih berjalan (line_already_ordered), dan satuannya harus sama (uom_differs). Baris tanpa jumlah — ongkir, DP — adalah uang, bukan barang: dibayar lewat barisnya, tidak dipesan (lump_sum_line).</div>
         
         <figure><img src="04-new-po.jpg" alt=""></figure>
       </li>
       <li>
-        <div class="act">Isi barisnya: barang, jumlah, satuan, harga satuan. Isi persen DP kalau ada uang muka, dan tanggal barang diharapkan datang. Tekan <b class="btn">Create the draft</b>.</div>
+        <div class="act">Periksa atau lengkapi barisnya: barang, jumlah, satuan, harga satuan. Baris yang tidak berasal dari PR (misalnya kontrak tetap) boleh diketik langsung. Isi persen DP kalau ada uang muka, dan tanggal barang diharapkan datang. Tekan <b class="btn">Create the draft</b>.</div>
         <div class="rule"><b>Kenapa:</b> Harga kosong ditolak (price_required) — nilai kontrak harus disepakati. Kalau ada DP, sistem membuat dua termin: DP saat PO di-issue dan pelunasan saat barang diterima.</div>
         <div class="status">— <span>→</span> PO: DRAFT</div>
         
@@ -211,7 +211,7 @@
         <figure><img src="04-po-print.jpg" alt=""></figure>
       </li>
     </ol>
-    <div class="faq"><h3>Tanya-jawab</h3><p><b>Kenapa tombol Issue ditolak not_approved?</b><br>PO harus dikonfirmasi pimpinan dulu. Tekan "Ask leadership to confirm", tunggu pimpinan menekan "Confirm it", baru "Issue and send it".</p></div>
+    <div class="faq"><h3>Tanya-jawab</h3><p><b>Kenapa tombol Issue ditolak not_approved?</b><br>PO harus dikonfirmasi pimpinan dulu. Tekan "Ask leadership to confirm", tunggu pimpinan menekan "Confirm it", baru "Issue and send it".</p><p><b>Kenapa baris PR tidak muncul di pilihan "From request line"?</b><br>Yang muncul hanya baris yang sudah APPROVED (atau PAID), punya jumlah, belum dihapus, dan vendornya sama atau belum ditentukan. Kalau baris itu sudah ada di PO lain, sistem menolak dengan nama PO-nya.</p></div>
     <p class="next">Berikutnya: <b>Mencatat barang datang (penerimaan)</b></p>
   </section>
   <section class="proc">
@@ -233,8 +233,8 @@
       </li>
       <li>
         <div class="act">Isi jumlah yang datang dan kondisinya. Unggah foto barang (wajib) dan tanda terima yang ditandatangani, lalu tekan <b class="btn">Record what arrived</b>.</div>
-        <div class="rule"><b>Kenapa:</b> Tanpa foto ditolak (photo_required). Dengan foto dan tanda terima sekaligus, penerimaan langsung CONFIRMED dan dihitung sebagai barang diterima.</div>
-        <div class="status">— <span>→</span> penerimaan: CONFIRMED</div>
+        <div class="rule"><b>Kenapa:</b> Tanpa foto ditolak (photo_required). Dengan foto dan tanda terima sekaligus, penerimaan langsung CONFIRMED. Kalau baris PO dibuat dari baris PR, baris PR-nya ikut bergerak: sebagian datang → PARTIAL; lengkap dan sudah lunas → COMPLETED.</div>
+        <div class="status">— <span>→</span> penerimaan: CONFIRMED · baris PR: PARTIAL</div>
         
       </li>
       <li>
@@ -251,6 +251,39 @@
     <header>
       <div class="num">6</div>
       <div>
+        <h2>Membayar PO (DP atau termin) dari halaman PO</h2>
+        <p class="meta">Layar: <code>/procurement/po</code> · Butuh: <code>wewenang post_ledger</code></p>
+      </div>
+    </header>
+    <p class="purpose">Uang muka dan termin PO dibayar dari halaman PO-nya. Satu pembayaran menjadi satu baris buku besar, dan kalau PO dibuat dari baris PR, uangnya dibagi ke baris-baris PR itu sesuai nilainya — jadi halaman PO dan papan Requests menunjukkan pembayaran yang sama tanpa dicatat dua kali.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka Procurement → Purchase Orders, klik PO yang sudah ISSUED. Lihat <b class="btn">Payable now</b> — itu termin yang sudah jatuh tempo.</div>
+        <div class="rule"><b>Kenapa:</b> PO yang masih draft belum menimbulkan kewajiban apa pun, jadi belum bisa dibayar (not_issued).</div>
+        <div class="status">PO: ISSUED <span>→</span> —</div>
+        <figure><img src="06-pay-po.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Di kartu <b class="btn">Pay this order</b>, isi tanggal, nominal (terisi otomatis sebesar Payable now), rekening sumber dan jenis transaksi, lalu unggah bukti transfer.</div>
+        <div class="rule"><b>Kenapa:</b> Tanpa bukti transfer ditolak (evidence_required). Nominal tidak boleh melebihi sisa kontrak (over_contract) — kelebihan bayar adalah urusan dengan vendor, bukan pembayaran PO. Hanya pemegang post_ledger (authority_required).</div>
+        
+        
+      </li>
+      <li>
+        <div class="act">Tekan <b class="btn">Post Rp… to the ledger</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Satu baris buku besar. Bagian untuk baris yang berasal dari PR tercatat di baris PR itu juga; sisanya hanya di PO.</div>
+        <div class="status">PO: UNPAID <span>→</span> PO: PARTIAL / SETTLED</div>
+        
+      </li>
+    </ol>
+    <div class="faq"><h3>Tanya-jawab</h3><p><b>Bayar DP lewat halaman PO atau lewat baris PR?</b><br>Keduanya tercatat di dua sisi. Bayar dari halaman PO kalau yang ditagih vendor adalah termin PO (DP, pelunasan); bayar dari baris PR kalau yang dibayar adalah baris itu sendiri. Satu pembayaran tidak pernah terhitung dua kali.</p></div>
+    
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">7</div>
+      <div>
         <h2>Membayar baris PR dan mencatatnya ke buku besar</h2>
         <p class="meta">Layar: <code>/procurement/pr</code> · Butuh: <code>wewenang post_ledger</code></p>
       </div>
@@ -266,7 +299,7 @@
       </li>
       <li>
         <div class="act">Di bagian pembayaran, pilih rekening sumber, jenis transaksi (misalnya SUPPLIERS), nominal, dan unggah bukti transfer.</div>
-        <div class="rule"><b>Kenapa:</b> Tanpa bukti transfer ditolak (evidence_required). Staf procurement tidak bisa mencatat pembayaran (authority_required) — hanya pemegang post_ledger.</div>
+        <div class="rule"><b>Kenapa:</b> Tanpa bukti transfer ditolak (evidence_required). Staf procurement tidak bisa mencatat pembayaran (authority_required) — hanya pemegang post_ledger. Kalau baris ini sudah dipesan di PO, pembayarannya otomatis terbaca juga di PO tersebut.</div>
         
         
       </li>
@@ -288,7 +321,7 @@
   </section>
   <section class="proc">
     <header>
-      <div class="num">7</div>
+      <div class="num">8</div>
       <div>
         <h2>Melengkapi transaksi di buku besar</h2>
         <p class="meta">Layar: <code>/accounting/ledger</code> · Butuh: <code>wewenang post_ledger</code></p>
@@ -315,7 +348,7 @@
   </section>
   <section class="proc">
     <header>
-      <div class="num">8</div>
+      <div class="num">9</div>
       <div>
         <h2>Verifikasi bukti yang masuk (kotak verifikasi)</h2>
         <p class="meta">Layar: <code>/accounting/verifikasi</code> · Butuh: <code>wewenang resolve_inbox</code></p>
@@ -342,7 +375,7 @@
   </section>
   <section class="proc">
     <header>
-      <div class="num">9</div>
+      <div class="num">10</div>
       <div>
         <h2>Mencocokkan rekening koran dengan buku besar</h2>
         <p class="meta">Layar: <code>/accounting/rekening-koran</code> · Butuh: <code>accounting.create</code></p>
@@ -377,6 +410,6 @@
   <section class="temuan">
     <h2>Temuan simulasi — yang belum berjalan sesuai SOP</h2>
     <p>Simulasi menemukan langkah-langkah berikut yang belum berjalan seperti yang ditulis di atas. Sudah dilaporkan ke IT; sampai diperbaiki, ikuti catatan di bawah.</p>
-    <ol><li><b>Kenapa halaman New request tidak bisa dibuka?</b><br>Saat ini halaman /procurement/pr/new masih ikut memuat daftar work order dari modul produksi, yang belum aktif di sistem live, jadi halamannya belum dibuka. Sudah dilaporkan ke IT; sementara itu PR dibuat oleh admin.</li><li><b>Apakah PO otomatis tersambung ke baris PR?</b><br>Belum. Saat ini PO dibuat terpisah dari baris PR: sistem belum mencatat baris PR mana yang dibeli oleh PO tersebut. Pastikan sendiri baris PR-nya sudah APPROVED sebelum membuat PO.</li><li><b>Kenapa penerimaan ditolak photo_required padahal foto sudah diunggah?</b><br>Ini kesalahan sistem yang sudah ditemukan saat simulasi: layar penerimaan mengirim jenis dokumen dengan nama tampilan, sedangkan database mengharapkan kodenya. Sudah dilaporkan ke IT untuk diperbaiki.</li><li><b>Bagaimana membayar DP PO?</b><br>Belum ada tombol untuk membayar termin PO langsung. Pembayaran dicatat ke baris PR yang disetujui lewat "Post Rp… to the ledger". Termin di halaman PO akan tetap terbaca belum dibayar sampai fiturnya tersedia.</li></ol>
+    <ol><li><b>Kenapa bayar ongkir ditolak line_detail_required?</b><br>Jenis transaksi pembelian (misalnya SUPPLIERS) mewajibkan jumlah dan harga satuan, sedangkan baris jasa seperti ongkir memang tidak punya jumlah. Sudah dilaporkan ke IT. Sementara: catat di Accounting → Ledger dengan tombol "Post to the ledger" (detail 1 × nominal), lalu di laci transaksinya tekan "Point this money at that line" ke baris ongkir.</li></ol>
   </section>
 </body></html>

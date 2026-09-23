@@ -757,7 +757,8 @@ async function afterPo(poNo: string, res: Result<unknown>): Promise<Result<PoDet
 export async function createPo(
   input: {
     vendor_id: string;
-    lines: { description: string; qty: number; uom: UomCode; unit_price: number }[];
+    /** `pr_line_no`: the approved request line this order line buys (B7). */
+    lines: { description: string; qty: number; uom: UomCode; unit_price: number; pr_line_no?: string | null }[];
     dp_percent?: number | null;
     note?: string | null;
     /** When the vendor says it will arrive (D134). */

@@ -188,32 +188,44 @@ end $$;
 -- ═════ 4. PURCHASE ORDER ═══════════════════════════════════════════════════
 set local request.jwt.claim.sub = '51510000-0000-0000-0000-00000000a11d';
 do $$
-declare r jsonb; vcode text; po text; st text; n int;
+declare r jsonb; vcode text; po text; st text; n int; doc text;
 begin
   select code into vcode from ops_procure.vendors where name = 'CV SIMULASI KAYU';
+  select doc_no into doc from ops_procure.pr_documents order by created_at desc limit 1;
 
   r := ops_procure.create_po(vcode, jsonb_build_array(
         jsonb_build_object('description','Plywood 18mm','qty',10,'uom','lembar','unit_price',0)));
   assert r->'error'->>'code' = 'price_required', format('%s', r);
-  perform pg_temp.log('4. PO','Buat PO dengan harga kosong','Andi','/procurement/tracker',
+  perform pg_temp.log('4. PO','Buat PO dengan harga kosong','Andi','/procurement/po',
     'ops_procure.create_po','DITOLAK', null, 'price_required — nilai kontrak harus disepakati.');
 
+  -- The delivery charge is a lump sum: money, not goods (A1).
   r := ops_procure.create_po(vcode, jsonb_build_array(
-        jsonb_build_object('description','Plywood 18mm — meja lobi','qty',10,'uom','lembar','unit_price',150000)),
+        jsonb_build_object('description','Ongkos kirim','qty',1,'uom','unit','unit_price',250000,'pr_line_no', doc || '-L02')));
+  assert r->'error'->>'code' = 'lump_sum_line', format('%s', r);
+  perform pg_temp.log('4. PO','Pilih baris ongkir (tanpa jumlah) sebagai baris PO','Andi','/procurement/po',
+    'ops_procure.create_po','DITOLAK', null,
+    'lump_sum_line — baris tanpa jumlah adalah uang, bukan barang; dibayar lewat barisnya, tidak dipesan.');
+
+  r := ops_procure.create_po(vcode, jsonb_build_array(
+        jsonb_build_object('description','Plywood 18mm — meja lobi','qty',10,'uom','lembar','unit_price',150000,
+                           'pr_line_no', doc || '-L01')),
         30, 'DP 30%, pelunasan saat barang datang.', ops_core.office_day() + 7);
   assert ops_core.said_ok(r), format('po: %s', r);
   po := r->'data'->>'po_no';
   select status into st from ops_procure.purchase_orders where po_no = po;
   select count(*) into n from ops_procure.po_schedule s join ops_procure.purchase_orders p on p.id = s.po_id where p.po_no = po;
   assert st = 'DRAFT' and n = 2;
-  perform pg_temp.log('4. PO','Buat PO baru dengan DP 30%','Andi','/procurement/tracker',
+  assert ops_procure.order_of_line(doc || '-L01') = po, 'the request line knows its order';
+  perform pg_temp.log('4. PO','Add new PO → pilih baris PR yang disetujui di "From request line", DP 30%','Andi','/procurement/po',
     'ops_procure.create_po','OK', 'PO: DRAFT',
-    po || ' — 2 termin otomatis: DP saat issue, pelunasan saat barang diterima.');
+    po || ' — terisi dari baris ' || doc || '-L01 dan tersambung ke baris itu; 2 termin otomatis: DP saat issue, pelunasan saat barang diterima.');
 
-  -- No column ties a PO line to the approved request line it buys.
-  perform pg_temp.log('4. PO','Hubungkan PO ke baris PR yang disetujui','Andi','/procurement/tracker',
-    '—','TEMUAN', null,
-    'po_lines tidak punya kolom baris PR; create_po tidak menerima nomor baris PR. Aturan "PO dibuat dari baris yang sudah disetujui" tidak ditegakkan sistem.');
+  r := ops_procure.create_po(vcode, jsonb_build_array(
+        jsonb_build_object('description','Plywood 18mm','qty',10,'uom','lembar','unit_price',150000,'pr_line_no', doc || '-L01')));
+  assert r->'error'->>'code' = 'line_already_ordered', format('%s', r);
+  perform pg_temp.log('4. PO','Pesan baris PR yang sama di PO kedua','Andi','/procurement/po',
+    'ops_procure.create_po','DITOLAK', null, 'line_already_ordered — baris itu sudah dipesan di ' || po || '.');
 
   r := ops_procure.issue_po(po);
   assert r->'error'->>'code' = 'not_approved', format('%s', r);
@@ -253,9 +265,10 @@ end $$;
 
 -- ═════ 5. PENERIMAAN BARANG ════════════════════════════════════════════════
 do $$
-declare r jsonb; pol uuid; photo uuid; tt uuid; po text; recv numeric;
+declare r jsonb; pol uuid; photo uuid; tt uuid; po text; recv numeric; doc text; st text;
 begin
   select po_no into po from ops_procure.purchase_orders order by created_at desc limit 1;
+  select doc_no into doc from ops_procure.pr_documents order by created_at desc limit 1;
   select l.id into pol from ops_procure.po_lines l join ops_procure.purchase_orders p on p.id = l.po_id where p.po_no = po;
 
   r := ops_core.attach_file('sim/foto-barang.jpg','foto-barang.jpg','image/jpeg',120000,null,'upload');
@@ -269,78 +282,94 @@ begin
   perform pg_temp.log('5. Penerimaan','Catat barang datang tanpa foto','Andi','/procurement/tracker/[vendor]',
     'ops_procure.create_receipt','DITOLAK', null, 'photo_required — foto barang selalu wajib.');
 
-  -- Exactly what `ReceiveForm.tsx` sends in live mode: the display labels.
+  -- Exactly what `ReceiveForm.tsx` sends: the display labels (B5, 0126).
   r := ops_procure.create_receipt(10, 'GOOD', jsonb_build_array(
         jsonb_build_object('attachment_id', photo, 'kind','Receiving Item'),
         jsonb_build_object('attachment_id', tt,    'kind','Delivery Note')), null, pol);
-  perform pg_temp.log('5. Penerimaan','Catat barang datang dengan foto + tanda terima, seperti yang dikirim layar','Andi','/procurement/tracker/[vendor]',
+  perform pg_temp.log('5. Penerimaan','Record arrival → isi jumlah, foto barang dan tanda terima, tekan Record what arrived','Andi','/procurement/tracker/[vendor]',
     'ops_procure.create_receipt',
-    case when ops_core.said_ok(r) then 'OK' else 'TEMUAN' end, null,
+    case when ops_core.said_ok(r) and r->'data'->>'status' = 'CONFIRMED' then 'OK' else 'TEMUAN' end,
+    'penerimaan: ' || coalesce(r->'data'->>'status', '—'),
     case when ops_core.said_ok(r) then null else
-      'Ditolak ' || coalesce(r->'error'->>'code','?') || ' padahal foto ada: layar mengirim label "Receiving Item"/"Delivery Note", seam membandingkan kode "goods_photo"/"delivery_note" tanpa doc_kind_of. Di mode live, penerimaan barang tidak bisa dicatat.' end);
+      'Ditolak ' || coalesce(r->'error'->>'code','?') || ' padahal foto ada — layar mengirim label, seam harus membacanya lewat doc_kind_of.' end);
+  if not ops_core.said_ok(r) then return; end if;
 
-  if not ops_core.said_ok(r) then
-    -- Carry on the way the seam expects, so the rest of the week can be walked.
-    r := ops_procure.create_receipt(10, 'GOOD', jsonb_build_array(
-          jsonb_build_object('attachment_id', photo, 'kind','goods_photo'),
-          jsonb_build_object('attachment_id', tt,    'kind','delivery_note')), null, pol);
-    assert ops_core.said_ok(r), format('receipt with codes: %s', r);
-  end if;
-  assert r->'data'->>'status' = 'CONFIRMED', format('%s', r);
   select value_received into recv from ops_procure.v_po_status
    where po_id = (select po_id from ops_procure.po_lines where id = pol);
   assert recv = 1500000, format('received %s', recv);
-  perform pg_temp.log('5. Penerimaan','Catat dengan kode dokumen yang benar','Andi','/procurement/tracker/[vendor]',
-    'ops_procure.create_receipt','OK', 'penerimaan: CONFIRMED',
-    'Foto + tanda terima sekaligus → langsung CONFIRMED; nilai diterima 1.500.000. Stok gudang tidak bertambah otomatis (inventory.stockFromReceipt belum tersambung).');
+  select status::text into st from ops_procure.v_pr_line_status where line_no_full = doc || '-L01';
+  perform pg_temp.log('5. Penerimaan','Periksa baris PR yang dibeli PO ini','Andi','/procurement/pr',
+    'ops_procure.v_pr_line_status', case when st = 'PARTIAL' then 'OK' else 'TEMUAN' end, 'baris L01: ' || st,
+    'Barang diterima di PO ikut menggerakkan baris PR-nya (belum lunas, jadi belum COMPLETED). Stok gudang tidak bertambah otomatis (inventory.stockFromReceipt belum tersambung).');
 end $$;
 
 -- ═════ 6. PEMBAYARAN & BUKU BESAR ══════════════════════════════════════════
 do $$
-declare r jsonb; doc text; proof uuid;
+declare r jsonb; po text; proof uuid;
 begin
-  select doc_no into doc from ops_procure.pr_documents order by created_at desc limit 1;
+  select po_no into po from ops_procure.purchase_orders order by created_at desc limit 1;
   r := ops_core.attach_file('sim/bukti-transfer.jpg','bukti-transfer.jpg','image/jpeg',90000,null,'upload');
   proof := (r->'data'->>'attachment_id')::uuid;
-  r := ops_acct.post_from_line(p_line_no => doc || '-L01', p_amount => 1500000,
-        p_account_code => 'BCA 271', p_type_code => 'SUPPLIERS', p_attachment_id => proof);
+  r := ops_acct.post_to_po(po, 450000, 'BCA 271', 'SUPPLIERS', proof);
   assert r->'error'->>'code' = 'authority_required', format('%s', r);
-  perform pg_temp.log('6. Pembayaran','Staf procurement mencoba mencatat pembayaran','Andi','/procurement/pr',
-    'ops_acct.post_from_line','DITOLAK', null, 'authority_required — hanya pemegang post_ledger (keuangan).');
+  perform pg_temp.log('6. Pembayaran','Staf procurement mencoba membayar DP PO','Andi','/procurement/po/[po]',
+    'ops_acct.post_to_po','DITOLAK', null, 'authority_required — hanya pemegang post_ledger (keuangan).');
 end $$;
 
 set local request.jwt.claim.sub = '51510000-0000-0000-0000-00000000f11a';
 do $$
-declare r jsonb; doc text; proof uuid; trx text; st text; bal_before numeric; bal_after numeric;
+declare r jsonb; doc text; po text; proof uuid; trx text; st text; ps text; bal_before numeric; bal_after numeric; cov numeric;
 begin
   select doc_no into doc from ops_procure.pr_documents order by created_at desc limit 1;
+  select po_no into po from ops_procure.purchase_orders order by created_at desc limit 1;
   select balance into bal_before from ops_acct.v_account_balance where code = 'BCA 271';
 
-  r := ops_acct.post_from_line(p_line_no => doc || '-L01', p_amount => 1500000,
-        p_account_code => 'BCA 271', p_type_code => 'SUPPLIERS', p_attachment_id => null);
+  r := ops_acct.post_to_po(po, 450000, 'BCA 271', 'SUPPLIERS', null);
   assert r->'error'->>'code' = 'evidence_required', format('%s', r);
-  perform pg_temp.log('6. Pembayaran','Catat pembayaran tanpa bukti transfer','Rina','/procurement/pr',
-    'ops_acct.post_from_line','DITOLAK', null, 'evidence_required — tanpa bukti, tidak ada pembayaran.');
+  perform pg_temp.log('6. Pembayaran','Bayar DP tanpa bukti transfer','Rina','/procurement/po/[po]',
+    'ops_acct.post_to_po','DITOLAK', null, 'evidence_required — tanpa bukti, tidak ada pembayaran.');
 
-  r := ops_core.attach_file('sim/bukti-transfer-l01.jpg','bukti-transfer-l01.jpg','image/jpeg',90000,null,'upload');
+  r := ops_core.attach_file('sim/bukti-dp.jpg','bukti-dp.jpg','image/jpeg',90000,null,'upload');
   proof := (r->'data'->>'attachment_id')::uuid;
-  r := ops_acct.post_from_line(p_line_no => doc || '-L01', p_amount => 1500000,
+  r := ops_acct.post_to_po(po, 450000, 'BCA 271', 'SUPPLIERS', proof);
+  assert ops_core.said_ok(r), format('post_to_po: %s', r);
+  select payment_state::text into ps from ops_procure.v_po_status where po_no = po;
+  select covered into cov from ops_procure.v_line_coverage where line_no_full = doc || '-L01';
+  assert ps = 'PARTIAL' and cov = 450000, format('%s %s', ps, cov);
+  perform pg_temp.log('6. Pembayaran','Pay this order: bayar DP 450.000 dari halaman PO','Rina','/procurement/po/[po]',
+    'ops_acct.post_to_po → post_transaction + alokasi','OK', 'PO: ' || ps || ' · baris L01 terbayar 450.000',
+    (r->'data'->>'trx_no') || ' — satu baris buku besar; karena PO tersambung ke L01, uangnya terbaca di PO dan di baris PR sekaligus.');
+
+  r := ops_core.attach_file('sim/bukti-pelunasan.jpg','bukti-pelunasan.jpg','image/jpeg',90000,null,'upload');
+  proof := (r->'data'->>'attachment_id')::uuid;
+  r := ops_acct.post_from_line(p_line_no => doc || '-L01', p_amount => 1050000,
         p_account_code => 'BCA 271', p_type_code => 'SUPPLIERS', p_attachment_id => proof);
   assert ops_core.said_ok(r), format('post_from_line: %s', r);
-  trx := coalesce(r->'data'->>'trx_no', r->'data'->'transaction'->>'trx_no');
+  trx := r->'data'->>'trx_no';
+  select payment_state::text into ps from ops_procure.v_po_status where po_no = po;
   select status::text into st from ops_procure.v_pr_line_status where line_no_full = doc || '-L01';
-  select balance into bal_after from ops_acct.v_account_balance where code = 'BCA 271';
-  assert bal_before - bal_after = 1500000, format('balance moved %s', bal_before - bal_after);
-  perform pg_temp.log('6. Pembayaran','Bayar dari baris PR: Post Rp… to the ledger','Rina','/procurement/pr',
-    'ops_acct.post_from_line → post_transaction + allocate_payment','OK',
-    'transaksi: POSTED · baris L01: ' || st,
-    coalesce(trx,'?') || ' keluar dari BCA 271; saldo turun 1.500.000 dan uangnya dialokasikan ke baris L01.');
+  assert ps = 'SETTLED', ps;
+  perform pg_temp.log('6. Pembayaran','Lunasi dari baris PR: Post Rp… to the ledger','Rina','/procurement/pr',
+    'ops_acct.post_from_line → post_transaction + allocate_payment','OK', 'PO: ' || ps || ' · baris L01: ' || st,
+    trx || ' — dicatat di baris PR, tetapi PO ikut lunas karena alokasinya menyebut PO-nya.');
 
-  -- The PO's deposit term is owed too, and nothing on screen pays a PO term.
-  select payment_state::text into st from ops_procure.v_po_detail order by created_at desc limit 1;
-  perform pg_temp.log('6. Pembayaran','Bayar termin DP langsung ke PO','Rina','/procurement/po/[po]',
-    'ops_acct.allocate_payment(p_po_no)','TEMUAN', 'PO: ' || st,
-    'Seam-nya ada (allocate_payment dengan p_po_no), tapi tidak ada tombol di layar mana pun. Pembayaran dicatat ke baris PR, sedangkan termin PO tetap terbaca belum dibayar karena PO dan PR tidak tersambung.');
+  -- The delivery charge has no quantity (D75), and SUPPLIERS is a purchase
+  -- type that asks every detail line for one (`line_detail_required`). Logged,
+  -- not asserted away: paying a lump-sum line as a supplier purchase is a road
+  -- the requests board offers and the ledger refuses.
+  r := ops_core.attach_file('sim/bukti-ongkir.jpg','bukti-ongkir.jpg','image/jpeg',90000,null,'upload');
+  proof := (r->'data'->>'attachment_id')::uuid;
+  r := ops_acct.post_from_line(p_line_no => doc || '-L02', p_amount => 250000,
+        p_account_code => 'BCA 271', p_type_code => 'SUPPLIERS', p_attachment_id => proof);
+  select status::text into st from ops_procure.v_pr_line_status where line_no_full = doc || '-L02';
+  perform pg_temp.log('6. Pembayaran','Bayar ongkir (baris tanpa jumlah) dari barisnya, jenis SUPPLIERS','Rina','/procurement/pr',
+    'ops_acct.post_from_line', case when ops_core.said_ok(r) then 'OK' else 'TEMUAN' end, 'baris L02: ' || st,
+    case when ops_core.said_ok(r) then null else
+      coalesce(r->'error'->>'code','?') || ' — jenis SUPPLIERS mewajibkan jumlah dan harga satuan di detail, padahal baris jasa lump-sum memang tidak punya jumlah (D75). Layar menawarkan jalan ini, buku besar menolaknya.' end);
+
+  select balance into bal_after from ops_acct.v_account_balance where code = 'BCA 271';
+  assert bal_before - bal_after = 1500000 + case when ops_core.said_ok(r) then 250000 else 0 end,
+    format('balance moved %s', bal_before - bal_after);
 end $$;
 
 -- ═════ 7. MELENGKAPI TRANSAKSI ═════════════════════════════════════════════
@@ -385,17 +414,17 @@ end $$;
 
 -- ═════ 9. REKENING KORAN ═══════════════════════════════════════════════════
 do $$
-declare r jsonb; line uuid; trx text; st text; d date := ops_core.office_day();
+declare r jsonb; line uuid; trx text; amt numeric; st text; d date := ops_core.office_day();
 begin
-  select trx_no into trx from ops_acct.transactions
+  select trx_no, amount_idr into trx, amt from ops_acct.transactions
    where account_id = (select id from ops_acct.accounts where code = 'BCA 271')
    order by posted_at desc limit 1;
   r := ops_acct.import_statement('BCA 271', date_trunc('month', d)::date,
         (date_trunc('month', d) + interval '1 month - 1 day')::date,
         0, 0, 'IDR', 'rk-simulasi.pdf',
         jsonb_build_array(
-          jsonb_build_object('value_date', d, 'direction','OUT','amount',1500000,'raw_description','TRSF KE CV SIMULASI KAYU'),
-          jsonb_build_object('value_date', d, 'direction','OUT','amount',1450000,'raw_description','TRSF LAIN')));
+          jsonb_build_object('value_date', d, 'direction','OUT','amount',amt,'raw_description','TRSF KE CV SIMULASI KAYU'),
+          jsonb_build_object('value_date', d, 'direction','OUT','amount',amt - 50000,'raw_description','TRSF LAIN')));
   perform pg_temp.log('9. Rekening koran','Upload rekening koran bulan ini','Rina','/accounting/rekening-koran',
     'ops_acct.import_statement', case when ops_core.said_ok(r) then 'OK' else 'TEMUAN' end, null,
     coalesce(r->'error'->>'code' || ': ' || (r->'error'->>'message'), '2 baris masuk, status unmatched.'));

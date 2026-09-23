@@ -25,7 +25,7 @@ import {
   poDetail, poTerms,
   boughtCategories, itemsBoughtFrom, itemSources, purchaseFacts, openLines,
   pendingRequest, byTime, vendorJourney,
-  varianceOf, currentApproval, lineEvidenceKinds,
+  varianceOf, currentApproval, lineEvidenceKinds, orderOfLine,
 } from "../derive";
 import {
   latency, actingUser, requireAuthority, requireModule, conflict, replayed, remember, paged,
@@ -1603,7 +1603,8 @@ export interface PoView extends PurchaseOrder {
 export async function createPo(
   input: {
     vendor_id: string;
-    lines: { description: string; qty: number; uom: UomCode; unit_price: number }[];
+    /** `pr_line_no`: the approved request line this order line buys (B7). */
+    lines: { description: string; qty: number; uom: UomCode; unit_price: number; pr_line_no?: string | null }[];
     dp_percent?: number | null;
     note?: string | null;
     /** When the vendor says it will arrive (D134). */
@@ -1633,6 +1634,35 @@ export async function createPo(
   }
   if (input.dp_percent != null && (input.dp_percent < 0 || input.dp_percent > 100)) {
     return invalid(SERVICE, "dp_out_of_range", "A deposit is between 0 and 100 per cent.", { field: "dp_percent" });
+  }
+
+  /* The request line each order line buys (B7) — the same three checks as
+     `create_po` (0127), in the same order, with the same sentences. */
+  const named = lines.map((l) => l.pr_line_no?.trim()).filter((x): x is string => !!x);
+  const twice = named.find((n, i) => named.indexOf(n) !== i);
+  if (twice) return invalid(SERVICE, "line_named_twice", `${twice} is named on two lines of this order.`, { field: "lines" });
+  for (const l of lines) {
+    const want = l.pr_line_no?.trim();
+    if (!want) continue;
+    const pr = state.pr_lines.find((p) => p.line_no_full === want);
+    if (!pr) return invalid(SERVICE, "pr_line_not_found", `Request line ${want} does not exist.`, { field: "lines" });
+    if (pr.removed_at) return conflict(SERVICE, "line_removed", `Request line ${want} has been removed.`);
+    if (!currentApproval(state, pr.id)?.approved) {
+      return conflict(SERVICE, "line_not_approved",
+        `Request line ${want} has no goods approval. Approving the goods comes before ordering them.`, { pr_line_no: want });
+    }
+    const onPo = orderOfLine(state, want);
+    if (onPo) return conflict(SERVICE, "line_already_ordered", `Request line ${want} is already ordered on ${onPo}.`, { pr_line_no: want, po_no: onPo });
+    if (pr.qty == null) {
+      return invalid(SERVICE, "lump_sum_line",
+        `Request line ${want} has no quantity, so it is money rather than goods. It is paid, not ordered.`,
+        { field: "lines", pr_line_no: want });
+    }
+    if (pr.uom && l.uom !== pr.uom) {
+      return invalid(SERVICE, "uom_differs",
+        `Request line ${want} is counted in ${pr.uom} and this order line in ${l.uom}. Order it in the same unit, or arrivals will move the request by the wrong number.`,
+        { field: "lines", pr_line_no: want });
+    }
   }
 
   const user = actingUser();
@@ -1679,7 +1709,17 @@ export async function createPo(
         description: l.description.trim(), qty: l.qty, uom: l.uom,
         unit_price: l.unit_price, line_total: Math.round(l.qty * l.unit_price),
         superseded_by: null,
+        pr_line_id: l.pr_line_no ? draft.pr_lines.find((p) => p.line_no_full === l.pr_line_no)?.id ?? null : null,
       });
+      /* Money already on the line reaches the order too: superseded by a row
+         naming both, never edited (A5, B8). */
+      if (l.pr_line_no) {
+        for (const a of draft.payment_allocations.filter((x) => x.pr_line_no === l.pr_line_no && x.po_no === null && x.superseded_by === null)) {
+          const id = newId("alc");
+          draft.payment_allocations.push({ ...a, id, po_no: poNo, allocated_at: now });
+          a.superseded_by = id;
+        }
+      }
     });
     if (input.dp_percent) {
       draft.po_schedule.push({

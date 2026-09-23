@@ -40,7 +40,14 @@ await shot("01-suppliers", async () => { await go("/master-data/suppliers"); });
 await shot("02-pr-board", async () => { await go("/procurement/pr"); await mark(p.getByText("New request", { exact: true })); });
 await shot("02-pr-new", async () => { await go("/procurement/pr/new"); await mark(p.getByText("Submit for approval")); });
 await shot("03-meeting", async () => { await go("/procurement/meeting"); });
-await shot("04-new-po", async () => { await go("/procurement/po"); await btn("Add new PO").click(); await p.waitForTimeout(800); await mark(p.getByText("Create the draft")); });
+await shot("04-new-po", async () => {
+  await go("/procurement/po"); await btn("Add new PO").click(); await p.waitForTimeout(1200);
+  const pick = p.locator("#po-pr-0");
+  const first = await pick.locator("option").nth(1).getAttribute("value");
+  if (first) await pick.selectOption(first);
+  await p.waitForTimeout(400);
+  await mark(pick);
+});
 let poUrl = null;
 await shot("04-po-detail", async () => {
   await go("/procurement/po");
@@ -62,6 +69,11 @@ await shot("06-pay-line", async () => {
   await p.locator("tbody tr", { hasText: "APPROVED" }).filter({ hasNotText: "WAITING" }).first().click(); await p.waitForTimeout(1200);
   const post = p.getByText(/to the ledger/).first();
   await mark(post);
+});
+await shot("06-pay-po", async () => {
+  await go("/procurement/po");
+  await p.locator("tbody tr", { hasText: "ISSUED" }).first().click(); await p.waitForURL(/\/procurement\/po\/.+/); await p.waitForTimeout(1500);
+  await mark(p.getByText("Pay this order"));
 });
 await shot("07-ledger", async () => { await go("/accounting/ledger"); });
 await shot("08-verifikasi", async () => { await go("/accounting/verifikasi"); });

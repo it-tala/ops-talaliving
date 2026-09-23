@@ -70,18 +70,11 @@ export const LIVE_ROUTES: readonly string[] = [
   "/dashboard",
   "/hrd/absensi",
   "/hrd/berkas-201",
-  /* Lit by `0123`, which gave leave requests a table. This screen was dark
-     for a different reason from the payroll ones: they had a seam short of
-     its contract, this had nothing underneath it at all. */
   "/hrd/cuti",
   "/hrd/jadwal",
   "/hrd/karyawan",
   "/hrd/kontrak",
   "/hrd/kontrak/[no]",
-  /* Lit by `0119`, which brought `payroll_figures` up to the contract, and by
-     the eight live functions that became writable once it had. Until then the
-     seam could only have half-filled `PayrollLine` and cast the gap away — a
-     payroll screen missing half its figures looks like a payroll screen. */
   "/hrd/payroll",
   "/hrd/payroll/[run]",
   "/hrd/payroll/[run]/payslip",
@@ -112,6 +105,7 @@ export const LIVE_ROUTES: readonly string[] = [
   "/procurement/po/[po]/print",
   "/procurement/pr",
   "/procurement/pr/documents",
+  "/procurement/pr/new",
   "/procurement/rounds",
   "/procurement/tracker",
   "/procurement/tracker/[vendor]",
