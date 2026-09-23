@@ -70,6 +70,10 @@ export const LIVE_ROUTES: readonly string[] = [
   "/dashboard",
   "/hrd/absensi",
   "/hrd/berkas-201",
+  /* Lit by `0123`, which gave leave requests a table. This screen was dark
+     for a different reason from the payroll ones: they had a seam short of
+     its contract, this had nothing underneath it at all. */
+  "/hrd/cuti",
   "/hrd/jadwal",
   "/hrd/karyawan",
   "/hrd/kontrak",

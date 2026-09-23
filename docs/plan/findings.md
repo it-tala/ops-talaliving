@@ -5984,3 +5984,45 @@ were already correct on the filter and only needed the hardening.
 
 Not my file, and fixed anyway: an intermittent failure in the shared suite is
 a red CI for whoever pushes next, and the diagnosis was already in hand.
+
+---
+
+## F147 · 2026-09-23 · a grant copied from six migrations re-opened the one table that had been closed
+
+The new leave table needed a table-level grant — RLS narrows what a role may
+see, but a role with no grant meets `permission denied` before any policy is
+consulted. Every HR migration from `0043` to `0052` says the same line, so I
+said it too:
+
+    grant select on all tables in schema ops_hr to authenticated;
+
+`53_hr_people_seams` failed immediately, on an assertion written a fortnight
+earlier: *a number nobody may read is a table nobody may select*.
+
+`0056` revokes select on `ops_hr.employee_documents`, because the document
+numbers in it are readable only through a view that masks them (D196). Every
+blanket grant in the ladder is numbered **below** that revoke, so the revoke
+had always run last and always won. `0123` is the first one above it. The
+idiom had been safe for exactly as long as no table in the schema had been
+closed again, and nothing about the line says so.
+
+**What makes this worth writing down is how it presented.** Nothing in the
+migration looked wrong; it was copied verbatim from six places that are all
+correct. The failure was not in the statement but in its **position in the
+ladder**, which is the one property a copied line does not carry with it. A
+reviewer reading the diff would have seen a familiar line in a familiar place.
+
+Narrowed to `grant select on ops_hr.leave_requests`, and proved both ways
+afterwards rather than assumed: `has_table_privilege` now answers false for
+`employee_documents` and true for `leave_requests`.
+
+The general rule: **`on all tables in schema` is not idempotent with respect to
+a later revoke — it is a reversal of it.** In a ladder that only ever grows,
+any blanket grant is a statement about every table added *before* it and every
+decision taken *after* it, and the second half is invisible at the point of
+writing. The six earlier copies should probably be narrowed too, but they are
+correct where they stand and rewriting applied migrations is its own hazard; a
+seventh would not have been.
+
+Caught by a smoke assertion about a completely different feature. That is what
+those two hundred lines of refusals are for.

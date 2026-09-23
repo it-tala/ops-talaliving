@@ -186,6 +186,7 @@ const VIEW_CONTRACTS = {
      `getContract` stitches the clauses, the checklist coverage and the
      differences onto the same row, and those three are named as composed. */
   v_contract: { type: "ContractView", composed: ["clauses", "coverage", "conflicts"] },
+  v_leave_request: "LeaveRequestView",
   v_allowance_withholding: "AllowanceWithholdingView",
   v_pay_rule_set: "PayRuleSetView",
   /* Read for `stage`, `payable` and `total_hours` and merged onto the sheet

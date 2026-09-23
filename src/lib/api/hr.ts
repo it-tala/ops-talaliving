@@ -45,6 +45,7 @@ import type {
   PayRules, PayRuleSetView, TimesheetTotal, EffectiveDaysCalendar,
   PayrollRun, PayrollView, PayrollLine, PayrollAdjustmentView,
   AdjustmentKind, ContributionScheme,
+  LeaveKind, LeaveStatus, LeaveRequestView, LeaveBalance,
 } from "@/services/hr/contracts";
 import {
   EMPLOYEE_DOC_CHECKLIST, EMPLOYEE_DOC_LABEL, SENSITIVE_DOC_KINDS,
@@ -166,6 +167,79 @@ export async function listSchedules(): Promise<Result<{
 }>> {
   const { data, error } = await db().rpc("schedule_roll");
   return fromRows(SERVICE, data as never, error);
+}
+
+/* ------------------------------------------------------------------ */
+/* Cuti — pengajuan dan keputusan                                      */
+/* ------------------------------------------------------------------ */
+//
+// `/hrd/cuti` was dark for a different reason from the payroll screens: they
+// had a seam short of its contract, this had **no table at all**. `0123` adds
+// one, and keeps it apart from `day_marks` (D142) — a mark is what the
+// timesheet reads, a request is a decision with a name and a sentence on it.
+
+export async function listLeaveRequests(): Promise<Result<LeaveRequestView[]>> {
+  /* Waiting first, then newest: a queue is not a filing cabinet. Ordered by
+     the database rather than re-sorted here, so the demo and the real client
+     hand the screen the same order. */
+  const { data, error } = await db()
+    .from("v_leave_request")
+    .select("*")
+    .order("status", { ascending: true })
+    .order("from_date", { ascending: false });
+  if (error) return fromRows<LeaveRequestView[]>(SERVICE, null as never, error);
+
+  const rows = ((data ?? []) as unknown as LeaveRequestView[]).slice().sort((a, b) => {
+    if ((a.status === "PENDING") !== (b.status === "PENDING")) return a.status === "PENDING" ? -1 : 1;
+    return b.from_date.localeCompare(a.from_date);
+  });
+  return fromRows<LeaveRequestView[]>(SERVICE, rows as never, null);
+}
+
+export async function listLeaveBalances(): Promise<Result<LeaveBalance[]>> {
+  const { data, error } = await db().rpc("leave_balances", { p_year: null });
+  return fromRows<LeaveBalance[]>(SERVICE, data as never, error);
+}
+
+export async function requestLeave(
+  input: { employee_no: string; kind: LeaveKind; from_date: string; to_date: string; reason: string },
+  idempotencyKey?: string,
+): Promise<Result<LeaveRequestView>> {
+  const { data, error } = await db().rpc("request_leave", {
+    p_employee_no: input.employee_no, p_kind: input.kind,
+    p_from: input.from_date, p_to: input.to_date,
+    p_reason: input.reason, p_key: idempotencyKey ?? null,
+  });
+  const made = fromSeam<{ request_no: string }>(SERVICE, data, error);
+  if (made.error) return made as unknown as Result<LeaveRequestView>;
+
+  /* Read back through the view rather than assembling the row here: the
+     paid/unpaid split and the clashing days are derived, and a client that
+     computed them would be a second opinion about somebody's entitlement. */
+  const { data: row, error: readErr } = await db()
+    .from("v_leave_request").select("*")
+    .eq("request_no", made.data.request_no).maybeSingle();
+  if (readErr) return fromRows<LeaveRequestView>(SERVICE, null as never, readErr);
+  if (!row) {
+    return notFound(SERVICE, "request_not_found",
+      `Pengajuan ${made.data.request_no} tersimpan tapi tidak terbaca kembali.`);
+  }
+  return ok(SERVICE, row as unknown as LeaveRequestView);
+}
+
+export async function decideLeave(
+  input: { request_no: string; approved: boolean; note?: string | null },
+): Promise<Result<{ request_no: string; status: LeaveStatus; marked: string[]; skipped: string[] }>> {
+  const { data, error } = await db().rpc("decide_leave", {
+    p_request_no: input.request_no, p_approved: input.approved,
+    p_note: input.note ?? null, p_key: null,
+  });
+  /* `marked` and `skipped` come straight back from the seam. The screen needs
+     both: approving days that already carry a mark is the one thing this can
+     half-do, and reporting a clean success over a silent collision is how a
+     tanggal merah quietly becomes somebody's cuti. */
+  return fromSeam<{ request_no: string; status: LeaveStatus; marked: string[]; skipped: string[] }>(
+    SERVICE, data, error);
 }
 
 /* ------------------------------------------------------------------ */
