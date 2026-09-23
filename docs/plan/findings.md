@@ -5605,3 +5605,104 @@ decision. `92_` caught it too.
 one whose file you happen to be reading.** `0101` is where the function was
 introduced and is the natural file to open; it has not been the truth since
 `0102`. Nothing about opening it says so.
+
+## F138 · 2026-09-23 · the ledger was shut by a runtime check where the design said a privilege, and `anon` could call every seam
+
+Found while reading `0038_acct_file_evidence.sql` to build J5's Chat ingest
+door, because the whole safety case for handing a worker a `service_role` key
+rests on one sentence in that file:
+
+> `service_role` gets **usage on the schema and execute on this function, and
+> nothing else.** No table grants. … A compromised worker key can file
+> evidence. It cannot read the ledger, and it cannot resolve anything.
+
+Half of that was measured and half was assumed, and the half that was assumed
+was the half doing the work in the argument.
+
+**The table half was true and had stayed true.** `service_role` held zero
+privileges on all 189 tables across the seven `ops_*` schemas — not one
+SELECT, not one INSERT. Worth saying because that is the part people expect to
+have rotted.
+
+**The execute half was false.** `service_role` could execute 278 of 285
+`ops_*` functions, and so could `anon` — the publishable key that ships inside
+every browser bundle. Among them `post_transaction`, `void_transaction`,
+`edit_transaction`, `set_authorities`, `approve_payroll_run`,
+`reveal_employee_doc_no`, and `resolve_inbox`, which that comment names by
+name as the thing the worker cannot do.
+
+Nothing granted this. It is the PostgreSQL default — a new function is
+executable by `PUBLIC`, and Supabase's three roles inherit `PUBLIC`. The
+ladder revokes it in exactly seven places, which is the interesting part: the
+authors knew about the default and closed it each time they were thinking
+about it. Ninety-odd functions later, nobody was thinking about it.
+
+### What was actually holding the door
+
+Not the grant. Every money seam opens with `ops_core.has_authority(...)`,
+which is `select exists (… where ua.user_id = auth.uid() …)`. For `anon`,
+`auth.uid()` is null, the `exists` is false, the seam refuses. **So the ledger
+was never open** — and saying that plainly matters, because the temptation on
+finding this is to describe it as a breach and it was not one.
+
+It was weaker than what was written down, in a specific way. A privilege is
+checked before the function body runs and cannot be talked around; an
+authority check is a runtime comparison against a claim. Mint a `service_role`
+JWT carrying a `sub` and `auth.uid()` returns it, and every authority check in
+the database passes for whoever that is. Two guards where the design assumed
+one is fine. **One guard where the design assumed two is how a system ends up
+one mistake from open**, and nobody knows it because the document says there
+are two.
+
+### The fix, and the two mistakes it took to get right
+
+`0117` revokes execute from `PUBLIC` on every `security definer` function in
+`ops_*` and grants it to `authenticated`; `service_role` keeps the one verb.
+`authenticated` deliberately keeps everything, because a signed-in person
+reaching a seam is the design — what may then be *done* is decided inside, by
+`has_authority`, `has_permission` and the catalogue (D218). Narrowing it would
+move the boundary somewhere nobody reads and leave two places to keep in step.
+
+**The first draft opened six holes while closing one.** A blanket `grant
+execute … to authenticated` handed back every function an earlier migration
+had deliberately revoked — `bootstrap_admin`, `idem_replay`, `idem_remember`,
+`account_guard`, `asset_refs_invalid`, `asset_rent_invalid`. It was caught by
+the count moving the wrong way: 168 before, 175 after, on a change that was
+supposed to leave `authenticated` untouched. Reading the diff would not have
+caught it; measuring before and after did.
+
+The fix is not a list of six names to skip, which is the same staleness in a
+new place. It is to **read the privilege before changing it** — a function
+`public` can execute today was left on the default and is moved; one it cannot
+was shut on purpose and is left alone. That reads identically on production
+and on a ladder replayed from nothing.
+
+**The second mistake was the list of deliberate revokes, derived by grepping
+`revoke execute`.** There are seven, not six: `0109` shuts
+`ops_prod.open_draft` with `revoke all`. The guard caught it on the next run
+by naming the one function `authenticated` could no longer reach. A scope
+typed from a grep of one spelling is the same failure as a scope typed from
+memory (F94, F93) — and it happened here inside the very change written to fix
+an instance of it.
+
+### Why the guard is the deliverable and the migration is not
+
+A migration cannot fix the future. A function created by `0118` is executable
+by `PUBLIC` the moment it exists, and `0117` has already run. This was not
+hypothetical: the migration was first numbered `0111`, five functions created
+by `0114`–`0116` came after it, and the guard failed naming all five before
+anything was committed.
+
+So the thing that keeps this shut is
+`supabase/local/smoke/98_core_execute_grants.sql`, which derives its set from
+`pg_proc` at the moment it runs and asserts four things: `anon` reaches
+nothing, the seven shut stay shut, everything else stays reachable by
+`authenticated`, and `service_role` reaches exactly one verb. Then a fifth,
+which is the one that matters: it calls a money seam **as `anon`** and asserts
+the error is `42501`, insufficient privilege. Anything else — including this
+system's own worded refusal — means the call got far enough to run the
+function body, which is exactly the runtime check `0117` exists to stop
+relying on.
+
+**A privilege that is right in the catalogue and wrong at the call site is
+worth nothing**, and the only way to know which you have is to make the call.
