@@ -178,6 +178,7 @@ const VIEW_CONTRACTS = {
      differences onto the same row, and those three are named as composed. */
   v_contract: { type: "ContractView", composed: ["clauses", "coverage", "conflicts"] },
   v_allowance_withholding: "AllowanceWithholdingView",
+  v_pay_rule_set: "PayRuleSetView",
   /* Read for `stage`, `payable` and `total_hours` and merged onto the sheet
      rows; nothing is cast into a contract from it. */
   v_overtime_claim:  null,

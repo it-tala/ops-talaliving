@@ -5394,3 +5394,106 @@ finished describing (Satpam's twelve hours, ART from 14.00) sit in
 `src/demo/fixtures/payrules.ts`, from the owner's own Q44/Q53 answers. What is
 missing is a road for them into the live project that is not a hand-written
 insert into a table D173 says is written once and never updated.
+
+## F134 · 2026-09-23 · three guards in the ladder were each refusing a decision the log had already taken
+
+**The ask.** Open `/it/aturan-gaji` so the business can publish its own pay
+scheme — *kita mungkin punya skema baru bulan ini tapi menunggu skema baru
+rilis itu bodoh*. Conditional on one thing: that it can then be **changed
+easily** from the app.
+
+**The first thing to say back is that a version is never edited.** `pay_rule_sets`
+is written once (D173), so "changing" the scheme means publishing the next
+version. That is better than what was asked for — last month stays computable
+under last month's book — but it makes one question load-bearing: *can a
+version that turns out wrong be corrected?*
+
+**Three guards said no, and a recorded decision said yes.** D270, from
+2026-09-13, is explicit: *the new version is dated to the day v3 began, not to
+today*, because the workshop always started at 07.30 and dating the fix from
+today *would have the system assert something false about September*. Against
+that:
+
+- `pay_rule_sets.effective_from` was **`unique`** (`0043`) — the second version
+  on a date could never be written at all;
+- `pay_rules_not_backdated` refused any date before today (`0043`, tightened in
+  `0047`);
+- and the demo seam refused `effective_from <= latest`.
+
+So `rules_on`'s `order by effective_from desc, version desc` — a tie-break
+whose own comment cites D270 — **was a branch that could not fire**, and the
+demo's fixture carrying v3 and v4 on `2026-09-01` was data no seam could have
+produced. Three independent guards, each individually reasonable, collectively
+refusing something the log had settled ten days earlier.
+
+**What D270 actually conditions on is money, and money is checkable.** The
+decision names it: *what makes the backdating safe is `late_mode: "manual"` —
+not one rupiah has ever been computed from this rule*. That is not a statement
+about the calendar, and the calendar was the wrong thing to guard. The rule now
+is: a version may take effect on or before today only while **no run that has
+left DRAFT covers any day from that date onward**. APPROVED is somebody's
+signature; PAID is money that moved. A DRAFT run has paid nobody. The
+mid-period refusal from `0047` is untouched and keeps its own separate reason.
+
+**Two gaps found only by walking the screen's actual caller.** `/it/aturan-gaji`
+is reached with `it.update` (`src/lib/nav.ts`), and `0043`'s read policy admits
+only `hrd.read` or `payroll.read` — **the one role D173 puts in charge of the
+rule book could not read it**. And a preview walks every employee's timesheet
+under RLS, so an IT user would have previewed an empty company; it is
+`security definer` and asks for `it.update` itself.
+
+**The preview, and the copy that was not made.** A preview is the whole payroll
+computed twice, the second time under a book that has not been saved, and
+`payroll_line_for` calls `rules_on(p_from)` inside itself. The obvious answer
+is a fourth copy of that two-hundred-line body taking an extra argument. F126's
+rule — what a field costs is how much code must be re-emitted to carry it —
+pointed the other way: restate `rules_on`, which is nine lines, and let it read
+a transaction-local setting that exactly one function sets. Action at a
+distance is a real cost and it is named in one place; two hundred lines copied
+a fourth time is a cost that never stops being paid. The smoke asserts the
+setting is gone afterwards, because a preview that forgets to clear it turns
+every later read in that transaction into a lie nobody would see.
+
+Ten mutations, ten caught — including the two that matter most here: restoring
+the unique constraint (the D270 correction stops working) and dropping the
+`version` tie-break (`rules_on` picks the version being corrected).
+
+## F135 · 2026-09-23 · a trigger that reads a table under the caller's RLS cannot guard against what the caller cannot see
+
+**Found by a test failing for the wrong reason, twice.** `40_hr` was updated to
+assert the new rule — a version may reach back only while no signed run covers
+those days — and it kept reporting *should be refused*. The guard was right;
+a probe inside the file showed why:
+
+    PROBE runs non-draft: 0, current_role: authenticated
+
+Zero. The row was there. **`pay_rules_not_backdated` is a plain trigger
+function**, so its `select … from ops_hr.payroll_runs` runs under the writer's
+RLS — and the writer is IT, who holds `it.update` and none of payroll's
+permissions. The guard looked at an empty table and waved the insert through.
+
+**The seam never noticed, which is why it survived review.** `save_pay_rules`
+is `security definer` and reads every run, so every path through the screen is
+protected and every test through the seam passes. What is unguarded is the
+**direct write**: `0043` grants `insert` on `pay_rule_sets` to `authenticated`
+under an `it.update` policy, so the same person can `POST /rest/v1/pay_rule_sets`
+and put a back-dated version under a signed payroll run with nothing in the way.
+
+**And it is older than today's work.** `0047`'s mid-period check — *a version
+lands between periods, never inside one* — reads `payroll_runs` from the same
+trigger and has been blind in the same way since it was written. It has never
+refused anything for anybody without `payroll.read`, and nothing said so,
+because the only tests that exercise it come through a definer seam.
+
+The fix is one word, `security definer` on the trigger, and it is worth the
+paragraph beside it: a trigger is the last line, reached when the seam is
+bypassed, and a last line that inherits the bypasser's blindness is decoration.
+
+**What made it visible.** Not review — the code reads correctly, and it passed
+ten mutations through the seam. It was a test written against a *different
+caller* than the seam uses. The shape to keep: **a guard is only proved by the
+weakest caller that can reach the thing it guards**, and for a table with a
+direct grant that is never the seam.
+
+Eleven mutations now, eleven caught — the eleventh reverts the trigger to an
+invoker and `40_hr` goes red.

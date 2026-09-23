@@ -42,6 +42,7 @@ import type {
   OvertimeSheetView, OvertimeLineView, WorkSchedule, ScheduleHours,
   ContractKind, ContractStatus, ClauseKind, ClauseChecklistItem,
   ContractView, ContractDetail, ContractClause, ClauseCoverage, ClauseConflict,
+  PayRules, PayRuleSetView,
 } from "@/services/hr/contracts";
 import {
   EMPLOYEE_DOC_CHECKLIST, EMPLOYEE_DOC_LABEL, SENSITIVE_DOC_KINDS,
@@ -951,4 +952,66 @@ export async function endContract(
   const row = list.data.find((c) => c.contract_no === input.contract_no);
   if (!row) return notFound(SERVICE, "contract_not_found", input.contract_no);
   return ok(SERVICE, row);
+}
+
+/* ── the rule book ────────────────────────────────────────────────────────
+ *
+ *  Three functions, and the middle one is the reason `/it/aturan-gaji` sat
+ *  dark for so long. A preview is the whole payroll computed twice — under the
+ *  book in force and under one that **has not been saved** — and no client can
+ *  do that by assembling reads: the candidate has to reach the arithmetic.
+ *  `0059` lets it, through a transaction-local setting only `preview_pay_rules`
+ *  sets, so the two-hundred-line payroll body is not copied a fourth time.
+ *
+ *  The screen will not enable *Simpan* until a preview has come back, which is
+ *  the point of it: a pay rule reaches every payslip at once, and *save blind*
+ *  is the failure it was built against.
+ */
+export async function listPayRules(): Promise<Result<PayRuleSetView[]>> {
+  const { data, error } = await db()
+    .from("v_pay_rule_set").select("*")
+    /* Newest first, and within a date the correction above what it corrects
+       (D270) — the same order `rules_on` resolves them in. */
+    .order("effective_from", { ascending: false })
+    .order("version", { ascending: false });
+  return fromRows<PayRuleSetView[]>(SERVICE, data as unknown as PayRuleSetView[], error);
+}
+
+export async function previewPayRules(
+  input: { rules: PayRules; period_start: string; period_end: string },
+): Promise<Result<{
+  period: string;
+  before_total: number;
+  after_total: number;
+  lines: { employee_no: string; full_name: string; before: number; after: number; note: string }[];
+}>> {
+  const { data, error } = await db().rpc("preview_pay_rules", {
+    p_rules: input.rules,
+    p_from: input.period_start,
+    p_to: input.period_end,
+  });
+  return fromSeam(SERVICE, data, error);
+}
+
+export async function savePayRules(
+  input: { effective_from: string; note: string; rules: PayRules },
+  idempotencyKey?: string,
+): Promise<Result<PayRuleSetView>> {
+  const { data, error } = await db().rpc("save_pay_rules", {
+    p_effective_from: input.effective_from,
+    p_note: input.note,
+    p_rules: input.rules,
+    p_key: idempotencyKey ?? null,
+  });
+  const said = fromSeam<{ version: number }>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<PayRuleSetView>;
+
+  /* Read back rather than assembled here: `is_current` depends on the office
+     day and on every other version, and a client that worked it out would be
+     the second place that rule lives (A3). */
+  const { data: row, error: readErr } = await db()
+    .from("v_pay_rule_set").select("*").eq("version", said.data.version).maybeSingle();
+  if (readErr) return fromRows<PayRuleSetView>(SERVICE, null, readErr);
+  if (!row) return notFound(SERVICE, "pay_rules_not_found", String(said.data.version));
+  return ok(SERVICE, row as unknown as PayRuleSetView);
 }

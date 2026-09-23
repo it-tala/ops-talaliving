@@ -78,6 +78,7 @@ export const LIVE_ROUTES: readonly string[] = [
   "/inventory/papan",
   "/inventory/penyesuaian",
   "/it/aktivitas",
+  "/it/aturan-gaji",
   "/it/audit",
   "/it/john-lau",
   "/it/pengguna",
