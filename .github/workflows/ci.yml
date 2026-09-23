@@ -169,6 +169,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Node and the project's own dependencies, which this job did not need
+      # until `check-schedule-rules.mjs`: that gate compiles
+      # `src/services/hr/schedule-rules.ts` with the repo's own `tsc` and runs
+      # it against the same battery it puts to the database. Without `npm ci`,
+      # `npx` would fetch a TypeScript from the network — a gate whose result
+      # depends on which compiler happened to download is not a gate.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
       # The runner ships a psql, but not necessarily one matching the server.
       # Pinning the client to 16 keeps `\copy`, error formats and `ON_ERROR_STOP`
       # behaving the way they do on the cluster the migrations were proved on.
