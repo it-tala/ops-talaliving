@@ -1257,8 +1257,10 @@ interface ProjectRow extends Omit<ProjectView, "contract_value" | "order_value">
   order_value: number | string | null;
 }
 
-interface ProjectLineRow extends Omit<ProjectLineView, "qty" | "unit_price" | "product_production_cost"> {
+interface ProjectLineRow extends Omit<ProjectLineView, "qty" | "unit_price" | "product_production_cost" | "job_order_qty" | "job_order_completed"> {
   qty: number | string;
+  job_order_qty: number | string | null;
+  job_order_completed: number | string | null;
   unit_price: number | string | null;
   product_production_cost: number | string | null;
 }
@@ -1275,6 +1277,8 @@ function toProjectLineView(r: ProjectLineRow): ProjectLineView {
     qty: Number(r.qty),
     unit_price: numOrNull(r.unit_price),
     product_production_cost: numOrNull(r.product_production_cost),
+    job_order_qty: Number(r.job_order_qty ?? 0),
+    job_order_completed: Number(r.job_order_completed ?? 0),
   };
 }
 

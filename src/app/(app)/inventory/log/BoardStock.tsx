@@ -197,7 +197,7 @@ function MoveDrawer({ stack, onClose, onDone }: {
 
           {kind === "issue" && (
             <label className="block text-[12px] text-slate-500">
-              Untuk pekerjaan (SPK)
+              Untuk pekerjaan (Job Order)
               <input
                 value={ref} onChange={(e) => setRef(e.target.value)}
                 placeholder="spk-26-09-…"

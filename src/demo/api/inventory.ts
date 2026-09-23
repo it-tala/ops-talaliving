@@ -812,7 +812,7 @@ export async function issueForWorkOrder(
 
   const state = getState();
   const wo = state.work_orders.find((w) => w.wo_no === input.wo_no);
-  if (!wo) return notFound(SERVICE, "wo_not_found", `Tidak ada SPK ${input.wo_no}.`);
+  if (!wo) return notFound(SERVICE, "wo_not_found", `Tidak ada Job Order ${input.wo_no}.`);
   if (wo.status === "CANCELLED") {
     return conflict(SERVICE, "wo_cancelled", `${wo.wo_no} sudah dibatalkan.`, {});
   }
@@ -875,7 +875,7 @@ export async function materialForWorkOrder(woNo: string): Promise<Result<Materia
   await latency();
   const state = getState();
   const wo = state.work_orders.find((w) => w.wo_no === woNo);
-  if (!wo) return notFound(SERVICE, "wo_not_found", `Tidak ada SPK ${woNo}.`);
+  if (!wo) return notFound(SERVICE, "wo_not_found", `Tidak ada Job Order ${woNo}.`);
   return ok(SERVICE, materialPlan(state, wo));
 }
 

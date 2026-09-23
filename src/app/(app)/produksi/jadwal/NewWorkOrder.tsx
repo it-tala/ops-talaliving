@@ -49,14 +49,14 @@ export function NewWorkOrder({
       toast(res.error.status === 403 ? "critical" : "warning", "Tidak dibuat", res.error.message);
       return;
     }
-    toast("success", "Pesanan kerja dibuat", `${res.data.wo_no} · ${qty} ${uom} · jatuh tempo ${due}`);
+    toast("success", "Job Order dibuat", `${res.data.wo_no} · ${qty} ${uom} · jatuh tempo ${due}`);
     onDone(res.data.wo_no);
   }
 
   return (
     <Modal
       open onClose={onClose} width="max-w-lg"
-      title="Pesanan kerja baru"
+      title="Job Order baru"
       footer={
         <div className="flex items-center justify-end gap-2">
           <Button variant="ghost" onClick={onClose} disabled={busy}>Batal</Button>
@@ -152,8 +152,8 @@ export function NewWorkOrder({
           </div>
           {route === "SUBCON" && (
             <p className="mt-1 text-[11px] text-slate-500">
-              Vendor dan tanggal kirimnya dicatat nanti, di pesanan ini — bukan di sini, karena
-              biasanya belum ditentukan saat SPK dibuat.
+              Vendor dan tanggal kirimnya dicatat nanti, di Job Order ini — bukan di sini, karena
+              biasanya belum ditentukan saat Job Order dibuat.
             </p>
           )}
         </div>
@@ -177,7 +177,7 @@ export function NewWorkOrder({
           )}
         </Loaded>
         <p className="text-[11px] text-slate-500">
-          Tanggal jatuh tempo wajib. Pesanan tanpa tanggal tidak bisa terlambat, artinya tidak ada
+          Tanggal jatuh tempo wajib. Job Order tanpa tanggal tidak bisa terlambat, artinya tidak ada
           yang tahu kapan ia terlambat.
         </p>
       </div>

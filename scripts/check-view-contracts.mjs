@@ -101,6 +101,10 @@ const VIEW_CONTRACTS = {
      `ProjectLineView`; numerics are converted by hand in the client. */
   v_project:         "ProjectView",
   v_project_line:    "ProjectLineView",
+  /* Read as rows and assembled by `deriveWorkOrderView`; the contract is the
+     derived view, not the row. */
+  v_work_order:      null,
+  v_vendor_leg:      null,
 
   /* ── core ────────────────────────────────────────────────────────────── */
   v_user_access:     "AccessRow",

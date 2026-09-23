@@ -334,6 +334,14 @@ export interface ProjectLineView extends ProjectLine {
   product_current_rev: number | null;
   product_draft_rev: number | null;
   product_production_cost: number | null;
+  /** The Job Orders made from this line (0130): how many, for how many
+   *  units, and how many units are through the last stage. Cancelled ones do
+   *  not count. */
+  job_order_count: number;
+  job_order_qty: number;
+  job_order_completed: number;
+  /** Still open, of `job_order_count`. */
+  job_order_open: number | null;
 }
 
 /* ------------------------------------------------------------------ */

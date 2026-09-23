@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import {
-  Check, History, ListTree, Package, Pencil, Plus, Save, Trash2, UserPlus, X,
+  Check, Hammer, History, ListTree, Package, Pencil, Plus, Save, Trash2, UserPlus, X,
 } from "lucide-react";
 import { Drawer } from "@/components/ui/drawer";
 import { Badge, Button } from "@/components/ui/primitives";
@@ -151,7 +151,7 @@ function NewProject({ onClose, onChanged }: { onClose: () => void; onChanged: ()
   return (
     <Drawer
       open onClose={onClose} width="max-w-xl" title="Proyek baru"
-      subtitle="Kodenya dipakai di PR, SPK dan ledger — sekali dibuat, tidak pernah diubah."
+      subtitle="Kodenya dipakai di PR, Job Order dan ledger — sekali dibuat, tidak pernah diubah."
       footer={
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose} disabled={busy}>Batal</Button>
@@ -374,6 +374,31 @@ function OrderLines({
   const [busy, setBusy] = useState(false);
   const [coding, setCoding] = useState<string | null>(null);
   const [newCode, setNewCode] = useState("");
+  const [jobbing, setJobbing] = useState<string | null>(null);
+  const [job, setJob] = useState<{ qty: number; due: string; route: "IN_HOUSE" | "SUBCON" }>({ qty: 0, due: "", route: "IN_HOUSE" });
+
+  function startJob(l: ProjectLineView) {
+    setJob({
+      qty: Math.max(l.qty - l.job_order_qty, 0) || l.qty,
+      due: l.delivery_date ?? p.target_date ?? "",
+      route: "IN_HOUSE",
+    });
+    setJobbing(l.id);
+  }
+
+  /* The line fills the Job Order — product, name, unit and project — and the
+     first one moves a project still being sold into production (0130). */
+  async function makeJob(l: ProjectLineView) {
+    setBusy(true);
+    const res = await production.createWorkOrder({
+      project_line_id: l.id, item_name: "", uom: "", qty: job.qty, due_date: job.due, route: job.route,
+    }, `jo:${l.id}:${job.qty}:${job.due}`);
+    setBusy(false);
+    if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", "Job Order tidak dibuat", res.error.message); return; }
+    toast("success", "Job Order dibuat", `${res.data.wo_no} · ${formatNumber(res.data.qty)} ${res.data.uom} · jatuh tempo ${res.data.due_date}`);
+    setJobbing(null);
+    onChanged();
+  }
 
   async function save(lineId: string | null) {
     setBusy(true);
@@ -516,6 +541,32 @@ function OrderLines({
                             : l.product_production_cost == null ? <span className="text-amber-700">BOM belum lengkap</span>
                               : <>biaya {formatIDR(l.product_production_cost)} / {l.uom}{l.product_draft_rev != null && " · draft"}</>}
                       </span>
+                      {l.job_order_count > 0 && (
+                        <Link href={`/produksi/jadwal?project=${encodeURIComponent(p.code)}`}
+                          className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-slate-600 hover:underline">
+                          <Hammer className="h-3 w-3" />
+                          {l.job_order_count} Job Order · {formatNumber(l.job_order_qty)} unit · {formatNumber(l.job_order_completed)} selesai
+                        </Link>
+                      )}
+                      {l.product_exists && can("production.create") && (jobbing === l.id ? (
+                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                          <NumberInput size="sm" value={job.qty} min={0} max={999_999} step={1}
+                            onChange={(v) => setJob({ ...job, qty: v })} className="!w-16" />
+                          <input type="date" value={job.due} onChange={(e) => setJob({ ...job, due: e.target.value })}
+                            aria-label="Jatuh tempo Job Order" className="h-8 rounded-lg border border-slate-200 px-1.5 text-[12px]" />
+                          <select value={job.route} onChange={(e) => setJob({ ...job, route: e.target.value as "IN_HOUSE" | "SUBCON" })}
+                            aria-label="Rute" className="h-8 rounded-lg border border-slate-200 bg-white px-1 text-[12px]">
+                            <option value="IN_HOUSE">Bengkel sendiri</option>
+                            <option value="SUBCON">Lewat vendor</option>
+                          </select>
+                          <Button size="sm" disabled={busy || job.qty <= 0 || !job.due} onClick={() => makeJob(l)}>Buat</Button>
+                          <button onClick={() => setJobbing(null)} aria-label="Batal" className="rounded p-1 text-slate-400"><X className="h-4 w-4" /></button>
+                        </div>
+                      ) : l.job_order_qty < l.qty ? (
+                        <Button size="sm" variant="outline" className="mt-1" disabled={busy} onClick={() => startJob(l)}>
+                          {l.job_order_count > 0 ? `Job Order untuk sisa ${formatNumber(l.qty - l.job_order_qty)}` : "Buat Job Order"}
+                        </Button>
+                      ) : null)}
                     </>
                   ) : coding === l.id ? (
                     <div className="flex gap-1">

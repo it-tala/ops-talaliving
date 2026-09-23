@@ -7,6 +7,7 @@ import {
   type VendorLegView, type VendorRecord,
   type WorkAttribution, type BomKind,
 } from "@/services/production/contracts";
+import type { ProjectStatus } from "@/services/procurement/contracts";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
 import {
   workOrderView, workOrderViews, productView, productViews,
@@ -64,6 +65,10 @@ export async function createWorkOrder(
      *  inferred. */
     route?: RouteCode;
     note?: string | null;
+    /** The customer's order line this is made from (0130). The line fills
+     *  what is left empty — product, name, unit — and its project is the
+     *  Job Order's project, whatever else is passed. */
+    project_line_id?: string | null;
   },
   idempotencyKey?: string,
 ): Promise<Result<WorkOrderView>> {
@@ -73,6 +78,21 @@ export async function createWorkOrder(
 
   const denied = requireModule(SERVICE, "production");
   if (denied) return denied;
+
+  if (input.project_line_id) {
+    const line = getState().project_lines.find((l) => l.id === input.project_line_id);
+    if (!line) {
+      return invalid(SERVICE, "line_not_found", "Baris pesanan itu tidak ada.", { field: "project_line_id" });
+    }
+    const project = getState().projects.find((p) => p.id === line.project_id);
+    input = {
+      ...input,
+      project_code: project?.code ?? null,
+      product_code: input.product_code?.trim() || line.product_code,
+      item_name: input.item_name?.trim() || line.description,
+      uom: input.uom?.trim() || line.uom,
+    };
+  }
 
   if (!input.item_name.trim()) {
     return invalid(SERVICE, "item_required", "What is being made?", { field: "item_name" });
@@ -99,7 +119,7 @@ export async function createWorkOrder(
   }
   let woNo = "";
   apply((draft) => {
-    woNo = nextDocNumber(draft, "spk");
+    woNo = nextDocNumber(draft, "jo");
     draft.work_orders.push({
       id: newId("wo"), wo_no: woNo,
       product_code: productCode,
@@ -108,6 +128,7 @@ export async function createWorkOrder(
       qty: input.qty,
       uom: input.uom.trim() || "unit",
       project_code: input.project_code?.trim() || null,
+      project_line_id: input.project_line_id ?? null,
       due_date: input.due_date,
       /* The BOM this order is written against, pinned **now** (D256). Null
          where the product has no released revision — and null means exactly
@@ -127,6 +148,19 @@ export async function createWorkOrder(
       action: "create", outcome: "ok", reason: null,
       detail: { item: input.item_name.trim(), qty: input.qty, due: input.due_date, route: input.route ?? "IN_HOUSE", by: user.email },
     });
+    /* The first Job Order moves a project that is still being sold into
+       production, logged with the Job Order as the reason (0130). */
+    const project = input.project_code ? draft.projects.find((p) => p.code === input.project_code) : undefined;
+    const from = project ? (project.status ?? (project.is_active ? "IN_PRODUCTION" : "DONE")) : null;
+    if (project && from && ["INQUIRY", "QUOTATION_SENT", "DEAL"].includes(from)) {
+      project.status = "IN_PRODUCTION";
+      project.status_changed_at = new Date().toISOString();
+      project.is_active = true;
+      draft.project_status_log.push({
+        project_id: project.id, from_status: from as ProjectStatus, to_status: "IN_PRODUCTION",
+        reason: `Job Order ${woNo} dibuat`, changed_by: user.id, changed_at: new Date().toISOString(),
+      });
+    }
   });
   const view = await getWorkOrder(woNo);
   if (view.data) remember(SERVICE, "createWorkOrder", idempotencyKey, view.data);
@@ -245,7 +279,7 @@ export async function receiveFromVendor(
   const leg = state.vendor_legs.find((l) => l.leg_no === input.leg_no);
   if (!leg) return notFound(SERVICE, "leg_not_found", `Tidak ada pengiriman vendor ${input.leg_no}.`);
   const wo = state.work_orders.find((w) => w.id === leg.wo_id);
-  if (!wo) return notFound(SERVICE, "wo_not_found", "Pesanan kerjanya tidak ada.");
+  if (!wo) return notFound(SERVICE, "wo_not_found", "Job Order-nya tidak ada.");
   if (leg.returned_on) {
     return noop(SERVICE, workOrderView(state, wo));
   }
@@ -611,7 +645,7 @@ export async function saveProduct(
 
   const code = input.product_code.trim().toUpperCase();
   if (!code) {
-    return invalid(SERVICE, "code_required", "Kode produk dipakai di gambar dan di SPK.", { field: "product_code" });
+    return invalid(SERVICE, "code_required", "Kode produk dipakai di gambar dan di Job Order.", { field: "product_code" });
   }
   if (!input.name.trim()) {
     return invalid(SERVICE, "name_required", "Namanya apa?", { field: "name" });
@@ -691,7 +725,7 @@ export async function createProductFromOrderLine(
   if (!line) return notFound(SERVICE, "line_not_found", "Baris pesanan itu tidak ada.");
   const code = input.product_code.trim().toUpperCase();
   if (!code) {
-    return invalid(SERVICE, "code_required", "Item code-nya apa? Kode ini dipakai di gambar, BOM dan SPK.", { field: "product_code" });
+    return invalid(SERVICE, "code_required", "Item code-nya apa? Kode ini dipakai di gambar, BOM dan Job Order.", { field: "product_code" });
   }
   const existing = state.products.some((p) => p.product_code === code);
   const user = actingUser();

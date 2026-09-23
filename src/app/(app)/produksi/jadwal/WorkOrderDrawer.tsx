@@ -214,7 +214,7 @@ export function WorkOrderDrawer({
     const res = await production.closeWorkOrder({ wo_no: woNo, reason: closeReason || null });
     setBusy(false);
     if (res.error) { toast("warning", "Belum ditutup", res.error.message); return; }
-    toast("success", "Pesanan ditutup", woNo);
+    toast("success", "Job Order ditutup", woNo);
     setClosing(false);
     reload(); onChanged();
   }
@@ -305,7 +305,7 @@ export function WorkOrderDrawer({
 
                 {w.legs.length === 0 ? (
                   <p className="mt-1 text-[12px] text-slate-600">
-                    Belum ada yang dikirim ke vendor untuk pesanan ini.
+                    Belum ada yang dikirim ke vendor untuk Job Order ini.
                   </p>
                 ) : (
                   <ul className="mt-2 space-y-1.5">
@@ -483,7 +483,7 @@ export function WorkOrderDrawer({
                 </div>
                 <div className="mt-2 flex justify-end gap-2">
                   {w.completed >= w.qty || closing ? null : (
-                    <Button size="sm" variant="ghost" onClick={() => setClosing(true)}>Tutup pesanan</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setClosing(true)}>Tutup Job Order</Button>
                   )}
                   <Button size="sm" icon={Plus} onClick={report} disabled={busy || !stage || qty === 0}>
                     Catat
@@ -498,7 +498,7 @@ export function WorkOrderDrawer({
             {mayEdit && w.status === "OPEN" && (closing || w.completed >= w.qty) && (
               <div className="rounded-xl border border-slate-200 px-4 py-3">
                 <p className="flex items-center gap-2 text-[13px] font-medium text-slate-800">
-                  <CheckCircle2 className="h-4 w-4 text-slate-400" /> Tutup pesanan
+                  <CheckCircle2 className="h-4 w-4 text-slate-400" /> Tutup Job Order
                 </p>
                 {w.completed < w.qty && (
                   <input
@@ -540,7 +540,7 @@ export function WorkOrderDrawer({
                           <p className="mt-0.5 text-[12px] text-slate-500">
                             {w.bom_rev == null ? (
                               <span className="text-amber-700">
-                                Pesanan ini dibuat sebelum BOM diberi versi — versi yang benar-benar
+                                Job Order ini dibuat sebelum BOM diberi versi — versi yang benar-benar
                                 dipakai tidak pernah tercatat, jadi tidak ada proyeksi yang jujur
                                 untuk ditampilkan.
                               </span>
@@ -551,7 +551,7 @@ export function WorkOrderDrawer({
                                   <span className="text-amber-700">
                                     {" "}— katalog sekarang sudah di rev {w.product_current_rev}. Angkanya
                                     sengaja tetap memakai rev {w.bom_rev}: itu daftar yang dipakai waktu
-                                    pesanan ini ditulis.
+                                    Job Order ini ditulis.
                                   </span>
                                 )}
                               </>
@@ -576,7 +576,7 @@ export function WorkOrderDrawer({
                         )}
                         {!need ? (
                           <p className="mt-1 text-[12px] text-slate-500">
-                            Pesanan ini tidak menunjuk produk di katalog, jadi tidak ada BOM untuk
+                            Job Order ini tidak menunjuk produk di katalog, jadi tidak ada BOM untuk
                             diproyeksikan.
                           </p>
                         ) : (
@@ -819,7 +819,7 @@ function MaterialPanel({ woNo, onChanged }: { woNo: string; onChanged: () => voi
           {p.lines.length === 0 ? (
             !p.no_plan_reason && (
               <p className="rounded-xl border border-slate-200 px-3 py-2.5 text-[13px] text-slate-500">
-                Belum ada bahan yang dikeluarkan atas SPK ini.
+                Belum ada bahan yang dikeluarkan atas Job Order ini.
               </p>
             )
           ) : (
@@ -863,7 +863,7 @@ function MaterialPanel({ woNo, onChanged }: { woNo: string; onChanged: () => voi
 
           {!p.variance_readable && p.lines.some((l) => l.remaining !== null) && (
             <p className="mt-1 text-[11px] text-slate-500">
-              Selisihnya belum berarti apa-apa selama pesanan belum selesai — separuh pesanan baru
+              Selisihnya belum berarti apa-apa selama Job Order belum selesai — separuh Job Order baru
               mengambil separuh bahannya, dan menyebut itu penghematan mengajarkan orang mengabaikan
               angkanya.
             </p>

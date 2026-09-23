@@ -283,7 +283,7 @@ function DispatchDrawer({ project, onClose, onDone }: {
               <p className="text-[13px] text-slate-800">{l.description}</p>
               <p className="text-[11px] text-slate-500">
                 dipesan {l.ordered} · {l.made == null
-                  ? <span className="text-amber-700">tidak bisa dicocokkan ke SPK — jumlah siap kirim tidak diketahui</span>
+                  ? <span className="text-amber-700">tidak bisa dicocokkan ke Job Order — jumlah siap kirim tidak diketahui</span>
                   : <>dibuat {l.made} · terkirim {l.delivered} · <strong className="text-slate-700">siap kirim {l.ready_to_ship}</strong></>}
               </p>
               <div className="mt-1 w-28">

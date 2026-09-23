@@ -1,11 +1,11 @@
 /** Implements `/api/v1/production` against the database — the product
- *  catalogue and its bill of materials only (0060, 0109).
+ *  catalogue and its bill of materials (0060, 0109), and the Job Order with
+ *  its progress and vendor legs (0061–0063, 0130).
  *
- *  Work orders, progress, vendor legs, the drafting queue and the name
- *  resolver are **not written here yet**. A screen that calls one of them gets
- *  the swap's 501 with the function's name, and `check-live-routes.mjs` keeps
- *  those screens dark — so exporting this module opens `/produksi/bom` and
- *  nothing else.
+ *  The drafting queue, the vendor record and the name resolver are **not
+ *  written here yet**. A screen that calls one of them gets the swap's 501
+ *  with the function's name, and `check-live-routes.mjs` keeps those screens
+ *  dark.
  *
  *  ## Reads: one set of queries, however many products
  *
@@ -25,9 +25,13 @@
 import type {
   BomDiff, BomDiffLine, BomDiffShape, BomKind, BomLineView, BomRevisionView,
   ProductDrawing, ProductDrawingEntry, ProductView, RateSource,
+  BomExplodedLine, BomExplosion, ProgressEntry, RouteCode, VendorLegView,
+  WorkOrder, WorkOrderStatus, WorkOrderView,
 } from "@/services/production/contracts";
+import { boardOrder, deriveWorkOrderView } from "@/services/production/work-order-view";
+import { officeDay } from "@/lib/office";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { fail, fromSeam, notFound, ok, type Result } from "./_kit";
+import { fail, fromSeam, invalid, notFound, ok, type Result } from "./_kit";
 
 const SERVICE = "production" as const;
 
@@ -526,4 +530,251 @@ export async function createProductFromOrderLine(
   const res = fromSeam<{ product_code: string; existing: boolean }>(SERVICE, data, error);
   if (res.error) return res;
   return ok(SERVICE, { product_code: res.data.product_code, existing: res.data.existing });
+}
+
+/* ══ Job Orders (0061–0063, 0130) ═══════════════════════════════════════ */
+/*
+ * Reads: the table, its entries and its legs, three queries however many
+ * orders are on the board, and the product's stages and released revision
+ * from `v_product_summary`. The arithmetic — stages, the minimum over
+ * sources, warnings — is `deriveWorkOrderView`, the same function the demo
+ * calls, so the two boards cannot disagree.
+ *
+ * Writes: every one is a seam that answers with the Job Order's number; this
+ * re-reads the order so the screen redraws from what was stored.
+ */
+
+interface WorkOrderRow {
+  id: string; wo_no: string; product_code: string | null; item_name: string;
+  description: string | null; qty: number | string; uom: string; project_code: string | null;
+  project_line_id: string | null; due_date: string; route: RouteCode; bom_rev: number | null;
+  status: WorkOrderStatus; cancelled_reason: string | null; note: string | null;
+  created_by: string | null; created_at: string;
+}
+
+interface VendorLegRow {
+  id: string; leg_no: string; wo_id: string; process: string; vendor_code: string;
+  qty: number | string; sent_on: string; expected_back: string | null; returned_on: string | null;
+  returned_qty: number | string | null; note: string | null; created_by: string | null; created_at: string;
+  process_name: string; vendor_name: string | null; wo_no: string; item_name: string;
+  outstanding: number | string; days_out: number; overdue_days: number | null;
+}
+
+const toWorkOrder = (r: WorkOrderRow): WorkOrder => ({
+  id: r.id, wo_no: r.wo_no, product_code: r.product_code, item_name: r.item_name,
+  description: r.description, qty: Number(r.qty), uom: r.uom, project_code: r.project_code,
+  project_line_id: r.project_line_id, due_date: r.due_date, route: r.route, bom_rev: r.bom_rev,
+  status: r.status, cancelled_reason: r.cancelled_reason, note: r.note,
+  created_by: r.created_by ?? "", created_at: r.created_at,
+});
+
+const toEntry = (r: Record<string, unknown>): ProgressEntry => ({
+  id: r.id as string, wo_id: r.wo_id as string, stage: r.stage as string, qty: Number(r.qty),
+  work_date: r.work_date as string, worked_by: (r.worked_by as string | null) ?? null,
+  worked_by_employee_id: (r.worked_by_employee_id as string | null) ?? null,
+  worked_by_not_a_person: !!r.worked_by_not_a_person,
+  source: r.source as ProgressEntry["source"], source_ref: (r.source_ref as string | null) ?? null,
+  note: (r.note as string | null) ?? null, recorded_by: (r.recorded_by as string | null) ?? "",
+  recorded_at: r.recorded_at as string,
+});
+
+function toLeg(r: VendorLegRow, productName: string | null): VendorLegView {
+  const qty = Number(r.qty);
+  const back = r.returned_qty == null ? null : Number(r.returned_qty);
+  return {
+    id: r.id, leg_no: r.leg_no, wo_id: r.wo_id, process: r.process,
+    /* The leg stores the vendor's code (C12); it is the public id here. */
+    vendor_id: r.vendor_code, qty, sent_on: r.sent_on, expected_back: r.expected_back,
+    returned_on: r.returned_on, returned_qty: back, note: r.note,
+    created_by: r.created_by ?? "", created_at: r.created_at,
+    process_name: r.process_name, vendor_name: r.vendor_name ?? r.vendor_code,
+    wo_no: r.wo_no, product_name: productName ?? r.item_name,
+    outstanding: Number(r.outstanding), days_out: r.days_out, overdue_days: r.overdue_days,
+    short_by: r.returned_on && back !== null && back < qty ? qty - back : null,
+  };
+}
+
+async function workOrderViews(rows: WorkOrderRow[]): Promise<Result<WorkOrderView[]>> {
+  if (rows.length === 0) return ok(SERVICE, []);
+  const ids = rows.map((r) => r.id);
+  const codes = [...new Set(rows.map((r) => r.product_code).filter((c): c is string => !!c))];
+  const [entries, legs, products] = await Promise.all([
+    db().from("progress_entries").select("*").in("wo_id", ids),
+    db().from("v_vendor_leg").select("*").in("wo_id", ids),
+    codes.length
+      ? db().from("v_product_summary").select("product_code, name, stages, current_rev").in("product_code", codes)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (entries.error) return fail(SERVICE, entries.error);
+  if (legs.error) return fail(SERVICE, legs.error);
+  if (products.error) return fail(SERVICE, products.error);
+
+  const product = new Map((products.data ?? []).map((p) => [p.product_code as string, p as {
+    product_code: string; name: string; stages: string[] | null; current_rev: number | null;
+  }]));
+  const today = officeDay();
+  return ok(SERVICE, rows.map((r) => {
+    const wo = toWorkOrder(r);
+    const p = wo.product_code ? product.get(wo.product_code) : undefined;
+    return deriveWorkOrderView(wo, {
+      entries: (entries.data ?? []).filter((e) => e.wo_id === wo.id).map(toEntry),
+      legs: ((legs.data ?? []) as VendorLegRow[]).filter((l) => l.wo_id === wo.id).map((l) => toLeg(l, p?.name ?? null)),
+      product_stages: p?.stages ?? null,
+      product_exists: !!p,
+      product_current_rev: p?.current_rev ?? null,
+      today,
+    });
+  }).sort(boardOrder));
+}
+
+export async function listWorkOrders(
+  opts: { include_done?: boolean } = {},
+): Promise<Result<WorkOrderView[]>> {
+  let q = db().from("work_orders").select("*");
+  if (!opts.include_done) q = q.eq("status", "OPEN");
+  const { data, error } = await q;
+  if (error) return fail(SERVICE, error);
+  return workOrderViews((data ?? []) as WorkOrderRow[]);
+}
+
+export async function getWorkOrder(woNo: string): Promise<Result<WorkOrderView>> {
+  const { data, error } = await db().from("work_orders").select("*").eq("wo_no", woNo).maybeSingle();
+  if (error) return fail(SERVICE, error);
+  if (!data) return notFound(SERVICE, "wo_not_found", `Tidak ada Job Order ${woNo}.`);
+  const views = await workOrderViews([data as WorkOrderRow]);
+  if (views.error) return views;
+  return ok(SERVICE, views.data[0]);
+}
+
+/** Every entry behind a Job Order, newest first. */
+export async function listProgress(woNo: string): Promise<Result<ProgressEntry[]>> {
+  const wo = await db().from("work_orders").select("id").eq("wo_no", woNo).maybeSingle();
+  if (wo.error) return fail(SERVICE, wo.error);
+  if (!wo.data) return notFound(SERVICE, "wo_not_found", `Tidak ada Job Order ${woNo}.`);
+  const { data, error } = await db().from("progress_entries").select("*").eq("wo_id", wo.data.id)
+    .order("work_date", { ascending: false }).order("recorded_at", { ascending: false });
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, (data ?? []).map(toEntry));
+}
+
+async function thenWorkOrder(data: unknown, error: Parameters<typeof fromSeam>[2]): Promise<Result<WorkOrderView>> {
+  const res = fromSeam<{ wo_no: string }>(SERVICE, data, error);
+  if (res.error) return res;
+  return getWorkOrder(res.data.wo_no);
+}
+
+export async function createWorkOrder(
+  input: {
+    product_code?: string | null; item_name: string; description?: string | null;
+    qty: number; uom: string; project_code?: string | null; due_date: string;
+    route?: RouteCode; note?: string | null; project_line_id?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<WorkOrderView>> {
+  const { data, error } = await db().rpc("create_work_order", {
+    p_item_name: input.item_name, p_qty: input.qty, p_uom: input.uom,
+    p_due_date: input.due_date || null, p_product_code: input.product_code ?? null,
+    p_description: input.description ?? null, p_project_code: input.project_code ?? null,
+    p_route: input.route ?? "IN_HOUSE", p_note: input.note ?? null,
+    p_project_line_id: input.project_line_id ?? null, p_key: idempotencyKey ?? null,
+  });
+  return thenWorkOrder(data, error);
+}
+
+export async function recordProgress(
+  input: {
+    wo_no: string; stage: string; qty: number; work_date: string;
+    worked_by?: string | null; worked_by_employee_id?: string | null; note?: string | null;
+    source?: "manual" | "overtime_sheet"; source_ref?: string | null;
+  },
+): Promise<Result<WorkOrderView>> {
+  const { data, error } = await db().rpc("record_progress", {
+    p_wo_no: input.wo_no, p_stage: input.stage, p_qty: input.qty, p_work_date: input.work_date || null,
+    p_worked_by: input.worked_by ?? null, p_worked_by_employee_id: input.worked_by_employee_id ?? null,
+    p_note: input.note ?? null, p_source: input.source ?? "manual", p_source_ref: input.source_ref ?? null,
+  });
+  return thenWorkOrder(data, error);
+}
+
+export async function closeWorkOrder(
+  input: { wo_no: string; reason?: string | null },
+): Promise<Result<WorkOrderView>> {
+  const { data, error } = await db().rpc("close_work_order", { p_wo_no: input.wo_no, p_reason: input.reason ?? null });
+  return thenWorkOrder(data, error);
+}
+
+export async function repinBom(input: { wo_no: string; reason: string }): Promise<Result<WorkOrderView>> {
+  const { data, error } = await db().rpc("repin_bom", { p_wo_no: input.wo_no, p_reason: input.reason });
+  return thenWorkOrder(data, error);
+}
+
+export async function sendToVendor(
+  input: { wo_no: string; vendor_id: string; process: string; qty: number; expected_back?: string | null; note?: string | null },
+  idempotencyKey?: string,
+): Promise<Result<WorkOrderView>> {
+  const { data, error } = await db().rpc("send_to_vendor", {
+    p_wo_no: input.wo_no, p_vendor: input.vendor_id, p_process: input.process, p_qty: input.qty,
+    p_expected_back: input.expected_back || null, p_note: input.note ?? null, p_key: idempotencyKey ?? null,
+  });
+  return thenWorkOrder(data, error);
+}
+
+export async function receiveFromVendor(
+  input: { leg_no: string; returned_qty: number; returned_on?: string; note?: string | null },
+): Promise<Result<WorkOrderView>> {
+  const { data, error } = await db().rpc("receive_from_vendor", {
+    p_leg_no: input.leg_no, p_returned_qty: input.returned_qty,
+    p_returned_on: input.returned_on || null, p_note: input.note ?? null,
+  });
+  return thenWorkOrder(data, error);
+}
+
+/** What one run of this product needs, walked through its sub-assemblies
+ *  (0065's `explode_bom`, 0109's `explode_summary`). */
+export async function materialsFor(
+  input: { product_code: string; qty: number; rev?: number | null },
+): Promise<Result<BomExplosion>> {
+  if (!input.qty || input.qty <= 0) return invalid(SERVICE, "qty_required", "Berapa unit?", { field: "qty" });
+  const args = { p_product_code: input.product_code, p_qty: input.qty, p_rev: input.rev ?? null };
+  const [lines, summary] = await Promise.all([
+    db().rpc("explode_bom", args),
+    db().rpc("explode_summary", args),
+  ]);
+  if (lines.error) return fail(SERVICE, lines.error);
+  if (summary.error) return fail(SERVICE, summary.error);
+  const s = (Array.isArray(summary.data) ? summary.data[0] : summary.data) as {
+    product_code: string | null; rev: number | null; labour_cost: number | null; labour_total: number | null;
+    material_cost: number | null; unpriced: number;
+  } | null;
+  if (!s?.product_code) return notFound(SERVICE, "product_not_found", `Tidak ada produk ${input.product_code}.`);
+
+  type Row = {
+    ref_code: string; ref_name: string | null; kind: string; qty: number | string; uom: string;
+    unit_price: number | string | null; price_source: string | null; subtotal: number | string | null;
+    via: string[] | null; depth: number; unexploded: boolean; cycle: boolean;
+  };
+  const rows = (lines.data ?? []) as Row[];
+  const materials = rows.filter((r) => r.kind !== "labour");
+  const cycleAt = rows.find((r) => r.cycle);
+  return ok(SERVICE, {
+    product_code: s.product_code,
+    qty: input.qty,
+    rev: s.rev,
+    lines: materials.map((r) => ({
+      ref_code: r.ref_code, ref_name: r.ref_name, qty: Number(r.qty), uom: r.uom,
+      unit_price: num(r.unit_price),
+      price_source: (r.price_source === "last_paid" ? "last" : r.price_source ?? "none") as BomExplodedLine["price_source"],
+      subtotal: num(r.subtotal),
+      via: (r.via ?? []).map((path) => path.split(">").filter(Boolean)),
+      depth: r.depth,
+    })),
+    total: s.material_cost == null ? null : Number(s.material_cost),
+    unpriced: materials.filter((r) => r.subtotal == null).length,
+    sub_assemblies: [],
+    unexploded: rows.filter((r) => r.unexploded).map((r) => r.ref_code),
+    cycle: cycleAt ? [...((cycleAt.via ?? [])[0]?.split(">") ?? []), cycleAt.ref_code] : null,
+    labour_cost: num(s.labour_cost),
+    labour_total: num(s.labour_total),
+    labour_note: null,
+  });
 }

@@ -9,7 +9,7 @@ import type {
   ProjectView, ProjectLineView, ProjectStatus, ProjectStatusChange, Client, ClientView,
 } from "@/services/procurement/contracts";
 import type { DemoState } from "../state";
-import { productView } from "../production-derive";
+import { productView, workOrderView } from "../production-derive";
 import type { PrLine as PrLineRow } from "@/services/procurement/contracts";
 import { PROBLEM_CONDITIONS, COUNTING_CONDITIONS, VARIANCE_REASON_LABEL } from "@/services/procurement/contracts";
 import type { DocKind } from "@/services/documents/contracts";
@@ -427,6 +427,18 @@ function lineView(state: DemoState, project: Project, l: ProjectLine): ProjectLi
     product_current_rev: pv?.current_rev ?? null,
     product_draft_rev: pv?.draft_rev ?? null,
     product_production_cost: pv?.production_cost ?? null,
+    ...jobOrdersOf(state, l.id),
+  };
+}
+
+/** The Job Orders made from one order line (0130's `v_project_line`). */
+function jobOrdersOf(state: DemoState, lineId: string) {
+  const jobs = state.work_orders.filter((w) => w.project_line_id === lineId && w.status !== "CANCELLED");
+  return {
+    job_order_count: jobs.length,
+    job_order_qty: jobs.reduce((t, w) => t + w.qty, 0),
+    job_order_completed: jobs.reduce((t, w) => t + workOrderView(state, w).completed, 0),
+    job_order_open: jobs.length ? jobs.filter((w) => w.status === "OPEN").length : null,
   };
 }
 
@@ -522,6 +534,14 @@ export async function removeProjectLine(
   if (!project) return notFound(SERVICE, "project_not_found", `No project ${input.project_code}.`);
   const row = state.project_lines.find((l) => l.id === input.line_id);
   if (!row) return notFound(SERVICE, "line_not_found", "Baris itu tidak ada.");
+  /* A line the workshop is building is not one to delete from the order. */
+  const jobs = state.work_orders.filter((w) => w.project_line_id === row.id).map((w) => w.wo_no);
+  if (jobs.length > 0) {
+    return conflict(
+      SERVICE, "has_job_orders",
+      `Baris ini sudah punya Job Order (${jobs.join(", ")}). Tutup atau batalkan di produksi dulu; baris pesanan tetap menjadi catatannya.`,
+    );
+  }
 
   const user = actingUser();
   apply((draft) => {

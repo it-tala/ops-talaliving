@@ -215,6 +215,10 @@ export interface WorkOrder {
   uom: string;
   /** Whose order this is for. A public code, validated at the seam (ADR-004). */
   project_code: string | null;
+  /** The customer's order line this Job Order was made from, where it was
+   *  made from one (0130). What lets the order screen say *12 dipesan · 12 di
+   *  Job Order · 4 selesai* without matching by product code. */
+  project_line_id?: string | null;
   /** Deadline. Not a plan — a promise somebody made to a customer. */
   due_date: string;
   /** Which stages this order actually goes through (D254). */

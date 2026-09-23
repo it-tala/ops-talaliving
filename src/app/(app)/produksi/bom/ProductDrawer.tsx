@@ -463,7 +463,7 @@ function RevisionBar({ p, mayEdit, busy, run, settle }: PartProps) {
                 {" · "}{r.released_at?.slice(0, 10)}
                 {r.released_by_name && ` · ${r.released_by_name}`}
                 {" · "}{r.component_count} komponen
-                {r.used_by > 0 && ` · dipakai ${r.used_by} SPK`}
+                {r.used_by > 0 && ` · dipakai ${r.used_by} Job Order`}
                 {r.note && <span className="block text-slate-400">{r.note}</span>}
               </li>
             ))}
@@ -1049,7 +1049,7 @@ function NewProduct({ onClose, onChanged }: { onClose: () => void; onChanged: ()
     <Drawer
       open onClose={onClose} width="max-w-lg"
       title="Produk baru"
-      subtitle="Item code dipakai di gambar, di SPK dan di setiap BOM yang menunjuknya — dan tidak pernah diubah lagi."
+      subtitle="Item code dipakai di gambar, di Job Order dan di setiap BOM yang menunjuknya — dan tidak pernah diubah lagi."
       footer={
         <div className="flex items-center justify-end gap-2">
           <Button variant="ghost" onClick={onClose} disabled={busy}>Batal</Button>

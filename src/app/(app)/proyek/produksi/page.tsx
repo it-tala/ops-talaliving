@@ -247,7 +247,7 @@ function ProjectCost({ code }: { code: string }) {
 
                             <Card className="mb-4">
                               <CardHeader
-                                title="Per pesanan kerja"
+                                title="Per Job Order"
                                 subtitle="Proyeksi BOM untuk jumlah yang dibuat, dan apa yang diminta lewat PR terhadapnya."
                                 icon={Scale}
                               />
@@ -288,7 +288,7 @@ function ProjectCost({ code }: { code: string }) {
                                 })}
                                 {mine.length === 0 && (
                                   <li className="px-5 py-6 text-[13px] text-slate-500">
-                                    Belum ada pesanan kerja untuk proyek ini.
+                                    Belum ada Job Order untuk proyek ini.
                                   </li>
                                 )}
                               </ul>
