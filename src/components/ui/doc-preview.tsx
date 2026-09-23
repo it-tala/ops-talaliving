@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { ExternalLink, FileText, Link2, ImageOff } from "lucide-react";
 
 /** The picture of the document, wherever a document is being decided about.
@@ -36,9 +37,26 @@ export interface PreviewDoc {
 
 const idr = (n: number) => `Rp ${n.toLocaleString("en-US")}`;
 
+/** `url` on a captured-evidence attachment is a Drive **share page**
+ *  (`file_evidence()`, `0038` — the capture worker passes a `webViewLink`),
+ *  not a byte stream: `https://drive.google.com/file/d/<id>/view?…`. An
+ *  `<img>` pointed at that renders nothing — the page loads, HTML is not a
+ *  picture. Drive's `thumbnail` endpoint serves the same file's actual
+ *  pixels for the same viewer who could already open the share link, so the
+ *  id is pulled out of it rather than asking for a second URL nothing in
+ *  this schema stores. Anything that is not a Drive file link (an
+ *  `attach_file` upload, `storage_path` only, no matching id) is left alone
+ *  and falls through to the stand-in sheet below, same as before. */
+function driveThumbnailUrl(url: string): string | null {
+  const m = /\/file\/d\/([a-zA-Z0-9_-]+)/.exec(url);
+  return m ? `https://drive.google.com/thumbnail?id=${m[1]}&sz=w1600` : null;
+}
+
 export function DocumentPreview({ doc, height = 340 }: { doc: PreviewDoc; height?: number }) {
   const isLink = doc.mime === "text/uri-list" || (doc.url != null && !doc.mime.startsWith("image/"));
   const isImage = doc.mime.startsWith("image/");
+  const [imgFailed, setImgFailed] = useState(false);
+  const imgSrc = doc.url ? (driveThumbnailUrl(doc.url) ?? doc.url) : null;
 
   if (isLink) {
     return (
@@ -64,16 +82,28 @@ export function DocumentPreview({ doc, height = 340 }: { doc: PreviewDoc; height
     );
   }
 
-  /* A real file, once there is one. */
-  if (isImage && doc.url) {
-    return (
+  /* A real file, once there is one. `onError` catches the case the id
+     regex above cannot: a private file the viewer's own session cannot
+     open, or a link shaped some other way entirely — either way, the stand-in
+     sheet is a better answer than a broken-image icon.
+     Clicking it opens `doc.url` — the Drive share page itself, already a
+     full-size viewer with its own zoom — rather than building a second,
+     in-app one: the cheaper of the two ways to let someone see it full size. */
+  if (isImage && imgSrc && !imgFailed) {
+    const img = (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={doc.url} alt={doc.filename}
-        className="w-full rounded-xl border border-slate-200 object-contain"
+        src={imgSrc} alt={doc.filename}
+        onError={() => setImgFailed(true)}
+        className="w-full rounded-xl border border-slate-200 object-contain transition-opacity hover:opacity-90"
         style={{ height }}
       />
     );
+    return doc.url ? (
+      <a href={doc.url} target="_blank" rel="noreferrer" title="Buka ukuran penuh di Google Drive">
+        {img}
+      </a>
+    ) : img;
   }
 
   const read = doc.read ?? {};

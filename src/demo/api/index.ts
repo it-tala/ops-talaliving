@@ -33,22 +33,33 @@ import * as liveIdentity from "@/lib/api/identity";
 import * as liveProcurement from "@/lib/api/procurement";
 import * as liveAccounting from "@/lib/api/accounting";
 import * as liveDocuments from "@/lib/api/documents";
+import * as liveInventory from "@/lib/api/inventory";
 import * as liveAssistant from "@/lib/api/assistant";
 
 export const identity = swap("identity", demoIdentity, liveIdentity);
 export const procurement = swap("procurement", demoProcurement, liveProcurement);
 export const accounting = swap("accounting", demoAccounting, liveAccounting);
 export const documents = swap("documents", demoDocuments, liveDocuments);
+export const inventory = swap("inventory", demoInventory, liveInventory);
 
-/* The four services B1–B3 have not reached. No `src/lib/api` module exists for
+/* Three services B1–B3 have not reached. No `src/lib/api` module exists for
    any of them, so in live mode every one of their functions refuses with the
    name of the call — which is what `swap` does when handed nothing to swap in.
    Listing them here rather than exporting the demo directly is the whole point:
-   the alternative is six services quietly serving fixtures to a business
-   booking real money. */
+   the alternative is five services quietly serving fixtures to a business
+   booking real money.
+
+   `inventory` is not one of them any more — `src/lib/api/inventory.ts` has
+   existed since the material-stock PR — but this line went in without ever
+   being moved up to the swapped block above, so every inventory screen has
+   been served the 501 stub in live mode regardless of what the database
+   actually holds. `check-live-routes.mjs` had no way to catch it: it derives
+   `LIVE_ROUTES` from `src/lib/api/index.ts`'s own exports, which were always
+   correct — this file, the one place `ADR-009` says the swap actually
+   happens, was the part nobody re-checked once inventory's real client
+   existed. */
 export const hr = swap("hr", demoHr);
 export const production = swap("production", demoProduction);
-export const inventory = swap("inventory", demoInventory);
 export const marketing = swap("marketing", demoMarketing);
 /* `delivery` and `assistant` are modules, not services: they already stamp
    their own envelopes `production` and `procurement` respectively, so the

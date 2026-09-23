@@ -6,7 +6,7 @@ import {
   FolderKanban, Hammer, Truck, Wrench, Stamp, Package,
   PencilRuler, ListTree, CalendarClock, CalendarRange, Link2,
   Cpu, ScrollText, Activity, UserCog, KeyRound, Clock, Scale, Factory,
-  Settings, FlaskConical, MessagesSquare, Route, ShieldCheck, Gauge, MessageSquareOff, type LucideIcon,
+  Settings, FlaskConical, MessagesSquare, Route, ShieldCheck, Gauge, MessageSquareOff, Database, Ruler, type LucideIcon,
 } from "lucide-react";
 
 /** Menu sebagai DATA, bukan JSX.
@@ -88,8 +88,6 @@ export const NAV: NavSection[] = [
       { label: "Purchase Tracker", href: "/procurement/tracker", icon: Route, permission: "procurement.read", badge: "new" },
       { label: "Purchase Order", href: "/procurement/po", icon: FileText, permission: "procurement.read" },
       { label: "Receiving Report", href: "/procurement/penerimaan", icon: PackageCheck, permission: "procurement.read" },
-      { label: "Suppliers", labelKey: "suppliers", href: "/procurement/supplier", icon: Truck, permission: "procurement.read" },
-      { label: "Catalogue", href: "/procurement/catalog", icon: Boxes, permission: "procurement.read" },
     ],
   },
   {
@@ -117,6 +115,19 @@ export const NAV: NavSection[] = [
       { label: "Monthly bills", labelKey: "monthlyBills", href: "/accounting/tagihan", icon: CalendarClock, permission: "accounting.read", badge: "new" },
       { label: "Documents", labelKey: "documents", href: "/accounting/documents", icon: FileBadge, permission: "accounting.read" },
       { label: "Purchase Verification", href: "/accounting/verifikasi", icon: Receipt, permission: "accounting.read", badge: "core" },
+    ],
+  },
+  {
+    /* Its own heading, not a corner of Inventory: suppliers are procurement's
+     * and accounting's, items are everybody's, units are on every line. Each
+     * page is still gated by the module that owns the data (owner,
+     * 2026-09-23) — no separate master-data role. */
+    title: "Master Data",
+    icon: Database,
+    items: [
+      { label: "Suppliers", labelKey: "suppliers", href: "/master-data/suppliers", icon: Truck, permission: "procurement.read" },
+      { label: "Items", href: "/master-data/items", icon: Boxes, permission: "procurement.read" },
+      { label: "Units", href: "/master-data/units", icon: Ruler, permission: "procurement.read", badge: "new" },
     ],
   },
   {

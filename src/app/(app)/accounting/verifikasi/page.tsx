@@ -17,9 +17,10 @@ import { DocumentPreview } from "@/components/ui/doc-preview";
 import type { EvidenceInboxRow, TransactionTypeCode, Direction, DocumentCoverage } from "@/services/accounting/contracts";
 import type { AttachmentView } from "@/services/documents/contracts";
 import { TRANSACTION_TYPE_CODES } from "@/services/accounting/contracts";
-import { UNITS, type UomCode } from "@/services/procurement/contracts";
+import { type UomCode } from "@/services/procurement/contracts";
 import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
+import { UomOptions } from "@/components/ui/uom-options";
 
 /** The narrow road: documents whose parent is genuinely unknown.
  *
@@ -174,7 +175,9 @@ export default function InboxPage() {
                       >
                         <p className="flex items-center gap-2 text-[13px] font-medium text-slate-800">
                           <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                          <span className="min-w-0 truncate">{file?.filename ?? r.attachment_id}</span>
+                          <span className="min-w-0 truncate">
+                            {r.extracted.note ?? r.extracted.vendor_name ?? file?.filename ?? r.attachment_id}
+                          </span>
                         </p>
                         <p className="mt-0.5 text-[12px] text-slate-600">
                           {r.extracted.vendor_name ?? "vendor not read"} ·{" "}
@@ -182,6 +185,7 @@ export default function InboxPage() {
                         </p>
                         <p className="text-[11px] text-slate-400">
                           {r.reported_at.slice(0, 10)} · {r.origin}
+                          {r.reported_by_name != null && ` · from ${r.reported_by_name}`}
                           {r.extracted.confidence != null && ` · read ${r.extracted.confidence}% sure`}
                         </p>
                         {r.similar_trx_nos.length > 0 && (
@@ -200,6 +204,14 @@ export default function InboxPage() {
             {selected
               ? (
                 <ResolvePanel
+                  /* Every field below is seeded from `row.extracted` in a
+                     `useState` initializer, which only runs once per mounted
+                     instance. Without a key here, picking a different row in
+                     the queue reused the same `ResolvePanel` and kept the
+                     previous row's amount/vendor/description on screen —
+                     "pre-filled from the AI reading" only on the very first
+                     row opened in a session, stale on every one after. */
+                  key={selected}
                   row={all.find((r) => r.ref_id === selected)!}
                   file={attachments.status === "ready"
                     ? attachments.data.find((a) => a.id === all.find((r) => r.ref_id === selected)!.attachment_id)
@@ -298,7 +310,7 @@ export default function InboxPage() {
                           {r.status}
                         </Badge>
                         <span className="min-w-0 flex-1 text-slate-700">
-                          {r.extracted.note ?? r.extracted.vendor_name ?? r.attachment_id}
+                          {r.extracted.note ?? r.extracted.vendor_name ?? f?.filename ?? r.attachment_id}
                         </span>
                         {r.extracted.amount_idr != null && (
                           <span className="tabular-nums text-slate-500">{formatIDR(r.extracted.amount_idr)}</span>
@@ -490,8 +502,10 @@ function ResolvePanel({
   return (
     <Card>
       <CardHeader
-        title={file?.filename ?? row.attachment_id}
-        subtitle={`${row.origin} · ${row.reported_at.slice(0, 16).replace("T", " ")} · read ${row.extracted.confidence ?? "—"}% sure`}
+        title={row.extracted.note ?? row.extracted.vendor_name ?? file?.filename ?? row.attachment_id}
+        subtitle={`${row.origin} · ${row.reported_at.slice(0, 16).replace("T", " ")}`
+          + (row.reported_by_name != null ? ` · from ${row.reported_by_name}` : "")
+          + ` · read ${row.extracted.confidence ?? "—"}% sure`}
         icon={FileText}
         action={<Badge tone={row.money_direction === "IN" ? "green" : "slate"}>{row.money_direction ?? "OUT"}</Badge>}
       />
@@ -640,7 +654,7 @@ function ResolvePanel({
                 <label htmlFor="rv-uom" className="block text-xs text-slate-500">Unit</label>
                 <select id="rv-uom" value={uom} onChange={(e) => setUom(e.target.value as UomCode)}
                   className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none">
-                  {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                  <UomOptions current={uom} />
                 </select>
               </div>
             </div>

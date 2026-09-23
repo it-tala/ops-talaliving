@@ -38,6 +38,17 @@ export * as documents from "./documents";
    make, as the person, so RLS applies exactly as it does there. */
 export * as assistant from "./assistant";
 
+/* Material stock (`0071`) only — `listStock`, `getStockItem`,
+   `listStockLocations`, `listStockMoves`, `issueStock`, `returnStock`,
+   `adjustStock`, `transferStock`, `setStockMinimum`, `stockFromReceipt`.
+   Timber (`0070`) and the board rack (no migration yet) are not written here
+   yet; a screen that calls one of those names still gets the same 501 as a
+   function that does not exist at all (this file's own header), so exporting
+   the module now is safe — it lights up `/inventory/material` and
+   `/inventory/penyesuaian` and leaves `/inventory/log` dark until timber
+   lands. */
+export * as inventory from "./inventory";
+
 /* ## `marketing` is written and is deliberately not exported here yet
  *
  *  `src/lib/api/marketing.ts` exists, type-checks, and matches the demo on all

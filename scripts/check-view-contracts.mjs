@@ -108,7 +108,15 @@ const VIEW_CONTRACTS = {
      stitched on before the result is returned. The intermediate cast is
      genuinely incomplete and the returned value is not. */
   v_statement_line:     { type: "StatementLineView", composed: ["suggestions"] },
-  v_inbox_health:       "InboxHealth",
+  /* Read into an anonymous row and mapped into `InboxHealth` by hand —
+     `by_origin` was a straight `as unknown as InboxHealth` onto a view with
+     no such column, which this script's own contract check would have
+     caught immediately if this entry had said so instead of naming
+     `by_origin` a known gap "behind" a route that was actually live
+     (`/accounting/verifikasi` crashed on it in production). Never cast
+     again, so `tsc` checks the object literal against the function's return
+     type instead. */
+  v_inbox_health:       null,
   /* `fromRows<unknown[]>` — the client hands these straight to a screen that
      reads them structurally, so there is no named contract to compare against.
      Each is a candidate for one; none is a cast that can lie today. */
@@ -121,6 +129,29 @@ const VIEW_CONTRACTS = {
   v_cash_unplanned:       null,
   v_statement_suggestion: null,
   v_vendor_payment:       null,
+
+  /* ── inventory ───────────────────────────────────────────────────────── */
+  /* `by_location`/`group_code`/`group_name` are a second and third read
+     (`v_stock_by_location`, `item_categories`), stitched on in
+     `withGroupAndLocation` — the view itself never had a column for either,
+     the same shape as `v_statement_line`'s `suggestions` above. */
+  v_stock_item:        { type: "StockItemView", composed: ["by_location", "group_code", "group_name"] },
+  /* Read for `location`/`location_name`/`qty` per item and folded into
+     `StockItemView.by_location` by hand — never cast, so nothing here can lie. */
+  v_stock_by_location: null,
+  /* Every column matches `BoardStockView` field for field — ported from
+     `boardStock()` for exactly that (`0094`'s own header). */
+  v_board_stock: "BoardStockView",
+  /* Read into an anonymous row and mapped into `LogPurchaseView` by hand,
+     field by field, with `logs`/`boards`/`warnings`/`vendor_id` built from a
+     second and third read (`log_pieces`, `sawn_boards`, `vendors`) — never
+     cast, so `tsc` checks the object literal against the function's own
+     return type instead. */
+  v_log_purchase: null,
+  /* Same shape as `v_log_purchase` above: mapped by hand into
+     `TimberVendorSummary`, `unsawn_m3` computed from this row's own
+     `log_m3`/`sawn_logs_m3` rather than cast from a column of that name. */
+  v_timber_by_vendor: null,
 
   /* ── marketing ───────────────────────────────────────────────────────── */
   v_market:          "MarketView",
@@ -170,8 +201,6 @@ const KNOWN_GAPS = {
      (A10), so it is not decoration: without it the screen cannot tell funded
      from paid. */
   v_round_summary: ["transfers"],
-  /* `/accounting/verifikasi` — also waiting on five. */
-  v_inbox_health:  ["by_origin"],
 };
 
 /* ── the interfaces, from the contracts and from the client ───────────── */

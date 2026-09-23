@@ -7,9 +7,10 @@ import { MoneyInput } from "@/components/ui/money-input";
 import { NumberInput } from "@/components/ui/number-input";
 import { formatIDR } from "@/lib/format";
 import { procurement } from "@/demo/api";
-import { UNITS, type UomCode, type Vendor } from "@/services/procurement/contracts";
+import { type UomCode, type Vendor } from "@/services/procurement/contracts";
 import { useLoad } from "@/components/ui/loaded";
 import { useToast } from "@/store/toast";
+import { UomOptions } from "@/components/ui/uom-options";
 
 /** Adding an item without leaving the meeting.
  *
@@ -96,7 +97,7 @@ export function QuickAdd({ onAdded }: { onAdded: () => void }) {
             onChange={(e) => setUom(e.target.value as UomCode)}
             className="mt-1 h-8 w-full rounded-lg border border-slate-200 bg-white px-1.5 text-[13px] focus:border-brand-400 focus:outline-none"
           >
-            {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+            <UomOptions current={uom} />
           </select>
         </div>
         <div className="sm:col-span-2">

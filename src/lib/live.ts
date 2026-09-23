@@ -55,22 +55,31 @@ import { isRealApi } from "@/lib/supabase/env";
  *  counts functions, a service being listed here no longer implies that every
  *  function of it exists.
  */
-export const LIVE_SERVICES = ["identity", "procurement", "accounting"] as const;
+export const LIVE_SERVICES = ["identity", "procurement", "accounting", "inventory"] as const;
 
 /** Routes whose every service call is implemented. GENERATED — see above.
  *  Regenerate with `node scripts/check-live-routes.mjs --write`.
  */
 export const LIVE_ROUTES: readonly string[] = [
+  "/accounting/calendar",
   "/accounting/documents",
+  "/accounting/ledger",
   "/accounting/rekening-koran",
   "/accounting/verifikasi",
+  "/dashboard",
+  "/inventory/log",
+  "/inventory/material",
+  "/inventory/papan",
+  "/inventory/penyesuaian",
   "/it/aktivitas",
   "/it/audit",
   "/it/john-lau",
   "/it/pengguna",
   "/it/peran",
   "/john-lau",
-  "/procurement/catalog",
+  "/master-data/items",
+  "/master-data/suppliers",
+  "/master-data/units",
   "/procurement/meeting",
   "/procurement/penerimaan",
   "/procurement/po",
@@ -78,7 +87,7 @@ export const LIVE_ROUTES: readonly string[] = [
   "/procurement/po/[po]/print",
   "/procurement/pr",
   "/procurement/pr/documents",
-  "/procurement/supplier",
+  "/procurement/rounds",
   "/procurement/tracker",
   "/procurement/tracker/[vendor]",
 ];

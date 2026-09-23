@@ -24,7 +24,7 @@
  *  renaming, not a calculation, and it is the only work here.
  */
 import type {
-  Vendor, VendorView, Item, ItemView, Uom, ItemCategory, Project,
+  Vendor, VendorView, Item, ItemView, Uom, UomConversion, UomDimension, ItemCategory, Project,
   PrLineView, PrApproval, LineNote, LineVariance, ApprovalRequest,
   VendorJourney, RoundSummary, RoundTransfer, VarianceReason, Channel, ApprovalBatchView,
   PoDetail, PoLine, PoStatusView, PurchaseOrder, Receipt, ReceiptCondition,
@@ -937,7 +937,8 @@ async function getLine(lineNo: string): Promise<Result<PrLineView>> {
 export async function listVendors(
   opts: { q?: string; curated?: boolean } = {},
 ): Promise<Result<Vendor[]>> {
-  let q = db().from("vendors").select("*").is("merged_into", null);
+  /* Every caller is a picker, so an archived vendor is never offered (`0099`). */
+  let q = db().from("vendors").select("*").is("merged_into", null).is("archived_at", null);
   if (opts.curated !== undefined) q = q.eq("is_curated", opts.curated);
   if (opts.q) q = q.ilike("name", `%${opts.q}%`);
   const { data, error } = await q.order("name");
@@ -967,13 +968,16 @@ export async function listVendors(
  *  cost would still be there, one page later.
  */
 const VENDOR_LIST_COLUMNS =
-  "id, code, name, aka, merged_into, is_curated, phone, address, pic_name, "
+  "id, code, name, aka, merged_into, is_curated, archived_at, phone, address, pic_name, "
   + "pic_phone, bank_account, bank_account_secondary, npwp, supplied_categories, "
   + "created_by, created_at, updated_at, supplied_category_names, "
   + "transaction_count, total_spend, last_purchase, open_pr_lines, bought_categories";
 
-export async function listVendorViews(opts: { q?: string } = {}): Promise<Result<VendorView[]>> {
+export async function listVendorViews(
+  opts: { q?: string; include_archived?: boolean } = {},
+): Promise<Result<VendorView[]>> {
   let q = db().from("v_vendor_view").select(VENDOR_LIST_COLUMNS).is("merged_into", null);
+  if (!opts.include_archived) q = q.is("archived_at", null);
   if (opts.q) q = q.ilike("name", `%${opts.q}%`);
   const { data, error } = await q.order("name");
   if (error) return fail(SERVICE, error);
@@ -1034,6 +1038,72 @@ export async function listUom(): Promise<Result<Uom[]>> {
   return fromRows<Uom[]>(SERVICE, data as Uom[], error);
 }
 
+export async function listUomConversions(): Promise<Result<UomConversion[]>> {
+  const { data, error } = await db().from("uom_conversions")
+    .select("id, from_uom, to_uom, factor, yield_ratio, note")
+    .order("from_uom").order("to_uom");
+  if (error) return fail(SERVICE, error);
+  /* `numeric` comes back from PostgREST as a string; the contract says number. */
+  return ok(SERVICE, (data ?? []).map((c) => ({
+    ...c,
+    factor: Number(c.factor),
+    yield_ratio: c.yield_ratio == null ? null : Number(c.yield_ratio),
+  })) as UomConversion[]);
+}
+
+/** Units are written only through the `0099` seams, which is where the audit
+ *  row and the in-use check live; RLS gives this table select and nothing else. */
+export async function createUom(
+  input: { code: string; name: string; dimension: UomDimension },
+): Promise<Result<Uom>> {
+  const { data, error } = await db().rpc("create_uom", {
+    p_code: input.code, p_name: input.name, p_dimension: input.dimension,
+  });
+  return fromSeam<Uom>(SERVICE, data, error);
+}
+
+export async function updateUom(
+  code: string, input: { name: string; dimension: UomDimension },
+): Promise<Result<Uom>> {
+  const { data, error } = await db().rpc("update_uom", {
+    p_code: code, p_name: input.name, p_dimension: input.dimension,
+  });
+  return fromSeam<Uom>(SERVICE, data, error);
+}
+
+export async function deleteUom(code: string): Promise<Result<{ code: string; deleted: true }>> {
+  const { data, error } = await db().rpc("delete_uom", { p_code: code });
+  return fromSeam<{ code: string; deleted: true }>(SERVICE, data, error);
+}
+
+export async function saveUomConversion(
+  input: { from_uom: string; to_uom: string; factor: number; yield_ratio?: number | null; note?: string | null },
+): Promise<Result<UomConversion>> {
+  const { data, error } = await db().rpc("save_uom_conversion", {
+    p_from: input.from_uom, p_to: input.to_uom, p_factor: input.factor,
+    p_yield_ratio: input.yield_ratio ?? null, p_note: input.note ?? null,
+  });
+  const saved = fromSeam(SERVICE, data, error);
+  if (saved.error) return saved;
+  /* The seam answers what it wrote; the row itself — id included — is read
+     back, the same shape `listUomConversions` answers. */
+  const { data: row, error: e2 } = await db().from("uom_conversions")
+    .select("id, from_uom, to_uom, factor, yield_ratio, note")
+    .eq("from_uom", input.from_uom).eq("to_uom", input.to_uom).maybeSingle();
+  if (e2) return fail(SERVICE, e2);
+  if (!row) return notFound(SERVICE, "conversion_not_found", "No such conversion.");
+  return ok(SERVICE, {
+    ...row, factor: Number(row.factor), yield_ratio: row.yield_ratio == null ? null : Number(row.yield_ratio),
+  } as UomConversion);
+}
+
+export async function deleteUomConversion(
+  fromUom: string, toUom: string,
+): Promise<Result<{ from_uom: string; to_uom: string; deleted: true }>> {
+  const { data, error } = await db().rpc("delete_uom_conversion", { p_from: fromUom, p_to: toUom });
+  return fromSeam<{ from_uom: string; to_uom: string; deleted: true }>(SERVICE, data, error);
+}
+
 export async function listCategories(): Promise<Result<ItemCategory[]>> {
   const { data, error } = await db().from("item_categories").select("*").order("name");
   return fromRows<ItemCategory[]>(SERVICE, data as ItemCategory[], error);
@@ -1082,6 +1152,38 @@ export async function mergeVendor(loserId: string, winnerId: string): Promise<Re
   const res = fromSeam(SERVICE, data, error);
   if (res.error) return res;
   return vendorViewByCode(winner);
+}
+
+/** The display name. The old spelling joins `aka` in the seam (`0099`), so a
+ *  search for what people used to type still finds this vendor. */
+export async function renameVendor(id: string, name: string): Promise<Result<VendorView>> {
+  const code = await codeFor("vendors", id);
+  if (!code) return notFound(SERVICE, "vendor_not_found", "Vendor not found.");
+  const { data, error } = await db().rpc("rename_vendor", { p_code: code, p_name: name });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return vendorViewByCode(code);
+}
+
+/** Out of every picker, kept in every record. Reversible. */
+export async function archiveVendor(id: string, archived: boolean): Promise<Result<VendorView>> {
+  const code = await codeFor("vendors", id);
+  if (!code) return notFound(SERVICE, "vendor_not_found", "Vendor not found.");
+  const { data, error } = await db().rpc("archive_vendor", { p_code: code, p_archived: archived });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return vendorViewByCode(code);
+}
+
+/** Only a vendor nothing points at; the seam refuses the rest with the count
+ *  of what still names them. */
+export async function deleteVendor(id: string): Promise<Result<{ id: string; deleted: true }>> {
+  const code = await codeFor("vendors", id);
+  if (!code) return notFound(SERVICE, "vendor_not_found", "Vendor not found.");
+  const { data, error } = await db().rpc("delete_vendor", { p_code: code });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, { id, deleted: true as const });
 }
 
 /* ------------------------------------------------------------------ */

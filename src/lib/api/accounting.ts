@@ -14,8 +14,8 @@ import type {
   TransactionType, Direction, AllocMethod, InboxStatus, InboxHealth,
   TrxStatus, BankStatementView, StatementLineView, StatementMatch,
   TransactionTypeCode, PaymentAllocation, VendorPayment, CashOverride, CashSettlement,
-  CashComponent, CashPlan, CashMonth,
-  InboxOrigin, EvidenceInboxRow,
+  CashComponent, CashPlan, CashMonth, CashMonthDetail, CashDue, CashDayRow,
+  InboxOrigin, EvidenceInboxRow, IncomingMoney,
   DocumentCoverage, TransactionCoverage, CoverageTransaction,
   CoverageLine, CoveragePayment,
 } from "@/services/accounting/contracts";
@@ -23,7 +23,7 @@ import type { DocKind } from "@/services/documents/contracts";
 import type { LineCoverage } from "@/services/procurement/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { getActiveLocale, formatIDRCompact } from "@/lib/format";
-import { fail, fromSeam, fromRows, invalid, notFound, ok, type Result } from "./_kit";
+import { fail, fromSeam, fromPage, fromRows, invalid, notFound, ok, type Result } from "./_kit";
 
 const SERVICE = "accounting" as const;
 
@@ -83,6 +83,8 @@ const KIND_CODE: Partial<Record<DocKind, string>> = {
   "Receiving Item": "goods_photo",
   "Delivery Note": "delivery_note",
   "Purchase Order": "purchase_order",
+  Invoice: "invoice",
+  "Receiving Report": "receiving_report",
   "Reference Link": "quotation",
   "Rekening Koran": "rekening_koran",
   "Surat Dokter": "surat_dokter",
@@ -140,19 +142,36 @@ export async function listTypeRows(): Promise<Result<TransactionType[]>> {
 /* The ledger                                                          */
 /* ------------------------------------------------------------------ */
 
+/** `description.ilike."%needle%",trx_no.ilike."%needle%"` — quoted, because a
+ *  comma or parenthesis typed into the search box is filter syntax to
+ *  PostgREST, not search text, and unquoted it either breaks the `.or()`
+ *  below or lets free-text input add a clause nobody typed. */
+function ilikeOrFilter(q: string, ...columns: string[]): string {
+  const escaped = q.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const pattern = `"%${escaped}%"`;
+  return columns.map((c) => `${c}.ilike.${pattern}`).join(",");
+}
+
 export async function listTransactions(
-  opts: { limit?: number; offset?: number; account_code?: string; status?: TrxStatus } = {},
+  opts: {
+    account_id?: string; type_code?: string; q?: string;
+    project_code?: string; include_void?: boolean;
+    limit?: number; offset?: number;
+  } = {},
 ): Promise<Result<TransactionView[]>> {
   const limit = opts.limit ?? 50;
   const offset = opts.offset ?? 0;
-  let q = db().from("v_transaction").select("*");
-  if (opts.account_code) q = q.eq("account_code", opts.account_code);
-  if (opts.status) q = q.eq("status", opts.status);
-  const { data, error } = await q
+  let q = db().from("v_transaction").select("*", { count: "exact" });
+  if (!opts.include_void) q = q.neq("status", "VOID");
+  if (opts.account_id) q = q.eq("account_id", opts.account_id);
+  if (opts.project_code) q = q.eq("project_code", opts.project_code);
+  if (opts.type_code) q = q.eq("type_code", opts.type_code);
+  if (opts.q) q = q.or(ilikeOrFilter(opts.q, "description", "trx_no"));
+  const { data, error, count } = await q
     .order("trx_date", { ascending: false })
     .order("trx_no", { ascending: false })
     .range(offset, offset + limit - 1);
-  return fromRows<TransactionView[]>(SERVICE, data as TransactionView[], error);
+  return fromPage<TransactionView>(SERVICE, data as TransactionView[], count, error, limit, offset);
 }
 
 /** Everything a ledger row is made of, in one call: what it bought, what it
@@ -183,7 +202,10 @@ export async function historyFor(trxNo: string): Promise<Result<AuditRow[]>> {
      reasoning). */
   const { data, error } = await supabaseBrowser().schema("ops_core")
     .from("v_audit").select("*")
-    .eq("entity", "transaction").eq("entity_no", trxNo)
+    /* The row's own actions, plus the documents linked to and unlinked from
+       it — `attach_link`/`attach_unlink` file those as `attachment` under the
+       row's code, with the kind and file name in `detail` (`0101`). */
+    .in("entity", ["transaction", "attachment"]).eq("entity_no", trxNo)
     .order("at", { ascending: false });
   return fromRows<AuditRow[]>(SERVICE, data as AuditRow[], error);
 }
@@ -226,7 +248,11 @@ async function codeFor(
   table: "accounts" | "vendors" | "projects", id: string | null | undefined,
 ): Promise<string | null> {
   if (!id) return null;
-  const { data } = await db().from(table).select("code").eq("id", id).maybeSingle();
+  /* `accounts` lives in `ops_acct`; `vendors` and `projects` are procurement's
+     (ADR-004 again, one level down) — reading either through `db()`'s
+     `ops_acct` binding asks PostgREST for a table that schema does not have. */
+  const client = table === "accounts" ? db() : supabaseBrowser().schema("ops_procure");
+  const { data } = await client.from(table).select("code").eq("id", id).maybeSingle();
   return (data as { code: string } | null)?.code ?? null;
 }
 
@@ -366,6 +392,39 @@ export async function voidTransaction(
   return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
 }
 
+/** Correcting a row in place — amount (with a remark) and description
+ *  (`0101`). The seam writes the audit row with the remark as its reason and
+ *  the values before and after as its detail; this reads the row back. */
+export async function editTransaction(
+  input: { trx_no: string; amount_idr?: number; description?: string; reason?: string },
+  idempotencyKey?: string,
+): Promise<Result<TransactionView>> {
+  const { data, error } = await db().rpc("edit_transaction", {
+    p_trx_no: input.trx_no,
+    p_amount: input.amount_idr ?? null,
+    p_description: input.description ?? null,
+    p_reason: input.reason ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const edited = fromSeam<{ trx_no: string }>(SERVICE, data, error);
+  if (edited.error) return edited;
+
+  const row = await db().from("v_transaction").select("*").eq("trx_no", edited.data.trx_no).single();
+  return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
+}
+
+/** A row moved past POSTED to COMPLETED — `post_ledger`, the same authority
+ *  every seam in this file answers to, and nothing else (`0093`, read against
+ *  `void_transaction` rather than invented). */
+export async function markComplete(trxNo: string): Promise<Result<TransactionView>> {
+  const { data, error } = await db().rpc("complete_transaction", { p_trx_no: trxNo });
+  const completed = fromSeam<{ trx_no: string; status: string }>(SERVICE, data, error);
+  if (completed.error) return completed;
+
+  const row = await db().from("v_transaction").select("*").eq("trx_no", completed.data.trx_no).single();
+  return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
+}
+
 /** The second seam: what a payment was *for*. A transaction never funds more
  *  than it moved (A9), and the target may be an order rather than a request
  *  line — the deposit on a PO answers to no PR (D106). */
@@ -445,7 +504,7 @@ const INBOX_COLUMNS =
   "id, ref_id, origin, status, attachment_id, reported_by, reported_at, "
   + "extracted, money_direction, produced_trx_no, produced_pr_line_no";
 
-function toInboxRow(r: InboxRowDb): EvidenceInboxRow {
+function toInboxRow(r: InboxRowDb): Omit<EvidenceInboxRow, "reported_by_name"> {
   return {
     id: r.id,
     ref_id: r.ref_id,
@@ -473,27 +532,54 @@ function toInboxRow(r: InboxRowDb): EvidenceInboxRow {
   };
 }
 
+/** Who `reported_by` is, spelled out — batched, so a queue of twenty rows is
+ *  one extra query rather than twenty. */
+async function withReporterNames(
+  rows: Omit<EvidenceInboxRow, "reported_by_name">[],
+): Promise<Result<EvidenceInboxRow[]>> {
+  if (rows.length === 0) return ok(SERVICE, []);
+  const ids = [...new Set(rows.map((r) => r.reported_by))];
+  const { data, error } = await core().from("users").select("id, full_name").in("id", ids);
+  if (error) return fail(SERVICE, error);
+  const nameOf = new Map((data ?? []).map((u) => [u.id as string, u.full_name as string]));
+  return ok(SERVICE, rows.map((r) => ({ ...r, reported_by_name: nameOf.get(r.reported_by) ?? null })));
+}
+
 export async function listInbox(): Promise<Result<EvidenceInboxRow[]>> {
   const { data, error } = await db().from("evidence_inbox").select(INBOX_COLUMNS)
     .eq("status", "PENDING").order("reported_at", { ascending: false });
   if (error) return fail(SERVICE, error);
-  return ok(SERVICE, ((data ?? []) as unknown as InboxRowDb[]).map(toInboxRow));
+  return withReporterNames(((data ?? []) as unknown as InboxRowDb[]).map(toInboxRow));
 }
 
 export async function listInboxAll(): Promise<Result<EvidenceInboxRow[]>> {
   const { data, error } = await db().from("evidence_inbox").select(INBOX_COLUMNS)
     .order("reported_at", { ascending: false });
   if (error) return fail(SERVICE, error);
-  return ok(SERVICE, ((data ?? []) as unknown as InboxRowDb[]).map(toInboxRow));
+  return withReporterNames(((data ?? []) as unknown as InboxRowDb[]).map(toInboxRow));
 }
 
 /** Not decoration. If this number grows, people are routing around the normal
  *  road — attaching from the record — and the reason is worth finding
- *  (ADR-010). */
+ *  (ADR-010).
+ *
+ *  `v_inbox_health` (`0020`) has no `by_origin` column — a view answers flat
+ *  rows, and `InboxOrigin`'s two counts are `from_chat`/`from_web` there,
+ *  never nested. The blind `as unknown as InboxHealth` this used to end on
+ *  hid exactly that: `check-api-parity.mjs` checks declared types, and a
+ *  double cast satisfies it whether or not the value underneath has the
+ *  field at all — `by_origin` was undefined on every real call, and
+ *  `/accounting/verifikasi` read `.chat` off it and crashed the page. */
 export async function getInboxHealth(): Promise<Result<InboxHealth>> {
   const { data, error } = await db().from("v_inbox_health").select("*").maybeSingle();
   if (error) return fail(SERVICE, error);
-  return ok(SERVICE, data as unknown as InboxHealth);
+  if (!data) return notFound(SERVICE, "inbox_health_missing", "The inbox health row could not be read.");
+  return ok(SERVICE, {
+    week_start: data.week_start as string,
+    arrived: data.arrived as number,
+    unresolved: data.unresolved as number,
+    by_origin: { chat: data.from_chat as number, web: data.from_web as number },
+  });
 }
 
 /** Five roads out, **none of which delete** (F26, D94). A document that
@@ -552,7 +638,102 @@ export async function resolveInbox(
   if (!after.data) {
     return notFound(SERVICE, "inbox_row_not_found", `Row ${input.ref_id} not found.`);
   }
-  return ok(SERVICE, toInboxRow(after.data as unknown as InboxRowDb));
+  const named = await withReporterNames([toInboxRow(after.data as unknown as InboxRowDb)]);
+  if (named.error) return named;
+  return ok(SERVICE, named.data[0]);
+}
+
+/* ------------------------------------------------------------------ */
+/* Money coming IN — the second road (D81)                             */
+/* ------------------------------------------------------------------ */
+
+/** Money already booked into a paying account, with whatever proof is on it.
+ *
+ *  The round screen reads this rather than asking somebody to retype an
+ *  amount that is already in the ledger. Filtered to IN rows on the account
+ *  that pays suppliers, newest first.
+ */
+export async function listIncoming(
+  opts: { account_code?: string } = {},
+): Promise<Result<IncomingMoney[]>> {
+  const code = opts.account_code ?? "BCA 271";
+  const { data: acc, error: accErr } = await db().from("accounts").select("id").eq("code", code).maybeSingle();
+  if (accErr) return fail(SERVICE, accErr);
+  if (!acc) return ok(SERVICE, []);
+
+  const { data, error } = await db().from("transactions")
+    .select("trx_no, trx_date, amount_idr, description")
+    .eq("account_id", (acc as { id: string }).id).eq("direction", "IN").neq("status", "VOID")
+    .order("trx_date", { ascending: false }).order("trx_no", { ascending: false });
+  if (error) return fail(SERVICE, error);
+  const rows = (data ?? []) as { trx_no: string; trx_date: string; amount_idr: number; description: string }[];
+  if (rows.length === 0) return ok(SERVICE, []);
+
+  const trxNos = rows.map((r) => r.trx_no);
+  const { data: links, error: linkErr } = await core().from("attachment_links")
+    .select("attachment_id, entity_no")
+    .eq("entity", "transaction").eq("kind", "transfer_proof").is("unlinked_at", null)
+    .in("entity_no", trxNos);
+  if (linkErr) return fail(SERVICE, linkErr);
+  const attByTrx = new Map(((links ?? []) as { attachment_id: string; entity_no: string }[])
+    .map((l) => [l.entity_no, l.attachment_id]));
+
+  const attIds = [...new Set(attByTrx.values())];
+  const { data: atts, error: attErr } = attIds.length
+    ? await core().from("attachments").select("id, filename").in("id", attIds)
+    : { data: [] as { id: string; filename: string }[], error: null };
+  if (attErr) return fail(SERVICE, attErr);
+  const filenameOf = new Map(((atts ?? []) as { id: string; filename: string }[]).map((a) => [a.id, a.filename]));
+
+  return ok(SERVICE, rows.map((r) => {
+    const attId = attByTrx.get(r.trx_no) ?? null;
+    return {
+      trx_no: r.trx_no, trx_date: r.trx_date, account_code: code,
+      amount_idr: r.amount_idr, description: r.description,
+      proof_attachment_id: attId, proof_filename: attId ? (filenameOf.get(attId) ?? null) : null,
+    };
+  }));
+}
+
+/** Rows waiting in the inbox that are money coming IN.
+ *
+ *  Almost everything in that inbox is somebody who bought first. A transfer
+ *  proof dropped in chat by leadership is the other direction, and it is
+ *  waiting for a different act by a different person — booking it, not
+ *  matching it to a purchase. */
+export async function listIncomingReview(): Promise<Result<EvidenceInboxRow[]>> {
+  const { data, error } = await db().from("evidence_inbox").select(INBOX_COLUMNS)
+    .eq("status", "PENDING").eq("money_direction", "IN")
+    .order("reported_at", { ascending: false });
+  if (error) return fail(SERVICE, error);
+  return withReporterNames(((data ?? []) as unknown as InboxRowDb[]).map(toInboxRow));
+}
+
+/** Book a chat-uploaded transfer proof as money in.
+ *
+ *  One act: the IN transaction, the document linked to it, and the inbox row
+ *  closed with a pointer to what it produced. The amount is confirmed by a
+ *  person rather than taken from the extraction — the reading is a proposal,
+ *  never a posting (A13).
+ */
+export async function confirmIncoming(
+  input: { ref_id: string; account_id: string; trx_date: string; amount_idr: number; description?: string },
+  idempotencyKey?: string,
+): Promise<Result<IncomingMoney>> {
+  const accountCode = await codeFor("accounts", input.account_id);
+  if (!accountCode) {
+    return invalid(SERVICE, "account_not_found", "Akun itu tidak ada di database.", { field: "account_id" });
+  }
+
+  const { data, error } = await db().rpc("confirm_incoming", {
+    p_ref_id: input.ref_id,
+    p_account_code: accountCode,
+    p_trx_date: input.trx_date,
+    p_amount: input.amount_idr,
+    p_description: input.description ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<IncomingMoney>(SERVICE, data, error);
 }
 
 /* ------------------------------------------------------------------ */
@@ -814,6 +995,79 @@ function monthLabel(month: string): string {
   return new Date(y, m - 1, 1).toLocaleDateString(getActiveLocale(), { month: "short", year: "numeric" });
 }
 
+/** `to − from`, in whole days, the same WITA-anchored arithmetic
+ *  `src/demo/derive.ts`'s own `daysBetween` uses — so a "3 hari lagi" here and
+ *  in the demo never disagree over which side of midnight a date fell on. */
+function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00+08:00`) - Date.parse(`${from}T00:00:00+08:00`)) / 86_400_000);
+}
+
+/** One month opened up, day by day, with the balance running through it.
+ *
+ *  Not a seam of its own: `cashMonthDetail` in the demo is `cashPlan()` read
+ *  from one angle — every event behind the month's twelve rows, sorted into a
+ *  day order, with a balance walked across them the same way the twelve-month
+ *  view walks a balance across months. `getCashPlan()` already carries every
+ *  event this needs; redoing the walk here is the same boundary
+ *  `getCashPlan`'s own `verdict`/`label` sit on — presentation built from data
+ *  the database already decided, not a second derivation racing the
+ *  database's (0091's header, on `undated_obligations`/`short_by`). */
+export async function getMonthDetail(month: string): Promise<Result<CashMonthDetail>> {
+  const plan = await getCashPlan();
+  if (plan.error) return plan;
+
+  const index = plan.data.months.findIndex((m) => m.month === month);
+  if (index === -1) {
+    return notFound(SERVICE, "month_not_in_plan", `${month} is outside the twelve months the plan covers.`);
+  }
+  const today = plan.data.generated_for;
+  const view = plan.data.months[index];
+  const opening = index === 0 ? plan.data.opening_cash : plan.data.months[index - 1].closing;
+
+  const events = plan.data.rows
+    .flatMap((r) => r.cells[index].events)
+    .filter((e) => e.state !== "SKIPPED")
+    .sort((a, b) => a.date.localeCompare(b.date) || (b.direction === "IN" ? 1 : -1));
+
+  let balance = opening;
+  let low = opening;
+  let low_date: string | null = null;
+  let first_negative_date: string | null = null;
+
+  const rows: CashDayRow[] = events.map((e) => {
+    const is_past = view.is_current && (e.date < today || e.state === "PAID");
+    const moves = is_past ? 0 : Math.max(e.planned - e.actual, 0);
+    balance += e.direction === "IN" ? moves : -moves;
+    if (balance < low) { low = balance; low_date = e.date; }
+    if (balance < 0 && first_negative_date === null) first_negative_date = e.date;
+    return { ...e, balance, is_past };
+  });
+
+  return ok(SERVICE, {
+    month, label: view.label, opening, closing: view.closing, rows,
+    low_point: low, low_date, first_negative_date,
+    undated_obligations: plan.data.undated_obligations,
+  });
+}
+
+/** The reminder half: what falls due next, and what is already late — built
+ *  from the very same events `getMonthDetail` reads, so the two can never say
+ *  different things (D116). */
+export async function listDue(): Promise<Result<CashDue[]>> {
+  const plan = await getCashPlan();
+  if (plan.error) return plan;
+  const today = plan.data.generated_for;
+
+  const due = plan.data.rows
+    .flatMap((r) => r.cells.flatMap((c) => c.events))
+    .filter((e) => e.state !== "SKIPPED" && e.state !== "PAID")
+    .map((e) => ({ ...e, days_away: daysBetween(today, e.date) }))
+    .filter((e) => e.days_away <= 21 && e.days_away >= -90)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  return ok(SERVICE, due);
+}
+
 /** One line, one month: the cell a calendar draws. Its state is the **worst**
  *  of the occurrences behind it, because a month with one overdue payday is an
  *  overdue month however well the other three went. */
@@ -883,6 +1137,109 @@ export async function saveComponent(input: {
     p_id: input.id ?? null,
   });
   return fromSeam(SERVICE, data, error);
+}
+
+/** Add something that repeats — `saveComponent` (`save_cash_component`) with
+ *  `p_id` left null, and `vendor_id`/`account_id` resolved to the codes the
+ *  seam takes (`codeFor`, above). Redraws the row from `cash_components`
+ *  rather than trusting the seam's echo, the same as every other write here.
+ *
+ *  The category clash (D110), the day-of-month and weekday ranges, the
+ *  once-needs-a-date rule — every refusal `addComponent` can produce — are
+ *  the seam's (`0022`, `0092`), not reimplemented in TypeScript (this file's
+ *  header, again). **Not checked here**: the demo also refuses below
+ *  `requireLevel(SERVICE, "accounting", "admin")` (Q24/D233 — the estimate
+ *  belongs to leadership, not merely to whoever holds `accounting.update`);
+ *  the seam still gates on `has_permission('accounting.update')` as it has
+ *  since `0022`, one level looser. Tightening a live money-path authorisation
+ *  rule is a call for whoever owns that decision, not something this parity
+ *  pass makes unasked.
+ *
+ *  No idempotency key: `save_cash_component` has never taken one (unlike
+ *  `post_transaction`), so a retried call adds a second line rather than
+ *  replaying the first — accepted here, on the signature, only to match the
+ *  demo's; nothing yet makes the promise the demo's does. */
+export async function addComponent(input: {
+  name: string;
+  direction: Direction;
+  amount: number;
+  frequency?: "weekly" | "monthly" | "once";
+  due_day?: number;
+  due_weekday?: number | null;
+  due_date?: string | null;
+  type_code?: string | null;
+  vendor_id?: string | null;
+  account_id?: string | null;
+  starts_on?: string;
+  ends_on?: string | null;
+  note?: string | null;
+}): Promise<Result<CashComponent>> {
+  const { data, error } = await db().rpc("save_cash_component", {
+    p_name: input.name,
+    p_amount: input.amount,
+    p_frequency: input.frequency ?? "monthly",
+    p_direction: input.direction,
+    p_due_day: input.due_day ?? null,
+    p_due_weekday: input.due_weekday ?? null,
+    p_due_date: input.due_date ?? null,
+    p_type_code: input.type_code ?? null,
+    p_vendor_code: await codeFor("vendors", input.vendor_id),
+    p_account_code: await codeFor("accounts", input.account_id),
+    p_starts_on: input.starts_on ?? null,
+    p_note: input.note ?? null,
+    p_id: null,
+    p_ends_on: input.ends_on ?? null,
+    p_active: true,
+  });
+  const saved = fromSeam<{ component_id: string }>(SERVICE, data, error);
+  if (saved.error) return saved;
+  const row = await db().from("cash_components").select("*").eq("id", saved.data.component_id).maybeSingle();
+  if (row.error) return fail(SERVICE, row.error);
+  if (!row.data) return notFound(SERVICE, "component_not_found", "The line was saved but could not be read back.");
+  return ok(SERVICE, row.data as CashComponent);
+}
+
+/** Change the estimate, the day, or the name.
+ *
+ *  `save_cash_component` is one seam for both create and update, and on
+ *  update it **replaces the row** — every field it accepts, not only the
+ *  ones a caller means to touch (unchanged from `0022`; `0092` only added
+ *  `ends_on`/`active` to the same replace). A `patch` object is therefore
+ *  read against the current row first, so a caller who names only `amount`
+ *  does not blank out the line's vendor, category or due date. */
+export async function updateComponent(
+  id: string,
+  patch: { name?: string; amount?: number; due_day?: number; ends_on?: string | null; note?: string | null; active?: boolean },
+): Promise<Result<CashComponent>> {
+  const current = await db().from("cash_components").select("*").eq("id", id).maybeSingle();
+  if (current.error) return fail(SERVICE, current.error);
+  if (!current.data) return notFound(SERVICE, "component_not_found", `No calendar line ${id}.`);
+  const row = current.data as CashComponent;
+
+  const { data, error } = await db().rpc("save_cash_component", {
+    p_name: patch.name ?? row.name,
+    p_amount: patch.amount ?? row.amount,
+    p_frequency: row.frequency,
+    p_direction: row.direction,
+    p_due_day: patch.due_day ?? row.due_day,
+    p_due_weekday: row.due_weekday,
+    p_due_date: row.due_date,
+    p_type_code: row.type_code,
+    p_vendor_code: await codeFor("vendors", row.vendor_id),
+    p_account_code: await codeFor("accounts", row.account_id),
+    p_starts_on: row.starts_on,
+    p_note: patch.note ?? row.note,
+    p_id: id,
+    p_ends_on: patch.ends_on !== undefined ? patch.ends_on : row.ends_on,
+    p_active: patch.active ?? row.active,
+  });
+  const saved = fromSeam(SERVICE, data, error);
+  if (saved.error) return saved;
+
+  const after = await db().from("cash_components").select("*").eq("id", id).maybeSingle();
+  if (after.error) return fail(SERVICE, after.error);
+  if (!after.data) return notFound(SERVICE, "component_not_found", `No calendar line ${id}.`);
+  return ok(SERVICE, after.data as CashComponent);
 }
 
 /** A month changed. `skip: true` means *not this month* — a bill that skips is

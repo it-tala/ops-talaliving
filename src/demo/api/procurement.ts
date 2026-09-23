@@ -1,7 +1,7 @@
 /** Implements `/api/v1/procurement` from `03-api.md`. */
 import { ok, noop, invalid, notFound, refused, type Result } from "@/services/_shared/envelope";
 import type {
-  Vendor, Item, Uom, Project, ProjectLine, ItemCategory,
+  Vendor, Item, Uom, UomConversion, UomDimension, Project, ProjectLine, ItemCategory,
   PrDocument, PrLine, PrLineView, PaymentRound, RoundSummary,
   PurchaseOrder, PoLine, PoStatusView, Receipt, ReceiptCondition, PrCategory, UomCode,
   VendorView, ItemView, VarianceReason, PrApproval, VendorJourney,
@@ -45,6 +45,10 @@ export async function listVendors(opts: { q?: string; curated?: boolean } = {}):
   /* Uncurated vendors are shown and marked in lists; only a dropdown filters
    * them out. `active=false` means RECORDED, NOT YET CURATED — never hidden. */
   if (opts.curated !== undefined) rows = rows.filter((v) => v.is_curated === opts.curated);
+  /* Every caller of this is a picker, and an archived vendor is one nobody
+   * buys from any more — so it never offers one. The supplier list reads
+   * `listVendorViews`, which can still show them. */
+  rows = rows.filter((v) => !v.merged_into && !v.archived_at);
   return ok(SERVICE, rows);
 }
 
@@ -93,7 +97,131 @@ export async function listItems(opts: { q?: string; curated?: boolean } = {}): P
 
 export async function listUom(): Promise<Result<Uom[]>> {
   await latency();
-  return ok(SERVICE, getState().uom);
+  return ok(SERVICE, [...getState().uom].sort((a, b) => a.code.localeCompare(b.code)));
+}
+
+export async function listUomConversions(): Promise<Result<UomConversion[]>> {
+  await latency();
+  return ok(SERVICE, [...getState().uom_conversions]
+    .sort((a, b) => a.from_uom.localeCompare(b.from_uom) || a.to_uom.localeCompare(b.to_uom)));
+}
+
+/** The code is what every line is written in, forever — short, lower-case, no
+ *  spaces — so `Pcs`, `pcs ` and `pcs` can never become three units. It never
+ *  changes after creation; only the name and dimension do. */
+export async function createUom(
+  input: { code: string; name: string; dimension: UomDimension },
+): Promise<Result<Uom>> {
+  await latency();
+  const code = input.code.trim().toLowerCase();
+  const name = input.name.trim();
+  if (!/^[a-z0-9][a-z0-9_-]{0,19}$/.test(code)) {
+    return invalid(SERVICE, "code_invalid",
+      'A unit code is 1–20 lower-case letters, digits, "-" or "_", with no spaces.', { field: "code" });
+  }
+  if (!name) return invalid(SERVICE, "name_required", "A unit needs a name.", { field: "name" });
+  if (getState().uom.some((u) => u.code === code)) {
+    return conflict(SERVICE, "uom_exists", `The unit "${code}" already exists.`, { field: "code" });
+  }
+  const uom: Uom = { code, name, dimension: input.dimension };
+  apply((draft) => {
+    draft.uom.push(uom);
+    writeAudit(draft, { service: SERVICE, entity: "uom", entity_no: code, action: "create", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, uom);
+}
+
+export async function updateUom(
+  code: string, input: { name: string; dimension: UomDimension },
+): Promise<Result<Uom>> {
+  await latency();
+  const u = getState().uom.find((x) => x.code === code);
+  if (!u) return notFound(SERVICE, "uom_not_found", "No such unit.");
+  const name = input.name.trim();
+  if (!name) return invalid(SERVICE, "name_required", "A unit needs a name.", { field: "name" });
+  if (u.name === name && u.dimension === input.dimension) return noop(SERVICE, u);
+  apply((draft) => {
+    const d = draft.uom.find((x) => x.code === code)!;
+    d.name = name;
+    d.dimension = input.dimension;
+    writeAudit(draft, { service: SERVICE, entity: "uom", entity_no: code, action: "update", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, getState().uom.find((x) => x.code === code)!);
+}
+
+/** Only a unit nothing is measured in. The refusal counts what holds it, so
+ *  the person reading it knows it was not a glitch. */
+export async function deleteUom(code: string): Promise<Result<{ code: string; deleted: true }>> {
+  await latency();
+  const state = getState();
+  if (!state.uom.some((u) => u.code === code)) return notFound(SERVICE, "uom_not_found", "No such unit.");
+  const uses =
+    state.items.filter((i) => i.base_uom === code).length
+    + state.pr_lines.filter((l) => l.uom === code).length
+    + state.po_lines.filter((l) => l.uom === code).length
+    + state.project_lines.filter((l) => l.uom === code).length
+    + state.transaction_lines.filter((l) => l.uom === code).length
+    + state.stock_moves.filter((m) => m.uom === code).length
+    + state.uom_conversions.filter((c) => c.from_uom === code || c.to_uom === code).length;
+  if (uses > 0) {
+    return conflict(SERVICE, "uom_in_use", `"${code}" is used by ${uses} record(s) and cannot be deleted.`);
+  }
+  apply((draft) => {
+    draft.uom = draft.uom.filter((u) => u.code !== code);
+    writeAudit(draft, { service: SERVICE, entity: "uom", entity_no: code, action: "delete", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, { code, deleted: true as const });
+}
+
+/** One row per pair, and never both directions: `lusin → pcs = 12` and
+ *  `pcs → lusin = 0.0833` are one fact written twice, and two copies are how a
+ *  catalogue ends up disagreeing with itself. Saving an existing pair updates it. */
+export async function saveUomConversion(
+  input: { from_uom: string; to_uom: string; factor: number; yield_ratio?: number | null; note?: string | null },
+): Promise<Result<UomConversion>> {
+  await latency();
+  const state = getState();
+  const { from_uom, to_uom, factor } = input;
+  const yieldRatio = input.yield_ratio ?? null;
+  if (!state.uom.some((u) => u.code === from_uom) || !state.uom.some((u) => u.code === to_uom)) {
+    return invalid(SERVICE, "uom_unknown", "Both units must exist.", { field: "from_uom" });
+  }
+  if (from_uom === to_uom) return invalid(SERVICE, "same_uom", "A unit does not convert into itself.", { field: "to_uom" });
+  if (!(factor > 0)) return invalid(SERVICE, "factor_invalid", "The factor must be greater than zero.", { field: "factor" });
+  if (yieldRatio !== null && !(yieldRatio > 0 && yieldRatio <= 1)) {
+    return invalid(SERVICE, "yield_invalid", "Yield is a share of the input: more than 0, at most 1.", { field: "yield_ratio" });
+  }
+  if (state.uom_conversions.some((c) => c.from_uom === to_uom && c.to_uom === from_uom)) {
+    return conflict(SERVICE, "reverse_exists", `${to_uom} → ${from_uom} is already defined; edit that one instead.`);
+  }
+  const note = input.note?.trim() || null;
+  const existing = state.uom_conversions.find((c) => c.from_uom === from_uom && c.to_uom === to_uom);
+  const row: UomConversion = { id: existing?.id ?? newId("uc"), from_uom, to_uom, factor, yield_ratio: yieldRatio, note };
+  apply((draft) => {
+    draft.uom_conversions = [...draft.uom_conversions.filter((c) => c.id !== row.id), row];
+    writeAudit(draft, {
+      service: SERVICE, entity: "uom_conversion", entity_no: `${from_uom}->${to_uom}`,
+      action: existing ? "update" : "create", outcome: "ok", reason: null,
+    });
+  });
+  return ok(SERVICE, row);
+}
+
+export async function deleteUomConversion(
+  fromUom: string, toUom: string,
+): Promise<Result<{ from_uom: string; to_uom: string; deleted: true }>> {
+  await latency();
+  if (!getState().uom_conversions.some((c) => c.from_uom === fromUom && c.to_uom === toUom)) {
+    return notFound(SERVICE, "conversion_not_found", "No such conversion.");
+  }
+  apply((draft) => {
+    draft.uom_conversions = draft.uom_conversions.filter((c) => !(c.from_uom === fromUom && c.to_uom === toUom));
+    writeAudit(draft, {
+      service: SERVICE, entity: "uom_conversion", entity_no: `${fromUom}->${toUom}`,
+      action: "delete", outcome: "ok", reason: null,
+    });
+  });
+  return ok(SERVICE, { from_uom: fromUom, to_uom: toUom, deleted: true as const });
 }
 
 export async function listProjects(): Promise<Result<Project[]>> {
@@ -1697,10 +1825,12 @@ function vendorView(state: ReturnType<typeof getState>, v: Vendor): VendorView {
 /** Search reaches past the vendor's own name into what they supply and what we
  *  have actually bought from them — so typing "thinner" finds the vendor rather
  *  than requiring someone to already know which one it is. */
-export async function listVendorViews(opts: { q?: string } = {}): Promise<Result<VendorView[]>> {
+export async function listVendorViews(
+  opts: { q?: string; include_archived?: boolean } = {},
+): Promise<Result<VendorView[]>> {
   await latency();
   const state = getState();
-  let rows = state.vendors.filter((v) => !v.merged_into);
+  let rows = state.vendors.filter((v) => !v.merged_into && (opts.include_archived || !v.archived_at));
 
   if (opts.q) {
     const q = opts.q.toLowerCase();
@@ -1897,6 +2027,85 @@ export async function updateVendorContact(
     writeAudit(draft, { service: SERVICE, entity: "vendor", entity_no: v.code, action: "update_contact", outcome: "ok", reason: null });
   });
   return ok(SERVICE, vendorView(getState(), getState().vendors.find((x) => x.id === id)!));
+}
+
+/** The name every picker and printed PO shows. The old spelling joins `aka`,
+ *  so a search for what people used to type still finds the vendor and the
+ *  chat extractor still recognises it. */
+export async function renameVendor(id: string, name: string): Promise<Result<VendorView>> {
+  await latency();
+  const state = getState();
+  const v = state.vendors.find((x) => x.id === id);
+  if (!v) return notFound(SERVICE, "vendor_not_found", "Vendor not found.");
+  const next = name.trim();
+  if (!next) return invalid(SERVICE, "name_required", "A vendor needs a name.", { field: "name" });
+  if (next === v.name) return noop(SERVICE, vendorView(state, v));
+  const clash = state.vendors.find((x) =>
+    x.id !== id && !x.merged_into && x.name.toLowerCase() === next.toLowerCase());
+  if (clash) {
+    return conflict(SERVICE, "name_taken", `${clash.code} already uses the name "${next}" — merge the two instead.`,
+      { field: "name", vendor_code: clash.code });
+  }
+  apply((draft) => {
+    const d = draft.vendors.find((x) => x.id === id)!;
+    /* The old name joins the aliases; the new one leaves them if it was there,
+       so a spelling is never both the name and an alias of itself. */
+    d.aka = [...new Set([...d.aka, d.name])]
+      .filter((a) => a.toLowerCase() !== next.toLowerCase())
+      .sort();
+    d.name = next;
+    writeAudit(draft, { service: SERVICE, entity: "vendor", entity_no: v.code, action: "rename", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, vendorView(getState(), getState().vendors.find((x) => x.id === id)!));
+}
+
+/** Out of every picker, kept in every record. For the vendors something still
+ *  points at — which is nearly all of them — this is the way to stop them
+ *  crowding a dropdown. Reversible. */
+export async function archiveVendor(id: string, archived: boolean): Promise<Result<VendorView>> {
+  await latency();
+  const state = getState();
+  const v = state.vendors.find((x) => x.id === id);
+  if (!v) return notFound(SERVICE, "vendor_not_found", "Vendor not found.");
+  if (v.merged_into) {
+    return invalid(SERVICE, "already_merged", "This vendor was merged into another — archive that one instead.");
+  }
+  if (Boolean(v.archived_at) === archived) return noop(SERVICE, vendorView(state, v));
+  apply((draft) => {
+    draft.vendors.find((x) => x.id === id)!.archived_at = archived ? new Date().toISOString() : null;
+    writeAudit(draft, {
+      service: SERVICE, entity: "vendor", entity_no: v.code,
+      action: archived ? "archive" : "unarchive", outcome: "ok", reason: null,
+    });
+  });
+  return ok(SERVICE, vendorView(getState(), getState().vendors.find((x) => x.id === id)!));
+}
+
+/** Gone for good — and so only a vendor nothing remembers. Anything a
+ *  transaction, request, order, planned payment or item still names is refused
+ *  with the count, and archive offered instead. */
+export async function deleteVendor(id: string): Promise<Result<{ id: string; deleted: true }>> {
+  await latency();
+  const state = getState();
+  const v = state.vendors.find((x) => x.id === id);
+  if (!v) return notFound(SERVICE, "vendor_not_found", "Vendor not found.");
+  const uses =
+    state.transactions.filter((t) => t.vendor_id === id).length
+    + state.pr_lines.filter((l) => l.vendor_id === id).length
+    + state.purchase_orders.filter((p) => p.vendor_id === id).length
+    + state.cash_components.filter((c) => c.vendor_id === id).length
+    + state.items.filter((i) => i.last_vendor_id === id).length
+    + state.vendors.filter((x) => x.merged_into === id).length
+    + state.log_purchases.filter((p) => p.vendor_id === id).length;
+  if (uses > 0) {
+    return conflict(SERVICE, "vendor_in_use",
+      `${v.name} is used by ${uses} record(s) — archive it instead, so the history keeps its name.`);
+  }
+  apply((draft) => {
+    draft.vendors = draft.vendors.filter((x) => x.id !== id);
+    writeAudit(draft, { service: SERVICE, entity: "vendor", entity_no: v.code, action: "delete", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, { id, deleted: true as const });
 }
 
 /** "We need thinner — where do we buy it?" asked directly, without going

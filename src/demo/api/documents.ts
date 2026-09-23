@@ -193,7 +193,10 @@ export async function link(
   };
   apply((draft) => {
     draft.attachment_links.push(row);
-    writeAudit(draft, { service: SERVICE, entity: input.entity, entity_no: input.entity_no, action: "link", outcome: "ok", reason: null });
+    writeAudit(draft, {
+      service: SERVICE, entity: input.entity, entity_no: input.entity_no, action: "link", outcome: "ok", reason: null,
+      detail: { kind: input.kind, file: draft.attachments.find((a) => a.id === input.attachment_id)?.filename ?? null },
+    });
     writeOutbox(draft, { service: SERVICE, event_type: "documents.link.created", payload: { ...input } });
   });
   remember(SERVICE, endpoint, idempotencyKey, row);
@@ -209,7 +212,10 @@ export async function unlink(linkId: string): Promise<Result<{ removed: string }
   if (!existing) return notFound(SERVICE, "link_not_found", "Link not found.");
   apply((draft) => {
     draft.attachment_links = draft.attachment_links.filter((l) => l.id !== linkId);
-    writeAudit(draft, { service: SERVICE, entity: existing.entity, entity_no: existing.entity_no, action: "unlink", outcome: "ok", reason: null });
+    writeAudit(draft, {
+      service: SERVICE, entity: existing.entity, entity_no: existing.entity_no, action: "unlink", outcome: "ok", reason: null,
+      detail: { kind: existing.kind, file: draft.attachments.find((a) => a.id === existing.attachment_id)?.filename ?? null },
+    });
   });
   return ok(SERVICE, { removed: linkId });
 }

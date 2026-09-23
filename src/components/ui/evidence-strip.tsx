@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Paperclip, FileText, Upload, Camera, Link2, Plus } from "lucide-react";
+import { Paperclip, FileText, Upload, Camera, Link2, Plus, CheckCircle2, Circle, X } from "lucide-react";
 import { Badge, Button } from "./primitives";
 import { cn } from "@/lib/cn";
 import { documents } from "@/demo/api";
@@ -31,9 +31,17 @@ export interface CoverTarget {
   label: string;
 }
 
+/** A document a record is expected to carry, named so the screen can say
+ *  which ones are there and which are still missing. */
+export interface EvidenceSlot {
+  kind: DocKind;
+  label: string;
+  optional?: boolean;
+}
+
 export function EvidenceStrip({
   entity, entityNo, alsoCovers = [], reachedFrom = [], defaultKind = "Receipt / Invoice / Nota",
-  canEdit, onChanged, note,
+  canEdit, onChanged, note, slots = [],
 }: {
   entity: LinkEntity;
   entityNo: string;
@@ -48,16 +56,24 @@ export function EvidenceStrip({
   canEdit: boolean;
   onChanged?: () => void;
   note?: string;
+  /** The documents this record should carry, each with its own upload and
+   *  camera button. Anything else still goes through the type picker below. */
+  slots?: EvidenceSlot[];
 }) {
   const { toast } = useToast();
   const [rows, setRows] = useState<AttachmentView[]>([]);
   const [showLink, setShowLink] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [linking, setLinking] = useState(false);
-  const [kind, setKind] = useState<DocKind>(defaultKind);
+  const [kindSelected, setKind] = useState<DocKind>(defaultKind);
   const [spreading, setSpreading] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
+  /* The kind a slot button asked for, read when the picker comes back — the
+     picker answers after a render, and a slot must not depend on the select
+     below having caught up. */
+  const slotKind = useRef<DocKind | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -73,7 +89,14 @@ export function EvidenceStrip({
     onChanged?.();
   }
 
+  function pickFor(k: DocKind, camera: boolean) {
+    slotKind.current = k;
+    (camera ? cameraRef : fileRef).current?.click();
+  }
+
   async function attach(file: File) {
+    const kind = slotKind.current ?? kindSelected;
+    slotKind.current = null;
     const up = await documents.upload({ file, kind });
     if (up.error) { toast("critical", "Upload failed", up.error.message); return; }
     const link = await documents.link({
@@ -114,7 +137,8 @@ export function EvidenceStrip({
 
   async function alsoCover(att: AttachmentView, target: CoverTarget) {
     const res = await documents.link({
-      attachment_id: att.id, entity: target.entity, entity_no: target.entity_no, kind,
+      attachment_id: att.id, entity: target.entity, entity_no: target.entity_no,
+      kind: (att.links.find((l) => l.entity === entity && l.entity_no === entityNo)?.kind as DocKind | undefined) ?? kindSelected,
     });
     if (res.error) {
       toast(res.error.status === 409 ? "warning" : "critical", "Not linked", res.error.message);
@@ -125,11 +149,71 @@ export function EvidenceStrip({
     await refresh();
   }
 
+  /** Taking a document off this record. The file stays and the link is
+   *  marked removed, with who and when, in the audit log (A5). */
+  async function remove(att: AttachmentView) {
+    const here = att.links.find((l) => l.entity === entity && l.entity_no === entityNo);
+    if (!here) return;
+    const res = await documents.unlink(here.id);
+    setRemoving(null);
+    if (res.error) { toast("warning", "Not removed", res.error.message); return; }
+    toast("success", "Removed", `${att.filename} is no longer on this record.`);
+    await refresh();
+  }
+
+  /** What is attached here, by kind — the live links on this record only. */
+  const hereKinds = new Map<string, number>();
+  for (const a of rows) {
+    for (const l of a.links) {
+      if (l.entity === entity && l.entity_no === entityNo) {
+        hereKinds.set(l.kind, (hereKinds.get(l.kind) ?? 0) + 1);
+      }
+    }
+  }
+
   return (
     <section>
       <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
         <Paperclip className="h-3.5 w-3.5" /> Documents
       </p>
+
+      {slots.length > 0 && (
+        <ul className="mb-3 divide-y divide-slate-100 rounded-lg border border-slate-200" aria-label="Expected documents">
+          {slots.map((slot) => {
+            const n = hereKinds.get(slot.kind) ?? 0;
+            return (
+              <li key={slot.kind} className="flex items-center gap-2 px-3 py-2 text-[13px]">
+                {n > 0
+                  ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                  : <Circle className="h-4 w-4 shrink-0 text-slate-300" />}
+                <span className="min-w-0 flex-1">
+                  <span className={n > 0 ? "text-slate-800" : "text-slate-600"}>{slot.label}</span>
+                  {slot.optional && <span className="ml-1 text-[11px] text-slate-400">(optional)</span>}
+                  {n > 1 && <span className="ml-1 text-[11px] text-slate-400">× {n}</span>}
+                </span>
+                {canEdit && (
+                  <span className="flex shrink-0 gap-1">
+                    <Button
+                      variant="ghost" size="sm" icon={Camera}
+                      aria-label={`Photograph ${slot.label}`}
+                      onClick={() => pickFor(slot.kind, true)}
+                    >
+                      <span className="sr-only">Photograph</span>
+                    </Button>
+                    <Button
+                      variant="ghost" size="sm" icon={Upload}
+                      aria-label={`Upload ${slot.label}`}
+                      onClick={() => pickFor(slot.kind, false)}
+                    >
+                      {n > 0 ? "Add" : "Upload"}
+                    </Button>
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
       {rows.length > 0 ? (
         <ul className="mb-3 divide-y divide-slate-100 rounded-lg border border-slate-200">
@@ -165,6 +249,22 @@ export function EvidenceStrip({
                   </span>
                   {a.covers_count > 1 && (
                     <Badge tone="slate">covers {a.covers_count}</Badge>
+                  )}
+                  {canEdit && here && (
+                    removing === a.id ? (
+                      <span className="flex shrink-0 items-center gap-1">
+                        <Button variant="danger" size="sm" onClick={() => void remove(a)}>Remove</Button>
+                        <Button variant="ghost" size="sm" onClick={() => setRemoving(null)}>Keep</Button>
+                      </span>
+                    ) : (
+                      <Button
+                        variant="ghost" size="sm" icon={X}
+                        aria-label={`Remove ${a.filename}`}
+                        onClick={() => setRemoving(a.id)}
+                      >
+                        <span className="sr-only">Remove</span>
+                      </Button>
+                    )
                   )}
                   {canEdit && alsoCovers.length > 0 && (
                     <Button
@@ -238,7 +338,7 @@ export function EvidenceStrip({
           <label htmlFor={`ev-kind-${entityNo}`} className="block text-xs text-slate-500">Document type</label>
           <select
             id={`ev-kind-${entityNo}`}
-            value={kind}
+            value={kindSelected}
             onChange={(e) => setKind(e.target.value as DocKind)}
             className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none"
           >

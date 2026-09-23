@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Truck, Plus, Check, Merge, Search, UserRound, Phone, MapPin, Landmark, Boxes, Pencil, Save } from "lucide-react";
+import {
+  Truck, Plus, Check, Merge, Search, UserRound, Phone, MapPin, Landmark, Boxes, Pencil, Save,
+  Archive, ArchiveRestore, Trash2, Type,
+} from "lucide-react";
 import {
   Badge, Button, Card, CardHeader, PageHeader, StatCard,
 } from "@/components/ui/primitives";
@@ -73,8 +76,15 @@ export default function SuppliersPage() {
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<VendorDraft>(emptyDraft);
+  const [showArchived, setShowArchived] = useState(false);
+  const [renaming, setRenaming] = useState<VendorView | null>(null);
+  const [renameTo, setRenameTo] = useState("");
+  const [deleting, setDeleting] = useState<VendorView | null>(null);
 
-  const [state, reload] = useLoad(() => procurement.listVendorViews({ q }), [q]);
+  const [state, reload] = useLoad(
+    () => procurement.listVendorViews({ q, include_archived: showArchived }),
+    [q, showArchived],
+  );
   const [cats] = useLoad(() => procurement.listCategories(), []);
 
   /* The list leaves out `items_bought` and `absorbed`: each costs a subquery
@@ -178,6 +188,53 @@ export default function SuppliersPage() {
     refresh();
   }
 
+  function startRename(v: VendorView) {
+    setRenameTo(v.name);
+    setRenaming(v);
+  }
+
+  async function rename() {
+    if (!renaming || !renameTo.trim()) return;
+    setSaving(true);
+    const res = await procurement.renameVendor(renaming.id, renameTo);
+    setSaving(false);
+    if (res.error) {
+      toast(res.error.status === 409 ? "warning" : "critical", "Not renamed", res.error.message);
+      return;
+    }
+    toast("success", "Display name changed",
+      `Now shown as "${res.data.name}". "${renaming.name}" is kept as another spelling, so searching for it still works.`);
+    setRenaming(null);
+    setSelected(res.data);
+    reload();
+  }
+
+  async function archive(v: VendorView, archived: boolean) {
+    const res = await procurement.archiveVendor(v.id, archived);
+    if (res.error) { toast("warning", "Nothing changed", res.error.message); return; }
+    toast("success", archived ? "Archived" : "Restored",
+      archived
+        ? `"${v.name}" no longer appears in any dropdown. Its transactions and orders are unchanged.`
+        : `"${v.name}" is back in the dropdowns.`);
+    setDeleting(null);
+    refresh();
+  }
+
+  async function remove(v: VendorView) {
+    setSaving(true);
+    const res = await procurement.deleteVendor(v.id);
+    setSaving(false);
+    if (res.error) {
+      /* 409 is the expected answer for nearly every vendor: something still
+         names it. The modal stays open and offers archive instead. */
+      toast(res.error.status === 409 ? "warning" : "critical", "Not deleted", res.error.message);
+      return;
+    }
+    toast("success", "Deleted", `"${v.name}" is gone. Nothing referred to it.`);
+    setDeleting(null);
+    refresh();
+  }
+
   const columns: Column<VendorView>[] = [
     {
       key: "name",
@@ -197,9 +254,11 @@ export default function SuppliersPage() {
       key: "curated",
       header: "Catalogue",
       render: (v) =>
-        v.is_curated
-          ? <Badge tone="green" dot>Curated</Badge>
-          : <Badge tone="amber" dot>Not yet curated</Badge>,
+        v.archived_at
+          ? <Badge tone="slate" dot>Archived</Badge>
+          : v.is_curated
+            ? <Badge tone="green" dot>Curated</Badge>
+            : <Badge tone="amber" dot>Not yet curated</Badge>,
     },
     {
       key: "supplies",
@@ -230,7 +289,7 @@ export default function SuppliersPage() {
   return (
     <div>
       <PageHeader
-        breadcrumb="Procurement"
+        breadcrumb="Master Data"
         title="Suppliers"
         description="Everyone we buy from, curated or not. A name somebody types is always accepted — it is recorded first and judged later."
         actions={
@@ -269,6 +328,16 @@ export default function SuppliersPage() {
                   action={
                     <div className="flex items-center gap-2">
                       <SourceBadge state={state} />
+                      <label className="flex items-center gap-1.5 text-xs text-slate-500">
+                        <input
+                          id="vendor-show-archived"
+                          type="checkbox"
+                          checked={showArchived}
+                          onChange={(e) => setShowArchived(e.target.checked)}
+                          className="h-3.5 w-3.5 rounded border-slate-300"
+                        />
+                        Show archived
+                      </label>
                       <input
                         id="vendor-search"
                         value={q}
@@ -310,8 +379,23 @@ export default function SuppliersPage() {
               </div>
             ) : (
               <div className="flex flex-wrap justify-end gap-2">
+                <Button variant="outline" size="sm" icon={Trash2} onClick={() => setDeleting(selected)}>
+                  Delete
+                </Button>
+                {selected.archived_at ? (
+                  <Button variant="outline" size="sm" icon={ArchiveRestore} onClick={() => archive(selected, false)}>
+                    Restore
+                  </Button>
+                ) : (
+                  <Button variant="outline" size="sm" icon={Archive} onClick={() => archive(selected, true)}>
+                    Archive
+                  </Button>
+                )}
                 <Button variant="outline" size="sm" icon={Merge} onClick={() => setMerging(selected)}>
                   Merge
+                </Button>
+                <Button variant="outline" size="sm" icon={Type} onClick={() => startRename(selected)}>
+                  Rename
                 </Button>
                 <Button variant="outline" size="sm" icon={Pencil} onClick={() => startEditing(selected)}>
                   Edit details
@@ -416,7 +500,16 @@ export default function SuppliersPage() {
 
         {selected && !editing && (
           <div className="space-y-6 text-sm">
-            {!selected.is_curated && (
+            {selected.archived_at && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-[13px] text-slate-600">
+                <p className="font-medium text-slate-700">Archived {selected.archived_at.slice(0, 10)}</p>
+                <p className="mt-1">
+                  Not offered in any dropdown. Every transaction, request and order
+                  that names this vendor still does. Restore it if you buy from them again.
+                </p>
+              </div>
+            )}
+            {!selected.is_curated && !selected.archived_at && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-800">
                 <p className="font-medium">Not yet curated</p>
                 <p className="mt-1">
@@ -588,6 +681,94 @@ export default function SuppliersPage() {
             </Button>
           </div>
         </div>
+      </Modal>
+
+      <Modal open={!!renaming} onClose={() => setRenaming(null)} title="Change display name">
+        {renaming && (
+          <div className="space-y-3">
+            <label htmlFor="rename-vendor" className="block text-sm text-slate-600">
+              The name shown in every dropdown, list and printed order
+            </label>
+            <input
+              id="rename-vendor"
+              value={renameTo}
+              onChange={(e) => setRenameTo(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none"
+            />
+            {renaming.aka.length > 0 && (
+              <div>
+                <p className="mb-1.5 text-xs text-slate-500">Or pick one of its other spellings:</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {renaming.aka.map((a) => (
+                    <button
+                      key={a}
+                      type="button"
+                      onClick={() => setRenameTo(a)}
+                      className={cn(
+                        "rounded-lg border px-2.5 py-1 text-xs transition-colors",
+                        renameTo === a
+                          ? "border-brand-300 bg-brand-50 font-medium text-brand-800"
+                          : "border-slate-200 text-slate-600 hover:bg-slate-50",
+                      )}
+                    >
+                      {a}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <p className="text-xs text-slate-500">
+              The current name, <strong>{renaming.name}</strong>, is kept as another
+              spelling, so searching for it — and reading it off an old nota — still
+              finds this vendor.
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setRenaming(null)}>Cancel</Button>
+              <Button onClick={rename} disabled={saving || !renameTo.trim() || renameTo.trim() === renaming.name}>
+                {saving ? "Saving…" : "Save name"}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={!!deleting} onClose={() => setDeleting(null)} title="Delete vendor">
+        {deleting && (
+          <div className="space-y-3 text-sm text-slate-600">
+            <p>
+              Delete <strong>{deleting.name}</strong> permanently? This only works for a
+              vendor nothing refers to — no transaction, request, order, planned
+              payment or item.
+            </p>
+            {deleting.transaction_count > 0 ? (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800">
+                We have {formatNumber(deleting.transaction_count)} transaction(s) with this
+                vendor, so it cannot be deleted. Archive it instead: it disappears from
+                every dropdown and its history keeps its name.
+              </p>
+            ) : (
+              <p className="text-xs text-slate-500">
+                If something does still refer to it, you will be told what, and can
+                archive it instead.
+              </p>
+            )}
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setDeleting(null)}>Cancel</Button>
+              {!deleting.archived_at && (
+                <Button variant="outline" icon={Archive} onClick={() => archive(deleting, true)}>
+                  Archive instead
+                </Button>
+              )}
+              <Button
+                icon={Trash2}
+                onClick={() => remove(deleting)}
+                disabled={saving || deleting.transaction_count > 0}
+              >
+                {saving ? "Deleting…" : "Delete"}
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       <Modal open={!!merging} onClose={() => setMerging(null)} title="Merge into another vendor" width="max-w-lg">
