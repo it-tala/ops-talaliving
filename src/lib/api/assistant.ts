@@ -57,7 +57,7 @@ import type {
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fail, fromSeam, fromRows, invalid, ok, refused, type Result } from "./_kit";
 import { getActiveLang } from "@/lib/i18n";
-import { GUIDES, resolveGuide, draftShape } from "@/lib/john-lau";
+import { GUIDES, resolveGuide, draftShape, resolvePoDraft, confirmPoDraft } from "@/lib/john-lau";
 import * as procurement from "./procurement";
 import * as accounting from "./accounting";
 import * as inventory from "./inventory";
@@ -199,7 +199,8 @@ export async function listTurns(limit = 50): Promise<Result<AssistantTurn[]>> {
 
 interface Match {
   tool: string;
-  seq: number;
+  /** The router rule that fired — null when a model picked the tool (D300). */
+  seq: number | null;
   understood_en: string;
   understood_id: string;
   args: Record<string, string>;
@@ -257,7 +258,10 @@ export async function ask(prompt: string, context?: AskContext): Promise<Result<
 
   const { data: routed, error: routeErr } = await db().rpc("route", { p_prompt: prompt });
   if (routeErr) return fail(SERVICE, routeErr);
-  const match = routed as Match | null;
+  let match = routed as Match | null;
+  /** Who read the sentence, when it was not the keyword router: the model's
+   *  provider, recorded beside the tool so a turn says how it was understood. */
+  let via: string | null = null;
 
   const email = await myEmail();
 
@@ -277,11 +281,27 @@ export async function ask(prompt: string, context?: AskContext): Promise<Result<
     const explained = await explain(prompt, context, lang);
     if (explained) {
       if (!isOk(explained)) return explained;
-      return ok(SERVICE, {
-        turn: toTurn(explained.data, email),
-        understood_as: explained.data.understood_as ?? "",
-      });
+      if ("turn" in explained.data) {
+        return ok(SERVICE, {
+          turn: toTurn(explained.data.turn, email),
+          understood_as: explained.data.turn.understood_as ?? "",
+        });
+      }
+      /* **The model picked a tool** (D300). From here it is exactly as if a
+         keyword rule had matched: the gate below decides whether the prompt
+         may reach it and whether this person may, the read runs the screen's
+         own call as the person, and a write is only ever a draft. The model
+         chose *which* door; it never walks through one. */
+      const pick = explained.data.pick;
+      match = {
+        tool: pick.tool, seq: null, args: pick.args, normalised: prompt,
+        understood_en: pick.understood, understood_id: pick.understood,
+      };
+      via = `ai.${pick.provider}`;
     }
+  }
+
+  if (!match) {
     const res = await record(prompt, {
       kind: "unknown",
       text: id
@@ -316,7 +336,7 @@ export async function ask(prompt: string, context?: AskContext): Promise<Result<
       kind: "refused",
       understood_as: understood,
       text: gate.error.message,
-      tools_used: [match.tool],
+      tools_used: via ? [match.tool, via] : [match.tool],
       refused_because: detail?.refused_because ?? null,
       route: detail?.instead_at ?? null,
       matched_rule: match.seq,
@@ -337,7 +357,7 @@ export async function ask(prompt: string, context?: AskContext): Promise<Result<
       understood_as: understood,
       text: guide.title,
       steps: guide.steps,
-      tools_used: [tool.name],
+      tools_used: via ? [tool.name, via] : [tool.name],
       route: guide.route,
       matched_rule: match.seq,
     });
@@ -349,13 +369,20 @@ export async function ask(prompt: string, context?: AskContext): Promise<Result<
      nothing is reserved, and abandoning one costs nothing — because nothing
      had started. */
   if (tool.effect === "write") {
+    /* A purchase order is drafted from the approved line it buys (D297,
+       D300): look for it now, as this person, so the fields the draft shows
+       are what was approved rather than what a sentence suggested. */
+    if (tool.name === "procurement.draft_po") {
+      const lines = await procurement.listOpenLines();
+      if (isOk(lines)) match = { ...match, args: resolvePoDraft(match.args ?? {}, lines.data, prompt) };
+    }
     const res = await record(prompt, {
       kind: "draft",
       understood_as: understood,
       text: id
         ? "Ini yang akan saya tulis. Belum ada apa pun yang tersimpan — periksa tiap barisnya, lalu konfirmasi."
         : "This is what I would write. Nothing is saved yet — check every field, then confirm.",
-      tools_used: [tool.name],
+      tools_used: via ? [tool.name, via] : [tool.name],
       route: tool.instead_at,
       matched_rule: match.seq,
     });
@@ -383,7 +410,7 @@ export async function ask(prompt: string, context?: AskContext): Promise<Result<
     understood_as: understood,
     text: answer.text,
     facts: answer.facts,
-    tools_used: [tool.name],
+    tools_used: via ? [tool.name, via] : [tool.name],
     route: tool.instead_at,
     matched_rule: match.seq,
   });
@@ -397,9 +424,16 @@ export async function ask(prompt: string, context?: AskContext): Promise<Result<
  *  Any other failure is returned rather than swallowed: a model that is
  *  configured and broken is IT's problem to see, and folding it into *I do not
  *  understand* would hide a wrong key behind a sentence about the question. */
+interface ModelPick {
+  tool: string;
+  args: Record<string, string>;
+  understood: string;
+  provider: string;
+}
+
 async function explain(
   prompt: string, context: AskContext | undefined, lang: "en" | "id",
-): Promise<Result<TurnRow> | null> {
+): Promise<Result<{ turn: TurnRow } | { pick: ModelPick }> | null> {
   let res: Response;
   try {
     res = await fetch("/api/assistant/explain", {
@@ -412,13 +446,16 @@ async function explain(
   }
   if (res.status === 501 || res.status === 404) return null;
   const body = await res.json().catch(() => null) as
-    { data?: TurnRow; error?: { code: string; message: string } } | null;
+    { data?: TurnRow & { pick?: ModelPick }; error?: { code: string; message: string } } | null;
   if (!res.ok || !body?.data) {
     return refused(SERVICE, body?.error?.code ?? "llm_failed",
       body?.error?.message ?? (lang === "id" ? "John Lau tidak bisa menjawab sekarang." : "John Lau cannot answer right now."),
       { status: res.status });
   }
-  return ok(SERVICE, body.data);
+  /* Either a recorded how-to answer, or the tool the model picked — which the
+     caller runs through the gate like any keyword match. */
+  if (body.data.pick) return ok(SERVICE, { pick: body.data.pick });
+  return ok(SERVICE, { turn: body.data });
 }
 
 /** The figures, each from the same call the screen makes.
@@ -595,11 +632,15 @@ export async function confirmDraft(
     if (!isOk(res)) return res as unknown as Result<AssistantTurn>;
     produced = res.data.line_no_full;
   }
-  /* A purchase order through the prompt stops here, on purpose. Issuing one is
-     an obligation to a vendor, and it belongs on the PO screen where the lines
-     and the deposit are in front of the person issuing it (D220). The draft is
-     still recorded as confirmed — the person did say yes — with nothing
-     produced, which is exactly what happened. */
+  /* A purchase order is written as a DRAFT through the same seam the screen
+     uses, and goes to leadership unless its author is leadership (D299,
+     D300). Issuing it stays on the PO screen, where the lines and the deposit
+     are in front of the person sending it to a vendor (D220). */
+  if (draft.tool === "procurement.draft_po") {
+    const res = await confirmPoDraft(procurement, input.fields, draft.args ?? {}, lang);
+    if (!isOk(res)) return res as unknown as Result<AssistantTurn>;
+    produced = res.data;
+  }
 
   const { data: sData, error: sErr } = await db().rpc("settle_draft", {
     p_draft_id: draft.id,

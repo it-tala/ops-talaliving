@@ -35,6 +35,20 @@ import { llmConfig, generate, parseJsonObject, type LlmMessage } from "@/lib/llm
  *  reload and a second tab: the dock reloads it, and the next question sends it
  *  back to the model as history.
  *
+ *  ## Or it picks a tool (D300)
+ *
+ *  The same model may answer *which capability is this* instead of *how is it
+ *  done*: `berapa hutang ke vendor`, `tolong siapkan PR untuk lem kayu`. It is
+ *  shown the catalogue as this person sees it (`v_tool_catalogue`, with `may`)
+ *  and may return one tool name with the arguments it read from the sentence.
+ *  That pick is **returned, not run**: the client puts it through the gate
+ *  and the same branches a keyword match takes, so a read is the screen's own
+ *  call as the person and a write is a draft somebody confirms (D217–D220).
+ *  The name must be in the catalogue and the arguments must be the keys that
+ *  tool takes, or the pick is dropped and the answer is a guide instead.
+ *  Blocked tools are shown too, so *berapa gaji Karjo* is refused with the
+ *  sentence the owner wrote rather than answered with a guess (D218).
+ *
  *  Not `runtime = "edge"` — see the upload route for the deploy it cost.
  */
 
@@ -59,6 +73,19 @@ function refuse(status: number, code: string, message: string): Response {
 
 const HISTORY = 12;
 
+interface ToolRow {
+  name: string; effect: "read" | "guide" | "write"; reach: "open" | "blocked";
+  label_id: string; label_en: string; may: "blocked" | "no_grant" | "yes";
+}
+
+/** The arguments each write tool takes — the keys `draftShape` shows and the
+ *  keyword router's `extract_args` fills. Anything else a model returns is
+ *  dropped. Read tools take none: they answer the screen's own question. */
+const TOOL_ARGS: Record<string, string[]> = {
+  "procurement.draft_pr_line": ["name", "qty", "uom", "purpose"],
+  "procurement.draft_po": ["name", "item", "qty", "uom", "unit_price"],
+};
+
 export async function POST(request: Request): Promise<Response> {
   const cfg = llmConfig();
   if (!cfg) {
@@ -81,13 +108,14 @@ export async function POST(request: Request): Promise<Response> {
   if (!prompt) return refuse(422, "empty_prompt", lang === "id" ? "Tulis pertanyaannya dulu." : "Write the question first.");
 
   const asst = sb.schema("ops_asst");
-  const [procs, steps, faq, turns] = await Promise.all([
+  const [procs, steps, faq, turns, cat] = await Promise.all([
     asst.from("processes").select("key,module,seq,title,purpose,route,permission,follows").order("seq"),
     asst.from("process_steps").select("process_key,seq,route,action,rule,status_before,status_after").order("process_key").order("seq"),
     asst.from("process_faq").select("process_key,question,answer"),
     asst.from("turns").select("prompt,text,steps,at").order("at", { ascending: false }).limit(HISTORY),
+    asst.from("v_tool_catalogue").select("name,effect,reach,label_id,label_en,may").order("sort_order"),
   ]);
-  const failed = procs.error ?? steps.error ?? faq.error ?? turns.error;
+  const failed = procs.error ?? steps.error ?? faq.error ?? turns.error ?? cat.error;
   if (failed) return refuse(500, "database_error", failed.message);
 
   const processes = (procs.data ?? []) as ProcessRow[];
@@ -100,7 +128,10 @@ export async function POST(request: Request): Promise<Response> {
     ...stepRows.map((s) => s.route).filter((r): r is string => !!r),
   ].filter((r) => !r.includes("[")));
 
-  const system = systemPrompt(processes, stepRows, faqRows, pathname, lang);
+  /* Guides are answered from the knowledge above; the catalogue offers the
+     rest — reads, writes (as drafts) and the closed ones, named as closed. */
+  const tools = ((cat.data ?? []) as ToolRow[]).filter((t) => t.effect !== "guide");
+  const system = systemPrompt(processes, stepRows, faqRows, pathname, lang, tools);
 
   /* Oldest first, and each past answer as the assistant's own words so the
      model reads a conversation rather than a log. */
@@ -121,6 +152,26 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const parsed = parseJsonObject(raw);
+
+  /* ── a tool, when the model picked one it is allowed to name ─────────── */
+  const picked = typeof parsed?.tool === "string" ? tools.find((t) => t.name === parsed.tool) : undefined;
+  if (picked) {
+    const allowed = TOOL_ARGS[picked.name] ?? [];
+    const rawArgs = (parsed?.args && typeof parsed.args === "object" ? parsed.args : {}) as Record<string, unknown>;
+    const args: Record<string, string> = {};
+    for (const k of allowed) {
+      const v = rawArgs[k];
+      if ((typeof v === "string" || typeof v === "number") && String(v).trim()) args[k] = String(v).trim().slice(0, 200);
+    }
+    const understood = typeof parsed?.understood === "string" && parsed.understood.trim()
+      ? parsed.understood.trim().slice(0, 200)
+      : (lang === "id" ? picked.label_id : picked.label_en);
+    return Response.json({
+      data: { pick: { tool: picked.name, args, understood, provider: cfg.provider } },
+      meta: { request_id: "", service: "procurement", version: "1", outcome: "ok" },
+    });
+  }
+
   const text = typeof parsed?.text === "string" ? parsed.text.trim() : raw.trim();
   const cleanHref = (h: unknown): string | null =>
     typeof h === "string" && knownRoutes.has(h) ? h : null;
@@ -161,7 +212,15 @@ export async function POST(request: Request): Promise<Response> {
  *  there is no retrieval step to get wrong. */
 function systemPrompt(
   processes: ProcessRow[], steps: StepRow[], faq: FaqRow[], pathname: string, lang: "en" | "id",
+  tools: ToolRow[],
 ): string {
+  const catalogue = tools.map((t) => {
+    const state = t.reach === "blocked" ? "DITUTUP untuk prompt"
+      : t.may === "yes" ? "boleh" : "pengguna ini belum punya izin";
+    const args = TOOL_ARGS[t.name];
+    return `- ${t.name} (${t.effect === "write" ? "menyiapkan draft" : "membaca data"}; ${state}): ${t.label_id}`
+      + (args ? ` — args: ${args.join(", ")}` : "");
+  }).join("\n");
   const kb = processes.map((p) => {
     const ss = steps.filter((s) => s.process_key === p.key).map((s) => {
       const st = s.status_before || s.status_after ? ` [status: ${s.status_before ?? "-"} → ${s.status_after ?? "-"}]` : "";
@@ -175,7 +234,10 @@ function systemPrompt(
 
   return [
     "Kamu adalah John Lau, pemandu aplikasi internal Tala Living (manufaktur furnitur).",
-    "Tugasmu: menjelaskan CARA MEMAKAI sistem, langkah demi langkah, seperti tutorial. Kamu tidak punya akses ke data bisnis.",
+    "Tugasmu ada dua: (a) menjelaskan CARA MEMAKAI sistem, langkah demi langkah; atau (b) memilih SATU alat dari KATALOG ALAT kalau pengguna meminta data atau meminta sesuatu disiapkan. Kamu sendiri tidak punya akses ke data bisnis — alat yang kamu pilih dijalankan oleh sistem atas nama pengguna, dan alat tulis hanya menyiapkan draft yang harus dikonfirmasi pengguna.",
+    "",
+    "Kapan memilih alat: pengguna bertanya angka/daftar yang dijawab alat baca (misalnya hutang ke vendor, saldo rekening, baris yang menunggu persetujuan), atau meminta dibuatkan/disiapkan sesuatu yang ada alat tulisnya (baris PR, PO). Pilih juga alat yang DITUTUP kalau itu yang diminta — sistem akan menolaknya dengan alasan resminya. Kalau tidak ada alat yang cocok, jawab sebagai panduan.",
+    "Untuk alat tulis, isi `args` HANYA dengan yang benar-benar tertulis di kalimat pengguna. Jangan mengarang vendor, harga, atau jumlah; biarkan kosong, pengguna akan melengkapinya di draft.",
     "",
     "Aturan:",
     "1. Jawab HANYA dari PENGETAHUAN PROSES di bawah. Kalau jawabannya tidak ada di sana, katakan terus terang bahwa kamu belum tahu dan sarankan bertanya ke IT. Jangan menebak nama tombol, layar, atau aturan.",
@@ -185,11 +247,15 @@ function systemPrompt(
     "5. `href` dan `route` hanya boleh diisi dengan alamat layar yang tertulis di pengetahuan. Selain itu isi null.",
     `6. Bahasa jawaban: ${lang === "id" ? "Bahasa Indonesia yang sederhana" : "plain English"}.`,
     "",
-    "Balas HANYA dengan satu objek JSON:",
-    '{"text": "jawaban singkat 1-3 kalimat", "steps": [{"text": "langkah", "href": "/alamat/layar atau null", "rule": "alasannya atau null"}], "route": "/layar utama atau null", "processes": ["kunci proses yang dipakai"]}',
+    "Balas HANYA dengan satu objek JSON, salah satu dari dua bentuk:",
+    'Panduan: {"text": "jawaban singkat 1-3 kalimat", "steps": [{"text": "langkah", "href": "/alamat/layar atau null", "rule": "alasannya atau null"}], "route": "/layar utama atau null", "processes": ["kunci proses yang dipakai"]}',
+    'Alat: {"tool": "nama.alat persis dari katalog", "args": {"kunci": "nilai"}, "understood": "apa yang kamu pahami dari permintaannya, satu kalimat"}',
     "`steps` boleh kosong kalau pertanyaannya bukan tentang cara melakukan sesuatu.",
     "",
     `Layar pengguna sekarang: ${pathname || "(tidak diketahui)"}`,
+    "",
+    "=== KATALOG ALAT ===",
+    catalogue || "(kosong)",
     "",
     "=== PENGETAHUAN PROSES ===",
     kb || "(kosong)",

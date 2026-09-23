@@ -160,6 +160,8 @@ const html = `<!doctype html>
     <p><b>Siapa mengerjakan apa.</b> Staf procurement membuat PR, PO dan mencatat barang datang. Pimpinan (pemegang <code>approve_goods</code>) menyetujui barang dan mengonfirmasi PO. Keuangan (pemegang <code>post_ledger</code>) mencatat pembayaran ke buku besar, memverifikasi bukti, dan mencocokkan rekening koran. Tombol yang bukan bagian Anda tetap terlihat, tapi sistem akan menolak dengan alasan yang jelas.</p>
     <p><b>Satuan kerjanya adalah baris.</b> Satu PR bisa berisi banyak baris, dan tiap baris disetujui, dibayar dan diterima sendiri-sendiri. Status baris dihitung sistem, tidak pernah diketik.</p>
     <p><b>Tanya John Lau kapan saja.</b> Tombol <b class="btn">John Lau</b> ada di pojok kanan bawah setiap halaman. Tanyakan "bagaimana cara membuat PO?" atau "saya sudah submit PR, terus apa?". Panduannya tetap terbuka saat Anda pindah halaman, dan langkah yang sesuai dengan halaman yang sedang dibuka ditandai <b class="btn">you are here</b>. Percakapan tersimpan, jadi tidak hilang walaupun halaman di-refresh.</p>
+    <p><b>Minta John Lau menyiapkan pekerjaan.</b> Ketik "siapkan PR untuk lem kayu 5 kaleng" atau "buat PO untuk KSA binder 5 liter". John Lau menyiapkan <b>draft</b> — untuk PO, diisi dari baris PR yang sudah disetujui — dan tidak ada yang tersimpan sampai Anda memeriksa isinya dan menekan <b class="btn">Ya, tulis</b>. PO dari staf langsung diminta konfirmasinya ke pimpinan, sama seperti dari layar.</p>
+    ${existsSync(join(DIR, "11-john-lau-po.jpg")) ? `<figure><img src="11-john-lau-po.jpg" alt=""></figure>` : ""}
     ${existsSync(join(DIR, "10-john-lau.jpg")) ? `<figure><img src="10-john-lau.jpg" alt=""></figure>` : ""}
   </section>
 

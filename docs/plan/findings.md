@@ -6160,3 +6160,26 @@ The walk is recorded where a browser runs and checked where it lands: CI has
 no browser, but it reads the committed `walk.json` against the knowledge the
 migrations write, so a guide that drifts from the screens fails the build.
 
+## F152 · 2026-09-23 · the sentence the owner used was the one the router half-understood
+
+*buat PO untuk KSA binder 5 liter* — the owner's own example — is matched by
+the keyword router (rule 60, `procurement.draft_po`) with **no arguments**:
+the router knows it is an order and not what for. A model would have been
+bypassed, because the router reads first. So the item is taken from the
+person's own sentence with the asking words removed, and the approved line
+it names is looked up; nothing is composed.
+
+Two more things the dock walk (`scripts/e2e/walk-john-lau.mjs`, 15 checks,
+against `scripts/e2e/mock-llm.mjs`) pinned down:
+
+- **Confirming `draft_po` wrote nothing, on purpose, since D220.** The comment
+  said so; the dock said *Tersimpan*. It now writes a DRAFT order.
+- **A line approved without a price drafted a PO at Rp 0**, and `create_po`
+  refused it — correctly — as `price_required`. The draft now leaves an
+  unknown price blank, which is the same rule as D217 read the other way: a
+  zero is a figure, and nobody said it.
+
+The mock model proves the road, not the reading. How well a real model picks
+tools from Indonesian shop-floor sentences is the next measurement, with a
+key and the turns people actually type.
+

@@ -55,6 +55,8 @@
     <p><b>Siapa mengerjakan apa.</b> Staf procurement membuat PR, PO dan mencatat barang datang. Pimpinan (pemegang <code>approve_goods</code>) menyetujui barang dan mengonfirmasi PO. Keuangan (pemegang <code>post_ledger</code>) mencatat pembayaran ke buku besar, memverifikasi bukti, dan mencocokkan rekening koran. Tombol yang bukan bagian Anda tetap terlihat, tapi sistem akan menolak dengan alasan yang jelas.</p>
     <p><b>Satuan kerjanya adalah baris.</b> Satu PR bisa berisi banyak baris, dan tiap baris disetujui, dibayar dan diterima sendiri-sendiri. Status baris dihitung sistem, tidak pernah diketik.</p>
     <p><b>Tanya John Lau kapan saja.</b> Tombol <b class="btn">John Lau</b> ada di pojok kanan bawah setiap halaman. Tanyakan "bagaimana cara membuat PO?" atau "saya sudah submit PR, terus apa?". Panduannya tetap terbuka saat Anda pindah halaman, dan langkah yang sesuai dengan halaman yang sedang dibuka ditandai <b class="btn">you are here</b>. Percakapan tersimpan, jadi tidak hilang walaupun halaman di-refresh.</p>
+    <p><b>Minta John Lau menyiapkan pekerjaan.</b> Ketik "siapkan PR untuk lem kayu 5 kaleng" atau "buat PO untuk KSA binder 5 liter". John Lau menyiapkan <b>draft</b> — untuk PO, diisi dari baris PR yang sudah disetujui — dan tidak ada yang tersimpan sampai Anda memeriksa isinya dan menekan <b class="btn">Ya, tulis</b>. PO dari staf langsung diminta konfirmasinya ke pimpinan, sama seperti dari layar.</p>
+    <figure><img src="11-john-lau-po.jpg" alt=""></figure>
     <figure><img src="10-john-lau.jpg" alt=""></figure>
   </section>
 
@@ -128,7 +130,7 @@
         <figure><img src="walk-03-pr-quote.jpg" alt=""></figure>
       </li>
     </ol>
-    <div class="faq"><h3>Tanya-jawab</h3><p><b>Apa bedanya status PR dan status baris?</b><br>Dokumen PR hanya DRAFT atau SUBMITTED. Yang bergerak adalah barisnya: WAITING FOR APPROVAL → APPROVED → PAID → COMPLETED. Status baris dihitung dari persetujuan dan pembayaran, tidak diketik.</p></div>
+    <div class="faq"><h3>Tanya-jawab</h3><p><b>Apa bedanya status PR dan status baris?</b><br>Dokumen PR hanya DRAFT atau SUBMITTED. Yang bergerak adalah barisnya: WAITING FOR APPROVAL → APPROVED → PAID → COMPLETED. Status baris dihitung dari persetujuan dan pembayaran, tidak diketik.</p><p><b>Bisakah saya minta John Lau membuat PR?</b><br>Bisa. Ketik misalnya "siapkan PR untuk lem kayu 5 kaleng". John Lau menyiapkan draft baris permintaan dari kalimat Anda tanpa mengarang vendor atau harga; lengkapi, lalu tekan "Ya, tulis". Baris itu masuk sebagai permintaan — yang menyetujui tetap pimpinan, di papan rapat.</p></div>
     <p class="next">Berikutnya: <b>Persetujuan barang (papan rapat dan Google Chat)</b></p>
   </section>
   <section class="proc">
@@ -212,7 +214,7 @@
         <figure><img src="walk-13-po-issued.jpg" alt=""></figure>
       </li>
     </ol>
-    <div class="faq"><h3>Tanya-jawab</h3><p><b>Kenapa tombol Issue ditolak not_approved?</b><br>PO harus dikonfirmasi pimpinan dulu. Tekan "Ask leadership to confirm", tunggu pimpinan menekan "Confirm it", baru "Issue and send it".</p><p><b>Kenapa baris PR tidak muncul di pilihan "From request line"?</b><br>Yang muncul hanya baris yang sudah APPROVED (atau PAID), punya jumlah, belum dihapus, dan vendornya sama atau belum ditentukan. Kalau baris itu sudah ada di PO lain, sistem menolak dengan nama PO-nya.</p><p><b>Siapa yang harus menyetujui PO?</b><br>Selalu pimpinan (pemegang approve_goods). Kalau pimpinan sendiri yang membuat PO, konfirmasinya tercatat otomatis saat dibuat. Kalau staf yang membuat, staf menekan "Ask leadership to confirm" dan pimpinan menjawab dari Google Chat atau dari halaman PO.</p></div>
+    <div class="faq"><h3>Tanya-jawab</h3><p><b>Kenapa tombol Issue ditolak not_approved?</b><br>PO harus dikonfirmasi pimpinan dulu. Tekan "Ask leadership to confirm", tunggu pimpinan menekan "Confirm it", baru "Issue and send it".</p><p><b>Kenapa baris PR tidak muncul di pilihan "From request line"?</b><br>Yang muncul hanya baris yang sudah APPROVED (atau PAID), punya jumlah, belum dihapus, dan vendornya sama atau belum ditentukan. Kalau baris itu sudah ada di PO lain, sistem menolak dengan nama PO-nya.</p><p><b>Siapa yang harus menyetujui PO?</b><br>Selalu pimpinan (pemegang approve_goods). Kalau pimpinan sendiri yang membuat PO, konfirmasinya tercatat otomatis saat dibuat. Kalau staf yang membuat, staf menekan "Ask leadership to confirm" dan pimpinan menjawab dari Google Chat atau dari halaman PO.</p><p><b>Bisakah saya minta John Lau membuat PO?</b><br>Bisa. Ketik misalnya "buat PO untuk KSA binder 5 liter". John Lau mencari baris PR yang sudah disetujui dan cocok, lalu menyiapkan draft PO dari baris itu: vendor, jumlah dan harga diambil dari yang disetujui, bukan ditebak. Periksa dan lengkapi isinya, lalu tekan "Ya, tulis". Kalau Anda staf, PO langsung dikirim ke pimpinan untuk dikonfirmasi; kalau Anda pimpinan, konfirmasinya tercatat saat itu juga. Issue ke vendor tetap dilakukan dari halaman PO.</p></div>
     <p class="next">Berikutnya: <b>Mencatat barang datang (penerimaan)</b></p>
   </section>
   <section class="proc">

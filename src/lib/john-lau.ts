@@ -23,6 +23,8 @@
  *  when not to (D222).
  */
 import type { AssistantDraft, GuideStep } from "@/services/assistant/contracts";
+import type { PrLineView, UomCode, Vendor } from "@/services/procurement/contracts";
+import { invalid, isOk, ok, type Result } from "@/services/_shared/envelope";
 import type { Message, Lang } from "@/lib/i18n";
 
 interface StepDef { text: Message; href: string | null; rule: Message | null }
@@ -148,22 +150,33 @@ export function draftShape(
   const qty = args.qty ? `${args.qty} ${args.uom ?? ""}`.trim() : blank;
 
   if (tool === "procurement.draft_po") {
+    const fromLine = !!args.pr_line_no;
+    const candidates = args.candidates ? args.candidates.split(";").filter(Boolean) : [];
+    const asked = args.item ?? args.name ?? "";
     return {
       headline: id ? "Purchase order baru" : "New purchase order",
       fields: [
-        { key: "vendor", label: "Vendor", value: args.name ?? blank },
-        { key: "item", label: id ? "Barang" : "Item", value: args.item ?? blank },
+        { key: "pr_line_no", label: id ? "Dari baris PR" : "From request line", value: args.pr_line_no ?? blank },
+        { key: "vendor", label: "Vendor", value: args.vendor ?? blank },
+        { key: "item", label: id ? "Barang" : "Item", value: args.item ?? args.name ?? blank },
         { key: "qty", label: id ? "Jumlah" : "Quantity", value: qty },
         { key: "unit_price", label: id ? "Harga satuan" : "Unit price", value: args.unit_price ?? blank },
-        { key: "status", label: id ? "Status awal" : "Initial status",
-          value: id ? "DRAFT — belum dikirim ke vendor" : "DRAFT — not sent to the vendor" },
+        { key: "dp_percent", label: id ? "DP (%)" : "Deposit (%)", value: args.dp_percent ?? "0" },
+        { key: "ask_leadership", label: id ? "Minta konfirmasi pimpinan" : "Ask leadership to confirm", value: "ya" },
       ],
-      warnings: id ? [
-        "Saya mengambil apa yang bisa saya baca dari kalimat Anda dan tidak menebak sisanya. Yang bertanda belum diisi harus Anda lengkapi sebelum konfirmasi.",
-        "PO ini dibuat sebagai draft. Sebelum di-issue tidak ada kewajiban apa pun ke vendor.",
-      ] : [
-        "I took what I could read from your sentence and did not guess the rest. Anything marked not filled in is yours to complete before confirming.",
-        "This PO is created as a draft. Until it is issued there is no obligation to the vendor at all.",
+      warnings: [
+        ...(fromLine ? [id
+          ? `Diisi dari ${args.pr_line_no}, baris yang sudah disetujui: vendor, jumlah dan harga adalah yang disetujui, bukan tebakan.`
+          : `Filled from ${args.pr_line_no}, an approved line: the vendor, quantity and price are what was approved, not a guess.`] : []),
+        ...(candidates.length ? [id
+          ? `Ada ${candidates.length} baris disetujui yang cocok dengan "${asked}": ${candidates.join(", ")}. Isi "Dari baris PR" dengan salah satunya.`
+          : `${candidates.length} approved lines match "${asked}": ${candidates.join(", ")}. Put one of them in "From request line".`] : []),
+        ...(!fromLine && !candidates.length ? [id
+          ? `Belum ada baris PR yang disetujui untuk "${asked}". PO biasanya dibuat dari baris yang sudah disetujui — minta saya "siapkan PR untuk ${asked}" dulu, atau lengkapi vendor dan harga sendiri kalau ini kontrak tanpa PR.`
+          : `No approved request line matches "${asked}". An order is normally built from an approved line — ask me to "draft a PR for ${asked}" first, or fill in the vendor and price yourself if this is a contract with no request.`] : []),
+        id
+          ? "PO dibuat sebagai draft. Pimpinan harus mengonfirmasinya sebelum bisa dikirim ke vendor — kalau Anda bukan pimpinan, permintaan konfirmasi langsung dikirim ke pimpinan."
+          : "The PO is created as a draft. Leadership must confirm it before it can go to the vendor — if you are not leadership, the request for confirmation goes to them straight away.",
       ],
     };
   }
@@ -182,3 +195,147 @@ export function draftShape(
     ],
   };
 }
+
+/** Words that ask for an order rather than name what is ordered. */
+const ASKING = ["buat", "buatkan", "bikin", "bikinkan", "tolong", "po", "purchase", "order", "untuk", "pesan",
+  "pesankan", "siapkan", "baru", "ke", "dari", "vendor", "supplier", "saya", "kita", "mau", "create", "a", "for", "new", "raise"];
+
+/** The approved request lines a sentence like *buat PO untuk KSA binder* could
+ *  mean (D300).
+ *
+ *  A purchase order is built from an approved line (D297), so before John Lau
+ *  drafts one he looks for the line — by the words of the item, in lines that
+ *  are approved, have a quantity and are not removed. One match fills the
+ *  draft from what was approved: its vendor, quantity and price, none of them
+ *  guessed. Several are listed for the person to choose. None says so, and
+ *  points at drafting the request first.
+ *
+ *  Pure, so the demo and the live client resolve a sentence identically; each
+ *  passes the lines its own `listOpenLines` returned.
+ */
+export function resolvePoDraft(
+  args: Record<string, string>,
+  lines: PrLineView[],
+  sentence = "",
+): Record<string, string> {
+  /* The item, as the person wrote it: from the arguments when a reader found
+     one, otherwise their own sentence with the asking words taken out. The
+     keyword router knows *buat PO* is a purchase order and not what for, and
+     *buat PO untuk KSA binder 5 liter* is the sentence the owner used. */
+  const own = sentence.toLowerCase().split(/\s+/).filter((w) => w && !ASKING.includes(w.replace(/[^a-z]/g, ""))).join(" ").trim();
+  const item = args.item ?? args.name ?? own;
+  if (!item) return args;
+  if (!args.item && !args.name) args = { ...args, item };
+  const asked = item.toLowerCase();
+  const words = asked.split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !/^\d+$/.test(w)
+    && !["liter", "ltr", "pcs", "lembar", "unit", "yang"].includes(w));
+  if (!words.length) return args;
+  const orderable = lines.filter((l) => (l.status === "APPROVED" || l.status === "PAID")
+    && l.qty != null && l.qty > 0 && !l.removed_at);
+  const scored = orderable
+    .map((l) => ({ l, hits: words.filter((w) => `${l.description} ${l.item_name ?? ""}`.toLowerCase().includes(w)).length }))
+    .filter((x) => x.hits > 0);
+  const best = Math.max(0, ...scored.map((x) => x.hits));
+  const top = scored.filter((x) => x.hits === best).map((x) => x.l);
+  if (top.length === 1) {
+    const l = top[0];
+    const q = l.approval?.approved_qty ?? l.qty ?? 1;
+    const amount = l.approval?.approved_amount ?? l.item_total;
+    const price = q > 0 ? Math.round(amount / q) : l.unit_price ?? 0;
+    /* Only what the line knows. A line approved without a price leaves the
+       price blank for the person — never a zero, and never what the sentence
+       or a model suggested (D217). */
+    const { unit_price: _suggested, vendor: _v, vendor_id: _vi, ...rest } = args;
+    void _suggested; void _v; void _vi;
+    return {
+      ...rest,
+      pr_line_no: l.line_no_full,
+      item: l.description,
+      ...(l.vendor_name ? { vendor: l.vendor_name, vendor_id: l.vendor_id ?? "" } : {}),
+      qty: String(q),
+      uom: l.uom ?? args.uom ?? "",
+      ...(price > 0 ? { unit_price: String(price) } : {}),
+    };
+  }
+  if (top.length > 1) return { ...args, candidates: top.slice(0, 5).map((l) => l.line_no_full).join(";") };
+  return args;
+}
+
+/** What confirming a PO draft needs from a procurement client — the demo's or
+ *  the live one, which answer the same shapes (ADR-009). */
+export interface PoDraftApi {
+  listVendors(opts: { q?: string; curated?: boolean }): Promise<Result<Vendor[]>>;
+  createPo(input: {
+    vendor_id: string;
+    lines: { description: string; qty: number; uom: UomCode; unit_price: number; pr_line_no?: string | null }[];
+    dp_percent?: number | null;
+  }): Promise<Result<{ po_no: string; self_confirmed: boolean }>>;
+  requestPoApproval(input: { po_no: string }): Promise<Result<unknown>>;
+}
+
+/** "Ya, tulis" on a PO draft (D300): the order is written through `createPo`,
+ *  the same seam the screen uses, from the fields as the person left them.
+ *
+ *  Leadership's rule holds on this road too (D299): an author who holds
+ *  `approve_goods` has the order confirmed on creation; anybody else's goes to
+ *  leadership straight away unless they said not to. **Once the order exists
+ *  this never answers an error** — the draft would stay open, and a second
+ *  "Ya, tulis" is a second order to a vendor. A request for confirmation that
+ *  fails is said in the reference instead.
+ */
+export async function confirmPoDraft(
+  api: PoDraftApi,
+  fields: Record<string, string>,
+  drafted: Record<string, string>,
+  lang: Lang,
+): Promise<Result<string>> {
+  const id = lang === "id";
+  const SERVICE = "procurement" as const;
+  const num = (s: string | undefined) => Number(String(s ?? "").replace(/[^0-9.,]/g, "").replace(/[.,](?=\d{3}\b)/g, "").replace(",", ".")) || 0;
+
+  /* The vendor as drafted from the line, unless the person changed the name. */
+  const vendorName = (fields.vendor ?? "").trim();
+  let vendorId = vendorName && vendorName === (drafted.vendor ?? "") ? drafted.vendor_id ?? "" : "";
+  if (!vendorId) {
+    if (!vendorName || vendorName.startsWith("—")) {
+      return invalid(SERVICE, "vendor_required", id ? "Isi vendornya dulu — sebuah PO dipesan ke seseorang." : "Fill in the vendor first — an order is placed with somebody.", { field: "vendor" });
+    }
+    const found = await api.listVendors({ q: vendorName });
+    if (!isOk(found)) return found;
+    const exact = found.data.filter((v) => v.name.toLowerCase() === vendorName.toLowerCase());
+    const pick = exact.length === 1 ? exact[0] : found.data.length === 1 ? found.data[0] : null;
+    if (!pick) {
+      return invalid(SERVICE, "vendor_not_found", id
+        ? `Tidak menemukan satu supplier bernama "${vendorName}". Tulis namanya persis seperti di Master data → Suppliers.`
+        : `Could not find one supplier called "${vendorName}". Write the name exactly as in Master data → Suppliers.`, { field: "vendor" });
+    }
+    vendorId = pick.id;
+  }
+
+  const [q, u] = (fields.qty ?? "").trim().split(/\s+/);
+  const created = await api.createPo({
+    vendor_id: vendorId,
+    lines: [{
+      description: (fields.item ?? "").trim(),
+      qty: num(q),
+      uom: (u || drafted.uom || "pcs") as UomCode,
+      unit_price: num(fields.unit_price),
+      pr_line_no: (fields.pr_line_no ?? "").trim().startsWith("—") ? null : (fields.pr_line_no ?? "").trim() || null,
+    }],
+    dp_percent: num(fields.dp_percent) || null,
+  });
+  if (!isOk(created)) return created;
+  const po = created.data;
+
+  if (po.self_confirmed) {
+    return ok(SERVICE, id ? `${po.po_no} · dikonfirmasi (Anda pemegang wewenang) · tinggal di-issue` : `${po.po_no} · confirmed (you hold the authority) · ready to issue`);
+  }
+  if (!/^(ya|yes|y)$/i.test((fields.ask_leadership ?? "ya").trim())) {
+    return ok(SERVICE, id ? `${po.po_no} · draft, belum diminta konfirmasi` : `${po.po_no} · draft, confirmation not asked yet`);
+  }
+  const asked = await api.requestPoApproval({ po_no: po.po_no });
+  return ok(SERVICE, isOk(asked)
+    ? (id ? `${po.po_no} · menunggu konfirmasi pimpinan` : `${po.po_no} · waiting for leadership to confirm`)
+    : (id ? `${po.po_no} · draft dibuat, tetapi permintaan konfirmasi gagal: ${asked.error.message}` : `${po.po_no} · drafted, but asking for confirmation failed: ${asked.error.message}`));
+}
+

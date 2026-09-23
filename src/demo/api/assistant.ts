@@ -27,7 +27,7 @@ import { TOOLS, findTool, resolveTool } from "../assistant/catalogue";
 import { settingText } from "../settings";
 import type { Lang } from "@/lib/i18n";
 import { route, normalise, rules } from "../assistant/router";
-import { GUIDES, resolveGuide, draftShape } from "@/lib/john-lau";
+import { GUIDES, resolveGuide, draftShape, resolvePoDraft, confirmPoDraft } from "@/lib/john-lau";
 import { accountBalances, approvalQueue, vendorJourney } from "../derive";
 import { stockItems } from "../inventory-derive";
 import { workOrderViews } from "../production-derive";
@@ -162,7 +162,14 @@ export async function ask(prompt: string, context?: AskContext): Promise<Result<
 
   /* Gate 3 — a write is a draft. */
   if (tool.effect === "write") {
-    const draft = buildDraft(tool.name, match.args);
+    /* The same lookup as the live client: a PO is drafted from the approved
+       line it buys (D297, D300). */
+    let args = match.args;
+    if (tool.name === "procurement.draft_po") {
+      const lines = await procurement.listOpenLines();
+      if (!lines.error) args = resolvePoDraft(args, lines.data, prompt);
+    }
+    const draft = buildDraft(tool.name, args);
     const turn = newTurn(prompt, "draft");
     turn.tools_used = [tool.name];
     turn.text = lang() === "id"
@@ -354,11 +361,13 @@ export async function confirmDraft(
     });
     if (res.error) return res as unknown as Result<AssistantTurn>;
     produced = res.data.line_no_full;
-  } else {
-    /* A PO through the prompt stops at a draft document in Phase 1: issuing it
-       is an obligation to a vendor and belongs on the PO screen, where the
-       lines and the deposit are in front of the person issuing (D220). */
-    produced = null;
+  } else if (turn.draft.tool === "procurement.draft_po") {
+    /* Written as a DRAFT through `createPo`, confirmed on creation when the
+       author holds the authority, sent to leadership otherwise (D299, D300).
+       Issuing it stays on the PO screen (D220). */
+    const res = await confirmPoDraft(procurement, input.fields, (turn.draft.args ?? {}) as Record<string, string>, lang());
+    if (res.error) return res as unknown as Result<AssistantTurn>;
+    produced = res.data;
   }
 
   apply((d) => {
