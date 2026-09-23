@@ -6,7 +6,7 @@ import {
   FolderKanban, Hammer, Truck, Wrench, Stamp, Package,
   PencilRuler, ListTree, CalendarClock, CalendarRange, Link2,
   Cpu, ScrollText, Activity, UserCog, KeyRound, Clock, Scale, Factory,
-  Settings, FlaskConical, MessagesSquare, Route, ShieldCheck, Gauge, MessageSquareOff, Database, Ruler, type LucideIcon,
+  Settings, FlaskConical, MessagesSquare, Route, ShieldCheck, Gauge, MessageSquareOff, Database, Ruler, FolderTree, type LucideIcon,
 } from "lucide-react";
 
 /** Menu sebagai DATA, bukan JSX.
@@ -127,6 +127,7 @@ export const NAV: NavSection[] = [
     items: [
       { label: "Suppliers", labelKey: "suppliers", href: "/master-data/suppliers", icon: Truck, permission: "procurement.read" },
       { label: "Items", href: "/master-data/items", icon: Boxes, permission: "procurement.read" },
+      { label: "Item categories", href: "/master-data/categories", icon: FolderTree, permission: "procurement.read", badge: "new" },
       { label: "Units", href: "/master-data/units", icon: Ruler, permission: "procurement.read", badge: "new" },
     ],
   },

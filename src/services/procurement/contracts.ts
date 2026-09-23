@@ -168,6 +168,27 @@ export interface Item {
   last_price: number | null;
   last_vendor_id: string | null;
   last_purchased_at: string | null;
+  /** Out of every picker, kept in every record (`0104`). Reversible. */
+  archived_at?: string | null;
+}
+
+/** One ledger line an item was bought on — the item's purchase history,
+ *  including lines written against items merged into it (`0104`). */
+export interface ItemPurchase {
+  trx_no: string;
+  trx_date: string;
+  status: string;
+  account_code: string;
+  vendor_name: string | null;
+  description: string;
+  qty: number | null;
+  uom: string | null;
+  unit_price: number | null;
+  amount: number;
+  /** The item the line was written against — differs from the one asked
+   *  about when a duplicate was merged into it. */
+  item_code: string;
+  item_name: string;
 }
 
 /** A project is the customer's order, and it is the dimension every other
@@ -860,6 +881,11 @@ export interface ItemSource {
 
 export interface ItemView extends Item {
   category_name: string;
+  /** The top-level category — the item's own category when it is filed at
+   *  the top, its parent when it is filed under an item type. */
+  top_category_code?: string;
+  /** "Packing › Foam Sheet", or just "Packing". */
+  category_path?: string;
   last_vendor_name: string | null;
   sourced_from: ItemSource[];
   /** What a form would prefill: the curated price if there is one, otherwise
