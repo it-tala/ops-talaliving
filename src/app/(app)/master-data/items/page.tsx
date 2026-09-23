@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Boxes, Plus, Check, Tag, TrendingUp, Store, Pencil, Archive, ArchiveRestore, GitMerge,
-  Receipt, FolderInput, X,
+  Receipt, FolderInput, X, Sparkles,
 } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader, StatCard } from "@/components/ui/primitives";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -17,6 +17,8 @@ import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
 import { UomOptions } from "@/components/ui/uom-options";
 import { CategoryOptions } from "@/components/ui/category-options";
+import { ItemRelations, PriceTrend } from "./ItemRelations";
+import { SuggestPanel } from "./SuggestPanel";
 
 /** The purchasing catalogue — the third level of **Category → Item type →
  *  Item** (owner, 2026-09-23). An item is the thing bought with its
@@ -62,7 +64,8 @@ export default function CatalogPage() {
     curated: curated === "" ? undefined : curated === "yes",
     include_archived: showArchived,
   }), [q, category, curated, showArchived]);
-  const [cats] = useLoad(() => procurement.listCategories(), []);
+  const [cats, reloadCats] = useLoad(() => procurement.listCategories(), []);
+  const [suggesting, setSuggesting] = useState(false);
   const catList = cats.status === "ready" ? cats.data : [];
 
   const [selected, setSelected] = useState<ItemView | null>(null);
@@ -306,7 +309,17 @@ export default function CatalogPage() {
         breadcrumb="Master Data"
         title="Items"
         description="What we buy — the bottom of Category → Item type → Item. A different size, colour or unit is a different item."
-        actions={mayEdit && <Button icon={Plus} onClick={() => setAdding(true)}>Add item</Button>}
+        actions={mayEdit && (
+          <div className="flex gap-2">
+            <Button variant="outline" icon={Sparkles} onClick={() => setSuggesting(true)}>Suggest filing</Button>
+            <Button icon={Plus} onClick={() => setAdding(true)}>Add item</Button>
+          </div>
+        )}
+      />
+
+      <SuggestPanel
+        open={suggesting} onClose={() => setSuggesting(false)} categories={catList}
+        onChanged={() => { reload(); reloadCats(); }}
       />
 
       <Loaded state={state} onRetry={reload}>
@@ -483,6 +496,8 @@ export default function CatalogPage() {
               </div>
             </div>
 
+            {purchases && <PriceTrend purchases={purchases} />}
+
             {/* Every ledger line it was bought on — the item's relation to the
                 transactions, including lines written against duplicates that
                 were merged into it. */}
@@ -494,7 +509,7 @@ export default function CatalogPage() {
                 <p className="text-[13px] text-slate-400">Loading…</p>
               ) : purchases.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50/60 px-3 py-3 text-slate-500">
-                  No ledger line names this item yet. Requests for it are counted below.
+                  No ledger line names this item yet.
                 </p>
               ) : (
                 <>
@@ -579,6 +594,8 @@ export default function CatalogPage() {
                 </p>
               )}
             </section>
+
+            <ItemRelations itemId={selected.id} itemCode={selected.code} />
 
             <dl className="space-y-3">
               {([

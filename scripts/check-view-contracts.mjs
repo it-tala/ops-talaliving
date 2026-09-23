@@ -144,6 +144,7 @@ const VIEW_CONTRACTS = {
      the same shape as `v_statement_line`'s `suggestions` above. */
   v_stock_item:        { type: "StockItemView", composed: ["by_location", "group_code", "group_name"] },
   v_asset:             "AssetView",
+  v_asset_service:     "AssetService",
   /* Read for `location`/`location_name`/`qty` per item and folded into
      `StockItemView.by_location` by hand — never cast, so nothing here can lie. */
   v_stock_by_location: null,

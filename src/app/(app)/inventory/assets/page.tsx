@@ -9,12 +9,13 @@ import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { MoneyInput } from "@/components/ui/money-input";
 import { EvidenceStrip, type EvidenceSlot } from "@/components/ui/evidence-strip";
 import { formatIDR } from "@/lib/format";
-import { inventory } from "@/demo/api";
+import { hr, inventory } from "@/demo/api";
 import {
   ASSET_GONE, ASSET_OWNERSHIP_LABEL, ASSET_STATUS_LABEL, RENT_PERIOD_LABEL,
   type AssetInput, type AssetOwnership, type AssetStatus, type AssetView, type RentPeriod,
 } from "@/services/inventory/contracts";
 import { RentSchedule } from "./RentSchedule";
+import { ServiceLog } from "./ServiceLog";
 import type { AuditRow } from "@/demo/state";
 import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
@@ -86,6 +87,18 @@ export default function AssetsPage() {
   const [form, setForm] = useState<Form | null>(null);
   const [statusForm, setStatusForm] = useState<{ status: AssetStatus; note: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  /* HR's active employees, offered as holders once a form opens. A reader
+     without HR access simply gets no suggestions. */
+  const [people, setPeople] = useState<{ value: string; label: string }[]>([]);
+  const formOpen = !!form;
+  useEffect(() => {
+    if (!formOpen || people.length > 0) return;
+    let live = true;
+    void hr.listEmployees().then((r) => {
+      if (live && r.data) setPeople(r.data.map((e) => ({ value: e.full_name, label: `${e.employee_no} · ${e.position}` })));
+    });
+    return () => { live = false; };
+  }, [formOpen, people.length]);
 
   useEffect(() => {
     if (!selected) { setHistory([]); return; }
@@ -209,6 +222,7 @@ export default function AssetsPage() {
           {a.warranty_expired && <Badge tone="amber">warranty expired</Badge>}
           {a.contract_ending && <Badge tone="amber">contract ends {a.contract_end}</Badge>}
           {a.contract_expired && <Badge tone="red">contract ended {a.contract_end}</Badge>}
+          {a.service_due && <Badge tone="amber">service due {a.next_service_due}</Badge>}
         </span>
       ),
     },
@@ -415,6 +429,8 @@ export default function AssetsPage() {
               <RentSchedule asset={selected} onDone={() => void refreshSelected(selected.asset_no)} />
             )}
 
+            <ServiceLog asset={selected} canEdit={mayEdit} onChanged={() => void refreshSelected(selected.asset_no)} />
+
             <EvidenceStrip
               entity="asset"
               entityNo={selected.asset_no}
@@ -511,7 +527,12 @@ export default function AssetsPage() {
               <div>
                 <label htmlFor="as-holder" className="block text-sm text-slate-600">Held by</label>
                 <input id="as-holder" value={form.holder} onChange={(e) => setForm({ ...form, holder: e.target.value })}
-                  placeholder="e.g. Made (driver)" className={inputClass} />
+                  list="asset-holders" placeholder="e.g. Made (driver)" className={inputClass} />
+                {/* Suggestions from HR's list; the field stays free text,
+                    because the driver of a rented pickup may not be on it. */}
+                <datalist id="asset-holders">
+                  {people.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+                </datalist>
               </div>
               {form.ownership !== "owned" && (
                 <fieldset className="col-span-2 grid grid-cols-2 gap-3 rounded-lg border border-sky-100 bg-sky-50/40 px-3 py-3">

@@ -2,6 +2,7 @@
 import { ok, noop, invalid, notFound, refused, type Result } from "@/services/_shared/envelope";
 import type {
   Vendor, Item, Uom, UomConversion, UomDimension, Project, ProjectLine, ItemCategory, ItemPurchase,
+  ItemGroupSuggestion,
   PrDocument, PrLine, PrLineView, PaymentRound, RoundSummary,
   PurchaseOrder, PoLine, PoStatusView, Receipt, ReceiptCondition, PrCategory, UomCode,
   VendorView, ItemView, VarianceReason, PrApproval, VendorJourney,
@@ -12,6 +13,7 @@ import { PROBLEM_CONDITIONS, COUNTING_CONDITIONS, VARIANCE_REASON_LABEL } from "
 import type { DocKind } from "@/services/documents/contracts";
 import { REQUEST_SUPPORT_KINDS } from "@/services/documents/contracts";
 import { getActiveLocale } from "@/lib/format";
+import { suggestItemGroups as suggestGroups } from "@/services/procurement/suggest";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
 /* The one cross-service call in this module, and it is deliberate: confirming
    a delivery puts the goods on a rack (D170). Written as a function the
@@ -476,6 +478,32 @@ export interface PrDocumentView extends PrDocument {
 export async function listOpenLines(): Promise<Result<PrLineView[]>> {
   await latency();
   return ok(SERVICE, openLines(getState()));
+}
+
+/** Every request line that asked for this item — merged duplicates' lines
+ *  included, newest first (Master Data phase 5). */
+export async function itemRequestLines(itemId: string): Promise<Result<PrLineView[]>> {
+  await latency();
+  const state = getState();
+  const ids = new Set([itemId, ...state.items.filter((i) => i.merged_into === itemId).map((i) => i.id)]);
+  return ok(SERVICE, state.pr_lines
+    .filter((l) => {
+      if (!l.item_id || !ids.has(l.item_id) || l.removed_at) return false;
+      const doc = state.pr_documents.find((d) => d.id === l.doc_id);
+      return !!doc && doc.status !== "CANCELLED" && doc.status !== "DRAFT";
+    })
+    .map((l) => prLineView(state, l))
+    .sort((a, b) => (b.submitted_at ?? "").localeCompare(a.submitted_at ?? "")));
+}
+
+/** One line by its public number, whatever its state — what a screen outside
+ *  procurement (the ledger's allocation list) needs to open it in place. */
+export async function getLineByNo(lineNo: string): Promise<Result<PrLineView>> {
+  await latency();
+  const state = getState();
+  const line = state.pr_lines.find((l) => l.line_no_full === lineNo);
+  if (!line) return notFound(SERVICE, "line_not_found", `Line ${lineNo} not found.`);
+  return ok(SERVICE, prLineView(state, line));
 }
 
 /** Every line including settled ones, for the "show everything" view. */
@@ -2200,6 +2228,39 @@ export async function archiveItem(id: string, archived: boolean): Promise<Result
     });
   });
   return ok(SERVICE, itemView(getState(), getState().items.find((i) => i.id === id)!));
+}
+
+/** Many at once, with the reason written once (`0120`) — the suggestion
+ *  panel's "not an item" groups. Merged and already-archived items are left
+ *  as they are. */
+export async function archiveItems(
+  ids: string[], reason?: string,
+): Promise<Result<{ archived: number; codes: string[] }>> {
+  await latency();
+  if (ids.length === 0) return invalid(SERVICE, "codes_required", "Pick at least one item.", { field: "codes" });
+  const state = getState();
+  const targets = state.items.filter((i) => ids.includes(i.id) && !i.merged_into && !i.archived_at);
+  if (targets.length === 0) return noop(SERVICE, { archived: 0, codes: [] });
+  const now = new Date().toISOString();
+  apply((draft) => {
+    for (const t of targets) draft.items.find((i) => i.id === t.id)!.archived_at = now;
+    writeAudit(draft, {
+      service: SERVICE, entity: "item", entity_no: `${targets.length} items`, action: "archive_many", outcome: "ok",
+      reason: reason?.trim() || null, detail: { codes: targets.map((t) => t.code), count: targets.length },
+    });
+  });
+  return ok(SERVICE, { archived: targets.length, codes: targets.map((t) => t.code).sort() });
+}
+
+/** Proposed item types for the uncurated pile, grouped by the words the
+ *  names lead with (Master Data phase 5). A suggestion; nothing is written. */
+export async function suggestItemGroups(): Promise<Result<ItemGroupSuggestion[]>> {
+  await latency();
+  const state = getState();
+  const pile = state.items
+    .filter((i) => !i.is_curated && !i.merged_into && !i.archived_at)
+    .map((i) => ({ id: i.id, name: i.name, category_code: i.category_code }));
+  return ok(SERVICE, suggestGroups(pile, state.item_categories));
 }
 
 /** A pointer, never a delete: the loser's history reads as the survivor's.
