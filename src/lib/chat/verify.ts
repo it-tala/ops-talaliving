@@ -41,7 +41,27 @@
  *  database's, through `ops_acct.file_evidence`. This answers one question.
  */
 
-/** Google Chat signs with this service account, always. */
+/** ## One setting in Google's console decides whether any of this works
+ *
+ *  The Chat app's connection settings have an **Authentication Audience**
+ *  field with two choices, and they do not produce the same token:
+ *
+ *  - **Project Number** — a JWT *self-signed by
+ *    `chat@system.gserviceaccount.com`*, `aud` set to the Cloud project
+ *    number, verified against that service account's own published keys.
+ *    **This is what this file implements.**
+ *  - **HTTP endpoint URL** — a Google OIDC *ID token*, issued by
+ *    `https://accounts.google.com`, `aud` set to the endpoint URL, verified
+ *    against Google's OIDC keys instead.
+ *
+ *  Pick the second and every request is refused as `wrong_issuer`, which
+ *  reads like a broken integration rather than a setting. Supporting both
+ *  would mean accepting two issuers, and an issuer list is a thing that grows
+ *  — so this supports one, and says which.
+ */
+
+/** Google Chat signs with this service account, always — under the Project
+ *  Number audience setting. See the note above. */
 export const CHAT_ISSUER = "chat@system.gserviceaccount.com";
 
 /** Google's published keys for that issuer, in JWK form. */

@@ -94,6 +94,16 @@
   // set once in the dashboard or with `wrangler secret put`, encrypted at rest
   // and unreadable afterwards. Secrets are managed apart from `vars` precisely
   // so that a deploy cannot touch them.
+  // `GOOGLE_CHAT_AUDIENCE` belongs in this block too, the day the Chat app
+  // exists. It is the Chat app's Cloud **project number** — not a secret, the
+  // same in every environment, and the `aud` claim the verifier checks
+  // (`src/lib/chat/verify.ts`). Setting it only in the dashboard is the trap
+  // this whole block exists to warn about: the next `wrangler deploy` removes
+  // it, `/api/chat/events` starts answering 503, and Chat's retries stop.
+  //
+  // It is absent rather than blank on purpose. An empty string refuses every
+  // token, which is the safe failure — a verifier that accepts anything when
+  // its audience is unset would be switched off by a typo.
   "vars": {
     "GOOGLE_SERVICE_ACCOUNT_EMAIL": "capture-worker@john-lau-v01.iam.gserviceaccount.com"
   }
