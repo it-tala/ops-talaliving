@@ -259,7 +259,12 @@ export function TrxDrawer({
               {amountChanged && (
                 <p className="mt-1 text-[11px] text-slate-500">
                   Was {formatIDR(trx.amount_idr)}
-                  {trx.allocated_total > 0 && ` · ${formatIDR(trx.allocated_total)} already applied to requests — it cannot go below that`}
+                </p>
+              )}
+              {amountChanged && editAmount < trx.allocated_total && (
+                <p className="mt-1 text-[11px] text-amber-700">
+                  {formatIDR(trx.allocated_total)} of this row is already applied to requests — the new amount is
+                  {" "}{formatIDR(trx.allocated_total - editAmount)} below that. It will be saved and flagged in the audit log.
                 </p>
               )}
             </div>

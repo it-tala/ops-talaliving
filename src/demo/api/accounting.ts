@@ -309,9 +309,9 @@ export async function voidTransaction(
 }
 
 /** Correcting a row in place (owner, 2026-09-23). Either field may be left
- *  out to keep it. An amount change needs a remark, may not go below what is
- *  already applied to requests (A9), and may not contradict a bank statement
- *  line the row is matched to. The remark is the audit row's reason; the
+ *  out to keep it. An amount change needs a remark and may not contradict a
+ *  bank statement line the row is matched to. Going below what is already
+ *  applied to requests is allowed and flagged in the audit detail. The remark is the audit row's reason; the
  *  values before and after are its detail — the IT audit log reads both. */
 export async function editTransaction(
   input: { trx_no: string; amount_idr?: number; description?: string; reason?: string },
@@ -351,13 +351,9 @@ export async function editTransaction(
     if (!reason) {
       return invalid(SERVICE, "reason_required", "A remark is required when the amount changes — say why the number was wrong.", { field: "reason" });
     }
+    /* Below what is already applied is allowed (owner, 2026-09-23 — a
+       discount after the request was paid), and flagged in the audit detail. */
     const allocated = allocatedTotal(state, trx.id);
-    if (allocated > amount) {
-      return conflict(
-        SERVICE, "below_allocated",
-        `Rp ${allocated.toLocaleString(getActiveLocale())} of this row is already applied to requests; the amount cannot go below that.`,
-      );
-    }
     if (state.statement_lines.some((l) => l.trx_no === trx.trx_no && (l.status === "matched" || l.status === "booked"))) {
       return conflict(SERVICE, "statement_matched", "This row is matched to a bank statement line, so the bank's amount is the record. Unmatch it first.");
     }
@@ -366,6 +362,7 @@ export async function editTransaction(
     Object.assign(detail, {
       amount_before: trx.amount_idr, amount_after: amount,
       lines: lines.length === 0 ? "none" : syncLine ? "updated" : "unchanged",
+      ...(allocated > amount ? { allocated, over_allocated: allocated - amount } : {}),
     });
   }
   if (description !== trx.description) {

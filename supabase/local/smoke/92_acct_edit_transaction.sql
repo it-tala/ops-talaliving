@@ -9,9 +9,12 @@
 --   edit(description only, no remark)            -> ok; remark not needed
 --   the same values again                         -> noop
 --
+--   edit below what is already allocated -> ok (0102, owner: it happens),
+--     with `allocated` and `over_allocated` in the audit detail
+--
 --   REFUSALS     post_ledger required; an amount change with no remark; an
---                amount <= 0; an empty description; below what is already
---                allocated; a VOID row; a row matched to a statement line
+--                amount <= 0; an empty description; a VOID row; a row
+--                matched to a statement line
 --   DERIVATIONS  attach_link / attach_unlink now say which file and kind
 
 begin;
@@ -88,9 +91,6 @@ begin
   r := ops_acct.edit_transaction('trx-edit-1', null, '   ', null);
   assert r -> 'error' ->> 'code' = 'description_required', 'wrong code: ' || coalesce(r -> 'error' ->> 'code', r ->> 'outcome');
 
-  r := ops_acct.edit_transaction('trx-edit-2', 700000, null, 'typo');
-  assert r -> 'error' ->> 'code' = 'below_allocated', 'cannot go under the allocations, got ' || coalesce(r -> 'error' ->> 'code', r ->> 'outcome');
-
   r := ops_acct.edit_transaction('no-such-trx', 1, null, 'x');
   assert r ->> 'outcome' = 'refused' and (r ->> 'status')::int = 404, 'unknown row should be 404';
 end $$;
@@ -123,9 +123,9 @@ begin
   r := ops_acct.edit_transaction('trx-edit-1', 600000, 'Foam sheet 2mm — 2 lembar', null);
   assert r ->> 'outcome' = 'noop', 'nothing to change should be a noop, got ' || (r ->> 'outcome');
 
-  -- Above the allocations is fine.
-  r := ops_acct.edit_transaction('trx-edit-2', 850000, null, 'discount');
-  assert r ->> 'outcome' = 'ok', 'at or above allocated is allowed, got ' || (r ->> 'outcome');
+  -- Below the allocations is allowed too (0102), and flagged.
+  r := ops_acct.edit_transaction('trx-edit-2', 700000, null, 'discount after payment');
+  assert r ->> 'outcome' = 'ok', 'below allocated is allowed, got ' || (r ->> 'outcome') || ' / ' || coalesce(r -> 'error' ->> 'message', '');
 
   -- The receiving report is a kind the seam accepts, by label.
   r := ops_core.attach_link('44440000-0000-0000-0000-0000000000e1','transaction','trx-edit-1','Receiving Report');
@@ -152,7 +152,7 @@ end $$;
 reset role;
 
 do $$
-declare n int; a record;
+declare n int; a record; d jsonb;
 begin
   select reason, detail, before, after into a from ops_core.audit_log
    where entity = 'transaction' and entity_no = 'trx-edit-1' and action = 'edit' and outcome = 'ok'
@@ -166,6 +166,11 @@ begin
   select count(*) into n from ops_core.audit_log
    where entity = 'transaction' and entity_no = 'trx-edit-1' and action = 'edit' and outcome = 'ok';
   assert n = 2, 'two real edits (the replay writes nothing), got ' || n;
+
+  select detail into d from ops_core.audit_log
+   where entity = 'transaction' and entity_no = 'trx-edit-2' and action = 'edit' and outcome = 'ok';
+  assert (d ->> 'allocated')::numeric = 800000 and (d ->> 'over_allocated')::numeric = 100000,
+    'a below-allocated edit is flagged in the detail, got ' || d::text;
 
   select count(*) into n from ops_core.audit_log
    where entity = 'attachment' and entity_no = 'trx-edit-1'
