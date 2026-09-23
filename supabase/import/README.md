@@ -34,6 +34,7 @@ Each file ends by printing what it did. Read that, not the exit code.
 | 4 | `vendors` → `ops_procure.vendors` | 296 | `01_reference.sql` |
 | 5 | `items` → `ops_procure.items` | 1.020 | `02_items.sql` |
 | 6 | `transactions` → `ops_acct.transactions` | 3.235 | `03_ledger.sql` |
+| 7 | `products` → `ops_prod.products` (+ drawing links) | 27 | `06_products.sql` — needs `0060`–`0066`, `0105`–`0106` |
 
 ### Step 1 is not an `insert … select`
 

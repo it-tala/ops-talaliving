@@ -34,6 +34,7 @@ import * as liveProcurement from "@/lib/api/procurement";
 import * as liveAccounting from "@/lib/api/accounting";
 import * as liveDocuments from "@/lib/api/documents";
 import * as liveInventory from "@/lib/api/inventory";
+import * as liveProduction from "@/lib/api/production";
 import * as liveAssistant from "@/lib/api/assistant";
 
 export const identity = swap("identity", demoIdentity, liveIdentity);
@@ -41,6 +42,9 @@ export const procurement = swap("procurement", demoProcurement, liveProcurement)
 export const accounting = swap("accounting", demoAccounting, liveAccounting);
 export const documents = swap("documents", demoDocuments, liveDocuments);
 export const inventory = swap("inventory", demoInventory, liveInventory);
+/* The catalogue and BOM half of production (`0106`). Every other production
+   function is absent from the live module and refuses with its own name. */
+export const production = swap("production", demoProduction, liveProduction);
 
 /* Three services B1–B3 have not reached. No `src/lib/api` module exists for
    any of them, so in live mode every one of their functions refuses with the
@@ -59,7 +63,6 @@ export const inventory = swap("inventory", demoInventory, liveInventory);
    happens, was the part nobody re-checked once inventory's real client
    existed. */
 export const hr = swap("hr", demoHr);
-export const production = swap("production", demoProduction);
 export const marketing = swap("marketing", demoMarketing);
 /* `delivery` and `assistant` are modules, not services: they already stamp
    their own envelopes `production` and `procurement` respectively, so the

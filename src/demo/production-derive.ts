@@ -12,10 +12,10 @@ import {
   PROCESS_STAGES, STAGE_SOURCES, STAGE_NAME, RETIRED_STAGES, ROUTE, goodsOnSite,
   VENDOR_PROCESS_NAME,
   type WorkOrder, type WorkOrderView, type StageProgress,
-  type Product, type ProductView, type BomLineView, type ProductDrawing,
+  type Product, type ProductView, type BomLineView, type ProductDrawing, type ProductDrawingEntry,
   type BomRevision, type BomRevisionView, type BomDiff, type BomDiffLine,
   type BomExplosion, type BomExplodedLine,
-  type BomComponent,
+  type BomComponent, type BomDiffShape, type RateSource,
   type DesignTask, type DesignTaskView, type DesignKind,
   type WorkAttribution, type MaterialPlan, type MaterialLine,
   type VendorLeg, type VendorLegView, type VendorRecord,
@@ -419,6 +419,21 @@ function drawingOf(state: DemoState, productCode: string, kind: string): Product
   };
 }
 
+function drawingsOf(state: DemoState, productCode: string): ProductDrawingEntry[] {
+  return [...state.attachment_links]
+    .filter((l) => l.entity === "product" && l.entity_no === productCode
+      && (l.kind === "Gambar Kerja" || l.kind === "Gambar Jadi"))
+    .sort((a, b) => b.linked_at.localeCompare(a.linked_at))
+    .flatMap((l) => {
+      const att = state.attachments.find((a) => a.id === l.attachment_id);
+      return att ? [{
+        kind: l.kind as ProductDrawingEntry["kind"],
+        attachment_id: att.id, filename: att.filename, url: att.url, mime: att.mime,
+        linked_by: l.linked_by, linked_at: l.linked_at,
+      }] : [];
+    });
+}
+
 /** `2200 × 1000 × 750 mm`, spelled the same way everywhere. */
 function dimensionText(p: Product): string | null {
   const axes = [p.length_mm, p.width_mm, p.height_mm].filter((n) => n != null);
@@ -476,9 +491,80 @@ export function bomAt(state: DemoState, product: Product, rev: number | null): B
   return state.bom_components.filter((b) => b.product_id === product.id && b.rev === rev);
 }
 
+/** The rate a line is costed at, and where it came from (0106).
+ *
+ *  A line's own rate wins — typed by the estimator while drafting, or frozen
+ *  on release. Without one, a material follows the catalogue (standard price,
+ *  else last paid), a sub-assembly its own released production cost, and a
+ *  labour line has none, because labour cannot be saved without one. */
+export function lineRate(
+  state: DemoState,
+  b: BomComponent,
+  seen: string[] = [],
+): { rate: number | null; source: RateSource | "none" } {
+  if (b.unit_rate != null) return { rate: b.unit_rate, source: b.rate_source ?? "manual" };
+  if (b.kind === "material") {
+    /* Read at the seam, by public code — never joined (ADR-004). */
+    const item = state.items.find((i) => i.code === b.ref_code);
+    if (item?.standard_price != null) return { rate: item.standard_price, source: "standard" };
+    if (item?.last_price != null) return { rate: item.last_price, source: "last" };
+    return { rate: null, source: "none" };
+  }
+  if (b.kind === "product") {
+    const sub = state.products.find((p) => p.product_code === b.ref_code);
+    const cost = sub ? subAssemblyCost(state, sub, seen) : null;
+    return cost == null ? { rate: null, source: "none" } : { rate: cost, source: "sub_assembly" };
+  }
+  return { rate: null, source: "none" };
+}
+
+function refName(state: DemoState, b: BomComponent): string | null {
+  if (b.kind === "labour") return b.label ?? null;
+  if (b.kind === "material") return state.items.find((i) => i.code === b.ref_code)?.name ?? null;
+  return state.products.find((p) => p.product_code === b.ref_code)?.name ?? null;
+}
+
+export function miscalcOf(state: DemoState, product: Product, rev: number | null): number {
+  if (rev === null) return 0;
+  return state.bom_revisions.find((r) => r.product_id === product.id && r.rev === rev)?.miscalc_percent ?? 0;
+}
+
+/** What one unit comes to at one revision (0106): materials, labour,
+ *  miskalkulasi on the subtotal, and the production cost — null while any
+ *  line has no rate. */
+export function bomCost(
+  state: DemoState,
+  product: Product,
+  rev: number | null,
+  seen: string[] = [],
+): {
+  lines: number; unpriced: number; labour_lines: number;
+  material: number; labour: number; subtotal: number;
+  miscalc_percent: number; miscalc_amount: number; production_cost: number | null;
+} {
+  const rows = bomAt(state, product, rev);
+  let material = 0, labour = 0, unpriced = 0, labour_lines = 0;
+  for (const b of rows) {
+    if (b.kind === "labour") labour_lines += 1;
+    const { rate } = lineRate(state, b, [...seen, product.product_code]);
+    if (rate == null) { unpriced += 1; continue; }
+    const sub = Math.round(b.qty * (1 + b.waste_percent / 100) * rate);
+    if (b.kind === "labour") labour += sub; else material += sub;
+  }
+  const subtotal = material + labour;
+  const miscalc_percent = miscalcOf(state, product, rev);
+  const miscalc_amount = Math.round(subtotal * miscalc_percent / 100);
+  return {
+    lines: rows.length, unpriced, labour_lines, material, labour, subtotal,
+    miscalc_percent, miscalc_amount,
+    production_cost: unpriced > 0 || rows.length === 0 ? null : subtotal + miscalc_amount,
+  };
+}
+
 /** What changed between two revisions, line by line, computed from the two
  *  lists themselves — a diff derived from the things cannot disagree with
- *  them, and an edit log can (A3). */
+ *  them, and an edit log can (A3). A rate that moved is a change: *harga kayu
+ *  naik* is a reason to release. */
 export function bomDiff(
   state: DemoState,
   product: Product,
@@ -488,11 +574,8 @@ export function bomDiff(
   const before = bomAt(state, product, fromRev);
   const after = bomAt(state, product, toRev);
   const codes = [...new Set([...before, ...after].map((b) => b.ref_code))].sort();
-  const shape = (b: BomComponent | undefined) =>
-    b ? { qty: b.qty, uom: b.uom, waste_percent: b.waste_percent } : null;
-  const nameOf = (code: string, kind: string) => kind === "material"
-    ? state.items.find((i) => i.code === code)?.name ?? null
-    : state.products.find((p) => p.product_code === code)?.name ?? null;
+  const shape = (b: BomComponent | undefined): BomDiffShape | null =>
+    b ? { qty: b.qty, uom: b.uom, waste_percent: b.waste_percent, unit_price: lineRate(state, b).rate } : null;
 
   const lines: BomDiffLine[] = [];
   for (const code of codes) {
@@ -501,20 +584,26 @@ export function bomDiff(
     const sa = shape(a);
     const sb = shape(b);
     if (sa && sb) {
-      if (sa.qty === sb.qty && sa.uom === sb.uom && sa.waste_percent === sb.waste_percent) continue;
-      lines.push({ ref_code: code, ref_name: nameOf(code, b!.kind), change: "changed", before: sa, after: sb });
+      if (sa.qty === sb.qty && sa.uom === sb.uom && sa.waste_percent === sb.waste_percent
+        && sa.unit_price === sb.unit_price) continue;
+      lines.push({ ref_code: code, ref_name: refName(state, b!), change: "changed", before: sa, after: sb });
     } else if (sb) {
-      lines.push({ ref_code: code, ref_name: nameOf(code, b!.kind), change: "added", before: null, after: sb });
+      lines.push({ ref_code: code, ref_name: refName(state, b!), change: "added", before: null, after: sb });
     } else {
-      lines.push({ ref_code: code, ref_name: nameOf(code, a!.kind), change: "removed", before: sa, after: null });
+      lines.push({ ref_code: code, ref_name: refName(state, a!), change: "removed", before: sa, after: null });
     }
   }
+  const mBefore = miscalcOf(state, product, fromRev);
+  const mAfter = miscalcOf(state, product, toRev);
+  const miscalc = fromRev !== null && mBefore !== mAfter ? { before: mBefore, after: mAfter }
+    : fromRev === null && mAfter !== 0 ? { before: 0, after: mAfter } : null;
   return {
     product_code: product.product_code,
     from_rev: fromRev,
     to_rev: toRev,
     lines,
-    identical: lines.length === 0,
+    miscalc,
+    identical: lines.length === 0 && miscalc === null,
   };
 }
 
@@ -531,64 +620,40 @@ export function productView(state: DemoState, product: Product, rev?: number | n
 
   const components: BomLineView[] = rows.map((b) => {
     const qty_with_waste = Math.round(b.qty * (1 + b.waste_percent / 100) * 10_000) / 10_000;
-
-    let ref_name: string | null = null;
-    let unit_price: number | null = null;
-    let price_source: BomLineView["price_source"] = "none";
-
-    if (b.kind === "material") {
-      /* Read at the seam, by public code — never joined (ADR-004). */
-      const item = state.items.find((i) => i.code === b.ref_code);
-      ref_name = item?.name ?? null;
-      if (item?.standard_price != null) {
-        unit_price = item.standard_price;
-        price_source = "standard";
-      } else if (item?.last_price != null) {
-        /* A hint, not a price list — and the screen says which it used. */
-        unit_price = item.last_price;
-        price_source = "last";
-      }
-    } else {
-      const sub = state.products.find((p) => p.product_code === b.ref_code);
-      ref_name = sub?.name ?? null;
-      if (sub) {
-        /* One level deep on purpose: a sub-assembly of a sub-assembly is a
-           thing this business does not have, and guarding against a cycle we
-           cannot observe would cost more than it protects. */
-        const subView = subAssemblyCost(state, sub);
-        if (subView != null) { unit_price = subView; price_source = "standard"; }
-      }
-    }
-
+    const { rate, source } = lineRate(state, b, [product.product_code]);
+    const item = b.kind === "material" ? state.items.find((i) => i.code === b.ref_code) : undefined;
     return {
       ...b,
-      ref_name,
+      label: b.label ?? null,
+      unit_rate: b.unit_rate ?? null,
+      rate_source: b.rate_source ?? null,
+      ref_name: refName(state, b),
       qty_with_waste,
-      unit_price,
-      price_source,
-      subtotal: unit_price == null ? null : Math.round(unit_price * qty_with_waste),
+      unit_price: rate,
+      price_source: source,
+      subtotal: rate == null ? null : Math.round(rate * qty_with_waste),
+      catalogue_price: item?.standard_price ?? item?.last_price ?? null,
     };
   });
 
-  const priced = components.filter((c) => c.subtotal != null);
-  const unpriced = components.length - priced.length;
-  const materialCost = priced.length > 0
-    ? priced.reduce((a, c) => a + (c.subtotal ?? 0), 0)
-    : null;
+  const cost = bomCost(state, product, viewing);
+  const unpriced = cost.unpriced;
+  const materialCost = components.some((c) => c.kind !== "labour" && c.subtotal != null)
+    ? cost.material : null;
   const broken_refs = components.filter((c) => c.ref_name === null).length;
 
   const warnings: string[] = [];
   if (components.length === 0) {
-    warnings.push("Belum ada bill of material — kebutuhan bahan dan biayanya belum bisa dihitung.");
+    warnings.push("Belum ada bill of material — biaya produksinya belum bisa dihitung.");
   }
   if (broken_refs > 0) {
     warnings.push(`${broken_refs} komponen menunjuk kode yang tidak ada di katalog.`);
   }
   if (unpriced > broken_refs) {
-    warnings.push(`${unpriced - broken_refs} komponen belum punya harga — biaya di bawah belum lengkap.`);
+    warnings.push(`${unpriced - broken_refs} komponen belum punya rate — biaya produksi belum lengkap.`);
   }
-  if (components.some((c) => c.price_source === "last")) {
-    warnings.push("Sebagian harga memakai harga pembelian terakhir, bukan harga standar.");
+  if (components.length > 0 && cost.labour_lines === 0) {
+    warnings.push("Belum ada baris tenaga kerja — biaya produksi baru berisi bahan.");
   }
 
   const gambar_kerja = drawingOf(state, product.product_code, "Gambar Kerja");
@@ -604,16 +669,6 @@ export function productView(state: DemoState, product: Product, rev?: number | n
   if (!gambar_jadi) missing.push("gambar jadi");
   if (components.length === 0) missing.push("BOM");
 
-  if (!hasSize) {
-    warnings.push("Belum ada ukuran — produk ini tidak bisa dipotong atau dicek tanpa bertanya.");
-  }
-  if (!gambar_kerja) {
-    warnings.push("Belum ada gambar kerja — yang dipakai bengkel untuk membuat.");
-  }
-  if (!gambar_jadi) {
-    warnings.push("Belum ada gambar jadi — yang dilihat klien dan dipakai QC.");
-  }
-
   return {
     ...product,
     components,
@@ -625,37 +680,28 @@ export function productView(state: DemoState, product: Product, rev?: number | n
     dimension: dimensionText(product),
     gambar_kerja,
     gambar_jadi,
+    drawings: drawingsOf(state, product.product_code),
     missing,
     material_cost: materialCost,
-    labour_cost: product.labour_cost,
-    /* Null the moment either half is. A product priced at its materials alone
-       would be quoted at a loss, and a total that silently drops labour is
-       exactly the figure that reaches a customer (D239). */
-    total_cost: materialCost == null || product.labour_cost == null
-      ? null
-      : materialCost + product.labour_cost,
+    labour_cost: cost.labour_lines === 0 ? null : cost.labour,
+    subtotal: cost.subtotal,
+    miscalc_percent: cost.miscalc_percent,
+    miscalc_amount: cost.miscalc_amount,
+    production_cost: cost.production_cost,
+    total_cost: cost.production_cost,
     unpriced,
     broken_refs,
     warnings,
   };
 }
 
-/** The material cost of a sub-assembly, one level down. Null when any part of
- *  it cannot be priced — half a number is not a number. */
-/** What one unit of a sub-assembly costs in materials — **by walking into it**,
- *  however deep it goes (D257).
+/** What one unit of a sub-assembly costs to make, at its **released**
+ *  revision — materials, labour and its own miskalkulasi, walking into any
+ *  sub-assembly inside it (D257, 0106).
  *
- *  It used to stop at one level, on the grounds that a sub-assembly of a
- *  sub-assembly was a thing this business did not have. The owner's answer to
- *  Q5 was *bom berlapis*, so it does now, and the guard that one level made
- *  unnecessary becomes necessary: `seen` carries the chain of product codes
- *  currently being walked, and a product that reappears in its own chain is a
- *  cycle. Returning null there is not a fudge — a product that contains itself
- *  has no finite cost, and saying so is the only true answer.
- *
- *  Null also where **anything** inside cannot be priced. Half a number is not a
- *  number, and a sub-assembly priced at the sum of the parts that happened to
- *  have prices would quietly understate every product above it.
+ *  `seen` carries the chain of product codes being walked; a product that
+ *  reappears in its own chain is a cycle and has no finite cost. Null also
+ *  where anything inside cannot be priced — half a number is not a number.
  */
 function subAssemblyCost(
   state: DemoState,
@@ -663,29 +709,7 @@ function subAssemblyCost(
   seen: string[] = [],
 ): number | null {
   if (seen.includes(product.product_code)) return null;
-  /* The **released** revision. Reading every line ever written would sum a
-     draft and the version it was copied from and price the sub-assembly at
-     roughly twice what it costs (F76). */
-  const rows = bomAt(state, product, currentBomRev(state, product));
-  if (rows.length === 0) return null;
-  const chain = [...seen, product.product_code];
-  let total = 0;
-  for (const b of rows) {
-    const each = 1 + b.waste_percent / 100;
-    if (b.kind === "product") {
-      const sub = state.products.find((p) => p.product_code === b.ref_code);
-      if (!sub) return null;
-      const cost = subAssemblyCost(state, sub, chain);
-      if (cost == null) return null;
-      total += cost * b.qty * each;
-      continue;
-    }
-    const item = state.items.find((i) => i.code === b.ref_code);
-    const price = item?.standard_price ?? item?.last_price ?? null;
-    if (price == null) return null;
-    total += price * b.qty * each;
-  }
-  return Math.round(total);
+  return bomCost(state, product, currentBomRev(state, product), seen).production_cost;
 }
 
 /** Would adding `refCode` as a component of `product` make a loop?
@@ -804,6 +828,9 @@ export function explodeBom(
         walk(sub, subRev, amount, here);
         continue;
       }
+      /* Labour is costed, not bought: it has no place on a list of things to
+         purchase (0106). */
+      if (b.kind === "labour") continue;
       const item = state.items.find((i) => i.code === b.ref_code);
       addLine(b.ref_code, item?.name ?? null, b.uom, amount, path, here.length - 1);
     }
@@ -823,11 +850,18 @@ export function explodeBom(
     sub_assemblies: [...subs.values()].sort((a, b) => a.product_code.localeCompare(b.product_code)),
     unexploded: [...unexploded].sort(),
     cycle,
-    labour_cost: product.labour_cost,
-    /* Null the moment the per-unit figure is: a run of twelve costs twelve
-       times an unknown, which is still unknown (D239). */
-    labour_total: product.labour_cost == null ? null : Math.round(product.labour_cost * qty),
-    labour_note: product.labour_note,
+    /* Labour lines of the revision being run (0106). Null where there are
+       none: a run of twelve costs twelve times an unknown, which is still
+       unknown (D239). */
+    ...(() => {
+      const c = bomCost(state, product, startRev);
+      const perUnit = c.labour_lines === 0 ? null : c.labour;
+      return {
+        labour_cost: perUnit,
+        labour_total: perUnit == null ? null : Math.round(perUnit * qty),
+        labour_note: null,
+      };
+    })(),
   };
 }
 

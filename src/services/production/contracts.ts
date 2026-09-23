@@ -615,6 +615,11 @@ export interface BomRevision {
   /** Why this version exists. Required to release — *rev 3* with no sentence
    *  is a number somebody will have to reverse-engineer from a diff. */
   note: string | null;
+  /** Persentase miskalkulasi — one margin for error on the whole revision's
+   *  subtotal (owner, 2026-09-23: *total saja*). 10 means 10%. Part of the
+   *  revision, so frozen with it on release. Optional only because a demo
+   *  state saved before it existed has none; read it as 0. */
+  miscalc_percent?: number;
   created_at: string;
   created_by: string;
 }
@@ -639,8 +644,17 @@ export interface BomDiffLine {
   ref_code: string;
   ref_name: string | null;
   change: "added" | "removed" | "changed";
-  before: { qty: number; uom: string; waste_percent: number } | null;
-  after: { qty: number; uom: string; waste_percent: number } | null;
+  before: BomDiffShape | null;
+  after: BomDiffShape | null;
+}
+
+/** What a line was, for the diff: quantity and the rate it is costed at. A
+ *  rate change is a change — *harga kayu naik* is a reason to release. */
+export interface BomDiffShape {
+  qty: number;
+  uom: string;
+  waste_percent: number;
+  unit_price: number | null;
 }
 
 export interface BomDiff {
@@ -648,6 +662,8 @@ export interface BomDiff {
   from_rev: number | null;
   to_rev: number;
   lines: BomDiffLine[];
+  /** The miskalkulasi on each side, when it differs; null when it does not. */
+  miscalc: { before: number; after: number } | null;
   /** True when the two lists are identical — which is why releasing an
    *  unchanged draft is refused: a revision number for nothing is noise in a
    *  history somebody will later have to read. */
@@ -661,9 +677,21 @@ export interface BomComponent {
    *  revisions: opening a new draft **copies** the released one, so the
    *  released lines stay exactly as they were released (A5). */
   rev: number;
-  kind: "material" | "product";
-  /** `procure.items.code`, or another `products.product_code`. */
+  /** A purchased material, another product (a sub-assembly), or **labour** —
+   *  the workshop's own time, costed like any other line: 1,5 hari × the day
+   *  rate (0106). */
+  kind: BomKind;
+  /** `procure.items.code`, another `products.product_code`, or for labour a
+   *  code derived from the label (`LABOUR:TUKANG-FINISHING`). */
   ref_code: string;
+  /** What a labour line is called — *Tukang finishing*. Null for the others,
+   *  whose names come from the catalogue. */
+  label?: string | null;
+  /** The line's own rate. While drafting: typed by the estimator (`manual`),
+   *  or null to follow the catalogue. Once released: the rate the line was
+   *  costed at, frozen, with `rate_source` saying where it came from. */
+  unit_rate?: number | null;
+  rate_source?: RateSource | null;
   /** Per ONE unit of the parent. */
   qty: number;
   uom: string;
@@ -675,6 +703,13 @@ export interface BomComponent {
   note: string | null;
 }
 
+export type BomKind = "material" | "product" | "labour";
+
+/** Where a line's rate came from. `last` is the last price paid, `standard`
+ *  the curated one, `sub_assembly` the sub-assembly's own released production
+ *  cost, `manual` the estimator's. */
+export type RateSource = "manual" | "standard" | "last" | "sub_assembly";
+
 export interface BomLineView extends BomComponent {
   /** Resolved at the seam by whoever reads it; `null` when the code no longer
    *  names anything, which is a thing to see rather than to hide. */
@@ -684,8 +719,11 @@ export interface BomLineView extends BomComponent {
   /** From the material's curated standard price, falling back to what it last
    *  cost. Null when neither exists. */
   unit_price: number | null;
-  price_source: "standard" | "last" | "none";
+  price_source: RateSource | "none";
   subtotal: number | null;
+  /** What the catalogue says today, beside whatever rate the line carries —
+   *  a manual rate far from the last price paid is a question worth seeing. */
+  catalogue_price: number | null;
 }
 
 /** One purchasable material, after the sub-assemblies have been walked through.
@@ -805,6 +843,15 @@ export interface ProductDrawing {
   url: string | null;
   linked_by: string;
   linked_at: string;
+  /** Optional because the demo's fixtures predate it. */
+  mime?: string;
+}
+
+/** Every drawing ever filed against a product, newest first. A revised
+ *  gambar kerja is a new file, not an edit — the older one stays, because a
+ *  piece built last month was built from it (A5). */
+export interface ProductDrawingEntry extends ProductDrawing {
+  kind: "Gambar Kerja" | "Gambar Jadi";
 }
 
 export interface ProductView extends Product {
@@ -828,6 +875,9 @@ export interface ProductView extends Product {
   /** What the workshop builds from, and what the client was shown (D150). */
   gambar_kerja: ProductDrawing | null;
   gambar_jadi: ProductDrawing | null;
+  /** The whole history of both, newest first — the revisions a designer
+   *  flips through while writing the BOM. */
+  drawings: ProductDrawingEntry[];
   /** Master data is only useful when it is complete, so the gaps are counted
    *  rather than left to be discovered: ukuran, gambar kerja, gambar jadi,
    *  BOM. */
@@ -836,10 +886,21 @@ export interface ProductView extends Product {
    *  Sub-assemblies are costed by **walking into them** (D257), so a wardrobe
    *  is priced from the plywood its drawer boxes are made of. */
   material_cost: number | null;
-  /** The typed figure and the two of them together. `total_cost` is null when
-   *  either half is — half a number is not a number, and a product priced at
-   *  its materials alone would be quoted at a loss. */
+  /** Labour **lines** summed (0106); null where the revision has no labour
+   *  line at all — *nobody has put the workshop's time on this* is not *it
+   *  takes none*. `Product.labour_cost`, the old typed lump sum, is no longer
+   *  read for a cost. */
   labour_cost: number | null;
+  /** Materials + labour, of the lines that have a rate. */
+  subtotal: number;
+  /** The revision's miskalkulasi, and what it adds to the subtotal. */
+  miscalc_percent: number;
+  miscalc_amount: number;
+  /** **Biaya produksi per unit** — subtotal + miskalkulasi. Not a selling
+   *  price. Null while any line has no rate: a cost with a hole in it is the
+   *  number somebody quotes from. */
+  production_cost: number | null;
+  /** Kept for the screens that read it; the same number as `production_cost`. */
   total_cost: number | null;
   /** How many components could not be priced — the figure above is only worth
    *  what this number says it is. */

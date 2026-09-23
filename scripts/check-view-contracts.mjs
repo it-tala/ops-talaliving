@@ -91,6 +91,13 @@ const VIEW_CONTRACTS = {
      have, which is the exact mistake this file exists to catch. */
   v_line_coverage:   null,
 
+  /* ── production ──────────────────────────────────────────────────────── */
+  /* Both read into private flat shapes in `src/lib/api/production.ts` and
+     assembled into `ProductView` by hand, field by field — checked by `tsc`,
+     because nothing past these rows is cast. */
+  v_product_summary: "ProductSummaryRow",
+  v_product_bom:     "BomLineRow",
+
   /* ── core ────────────────────────────────────────────────────────────── */
   v_user_access:     "AccessRow",
   v_attachment:      "AttachmentRow",
