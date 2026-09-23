@@ -35,12 +35,12 @@ insert into ops_hr.pay_rule_sets (version, effective_from, note, rules, created_
    "week_pattern": "6day",
    "day_starts_minutes": 480,
    "schedules": [
-     {"code":"produksi","name":"Produksi","start_minutes":450,"end_minutes":990,
+     {"code":"PRODUKSI","name":"Produksi","start_minutes":450,"end_minutes":990,
       "break_minutes":45,"friday_break_minutes":90,"note":null},
-     {"code":"kantor","name":"Kantor","start_minutes":480,"end_minutes":1035,
+     {"code":"KANTOR","name":"Kantor","start_minutes":480,"end_minutes":1035,
       "break_minutes":60,"friday_break_minutes":90,"note":null}
    ],
-   "schedule_by_unit": {"Produksi":"produksi","Kantor":"kantor"}
+   "schedule_by_unit": {"Produksi":"PRODUKSI","Kantor":"KANTOR"}
  }'::jsonb, 'ffffffff-0000-0000-0000-000000005301');
 
 -- A file already on the evidence road, uploaded the way every file is.
@@ -61,7 +61,7 @@ begin
   assert a -> 'error' ->> 'code' = 'not_permitted', 'got ' || coalesce(a -> 'error' ->> 'code','(null)');
   a := ops_hr.file_employee_document('B-0012','ktp', null,'3271...');
   assert a -> 'error' ->> 'code' = 'not_permitted', 'got ' || coalesce(a -> 'error' ->> 'code','(null)');
-  a := ops_hr.set_employee_schedule('B-0012','kantor');
+  a := ops_hr.set_employee_schedule('B-0012','KANTOR');
   assert a -> 'error' ->> 'code' = 'not_permitted', 'got ' || coalesce(a -> 'error' ->> 'code','(null)');
   a := ops_hr.reveal_employee_doc_no('edc-99-99-99_01');
   assert a -> 'error' ->> 'code' = 'not_permitted',
@@ -108,7 +108,7 @@ do $$
 declare a jsonb; e ops_hr.employees;
 begin
   a := ops_hr.save_employee('B-0012','  Karjo Susanto ','Tukang kayu','Produksi','daily',
-                            180000, 20000, null,'produksi', true, null, null, null,'k-53-new');
+                            180000, 20000, null,'PRODUKSI', true, null, null, null,'k-53-new');
   assert ops_core.said_ok(a), 'got ' || coalesce(a -> 'error' ->> 'code', a::text);
   assert (a -> 'data' ->> 'created')::boolean, 'a number nobody has used is a new person';
 
@@ -162,7 +162,7 @@ begin
   assert e.unit = 'Produksi', 'nor did the unit, got ' || e.unit;
   assert e.position = 'Tukang kayu utama', 'and what was in it did, got ' || e.position;
   -- The pattern is only touched when the save says so.
-  assert e.schedule_code = 'produksi', 'got ' || coalesce(e.schedule_code,'(null)');
+  assert e.schedule_code = 'PRODUKSI', 'got ' || coalesce(e.schedule_code,'(null)');
 
   assert a -> 'data' ->> 'base_rate' = '200000', 'and the envelope carries the new terms';
 end $$;
@@ -171,18 +171,18 @@ end $$;
 do $$
 declare a jsonb;
 begin
-  a := ops_hr.set_employee_schedule('B-9999','kantor');
+  a := ops_hr.set_employee_schedule('B-9999','KANTOR');
   assert a -> 'error' ->> 'code' = 'not_found', 'got ' || coalesce(a -> 'error' ->> 'code','(null)');
   a := ops_hr.set_employee_schedule('B-0007','gudang');
   assert a -> 'error' ->> 'code' = 'schedule_unknown', 'got ' || coalesce(a -> 'error' ->> 'code','(null)');
 
-  a := ops_hr.set_employee_schedule('B-0007','kantor','k-53-sched');
+  a := ops_hr.set_employee_schedule('B-0007','KANTOR','k-53-sched');
   assert ops_core.said_ok(a), 'got ' || coalesce(a -> 'error' ->> 'code', a::text);
-  assert (select schedule_code from ops_hr.employees where employee_no = 'B-0007') = 'kantor';
+  assert (select schedule_code from ops_hr.employees where employee_no = 'B-0007') = 'KANTOR';
 
   -- Setting it to what it already is changed nothing, and says so rather than
   -- writing a row that reads as a decision somebody took.
-  a := ops_hr.set_employee_schedule('B-0007','kantor');
+  a := ops_hr.set_employee_schedule('B-0007','KANTOR');
   assert a ->> 'outcome' = 'noop', 'got ' || coalesce(a ->> 'outcome','(null)');
 
   -- Null is a deliberate unlink, which is a different thing from leaving the

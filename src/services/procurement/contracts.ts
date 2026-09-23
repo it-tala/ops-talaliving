@@ -174,6 +174,26 @@ export interface Item {
 
 /** One ledger line an item was bought on — the item's purchase history,
  *  including lines written against items merged into it (`0104`). */
+/** One group of uncurated items whose names lead with the same words — a
+ *  proposed item type to file them under (Master Data phase 5). A
+ *  suggestion only; nothing is written until a person accepts it. */
+export interface ItemGroupSuggestion {
+  /** The shared leading words, lower-cased — `screw sst`. */
+  key: string;
+  /** The item type to create for them — `Screw SST`. */
+  type_name: string;
+  /** The top-level category the new type would go under, when one fits. */
+  parent_code: string | null;
+  /** An item type that already has this name, to file into instead. */
+  existing_type_code: string | null;
+  /** Most of the names read as payment descriptions (*transfer to …*,
+   *  *payroll july*), not things bought — candidates for archiving. */
+  not_goods: boolean;
+  item_ids: string[];
+  sample: string[];
+  count: number;
+}
+
 export interface ItemPurchase {
   trx_no: string;
   trx_date: string;

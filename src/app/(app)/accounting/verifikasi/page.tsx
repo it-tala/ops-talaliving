@@ -508,7 +508,7 @@ function ResolvePanel({
        * toast below still carried the failure that shape allows: *Posted,
        * inbox unchanged* — a document already in the ledger and still in the
        * queue, which the next person confirms again. `bookEvidence` does both
-       * or neither (0118).
+       * or neither (0124).
        *
        * The retro road keeps the old two-step path on purpose: it also writes
        * a request line and allocates against it, and those are different acts

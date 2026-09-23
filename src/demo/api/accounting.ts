@@ -820,7 +820,7 @@ export async function getInboxHealth(): Promise<Result<InboxHealth>> {
  */
 /** Book one document — the whole nota, in one act.
  *
- *  The live seam is `ops_acct.book_evidence` (0118); this answers the same
+ *  The live seam is `ops_acct.book_evidence` (0124); this answers the same
  *  shapes and the same refusals so the two clients stay one contract.
  *
  *  Not a third write seam (ADR-006): it composes `postTransaction` and the

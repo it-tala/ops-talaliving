@@ -144,6 +144,7 @@ const VIEW_CONTRACTS = {
      the same shape as `v_statement_line`'s `suggestions` above. */
   v_stock_item:        { type: "StockItemView", composed: ["by_location", "group_code", "group_name"] },
   v_asset:             "AssetView",
+  v_asset_service:     "AssetService",
   /* Read for `location`/`location_name`/`qty` per item and folded into
      `StockItemView.by_location` by hand — never cast, so nothing here can lie. */
   v_stock_by_location: null,
@@ -185,6 +186,7 @@ const VIEW_CONTRACTS = {
      `getContract` stitches the clauses, the checklist coverage and the
      differences onto the same row, and those three are named as composed. */
   v_contract: { type: "ContractView", composed: ["clauses", "coverage", "conflicts"] },
+  v_leave_request: "LeaveRequestView",
   v_allowance_withholding: "AllowanceWithholdingView",
   v_pay_rule_set: "PayRuleSetView",
   /* Read for `stage`, `payable` and `total_hours` and merged onto the sheet

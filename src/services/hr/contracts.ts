@@ -17,6 +17,8 @@
 
 /** How somebody is paid. Both exist here: staff on a monthly salary, and
  *  workshop people paid for the days they actually worked (owner). */
+import type { ScheduleShape, ScheduleHoursShape } from "./schedule-rules";
+
 export type PayBasis = "monthly" | "daily" | "hourly";
 
 export interface Employee {
@@ -90,7 +92,8 @@ export interface AttendanceScan {
   verify: string;
   location: string | null;
   source: ScanSource;
-  /** The import that brought it in, so a re-upload is a no-op rather than a
+  /** The import type { ScheduleShape } from "./schedule-rules";
+import that brought it in, so a re-upload is a no-op rather than a
    *  second day. */
   import_id: string | null;
   reason: string | null;
@@ -1341,64 +1344,21 @@ export interface AllowanceWithholdingView extends AllowanceWithholding {
 }
 
 /** The rule book, as it stands on one date. */
-/** One working pattern (Q44, D274).
+/** One working pattern (Q44, D274, D289).
  *
- *  Five of them in this business and no two alike, which is why this is a row
- *  rather than a pair of numbers. What matters about the shape:
- *
- *  - **`start_minutes` is nullable.** The guard works twelve hours and nobody
- *    has said from when. A schedule with no start cannot measure lateness, and
- *    that reads as *tidak terukur* with the reason — never as *never late*,
- *    which is the error Q44 was raised about in the first place (F70).
- *  - **`end_minutes` is nullable** for the same reason and separately: 07.30
- *    to 16.30 is nine hours with 45 minutes out of it; 08.00 to 17.15 is nine
- *    and a quarter with an hour. Those are the same working day by different
- *    arithmetic, and neither can be derived from the other.
- *  - **Friday has its own break**, because it does here — a longer midday
- *    break, the same for everybody who has one. Null means Friday is like any
- *    other day for this schedule, which is a different fact from *nobody has
- *    said*, and the seed distinguishes them.
+ *  The shape itself lives in `./schedule-rules`, beside the function that says
+ *  what it is allowed to contain — because once `/it/aturan-gaji` let people
+ *  type these rows, the shape and its rule stopped being separable, and two
+ *  copies of a shape is one more thing to keep level for no gain.
  */
-export interface WorkSchedule {
-  code: string;
-  name: string;
-  /** Minutes from midnight. Null where nobody has stated it. */
-  start_minutes: number | null;
-  end_minutes: number | null;
-  break_minutes: number | null;
-  /** Friday's break where it differs. Null = no separate Friday rule stated. */
-  friday_break_minutes: number | null;
-  /** What is known about it that the numbers do not say — a twelve-hour shift
-   *  that may or may not rotate, an end time nobody has fixed. */
-  note: string | null;
-}
+export type WorkSchedule = ScheduleShape;
 
 /** A schedule with its week and month worked out (Q53, D279).
  *
- *  HR asked to see total hours per week and per month, and both are
- *  **derived** — the schedule holds times, not totals, because two stored
- *  numbers that must agree is how bruto and diterima drifted apart (F73).
- *
- *  Everything here is null the moment the schedule is missing a piece: a
- *  pattern with no end time has no daily hours, and a pattern with no daily
- *  hours has no week. Null propagates instead of being papered over with a
- *  zero, because *belum ditetapkan* and *tidak bekerja* are different answers
- *  and only one of them is somebody's to fix.
+ *  The shape and the arithmetic both live in `./schedule-rules`, because
+ *  `/it/aturan-gaji` computes them for a draft nobody has saved yet.
  */
-export interface ScheduleHours {
-  /** Working hours in one ordinary day: end − start − break. */
-  daily_hours: number | null;
-  /** Friday, where its break differs. Null when no separate Friday rule. */
-  friday_hours: number | null;
-  /** Working days a week, from the rule book's `week_pattern`. */
-  days_per_week: number;
-  /** The week, Friday counted at its own length where it has one. */
-  weekly_hours: number | null;
-  /** `weekly_hours × 52 ÷ 12`, and the arithmetic is printed beside it. */
-  monthly_hours: number | null;
-  /** What is stopping the figures, in words, where they are null. */
-  blocked_by: string | null;
-}
+export type ScheduleHours = ScheduleHoursShape;
 
 export interface PayRules {
   overtime_mode: OvertimeMode;
@@ -1681,3 +1641,51 @@ export interface PayrollView extends PayrollRun {
   open_days: number;
   pending_overtime_hours: number;
 }
+
+/** The year's working days, counted from the calendar the business already
+ *  keeps rather than typed from a convention (Q45, D292).
+ *
+ *  D271 settled that IT types `effective_days_per_year` and that the monthly
+ *  average is derived from it. What it never settled was **the number**, and
+ *  the number reaches pay: `hourly_rate()` divides a year's wage by it, so
+ *  twenty days of error moves every overtime rupiah by eight per cent.
+ *
+ *  Everything here is evidence for that one typed field, never a replacement
+ *  for it. The three parts are printed so the total can be read instead of
+ *  trusted — and `holidays_recorded` is the honest limit: a calendar with no
+ *  tanggal merah in it counts every weekday as worked, and the screen says so
+ *  rather than rounding the answer down to look plausible.
+ */
+export interface EffectiveDaysCalendar {
+  year: number;
+  week_pattern: string;
+  days_per_week: number;
+  calendar_days: number;
+  /** Saturdays and Sundays, or Sundays alone, by the pattern. */
+  weekly_rest_days: number;
+  /** Office-wide holidays somebody has entered for this year. */
+  holidays_recorded: number;
+  /** Of those, the ones falling on a day that would otherwise be worked — a
+   *  tanggal merah on a Sunday costs the business nothing. */
+  holidays_on_workdays: number;
+  /** `calendar_days − weekly_rest_days − holidays_on_workdays`, and counted
+   *  once by `is_rest_day` rather than by that subtraction; the parts only
+   *  explain it. */
+  working_days: number;
+  /** What the rule book says today. */
+  typed: number | null;
+  /** `typed − working_days`. Negative means the book counts fewer days than
+   *  the calendar does, which is usually tanggal merah nobody has entered. */
+  difference: number | null;
+  holidays: { work_date: string; reason: string | null }[];
+}
+
+/* ------------------------------------------------------------------ */
+/* What a working pattern may say                                      */
+/* ------------------------------------------------------------------ */
+//
+// Re-exported rather than restated: `/it/aturan-gaji` writes these rows now,
+// and the browser showing a problem must be the same sentence the seam would
+// refuse with — otherwise the form and the database disagree about the form.
+export { scheduleProblem, scheduleProblems, scheduleHoursOf, SCHEDULE_CASES } from "./schedule-rules";
+export type { ScheduleShape, ScheduleProblem, ScheduleHoursShape } from "./schedule-rules";

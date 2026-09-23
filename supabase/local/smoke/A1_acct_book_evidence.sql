@@ -1,4 +1,4 @@
--- acct — one nota, one confirmation, several lines (0118).
+-- acct — one nota, one confirmation, several lines (0124).
 --
 -- ── What is being proved, and why row-by-row was the bug ────────────────
 --

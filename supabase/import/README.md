@@ -38,6 +38,7 @@ Each file ends by printing what it did. Read that, not the exit code.
 | 8 | `transaction_docs` → `ops_core.attachments` + `attachment_links` | 237 | `05_evidence.sql` |
 | 9 | `products` → `ops_prod.products` (+ drawing links) | 27 | `06_products.sql` — needs `0060`–`0066`, `0108`–`0110` — **applied 2026-09-23: 27 products, 27 drawing links** |
 | 10 | corrections to what the import carried faithfully | 2 | `07_corrections.sql` — **applied 2026-09-23** |
+| 11 | the PR recap tabs of the `2026 PURCHASE-PAYMENT TRACKER` sheet → `ops_procure.pr_*`, cross-referenced to the ledger through `ops_acct.payment_allocations` | 354 rows → 288 lines | `08_purchase_requests.sql` — **applied 2026-09-23** |
 
 ### Step 1 is not an `insert … select`
 
@@ -228,6 +229,8 @@ a commit message cannot be corrected, so the record lives here.
 | `06_products.sql` | **2026-09-23** | 27 products, 27 drawing links |
 | `03_ledger.sql` (again) | **2026-09-23** | 0 imported, **52 map rows repaired** — see below |
 | `07_corrections.sql` | **2026-09-23** | 1 line re-filed, 59 transactions given their vendor |
+| `09_close_recap_lines.sql` | **2026-09-23** | after migration `0122`: 277 lines COMPLETED (75 settled first), 10 approvals removed → WAITING FOR APPROVAL, 11 audit rows |
+| `08_purchase_requests.sql` | **2026-09-23** | 35 documents, 288 lines, 288 approvals, 268 allocations to 264 transactions; 12 lines paid on the sheet with no ledger row |
 
 `03_ledger.sql` was run as a **dry run first** — the whole file inside a
 transaction that was rolled back — and the numbers it printed were the numbers
@@ -433,6 +436,77 @@ Nothing below is a bug. Each one is a question a script must not answer.
 | 5 transactions | lines disagreeing with their own row by Rp 4 to Rp 30.000. Settled from the document, on the ledger screen, with `edit_transaction`. | accounting |
 | 75 `OTHERS` | the legacy row named no type. Indistinguishable on screen from a type somebody chose, which is the actual problem. | accounting |
 | Rp 276.782 | BCA 271, this system against the manual sheet. **Answered 2026-09-23: new transactions not yet in the sheet.** Entered when accounting gets to it; nothing to fix here. | accounting |
+
+### Step 11 — the PR recap tabs, and which ledger row paid each line
+
+Source: three tabs of the `2026 PURCHASE-PAYMENT TRACKER` workbook, `AUGUST PR
+RECAP`, `APROVE PR-27082026` and `SEPTEMBER PR RECAP`. Not the legacy
+`public.pr_*` tables: those stop on 20 Aug, and the sheet is what the office
+actually kept. `08_pr_sheet.py` reads the export and writes
+`08_purchase_requests.sql`; the script's header is the reasoning.
+
+**354 rows are 288 lines.** A line not paid in one recap was copied into the
+next, so 66 rows are earlier copies of a later one. Each copy is in the map as
+`superseded`, pointing at the line it became. Lines that already had a `LINE
+ID` on the sheet (116) keep it; the rest are numbered one document per request
+date (`pr-26-08-20_02` and so on), avoiding every number the legacy system
+used, and `ops_core.doc_numbers` was advanced so today's next PR does not
+collide.
+
+**The owner's rule: the day a line was paid is the day it was approved.** The
+approval date comes from AUGUST's approval metadata, then APROVE 27-08's
+release columns, then — the rule read the other way — the date of the ledger
+transaction that paid it. The ledger was searched from that day for the paid
+amount to the rupiah, preferring shared words in description and vendor; the
+sheet's own `TRX ID` wins where there is one (87 lines). Twenty-one matches
+were read by hand and four the search proposed were refused; both lists are in
+the script with reasons.
+
+```
+lines                288   202 PAID · 85 APPROVED · 1 REMOVED (the PSU marked CANCEL)
+allocations          268   to 264 ledger transactions, Rp 706.435.818
+paid, no ledger row   12   Rp 74,8 juta — see below
+```
+
+Checked after the run: the production rows hash identically to a local run of
+the same file, and no transaction is allocated beyond its amount.
+
+**No ledger transaction was created.** Twelve lines the sheet calls paid have
+no row in the ledger, and the map says so on each: Google Workspace, Canva,
+N8N (Oct), Manus, GCP, D5 Rendering and the Rp 1,5 juta buffer — all *DEBIT
+BALANCE SEPT* against the Jago card, not yet debited; Rp 62.864.368 staff
+payroll for August; Kartu Halo Ejo Rp 276.782; and three small ones
+(connector and ring WP for LT-02, refill cling). Inventing those rows would
+break balances that agree with the bank to the rupiah.
+
+Left for a person, all of it on screen or in the map:
+
+- **62 lines paid less than approved**, Rp 12,2 juta together. The sheet calls
+  most of them done (the price came in lower). Closing them is a settlement
+  with a reason, by somebody who knows — `line_settlements`, not a script.
+- **11 approved lines not yet paid**, mostly the 23 Sep release.
+- **22 vendor names that resolve to nothing** (`URECEL`, `ZHANCEN`, `JAWUL
+  SUWAR`, `BIO`, …) — kept in the map note, vendor left null.
+- **Categories**: only `FINISHING`, `SANDING`, `PACKING` exist in
+  `pr_category_t`; `PRODUCTION`, `PAYROLL`, `RECURRING`, `SUPPLIER` and the
+  rest are kept in the note, category left null.
+- `ZAKI` and `RFI` have no account; their lines are posted as `shared@`.
+
+### Step 12 — closing what step 11 carried, and reopening ten
+
+Owner, 2026-09-23: every line from the recap sheet is complete, except ten
+that are newly entered and waiting for approval (Listrik Langon, Listrik
+Saripan, Kartu Halo Ejo, Indihome Gudang, Rental Gran Max, BPJS Tenaga Kerja,
+PO Martono Jok, PO Dul Rotan, Belanja Saripan, Support Document Container).
+
+COMPLETED normally needs a transfer proof and a full receiving report. Neither
+was fabricated: migration `0122` adds `ops_procure.line_closures`, a decision
+with a reason and a name, and `v_pr_line_status` reads a closed line as
+COMPLETED. The 75 lines whose money fell short were settled first
+(`line_settlements`), so their coverage no longer reads as owed. The ten had
+their sheet-derived approval rows **removed**, each removal an audit row holding
+the row it removed, rather than countered with `approved = false` — which would
+read as EJO taking a yes back.
 
 ## What the import must never do
 

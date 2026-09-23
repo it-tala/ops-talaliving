@@ -1,4 +1,4 @@
--- 0117_core_execute_grants.sql — who may call a seam at all.
+-- 0125_core_execute_grants.sql — who may call a seam at all.
 --
 -- ── The claim that was not true ──────────────────────────────────────────
 --
@@ -95,7 +95,7 @@
 -- That leaves the other half of the problem: a function created by migration
 -- 0112 is executable by `PUBLIC` the moment it exists, and this file has
 -- already run. A migration cannot fix the future. So the guard that keeps
--- this shut is not here — it is `supabase/local/smoke/98_core_execute_grants.sql`,
+-- this shut is not here — it is `supabase/local/smoke/A2_core_execute_grants.sql`,
 -- which derives the same set from `pg_proc` and fails if `anon` can reach one
 -- of them. This migration closes what is open; the smoke file is what stops
 -- it reopening.
@@ -164,5 +164,5 @@ comment on function ops_acct.file_evidence(
   text, text, text, ops_acct.inbox_origin_t, text, text, bigint, text,
   jsonb, ops_acct.direction_t, timestamptz, text) is
   'The capture worker''s entire reach into this database: one verb, validated '
-  'arguments, and since 0117 that is measured rather than asserted. A leaked '
+  'arguments, and since 0125 that is measured rather than asserted. A leaked '
   'worker key files evidence and does nothing else.';

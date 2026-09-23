@@ -19,7 +19,7 @@ import type {
 } from "@/services/marketing/contracts";
 import type {
   LogPurchase, LogPiece, SawnBoard, BoardMove,
-  StockLocation, StockMove, StockSetting, Asset, AssetCategory,
+  StockLocation, StockMove, StockSetting, Asset, AssetService, AssetCategory,
 } from "@/services/inventory/contracts";
 import type {
   Employee, AttendanceScan, DayMark, OvertimeSheet, OvertimeLine, PayrollRun,
@@ -207,6 +207,8 @@ export interface DemoState {
   /** What the company owns and uses rather than sells: CCTV, PCs, vehicles. */
   asset_categories: AssetCategory[];
   assets: Asset[];
+  /** Jobs done on an asset (`0121`), stored without the joined names. */
+  asset_services: Omit<AssetService, "vendor_name">[];
 
   /* --- inventory: timber ------------------------------------------- */
   /** Logs are bought by the load and used as boards — two quantities with a

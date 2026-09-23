@@ -202,7 +202,7 @@ comment on function ops_acct.book_evidence(text, text, ops_acct.direction_t, num
   'holding the photo and can fix it.';
 
 /* **Revoked from PUBLIC first, then granted.** A new function is executable
-   by PUBLIC the moment it exists, and `0117` — which moved all 175 of the
+   by PUBLIC the moment it exists, and `0125` — which moved all 175 of the
    ones that existed then — has already run by the time this file does. A
    migration cannot fix the future, so every migration after it carries these
    two lines.

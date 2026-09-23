@@ -5606,7 +5606,430 @@ one whose file you happen to be reading.** `0101` is where the function was
 introduced and is the natural file to open; it has not been the truth since
 `0102`. Nothing about opening it says so.
 
-## F138 · 2026-09-23 · the ledger was shut by a runtime check where the design said a privilege, and `anon` could call every seam
+---
+
+## F138 · 2026-09-23 · a default carried from the demo is an assertion about the business, and nobody checked this one
+
+The first real pay rule book went into production yesterday with
+`week_pattern: "6day"` and `effective_days_per_year: 288`. The owner read the
+screen and asked one question: *bukankah jam kerja itu harusnya senin-jumat?*
+
+Neither number was ever his. Both were copied out of
+`src/demo/fixtures/payrules.ts` along with the numbers that **were** his — the
+07.30 start, the 45-minute break, the overtime ladder — and the copy did not
+distinguish between them. Reading the record back afterwards is unambiguous:
+Q44 (D270, D274) answered the **hours**; Q53 (D279) answered **who is on which
+pattern**; and Q45 asked *what is this business's own hari kerja efektif* and
+was closed on 13 September with an answer about **who types the figure**, not
+what the figure is. So Q45 was marked answered while the number it asked for
+had never been spoken. 288 filled the hole, and it looked like a fact because
+it was sitting in a field beside four real ones.
+
+**The book contradicted itself, and the contradiction was readable.**
+`monthly_divisor` was 173, which is 40 × 52 ÷ 12 and means nothing except on a
+forty-hour week. The same object said 48,75 hours a week in its schedules. Two
+fields that must agree, disagreeing — F73's shape exactly, the one this project
+has now hit often enough that it should be the first thing checked when a
+config object is assembled rather than the thing found later.
+
+**What 6day was actually doing.** Not display. `ops_hr.is_rest_day()` reads it,
+and under `6day` only Sunday is a rest day — so Saturday overtime would have
+paid the workday ladder (1,5× then 2×) instead of the rest-day ladder. And the
+rest-day tiers themselves were the six-day rungs of Kepmenaker 102/2004 pasal
+11 (2× to hour 7, then 3×, then 4×); a five-day week runs to hour 8, then 9.
+Switching the pattern without switching the rungs would have left a second,
+quieter contradiction behind the first.
+
+**The expensive one was 288.** `ops_hr.hourly_rate()` computes
+`company = setahun ÷ hari_efektif ÷ jam_sehari`. A denominator 20% too large
+makes the hourly rate 17% too small, and every overtime rupiah rides on it. On
+a five-million pokok with a 25.000 daily allowance the real functions give
+Rp 28.283 under v1 and Rp 33.333 under v2 — three hours of weekday overtime
+moves from Rp 155.557 to Rp 183.332, for one person, once.
+
+**Why it was still cheap to fix.** Zero employees, zero attendance scans, zero
+payroll runs. Not one rupiah had been computed from v1, which is the same
+condition that made D270's backdating safe, so v2 is dated to v1's own date as
+a correction rather than to today as a policy change — the business did not
+move from six days to five this morning, our record of it was wrong. v1 is
+untouched and still in the book (A5).
+
+**The lesson is not "check the config".** It is that seeding production from a
+fixture silently promotes every demo default into a claim about a real company,
+and the defaults are indistinguishable from the answers once they are in the
+same JSON object. What would have caught this is the thing D173 already exists
+for: a rule book is a set of assertions somebody has to sign, so the fields
+nobody has answered should have been **absent or null**, and the screen should
+have said *belum ditetapkan* — the same treatment D274 gives the guard's start
+time. A field that has never been answered should not be able to look like one
+that has.
+
+**Still open**: Q45 is reopened for the number it actually asked for, and 240 is
+a convention (20 days × 12) standing in until the owner names his. The demo
+fixture still asserts six days for the same business.
+
+---
+
+## F139 · 2026-09-23 · a shape that can only express the new fact by lying about an old one
+
+Half a day after F138, the same rule book produced a second finding by the
+same route, and this one is about the **shape** rather than the numbers.
+
+D288 set Friday at seven hours because the owner said the week is forty. The
+only Friday lever the schedule row had was `friday_break_minutes`, so seven
+hours for the office had to be bought with a **135-minute break** — 08.00 to
+17.15 less 2¼ hours. Nobody has ever taken a 135-minute break. It was reverse-
+engineered from the total, and it went into production looking exactly like a
+fact somebody had decided.
+
+The owner's correction was one sentence: *jumat pulang lebih awal, bukan 17.15
+tapi 16.30, jam kerjanya 7 jam istirahatnya yang 90 menit.* Not a longer
+break — an **earlier finish**, with D270's original 90 minutes intact all
+along. The number I had written over was the right one.
+
+**This is F91's shape again and it should have been recognised.** F91: Q44 was
+answered a second time and *broke the answer built for it the day before*,
+because `day_start_by_unit` could not hold a Friday, an end time, or a shift
+with no fixed start. Here `friday_break_minutes` could not hold *Friday
+finishes early* — and instead of refusing, it produced a plausible wrong
+number. A shape that cannot express something usually says so by needing a
+value nobody recognises. **135 was that signal, and I read it as arithmetic.**
+The tell was there in the same table: produksi came out at 120 minutes exactly
+and kantor at 135, and two patterns needing two different invented breaks to
+reach the same total is the shape complaining, not the business speaking.
+
+**What the fix is not.** `friday_end_minutes` is nullable, and null here does
+**not** mean D274's *nobody has said*. It means *Friday finishes when every
+other day does*, which is a real answer and the common one. The two Friday
+fields fall back independently, so a pattern that differs only in its finish
+keeps the ordinary break and the other way round — getting that wrong would
+blank a Friday the business has actually decided.
+
+**And the half hour that was left alone.** Produksi comes out at 7,5 hours on
+Friday and 40,5 in the week, not 40. It already stops at 16.30 every day, so
+its Friday is only the longer break. The owner said *40* while correcting the
+**office's** finishing time; whether the workshop also leaves early on Friday
+has never been said. Rounding it to 16.00 to make the table tidy would be F138
+happening a third time in one day — filling an unanswered field with a number
+that looks like a fact. It is left at 40,5 and Q54 says why.
+
+**Cheap for the same reason both times**: zero employees, zero attendance, zero
+payroll runs. Three versions of the rule book now share one date — the demo
+copy, my guess, and the owner's answer — and that is the dated book working,
+not a mess. Reading them in order is the honest record of how the number was
+arrived at.
+
+**Verified, not asserted.** Four mutations of the Friday arithmetic — dropping
+either fallback, treating only the break as making Friday differ, and ignoring
+the finish entirely — each failed the new smoke file for its own reason, the
+last of them reproducing exactly the 7,75 the owner spotted. The TypeScript
+derivation was compiled and run against the same four patterns and returned the
+same four answers as the SQL, which is the only way ADR-009 is a claim rather
+than a hope: there is no unit-test runner in this repo, so demo and live agree
+only where somebody has actually made them agree in front of witnesses.
+
+**Addendum, same day.** The half hour was not left open for long: asked, and
+answered — *jumat produksi pulang 16.00* (D290). 07.30 to 16.00 less the 90
+minutes is 420, which is seven hours exactly, and produksi's week closes at
+40,00 alongside kantor's. Worth recording *why* that is reassuring rather than
+suspicious: the two patterns reach the same total by **different** arithmetic —
+the office leaves 45 minutes early, the workshop 30 — because their ordinary
+days are different lengths against different breaks. Both also land on 173,33
+hours a month, which is `monthly_divisor` 173, the field that was quietly
+telling the truth about this week all along while the schedules contradicted it
+(F138). Two independent routes arriving at the same number is the book being
+right; one number copied into two rows would have looked identical and proved
+nothing. The rule book ends the day with four versions sharing one date, and
+reading them in order is the record of how the figure was arrived at.
+
+---
+
+## F140 · 2026-09-23 · the fixtures had been saying something the business never said, and only a guard could hear it
+
+Making the working patterns editable meant the database had to start refusing
+what a person can type, because `employees.schedule_code` is a **text key into
+versioned jsonb** and there is no foreign key that can catch a typo. The first
+rule written was the shape of a code.
+
+It failed six smoke files on the first run. All six carried `"code":"produksi"`
+in lower case while the real rule book, the demo fixture and every screen used
+`PRODUKSI`. Nothing was broken by it — the comparison is exact and each fixture
+was internally consistent — so it had sat there since M57 as a second spelling
+of a key that has no spelling rules.
+
+**That is the interesting part.** A key with two spellings is not a bug until
+somebody types the other one, and the moment the screen lets them, it is one:
+`produksi` and `PRODUKSI` are two patterns that look identical in a list and
+match nothing of each other's. The fixtures were the early symptom of a rule
+that had never been written down, and the only thing that could hear them was
+the rule itself, on the day it was written.
+
+The rule was also **wrong on its first run, in the other direction**. It
+refused `shift-malam` — a hyphen — and a hyphen threatens nothing. Two of this
+repo's own code families allow one (`0099`, `0107`). The refusal had to relax,
+and the relaxation is pinned by two cases, one accepting `SHIFT-MALAM` and one
+still refusing `shift-malam`, so *the hyphen was allowed* cannot quietly become
+*the case rule was dropped*.
+
+The lesson is about which way a guard is allowed to be wrong on its first run:
+too strict is cheap and shows itself immediately, and too loose looks exactly
+like working.
+
+---
+
+## F141 · 2026-09-23 · doing nothing is a grant, and the mutation found it
+
+`ops_hr.schedules_in_use_lost()` answers *who would lose their pattern* with
+employee **names**, and it is `security definer` so that IT — who publishes the
+rule book and has no `hrd.read` — is guarded rather than waved through. Both
+properties are correct. Together they are a hole.
+
+Postgres grants `EXECUTE` to `PUBLIC` on a new function by default. Writing
+nothing about privileges is therefore not *leaving it alone*; it is publishing
+it. A definer function that reads the roster and is executable by PUBLIC means
+**anybody holding any account at all** could ask for the roster, one pattern at
+a time. The check was tested and correct; its reachability was never considered.
+
+It was not found by review. The mutation run said something better: removing
+`security definer` from that function **did not fail the smoke file**, because
+it is only ever called from inside `save_pay_rules` and `preview_pay_rules`,
+which are definer themselves — a function called from a definer already runs
+with the definer's rights. So the flag was carrying no weight on the path the
+test exercised. Asking *why does this mutation survive* is what surfaced the
+one path where the flag does carry weight: a direct call. And a direct call was
+exactly what nothing had revoked.
+
+Closed with the idiom this repo already has for internal guards — `revoke
+execute … from public`, as `ops_core.bootstrap_admin`, `ops_acct.account_guard`
+and `ops_inv.asset_refs_invalid` each do — and the smoke file now asserts the
+denial, so the grant cannot come back quietly.
+
+**A second thing this cost, worth writing down.** The first attempt to prove
+the fix reported that the leak was still open. It was not: `create or replace
+function` does not reset privileges, so the grant written by an earlier run of
+the same file was still sitting on the function in the scratch database. Only a
+clean `rebuild.sh` answers a question about privileges. An iterated database is
+not the database the ladder describes, and on grants specifically it will lie
+in the safe-looking direction.
+
+---
+
+## F142 · 2026-09-23 · the screen was already telling people something that had stopped being true
+
+`/it/aturan-gaji`'s divisor example ended with a sentence explaining why the
+two hourly rates differ: *173 mengandaikan minggu 40 jam, dan kantor ini tidak
+bekerja 40 jam seminggu.*
+
+Since version 4 of the rule book, written the same morning, this office works
+exactly 40 hours a week — both patterns, by different arithmetic (D290). The
+sentence had been true when somebody wrote it under a six-day book, and it
+became a confident, specific, wrong statement the moment the book changed,
+sitting directly under a correct calculation.
+
+Nothing could have caught it. It is prose, and prose that restates a fact the
+data now owns is a second copy of that fact — F73's shape again, in a paragraph
+rather than a column. It was found only because the same screen was open for
+another reason. Rewritten to explain the *relationship* (the two agree when the
+effective-days figure and the divisor are consistent) rather than to assert the
+number, because the relationship stays true when the number moves.
+
+---
+
+## F143 · 2026-09-23 · the parity gate could not see this, because its two databases both agreed with the wrong side
+
+`ops_hr.schedule_problem()` and the TypeScript module both report the **first**
+problem, so anything that decides *which is first* is part of the rule. Two
+dangling unit mappings are ordered before being reported: the SQL said
+`order by key`, the TypeScript said `.sort()`.
+
+`.sort()` is UTF-16 code-unit order. `order by key` is the database's
+collation. They are not the same, and the disagreement is ordinary rather than
+exotic — with units named `Workshop` and `office`, JavaScript reports
+`Workshop` first and a database collating `en_US.UTF-8` reports `office`, since
+that collation sorts case-insensitively at the first level. Two seams, same
+input, different sentence: precisely what `check-schedule-rules.mjs` exists to
+refuse.
+
+**And it would have refused nothing.** The scratch cluster this was built on
+collates `C`, and so, as far as this could be told, does the container CI runs
+against. Both agree with JavaScript. The gate would have stayed green through
+every run while production — `en_US.UTF-8`, checked rather than assumed —
+answered differently on the one machine that matters.
+
+That is the failure mode worth naming: a parity check inherits the environment
+it runs in, and an environment that happens to agree with one of the two sides
+turns the check into a rehearsal of that side. It was found by reading the diff
+for what could differ **between here and production**, not by running anything;
+nothing that could be run would have said it.
+
+Fixed by pinning rather than by matching a locale: `collate "C"` on all three
+orderings in `0125` (the unit loop, the names inside a lost pattern, and the
+patterns themselves), and plain code-unit comparison on the demo side in place
+of `localeCompare`, which has the same disagreement with `C` that `en_US` has.
+The rule now orders the same way on any database, which is what a rule stated
+twice needs. A case with two dangling units named in different cases is in the
+battery, so the pin cannot be removed quietly — though, and this is the part to
+remember, that case would pass on a `C` database even without the pin. The case
+guards the intent; only reading the collation guarded the fact.
+
+---
+
+## F144 · 2026-09-23 · a read whose answer depends on who is asking, cached on what is being asked about
+
+The new calendar note on `/it/aturan-gaji` rendered nothing. Not an error, not
+a blank figure — the component simply was not there, and every gate was green.
+
+`ops_hr.effective_days_calendar()` answers **null** to anybody without
+`payroll.read` or `it.update`, because it is evidence beside a field and a
+screen opened without the right does not want a number it should not show.
+That makes it a read whose answer depends on the reader. Its `useLoad` deps
+were `[rules.week_pattern, year]` — what is being asked *about*, and nothing
+about who is asking.
+
+So the first fetch ran as the demo's default user, who has no IT access, got
+null, and cached it. Switching to the IT account changed nothing that the deps
+watched, so nothing re-ran, and the evidence stayed invisible for the one
+person it was built for.
+
+**The demo is where it showed, not where it lives.** In production nobody
+switches identity from the header — they get promoted, and the first person
+granted `it.update` while the tab was open would have seen exactly this: a
+screen that stays empty until it is reloaded, for no stated reason. A stale
+permission-shaped read looks identical to a permission correctly denied, which
+is why it would have been reported as *the button does nothing* rather than as
+a bug with a shape.
+
+Fixed by putting the acting user in the deps. The general rule, worth keeping:
+**if a seam can answer differently for two people, the reader's identity is
+part of the question, and caching keyed only on the subject is caching the
+wrong thing.**
+
+Found by driving the screen in a browser rather than by reading it. Nothing in
+`tsc`, lint, the smoke suite or any of the eight checkers can see a `useEffect`
+dependency list that is merely incomplete — it is valid code that does less
+than it looks like it does.
+
+---
+
+## F145 · 2026-09-23 · six mutations survived, and every one of them was the harness
+
+The widened payroll line got the usual treatment: break it six ways and check
+the smoke file complains. All six survived.
+
+That is not a result, it is an alarm — six independent breakages cannot all be
+invisible to a test that asserts each of them by name. The cause was the
+harness, not the code. Each mutation re-applied the whole migration file, and
+that file now **opens with `alter type … add attribute`**, which fails on a
+second run with *column already exists*. Under `ON_ERROR_STOP` the file aborted
+at its first statement, the mutated function never replaced the good one, and
+the smoke file passed against code nobody had touched.
+
+Every earlier migration this session was `create or replace` all the way down,
+so re-applying it was idempotent and the harness had always worked. The first
+migration with a one-shot statement in it broke the technique silently, and
+silently in the **reassuring** direction: a surviving mutation reads as *the
+guard is redundant*, not as *the experiment did not run*.
+
+Fixed by applying only the function half. Then six of seven were caught at
+once, which is what the first run should have looked like.
+
+**The seventh was real, and worth more than the other six.** Shifting the
+contributions read to the wrong month changed nothing, because the fixture had
+a single rate version with no end date — every month resolves to the same
+percentage, so *which month* could not matter. The test was asserting a figure
+it had no way to get wrong. A second rate version, effective from June at a
+different percentage, makes March's answer a choice; the mutation now fails.
+
+Two lessons, and the second is the one that generalises. A mutation that
+survives is a question, never a clearance — and the first question is always
+*did the change actually reach the database*. And a fixture with one of
+something cannot test a rule about **choosing** between them: one rate, one
+schedule, one version is the shape in which a selection bug is invisible.
+
+---
+
+## F146 · 2026-09-23 · `now()` is the transaction's clock, so "the latest audit row" was a coin toss
+
+Merging `main` brought three new smoke files in, and the suite failed one of
+them — once. Run again, it passed. Run alone, five times, it passed. Two fresh
+rebuilds with a full suite each, both green. That is the worst shape a failure
+comes in, because every instinct after the second green run is to call it
+noise.
+
+`ops_core.audit_log.at` defaults to `now()`, and `now()` in Postgres is the
+**transaction** timestamp — `select now() = now()` is true, and every row a
+transaction writes carries the same instant. Three smoke files read back *the
+latest* audit row with `order by at desc limit 1`, and one of them,
+`99_inv_asset_services`, calls `delete_asset_service` twice on purpose: once
+successfully, once more to prove the thing is gone. Two rows, one action, one
+identical timestamp, and which one `limit 1` returns is the planner's choice.
+
+Proved rather than argued: two rows inserted in one transaction, then the same
+query with and without a tiebreak — `count(distinct at)` is 1, and the two
+orderings return **different rows**.
+
+Adding `id desc` made it deterministic and immediately turned the file red
+0/5, which is the part worth keeping. The tiebreak had not broken the test; it
+had revealed that the test was reading the **refusal** and had been passing on
+the accident that an untied sort usually returned the other row. The
+assertion's actual subject is the successful delete, and its two sibling files
+say so in their own queries — `and outcome = 'ok'` — while this one did not.
+Both clauses are needed and neither alone is enough: the filter says which row
+is meant, the tiebreak says which of the remaining ones is last.
+
+The general rule this leaves: **a timestamp written by `now()` cannot order
+rows within one transaction**, so any "most recent" read over an audit trail
+needs the sequence as a tiebreak. All three files have it now; two of them
+were already correct on the filter and only needed the hardening.
+
+Not my file, and fixed anyway: an intermittent failure in the shared suite is
+a red CI for whoever pushes next, and the diagnosis was already in hand.
+
+---
+
+## F147 · 2026-09-23 · a grant copied from six migrations re-opened the one table that had been closed
+
+The new leave table needed a table-level grant — RLS narrows what a role may
+see, but a role with no grant meets `permission denied` before any policy is
+consulted. Every HR migration from `0043` to `0052` says the same line, so I
+said it too:
+
+    grant select on all tables in schema ops_hr to authenticated;
+
+`53_hr_people_seams` failed immediately, on an assertion written a fortnight
+earlier: *a number nobody may read is a table nobody may select*.
+
+`0056` revokes select on `ops_hr.employee_documents`, because the document
+numbers in it are readable only through a view that masks them (D196). Every
+blanket grant in the ladder is numbered **below** that revoke, so the revoke
+had always run last and always won. `0123` is the first one above it. The
+idiom had been safe for exactly as long as no table in the schema had been
+closed again, and nothing about the line says so.
+
+**What makes this worth writing down is how it presented.** Nothing in the
+migration looked wrong; it was copied verbatim from six places that are all
+correct. The failure was not in the statement but in its **position in the
+ladder**, which is the one property a copied line does not carry with it. A
+reviewer reading the diff would have seen a familiar line in a familiar place.
+
+Narrowed to `grant select on ops_hr.leave_requests`, and proved both ways
+afterwards rather than assumed: `has_table_privilege` now answers false for
+`employee_documents` and true for `leave_requests`.
+
+The general rule: **`on all tables in schema` is not idempotent with respect to
+a later revoke — it is a reversal of it.** In a ladder that only ever grows,
+any blanket grant is a statement about every table added *before* it and every
+decision taken *after* it, and the second half is invisible at the point of
+writing. The six earlier copies should probably be narrowed too, but they are
+correct where they stand and rewriting applied migrations is its own hazard; a
+seventh would not have been.
+
+Caught by a smoke assertion about a completely different feature. That is what
+those two hundred lines of refusals are for.
+
+---
+
+## F148 · 2026-09-23 · the ledger was shut by a runtime check where the design said a privilege, and `anon` could call every seam
 
 Found while reading `0038_acct_file_evidence.sql` to build J5's Chat ingest
 door, because the whole safety case for handing a worker a `service_role` key
@@ -5656,7 +6079,7 @@ are two.
 
 ### The fix, and the two mistakes it took to get right
 
-`0117` revokes execute from `PUBLIC` on every `security definer` function in
+`0125` revokes execute from `PUBLIC` on every `security definer` function in
 `ops_*` and grants it to `authenticated`; `service_role` keeps the one verb.
 `authenticated` deliberately keeps everything, because a signed-in person
 reaching a seam is the design — what may then be *done* is decided inside, by
@@ -5687,21 +6110,21 @@ an instance of it.
 
 ### Why the guard is the deliverable and the migration is not
 
-A migration cannot fix the future. A function created by `0118` is executable
-by `PUBLIC` the moment it exists, and `0117` has already run. This was not
+A migration cannot fix the future. A function created by `0124` is executable
+by `PUBLIC` the moment it exists, and `0125` has already run. This was not
 hypothetical: the migration was first numbered `0111`, five functions created
 by `0114`–`0116` came after it, and the guard failed naming all five before
 anything was committed.
 
 So the thing that keeps this shut is
-`supabase/local/smoke/98_core_execute_grants.sql`, which derives its set from
+`supabase/local/smoke/A2_core_execute_grants.sql`, which derives its set from
 `pg_proc` at the moment it runs and asserts four things: `anon` reaches
 nothing, the seven shut stay shut, everything else stays reachable by
 `authenticated`, and `service_role` reaches exactly one verb. Then a fifth,
 which is the one that matters: it calls a money seam **as `anon`** and asserts
 the error is `42501`, insufficient privilege. Anything else — including this
 system's own worded refusal — means the call got far enough to run the
-function body, which is exactly the runtime check `0117` exists to stop
+function body, which is exactly the runtime check `0125` exists to stop
 relying on.
 
 **A privilege that is right in the catalogue and wrong at the call site is

@@ -1,8 +1,14 @@
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/cn";
+
+/* Panels open on top of panels: the ledger's transaction opens the request
+   line it paid, without leaving the page. Escape and the scroll lock have to
+   belong to the top one only — otherwise one keypress closes both, and the
+   inner panel closing unlocks the page behind the outer one still open. */
+const openStack: symbol[] = [];
 
 export function Drawer({
   open,
@@ -21,19 +27,26 @@ export function Drawer({
   footer?: React.ReactNode;
   width?: string;
 }) {
+  /* Read through a ref so a parent re-rendering with a new closure does not
+     re-run the effect — which would move this panel to the top of the stack. */
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+
   useEffect(() => {
+    if (!open) return;
+    const me = Symbol("drawer");
+    openStack.push(me);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && openStack[openStack.length - 1] === me) closeRef.current();
     };
-    if (open) {
-      document.addEventListener("keydown", onKey);
-      document.body.style.overflow = "hidden";
-    }
+    document.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
+      openStack.splice(openStack.indexOf(me), 1);
+      if (openStack.length === 0) document.body.style.overflow = "";
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

@@ -2,8 +2,10 @@
 
 import { useState } from "react";
 import { Scale, History, Play, AlertTriangle, Clock } from "lucide-react";
+import { ScheduleEditor } from "./ScheduleEditor";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
+import { officeToday } from "@/lib/office";
 import { NumberInput } from "@/components/ui/number-input";
 import { Paged } from "@/components/ui/pager";
 import { formatIDR, formatNumber } from "@/lib/format";
@@ -53,13 +55,6 @@ const UNDERTIME_MODE_LABEL: Record<UndertimeMode, string> = {
   pro_rata: "Dipotong per jam kurang",
   half_day_step: "Kurang lebih dari setengah hari → potong ½ hari",
 };
-
-/** Minutes from midnight as a clock face, and **an honest blank** where the
- *  business has not stated one — never 00.00, which would read as midnight. */
-function clock(minutes: number | null): string {
-  if (minutes == null) return "belum ditetapkan";
-  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}.${String(minutes % 60).padStart(2, "0")}`;
-}
 
 export default function PayRulesPage() {
   const { can } = useSession();
@@ -161,11 +156,13 @@ export default function PayRulesPage() {
 
                       <Field
                         label="Hari kerja efektif setahun"
-                        hint={`Enam hari seminggu = 312 hari, dikurangi tanggal merah dan cuti bersama. Angkanya milik perusahaan, bukan hitungan layar ini — IT yang mengisi, HRD dan payroll membacanya (Q45). Rata-rata per bulan: ${(rules.effective_days_per_year / 12).toFixed(1)} hari, diturunkan dari angka setahun dan tidak pernah disimpan terpisah.`}
+                        hint={`Angkanya milik perusahaan, bukan hitungan layar ini — IT yang mengisi, HRD dan payroll membacanya (D271). Yang baru di bawah adalah buktinya: kalender perusahaan sendiri, diuraikan, supaya angka ini diperiksa dan bukan diwarisi (Q45). Rata-rata per bulan: ${(rules.effective_days_per_year / 12).toFixed(1)} hari, diturunkan dari angka setahun dan tidak pernah disimpan terpisah.`}
                         value={rules.effective_days_per_year}
                         onChange={(v) => set({ effective_days_per_year: v })}
                         disabled={!mayEdit}
                       />
+
+                      <EffectiveDaysNote rules={rules} />
 
                       <Field
                         label="Pembagi gaji bulanan (peraturan)"
@@ -327,61 +324,15 @@ export default function PayRulesPage() {
                         />
                       </div>
 
-                      {/* Five patterns, not a start time per unit (Q44, D274).
-                          What a schedule does not say is left blank and named
-                          as unstated — the guard's twelve hours begin at a time
-                          nobody has fixed, and a number invented here becomes a
-                          lateness figure that looks measured. */}
+                      {/* Patterns, not a start time per unit (Q44, D274) — and
+                          editable since D291, because the office's Friday was
+                          wrong for a day while the fix waited on a deploy. What
+                          a schedule does not say stays blank and named as
+                          unstated: a number invented here becomes a lateness
+                          figure that looks measured. */}
                       <div>
                         <p className="mb-1 text-[12px] font-medium text-slate-700">Jadwal kerja</p>
-                        <div className="overflow-x-auto">
-                          <table className="w-full min-w-[520px] text-[12px]">
-                            <thead>
-                              <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400">
-                                <th className="py-1 pr-3 font-medium">Pola</th>
-                                <th className="py-1 pr-3 font-medium">Masuk</th>
-                                <th className="py-1 pr-3 font-medium">Pulang</th>
-                                <th className="py-1 pr-3 font-medium">Istirahat</th>
-                                <th className="py-1 pr-3 font-medium">Jumat</th>
-                                <th className="py-1 font-medium">Unit</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                              {(rules.schedules ?? []).map((sc) => {
-                                const units = Object.entries(rules.schedule_by_unit ?? {})
-                                  .filter(([, code]) => code === sc.code).map(([u]) => u);
-                                return (
-                                  <tr key={sc.code} className="align-top">
-                                    <td className="py-1.5 pr-3 text-slate-800">
-                                      {sc.name}
-                                      {sc.note && (
-                                        <span className="block max-w-[260px] whitespace-normal text-[11px] text-amber-700">
-                                          {sc.note}
-                                        </span>
-                                      )}
-                                    </td>
-                                    <td className="py-1.5 pr-3 tabular-nums text-slate-700">{clock(sc.start_minutes)}</td>
-                                    <td className="py-1.5 pr-3 tabular-nums text-slate-700">{clock(sc.end_minutes)}</td>
-                                    <td className="py-1.5 pr-3 tabular-nums text-slate-700">
-                                      {sc.break_minutes == null ? "belum ditetapkan" : `${sc.break_minutes} menit`}
-                                    </td>
-                                    <td className="py-1.5 pr-3 tabular-nums text-slate-700">
-                                      {sc.friday_break_minutes == null ? "—" : `${sc.friday_break_minutes} menit`}
-                                    </td>
-                                    <td className="py-1.5 text-slate-500">
-                                      {units.length > 0 ? units.join(", ") : "belum ada yang dipasang"}
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                              {(rules.schedules ?? []).length === 0 && (
-                                <tr><td colSpan={6} className="py-2 text-slate-500">
-                                  Buku aturan ini belum punya jadwal kerja; semua unit memakai jam masuk perusahaan di atas.
-                                </td></tr>
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
+                        <ScheduleEditor rules={rules} disabled={!mayEdit} onChange={set} />
                         <p className="mt-1 text-[11px] text-slate-500">
                           Jadwal yang jam masuknya belum ditetapkan tidak bisa dipakai menilai ketepatan waktu —
                           orang di jadwal itu terbaca <strong>tidak terukur</strong>, bukan tepat waktu. Istirahat
@@ -477,6 +428,18 @@ export default function PayRulesPage() {
                         subtitle={`Bruto ${formatIDR(preview.before_total)} → ${formatIDR(preview.after_total)}`}
                         icon={Scale}
                       />
+                      {/* Said before saving, not as the refusal afterwards:
+                          moving somebody off a pattern is work to do first, and
+                          a version that strands people is refused by the seam
+                          either way (D291). */}
+                      {preview.schedules_lost && (
+                        <p className="border-b border-rose-100 bg-rose-50 px-5 py-2.5 text-[12px] text-rose-900">
+                          <strong className="font-medium">Ada yang kehilangan jadwalnya.</strong>{" "}
+                          Buku ini tidak memuat pola yang masih dipakai: {preview.schedules_lost}. Orangnya
+                          tidak pindah ke jadwal lain — mereka berhenti punya jam sama sekali dan hilang
+                          dari layar jadwal. Pindahkan dulu, lalu terbitkan versinya.
+                        </p>
+                      )}
                       <ul className="divide-y divide-slate-100">
                         {preview.lines.length === 0 && (
                           <li className="px-5 py-4 text-[13px] text-slate-500">
@@ -686,8 +649,85 @@ function HourlyExample({ rules }: { rules: PayRules }) {
       <p className="mt-1 text-slate-500">
         Yang dipakai: <strong className="text-slate-700">{formatIDR(chosen)}</strong> per jam
         {gap !== 0 && <> — {Math.abs(gap)}% {gap > 0 ? "lebih tinggi" : "lebih rendah"} dari yang satunya</>}.
-        Selisihnya bukan pembulatan: 173 mengandaikan minggu 40 jam, dan kantor ini tidak bekerja 40 jam
-        seminggu.
+        Selisihnya bukan pembulatan: 173 mengandaikan minggu 40 jam, dan hari kerja efektif setahun
+        yang dipakai di sini belum tentu sepadan dengan angka itu — kalau keduanya sejalan, kedua
+        hitungan akan bertemu.
+      </p>
+    </div>
+  );
+}
+
+/** What the calendar counts, beside the figure IT types (Q45, D292).
+ *
+ *  D271 settled who types `hari kerja efektif` and that the monthly average is
+ *  derived from it. It never settled the number — and the number divides a
+ *  year's wage into an hourly rate, so twenty days of error moves every
+ *  overtime rupiah by eight per cent. 288 reached production as a demo default
+ *  (F138) and 240 replaced it as a better convention; both were nobody's
+ *  decision.
+ *
+ *  This does not replace the field. It prints the arithmetic the business's own
+ *  calendar already supports, so the typed figure becomes something checked
+ *  rather than inherited — and it prints **what the calendar does not know**,
+ *  because a year with no tanggal merah entered counts every weekday as worked.
+ *  A gap of nineteen days is not an error in the count; it is nineteen days
+ *  nobody has written down, and saying so is the only way it gets fixed.
+ *
+ *  Loaded on the pattern, not on the typed figure: counting a year of days on
+ *  every keystroke would be rude, and the difference is arithmetic the browser
+ *  can do against the number already on screen.
+ */
+function EffectiveDaysNote({ rules }: { rules: PayRules }) {
+  const { session } = useSession();
+  const year = Number(officeToday().slice(0, 4));
+  /* The acting user is in the deps, and it has to be: the seam answers **null**
+     to somebody without `payroll.read` or `it.update`, so this is a read whose
+     answer depends on who is asking. Keyed on the rules alone it cached the
+     first answer for ever — in demo mode, where the acting user changes from
+     the header, that is a permission-shaped figure going stale on screen. It
+     would have shown up in production too, on the first person promoted while
+     the tab was open. */
+  const [cal] = useLoad(
+    () => hr.effectiveDaysCalendar({ rules, year }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rules.week_pattern, year, session?.user.id],
+  );
+
+  if (cal.status !== "ready" || !cal.data) return null;
+  const c = cal.data;
+  const gap = rules.effective_days_per_year - c.working_days;
+
+  return (
+    <div className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-[12px] text-slate-600">
+      <p className="font-medium text-slate-700">
+        Kalender {c.year} menghitung {formatNumber(c.working_days)} hari kerja
+      </p>
+      <p className="mt-1">
+        {formatNumber(c.calendar_days)} hari setahun − {formatNumber(c.weekly_rest_days)} hari
+        istirahat mingguan (pola {c.days_per_week} hari) − {formatNumber(c.holidays_on_workdays)} tanggal
+        merah yang jatuh di hari kerja.
+      </p>
+      {c.holidays_recorded === 0 ? (
+        <p className="mt-1 text-amber-700">
+          <strong className="font-medium">Belum ada satu pun tanggal merah {c.year} yang tercatat</strong>,
+          jadi hitungan di atas menganggap semua hari kerja dimasuki. Selisih{" "}
+          {formatNumber(Math.abs(gap))} hari terhadap angka yang diketik kemungkinan besar adalah
+          hari-hari itu — bukan kesalahan hitung, melainkan hari yang belum dimasukkan siapa pun.
+        </p>
+      ) : (
+        <p className="mt-1 text-slate-500">
+          {formatNumber(c.holidays_recorded)} tanggal merah tercatat untuk {c.year}
+          {c.holidays_recorded > c.holidays_on_workdays && (
+            <> — {formatNumber(c.holidays_recorded - c.holidays_on_workdays)} di antaranya jatuh di hari
+              yang memang sudah libur dan tidak mengurangi apa pun</>
+          )}.
+        </p>
+      )}
+      <p className="mt-1">
+        Yang diketik: <strong className="text-slate-700">{formatNumber(rules.effective_days_per_year)}</strong>{" "}
+        {gap === 0
+          ? "— sama dengan hitungan kalender."
+          : `— ${formatNumber(Math.abs(gap))} hari ${gap < 0 ? "lebih sedikit" : "lebih banyak"} dari hitungan kalender.`}
       </p>
     </div>
   );

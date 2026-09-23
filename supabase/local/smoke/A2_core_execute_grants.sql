@@ -1,8 +1,8 @@
--- core — who may call a seam at all (0117).
+-- core — who may call a seam at all (0125).
 --
 -- ── Why this file is the real fix and the migration is not ──────────────
 --
--- `0117` revoked execute on every `security definer` function in `ops_*` from
+-- `0125` revoked execute on every `security definer` function in `ops_*` from
 -- `PUBLIC`. That closed what was open on the day it ran, and it cannot do
 -- anything about migration 0112: a new function is executable by `PUBLIC` the
 -- moment it is created, and the migration that would have caught it has
@@ -17,7 +17,7 @@
 -- ── What is being asserted, in one sentence ─────────────────────────────
 --
 -- The publishable key cannot call a seam. Not "cannot get a useful answer
--- from one" — cannot call it. The difference is the whole point of `0117`:
+-- from one" — cannot call it. The difference is the whole point of `0125`:
 -- before it, `anon` could execute `post_transaction` and was stopped only by
 -- `has_authority` returning false on a null `auth.uid()`, which is a runtime
 -- check against a claim rather than a privilege.
@@ -43,14 +43,14 @@ begin
     n || ' security definer function(s) in ops_* can be executed by `anon`, which is the '
     || 'key that ships in every browser bundle. A new function is executable by PUBLIC the '
     || 'moment it is created — revoke it from public in the migration that creates it, the '
-    || 'way 0117 did for the 175 that existed then:' || E'\n  ' || leaked;
+    || 'way 0125 did for the 175 that existed then:' || E'\n  ' || leaked;
 end $$;
 
 -- ── 2. the six that are shut stay shut ───────────────────────────────────
 --
 -- Named here, and **only** here, because this is the one place where naming
 -- them is the point: each is a function an earlier migration deliberately
--- revoked from `public`, and the first draft of `0117` handed every one of
+-- revoked from `public`, and the first draft of `0125` handed every one of
 -- them to `authenticated` with a blanket grant. The loop now reads the
 -- privilege before changing it, and this is what stops that regression coming
 -- back — including by way of a later migration re-creating one of these and
@@ -79,7 +79,8 @@ begin
             ('ops_acct.account_guard'),     -- 0105
             ('ops_inv.asset_refs_invalid'), -- 0107
             ('ops_prod.open_draft'),        -- 0109 — `revoke all`, not `revoke execute`
-            ('ops_inv.asset_rent_invalid')  -- 0116
+            ('ops_inv.asset_rent_invalid'), -- 0116
+            ('ops_hr.schedules_in_use_lost')-- 0117_hr_schedule_editable
          ) as shut(sig)
     join pg_proc p on p.oid::regproc::text = shut.sig
    where has_function_privilege('authenticated', p.oid, 'EXECUTE')
@@ -89,7 +90,7 @@ begin
   assert n = 0,
     n || ' function(s) that a migration deliberately revoked are reachable again: '
     || E'\n  ' || open_again || E'\n'
-    || 'A blanket `grant execute … to authenticated` is how this happens. 0117 reads the '
+    || 'A blanket `grant execute … to authenticated` is how this happens. 0125 reads the '
     || 'privilege before changing it precisely so that a function shut on purpose stays shut.';
 end $$;
 
@@ -114,7 +115,7 @@ begin
      and p.oid::regproc::text not in
          ('ops_core.bootstrap_admin','ops_core.idem_replay','ops_core.idem_remember',
           'ops_acct.account_guard','ops_inv.asset_refs_invalid','ops_prod.open_draft',
-          'ops_inv.asset_rent_invalid')
+          'ops_inv.asset_rent_invalid','ops_hr.schedules_in_use_lost')
      and not has_function_privilege('authenticated', p.oid, 'EXECUTE');
 
   assert n = 0,
@@ -195,7 +196,7 @@ begin
     'anon calling void_transaction raised ' || sqlstate_seen || ', not 42501 '
     || '(insufficient_privilege). Anything else means it got far enough to run the '
     || 'function body and was turned away by has_authority — which is the runtime check '
-    || '0117 exists to stop relying on.';
+    || '0125 exists to stop relying on.';
 end $$;
 
 rollback;
