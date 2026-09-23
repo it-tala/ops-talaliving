@@ -281,7 +281,11 @@ function Section({ title, subtitle, icon, rows, tone, muted }: {
                   </span>
                   {r.reason && <span className="block text-[11px] text-slate-500">{r.reason}</span>}
                 </td>
-                <td className="px-4 py-2 text-right tabular-nums text-slate-700">{formatIDR(r.planned)}</td>
+                <td className="px-4 py-2 text-right tabular-nums text-slate-700">
+                  {r.amount_kind === "estimate" && <span className="text-slate-400" title="Estimasi — nominal pasti baru diketahui saat tagihan datang">≈ </span>}
+                  {formatIDR(r.planned)}
+                  {r.amount_kind === "estimate" && <span className="block text-[10px] text-slate-400">estimasi</span>}
+                </td>
                 <td className="px-4 py-2 text-right tabular-nums">
                   {r.actual === 0 ? <span className="text-slate-300">—</span> : (
                     <>
@@ -292,6 +296,12 @@ function Section({ title, subtitle, icon, rows, tone, muted }: {
                         </span>
                       )}
                     </>
+                  )}
+                  {/* A paid estimate is settled; what it differs by is the news (`0114`). */}
+                  {r.variance != null && r.variance !== 0 && (
+                    <span className={cn("block text-[10px]", r.variance > 0 ? "text-amber-700" : "text-emerald-700")}>
+                      {r.variance > 0 ? "+" : "−"}{formatIDR(Math.abs(r.variance))} dari estimasi
+                    </span>
                   )}
                   {r.outstanding > 0 && r.actual > 0 && (
                     <span className="block text-[10px] text-amber-700">

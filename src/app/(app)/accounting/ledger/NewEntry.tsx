@@ -1,5 +1,6 @@
 "use client";
 
+import { TypeOptions } from "@/components/ui/type-options";
 import { useRef, useState } from "react";
 import { Plus, Trash2, Upload, FileText, Save } from "lucide-react";
 import { Badge, Button } from "@/components/ui/primitives";
@@ -11,7 +12,7 @@ import { formatIDR } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { accounting, documents, procurement } from "@/demo/api";
 import {
-  TRANSACTION_TYPE_CODES, type Direction, type TransactionTypeCode,
+  type Direction, type TransactionTypeCode,
 } from "@/services/accounting/contracts";
 import {
   DOC_KINDS, PRIMARY_DOC_KINDS, type DocKind,
@@ -64,7 +65,7 @@ export function NewEntry({ onClose, onPosted }: { onClose: () => void; onPosted:
     : false;
   const total = lines.reduce((s, l) => s + Math.round(l.qty * l.unit_price), 0);
   const hasPrimary = docs.some((d) => PRIMARY_DOC_KINDS.includes(d.kind));
-  const payingAccounts = accounts.status === "ready" ? accounts.data : [];
+  const payingAccounts = accounts.status === "ready" ? accounts.data.filter((a) => a.is_active !== false) : [];
 
   function patch(key: string, next: Partial<DraftLine>) {
     setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...next } : l)));
@@ -168,7 +169,7 @@ export function NewEntry({ onClose, onPosted }: { onClose: () => void; onPosted:
               onChange={(e) => setTypeCode(e.target.value as TransactionTypeCode)}
               className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none"
             >
-              {TRANSACTION_TYPE_CODES.map((c) => <option key={c} value={c}>{c}</option>)}
+              <TypeOptions current={typeCode} />
             </select>
           </div>
           <div className="sm:col-span-2">

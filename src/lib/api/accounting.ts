@@ -14,15 +14,18 @@ import type {
   TransactionType, Direction, AllocMethod, InboxStatus, InboxHealth,
   TrxStatus, BankStatementView, StatementLineView, StatementMatch,
   TransactionTypeCode, PaymentAllocation, VendorPayment, CashOverride, CashSettlement,
-  CashComponent, CashPlan, CashMonth, CashMonthDetail, CashDue, CashDayRow,
+  CashComponent, CashAmountKind, CashPlan, CashMonth, CashMonthDetail, CashDue, CashDayRow,
+  CashCell, CashRow, MonthlyBill, MonthlyBills, AssetRentSchedule, AccountCode,
   InboxOrigin, EvidenceInboxRow, IncomingMoney,
   DocumentCoverage, TransactionCoverage, CoverageTransaction,
   CoverageLine, CoveragePayment,
 } from "@/services/accounting/contracts";
 import type { DocKind } from "@/services/documents/contracts";
+import type { ContributionAuditGroup } from "@/services/hr/contracts";
 import type { LineCoverage } from "@/services/procurement/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { getActiveLocale, formatIDRCompact } from "@/lib/format";
+import { officeToday } from "@/lib/office";
 import { fail, fromSeam, fromPage, fromRows, invalid, notFound, ok, type Result } from "./_kit";
 
 const SERVICE = "accounting" as const;
@@ -136,6 +139,115 @@ export async function listAccountRows(): Promise<Result<Account[]>> {
 export async function listTypeRows(): Promise<Result<TransactionType[]>> {
   const { data, error } = await db().from("transaction_types").select("*").order("code");
   return fromRows<TransactionType[]>(SERVICE, data as TransactionType[], error);
+}
+
+/* ------------------------------------------------------------------ */
+/* Master data (0105): accounts and transaction types                  */
+/* ------------------------------------------------------------------ */
+
+async function accountByCode(code: string): Promise<Result<Account>> {
+  const { data, error } = await db().from("accounts").select("*").eq("code", code).maybeSingle();
+  if (error) return fail(SERVICE, error);
+  if (!data) return notFound(SERVICE, "account_not_found", "No such account.");
+  return ok(SERVICE, { ...data, opening_balance: Number(data.opening_balance) } as Account);
+}
+
+async function typeByCode(code: string): Promise<Result<TransactionType>> {
+  const { data, error } = await db().from("transaction_types").select("*").eq("code", code).maybeSingle();
+  if (error) return fail(SERVICE, error);
+  if (!data) return notFound(SERVICE, "type_not_found", "No such transaction type.");
+  return ok(SERVICE, data as TransactionType);
+}
+
+/** Accounting write, `post_ledger`, and `approve_funds` for anything touching
+ *  a leadership account — all decided by the seam (`0105`). */
+export async function createAccount(input: {
+  code: string; name: string; custody: Account["custody"]; is_paying?: boolean;
+  currency?: string; opening_balance?: number; opened_on?: string;
+}): Promise<Result<Account>> {
+  const { data, error } = await db().rpc("create_account", {
+    p_code: input.code, p_name: input.name, p_custody: input.custody,
+    p_is_paying: input.is_paying ?? false, p_currency: input.currency ?? "IDR",
+    p_opening_balance: input.opening_balance ?? 0, p_opened_on: input.opened_on ?? null,
+  });
+  const res = fromSeam<{ code: string }>(SERVICE, data, error);
+  if (res.error) return res;
+  return accountByCode(res.data.code);
+}
+
+/** Every field optional; an opening balance change needs `reason`, which the
+ *  audit log keeps with the value before and after. */
+export async function updateAccount(
+  code: string,
+  input: {
+    name?: string; custody?: Account["custody"]; is_paying?: boolean; currency?: string;
+    opening_balance?: number; opened_on?: string; is_active?: boolean; reason?: string;
+  },
+): Promise<Result<Account>> {
+  const { data, error } = await db().rpc("update_account", {
+    p_code: code,
+    p_name: input.name ?? null,
+    p_custody: input.custody ?? null,
+    p_is_paying: input.is_paying ?? null,
+    p_currency: input.currency ?? null,
+    p_opening_balance: input.opening_balance ?? null,
+    p_opened_on: input.opened_on ?? null,
+    p_is_active: input.is_active ?? null,
+    p_reason: input.reason ?? null,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return accountByCode(code);
+}
+
+export async function deleteAccount(code: string): Promise<Result<{ code: string; deleted: true }>> {
+  const { data, error } = await db().rpc("delete_account", { p_code: code });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, { code, deleted: true as const });
+}
+
+export async function createTransactionType(input: {
+  code: string; is_purchase?: boolean; auto_complete?: boolean;
+  creates_catalog_item?: boolean; description?: string;
+}): Promise<Result<TransactionType>> {
+  const { data, error } = await db().rpc("create_transaction_type", {
+    p_code: input.code,
+    p_is_purchase: input.is_purchase ?? true,
+    p_auto_complete: input.auto_complete ?? false,
+    p_creates_catalog_item: input.creates_catalog_item ?? false,
+    p_description: input.description ?? null,
+  });
+  const res = fromSeam<{ code: string }>(SERVICE, data, error);
+  if (res.error) return res;
+  return typeByCode(res.data.code);
+}
+
+export async function updateTransactionType(
+  code: string,
+  input: {
+    is_purchase?: boolean; auto_complete?: boolean; creates_catalog_item?: boolean;
+    description?: string; is_active?: boolean;
+  },
+): Promise<Result<TransactionType>> {
+  const { data, error } = await db().rpc("update_transaction_type", {
+    p_code: code,
+    p_is_purchase: input.is_purchase ?? null,
+    p_auto_complete: input.auto_complete ?? null,
+    p_creates_catalog_item: input.creates_catalog_item ?? null,
+    p_description: input.description ?? null,
+    p_is_active: input.is_active ?? null,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return typeByCode(code);
+}
+
+export async function deleteTransactionType(code: string): Promise<Result<{ code: string; deleted: true }>> {
+  const { data, error } = await db().rpc("delete_transaction_type", { p_code: code });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, { code, deleted: true as const });
 }
 
 /* ------------------------------------------------------------------ */
@@ -1000,7 +1112,16 @@ export async function coverageForTransaction(trxNo: string): Promise<Result<Tran
  *  (`short_month` / `short_by` / each month's `closing`), so nothing is
  *  computed here that the database has not already decided. */
 export async function getCashPlan(): Promise<Result<CashPlan>> {
-  const { data, error } = await db().rpc("cash_plan");
+  return planFrom();
+}
+
+/** The same plan anchored at a month's first day (`0114`'s `p_from`) —
+ *  Monthly bills compares a month with the one before it, and the default
+ *  window starts today. */
+async function planFrom(from?: string): Promise<Result<CashPlan>> {
+  const { data, error } = from
+    ? await db().rpc("cash_plan", { p_from: from })
+    : await db().rpc("cash_plan");
   if (error) return fail(SERVICE, error);
   const plan = data as Omit<CashPlan, "months" | "verdict"> & {
     months: Omit<CashMonth, "label">[];
@@ -1093,6 +1214,136 @@ export async function listDue(): Promise<Result<CashDue[]>> {
   return ok(SERVICE, due);
 }
 
+/** The month's bills as a worklist — `monthlyBills()` in the demo, over the
+ *  same `cash_plan()` the calendar reads (D227, D228). Two runs of one seam:
+ *  one anchored at the month shown, one at the month before, so *last month*
+ *  exists at all (F68). Everything below is arithmetic on what those two runs
+ *  already decided, the demo's rules line for line. */
+export async function getMonthlyBills(month?: string): Promise<Result<MonthlyBills>> {
+  const today = officeToday();
+  const m = month || today.slice(0, 7);
+  const prev = previousMonth(m);
+
+  const [planRes, prevRes, setting] = await Promise.all([
+    planFrom(`${m}-01`),
+    planFrom(`${prev}-01`),
+    core().from("settings").select("value").eq("key", "ops.bill_anomaly_percent").maybeSingle(),
+  ]);
+  if (planRes.error) return planRes;
+  if (prevRes.error) return prevRes;
+  const plan = planRes.data;
+  const prevPlan = prevRes.data;
+  const threshold = Number((setting.data as { value?: unknown } | null)?.value ?? 25) || 25;
+
+  /* A month that has ended is worth what it cost; one still running, what it
+     is expected to cost — and a paid estimate, what it came to (`0114`). */
+  const ended = (x: string) => x < today.slice(0, 7);
+  const figure = (cell: CashCell, x: string, estimate: boolean) =>
+    ended(x) || (estimate && cell.state === "PAID") ? cell.actual : Math.max(cell.planned, cell.actual);
+  const isEstimate = (row: CashRow) => row.component.amount_kind === "estimate";
+
+  const lastByComponent = new Map<string, number>();
+  for (const row of prevPlan.rows) {
+    const cell = row.cells.find((c) => c.month === prev);
+    if (cell && cell.state !== "SKIPPED") lastByComponent.set(row.component.id, figure(cell, prev, isEstimate(row)));
+  }
+  const thisByComponent = new Map<string, number>();
+  const occurrences = new Map<string, number>();
+  for (const row of plan.rows) {
+    const cell = row.cells.find((c) => c.month === m);
+    if (cell && cell.state !== "SKIPPED") {
+      thisByComponent.set(row.component.id, figure(cell, m, isEstimate(row)));
+      occurrences.set(row.component.id, cell.events.length);
+    }
+  }
+
+  const bills: MonthlyBill[] = plan.rows
+    .flatMap((row) => row.cells.filter((c) => c.month === m).flatMap((c) => c.events.map((e) => ({ row, event: e }))))
+    .map(({ row, event }) => {
+      const last = lastByComponent.get(row.component.id) ?? null;
+      const thisMonth = thisByComponent.get(row.component.id) ?? 0;
+      const deltaPercent = last == null || last === 0 ? null : Math.round(((thisMonth - last) / last) * 100);
+      const settledGuess = isEstimate(row) && event.state === "PAID";
+      return {
+        component_id: row.component.id,
+        name: event.name,
+        date: event.date,
+        direction: event.direction,
+        planned: Number(event.planned),
+        actual: Number(event.actual),
+        outstanding: settledGuess ? 0 : Math.max(0, event.planned - event.actual),
+        amount_kind: row.component.amount_kind ?? "fixed",
+        variance: settledGuess ? event.actual - event.planned : null,
+        state: event.state,
+        days_away: daysBetween(today, event.date),
+        vendor_name: event.vendor_name,
+        account_code: event.account_code,
+        trx_nos: event.trx_nos,
+        matched_by: event.matched_by,
+        reason: event.reason,
+        month_total: thisMonth,
+        occurrences: occurrences.get(row.component.id) ?? 1,
+        last_month: last,
+        delta: last == null ? null : thisMonth - last,
+        delta_percent: deltaPercent,
+        unusual: deltaPercent != null && Math.abs(deltaPercent) >= threshold,
+      };
+    })
+    .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+
+  const out = bills.filter((b) => b.direction === "OUT" && b.state !== "SKIPPED");
+  const lastTotal = lastByComponent.size > 0
+    ? prevPlan.rows
+        .filter((r) => r.component.direction === "OUT")
+        .reduce((sum, r) => {
+          const c = r.cells.find((x) => x.month === prev);
+          return sum + (c && c.state !== "SKIPPED" ? figure(c, prev, isEstimate(r)) : 0);
+        }, 0)
+    : null;
+
+  return ok(SERVICE, {
+    month: m,
+    label: monthLabel(m),
+    bills,
+    total_planned: out.reduce((s, b) => s + b.planned, 0),
+    total_paid: out.reduce((s, b) => s + b.actual, 0),
+    total_outstanding: out.reduce((s, b) => s + b.outstanding, 0),
+    overdue_count: out.filter((b) => b.state === "OVERDUE").length,
+    overdue_amount: out.filter((b) => b.state === "OVERDUE").reduce((s, b) => s + b.outstanding, 0),
+    due_this_week: out.filter((b) => b.state === "DUE").length,
+    unusual_count: new Set(out.filter((b) => b.unusual).map((b) => b.component_id)).size,
+    last_month_total: lastTotal,
+  });
+}
+
+/** An asset's rent onto the payment calendar, once (`0116`): fixed lines
+ *  marked with the asset's tag, so a second press is refused. */
+export async function scheduleAssetRent(
+  assetNo: string,
+  opts: { account_code?: AccountCode | null; type_code?: TransactionTypeCode | null } = {},
+): Promise<Result<AssetRentSchedule>> {
+  const { data, error } = await db().rpc("schedule_asset_rent", {
+    p_asset_no: assetNo,
+    p_account_code: opts.account_code ?? null,
+    p_type_code: opts.type_code ?? null,
+  });
+  return fromSeam<AssetRentSchedule>(SERVICE, data, error);
+}
+
+/** The contribution audit — names × rate against what left (D259). The demo
+ *  derives it from the roster's schemes (`contributionAudit`); no seam computes
+ *  it against the live roster yet. Until one does the answer is an empty list,
+ *  which the Monthly bills card reads as nothing to show and hides itself;
+ *  refusing instead would take the whole bills page down with it. */
+export async function getContributionAudit(_month?: string): Promise<Result<ContributionAuditGroup[]>> {
+  return ok(SERVICE, []);
+}
+
+function previousMonth(month: string): string {
+  const [y, mo] = month.split("-").map(Number);
+  return mo === 1 ? `${y - 1}-12` : `${y}-${String(mo - 1).padStart(2, "0")}`;
+}
+
 /** One line, one month: the cell a calendar draws. Its state is the **worst**
  *  of the occurrences behind it, because a month with one overdue payday is an
  *  overdue month however well the other three went. */
@@ -1145,6 +1396,7 @@ export async function saveComponent(input: {
   account_code?: string | null;
   starts_on?: string | null;
   note?: string | null;
+  amount_kind?: CashAmountKind;
 }): Promise<Result<unknown>> {
   const { data, error } = await db().rpc("save_cash_component", {
     p_name: input.name,
@@ -1160,6 +1412,7 @@ export async function saveComponent(input: {
     p_starts_on: input.starts_on ?? null,
     p_note: input.note ?? null,
     p_id: input.id ?? null,
+    p_amount_kind: input.amount_kind ?? null,
   });
   return fromSeam(SERVICE, data, error);
 }
@@ -1198,6 +1451,7 @@ export async function addComponent(input: {
   starts_on?: string;
   ends_on?: string | null;
   note?: string | null;
+  amount_kind?: CashAmountKind;
 }): Promise<Result<CashComponent>> {
   const { data, error } = await db().rpc("save_cash_component", {
     p_name: input.name,
@@ -1215,6 +1469,7 @@ export async function addComponent(input: {
     p_id: null,
     p_ends_on: input.ends_on ?? null,
     p_active: true,
+    p_amount_kind: input.amount_kind ?? "fixed",
   });
   const saved = fromSeam<{ component_id: string }>(SERVICE, data, error);
   if (saved.error) return saved;
@@ -1234,7 +1489,10 @@ export async function addComponent(input: {
  *  does not blank out the line's vendor, category or due date. */
 export async function updateComponent(
   id: string,
-  patch: { name?: string; amount?: number; due_day?: number; ends_on?: string | null; note?: string | null; active?: boolean },
+  patch: {
+    name?: string; amount?: number; due_day?: number; ends_on?: string | null;
+    note?: string | null; active?: boolean; amount_kind?: CashAmountKind;
+  },
 ): Promise<Result<CashComponent>> {
   const current = await db().from("cash_components").select("*").eq("id", id).maybeSingle();
   if (current.error) return fail(SERVICE, current.error);
@@ -1257,6 +1515,7 @@ export async function updateComponent(
     p_id: id,
     p_ends_on: patch.ends_on !== undefined ? patch.ends_on : row.ends_on,
     p_active: patch.active ?? row.active,
+    p_amount_kind: patch.amount_kind ?? null,
   });
   const saved = fromSeam(SERVICE, data, error);
   if (saved.error) return saved;

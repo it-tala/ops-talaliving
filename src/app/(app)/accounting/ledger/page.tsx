@@ -1,5 +1,6 @@
 "use client";
 
+import { TypeOptions } from "@/components/ui/type-options";
 import { useEffect, useState } from "react";
 import { BookOpen, Paperclip, AlertTriangle, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
@@ -9,7 +10,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { formatIDR } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { accounting } from "@/demo/api";
-import { TRANSACTION_TYPE_CODES, type TransactionView } from "@/services/accounting/contracts";
+import { type TransactionView } from "@/services/accounting/contracts";
 import { TrxDrawer } from "./TrxDrawer";
 import { CashPosition } from "./CashPosition";
 import { NewEntry } from "./NewEntry";
@@ -176,7 +177,7 @@ export default function LedgerPage() {
           className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-700 focus:border-brand-400 focus:outline-none"
         >
           <option value="">All types</option>
-          {TRANSACTION_TYPE_CODES.map((c) => <option key={c} value={c}>{c}</option>)}
+          <TypeOptions includeRetired />
         </select>
         <label className="flex items-center gap-1.5 text-xs text-slate-500">
           <input

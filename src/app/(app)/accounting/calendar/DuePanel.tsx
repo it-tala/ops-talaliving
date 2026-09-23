@@ -45,6 +45,11 @@ export function DuePanel({ onChanged }: { onChanged: () => void }) {
                         one-off
                       </span>
                     )}
+                    {d.amount_kind === "estimate" && (
+                      <span className="ml-1.5 rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-normal text-sky-700" title="An estimate — any matched payment settles it">
+                        estimate
+                      </span>
+                    )}
                   </span>
                   <span className={cn(
                     "w-[120px] text-right text-[13px] tabular-nums",

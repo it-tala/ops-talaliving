@@ -48,6 +48,8 @@ begin
   r := ops_procure.create_item('Plywood 18mm','raw-wood','lembar');
   assert ops_core.said_ok(r), format('got %s', r);
   icode := r -> 'data' ->> 'code';
+  -- Five digits, like the imported catalogue (I-00001 … I-01045), not four (0112).
+  assert icode ~ '^I-\d{5}$', format('item code has five digits, got %s', icode);
 
   -- Curation is a flag with a name on it, never a gate.
   r := ops_procure.curate_vendor(vcode, true);

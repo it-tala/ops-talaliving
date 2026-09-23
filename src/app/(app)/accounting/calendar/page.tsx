@@ -198,7 +198,12 @@ function Grid({
         className="sticky left-0 z-10 cursor-pointer bg-white px-4 py-2 text-left align-top hover:bg-slate-50"
         onClick={() => onPick(r.component)}
       >
-        <span className="block text-[13px] font-medium text-slate-800">{r.component.name}</span>
+        <span className="block text-[13px] font-medium text-slate-800">
+          {r.component.name}
+          {r.component.amount_kind === "estimate" && (
+            <span className="ml-1.5 rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-normal text-sky-700" title="An estimate — any matched payment settles it">estimate</span>
+          )}
+        </span>
         <span className="block text-[11px] text-slate-500">
           {r.component.frequency === "weekly"
             ? `every ${WEEKDAYS[r.component.due_weekday ?? 5]}`
