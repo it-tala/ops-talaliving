@@ -11,7 +11,7 @@ import { Loaded, useLoad } from "@/components/ui/loaded";
 import { NumberInput } from "@/components/ui/number-input";
 import { MoneyInput } from "@/components/ui/money-input";
 import { CategoryOptions } from "@/components/ui/category-options";
-import { UomOptions } from "@/components/ui/uom-options";
+import { UomOptions, useUnits } from "@/components/ui/uom-options";
 import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { documents, procurement, production } from "@/demo/api";
@@ -675,6 +675,7 @@ function EditRow({ p, c, busy, run, settle, onDone }: PartProps & { c: BomLineVi
 /* ── + : a new line ──────────────────────────────────────────────────────── */
 
 function AddLine({ p, busy, run, settle, onDone }: PartProps & { onDone: () => void }) {
+  const units = useUnits();
   const [mode, setMode] = useState<BomKind>("material");
   const [items, reloadItems] = useLoad(() => procurement.listItems(), []);
   const [cats] = useLoad(() => procurement.listCategories(), []);
@@ -747,8 +748,11 @@ function AddLine({ p, busy, run, settle, onDone }: PartProps & { onDone: () => v
 
   return (
     <div className="border-b border-slate-100 bg-slate-50/60 px-4 py-3">
+      {/* The units Master Data holds, plus the two a labour line is counted
+          in — those are the workshop's day and hour, not units anything is
+          bought by, so they are not in the unit table. */}
       <datalist id="bom-uoms">
-        {["hari", "jam", "unit", "pcs", "m3", "m2", "meter", "lembar", "ltr", "kg", "set"].map((u) => <option key={u} value={u} />)}
+        {[...new Set(["hari", "jam", ...(units ?? []).map((u) => u.code)])].map((u) => <option key={u} value={u} />)}
       </datalist>
       <div className="flex flex-wrap items-center gap-1.5">
         {([

@@ -10,7 +10,7 @@ import type {
   LogPurchaseView, LogMeasure, TimberVendorSummary,
   StockItemView, StockItemDetail, StockLocation, StockMove, StockMoveView,
   BoardStockView, BoardMoveView, BoardMoveKind, NotaScan,
-  Asset, AssetView, AssetCategory, AssetStatus, AssetInput,
+  Asset, AssetView, AssetCategory, AssetStatus, AssetInput, AssetService, AssetServiceInput,
 } from "@/services/inventory/contracts";
 import { ASSET_GONE, ASSET_OWNERSHIP_LABEL } from "@/services/inventory/contracts";
 import type { DemoState, AuditRow } from "../state";
@@ -20,6 +20,7 @@ import {
   logPurchaseView, logPurchaseViews, timberVendorSummaries,
   stockItems, stockItemDetail, stockMoveViews,
   boardStock, boardMoveViews,
+  itemUsedIn as usedIn,
 } from "../inventory-derive";
 import { materialPlan } from "../production-derive";
 import type { MaterialPlan } from "@/services/production/contracts";
@@ -316,6 +317,12 @@ export async function listStock(
     rows = rows.filter((r) => `${r.item_code} ${r.item_name} ${r.category_name}`.toLowerCase().includes(q));
   }
   return ok(SERVICE, rows);
+}
+
+/** Which products' BOMs call for this item, latest revision only. */
+export async function itemUsedIn(itemCode: string): Promise<Result<StockItemDetail["used_in"]>> {
+  await latency();
+  return ok(SERVICE, usedIn(getState(), itemCode));
 }
 
 export async function getStockItem(itemCode: string): Promise<Result<StockItemDetail>> {
@@ -895,7 +902,89 @@ function assetView(state: DemoState, a: Asset): AssetView {
     contract_expired: a.ownership !== "owned" && !!a.contract_end && !ASSET_GONE.includes(a.status)
       && a.contract_end < officeToday(),
     rent_lines: state.cash_components.filter((c) => c.active && c.source_ref === `asset:${a.asset_no}`).length,
+    ...serviceSummary(state, a),
   };
+}
+
+/** The service columns `v_asset` reads (`0121`): the latest job's date, the
+ *  next due, and a flag two weeks ahead. */
+function serviceSummary(state: DemoState, a: Asset) {
+  const jobs = state.asset_services
+    .filter((s) => s.asset_no === a.asset_no)
+    .sort((x, y) => y.service_date.localeCompare(x.service_date) || y.recorded_at.localeCompare(x.recorded_at));
+  /* The latest job that set a next due, unless a routine service was done
+     after it — a repair in between does not cancel the oil change (`0121`). */
+  const next = jobs.find((j) => j.next_due
+    && !jobs.some((k) => k.kind === "service" && k.service_date > j.service_date))?.next_due ?? null;
+  return {
+    last_service_on: jobs[0]?.service_date ?? null,
+    next_service_due: next,
+    service_due: !!next && next <= addDays(officeToday(), 14) && !ASSET_GONE.includes(a.status),
+    service_count: jobs.length,
+  };
+}
+
+/** One asset's service log, newest first. */
+export async function listAssetServices(assetNo: string): Promise<Result<AssetService[]>> {
+  await latency();
+  const state = getState();
+  return ok(SERVICE, state.asset_services
+    .filter((s) => s.asset_no === assetNo)
+    .map((s) => ({ ...s, vendor_name: s.vendor_code ? state.vendors.find((v) => v.code === s.vendor_code)?.name ?? null : null }))
+    .sort((x, y) => y.service_date.localeCompare(x.service_date) || y.recorded_at.localeCompare(x.recorded_at)));
+}
+
+/** A job done on an asset (`0121`). Logged once done — a future date belongs
+ *  in `next_due`. */
+export async function addAssetService(assetNo: string, input: AssetServiceInput): Promise<Result<AssetService>> {
+  await latency();
+  const denied = requireModule(SERVICE, "inventory");
+  if (denied) return denied;
+  const state = getState();
+  const a = state.assets.find((x) => x.asset_no === assetNo);
+  if (!a) return notFound(SERVICE, "asset_not_found", "No such asset.");
+  if (!input.service_date) return invalid(SERVICE, "date_required", "When was the work done?", { field: "service_date" });
+  if (input.service_date > officeToday()) {
+    return invalid(SERVICE, "date_in_future", "A job is logged once it is done. Put a future date in \"next due\".", { field: "service_date" });
+  }
+  if (!input.description.trim()) return invalid(SERVICE, "description_required", "Say what was done.", { field: "description" });
+  if (input.cost != null && input.cost < 0) return invalid(SERVICE, "cost_negative", "A cost cannot be negative.", { field: "cost" });
+  if (input.next_due && input.next_due <= input.service_date) {
+    return invalid(SERVICE, "next_due_invalid", "The next one is due after this one.", { field: "next_due" });
+  }
+  const bad = assetRefsInvalid(state, { vendor_code: input.vendor_code, trx_no: input.trx_no });
+  if (bad) return bad;
+  const row: Omit<AssetService, "vendor_name"> = {
+    id: newId("asv"), asset_no: assetNo, service_date: input.service_date, kind: input.kind ?? "service",
+    description: input.description.trim(), vendor_code: input.vendor_code?.trim() || null,
+    cost: input.cost ?? null, trx_no: input.trx_no?.trim() || null, next_due: input.next_due ?? null,
+    recorded_by: actingUser().id, recorded_at: new Date().toISOString(),
+  };
+  apply((draft) => {
+    draft.asset_services.push(row);
+    writeAudit(draft, {
+      service: SERVICE, entity: "asset", entity_no: assetNo, action: "service", outcome: "ok", reason: null,
+      detail: { service_date: row.service_date, kind: row.kind, description: row.description, cost: row.cost, next_due: row.next_due },
+    });
+  });
+  return ok(SERVICE, { ...row, vendor_name: row.vendor_code ? state.vendors.find((v) => v.code === row.vendor_code)?.name ?? null : null });
+}
+
+/** For a row entered by mistake; audited with what it said. */
+export async function deleteAssetService(id: string, reason?: string): Promise<Result<{ id: string; deleted: true }>> {
+  await latency();
+  const denied = requireModule(SERVICE, "inventory");
+  if (denied) return denied;
+  const s = getState().asset_services.find((x) => x.id === id);
+  if (!s) return notFound(SERVICE, "service_not_found", "No such service entry.");
+  apply((draft) => {
+    draft.asset_services = draft.asset_services.filter((x) => x.id !== id);
+    writeAudit(draft, {
+      service: SERVICE, entity: "asset", entity_no: s.asset_no, action: "service_delete", outcome: "ok",
+      reason: reason?.trim() || null, detail: { service_date: s.service_date, description: s.description, cost: s.cost },
+    });
+  });
+  return ok(SERVICE, { id, deleted: true as const });
 }
 
 function addDays(day: string, n: number): string {

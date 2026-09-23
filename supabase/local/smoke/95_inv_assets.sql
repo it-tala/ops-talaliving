@@ -124,7 +124,7 @@ declare d jsonb;
 begin
   select detail into d from ops_core.audit_log
    where entity = 'asset' and action = 'update' and outcome = 'ok'
-   order by at desc limit 1;
+   order by at desc, id desc limit 1;
   assert d ? 'location' and d -> 'location' ->> 'to' = 'Office front door' and d ? 'model',
     'only the changed fields, from/to, got ' || d::text;
   assert not (d ? 'brand'), 'unchanged fields left out';

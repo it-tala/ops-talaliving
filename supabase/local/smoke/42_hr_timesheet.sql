@@ -27,7 +27,7 @@ insert into ops_core.user_modules (user_id, module, level) values
   ('ffffffff-0000-0000-0000-0000000000c2','dashboard','read');
 
 insert into ops_hr.employees (id, employee_no, full_name, unit, schedule_code, pay_basis, base_rate, paid_leave_days)
-values ('aaaa0000-0000-0000-0000-00000000d001','B-201','Agus Salim','Produksi','produksi','daily',180000,2);
+values ('aaaa0000-0000-0000-0000-00000000d001','B-201','Agus Salim','Produksi','PRODUKSI','daily',180000,2);
 
 insert into ops_core.attachments (id, storage_path, filename, uploaded_by) values
   ('44440000-0000-0000-0000-0000000000c1','a/x.jpg','x.jpg','ffffffff-0000-0000-0000-0000000000c1');
@@ -39,12 +39,12 @@ insert into ops_hr.pay_rule_sets (version, effective_from, note, rules, created_
    "week_pattern": "6day",
    "day_starts_minutes": 480,
    "schedules": [
-     {"code":"produksi","name":"Produksi","start_minutes":450,"end_minutes":990,
+     {"code":"PRODUKSI","name":"Produksi","start_minutes":450,"end_minutes":990,
       "break_minutes":45,"friday_break_minutes":90,"note":null},
-     {"code":"kantor","name":"Kantor","start_minutes":480,"end_minutes":1035,
+     {"code":"KANTOR","name":"Kantor","start_minutes":480,"end_minutes":1035,
       "break_minutes":60,"friday_break_minutes":90,"note":null}
    ],
-   "schedule_by_unit": {"Produksi":"produksi","Kantor":"kantor"}
+   "schedule_by_unit": {"Produksi":"PRODUKSI","Kantor":"KANTOR"}
  }'::jsonb, 'ffffffff-0000-0000-0000-0000000000c1');
 
 set local role authenticated;

@@ -26,14 +26,14 @@ insert into ops_hr.pay_rule_sets (version, effective_from, note, rules, created_
    "week_pattern": "6day",
    "day_starts_minutes": 480,
    "schedules": [
-     {"code":"produksi","name":"Produksi","start_minutes":450,"end_minutes":990,
+     {"code":"PRODUKSI","name":"Produksi","start_minutes":450,"end_minutes":990,
       "break_minutes":45,"friday_break_minutes":90,"note":null},
-     {"code":"kantor","name":"Kantor","start_minutes":480,"end_minutes":1035,
+     {"code":"KANTOR","name":"Kantor","start_minutes":480,"end_minutes":1035,
       "break_minutes":60,"friday_break_minutes":null,"note":null},
-     {"code":"shift-malam","name":"Shift malam","start_minutes":null,"end_minutes":null,
+     {"code":"SHIFT-MALAM","name":"Shift malam","start_minutes":null,"end_minutes":null,
       "break_minutes":null,"friday_break_minutes":null,"note":"belum dipastikan"}
    ],
-   "schedule_by_unit": {"Produksi":"produksi","Kantor":"kantor"}
+   "schedule_by_unit": {"Produksi":"PRODUKSI","Kantor":"KANTOR"}
  }'::jsonb, 'ffffffff-0000-0000-0000-000000005701'),
  -- **A second version, in force from the middle of the week below.** The
  -- payroll reads the book in force when the period *opened*, which is the whole
@@ -56,17 +56,17 @@ insert into ops_hr.employees (id, employee_no, full_name, unit, schedule_code, p
                               base_rate, allowance_rate, paid_leave_days)
 values
   -- Linked by name: a decision somebody took.
-  ('aaaa5700-0000-0000-0000-0000000000e1','B-0012','Joko','Produksi','produksi','monthly', 4500000, 25000, 12),
+  ('aaaa5700-0000-0000-0000-0000000000e1','B-0012','Joko','Produksi','PRODUKSI','monthly', 4500000, 25000, 12),
   -- On a pattern only because the unit defaults to it: an assumption.
   ('aaaa5700-0000-0000-0000-0000000000e2','B-0007','Siti','Kantor', null,'daily', 180000, 20000, 12),
   -- Nobody linked her and her unit has no default: no clock at all to judge
   -- her against, which is the gap HR is asked to close (F70).
   ('aaaa5700-0000-0000-0000-0000000000e3','B-0044','Rina','Gudang', null,'daily', 170000, 20000, 12),
   -- Left in the middle of the week below. Still owed the days he worked.
-  ('aaaa5700-0000-0000-0000-0000000000e4','B-0055','Bambang','Produksi','produksi','daily', 170000, 20000, 12),
+  ('aaaa5700-0000-0000-0000-0000000000e4','B-0055','Bambang','Produksi','PRODUKSI','daily', 170000, 20000, 12),
   -- Left in August, and still on a pattern in the rule book. Neither the roll
   -- nor the period should count him.
-  ('aaaa5700-0000-0000-0000-0000000000e5','B-0066','Hendra','Produksi','produksi','daily', 170000, 20000, 12);
+  ('aaaa5700-0000-0000-0000-0000000000e5','B-0066','Hendra','Produksi','PRODUKSI','daily', 170000, 20000, 12);
 update ops_hr.employees set active = false, left_on = ops_core.office_day() + 2
  where employee_no = 'B-0055';
 update ops_hr.employees set active = false, left_on = '2026-08-30'
@@ -81,7 +81,7 @@ begin
   assert jsonb_array_length(j -> 'schedules') = 3, 'got ' || jsonb_array_length(j -> 'schedules');
 
   select value into s from jsonb_array_elements(j -> 'schedules')
-   where value ->> 'code' = 'produksi';
+   where value ->> 'code' = 'PRODUKSI';
   -- 07:30 to 16:30 less 45 minutes.
   assert (s -> 'hours' ->> 'daily_hours')::numeric = 8.25, 'got ' || (s -> 'hours' ->> 'daily_hours');
   -- **Friday counted at its own length.** A longer break on one day of six is
@@ -95,7 +95,7 @@ begin
   assert (s ->> 'inherited')::int = 0, 'got ' || (s ->> 'inherited');
   assert s -> 'units' = '["Produksi"]'::jsonb, 'got ' || coalesce((s -> 'units')::text,'(null)');
 
-  select value into s from jsonb_array_elements(j -> 'schedules') where value ->> 'code' = 'kantor';
+  select value into s from jsonb_array_elements(j -> 'schedules') where value ->> 'code' = 'KANTOR';
   assert (s -> 'hours' ->> 'friday_hours') is null, 'no separate Friday rule stated';
   -- 08:00 to 17:15 less an hour, six days: no Friday rule, so every day is
   -- the same length.
@@ -107,7 +107,7 @@ begin
 
   -- A pattern nobody has finished describing has **no** hours, not nought
   -- hours, and says what is missing.
-  select value into s from jsonb_array_elements(j -> 'schedules') where value ->> 'code' = 'shift-malam';
+  select value into s from jsonb_array_elements(j -> 'schedules') where value ->> 'code' = 'SHIFT-MALAM';
   assert (s -> 'hours' ->> 'daily_hours') is null, 'got ' || coalesce(s -> 'hours' ->> 'daily_hours','(null)');
   assert s -> 'hours' ->> 'blocked_by' like 'Belum ada jam masuk, jam pulang, istirahat%',
     'got ' || coalesce(s -> 'hours' ->> 'blocked_by','(null)');
@@ -119,7 +119,7 @@ begin
   assert j -> 'unlinked' -> 0 ->> 'employee_no' = 'B-0044', 'got '
     || coalesce(j -> 'unlinked' -> 0 ->> 'employee_no','(null)');
   assert jsonb_array_length(j -> 'inherited') = 1, 'got ' || jsonb_array_length(j -> 'inherited');
-  assert j -> 'inherited' -> 0 ->> 'schedule_code' = 'kantor', 'and which one it assumed';
+  assert j -> 'inherited' -> 0 ->> 'schedule_code' = 'KANTOR', 'and which one it assumed';
 end $$;
 
 /* ── DERIVATION: a week is costed before anybody opens a run (D158) ─────── */

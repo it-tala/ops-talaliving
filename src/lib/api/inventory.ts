@@ -22,7 +22,7 @@ import type {
   StockLocation, StockMove, StockMoveView, StockItemView, StockItemDetail,
   LogMeasure, LogPiece, LogPieceView, SawnBoard, SawnBoardView, LogPurchaseView,
   TimberVendorSummary, BoardStockView, BoardMoveView, BoardMoveKind, NotaScan,
-  AssetView, AssetCategory, AssetStatus, AssetInput,
+  AssetView, AssetCategory, AssetStatus, AssetInput, AssetService, AssetServiceInput,
 } from "@/services/inventory/contracts";
 import type { MaterialPlan } from "@/services/production/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -34,6 +34,7 @@ const SERVICE = "inventory" as const;
 const db = () => supabaseBrowser().schema("ops_inv");
 const procure = () => supabaseBrowser().schema("ops_procure");
 const core = () => supabaseBrowser().schema("ops_core");
+const prod = () => supabaseBrowser().schema("ops_prod");
 
 const round4 = (n: number) => Math.round(n * 10_000) / 10_000;
 
@@ -162,22 +163,50 @@ export async function getStockItem(itemCode: string): Promise<Result<StockItemDe
   if (withLoc.error) return withLoc;
   const view = withLoc.data[0];
 
-  const [movesRes, onOrderRes] = await Promise.all([
+  const [movesRes, onOrderRes, usedInRes] = await Promise.all([
     listStockMoves({ item_code: itemCode }),
     onOrderFor(itemCode),
+    itemUsedIn(itemCode),
   ]);
   if (movesRes.error) return movesRes;
+  if (usedInRes.error) return usedInRes;
 
   return ok(SERVICE, {
     ...view,
     moves: movesRes.data,
-    /* `used_in` (which products' BOMs call for this item) reads `ops_prod`,
-       which has no tables in this project yet (production's own migrations,
-       0060–0066, have never been applied) — empty rather than a 500 until
-       that module exists to ask. */
-    used_in: [],
+    used_in: usedInRes.data,
     on_order: onOrderRes,
   });
+}
+
+/** Which products' BOMs call for this item — each product's **latest**
+ *  revision only, because a line dropped in rev 3 is not a reason to keep
+ *  buying. By code, across the seam (ADR-004). `ops_prod` is readable by any
+ *  signed-in user (`0060`), so the catalogue can ask without production's
+ *  grants. Was hard-coded empty while `ops_prod` had no tables. */
+export async function itemUsedIn(itemCode: string): Promise<Result<StockItemDetail["used_in"]>> {
+  const { data, error } = await prod().from("v_product_bom")
+    .select("product_id, product_code, rev, qty")
+    .eq("kind", "material").eq("ref_code", itemCode);
+  if (error) return fail(SERVICE, error);
+  const rows = (data ?? []) as { product_id: string; product_code: string; rev: number; qty: number | string }[];
+  if (rows.length === 0) return ok(SERVICE, []);
+  const productIds = [...new Set(rows.map((r) => r.product_id))];
+  const [revs, products] = await Promise.all([
+    prod().from("bom_revisions").select("product_id, rev").in("product_id", productIds),
+    prod().from("products").select("id, name").in("id", productIds),
+  ]);
+  if (revs.error) return fail(SERVICE, revs.error);
+  if (products.error) return fail(SERVICE, products.error);
+  const latest = new Map<string, number>();
+  for (const r of (revs.data ?? []) as { product_id: string; rev: number }[]) {
+    latest.set(r.product_id, Math.max(latest.get(r.product_id) ?? 0, r.rev));
+  }
+  const names = new Map(((products.data ?? []) as { id: string; name: string }[]).map((p) => [p.id, p.name]));
+  return ok(SERVICE, rows
+    .filter((r) => r.rev === latest.get(r.product_id))
+    .map((r) => ({ product_code: r.product_code, product_name: names.get(r.product_id) ?? r.product_code, qty_per_unit: Number(r.qty) }))
+    .sort((a, b) => a.product_code.localeCompare(b.product_code)));
 }
 
 /** Approved requests for this item that have not yet arrived — `v_pr_line`'s
@@ -948,6 +977,7 @@ function toAssetView(r: Record<string, unknown>): AssetView {
     rent_amount: r.rent_amount == null ? null : Number(r.rent_amount),
     document_count: Number(r.document_count ?? 0),
     rent_lines: Number(r.rent_lines ?? 0),
+    service_count: Number(r.service_count ?? 0),
   };
 }
 
@@ -1064,6 +1094,41 @@ export async function deleteAsset(assetNo: string): Promise<Result<{ asset_no: s
   const res = fromSeam(SERVICE, data, error);
   if (res.error) return res;
   return ok(SERVICE, { asset_no: assetNo, deleted: true as const });
+}
+
+/** One asset's service log, newest first (`0121`). */
+export async function listAssetServices(assetNo: string): Promise<Result<AssetService[]>> {
+  const { data, error } = await db().from("v_asset_service").select("*")
+    .eq("asset_no", assetNo).order("service_date", { ascending: false }).order("recorded_at", { ascending: false });
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, ((data ?? []) as AssetService[]).map((s) => ({ ...s, cost: s.cost == null ? null : Number(s.cost) })));
+}
+
+export async function addAssetService(assetNo: string, input: AssetServiceInput): Promise<Result<AssetService>> {
+  const { data, error } = await db().rpc("add_asset_service", {
+    p_asset_no: assetNo,
+    p_service_date: input.service_date || null,
+    p_description: input.description,
+    p_kind: input.kind ?? "service",
+    p_vendor_code: input.vendor_code?.trim() || null,
+    p_cost: input.cost ?? null,
+    p_trx_no: input.trx_no?.trim() || null,
+    p_next_due: input.next_due ?? null,
+  });
+  const res = fromSeam<{ id: string }>(SERVICE, data, error);
+  if (res.error) return res;
+  const { data: row, error: e2 } = await db().from("v_asset_service").select("*").eq("id", res.data.id).maybeSingle();
+  if (e2) return fail(SERVICE, e2);
+  if (!row) return notFound(SERVICE, "service_not_found", "No such service entry.");
+  const s = row as AssetService;
+  return ok(SERVICE, { ...s, cost: s.cost == null ? null : Number(s.cost) });
+}
+
+export async function deleteAssetService(id: string, reason?: string): Promise<Result<{ id: string; deleted: true }>> {
+  const { data, error } = await db().rpc("delete_asset_service", { p_id: id, p_reason: reason ?? null });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, { id, deleted: true as const });
 }
 
 /** The asset's own edits and status changes, and documents put on or taken
