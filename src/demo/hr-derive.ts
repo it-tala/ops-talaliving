@@ -828,12 +828,21 @@ export function scheduleHours(rules: PayRules, sc: WorkSchedule): ScheduleHours 
 
   const span = (sc.end_minutes as number) - (sc.start_minutes as number);
   const daily_hours = Math.round(((span - (sc.break_minutes as number)) / 60) * 100) / 100;
-  const friday_hours = sc.friday_break_minutes == null
-    ? null
-    : Math.round(((span - sc.friday_break_minutes) / 60) * 100) / 100;
 
-  /* Friday counted at its own length where it has one: a longer break on one
-     day of six is not a rounding difference, it is most of an hour a week. */
+  /* Friday differs in two ways and either one is enough (Q54): a longer break,
+     an earlier finish, or both. Whichever is not stated falls back to the
+     ordinary day rather than blanking Friday — the office's Friday is 16.30
+     *and* the usual 90-minute break, and reading the missing half as unknown
+     would lose a day the business has actually decided. */
+  const friday_end = sc.friday_end_minutes ?? (sc.end_minutes as number);
+  const friday_break = sc.friday_break_minutes ?? (sc.break_minutes as number);
+  const friday_differs = sc.friday_end_minutes != null || sc.friday_break_minutes != null;
+  const friday_hours = !friday_differs
+    ? null
+    : Math.round(((friday_end - (sc.start_minutes as number) - friday_break) / 60) * 100) / 100;
+
+  /* Friday counted at its own length where it has one: three quarters of an
+     hour on one day of five is most of an hour a week. */
   const weekly_hours = friday_hours == null
     ? Math.round(daily_hours * days_per_week * 100) / 100
     : Math.round((daily_hours * (days_per_week - 1) + friday_hours) * 100) / 100;
