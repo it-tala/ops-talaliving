@@ -71,10 +71,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <Topbar onMenuClick={() => setMobileOpen(true)} />
         </div>
         <main className="flex-1 overflow-y-auto print:overflow-visible">
-          {/* Extra room at the bottom on small screens: the John Lau launcher floats
-              over the corner, and without this it sits permanently on top of the
-              last row of every list (F65). */}
-          <div className="mx-auto max-w-[1400px] px-4 pb-24 pt-6 sm:pb-6 md:px-6 lg:px-8 print:max-w-none print:p-0">
+          {/* Extra room at the bottom: the John Lau launcher floats over the
+              corner, and without this it sits permanently on top of the last row
+              of every list (F65). On wide screens too — the HR walk found it
+              covering the only "Pasang" button on /hrd/jadwal (F154). */}
+          <div className="mx-auto max-w-[1400px] px-4 pb-24 pt-6 md:px-6 lg:px-8 print:max-w-none print:p-0">
             {live ? children : <NotLive module={pathname.split("/")[1]} />}
           </div>
         </main>

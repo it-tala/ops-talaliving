@@ -52,13 +52,15 @@
  */
 import type {
   AssistantReply, AssistantTurn, AssistantTool, AnswerFact, AssistantDraft,
-  UnmatchedPrompt, RouterHealth, RouterRule,
+  UnmatchedPrompt, RouterHealth, RouterRule, AskContext,
 } from "@/services/assistant/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fail, fromSeam, fromRows, invalid, ok, refused, type Result } from "./_kit";
 import { getActiveLang } from "@/lib/i18n";
-import { GUIDES, resolveGuide, draftShape } from "@/lib/john-lau";
+import { GUIDES, resolveGuide, draftShape, resolvePoDraft, confirmPoDraft, resolveLeaveDraft, confirmLeaveDraft } from "@/lib/john-lau";
+import { officeToday } from "@/lib/office";
 import * as procurement from "./procurement";
+import * as hr from "./hr";
 import * as accounting from "./accounting";
 import * as inventory from "./inventory";
 import { isOk } from "@/services/_shared/envelope";
@@ -199,7 +201,8 @@ export async function listTurns(limit = 50): Promise<Result<AssistantTurn[]>> {
 
 interface Match {
   tool: string;
-  seq: number;
+  /** The router rule that fired — null when a model picked the tool (D300). */
+  seq: number | null;
   understood_en: string;
   understood_id: string;
   args: Record<string, string>;
@@ -246,7 +249,7 @@ async function record(prompt: string, t: TurnDraft): Promise<Result<TurnRow>> {
   return fromSeam<TurnRow>(SERVICE, data, error);
 }
 
-export async function ask(prompt: string): Promise<Result<AssistantReply>> {
+export async function ask(prompt: string, context?: AskContext): Promise<Result<AssistantReply>> {
   const lang = getActiveLang();
   const id = lang === "id";
 
@@ -257,7 +260,10 @@ export async function ask(prompt: string): Promise<Result<AssistantReply>> {
 
   const { data: routed, error: routeErr } = await db().rpc("route", { p_prompt: prompt });
   if (routeErr) return fail(SERVICE, routeErr);
-  const match = routed as Match | null;
+  let match = routed as Match | null;
+  /** Who read the sentence, when it was not the keyword router: the model's
+   *  provider, recorded beside the tool so a turn says how it was understood. */
+  let via: string | null = null;
 
   const email = await myEmail();
 
@@ -266,6 +272,37 @@ export async function ask(prompt: string): Promise<Result<AssistantReply>> {
      confidence. The turn is stored anyway — the unmatched ones are the list of
      things people expected John Lau to understand, and the evidence for
      deciding whether a model is worth it (0039). */
+  if (!match) {
+    /* **A model, when this deployment has one** (D296). The keyword router
+       stays first and stays the only road to a figure: a sentence it
+       recognises is answered exactly as before. What a model changes is this
+       branch — *how do I…* in words nobody wrote a rule for — and it answers
+       from the process knowledge (0136), never from business data. A
+       deployment with no model answers 501 and falls through to the honest
+       *I do not understand* below, which is still John Lau as he was. */
+    const explained = await explain(prompt, context, lang);
+    if (explained) {
+      if (!isOk(explained)) return explained;
+      if ("turn" in explained.data) {
+        return ok(SERVICE, {
+          turn: toTurn(explained.data.turn, email),
+          understood_as: explained.data.turn.understood_as ?? "",
+        });
+      }
+      /* **The model picked a tool** (D300). From here it is exactly as if a
+         keyword rule had matched: the gate below decides whether the prompt
+         may reach it and whether this person may, the read runs the screen's
+         own call as the person, and a write is only ever a draft. The model
+         chose *which* door; it never walks through one. */
+      const pick = explained.data.pick;
+      match = {
+        tool: pick.tool, seq: null, args: pick.args, normalised: prompt,
+        understood_en: pick.understood, understood_id: pick.understood,
+      };
+      via = `ai.${pick.provider}`;
+    }
+  }
+
   if (!match) {
     const res = await record(prompt, {
       kind: "unknown",
@@ -301,7 +338,7 @@ export async function ask(prompt: string): Promise<Result<AssistantReply>> {
       kind: "refused",
       understood_as: understood,
       text: gate.error.message,
-      tools_used: [match.tool],
+      tools_used: via ? [match.tool, via] : [match.tool],
       refused_because: detail?.refused_because ?? null,
       route: detail?.instead_at ?? null,
       matched_rule: match.seq,
@@ -322,7 +359,7 @@ export async function ask(prompt: string): Promise<Result<AssistantReply>> {
       understood_as: understood,
       text: guide.title,
       steps: guide.steps,
-      tools_used: [tool.name],
+      tools_used: via ? [tool.name, via] : [tool.name],
       route: guide.route,
       matched_rule: match.seq,
     });
@@ -334,13 +371,26 @@ export async function ask(prompt: string): Promise<Result<AssistantReply>> {
      nothing is reserved, and abandoning one costs nothing — because nothing
      had started. */
   if (tool.effect === "write") {
+    /* A purchase order is drafted from the approved line it buys (D297,
+       D300): look for it now, as this person, so the fields the draft shows
+       are what was approved rather than what a sentence suggested. */
+    if (tool.name === "procurement.draft_po") {
+      const lines = await procurement.listOpenLines();
+      if (isOk(lines)) match = { ...match, args: resolvePoDraft(match.args ?? {}, lines.data, prompt) };
+    }
+    /* A leave request names somebody this person can already see (D301):
+       looked up as them, so a name they cannot read stays blank. */
+    if (tool.name === "hr.draft_leave") {
+      const people = await hr.listEmployees();
+      if (isOk(people)) match = { ...match, args: resolveLeaveDraft(match.args ?? {}, people.data, prompt, officeToday()) };
+    }
     const res = await record(prompt, {
       kind: "draft",
       understood_as: understood,
       text: id
         ? "Ini yang akan saya tulis. Belum ada apa pun yang tersimpan — periksa tiap barisnya, lalu konfirmasi."
         : "This is what I would write. Nothing is saved yet — check every field, then confirm.",
-      tools_used: [tool.name],
+      tools_used: via ? [tool.name, via] : [tool.name],
       route: tool.instead_at,
       matched_rule: match.seq,
     });
@@ -368,12 +418,52 @@ export async function ask(prompt: string): Promise<Result<AssistantReply>> {
     understood_as: understood,
     text: answer.text,
     facts: answer.facts,
-    tools_used: [tool.name],
+    tools_used: via ? [tool.name, via] : [tool.name],
     route: tool.instead_at,
     matched_rule: match.seq,
   });
   if (!isOk(res)) return res;
   return ok(SERVICE, { turn: toTurn(res.data, email), understood_as: understood });
+}
+
+/** The model's answer, recorded as a turn — or null when this deployment
+ *  has no model, which is the caller's cue to say *I do not understand*.
+ *
+ *  Any other failure is returned rather than swallowed: a model that is
+ *  configured and broken is IT's problem to see, and folding it into *I do not
+ *  understand* would hide a wrong key behind a sentence about the question. */
+interface ModelPick {
+  tool: string;
+  args: Record<string, string>;
+  understood: string;
+  provider: string;
+}
+
+async function explain(
+  prompt: string, context: AskContext | undefined, lang: "en" | "id",
+): Promise<Result<{ turn: TurnRow } | { pick: ModelPick }> | null> {
+  let res: Response;
+  try {
+    res = await fetch("/api/assistant/explain", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt, pathname: context?.pathname ?? null, lang }),
+    });
+  } catch {
+    return null;
+  }
+  if (res.status === 501 || res.status === 404) return null;
+  const body = await res.json().catch(() => null) as
+    { data?: TurnRow & { pick?: ModelPick }; error?: { code: string; message: string } } | null;
+  if (!res.ok || !body?.data) {
+    return refused(SERVICE, body?.error?.code ?? "llm_failed",
+      body?.error?.message ?? (lang === "id" ? "John Lau tidak bisa menjawab sekarang." : "John Lau cannot answer right now."),
+      { status: res.status });
+  }
+  /* Either a recorded how-to answer, or the tool the model picked — which the
+     caller runs through the gate like any keyword match. */
+  if (body.data.pick) return ok(SERVICE, { pick: body.data.pick });
+  return ok(SERVICE, { turn: body.data });
 }
 
 /** The figures, each from the same call the screen makes.
@@ -550,11 +640,22 @@ export async function confirmDraft(
     if (!isOk(res)) return res as unknown as Result<AssistantTurn>;
     produced = res.data.line_no_full;
   }
-  /* A purchase order through the prompt stops here, on purpose. Issuing one is
-     an obligation to a vendor, and it belongs on the PO screen where the lines
-     and the deposit are in front of the person issuing it (D220). The draft is
-     still recorded as confirmed — the person did say yes — with nothing
-     produced, which is exactly what happened. */
+  /* A purchase order is written as a DRAFT through the same seam the screen
+     uses, and goes to leadership unless its author is leadership (D299,
+     D300). Issuing it stays on the PO screen, where the lines and the deposit
+     are in front of the person sending it to a vendor (D220). */
+  if (draft.tool === "procurement.draft_po") {
+    const res = await confirmPoDraft(procurement, input.fields, draft.args ?? {}, lang);
+    if (!isOk(res)) return res as unknown as Result<AssistantTurn>;
+    produced = res.data;
+  }
+  /* A leave request through the seam "Ajukan" on /hrd/cuti uses; it lands
+     PENDING and is decided there, by a person (D301). */
+  if (draft.tool === "hr.draft_leave") {
+    const res = await confirmLeaveDraft(hr, input.fields, draft.args ?? {}, lang);
+    if (!isOk(res)) return res as unknown as Result<AssistantTurn>;
+    produced = res.data;
+  }
 
   const { data: sData, error: sErr } = await db().rpc("settle_draft", {
     p_draft_id: draft.id,

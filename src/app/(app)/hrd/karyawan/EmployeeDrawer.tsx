@@ -37,6 +37,10 @@ export function EmployeeDrawer({
   const [hours, setHours] = useState(employee?.daily_hours ?? 8);
   const [leave, setLeave] = useState(employee?.paid_leave_days ?? 12);
   const [schedule, setSchedule] = useState(employee?.schedule_code ?? "");
+  /* The day they started, not the day they were typed in. Everybody entered at
+     go-live would otherwise have joined that morning (F154). Blank on a new
+     person means today, which is what the seam does with no date. */
+  const [joined, setJoined] = useState(employee?.joined_on ?? "");
   const [busy, setBusy] = useState(false);
 
   const [sched] = useLoad(() => hr.listSchedules(), []);
@@ -56,6 +60,7 @@ export function EmployeeDrawer({
       employee_no: no, full_name: name, position, unit,
       pay_basis: basis, base_rate: rate, allowance_rate: allowance,
       daily_hours: hours, paid_leave_days: leave,
+      ...(joined ? { joined_on: joined } : {}),
       /* Empty means *follow the unit*, which is a real answer here and not an
          omission — so it is sent as an explicit null rather than left out
          (absent means unchanged on this endpoint). */
@@ -198,6 +203,14 @@ export function EmployeeDrawer({
             <label htmlFor="e-hours" className="block text-xs text-slate-500">Hours in a standard day</label>
             <NumberInput id="e-hours" value={hours} min={1} max={24} onChange={setHours} className="mt-1" />
             <p className="mt-1 text-[11px] text-slate-500">Anything past this is overtime — claimed, then approved twice.</p>
+          </div>
+          <div>
+            <label htmlFor="e-joined" className="block text-xs text-slate-500">Tanggal masuk</label>
+            <input
+              id="e-joined" type="date" value={joined} onChange={(e) => setJoined(e.target.value)}
+              className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none"
+            />
+            <p className="mt-1 text-[11px] text-slate-500">Hari pertama kerja. Kosong berarti hari ini.</p>
           </div>
           <div>
             <label htmlFor="e-leave" className="block text-xs text-slate-500">Hak cuti berbayar, per tahun</label>

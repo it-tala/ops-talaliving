@@ -119,6 +119,7 @@ export const MESSAGES = {
     refusedPermission: m("Your access is not enough", "Akses Anda belum cukup"),
     openScreen: m("open the screen", "buka layarnya"),
     openHere: m("open", "buka"),
+    youAreHere: m("you are here", "Anda di sini"),
     writeIt: m("Yes, write it", "Ya, tulis"),
     savedAs: m("Saved", "Tersimpan"),
     abandoned: m("Cancelled. Nothing was written.", "Dibatalkan. Tidak ada yang ditulis."),

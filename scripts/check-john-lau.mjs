@@ -173,6 +173,41 @@ for (const [name, t] of tools) {
   }
 }
 
+/* ── the process knowledge points at screens that exist (0136) ─────────
+ *
+ * The model is told to link only to routes the knowledge names, and the route
+ * handler drops any other — so a route in the knowledge is the last check
+ * between a step and a link. A step pointing at a page that was renamed is a
+ * tutorial whose *buka di sini* goes to a 404, and nothing else would notice.
+ *
+ * And the screen has to be **live**, or it has to say it is not: a process
+ * whose screen the menu will not open must carry a *(sementara)* question
+ * explaining why, rather than walking somebody to a door that is shut. */
+const liveSrc = readFileSync(join(ROOT, "src/lib/live.ts"), "utf8");
+const liveRoutes = new Set([...liveSrc.matchAll(/^\s*"(\/[^"]*)",\s*$/gm)].map((m) => m[1]));
+const knowledge = ask(
+  "select p.key || E'\\t' || r.route || E'\\t' || "
+  + "(exists (select 1 from ops_asst.process_faq f where f.process_key = p.key and f.question like '%(sementara)%'))::text "
+  + "from ops_asst.processes p, lateral (select p.route union select s.route from ops_asst.process_steps s "
+  + "where s.process_key = p.key and s.route is not null) r(route)",
+);
+let knowledgeRoutes = 0;
+for (const line of knowledge.trim().split("\n").filter(Boolean)) {
+  const [key, route, explained] = line.split("\t");
+  knowledgeRoutes++;
+  const page = join(ROOT, "src/app/(app)", route, "page.tsx");
+  let exists = true;
+  try { readFileSync(page); } catch { exists = false; }
+  if (!exists) {
+    findings.push(`process ${key} sends people to ${route}, and there is no page there.`);
+  } else if (!liveRoutes.has(route) && explained !== "true") {
+    findings.push(
+      `process ${key} sends people to ${route}, which is not live — and nothing in its\n`
+      + "     FAQ says so. Add a *(sementara)* question explaining it, or point the step elsewhere.",
+    );
+  }
+}
+
 if (findings.length) {
   console.error("john lau\n");
   for (const f of findings) console.error("  ✗  " + f + "\n");
@@ -187,5 +222,5 @@ const built = [...answered].length;
 console.log(
   "john lau".padEnd(44)
   + `ok (${prompts.length} suggestions route, ${built} tools answer, `
-  + `${notBuilt.size} waiting on a module)`,
+  + `${notBuilt.size} waiting on a module, ${knowledgeRoutes} process routes resolve)`,
 );

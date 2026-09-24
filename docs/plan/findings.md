@@ -6129,3 +6129,208 @@ relying on.
 
 **A privilege that is right in the catalogue and wrong at the call site is
 worth nothing**, and the only way to know which you have is to make the call.
+
+## F149 · 2026-09-23 · walking the week as three people found four doors that do not open
+
+Every seam in procurement had a smoke file, and every smoke file was green.
+The simulation (`supabase/local/smoke/99_sim_procure_to_ledger.sql`) asked a
+different question: not *does this seam work* but *can Andi, Evin and Rina get
+from an empty database to a matched bank line using only what the screens
+send*. Thirty-five steps. Four of them could not be taken as the SOP would
+describe them (backlog B5–B8).
+
+**The one that matters most is B5, and it hid in plain sight.** `05_procure_lifecycle`
+calls `create_receipt` with `'kind','goods_photo'` — the code — and passes.
+The live screen sends `'Receiving Item'` — the label — because every other
+evidence road in the application accepts labels through `doc_kind_of`. This
+one does not. So the smoke file proved the seam against an input no screen
+produces, and the screen was never put against the seam. The simulation
+passes exactly what `ReceiveForm.tsx` passes, and gets `photo_required` with a
+photo attached. **A test that calls a seam the way its author thinks it is
+called proves the author, not the seam.**
+
+B6 is the same shape from the other side: `/procurement/pr/new` is the only
+road to a PR, and `check-live-routes` correctly keeps it shut because one
+optional dropdown reads `production`. Nothing is broken; the rule is right and
+the page is dark. A derived gate is only as fine-grained as the thing it walks.
+
+B7 and B8 are not bugs but a missing join: the PO never learnt which request
+line it buys, so a payment can be allocated to the line or to the order and
+never both, and the order's deposit reads UNPAID after it is paid.
+
+The walk is kept as a smoke file rather than a document. It logs `TEMUAN`
+instead of asserting, so it stays green while the findings are open — and when
+B5 is fixed, the step's own `case` turns it to `OK` without anybody editing the
+simulation.
+
+## F150 · 2026-09-23 · the second walk went all the way to COMPLETED, and found the fifth door on the way
+
+With B5–B8 fixed, the simulation was rewritten to walk the road as it now
+works: the PO is built from the approved line, the deposit is paid from the
+order's page, the balance from the line. L01 now goes WAITING FOR APPROVAL →
+APPROVED → PARTIAL (arrived, not settled) → COMPLETED, and its order DRAFT →
+ISSUED → PARTIAL → SETTLED, every rupiah counted once on each side. The first
+walk never got a line past PAID.
+
+**Going further is what found B9.** The first walk paid only L01, a line with
+a quantity. The second paid the delivery charge too — the lump-sum line D75
+exists to protect — and `post_from_line` handed the ledger a detail line with
+no quantity under SUPPLIERS, a purchase type that insists on one. Refused
+`line_detail_required`. The requests board offers that button on every
+approved line. Nothing had ever pressed it on a lump sum.
+
+Two smaller things worth keeping:
+
+- **The shape assertion in `14_procure_po_board` earned its place.** Adding
+  `pr_line_no` to the drawer's lines and not the tracker's failed there
+  within one run — exactly the drift it was written for.
+- **A procurement-only reader sees no payments at all.** `v_po_status` is
+  `security_invoker` and the allocations are accounting's, so Andi's PO page
+  says *Rp 0 paid* on an order Rina paid in full. Correct by the policies, and
+  probably surprising on a screen; noted, not changed.
+
+B9 was closed the same day by the owner's choice (D298, `0141`): the ledger
+detail of a lump-sum payment is *1 lot × the amount paid*. The walk now runs
+37 steps from an empty database to a matched bank line with **no findings**,
+and L02 — the delivery charge — ends PAID beside L01's COMPLETED.
+
+## F151 · 2026-09-23 · the approval rule was complete in the demo and half-built in the database
+
+The owner restated the rule for orders — leadership confirms every one,
+either by writing it themselves or by answering a card in Google Chat — and
+checking the ladder against that sentence, rather than against the demo,
+found three gaps the demo had been hiding:
+
+- `create_po` never self-confirmed. D267 was built in `src/demo` only, so a
+  CEO's own order in the live system waited for the CEO to ask himself.
+- There was **no seam for the chat answer** to an order. `answer_request`
+  exists for request lines; for orders the token was minted and nothing could
+  ever redeem it.
+- **No worker delivers the card.** The outbox holds the event; nothing reads
+  it. `/demo/chat` stands in for the whole road, convincingly enough that the
+  absence did not show.
+
+The first two are `0143`. The third needs an answer about infrastructure the
+repository cannot see (B10). The general lesson is the one the parity check
+cannot catch: **a function that exists only in the demo is not a pending
+function, it is an unbuilt one**, and nothing lists it. `answerPoFromChat`
+and `listPoApprovals` are demo-only by design — a browser must not answer
+for the CEO — and that is exactly why their live counterparts had to be
+looked for by hand.
+
+Two smaller things the smoke file pinned: the token never travels in the
+outbox (it is readable by signed-in users), and the worker reads a card
+through one function rather than a table grant, the shape `0038` chose for
+the capture worker.
+
+## F152 · 2026-09-23 · the first walk through the live screens, and what only a browser could find
+
+`scripts/e2e/walk-procurement.mjs` walks the procurement week in a real
+browser, in live mode, against the ladder: PostgREST as a static binary and a
+three-endpoint auth stub (`scripts/e2e/local-stack.mjs`), because the Supabase
+images cannot be pulled from here. The only thing not real is the Drive hop of
+an upload; the walk intercepts it and does the route's database half as the
+signed-in person. 22 steps, three people, from an empty request to a matched
+bank line. Both approval roads are walked: staff ask and Evin confirms;
+Evin writes his own and it is confirmed on creation.
+
+What it found, none of which the SQL walk could have:
+
+- **B11** — *New request* lets a line leave its vendor *not decided yet*, and
+  the order decides it. `post_from_line` read only the line's vendor, so the
+  delivery charge could not be paid from its row. The SQL fixture put a vendor
+  on every line, so it never met the case the form invites.
+- **B12** — every live draft order said *Changed since it was sent*. The
+  ladder starts a draft at revision 1 with nothing sent; the demo at 0/0. The
+  demo is where every screen was built, so nobody had ever seen a live draft.
+- **`config.toml` did not expose `ops_asst` or `ops_mkt`**, both read by the
+  app through PostgREST. The harness exposes every `ops_*` schema and so did
+  not trip on it; reading the file to write the harness is what found it. The
+  hosted project's *Exposed schemas* setting needs the same check.
+- **The guide named a button that does not exist.** *Approve this* is the
+  checkbox column's header; the button is *Approve N · Rp…*. And attaching a
+  price said *dari laci baris* where the drawer asks for a type and a button.
+  `scripts/sop/check-knowledge.mjs` compares the walk's buttons to the guide
+  and refused both on its first run (`0146`).
+
+And one that was not the walk's to find but surfaced while running it:
+`86_acct_cash_plan` compared `office_day()` with `current_date`, so it failed
+every evening between 16:00 and 24:00 UTC, when Makassar is already on the
+next day. The test now uses the office's day, as the system does — the same
+shape as F146, a test asserting against a clock the code does not use.
+
+The walk is recorded where a browser runs and checked where it lands: CI has
+no browser, but it reads the committed `walk.json` against the knowledge the
+migrations write, so a guide that drifts from the screens fails the build.
+
+## F153 · 2026-09-23 · the sentence the owner used was the one the router half-understood
+
+*buat PO untuk KSA binder 5 liter* — the owner's own example — is matched by
+the keyword router (rule 60, `procurement.draft_po`) with **no arguments**:
+the router knows it is an order and not what for. A model would have been
+bypassed, because the router reads first. So the item is taken from the
+person's own sentence with the asking words removed, and the approved line
+it names is looked up; nothing is composed.
+
+Two more things the dock walk (`scripts/e2e/walk-john-lau.mjs`, 15 checks,
+against `scripts/e2e/mock-llm.mjs`) pinned down:
+
+- **Confirming `draft_po` wrote nothing, on purpose, since D220.** The comment
+  said so; the dock said *Tersimpan*. It now writes a DRAFT order.
+- **A line approved without a price drafted a PO at Rp 0**, and `create_po`
+  refused it — correctly — as `price_required`. The draft now leaves an
+  unknown price blank, which is the same rule as D217 read the other way: a
+  zero is a figure, and nobody said it.
+
+The mock model proves the road, not the reading. How well a real model picks
+tools from Indonesian shop-floor sentences is the next measurement, with a
+key and the turns people actually type.
+
+
+## F154 · 2026-09-24 · HR, walked the same way: every seam was right and six doors were shut
+
+HR had a smoke file for every seam, and they were all green. The walk asked
+the procurement question again — *can Sari, Evin and Rina get from an empty
+database to a paid week using only what the screens send* — first in SQL
+(`99_sim_hr_to_ledger.sql`, four people, 33 steps), then pressing the buttons
+(`scripts/e2e/walk-hr.mjs`, 18 steps). The answer was no, six times over, and
+not one of them was a seam that did the wrong thing:
+
+1. **A contract registered on screen could never go live.** `activate_contract`
+   refuses `paper_required` — rightly — and the only way to link the paper was
+   an argument of `register_contract` the form has no field for. The rule was
+   right and there was no door to satisfy it. B13, `0148`.
+2. **The 201 file could hold numbers but never scans.** The drawer shows
+   *berkas di Drive* for a document with an attachment, and had no way to give
+   one. B14.
+3. **An approved payroll run stopped at APPROVED for ever.** `record_payroll_paid`
+   wanted a ledger number typed elsewhere and nothing called it; the approval
+   event has no consumer. The same missing join as B8, so the same shape of
+   fix: pay it from its own page, one call, one ledger row per run (D302). B15.
+4. **The live timesheet showed the demo's fortnight.** `PERIOD` was a constant,
+   29 Aug – 7 Sep 2026. In live mode the grid could never show a day anybody
+   could still read, so *open days* could only be closed through somebody
+   else's screen — and approval refuses while any are open. B16.
+5. **The John Lau launcher covered the only *Pasang* button** on `/hrd/jadwal`.
+   F65 had added room under the page on small screens only; the last row of a
+   short page sits under the corner on a laptop too. Found because Playwright
+   refuses to click what a person could not either. B17.
+6. **Everybody entered on screen joined today.** The drawer had no start
+   date, so go-live would have made every tenure start that morning. B18.
+
+One more thing the SQL walk taught rather than found: **a day is read from
+four taps** (in, out to break, back, home). Two taps a day — what a
+simulation writes without thinking — leaves every day *belum dibaca* and the
+run unapprovable. It is now in the FAQ John Lau reads, because it is the first
+thing a new HR person will ask.
+
+The walk also ran into the limit of screenshots as specification: the
+knowledge said `Import N tap(s)` and the walk pressed `Import 27 tap(s)`.
+The walk records the button's shape, not its count.
+
+John Lau stage 4 (D301) rides on the same walk: *ajukan cuti untuk Wulan 2
+sampai 3 Oktober, acara keluarga* is a draft with the person, both dates and
+the reason read from the sentence; nothing is filed before *Ya, tulis*; a
+reader of HR is refused by the same gate as the screen; and the model's
+invented salary field and its *minggu depan* in a date field are dropped
+(`walk-john-lau.mjs`, 19 checks).

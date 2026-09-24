@@ -80,7 +80,8 @@ begin
             ('ops_inv.asset_refs_invalid'), -- 0107
             ('ops_prod.open_draft'),        -- 0109 — `revoke all`, not `revoke execute`
             ('ops_inv.asset_rent_invalid'), -- 0116
-            ('ops_hr.schedules_in_use_lost')-- 0117_hr_schedule_editable
+            ('ops_hr.schedules_in_use_lost'),-- 0117_hr_schedule_editable
+            ('ops_procure.restamp_line_money')-- 0139 — called only from inside other seams
          ) as shut(sig)
     join pg_proc p on p.oid::regproc::text = shut.sig
    where has_function_privilege('authenticated', p.oid, 'EXECUTE')
@@ -115,7 +116,10 @@ begin
      and p.oid::regproc::text not in
          ('ops_core.bootstrap_admin','ops_core.idem_replay','ops_core.idem_remember',
           'ops_acct.account_guard','ops_inv.asset_refs_invalid','ops_prod.open_draft',
-          'ops_inv.asset_rent_invalid','ops_hr.schedules_in_use_lost')
+          'ops_inv.asset_rent_invalid','ops_hr.schedules_in_use_lost',
+          'ops_procure.restamp_line_money',
+          -- the chat worker's, below (§4)
+          'ops_procure.answer_po_approval','ops_procure.po_approval_card')
      and not has_function_privilege('authenticated', p.oid, 'EXECUTE');
 
   assert n = 0,
@@ -125,7 +129,14 @@ begin
     || 'puts the boundary in two places that must be kept in step:' || E'\n  ' || unreachable;
 end $$;
 
--- ── 4. the worker's reach is exactly one verb ────────────────────────────
+-- ── 4. the workers' reach is exactly what was decided ────────────────────
+--
+-- `file_evidence` is the capture worker's one verb (0038). The other two
+-- belong to the chat worker that carries a PO approval card to leadership
+-- and brings the answer back (D299, 0143): it reads one order's card and
+-- answers it, and nothing else. Both are shut to `authenticated` — a card
+-- is answered from Chat by its addressee, never from a browser session — so
+-- they are excluded from §3, and asserted shut to signed-in people here.
 do $$
 declare
   reach text;
@@ -140,11 +151,22 @@ begin
      and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
      and has_function_privilege('service_role', p.oid, 'EXECUTE');
 
-  assert n = 1 and reach = 'file_evidence',
-    'The capture worker key can execute ' || n || ' seam(s): ' || coalesce(reach, '(none)')
-    || '. 0038 says its entire reach is one verb, and that sentence is the reason a '
+  assert n = 3 and reach = 'answer_po_approval, file_evidence, po_approval_card',
+    'The service_role key can execute ' || n || ' seam(s): ' || coalesce(reach, '(none)')
+    || '. 0038 (capture) and D299 (PO approval by Chat) name exactly three, and that is the reason a '
     || 'service_role key is allowed to exist here at all. Widening it is a decision to '
     || 'write down, not a grant to add in passing.';
+
+  select count(*), string_agg(p.proname, ', ' order by p.proname)
+    into n, reach
+    from pg_proc p
+    join pg_namespace ns on ns.oid = p.pronamespace
+   where p.oid::regproc::text in ('ops_procure.answer_po_approval','ops_procure.po_approval_card')
+     and (has_function_privilege('authenticated', p.oid, 'EXECUTE')
+       or has_function_privilege('anon', p.oid, 'EXECUTE'));
+  assert n = 0,
+    'The chat worker''s seams are reachable from a browser session: ' || reach
+    || '. A PO approval card is answered from Chat by its addressee (D299).';
 end $$;
 
 -- ── 5. and the tables stay shut ──────────────────────────────────────────

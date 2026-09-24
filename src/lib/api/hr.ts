@@ -1244,6 +1244,23 @@ export async function confirmClause(
   return getContract(input.contract_no);
 }
 
+/** The signed paper, linked to a draft after it was registered (F154, 0148).
+ *  The register form has no file field — the scan comes back after signing —
+ *  so without this road no contract registered on screen could go live. */
+export async function attachContractPaper(
+  input: { contract_no: string; attachment_id: string; sha256?: string | null },
+): Promise<Result<ContractDetail>> {
+  const { data, error } = await db().rpc("attach_contract_paper", {
+    p_contract_no: input.contract_no,
+    p_attachment_id: input.attachment_id,
+    p_sha256: input.sha256 ?? null,
+    p_key: null,
+  });
+  const said = fromSeam<unknown>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<ContractDetail>;
+  return getContract(input.contract_no);
+}
+
 export async function activateContract(
   contractNo: string, idempotencyKey?: string,
 ): Promise<Result<ContractDetail>> {

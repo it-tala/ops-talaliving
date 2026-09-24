@@ -104,6 +104,12 @@ export const TOOLS: ToolDef[] = [
     label: { en: "Draft a new purchase order", id: "Menyiapkan purchase order baru" },
     blocked_reason: null, instead_at: "/procurement/po",
   },
+  {
+    name: "hr.draft_leave", module: "hrd", level: "write",
+    effect: "write", reach: "open",
+    label: { en: "Draft a leave, permit or sick-day request", id: "Menyiapkan pengajuan cuti, izin atau sakit" },
+    blocked_reason: null, instead_at: "/hrd/cuti",
+  },
 
   /* ── Never, at any grant ──────────────────────────────────────────── */
   {
