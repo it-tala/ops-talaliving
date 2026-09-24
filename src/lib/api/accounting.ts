@@ -1295,6 +1295,21 @@ export async function getCashPlan(): Promise<Result<CashPlan>> {
  *  Monthly bills compares a month with the one before it, and the default
  *  window starts today. */
 async function planFrom(from?: string): Promise<Result<CashPlan>> {
+  /* The calendar asks for the plan twice as it opens — the grid and "Due
+     next" — and each ask is the whole twelve-month loop in the database. Two
+     asks that are in flight at once share one request. Nothing is kept once
+     it answers: the next ask, after a link or an edit, goes to the database. */
+  const key = from ?? "";
+  const pending = planInFlight.get(key);
+  if (pending) return pending;
+  const run = readPlan(from).finally(() => planInFlight.delete(key));
+  planInFlight.set(key, run);
+  return run;
+}
+
+const planInFlight = new Map<string, Promise<Result<CashPlan>>>();
+
+async function readPlan(from?: string): Promise<Result<CashPlan>> {
   const { data, error } = from
     ? await db().rpc("cash_plan", { p_from: from })
     : await db().rpc("cash_plan");
