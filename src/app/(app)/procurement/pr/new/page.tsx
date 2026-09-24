@@ -10,7 +10,8 @@ import { NumberInput } from "@/components/ui/number-input";
 import { MoneyInput } from "@/components/ui/money-input";
 import { useLoad } from "@/components/ui/loaded";
 import { formatIDR, formatNumber } from "@/lib/format";
-import { procurement, production } from "@/demo/api";
+import { FileEvidence } from "@/components/ui/file-evidence";
+import { documents, procurement, production } from "@/demo/api";
 import {
   PR_CATEGORIES, type UomCode, type PrCategory,
 } from "@/services/procurement/contracts";
@@ -47,7 +48,40 @@ interface DraftLine {
   need_by: string;
   /** The work order this line is for, when it is for one (D152). */
   source_wo_no: string;
+  /* ── What stands behind the number (D125) ──────────────────────────────
+   *
+   * The meeting board refuses a line with nothing behind it, and until now
+   * there was nowhere to put anything here: the requester filled the form,
+   * submitted, and found out at the meeting that leadership could not decide.
+   * The fix belongs at the moment the price is typed, because that is when the
+   * shop page is still open in the next tab.
+   *
+   * Two roads, because evidence arrives as both: an address somebody else can
+   * open (a marketplace listing, a quotation in a portal) and a file (the
+   * quotation itself, a nota for something already bought). A file wins if
+   * both are given — it is the stronger of the two and saying so beats
+   * silently filing one and dropping the other.
+   *
+   * The kinds offered are only the ones that actually satisfy
+   * `v_line_evidence.has_support`. "Invoice" is deliberately NOT among them:
+   * it maps to the `invoice` enum, which that view does not count, so offering
+   * it would produce a line that looks supported here and is refused there. */
+  support_kind: SupportKind;
+  support_url: string;
+  support_file: { id: string; name: string } | null;
 }
+
+/** The document kinds that `ops_procure.v_line_evidence.has_support` counts —
+ *  `quotation`, `nota`, `purchase_order`, `other` — named as a person reads
+ *  them. Anything outside this list attaches happily and still leaves the line
+ *  refusable, which is the worst of both. */
+const SUPPORT_KINDS = [
+  "Reference Link",
+  "Receipt / Invoice / Nota",
+  "Purchase Order",
+  "Others",
+] as const;
+type SupportKind = (typeof SUPPORT_KINDS)[number];
 
 /* The key is per-form state, not module state.
  *
@@ -62,7 +96,12 @@ const blankLine = (key: string): DraftLine => ({
   item_id: "", description: "", qty: 1, uom: "pcs",
   unit_price: 0, vendor_id: "", category: "RAW MATERIAL", purpose: "", need_by: "",
   source_wo_no: "",
+  support_kind: "Reference Link", support_url: "", support_file: null,
 });
+
+/** Does this line have something behind it? The same question the meeting
+ *  board asks, asked here while it can still be answered cheaply. */
+const hasSupport = (l: DraftLine) => Boolean(l.support_file || l.support_url.trim());
 
 export default function NewPurchaseRequestPage() {
   const router = useRouter();
@@ -125,6 +164,7 @@ export default function NewPurchaseRequestPage() {
   const total = lines.reduce((s, l) => s + Math.round(l.qty * l.unit_price), 0);
   const usable = lines.filter((l) => l.description.trim() && l.qty > 0);
   const canSave = usable.length > 0 && !saving;
+  const bareCount = usable.filter((l) => !hasSupport(l)).length;
 
   async function save(thenSubmit: boolean) {
     setSaving(true);
@@ -144,6 +184,55 @@ export default function NewPurchaseRequestPage() {
       })),
     });
     if (res.error) { setSaving(false); toast("critical", "Not saved", res.error.message); return; }
+
+    /* ── File what stands behind each line, before anybody is asked ────────
+     *
+     * Only now: a line's `line_no_full` is minted by the seam, so nothing can
+     * be attached to it until the document exists. The numbers are READ BACK
+     * from what was created rather than built from the document number and a
+     * counter — `pr-26-09-24_01-L03` is derivable and deriving it is how the
+     * bridge once filed 38 documents under names nothing else used.
+     *
+     * A failure here does not lose the request. The document is saved either
+     * way; what the person is told is which lines went in bare, in the same
+     * words the meeting board will use when it refuses them. */
+    const created = res.data.lines ?? [];
+    const bare: string[] = [];
+    for (const [i, draft] of usable.entries()) {
+      const line = created[i];
+      if (!line) continue;
+      if (!hasSupport(draft)) { bare.push(line.line_no_full); continue; }
+
+      let attachmentId = draft.support_file?.id ?? null;
+      if (!attachmentId) {
+        const filed = await documents.addLink(
+          { url: draft.support_url.trim(), title: draft.description.trim() || null },
+          `pr-support-${line.line_no_full}`,
+        );
+        if (filed.error) { bare.push(line.line_no_full); continue; }
+        attachmentId = filed.data.id;
+      }
+
+      const linked = await documents.link(
+        {
+          attachment_id: attachmentId,
+          entity: "pr_line",
+          entity_no: line.line_no_full,
+          kind: draft.support_kind,
+        },
+        `pr-link-${line.line_no_full}`,
+      );
+      if (linked.error) bare.push(line.line_no_full);
+    }
+
+    if (bare.length > 0) {
+      toast(
+        "warning",
+        `${bare.length} line(s) have nothing behind them`,
+        `${bare.join(", ")} — attach the link or the invoice on the requests board, `
+        + "or leadership will be asked to approve a number with nothing to check it against.",
+      );
+    }
 
     if (thenSubmit) {
       const sub = await procurement.submitPr(res.data.doc_no, `submit-${res.data.doc_no}`);
@@ -352,6 +441,52 @@ export default function NewPurchaseRequestPage() {
                     {formatIDR(Math.round(l.qty * l.unit_price))}
                   </span>
                 </div>
+
+                {/* What stands behind the number. Here rather than only on the
+                    requests board, because the shop page is open in the next
+                    tab right now and will not be at the meeting. */}
+                <div className="mt-3 border-t border-slate-100 pt-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="text-[13px] font-medium text-slate-600" htmlFor={`sup-${l.key}`}>
+                      What stands behind it
+                    </label>
+                    <select
+                      id={`sup-${l.key}`}
+                      value={l.support_kind}
+                      onChange={(e) => patch(l.key, { support_kind: e.target.value as SupportKind })}
+                      className="rounded-lg border border-slate-200 px-2 py-1 text-sm focus:border-brand-400 focus:outline-none"
+                    >
+                      {SUPPORT_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
+                    </select>
+                    <input
+                      type="url"
+                      inputMode="url"
+                      placeholder="Paste the shop link or the quotation address"
+                      value={l.support_url}
+                      disabled={Boolean(l.support_file)}
+                      onChange={(e) => patch(l.key, { support_url: e.target.value })}
+                      className="min-w-[240px] flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-brand-400 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400"
+                    />
+                    <span className="text-[12px] text-slate-400">or</span>
+                    <FileEvidence
+                      kind={l.support_kind}
+                      label="Attach the quotation or the nota"
+                      value={l.support_file}
+                      onChange={(v) => patch(l.key, { support_file: v })}
+                    />
+                  </div>
+                  {!hasSupport(l) && l.description.trim() !== "" && (
+                    <p className="mt-1.5 text-[12px] text-amber-700">
+                      Nothing behind this yet — leadership will be asked to approve a number
+                      with nothing to check it against, and the meeting board refuses that.
+                    </p>
+                  )}
+                  {l.support_file && l.support_url.trim() !== "" && (
+                    <p className="mt-1.5 text-[12px] text-slate-500">
+                      The file is what gets filed; the link is ignored while one is attached.
+                    </p>
+                  )}
+                </div>
               </div>
             </Card>
           ))}
@@ -400,6 +535,18 @@ export default function NewPurchaseRequestPage() {
                 {formatNumber(usable.length)} line(s) will be saved. A line needs a
                 description and a quantity above zero.
               </p>
+
+              {/* Said before the press, not after. The meeting board already
+                  refuses these; finding that out at the meeting costs a week,
+                  and finding it out here costs one paste. */}
+              {bareCount > 0 && (
+                <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
+                  <strong className="font-semibold">{formatNumber(bareCount)}</strong>{" "}
+                  of these have nothing behind them. They will be saved, but leadership
+                  cannot decide on a number with nothing to check it against — the meeting
+                  board refuses them until something is attached.
+                </p>
+              )}
 
               <div className="mt-4 flex flex-col gap-2">
                 <Button icon={Send} onClick={() => save(true)} disabled={!canSave}>
