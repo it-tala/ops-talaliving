@@ -72,6 +72,8 @@ export const LIVE_ROUTES: readonly string[] = [
   "/hrd/absensi",
   "/hrd/berkas-201",
   "/hrd/cuti",
+  "/hrd/tugas",
+  "/hrd/wlkp",
   "/hrd/jadwal",
   "/hrd/karyawan",
   "/hrd/kontrak",

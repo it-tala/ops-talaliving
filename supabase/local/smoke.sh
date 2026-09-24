@@ -42,8 +42,17 @@ ran=0
 # safe while our migrations stay inside `ops_*` — see
 # `check_schema_isolation.sh` for why that sentence carries the whole
 # arrangement.
+#
+# The third is `0125`'s finding, kept from growing back. That migration moved
+# execute from `public` to `authenticated` on every `ops_*` definer function —
+# 278 of them, reachable by `anon`, which is the key inside every browser
+# bundle. A sweep closes the door once: eleven migrations later `0136` added
+# seven more with the PostgreSQL default intact, each of them written by
+# somebody who had reasoned, correctly, that the function checks its own
+# permission. That reasoning has to be re-made by every author of every future
+# seam, which is what a check is for.
 if [ -z "$ONLY" ]; then
-  for check in check_shadowing check_schema_isolation; do
+  for check in check_shadowing check_schema_isolation check_execute_grants; do
     printf '%-44s' "$check"
     if out=$("$HERE/$check.sh" 2>&1); then
       echo "ok"

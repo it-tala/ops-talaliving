@@ -6335,6 +6335,61 @@ reader of HR is refused by the same gate as the screen; and the model's
 invented salary field and its *minggu depan* in a date field are dropped
 (`walk-john-lau.mjs`, 19 checks).
 
+## F155 · 2026-09-24 · a one-time sweep grows back, and the very next migration proved it
+
+`F148` found that 278 of 285 `ops_*` functions were executable by `anon` — the
+publishable key inside every browser bundle — because a new function is
+executable by `PUBLIC` and Supabase's three roles all inherit it. `0125` swept
+the lot: revoke from `public`, grant to `authenticated`, for every security
+definer function that existed.
+
+Every function **that existed**. This branch's task module was written before
+that merge landed and renumbered to `0152` after it, which puts it twenty-seven
+files downstream of the sweep. Rebuilding the merged ladder and asking the
+question `0125` had asked:
+
+```sql
+select n.nspname||'.'||p.proname
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+ where n.nspname like 'ops\_%' and p.prosecdef
+   and has_function_privilege('public', p.oid, 'EXECUTE');
+```
+
+Seven rows: `assign_task`, `acknowledge_task`, `chase_task`, `update_task`,
+`save_task_routine`, `end_task_routine`, `roll_task_routines`. Two days after
+the hole was closed, it was seven functions wide again.
+
+## What is actually interesting about it
+
+Not that somebody forgot. `0152` **has** a revoke — for `my_employee_id()`, and
+its comment explains at length why that one needed it: the function answers with
+a person. The other seven were considered and left, on a reason that is true:
+each of them calls `ops_core.has_permission()` before it does anything, so an
+`anon` caller gets a 403 and no data.
+
+That reasoning is correct and it is the problem. It makes the safety of every
+seam a fresh argument, to be made correctly by whoever writes the next one, at
+the moment they are thinking about something else. `0007` and `0015` revoked
+PUBLIC explicitly, which shows the ladder's earlier authors knew the default;
+ninety migrations later nobody was thinking about it, and that is exactly what
+`F148` said. A sweep does not change that — it resets the count to zero and
+leaves the reasoning intact.
+
+**The defence-in-depth argument has the layers backwards.** A permission check
+inside a definer function is the second line. The grant is the first. Skipping
+the first because the second holds is how a module ends up with one line of
+defence and a comment explaining why that was fine.
+
+## The fix
+
+The seven revokes, and then `supabase/local/check_execute_grants.sh`, which
+fails on any `ops_*` security definer function PUBLIC can execute — wired into
+`smoke.sh` beside `check_shadowing` and `check_schema_isolation`, so it runs on
+every push without anybody choosing to run it. Invoker functions are left alone:
+those run as the caller and are already bounded by that caller's RLS.
+
+Proved by deleting one revoke and watching it name that function, which is the
+only way to know a check checks. The rule is now the class, not the case.
 ## F156 · 2026-09-24 · production, walked from a client's order to the signed BAST
 
 The third module, the same way: a simulation in SQL
