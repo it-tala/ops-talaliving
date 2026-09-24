@@ -470,6 +470,11 @@ export async function postTransaction(
 export async function bookEvidence(
   input: {
     ref_id: string;
+    /** The other inbox rows of the **same photo**. The capture worker files
+     *  one row per slot it read (`<event>~x0`, `~x1`, …), so one nota can
+     *  arrive as several rows; they are booked as one document and closed
+     *  together (0161). */
+    also_ref_ids?: string[];
     trx_date: string;
     account_id: string;
     direction: Direction;
@@ -490,8 +495,11 @@ export async function bookEvidence(
       "Akun itu tidak ada di database.", { field: "account_id" });
   }
 
-  const { data, error } = await db().rpc("book_evidence", {
-    p_ref_id: input.ref_id,
+  /* One photo filed as several rows goes through `book_evidence_group`,
+     which calls `book_evidence` for the first and closes the rest against
+     the same ledger row, in the same transaction. */
+  const also = (input.also_ref_ids ?? []).filter((r) => r && r !== input.ref_id);
+  const args = {
     p_account_code: accountCode,
     p_direction: input.direction,
     p_amount: input.amount_idr,
@@ -503,7 +511,10 @@ export async function bookEvidence(
     p_lines: input.lines ?? [],
     p_remark: input.remark ?? null,
     p_key: idempotencyKey ?? null,
-  });
+  };
+  const { data, error } = also.length > 0
+    ? await db().rpc("book_evidence_group", { p_ref_ids: [input.ref_id, ...also], ...args })
+    : await db().rpc("book_evidence", { p_ref_id: input.ref_id, ...args });
 
   const booked = fromSeam<{ trx_no: string; lines: number; amount: number }>(
     SERVICE, data, error);
@@ -900,6 +911,29 @@ export async function getInboxHealth(): Promise<Result<InboxHealth>> {
  *  exists to prevent: somebody sent it, and "we never got it" must never be
  *  the answer. */
 type InboxResolution = "transaction" | "retro_pr_line" | "link" | "note" | "reject";
+
+/** One proof, several ledger rows, one act (0162).
+ *
+ *  Owner, 2026-09-24: five ledger rows came from one nota and the payment is
+ *  one transfer proof. *Link to a row* took one row and then resolved the
+ *  document, so the other four could only be proven by uploading the same
+ *  file again. This files the document against every row named and closes
+ *  every inbox row of the photo, or does nothing. No money moves.
+ */
+export async function linkEvidence(
+  input: { ref_ids: string[]; trx_nos: string[] },
+  idempotencyKey?: string,
+): Promise<Result<{ trx_nos: string[]; rows: number; rows_total: number }>> {
+  const { data, error } = await db().rpc("link_evidence", {
+    p_ref_ids: input.ref_ids,
+    p_trx_nos: input.trx_nos,
+    p_key: idempotencyKey ?? null,
+  });
+  const res = fromSeam<{ trx_nos: string[]; rows: number; rows_total: number | string }>(
+    SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, { ...res.data, rows_total: Number(res.data.rows_total) });
+}
 
 /** The road the screen names, and the status it arrives at.
  *
