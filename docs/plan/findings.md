@@ -6390,6 +6390,7 @@ those run as the caller and are already bounded by that caller's RLS.
 
 Proved by deleting one revoke and watching it name that function, which is the
 only way to know a check checks. The rule is now the class, not the case.
+
 ## F156 · 2026-09-24 · production, walked from a client's order to the signed BAST
 
 The third module, the same way: a simulation in SQL
