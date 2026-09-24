@@ -870,7 +870,7 @@ export async function decideOvertimeSheet(
   if (input.step === "leader" && sheet0.kind === "staff") {
     return invalid(
       SERVICE, "no_leader_needed",
-      "Lembur staff tidak perlu tanda tangan pimpinan — HRD yang memutuskan (D146).",
+      "Lembur staff tidak perlu tanda tangan pimpinan — HRD yang memutuskan.",
       { field: "step" },
     );
   }

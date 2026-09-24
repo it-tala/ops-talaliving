@@ -1084,8 +1084,16 @@ async function coverageLines(trxNos: string[]): Promise<Result<CoverageLine[]>> 
   const lineNos = [...new Set((mine.data ?? []).map((a) => a.pr_line_no as string))];
   if (lineNos.length === 0) return ok(SERVICE, []);
 
-  const all = await db().from("v_allocation").select("trx_no, pr_line_no, amount, method")
-    .in("pr_line_no", lineNos).is("superseded_by", null);
+  /* Coverage and descriptions need only the line numbers, so they are asked
+     alongside the payments rather than after them. */
+  const [all, cov, desc] = await Promise.all([
+    db().from("v_allocation").select("trx_no, pr_line_no, amount, method")
+      .in("pr_line_no", lineNos).is("superseded_by", null),
+    procure().from("v_line_coverage")
+      .select("line_no_full, approved, covered, remaining, settled").in("line_no_full", lineNos),
+    procure().from("v_pr_line")
+      .select("line_no_full, description").in("line_no_full", lineNos),
+  ]);
   if (all.error) return fail(SERVICE, all.error);
   const payments = (all.data ?? []) as {
     trx_no: string; pr_line_no: string; amount: number | string; method: AllocMethod;
@@ -1104,8 +1112,6 @@ async function coverageLines(trxNos: string[]): Promise<Result<CoverageLine[]>> 
   /* Approved, covered, remaining and settled come from the view. **Not
      recomputed here** (A3): a second opinion about whether a line is settled
      is how a screen and the board disagree. */
-  const cov = await procure().from("v_line_coverage")
-    .select("line_no_full, approved, covered, remaining, settled").in("line_no_full", lineNos);
   if (cov.error) return fail(SERVICE, cov.error);
   const covOf = new Map(
     ((cov.data ?? []) as {
@@ -1114,8 +1120,6 @@ async function coverageLines(trxNos: string[]): Promise<Result<CoverageLine[]>> 
     }[]).map((c) => [c.line_no_full, c]),
   );
 
-  const desc = await procure().from("v_pr_line")
-    .select("line_no_full, description").in("line_no_full", lineNos);
   if (desc.error) return fail(SERVICE, desc.error);
   const descOf = new Map(
     ((desc.data ?? []) as { line_no_full: string; description: string }[])
@@ -1152,17 +1156,22 @@ export async function coverageForDocument(
   attachmentId: string,
   documentAmount: number | null = null,
 ): Promise<Result<DocumentCoverage>> {
-  const links = await core().from("attachment_links").select("entity_no")
-    .eq("attachment_id", attachmentId).eq("entity", "transaction").is("unlinked_at", null);
+  const [links, names] = await Promise.all([
+    core().from("attachment_links").select("entity_no")
+      .eq("attachment_id", attachmentId).eq("entity", "transaction").is("unlinked_at", null),
+    db().from("accounts").select("code, name"),
+  ]);
   if (links.error) return fail(SERVICE, links.error);
   const trxNos = [...new Set(((links.data ?? []) as { entity_no: string }[]).map((l) => l.entity_no))];
 
-  const trx = await db().from("v_transaction")
-    .select("trx_no, trx_date, account_code, direction, amount_idr, status, description, evidence_count")
-    .in("trx_no", trxNos);
+  const [trx, lines] = await Promise.all([
+    db().from("v_transaction")
+      .select("trx_no, trx_date, account_code, direction, amount_idr, status, description, evidence_count")
+      .in("trx_no", trxNos),
+    coverageLines(trxNos),
+  ]);
   if (trx.error) return fail(SERVICE, trx.error);
 
-  const names = await db().from("accounts").select("code, name");
   if (names.error) return fail(SERVICE, names.error);
   const nameOf = new Map(
     ((names.data ?? []) as { code: string; name: string }[]).map((a) => [a.code, a.name]),
@@ -1188,7 +1197,6 @@ export async function coverageForDocument(
       other_documents: Math.max(0, Number(t.evidence_count ?? 0) - 1),
     }));
 
-  const lines = await coverageLines(trxNos);
   if (lines.error) return lines;
 
   const coveredTotal = transactions.reduce((n, t) => n + t.amount_idr, 0);
@@ -1213,9 +1221,24 @@ export async function coverageForDocument(
  *  linked to (D207).
  */
 export async function coverageForTransaction(trxNo: string): Promise<Result<TransactionCoverage>> {
-  const t = await db().from("v_transaction")
-    .select("trx_no, amount_idr, status, account_code, description, allocated_total, unallocated")
-    .eq("trx_no", trxNo).maybeSingle();
+  /* The row, its documents (links, then their filenames), its allocations and
+     its lines are independent reads, asked together. */
+  const [t, { links, atts }, alloc, lines] = await Promise.all([
+    db().from("v_transaction")
+      .select("trx_no, amount_idr, status, account_code, description, allocated_total, unallocated")
+      .eq("trx_no", trxNo).maybeSingle(),
+    (async () => {
+      const links = await core().from("attachment_links").select("attachment_id, kind")
+        .eq("entity", "transaction").eq("entity_no", trxNo).is("unlinked_at", null);
+      if (links.error) return { links, atts: null };
+      const atts = await core().from("attachments").select("id, filename")
+        .in("id", ((links.data ?? []) as { attachment_id: string }[]).map((l) => l.attachment_id));
+      return { links, atts };
+    })(),
+    db().from("v_allocation").select("pr_line_no, po_no, amount, method")
+      .eq("trx_no", trxNo).is("superseded_by", null),
+    coverageLines([trxNo]),
+  ]);
   if (t.error) return fail(SERVICE, t.error);
   if (!t.data) return notFound(SERVICE, "transaction_not_found", `Tidak ada transaksi ${trxNo}.`);
   const row = t.data as unknown as {
@@ -1223,23 +1246,16 @@ export async function coverageForTransaction(trxNo: string): Promise<Result<Tran
     description: string; allocated_total: number | string | null; unallocated: number | string | null;
   };
 
-  const links = await core().from("attachment_links").select("attachment_id, kind")
-    .eq("entity", "transaction").eq("entity_no", trxNo).is("unlinked_at", null);
   if (links.error) return fail(SERVICE, links.error);
   const linkRows = (links.data ?? []) as { attachment_id: string; kind: string }[];
 
-  const atts = await core().from("attachments").select("id, filename")
-    .in("id", linkRows.map((l) => l.attachment_id));
-  if (atts.error) return fail(SERVICE, atts.error);
+  if (atts?.error) return fail(SERVICE, atts.error);
   const fileOf = new Map(
-    ((atts.data ?? []) as { id: string; filename: string }[]).map((a) => [a.id, a.filename]),
+    ((atts?.data ?? []) as { id: string; filename: string }[]).map((a) => [a.id, a.filename]),
   );
 
-  const alloc = await db().from("v_allocation").select("pr_line_no, po_no, amount, method")
-    .eq("trx_no", trxNo).is("superseded_by", null);
   if (alloc.error) return fail(SERVICE, alloc.error);
 
-  const lines = await coverageLines([trxNo]);
   if (lines.error) return lines;
 
   return ok(SERVICE, {
@@ -1295,6 +1311,21 @@ export async function getCashPlan(): Promise<Result<CashPlan>> {
  *  Monthly bills compares a month with the one before it, and the default
  *  window starts today. */
 async function planFrom(from?: string): Promise<Result<CashPlan>> {
+  /* The calendar asks for the plan twice as it opens — the grid and "Due
+     next" — and each ask is the whole twelve-month loop in the database. Two
+     asks that are in flight at once share one request. Nothing is kept once
+     it answers: the next ask, after a link or an edit, goes to the database. */
+  const key = from ?? "";
+  const pending = planInFlight.get(key);
+  if (pending) return pending;
+  const run = readPlan(from).finally(() => planInFlight.delete(key));
+  planInFlight.set(key, run);
+  return run;
+}
+
+const planInFlight = new Map<string, Promise<Result<CashPlan>>>();
+
+async function readPlan(from?: string): Promise<Result<CashPlan>> {
   const { data, error } = from
     ? await db().rpc("cash_plan", { p_from: from })
     : await db().rpc("cash_plan");
@@ -1805,15 +1836,17 @@ export async function suggestionsFor(statementLineId: string): Promise<Result<un
  */
 export async function getStatement(statementNo: string): Promise<Result<BankStatementView>> {
 
-  const { data: head, error: headErr } = await db()
-    .from("v_bank_statement").select("*").eq("statement_no", statementNo).maybeSingle();
+  const [{ data: head, error: headErr }, { data: lines, error: lineErr }] = await Promise.all([
+    db()
+      .from("v_bank_statement").select("*").eq("statement_no", statementNo).maybeSingle(),
+    db()
+      .from("v_statement_line").select("*").eq("statement_no", statementNo).order("line_no"),
+  ]);
   if (headErr) return fail(SERVICE, headErr);
   if (!head) {
     return notFound(SERVICE, "statement_not_found", `No statement ${statementNo}.`);
   }
 
-  const { data: lines, error: lineErr } = await db()
-    .from("v_statement_line").select("*").eq("statement_no", statementNo).order("line_no");
   if (lineErr) return fail(SERVICE, lineErr);
 
   const rows = (lines ?? []) as StatementLineView[];

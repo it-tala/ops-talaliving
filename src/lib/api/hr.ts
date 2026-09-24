@@ -591,9 +591,11 @@ export async function listEmployeeFiles(): Promise<Result<EmployeeFileView[]>> {
 }
 
 export async function getEmployeeFile(employeeNo: string): Promise<Result<EmployeeFileView>> {
-  const emp = await readEmployee(employeeNo);
+  const [emp, { data, error }] = await Promise.all([
+    readEmployee(employeeNo),
+    db().rpc("employee_documents_of", { p_employee_no: employeeNo }),
+  ]);
   if (emp.error) return emp as unknown as Result<EmployeeFileView>;
-  const { data, error } = await db().rpc("employee_documents_of", { p_employee_no: employeeNo });
   if (error) return fromRows<EmployeeFileView>(SERVICE, null, error);
   return ok(SERVICE, buildFile(emp.data, (data ?? []) as DocRow[]));
 }
@@ -906,20 +908,21 @@ function buildDay(row: DayRow, scans: ScanRow[], marks: DayMark[]): TimesheetDay
 async function readDays(
   from: string, to: string, unit?: string, employeeNo?: string,
 ): Promise<Result<TimesheetDay[]>> {
-  const { data, error } = await db().rpc("timesheet_rows", {
-    p_from: from, p_to: to, p_unit: unit ?? null, p_employee_no: employeeNo ?? null,
-  });
+  const [{ data, error }, { data: scans, error: e2 }, { data: marks, error: e3 }] =
+    await Promise.all([
+      db().rpc("timesheet_rows", {
+        p_from: from, p_to: to, p_unit: unit ?? null, p_employee_no: employeeNo ?? null,
+      }),
+      db()
+        .from("attendance_scans").select("id,employee_id,work_date,at,verify,source")
+        .gte("work_date", from).lte("work_date", to),
+      db()
+        .from("day_marks").select("id,employee_id,work_date,kind,reason,marked_by,marked_at")
+        .gte("work_date", from).lte("work_date", to).is("withdrawn_at", null),
+    ]);
   if (error) return fromRows<TimesheetDay[]>(SERVICE, null, error);
   const rows = (data ?? []) as DayRow[];
-
-  const { data: scans, error: e2 } = await db()
-    .from("attendance_scans").select("id,employee_id,work_date,at,verify,source")
-    .gte("work_date", from).lte("work_date", to);
   if (e2) return fromRows<TimesheetDay[]>(SERVICE, null, e2);
-
-  const { data: marks, error: e3 } = await db()
-    .from("day_marks").select("id,employee_id,work_date,kind,reason,marked_by,marked_at")
-    .gte("work_date", from).lte("work_date", to).is("withdrawn_at", null);
   if (e3) return fromRows<TimesheetDay[]>(SERVICE, null, e3);
 
   return ok(SERVICE, rows.map(
@@ -942,14 +945,25 @@ export async function getTimesheet(
   needs_review: number;
   marked: number;
 }>> {
-  const read = await readDays(input.from, input.to, input.unit);
-  if (read.error) return read as unknown as Result<never>;
-  const days = read.data;
-
   let q = db().from("employees").select("employee_no,full_name,pay_basis")
     .eq("active", true).order("employee_no");
   if (input.unit) q = q.eq("unit", input.unit);
-  const { data: people, error } = await q;
+
+  /* Summed in the database, not here. Counting the rows below is counting what
+     `read_day` already decided; adding hours up is arithmetic, and `0057`
+     settled that one — two implementations doing it are two chances to round
+     it differently. */
+  const [read, { data: people, error }, { data: totals, error: totErr }] = await Promise.all([
+    readDays(input.from, input.to, input.unit),
+    q,
+    db().rpc("timesheet_totals", {
+      p_from: input.from, p_to: input.to,
+      p_unit: input.unit ?? null, p_employee_no: null,
+    }),
+  ]);
+  if (read.error) return read as unknown as Result<never>;
+  const days = read.data;
+
   if (error) {
     return fromRows<{
       days: TimesheetDay[]; dates: string[];
@@ -958,14 +972,6 @@ export async function getTimesheet(
     }>(SERVICE, null, error);
   }
 
-  /* Summed in the database, not here. Counting the rows below is counting what
-     `read_day` already decided; adding hours up is arithmetic, and `0057`
-     settled that one — two implementations doing it are two chances to round
-     it differently. */
-  const { data: totals, error: totErr } = await db().rpc("timesheet_totals", {
-    p_from: input.from, p_to: input.to,
-    p_unit: input.unit ?? null, p_employee_no: null,
-  });
   if (totErr) {
     return fromRows<{
       days: TimesheetDay[]; dates: string[];
@@ -1001,28 +1007,32 @@ export async function getDay(
 /* ------------------------------------------------------------------ */
 
 export async function listOvertimeSheets(): Promise<Result<OvertimeSheetView[]>> {
-  const { data: sheets, error } = await db()
-    .from("overtime_sheets").select("*").order("work_date", { ascending: false });
+  const [
+    { data: sheets, error },
+    { data: claims, error: e2 },
+    { data: lines, error: e3 },
+    { data: people, error: e4 },
+    { data: links, error: e5 },
+  ] = await Promise.all([
+    db()
+      .from("overtime_sheets").select("*").order("work_date", { ascending: false }),
+    db()
+      .from("v_overtime_claim").select("sheet_no,stage,payable,hours"),
+    db()
+      .from("overtime_lines").select("*"),
+    db()
+      .from("employees").select("id,employee_no,full_name"),
+    /* The signed form, on the evidence road. One read for every sheet rather
+       than one per sheet. */
+    core()
+      .from("attachment_links")
+      .select("entity_no,kind,attachment_id,attachments(filename)")
+      .eq("entity", "overtime_sheet").is("unlinked_at", null),
+  ]);
   if (error) return fromRows<OvertimeSheetView[]>(SERVICE, null, error);
-
-  const { data: claims, error: e2 } = await db()
-    .from("v_overtime_claim").select("sheet_no,stage,payable,hours");
   if (e2) return fromRows<OvertimeSheetView[]>(SERVICE, null, e2);
-
-  const { data: lines, error: e3 } = await db()
-    .from("overtime_lines").select("*");
   if (e3) return fromRows<OvertimeSheetView[]>(SERVICE, null, e3);
-
-  const { data: people, error: e4 } = await db()
-    .from("employees").select("id,employee_no,full_name");
   if (e4) return fromRows<OvertimeSheetView[]>(SERVICE, null, e4);
-
-  /* The signed form, on the evidence road. One read for every sheet rather
-     than one per sheet. */
-  const { data: links, error: e5 } = await core()
-    .from("attachment_links")
-    .select("entity_no,kind,attachment_id,attachments(filename)")
-    .eq("entity", "overtime_sheet").is("unlinked_at", null);
   if (e5) return fromRows<OvertimeSheetView[]>(SERVICE, null, e5);
 
   const byId = new Map(
@@ -1147,23 +1157,27 @@ export async function listContracts(
  *  against, and the differences against what is actually being run. Four reads
  *  rather than four round trips per clause. */
 export async function getContract(contractNo: string): Promise<Result<ContractDetail>> {
-  const { data: row, error } = await db()
-    .from("v_contract").select("*").eq("contract_no", contractNo).maybeSingle();
+  const [
+    { data: row, error },
+    { data: clauses, error: e2 },
+    { data: coverage, error: e3 },
+    { data: conflicts, error: e4 },
+  ] = await Promise.all([
+    db()
+      .from("v_contract").select("*").eq("contract_no", contractNo).maybeSingle(),
+    db()
+      .from("contract_clauses")
+      .select("contract_no,kind,quote,page,value,source,confirmed_at,proposed_at")
+      .eq("contract_no", contractNo),
+    db()
+      .rpc("contract_coverage", { p_contract_no: contractNo }),
+    db()
+      .rpc("contract_conflicts", { p_contract_no: contractNo }),
+  ]);
   if (error) return fromRows<ContractDetail>(SERVICE, null, error);
   if (!row) return notFound(SERVICE, "contract_not_found", `Tidak ada kontrak ${contractNo}.`);
-
-  const { data: clauses, error: e2 } = await db()
-    .from("contract_clauses")
-    .select("contract_no,kind,quote,page,value,source,confirmed_at,proposed_at")
-    .eq("contract_no", contractNo);
   if (e2) return fromRows<ContractDetail>(SERVICE, null, e2);
-
-  const { data: coverage, error: e3 } = await db()
-    .rpc("contract_coverage", { p_contract_no: contractNo });
   if (e3) return fromRows<ContractDetail>(SERVICE, null, e3);
-
-  const { data: conflicts, error: e4 } = await db()
-    .rpc("contract_conflicts", { p_contract_no: contractNo });
   if (e4) return fromRows<ContractDetail>(SERVICE, null, e4);
 
   return ok(SERVICE, {

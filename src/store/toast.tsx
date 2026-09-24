@@ -1,5 +1,6 @@
 "use client";
 
+import { stripRefs } from "@/lib/refs";
 import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
 
 export type ToastLevel = "info" | "success" | "warning" | "critical";
@@ -35,7 +36,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const toast = useCallback(
     (level: ToastLevel, title: string, message?: string) => {
       const id = Date.now() + Math.random();
-      setToasts((prev) => [...prev, { id, level, title, message }]);
+      setToasts((prev) => [...prev, { id, level, title: stripRefs(title), message: stripRefs(message) }]);
       // Kesalahan dibiarkan sampai ditutup sendiri: pesan yang hilang setelah
       // empat detik adalah pesan yang tidak sempat dibaca orang yang sedang
       // menatap bagian lain layar.

@@ -30,7 +30,7 @@ export const APP_SETTINGS: AppSetting[] = [
   /* ── Format ───────────────────────────────────────────────────────── */
   {
     key: "format.locale", group: "format", label: "Format angka",
-    help: "Menentukan pemisah ribuan dan desimal. Antarmuka berbahasa Inggris dengan angka bergaya Indonesia adalah satu-satunya kombinasi yang bisa salah dibaca seribu kali lipat (D36).",
+    help: "Menentukan pemisah ribuan dan desimal. Antarmuka berbahasa Inggris dengan angka bergaya Indonesia adalah satu-satunya kombinasi yang bisa salah dibaca seribu kali lipat.",
     kind: "choice", value: "en-US", default_value: "en-US",
     unit: null, choices: ["en-US", "id-ID"], reach: "display",
     locked_reason: null, managed_at: null, affects: [],
@@ -39,7 +39,7 @@ export const APP_SETTINGS: AppSetting[] = [
 
   {
     key: "format.language", group: "format", label: "Bahasa",
-    help: "Menerjemahkan menu, kata-kata umum, dan seluruh John Lau — termasuk panduan dan alasan penolakannya. Isi tiap layar tetap seperti sekarang, dan kosakata perusahaan (MSG SENT, SP NORTH, PKWT, kode akun, status) tidak pernah diterjemahkan: itu nama, bukan kata (D224).",
+    help: "Menerjemahkan menu, kata-kata umum, dan seluruh John Lau — termasuk panduan dan alasan penolakannya. Isi tiap layar tetap seperti sekarang, dan kosakata perusahaan (MSG SENT, SP NORTH, PKWT, kode akun, status) tidak pernah diterjemahkan: itu nama, bukan kata.",
     kind: "choice", value: "en", default_value: "en",
     unit: null, choices: ["en", "id"], reach: "display",
     locked_reason: null, managed_at: null, affects: [],
@@ -50,7 +50,7 @@ export const APP_SETTINGS: AppSetting[] = [
   {
     key: "ops.no_approval_limit_idr", group: "operations",
     label: "Batas belanja tanpa persetujuan",
-    help: "Di atas nilai ini, pembelian yang keluar tanpa baris disetujui atau order di belakangnya ditandai di layar pertanggungjawaban dana. Tidak memblokir — barangnya sudah terlanjur dibeli waktu kita melihatnya. Yang di bawah batas tetap terdaftar: batas ini mengatur mana yang layak dikejar, bukan mana yang benar (owner, D231).",
+    help: "Di atas nilai ini, pembelian yang keluar tanpa baris disetujui atau order di belakangnya ditandai di layar pertanggungjawaban dana. Tidak memblokir — barangnya sudah terlanjur dibeli waktu kita melihatnya. Yang di bawah batas tetap terdaftar: batas ini mengatur mana yang layak dikejar, bukan mana yang benar.",
     kind: "number", value: "2000000", default_value: "2000000",
     unit: "Rp", choices: null, reach: "forward",
     locked_reason: null, managed_at: null,
@@ -60,7 +60,7 @@ export const APP_SETTINGS: AppSetting[] = [
   {
     key: "ops.bill_anomaly_percent", group: "operations",
     label: "Tagihan dianggap tidak wajar kalau beda lebih dari",
-    help: "Dibandingkan dengan bulan sebelumnya, per komponen, sebagai total bulanan lawan total bulanan, bukan baris lawan baris. Baris yang bulan lalu tidak ada tidak pernah ditandai — kemunculan pertama bukan kenaikan (D228, D229).",
+    help: "Dibandingkan dengan bulan sebelumnya, per komponen, sebagai total bulanan lawan total bulanan, bukan baris lawan baris. Baris yang bulan lalu tidak ada tidak pernah ditandai — kemunculan pertama bukan kenaikan.",
     kind: "number", value: "25", default_value: "25",
     unit: "%", choices: null, reach: "forward",
     locked_reason: null, managed_at: null,
@@ -70,7 +70,7 @@ export const APP_SETTINGS: AppSetting[] = [
   {
     key: "ops.contribution_tolerance_idr", group: "operations",
     label: "Selisih iuran yang masih dianggap wajar",
-    help: "Beda antara tagihan BPJS dan hitungan dari daftar nama × tarif. Di atas ini ditandai untuk dikejar. Pembulatan BPJS biasanya beberapa ribu rupiah; selisih ratusan ribu biasanya nama yang sudah tidak ada (D259).",
+    help: "Beda antara tagihan BPJS dan hitungan dari daftar nama × tarif. Di atas ini ditandai untuk dikejar. Pembulatan BPJS biasanya beberapa ribu rupiah; selisih ratusan ribu biasanya nama yang sudah tidak ada.",
     kind: "number", value: "50000", default_value: "50000",
     unit: "Rp", choices: null, reach: "forward",
     locked_reason: null, managed_at: null,
@@ -80,7 +80,7 @@ export const APP_SETTINGS: AppSetting[] = [
   {
     key: "kpi.weight_tasks", group: "operations",
     label: "Bobot penilaian — tugas selesai tepat waktu",
-    help: "Seberapa besar penyelesaian tugas menentukan nilai gabungan. Bobot dihitung hanya atas ukuran yang BISA diukur, jadi mengubah angka ini tidak menghukum orang yang datanya memang tidak ada (D261).",
+    help: "Seberapa besar penyelesaian tugas menentukan nilai gabungan. Bobot dihitung hanya atas ukuran yang BISA diukur, jadi mengubah angka ini tidak menghukum orang yang datanya memang tidak ada.",
     kind: "number", value: "50", default_value: "50",
     unit: "%", choices: null, reach: "forward",
     locked_reason: null, managed_at: null, affects: ["Penilaian kinerja"],
@@ -107,7 +107,7 @@ export const APP_SETTINGS: AppSetting[] = [
   {
     key: "kpi.min_days_recorded", group: "operations",
     label: "Ukuran harian baru dihitung setelah sekian hari tercatat",
-    help: "Di bawah ini, ketepatan waktu dan kehadiran ditandai tidak terukur. Persentase atas dua hari bukan persentase yang sama dengan atas tiga puluh, dan menampilkannya sama membuat sampel dua hari membawa seperempat nilai seseorang (D261).",
+    help: "Di bawah ini, ketepatan waktu dan kehadiran ditandai tidak terukur. Persentase atas dua hari bukan persentase yang sama dengan atas tiga puluh, dan menampilkannya sama membuat sampel dua hari membawa seperempat nilai seseorang.",
     kind: "number", value: "5", default_value: "5",
     unit: "hari", choices: null, reach: "forward",
     locked_reason: null, managed_at: null, affects: ["Penilaian kinerja"],
@@ -134,7 +134,7 @@ export const APP_SETTINGS: AppSetting[] = [
   {
     key: "ops.agent_move_on_days", group: "operations",
     label: "Pindah ke agen berikutnya setelah",
-    help: "Agen yang dihubungi dan diam selama ini ditandai untuk ditinggalkan. Dihitung, tidak pernah disimpan — mengubah angkanya langsung mengubah daftar tindak lanjut hari ini (D184).",
+    help: "Agen yang dihubungi dan diam selama ini ditandai untuk ditinggalkan. Dihitung, tidak pernah disimpan — mengubah angkanya langsung mengubah daftar tindak lanjut hari ini.",
     kind: "number", value: "7", default_value: "7",
     unit: "hari", choices: null, reach: "forward",
     locked_reason: null, managed_at: null, affects: [],
@@ -185,7 +185,7 @@ export const APP_SETTINGS: AppSetting[] = [
     help: "Pengali lembur, pembagi gaji bulanan ke tarif per jam, mode undertime.",
     kind: "text", value: "versi berlaku lihat Aturan penggajian", default_value: "—",
     unit: null, choices: null, reach: "retroactive",
-    locked_reason: "Diubah sebagai versi baru bertanggal, supaya slip gaji Maret tetap bisa dihitung ulang dengan aturan yang dipakai bulan Maret (D173). IT yang mengubahnya, HRD membacanya (D193).",
+    locked_reason: "Diubah sebagai versi baru bertanggal, supaya slip gaji Maret tetap bisa dihitung ulang dengan aturan yang dipakai bulan Maret. IT yang mengubahnya, HRD membacanya.",
     managed_at: "/it/aturan-gaji",
     affects: ["Semua slip gaji", "Perhitungan lembur", "Potongan kurang jam"],
     updated_by: null, updated_at: null,
@@ -195,7 +195,7 @@ export const APP_SETTINGS: AppSetting[] = [
     help: "Detail disimpan 30 hari, rekap harian per orang 6 bulan.",
     kind: "text", value: "30 hari detail · 6 bulan rekap", default_value: "30 hari detail · 6 bulan rekap",
     unit: null, choices: null, reach: "retroactive",
-    locked_reason: "Memendekkannya tidak menyembunyikan data, ia menghapusnya pada sapuan berikutnya — dan penghapusan itu satu-satunya penghapusan di sistem ini (D189). Angkanya jawaban pemilik atas Q22, bukan preferensi.",
+    locked_reason: "Memendekkannya tidak menyembunyikan data, ia menghapusnya pada sapuan berikutnya — dan penghapusan itu satu-satunya penghapusan di sistem ini. Angkanya jawaban pemilik atas Q22, bukan preferensi.",
     managed_at: "/it/aktivitas",
     affects: ["Detail aktivitas lewat 30 hari", "Rekap harian lewat 6 bulan"],
     updated_by: null, updated_at: null,
@@ -205,7 +205,7 @@ export const APP_SETTINGS: AppSetting[] = [
     help: "Jam berapa sebuah scan masuk mulai dihitung terlambat.",
     kind: "text", value: "08:00", default_value: "08:00",
     unit: null, choices: null, reach: "retroactive",
-    locked_reason: "Menggesernya mengubah berapa hari terlambat yang tercatat di absensi bulan-bulan lalu. Lagipula berapa nilai satu menit keterlambatan belum pernah dinyatakan siapa pun (Q41), jadi angkanya menghitung menit dan tidak pernah menjadi rupiah.",
+    locked_reason: "Menggesernya mengubah berapa hari terlambat yang tercatat di absensi bulan-bulan lalu. Lagipula berapa nilai satu menit keterlambatan belum pernah dinyatakan siapa pun, jadi angkanya menghitung menit dan tidak pernah menjadi rupiah.",
     managed_at: null,
     affects: ["Absensi", "Catatan keterlambatan di slip gaji"],
     updated_by: null, updated_at: null,

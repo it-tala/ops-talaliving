@@ -1,10 +1,12 @@
 "use client";
 
+import { stripRefs } from "@/lib/refs";
 import React from "react";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { Button } from "./primitives";
 import { cn } from "@/lib/cn";
 import type { ApiError, Page } from "@/services/_shared/envelope";
+import type { CachedPromise } from "@/lib/api-cache";
 
 /** A load, carried as a value.
  *
@@ -66,7 +68,7 @@ export function Loaded<T>({
           <p className="text-sm font-semibold text-slate-700">Could not load this</p>
           {/* The message the service gave, verbatim. A refusal a person cannot
               read is a refusal they will report as a mystery. */}
-          <p className="mt-1 max-w-sm text-sm text-slate-500">{state.error.message}</p>
+          <p className="mt-1 max-w-sm text-sm text-slate-500">{stripRefs(state.error.message)}</p>
           <p className="mt-1 font-mono text-[11px] text-slate-400">
             {state.error.status} {state.error.code}
           </p>
@@ -124,16 +126,26 @@ export function useLoad<T>(
   const lastTick = React.useRef(tick);
   const keepPrevious = opts.keepPrevious ?? false;
 
-  React.useEffect(() => {
+  /* Before paint, so a remembered answer replaces the skeleton in the same
+     frame rather than flashing it first. */
+  useIsoLayoutEffect(() => {
     let alive = true;
     const isReload = lastTick.current !== tick;
     lastTick.current = tick;
-    setState((prev) => (
-      prev.status === "ready" && (isReload || keepPrevious)
+    const asked = run() as CachedPromise<{ data?: T; error?: ApiError; meta?: { page?: Page } }>;
+    const cached = asked.cached;
+    setState((prev) => {
+      /* The last answer to this very question (`src/lib/api-cache.ts`): drawn
+         at once — the reader coming back to a page sees it as they left it —
+         and marked refreshing, because the database is asked again anyway. */
+      if (cached && !cached.error) {
+        return { status: "ready", data: cached.data as T, page: cached.meta?.page, refreshing: true };
+      }
+      return prev.status === "ready" && (isReload || keepPrevious)
         ? { ...prev, refreshing: true }
-        : { status: "loading" }
-    ));
-    void run().then((res) => {
+        : { status: "loading" };
+    });
+    void asked.then((res) => {
       if (!alive) return;
       if (res.error) setState({ status: "failed", error: res.error });
       /* The page meta rides along with the data: a screen that pages needs to
@@ -146,6 +158,10 @@ export function useLoad<T>(
 
   return [state, React.useCallback(() => setTick((t) => t + 1), [])];
 }
+
+/* `useLayoutEffect` warns during the server render, where it cannot run;
+   there `useEffect` is the same no-op without the warning. */
+const useIsoLayoutEffect = typeof window === "undefined" ? React.useEffect : React.useLayoutEffect;
 
 /** The value, once it has stopped changing for `ms`. A search box that asks
  *  the server wants the word, not every letter of it. */

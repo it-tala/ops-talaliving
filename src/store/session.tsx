@@ -1,6 +1,7 @@
 "use client";
 
-import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { forgetAll } from "@/lib/api-cache";
 import { identity } from "@/demo/api";
 import type { Result } from "@/services/_shared/envelope";
 import { hasPermission, type ModuleGrant, type ModuleName, type ModuleLevel } from "@/lib/roles";
@@ -54,9 +55,18 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [ready, setReady] = useState(false);
   const [needsSignIn, setNeedsSignIn] = useState(false);
+  /* Whose answers the read cache holds. A different person, or nobody, and
+     every remembered answer goes — one person's screens are never drawn from
+     another's reads. */
+  const cachedFor = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     const res = await identity.me();
+    const who = res.data?.user.id ?? null;
+    if (who !== cachedFor.current) {
+      forgetAll();
+      cachedFor.current = who;
+    }
     if (res.data) {
       setSession(res.data);
       setNeedsSignIn(false);
