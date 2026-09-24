@@ -1315,6 +1315,86 @@ export async function postFromLine(
 /** Every transfer of operating money into an account that pays people,
  *  newest first — the list the liquidation report opens from (D106). */
 
+/** `ops_acct.post_payroll_run` (0139): one OUT row for an approved run, and
+ *  the run marked PAID. The amount is not checked against the run while Q56
+ *  (which figure a run pays) is open. */
+export async function postPayrollRun(
+  input: {
+    run_no: string;
+    amount: number;
+    account_id: string;
+    trx_date: string;
+    attachment_id: string;
+    type_code?: TransactionTypeCode;
+  },
+  idempotencyKey?: string,
+): Promise<Result<TransactionView>> {
+  await latency();
+  const endpoint = `postPayrollRun:${input.run_no}`;
+  const cached = replayed<TransactionView>(SERVICE, endpoint, idempotencyKey);
+  if (cached) return cached;
+
+  const denied = requireAuthority(SERVICE, "post_ledger");
+  if (denied) return denied;
+
+  const state = getState();
+  const run = state.payroll_runs.find((r) => r.run_no === input.run_no);
+  if (!run) return invalid(SERVICE, "run_not_found", `Tidak ada run gaji ${input.run_no}.`, { field: "run_no" });
+  if (run.status === "DRAFT") {
+    return conflict(SERVICE, "not_approved", "Belum ada yang menandatangani run ini. Gaji dibayar setelah disetujui, bukan sebelum.");
+  }
+  if (run.status === "PAID") {
+    return conflict(SERVICE, "already_paid", `${input.run_no} sudah dibayar lewat ${run.paid_trx_no}.`);
+  }
+  if (!(input.amount > 0)) {
+    return invalid(SERVICE, "amount_positive", "A payment is more than nothing.", { field: "amount" });
+  }
+  if (!input.attachment_id) {
+    return invalid(SERVICE, "evidence_required",
+      "A payment needs its proof. Attach the transfer receipt before recording it.", { field: "attachment_id" });
+  }
+  const days = (Date.parse(run.period_end) - Date.parse(run.period_start)) / 86_400_000;
+  const type = input.type_code
+    ?? (days <= 7 ? "RECCURING - PAYROLL WEEKLY" : "RECCURING - PAYROLL MONTHLY");
+
+  const user = actingUser();
+  let trxNo = "";
+  apply((draft) => {
+    trxNo = nextDocNumber(draft, "trx");
+    const trxId = newId("trx");
+    const now = new Date().toISOString();
+    draft.transactions.unshift({
+      id: trxId, trx_no: trxNo, trx_date: input.trx_date,
+      account_id: input.account_id, direction: "OUT", amount_idr: input.amount,
+      type_code: type, vendor_id: null, project_id: null,
+      description: `Gaji ${input.run_no} (${run.period_start} s/d ${run.period_end})`,
+      remark: null, status: "POSTED", source_ref: `payroll:${input.run_no}`,
+      posted_by: user.id, posted_at: now, void_reason: null,
+    });
+    draft.attachment_links.push({
+      id: newId("lnk"), attachment_id: input.attachment_id,
+      entity: "transaction", entity_no: trxNo, kind: "Payment Proof",
+      linked_by: user.id, linked_at: now,
+    });
+    const r = draft.payroll_runs.find((x) => x.run_no === input.run_no)!;
+    r.status = "PAID";
+    r.paid_trx_no = trxNo;
+    writeAudit(draft, {
+      service: SERVICE, entity: "transaction", entity_no: trxNo,
+      action: "post_payroll_run", outcome: "ok", reason: input.run_no,
+      detail: { amount: input.amount, run_no: input.run_no, type },
+    });
+    writeOutbox(draft, {
+      service: "hr", event_type: "payroll.paid",
+      payload: { run_no: input.run_no, trx_no: trxNo, amount: input.amount },
+    });
+  });
+
+  const view = transactionView(getState(), getState().transactions.find((t) => t.trx_no === trxNo)!);
+  remember(SERVICE, endpoint, idempotencyKey, view);
+  return ok(SERVICE, view);
+}
+
 /** Paying an order from its own screen (B8) — the demo twin of
  *  `ops_acct.post_to_po` (0129). One ledger row; the amount split across the
  *  order's linked request lines by value, the rest on the order alone. */

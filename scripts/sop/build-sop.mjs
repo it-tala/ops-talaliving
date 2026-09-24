@@ -71,6 +71,34 @@ function walkShot(processKey, action) {
 const walkedIn = (key) => walk ? walk.steps.filter((w) => w.process === key && w.ok).length : 0;
 const temuan = faq.filter((f) => f.question.includes("(sementara)"));
 
+/* What differs between modules' documents: the cover and the paragraphs
+   before the first process. Everything after that comes from the rows. */
+const TEXT = {
+  procurement: {
+    title: "Procurement sampai buku besar",
+    lede: "Cara memakai sistem, langkah demi langkah, dari menambah supplier sampai mencocokkan rekening koran.",
+    intro: [
+      `<p><b>Siapa mengerjakan apa.</b> Staf procurement membuat PR, PO dan mencatat barang datang. Pimpinan (pemegang <code>approve_goods</code>) menyetujui barang dan mengonfirmasi PO. Keuangan (pemegang <code>post_ledger</code>) mencatat pembayaran ke buku besar, memverifikasi bukti, dan mencocokkan rekening koran. Tombol yang bukan bagian Anda tetap terlihat, tapi sistem akan menolak dengan alasan yang jelas.</p>`,
+      `<p><b>Satuan kerjanya adalah baris.</b> Satu PR bisa berisi banyak baris, dan tiap baris disetujui, dibayar dan diterima sendiri-sendiri. Status baris dihitung sistem, tidak pernah diketik.</p>`,
+    ],
+    ask: `Tanyakan "bagaimana cara membuat PO?" atau "saya sudah submit PR, terus apa?".`,
+    drafts: `<p><b>Minta John Lau menyiapkan pekerjaan.</b> Ketik "siapkan PR untuk lem kayu 5 kaleng" atau "buat PO untuk KSA binder 5 liter". John Lau menyiapkan <b>draft</b> — untuk PO, diisi dari baris PR yang sudah disetujui — dan tidak ada yang tersimpan sampai Anda memeriksa isinya dan menekan <b class="btn">Ya, tulis</b>. PO dari staf langsung diminta konfirmasinya ke pimpinan, sama seperti dari layar.</p>`,
+    figures: ["11-john-lau-po.jpg", "10-john-lau.jpg"],
+  },
+  hr: {
+    title: "HR sampai gajian dibayar",
+    lede: "Cara memakai sistem HR, langkah demi langkah: karyawan baru, berkas 201, kontrak, absensi dari mesin, cuti, run gaji, persetujuan pimpinan, sampai gaji dibayar dan tercatat di buku besar.",
+    intro: [
+      `<p><b>Siapa mengerjakan apa.</b> Staf HRD (akses <code>hrd</code> dan <code>payroll</code>) mencatat karyawan, berkas, kontrak, absensi, cuti, dan menyiapkan run gaji. Pimpinan (pemegang <code>approve_funds</code>) menyetujui run gaji — yang menyiapkan tidak bisa menyetujui. Keuangan (pemegang <code>post_ledger</code>) membayar run yang sudah disetujui dan mencatatnya ke buku besar. Aturan gaji dan pola jadwal dipegang IT.</p>`,
+      `<p><b>Gaji dihitung dari hari.</b> Tidak ada tombol hitung: setiap kali halaman run dibuka, gaji dihitung ulang dari absensi, tanda hari, cuti dan lembur yang disetujui. Karena itu run tidak bisa disetujui selama masih ada hari yang "belum dibaca".</p>`,
+    ],
+    ask: `Tanyakan "kenapa run gaji tidak bisa disetujui?" atau "bagaimana cara mencatat karyawan sakit?".`,
+    drafts: `<p><b>Minta John Lau menyiapkan pengajuan cuti.</b> Ketik "ajukan cuti untuk Wulan 2 sampai 3 Oktober, acara keluarga". John Lau menyiapkan <b>draft</b> pengajuan, dan tidak ada yang tersimpan sampai Anda memeriksanya dan menekan <b class="btn">Ya, tulis</b>. Gaji, absensi dan berkas 201 seseorang <b>tidak</b> dibacakan John Lau — angkanya dibaca di layar HRD oleh yang berhak.</p>`,
+    figures: ["11-john-lau-cuti.jpg"],
+  },
+};
+const T = TEXT[MODULE] ?? TEXT.procurement;
+
 const toc = processes.map((p, i) => `<li><span>${i + 1}.</span> ${esc(p.title)}</li>`).join("");
 
 const body = processes.map((p, i) => {
@@ -147,8 +175,8 @@ const html = `<!doctype html>
 <body>
   <div class="cover">
     <div class="kicker">SOP · OPS TALALIVING</div>
-    <h1>Procurement sampai buku besar</h1>
-    <p>Cara memakai sistem, langkah demi langkah, dari menambah supplier sampai mencocokkan rekening koran. Setiap langkah di dokumen ini sudah dijalankan dalam simulasi terhadap database yang sama dengan sistem live.</p>
+    <h1>${esc(T.title)}</h1>
+    <p>${esc(T.lede)} Setiap langkah di dokumen ini sudah dijalankan dalam simulasi terhadap database yang sama dengan sistem live.</p>
     <p class="note">Versi ${esc(today)} · dibuat otomatis dari tabel pengetahuan John Lau (<code>ops_asst.processes</code>).${walk
       ? ` Gambar diambil dari uji jalan lewat layar live (${walk.steps.filter((w) => w.ok).length} langkah, ${esc(walk.at.slice(0, 10))}) dengan data uji; yang tidak ada di uji jalan diambil dari mode demo.`
       : " Gambar diambil dari mode demo, jadi angkanya contoh."}</p>
@@ -157,12 +185,10 @@ const html = `<!doctype html>
 
   <section class="intro">
     <h2>Sebelum mulai</h2>
-    <p><b>Siapa mengerjakan apa.</b> Staf procurement membuat PR, PO dan mencatat barang datang. Pimpinan (pemegang <code>approve_goods</code>) menyetujui barang dan mengonfirmasi PO. Keuangan (pemegang <code>post_ledger</code>) mencatat pembayaran ke buku besar, memverifikasi bukti, dan mencocokkan rekening koran. Tombol yang bukan bagian Anda tetap terlihat, tapi sistem akan menolak dengan alasan yang jelas.</p>
-    <p><b>Satuan kerjanya adalah baris.</b> Satu PR bisa berisi banyak baris, dan tiap baris disetujui, dibayar dan diterima sendiri-sendiri. Status baris dihitung sistem, tidak pernah diketik.</p>
-    <p><b>Tanya John Lau kapan saja.</b> Tombol <b class="btn">John Lau</b> ada di pojok kanan bawah setiap halaman. Tanyakan "bagaimana cara membuat PO?" atau "saya sudah submit PR, terus apa?". Panduannya tetap terbuka saat Anda pindah halaman, dan langkah yang sesuai dengan halaman yang sedang dibuka ditandai <b class="btn">you are here</b>. Percakapan tersimpan, jadi tidak hilang walaupun halaman di-refresh.</p>
-    <p><b>Minta John Lau menyiapkan pekerjaan.</b> Ketik "siapkan PR untuk lem kayu 5 kaleng" atau "buat PO untuk KSA binder 5 liter". John Lau menyiapkan <b>draft</b> — untuk PO, diisi dari baris PR yang sudah disetujui — dan tidak ada yang tersimpan sampai Anda memeriksa isinya dan menekan <b class="btn">Ya, tulis</b>. PO dari staf langsung diminta konfirmasinya ke pimpinan, sama seperti dari layar.</p>
-    ${existsSync(join(DIR, "11-john-lau-po.jpg")) ? `<figure><img src="11-john-lau-po.jpg" alt=""></figure>` : ""}
-    ${existsSync(join(DIR, "10-john-lau.jpg")) ? `<figure><img src="10-john-lau.jpg" alt=""></figure>` : ""}
+    ${T.intro.join("\n    ")}
+    <p><b>Tanya John Lau kapan saja.</b> Tombol <b class="btn">John Lau</b> ada di pojok kanan bawah setiap halaman. ${esc(T.ask)} Panduannya tetap terbuka saat Anda pindah halaman, dan langkah yang sesuai dengan halaman yang sedang dibuka ditandai <b class="btn">you are here</b>. Percakapan tersimpan, jadi tidak hilang walaupun halaman di-refresh.</p>
+    ${T.drafts}
+    ${T.figures.filter((f) => existsSync(join(DIR, f))).map((f) => `<figure><img src="${f}" alt=""></figure>`).join("\n    ")}
   </section>
 
   ${body}

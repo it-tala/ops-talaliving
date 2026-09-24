@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8">
+<title>SOP hr — Tala Living</title>
+<style>
+  @page { size: A4; margin: 16mm 14mm 18mm; }
+  :root { --brand: #2f6b52; --ink: #1e293b; --muted: #64748b; --line: #e2e8f0; --warn: #b45309; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", system-ui, -apple-system, sans-serif; color: var(--ink); font-size: 10.5pt; line-height: 1.5; margin: 0; background: #fff; }
+  .cover { height: 250mm; display: flex; flex-direction: column; justify-content: center; page-break-after: always; }
+  .cover .kicker { color: var(--brand); font-weight: 700; letter-spacing: .12em; font-size: 10pt; text-transform: uppercase; }
+  .cover h1 { font-size: 30pt; margin: 6mm 0 3mm; line-height: 1.15; }
+  .cover p { color: var(--muted); max-width: 140mm; }
+  .cover ol { list-style: none; padding: 0; margin-top: 10mm; columns: 2; }
+  .cover ol li { padding: 1.5mm 0; border-bottom: 1px solid var(--line); break-inside: avoid; }
+  .cover ol span { color: var(--brand); font-weight: 700; display: inline-block; width: 7mm; }
+  .intro { page-break-after: always; }
+  h2 { margin: 0; font-size: 16pt; }
+  h3 { font-size: 11pt; margin: 0 0 2mm; }
+  .proc { page-break-before: always; }
+  .proc header { display: flex; gap: 4mm; align-items: center; border-bottom: 2px solid var(--brand); padding-bottom: 3mm; margin-bottom: 3mm; }
+  .num { background: var(--brand); color: #fff; width: 11mm; height: 11mm; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13pt; flex: none; }
+  .meta { margin: 1mm 0 0; color: var(--muted); font-size: 9pt; }
+  code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 8.8pt; background: #f1f5f9; padding: 0 1.2mm; border-radius: 1mm; }
+  .purpose { background: #f0f7f3; border-left: 3px solid var(--brand); padding: 2.5mm 3.5mm; margin: 0 0 4mm; }
+  .steps { padding-left: 6mm; margin: 0; }
+  .steps > li { margin: 0 0 4mm; padding-left: 1mm; }
+  .steps > li::marker { color: var(--brand); font-weight: 700; }
+  .act { font-weight: 600; }
+  .btn { background: #e8f1ec; color: var(--brand); border: 1px solid #b9d5c6; border-radius: 1.2mm; padding: 0 1.4mm; font-weight: 700; white-space: nowrap; }
+  .rule { color: #334155; font-size: 9.5pt; margin-top: 1mm; }
+  .status { display: inline-block; margin-top: 1.2mm; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 8.5pt; background: #f8fafc; border: 1px solid var(--line); border-radius: 1mm; padding: .4mm 2mm; }
+  .status span { color: var(--brand); font-weight: 700; }
+  figure { margin: 2.5mm 0 0; break-inside: avoid; }
+  figure img { width: 100%; border: 1px solid var(--line); border-radius: 1.5mm; }
+  .faq { margin-top: 4mm; border-top: 1px solid var(--line); padding-top: 3mm; font-size: 9.5pt; break-inside: avoid; }
+  .faq p { margin: 0 0 2mm; }
+  .next { color: var(--muted); font-size: 9.5pt; border-top: 1px dashed var(--line); padding-top: 2mm; }
+  .temuan { page-break-before: always; }
+  .temuan li { margin-bottom: 3mm; }
+  .temuan li b { color: var(--warn); }
+  .note { color: var(--muted); font-size: 9pt; }
+  .proof { color: var(--brand); font-weight: 600; }
+</style></head>
+<body>
+  <div class="cover">
+    <div class="kicker">SOP · OPS TALALIVING</div>
+    <h1>HR sampai gajian dibayar</h1>
+    <p>Cara memakai sistem HR, langkah demi langkah: karyawan baru, berkas 201, kontrak, absensi dari mesin, cuti, run gaji, persetujuan pimpinan, sampai gaji dibayar dan tercatat di buku besar. Setiap langkah di dokumen ini sudah dijalankan dalam simulasi terhadap database yang sama dengan sistem live.</p>
+    <p class="note">Versi 24 September 2026 · dibuat otomatis dari tabel pengetahuan John Lau (<code>ops_asst.processes</code>). Gambar diambil dari uji jalan lewat layar live (18 langkah, 2026-09-24) dengan data uji; yang tidak ada di uji jalan diambil dari mode demo.</p>
+    <ol><li><span>1.</span> Aturan gaji dan pola jadwal kerja</li><li><span>2.</span> Menambah dan mengubah data karyawan</li><li><span>3.</span> Memasang pola kerja ke karyawan</li><li><span>4.</span> Berkas 201 (KTP, KK, NPWP, BPJS, ijazah)</li><li><span>5.</span> Kontrak kerja (PKWT/PKWTT)</li><li><span>6.</span> Absensi: impor mesin, tap yang terlewat, dan menandai hari</li><li><span>7.</span> Cuti, izin dan sakit</li><li><span>8.</span> Membuka run gaji dan menambah penyesuaian</li><li><span>9.</span> Menyetujui run gaji (pimpinan)</li><li><span>10.</span> Membayar run gaji dan mencatatnya ke buku besar</li><li><span>11.</span> Mencetak slip gaji</li></ol>
+  </div>
+
+  <section class="intro">
+    <h2>Sebelum mulai</h2>
+    <p><b>Siapa mengerjakan apa.</b> Staf HRD (akses <code>hrd</code> dan <code>payroll</code>) mencatat karyawan, berkas, kontrak, absensi, cuti, dan menyiapkan run gaji. Pimpinan (pemegang <code>approve_funds</code>) menyetujui run gaji — yang menyiapkan tidak bisa menyetujui. Keuangan (pemegang <code>post_ledger</code>) membayar run yang sudah disetujui dan mencatatnya ke buku besar. Aturan gaji dan pola jadwal dipegang IT.</p>
+    <p><b>Gaji dihitung dari hari.</b> Tidak ada tombol hitung: setiap kali halaman run dibuka, gaji dihitung ulang dari absensi, tanda hari, cuti dan lembur yang disetujui. Karena itu run tidak bisa disetujui selama masih ada hari yang "belum dibaca".</p>
+    <p><b>Tanya John Lau kapan saja.</b> Tombol <b class="btn">John Lau</b> ada di pojok kanan bawah setiap halaman. Tanyakan "kenapa run gaji tidak bisa disetujui?" atau "bagaimana cara mencatat karyawan sakit?". Panduannya tetap terbuka saat Anda pindah halaman, dan langkah yang sesuai dengan halaman yang sedang dibuka ditandai <b class="btn">you are here</b>. Percakapan tersimpan, jadi tidak hilang walaupun halaman di-refresh.</p>
+    <p><b>Minta John Lau menyiapkan pengajuan cuti.</b> Ketik "ajukan cuti untuk Wulan 2 sampai 3 Oktober, acara keluarga". John Lau menyiapkan <b>draft</b> pengajuan, dan tidak ada yang tersimpan sampai Anda memeriksanya dan menekan <b class="btn">Ya, tulis</b>. Gaji, absensi dan berkas 201 seseorang <b>tidak</b> dibacakan John Lau — angkanya dibaca di layar HRD oleh yang berhak.</p>
+    <figure><img src="11-john-lau-cuti.jpg" alt=""></figure>
+  </section>
+
+  
+  <section class="proc">
+    <header>
+      <div class="num">1</div>
+      <div>
+        <h2>Aturan gaji dan pola jadwal kerja</h2>
+        <p class="meta">Layar: <code>/it/aturan-gaji</code> · Butuh: <code>it.update</code></p>
+      </div>
+    </header>
+    <p class="purpose">Aturan gaji (pola lima hari, lembur, keterlambatan, pembagi upah bulanan) dan pola jadwal (jam masuk, istirahat, pulang, Jumat) disimpan sebagai versi yang berlaku dari sebuah tanggal. Dipegang IT, bukan HRD, karena satu perubahan menggeser gaji semua orang.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka IT → Aturan gaji. Versi yang berlaku sekarang tampil di atas; ubah pola jadwal atau aturannya di bawahnya.</div>
+        <div class="rule"><b>Kenapa:</b> Hanya pemegang akses IT (it.update) yang bisa mengubah. Kode pola huruf besar (PRODUKSI, KANTOR); pola yang masih dipakai orang tidak bisa dihapus (schedule_in_use) — pindahkan orangnya dulu.</div>
+        
+        
+      </li>
+      <li>
+        <div class="act">Isi tanggal berlaku dan alasan perubahan, tekan <b class="btn">Lihat dampaknya</b>, baca dampaknya ke gaji, lalu <b class="btn">Simpan versi</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Tombol simpan baru terbuka setelah dampaknya dihitung. Versi lama tetap tersimpan untuk menjawab slip lama yang ditanyakan.</div>
+        <div class="status">— <span>→</span> versi baru berlaku</div>
+        
+      </li>
+    </ol>
+    
+    <p class="next">Berikutnya: <b>Menambah dan mengubah data karyawan</b></p>
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">2</div>
+      <div>
+        <h2>Menambah dan mengubah data karyawan</h2>
+        <p class="meta">Layar: <code>/hrd/karyawan</code> · Butuh: <code>hrd.create</code> · <span class="proof">diuji lewat layar live: 2 langkah</span></p>
+      </div>
+    </header>
+    <p class="purpose">Karyawan dicatat dengan nomor yang sama dengan nomor di mesin absen, unit, cara dibayar (bulanan, harian, per jam), upah dan tunjangan per hari hadir. Nomor mesin itulah yang menyambungkan tap sidik jari ke orangnya.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka HRD → Karyawan, tekan <b class="btn">Add somebody</b>.</div>
+        
+        
+        
+      </li>
+      <li>
+        <div class="act">Isi <b class="btn">Number on the machine</b> (nomor di mesin absen), nama lengkap, jabatan, unit, cara dibayar, upah (per bulan/hari/jam) dan tunjangan per hari hadir, lalu <b class="btn">Save</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Upah wajib diisi (rate_required). Nomor mesin harus sama persis dengan nomor di mesin sidik jari, kalau tidak tapnya tidak tersambung ke orang ini.</div>
+        <div class="status">— <span>→</span> aktif</div>
+        <figure><img src="walk-01-karyawan.jpg" alt=""></figure>
+      </li>
+    </ol>
+    
+    <p class="next">Berikutnya: <b>Memasang pola kerja ke karyawan</b></p>
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">3</div>
+      <div>
+        <h2>Memasang pola kerja ke karyawan</h2>
+        <p class="meta">Layar: <code>/hrd/jadwal</code> · Butuh: <code>hrd.update</code> · <span class="proof">diuji lewat layar live: 1 langkah</span></p>
+      </div>
+    </header>
+    <p class="purpose">Setiap orang harus punya pola kerja supaya jam kerjanya bisa dihitung. Pola ikut unitnya (misalnya Produksi → PRODUKSI); yang berbeda dari unitnya dipasang sendiri.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka HRD → Jadwal kerja. Orang yang belum punya pola tampil di atas.</div>
+        <div class="rule"><b>Kenapa:</b> Orang yang polanya ikut unit tidak perlu dipasang satu per satu.</div>
+        
+        
+      </li>
+      <li>
+        <div class="act">Pilih pola untuk orang itu lalu tekan <b class="btn">Pasang</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Pola yang tidak dikenal ditolak (schedule_unknown); tambahkan polanya dulu di Aturan gaji.</div>
+        <div class="status">— <span>→</span> punya pola</div>
+        <figure><img src="walk-03-jadwal.jpg" alt=""></figure>
+      </li>
+    </ol>
+    
+    <p class="next">Berikutnya: <b>Absensi: impor mesin, tap yang terlewat, dan menandai hari</b></p>
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">4</div>
+      <div>
+        <h2>Berkas 201 (KTP, KK, NPWP, BPJS, ijazah)</h2>
+        <p class="meta">Layar: <code>/hrd/berkas-201</code> · Butuh: <code>hrd.create</code> · <span class="proof">diuji lewat layar live: 1 langkah</span></p>
+      </div>
+    </header>
+    <p class="purpose">Berkas pribadi karyawan, satu slot per jenis dokumen. Boleh dicatat nomornya saja dulu (pemindaiannya menyusul) atau langsung dengan scan/foto. Nomor dokumen disimpan tertutup; membukanya tercatat di audit.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka HRD → Berkas 201, pilih orangnya. Setiap slot tampil, termasuk yang masih kosong.</div>
+        
+        
+        
+      </li>
+      <li>
+        <div class="act">Pada slot dokumen (misalnya KTP) tekan <b class="btn">Tambah</b>, ketik nomor dokumen dan/atau tekan <b class="btn">Pilih scan / foto</b>, isi tanggal terbit dan berakhir kalau ada, lalu <b class="btn">Simpan</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Nomor saja boleh, scan saja boleh, keduanya kosong ditolak (nothing_to_file). Tanggal berakhir sebelum tanggal terbit ditolak.</div>
+        <div class="status">belum ada <span>→</span> tercatat</div>
+        <figure><img src="walk-04-berkas-201.jpg" alt=""></figure>
+      </li>
+    </ol>
+    
+    
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">5</div>
+      <div>
+        <h2>Kontrak kerja (PKWT/PKWTT)</h2>
+        <p class="meta">Layar: <code>/hrd/kontrak</code> · Butuh: <code>hrd.create</code> · <span class="proof">diuji lewat layar live: 4 langkah</span></p>
+      </div>
+    </header>
+    <p class="purpose">Kontrak didaftarkan sebagai draft, kertas yang ditandatangani dilampirkan, sepuluh poin wajib dijawab dengan kalimat aslinya, lalu diberlakukan. Kontrak baru yang diberlakukan menggantikan kontrak lama orang yang sama.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka HRD → Kontrak kerja, tekan <b class="btn">Daftarkan kontrak</b>. Pilih karyawan, jenis (PKWT/PKWTT), tanggal mulai berlaku dan berakhir, lalu <b class="btn">Daftarkan</b>.</div>
+        <div class="rule"><b>Kenapa:</b> PKWT wajib punya tanggal berakhir (end_date_required); PKWTT tidak boleh punya (end_date_not_allowed).</div>
+        <div class="status">— <span>→</span> draft</div>
+        <figure><img src="walk-05-kontrak.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Buka kontraknya. Setelah ditandatangani, tekan <b class="btn">Lampirkan kontrak</b> dan pilih scan/PDF kontrak itu.</div>
+        <div class="rule"><b>Kenapa:</b> Tanpa kertas yang ditandatangani kontrak tidak bisa diberlakukan (paper_required). Hanya kontrak draft yang bisa dilampiri atau diganti berkasnya.</div>
+        <div class="status">draft <span>→</span> draft · berkas terlampir</div>
+        <figure><img src="walk-06-kontrak-kertas.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Jawab sepuluh poin wajib satu per satu: tekan <b class="btn">Jawab</b>, salin kalimat aslinya dari kontrak, isi nilainya, lalu <b class="btn">Konfirmasi</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Poin yang belum dijawab disebut namanya saat memberlakukan (clauses_missing). Nilai yang tidak sesuai bentuknya ditolak (value_shape). Selisih dengan data karyawan ditampilkan, tidak diterapkan otomatis.</div>
+        
+        <figure><img src="walk-07-kontrak-poin.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Tekan <b class="btn">Berlakukan</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Kontrak aktif sebelumnya milik orang yang sama otomatis menjadi "Digantikan".</div>
+        <div class="status">draft <span>→</span> active</div>
+        
+      </li>
+      <li>
+        <div class="act">Untuk mengakhiri: buka kontrak yang berjalan, tekan <b class="btn">Akhiri</b>, tulis alasannya, lalu <b class="btn">Akhiri kontrak</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Alasan wajib (reason_required).</div>
+        <div class="status">active <span>→</span> ended</div>
+        
+      </li>
+    </ol>
+    <div class="faq"><h3>Tanya-jawab</h3><p><b>Kontrak tidak bisa diberlakukan, katanya berkas belum terlampir.</b><br>Buka kontraknya, tekan "Lampirkan kontrak" dan pilih scan/PDF yang sudah ditandatangani. Setelah itu jawab poin wajib yang masih kosong, lalu "Berlakukan".</p></div>
+    
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">6</div>
+      <div>
+        <h2>Absensi: impor mesin, tap yang terlewat, dan menandai hari</h2>
+        <p class="meta">Layar: <code>/hrd/absensi</code> · Butuh: <code>hrd.create</code> · <span class="proof">diuji lewat layar live: 4 langkah</span></p>
+      </div>
+    </header>
+    <p class="purpose">Tap dari mesin sidik jari diimpor per file. Satu hari kerja dibaca dari empat tap: masuk, keluar istirahat, kembali, pulang. Hari yang tapnya tidak lengkap dan tidak diberi tanda tetap "belum dibaca" dan menahan persetujuan gaji.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka HRD → Absensi, tekan <b class="btn">Upload biometric file</b>, pilih file ekspor mesin (CSV), periksa ringkasannya, lalu tekan <b class="btn">Import N tap(s)</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Mengunggah file yang sama dua kali tidak menggandakan tap. Tap dengan nomor yang tidak dikenal tidak masuk dan nomornya disebut — tambahkan karyawannya lalu impor ulang.</div>
+        <div class="status">— <span>→</span> tap masuk</div>
+        <figure><img src="walk-09-absensi-impor.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Hari yang tapnya kurang: klik sel hari itu, tekan <b class="btn">Tap the machine missed</b>, isi jam dan alasannya, lalu <b class="btn">Add tap</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Alasan wajib (reason_required). Hari dibaca dari empat tap: masuk, keluar istirahat, kembali, pulang.</div>
+        <div class="status">belum dibaca <span>→</span> terbaca</div>
+        <figure><img src="walk-10-absensi-tap.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Hari tidak masuk: klik sel hari itu, pilih jenisnya (Sakit, Izin, Tidak masuk, Setengah hari), isi keterangan, lalu tekan <b class="btn">Mark as sakit</b> (atau jenis lain yang dipilih).</div>
+        <div class="rule"><b>Kenapa:</b> Satu hari hanya punya satu tanda (already_marked); tanda yang salah ditarik dulu dengan "Withdraw this mark".</div>
+        <div class="status">belum dibaca <span>→</span> bertanda</div>
+        <figure><img src="walk-11-absensi-sakit.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Pada hari sakit, tekan <b class="btn">Lampirkan surat dokter</b> dan pilih fotonya.</div>
+        <div class="rule"><b>Kenapa:</b> Sakit dengan surat dokter dibayar penuh; tanpa surat tidak.</div>
+        <div class="status">sakit <span>→</span> sakit · surat dokter terlampir</div>
+        
+      </li>
+      <li>
+        <div class="act">Tanggal merah untuk semua orang: klik judul tanggalnya, pilih <b class="btn">Tanggal merah</b>, isi keterangan, lalu <b class="btn">Mark for everybody</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Tanda untuk semua orang hanya untuk hari libur (office_wide).</div>
+        <div class="status">— <span>→</span> libur</div>
+        
+      </li>
+    </ol>
+    <div class="faq"><h3>Tanya-jawab</h3><p><b>Kenapa hari seseorang masih "belum dibaca" padahal dia masuk?</b><br>Satu hari dibaca dari empat tap: masuk, keluar istirahat, kembali dari istirahat, pulang. Kalau salah satunya tidak ada (misalnya jari tidak terbaca saat pulang), hari itu belum dibaca. Klik selnya, tekan "Tap the machine missed", isi jam dan alasannya.</p><p><b>Tap dari file mesin ada yang tidak masuk. Kenapa?</b><br>Nomor di mesin tidak cocok dengan nomor karyawan mana pun. Ringkasan impor menyebut nomor itu. Tambahkan atau betulkan karyawannya di HRD → Karyawan, lalu impor ulang file yang sama — tap yang sudah masuk tidak dobel.</p></div>
+    <p class="next">Berikutnya: <b>Cuti, izin dan sakit</b></p>
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">7</div>
+      <div>
+        <h2>Cuti, izin dan sakit</h2>
+        <p class="meta">Layar: <code>/hrd/cuti</code> · Butuh: <code>hrd.update</code> · <span class="proof">diuji lewat layar live: 2 langkah</span></p>
+      </div>
+    </header>
+    <p class="purpose">Pengajuan cuti, izin atau sakit dicatat dengan tanggal dan alasannya, lalu diputuskan. Persetujuan langsung menulis tanda hari di absensi dan mengurangi sisa cuti; penolakan wajib beralasan karena orangnya akan membacanya.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka HRD → Cuti, tekan <b class="btn">Ajukan</b>. Pilih karyawan, jenis (Cuti, Izin, Sakit), dari dan sampai tanggal, tulis alasannya, lalu tekan <b class="btn">Ajukan</b> lagi.</div>
+        <div class="rule"><b>Kenapa:</b> Tanggal yang bertumpuk dengan pengajuan lain ditolak (overlaps_existing). Alasan wajib — itu yang dibaca saat diputuskan.</div>
+        <div class="status">— <span>→</span> PENDING</div>
+        <figure><img src="walk-13-cuti.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Pada pengajuan yang menunggu, tekan <b class="btn">Setujui</b> atau <b class="btn">Tolak</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Menolak wajib beralasan (reason_required); alasannya dibaca orangnya. Persetujuan menulis tanda hari di absensi, kecuali di hari yang sudah punya tanda.</div>
+        <div class="status">PENDING <span>→</span> APPROVED / REJECTED</div>
+        
+      </li>
+    </ol>
+    <div class="faq"><h3>Tanya-jawab</h3><p><b>Cuti sudah disetujui, apakah absensinya perlu ditandai lagi?</b><br>Tidak. Persetujuan langsung menulis tanda cuti/izin/sakit di hari-hari itu. Hari yang sudah punya tanda lain tidak ditimpa.</p></div>
+    
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">8</div>
+      <div>
+        <h2>Membuka run gaji dan menambah penyesuaian</h2>
+        <p class="meta">Layar: <code>/hrd/payroll/minggu</code> · Butuh: <code>payroll.run</code> · <span class="proof">diuji lewat layar live: 2 langkah</span></p>
+      </div>
+    </header>
+    <p class="purpose">Run gaji adalah satu periode (seminggu untuk harian, sebulan untuk bulanan). Baris gaji tidak disimpan: dihitung dari absensi dan lembur yang disetujui setiap kali dibaca, jadi tidak ada tombol hitung. Penyesuaian (bonus, potongan, kasbon) ditambahkan tangan dengan alasan.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka Payroll → <b class="btn">Gajian mingguan</b>. Pratinjau minggu itu tampil sebelum ada run; pindah minggu dengan <b class="btn">Minggu sebelumnya</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Pratinjau dan run membaca angka yang sama dari absensi.</div>
+        
+        
+      </li>
+      <li>
+        <div class="act">Tekan <b class="btn">Buka run minggu ini</b>. Untuk periode lain (misalnya bulanan) pakai <b class="btn">Open a run</b> di halaman Payroll dengan tanggal dari–sampai.</div>
+        <div class="rule"><b>Kenapa:</b> Periode yang bertumpuk dengan run lain ditolak (period_overlaps).</div>
+        <div class="status">— <span>→</span> DRAFT</div>
+        <figure><img src="walk-15-gajian-mingguan.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Di halaman run, bagian penyesuaian: pilih karyawan dan jenisnya, isi nominal dan alasan, lalu <b class="btn">Tambahkan</b> (atau <b class="btn">Potong</b> untuk pengurang).</div>
+        <div class="rule"><b>Kenapa:</b> Hanya run DRAFT yang bisa diubah (run_not_draft). Alasan wajib.</div>
+        <div class="status">DRAFT <span>→</span> DRAFT</div>
+        <figure><img src="walk-16-run.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Periksa <b class="btn">Days unread</b>. Kalau belum nol, tekan <b class="btn">Read them</b> dan selesaikan hari-hari itu di Absensi.</div>
+        <div class="rule"><b>Kenapa:</b> Run dengan hari yang belum dibaca tidak bisa disetujui (open_days).</div>
+        
+        
+      </li>
+    </ol>
+    <div class="faq"><h3>Tanya-jawab</h3><p><b>Di mana tombol untuk menghitung gaji?</b><br>Tidak ada. Baris gaji dihitung dari absensi, tanda hari, cuti dan lembur yang disetujui setiap kali halaman run dibuka. Menutup hari yang belum dibaca langsung mengubah angkanya.</p><p><b>Bisakah John Lau memberi tahu gaji atau absensi seseorang?</b><br>Tidak. Gaji, absensi per orang dan berkas 201 tidak dibaca lewat percakapan (keputusan pemilik). John Lau bisa menjelaskan cara memakai layarnya; angkanya dibaca di layar HRD oleh yang berhak.</p></div>
+    <p class="next">Berikutnya: <b>Menyetujui run gaji (pimpinan)</b></p>
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">9</div>
+      <div>
+        <h2>Menyetujui run gaji (pimpinan)</h2>
+        <p class="meta">Layar: <code>/hrd/payroll</code> · Butuh: <code>wewenang approve_funds</code> · <span class="proof">diuji lewat layar live: 1 langkah</span></p>
+      </div>
+    </header>
+    <p class="purpose">Pimpinan (pemegang approve_funds) memeriksa dan menyetujui run. Yang menyiapkan run tidak bisa menyetujuinya. Run ditolak disetujui selama masih ada hari yang belum dibaca.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Pimpinan membuka run lalu menekan <b class="btn">Approve the run</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Hanya pemegang approve_funds. Yang menyiapkan run tidak bisa menyetujui (not_permitted). Ditolak selama masih ada hari belum dibaca (open_days).</div>
+        <div class="status">DRAFT <span>→</span> APPROVED</div>
+        <figure><img src="walk-17-run-approve.jpg" alt=""></figure>
+      </li>
+    </ol>
+    <div class="faq"><h3>Tanya-jawab</h3><p><b>Kenapa run gaji tidak bisa disetujui?</b><br>Biasanya karena masih ada hari yang belum dibaca (open_days): angka "Days unread" di halaman run lebih dari nol. Tekan "Read them" dan selesaikan hari-hari itu di Absensi. Selain itu hanya pemegang approve_funds yang bisa menyetujui, dan yang menyiapkan run tidak bisa.</p></div>
+    <p class="next">Berikutnya: <b>Membayar run gaji dan mencatatnya ke buku besar</b></p>
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">10</div>
+      <div>
+        <h2>Membayar run gaji dan mencatatnya ke buku besar</h2>
+        <p class="meta">Layar: <code>/hrd/payroll</code> · Butuh: <code>wewenang post_ledger</code> · <span class="proof">diuji lewat layar live: 1 langkah</span></p>
+      </div>
+    </header>
+    <p class="purpose">Keuangan (pemegang post_ledger) membayar run yang sudah disetujui dari halaman run itu sendiri. Satu baris buku besar untuk seluruh run, dengan bukti transfer, dan run langsung tertulis PAID. Gaji per orang tidak ditulis ke buku besar.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Keuangan membuka run yang sudah APPROVED. Di kartu <b class="btn">Bayar run ini</b> isi tanggal bayar, nominal (terisi dari Diterima), rekening, tekan <b class="btn">Lampirkan bukti transfer</b>, lalu <b class="btn">Catat Rp … ke buku besar</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Hanya pemegang post_ledger (authority_required). Bukti transfer wajib (evidence_required). Run yang belum disetujui (not_approved) atau sudah dibayar (already_paid) ditolak.</div>
+        <div class="status">APPROVED <span>→</span> PAID</div>
+        <figure><img src="walk-18-bayar-run.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Transaksi gaji muncul di buku besar dengan jenis payroll mingguan atau bulanan. Tandai lengkap seperti transaksi lain.</div>
+        <div class="rule"><b>Kenapa:</b> Buku besar hanya menyimpan total run; rincian per orang tetap di halaman run.</div>
+        <div class="status">POSTED <span>→</span> COMPLETED</div>
+        
+      </li>
+    </ol>
+    <div class="faq"><h3>Tanya-jawab</h3><p><b>Nominal yang dibayar harus sama dengan "Diterima"?</b><br>Tidak ditolak kalau berbeda. Apakah run membayar bruto plus penyesuaian atau dikurangi bagian BPJS karyawan belum diputuskan (Q56), jadi nominal yang dibayar dicatat apa adanya dan angka run tersimpan di sebelahnya.</p><p><b>Kenapa gaji per orang tidak ada di buku besar?</b><br>Buku besar dibaca lebih banyak orang daripada yang boleh melihat gaji. Yang dicatat satu baris untuk seluruh run; rinciannya tetap di halaman run gaji.</p></div>
+    
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">11</div>
+      <div>
+        <h2>Mencetak slip gaji</h2>
+        <p class="meta">Layar: <code>/hrd/payroll</code> · Butuh: <code>payroll.read</code></p>
+      </div>
+    </header>
+    <p class="purpose">Slip gaji dicetak dari halaman run, delapan per lembar atau enam per lembar dengan rekap harian.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Di halaman run tekan <b class="btn">Payslips</b>. Halaman slip terbuka dan langsung siap dicetak; pilih <b class="btn">Padatkan (8 per lembar)</b> atau rekap harian, lalu <b class="btn">Cetak</b>.</div>
+        
+        
+        
+      </li>
+    </ol>
+    
+    
+  </section>
+
+  
+</body></html>

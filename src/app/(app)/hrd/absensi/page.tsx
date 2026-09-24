@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { CalendarCheck, Upload, AlertTriangle, Clock, Flag } from "lucide-react";
+import { useEffect, useState } from "react";
+import { CalendarCheck, Upload, AlertTriangle, Clock, Flag, ChevronLeft, ChevronRight } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { usePaged } from "@/components/ui/pager";
 import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { mondayOf, officeToday, shiftDay } from "@/lib/office";
+import { isLiveMode } from "@/lib/live";
 import { hr } from "@/demo/api";
 import type { TimesheetTotal } from "@/services/hr/contracts";
 import { DAY_MARK_SHORT, OVERTIME_STAGE_LABEL, type DayState } from "@/services/hr/contracts";
@@ -29,7 +31,17 @@ import { MarkDay } from "./MarkDay";
  *  **which days a person still has to read** — because until they have, a
  *  payroll over this period is arithmetic rather than wages (D141).
  */
-const PERIOD = { from: "2026-08-29", to: "2026-09-07" };
+/** Two weeks: the one before this and this one. Last week is the one a
+ *  weekly payroll pays, and this week is the one being tapped into. Until F154
+ *  this was a constant — the demo's own fortnight, 29 Aug – 7 Sep 2026 — so in
+ *  live mode the grid never showed a day anybody could still fix. */
+const SPAN_DAYS = 14;
+
+/** Where the grid opens: the last fortnight in live mode; in the demo, the
+ *  fortnight its fixtures were recorded in, which is otherwise an empty grid. */
+function defaultFrom(): string {
+  return isLiveMode() ? mondayOf(shiftDay(officeToday(), -7)) : "2026-08-24";
+}
 
 const CELL: Record<DayState, string> = {
   complete: "bg-emerald-50 text-emerald-800 border-emerald-200",
@@ -40,7 +52,21 @@ const CELL: Record<DayState, string> = {
 
 export default function TimesheetPage() {
   const { can, hasAuthority } = useSession();
-  const [sheet, reload] = useLoad(() => hr.getTimesheet(PERIOD), []);
+  /* Read off the address, as the weekly payroll does, so a link (or a reload)
+     lands on the fortnight somebody was looking at. */
+  const [from, setFrom] = useState(() => {
+    const asked = typeof window === "undefined"
+      ? null : new URLSearchParams(window.location.search).get("from");
+    return asked && /^\d{4}-\d{2}-\d{2}$/.test(asked) ? mondayOf(asked) : defaultFrom();
+  });
+  const to = shiftDay(from, SPAN_DAYS - 1);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("from", from);
+    window.history.replaceState(null, "", url.toString());
+  }, [from]);
+  const [sheet, reload] = useLoad(() => hr.getTimesheet({ from, to }), [from, to]);
   const [sheets, reloadSheets] = useLoad(() => hr.listOvertimeSheets(), []);
   const [importing, setImporting] = useState(false);
   const [marking, setMarking] = useState<string | null>(null);
@@ -60,11 +86,24 @@ export default function TimesheetPage() {
       <PageHeader
         breadcrumb="HRD"
         title="Timesheet"
-        description={`${PERIOD.from} → ${PERIOD.to}. Six taps make a full day; the reader gives four on a good one. Amber is a day somebody still has to read.`}
+        description={`${from} → ${to}. Six taps make a full day; the reader gives four on a good one. Amber is a day somebody still has to read.`}
         actions={mayEdit ? (
           <Button icon={Upload} onClick={() => setImporting(true)}>Upload biometric file</Button>
         ) : undefined}
       />
+
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <Button variant="outline" size="sm" icon={ChevronLeft} onClick={() => setFrom(shiftDay(from, -7))}>
+          Minggu sebelumnya
+        </Button>
+        <span className="px-2 font-mono text-[12px] text-slate-500">{from} → {to}</span>
+        <Button variant="outline" size="sm" onClick={() => setFrom(shiftDay(from, 7))}>
+          Minggu depan <ChevronRight className="ml-1 h-3.5 w-3.5" />
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setFrom(defaultFrom())}>
+          Dua minggu terakhir
+        </Button>
+      </div>
 
       <Loaded state={sheet} onRetry={reload}>
         {(s) => (

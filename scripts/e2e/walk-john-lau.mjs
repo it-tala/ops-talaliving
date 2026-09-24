@@ -21,9 +21,12 @@ const { chromium } = require("playwright-core");
 const APP = process.env.APP_URL ?? "http://localhost:3200";
 const sql = (q) => execFileSync("psql", ["-h", process.env.PGHOST ?? "/tmp", "-p", process.env.PGPORT ?? "5433",
   "-U", "postgres", "-Atc", q], { encoding: "utf8" }).trim();
-const lastTurn = () => sql(`select kind || '|' || coalesce(refused_because::text,'-') || '|' || array_to_string(tools_used, ',')
+const lastTurnOf = (email) => sql(`select kind || '|' || coalesce(refused_because::text,'-') || '|' || array_to_string(tools_used, ',')
   || '|' || coalesce(route,'-') || '|' || jsonb_array_length(steps) || '|' || jsonb_array_length(facts)
-  from ops_asst.turns t join ops_core.users u on u.id = t.actor_id where u.email = 'andi@talaliving.com' order by at desc limit 1`);
+  from ops_asst.turns t join ops_core.users u on u.id = t.actor_id where u.email = '${email}' order by at desc limit 1`);
+const lastTurn = () => lastTurnOf("andi@talaliving.com");
+const ROOT = new URL("../..", import.meta.url).pathname.replace(/\/$/, "");
+const SHOT = process.env.SHOTS !== "0";
 
 /* Acting as somebody inside one transaction, the way the smoke files do —
    for the steps that belong to another screen (approving on the meeting
@@ -151,6 +154,52 @@ await page.waitForTimeout(3000);
 const po2 = sql(`select status || '|' || (approved_at is not null)::int || '|' || self_confirmed::int || '|' || coalesce(approval_sent_to::text,'-')
   from ops_procure.purchase_orders order by created_at desc limit 1`);
 expect("leadership's PO: confirmed on creation, no card to themselves", po2 === "DRAFT|1|1|-", po2);
+
+/* ═════ Stage 4: HR — a leave request through the prompt (D301) ═════ */
+/* Evin holds hrd read only, so the gate refuses the draft for him — the same
+   answer the screen's missing "Ajukan" gives. Sari, who files leave on the
+   screen, gets the draft. The people come from seed-hr.sql and the HR walk. */
+/* Wulan, if the HR walk has not run on this database. */
+sql(`insert into ops_hr.employees (employee_no, full_name, unit, pay_basis, base_rate, allowance_rate, paid_leave_days)
+     select 'B-0102','Wulan Sari','Kantor','monthly',4500000,25000,12
+      where not exists (select 1 from ops_hr.employees where employee_no = 'B-0102')`);
+await ask("ajukan cuti untuk Wulan 2 sampai 3 Oktober, acara keluarga");
+t = lastTurnOf("evin@talaliving.com").split("|");
+expect("a reader of HR cannot draft a leave request", t[0] === "refused" && t[2].startsWith("hr.draft_leave"), t.join("|"));
+
+await page.context().clearCookies();
+await page.evaluate(() => { try { sessionStorage.clear(); localStorage.clear(); } catch {} });
+await page.goto(`${APP}/signin`, { waitUntil: "networkidle" });
+await page.fill("input[type=email]", "sari@talaliving.com");
+await page.fill("input[type=password]", "e2e");
+await page.getByRole("button", { name: "Masuk" }).click();
+await page.waitForURL((u) => !u.pathname.startsWith("/signin"), { timeout: 15000 }).catch(() => {});
+await page.goto(`${APP}/hrd/cuti`, { waitUntil: "networkidle" });
+await page.locator("[data-dock-open='john-lau']").click().catch(() => {});
+
+const year = new Date(Date.now() + 8 * 3_600_000).getUTCFullYear();
+const before2 = sql(`select count(*) from ops_hr.leave_requests`);
+await ask("ajukan cuti untuk Wulan 2 sampai 3 Oktober, acara keluarga");
+t = lastTurnOf("sari@talaliving.com").split("|");
+const lArgs = sql(`select args::text from ops_asst.drafts order by created_at desc limit 1`);
+expect("\"ajukan cuti untuk Wulan …\" → a leave draft with the person, the dates and the reason read from the sentence",
+  t[0] === "draft" && t[2] === "hr.draft_leave" && lArgs.includes("B-0102") && lArgs.includes("-10-02") && lArgs.includes("-10-03")
+  && lArgs.includes("acara keluarga"), `${t.join("|")} ${lArgs}`);
+expect("nothing filed before the person says yes", sql(`select count(*) from ops_hr.leave_requests`) === before2, before2);
+if (SHOT) await page.screenshot({ path: `${ROOT}/docs/sop/hr/11-john-lau-cuti.jpg`, type: "jpeg", quality: 75 });
+await page.locator("[data-dock='john-lau']").getByRole("button", { name: /Ya, tulis|Yes, write it/ }).last().click();
+await page.waitForTimeout(2500);
+const filed = sql(`select r.status || ' ' || e.employee_no || ' ' || r.from_date || ' ' || r.to_date from ops_hr.leave_requests r
+                    join ops_hr.employees e on e.id = r.employee_id order by r.requested_at desc limit 1`);
+expect("\"Ya, tulis\" files it PENDING, as Sari, through request_leave",
+  filed === `PENDING B-0102 ${year}-10-02 ${year}-10-03` || filed === `PENDING B-0102 ${year + 1}-10-02 ${year + 1}-10-03`, filed);
+
+await ask("tolong catat Wulan libur, dia menikah");
+t = lastTurnOf("sari@talaliving.com").split("|");
+const mArgs = sql(`select args::text from ops_asst.drafts order by created_at desc limit 1`);
+expect("a sentence the router does not know → the model picks the leave draft; its invented field and malformed date are dropped",
+  t[0] === "draft" && t[2] === "hr.draft_leave,ai.openai" && mArgs.includes("B-0102") && !mArgs.includes("4500000")
+  && !mArgs.includes("minggu depan") && !mArgs.includes("invented"), `${t.join("|")} ${mArgs}`);
 
 await browser.close();
 if (failures.length) { console.error(`\n${failures.length} failure(s)`); process.exitCode = 1; }

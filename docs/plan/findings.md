@@ -6286,3 +6286,51 @@ The mock model proves the road, not the reading. How well a real model picks
 tools from Indonesian shop-floor sentences is the next measurement, with a
 key and the turns people actually type.
 
+
+## F154 · 2026-09-24 · HR, walked the same way: every seam was right and six doors were shut
+
+HR had a smoke file for every seam, and they were all green. The walk asked
+the procurement question again — *can Sari, Evin and Rina get from an empty
+database to a paid week using only what the screens send* — first in SQL
+(`99_sim_hr_to_ledger.sql`, four people, 33 steps), then pressing the buttons
+(`scripts/e2e/walk-hr.mjs`, 18 steps). The answer was no, six times over, and
+not one of them was a seam that did the wrong thing:
+
+1. **A contract registered on screen could never go live.** `activate_contract`
+   refuses `paper_required` — rightly — and the only way to link the paper was
+   an argument of `register_contract` the form has no field for. The rule was
+   right and there was no door to satisfy it. B13, `0138`.
+2. **The 201 file could hold numbers but never scans.** The drawer shows
+   *berkas di Drive* for a document with an attachment, and had no way to give
+   one. B14.
+3. **An approved payroll run stopped at APPROVED for ever.** `record_payroll_paid`
+   wanted a ledger number typed elsewhere and nothing called it; the approval
+   event has no consumer. The same missing join as B8, so the same shape of
+   fix: pay it from its own page, one call, one ledger row per run (D302). B15.
+4. **The live timesheet showed the demo's fortnight.** `PERIOD` was a constant,
+   29 Aug – 7 Sep 2026. In live mode the grid could never show a day anybody
+   could still read, so *open days* could only be closed through somebody
+   else's screen — and approval refuses while any are open. B16.
+5. **The John Lau launcher covered the only *Pasang* button** on `/hrd/jadwal`.
+   F65 had added room under the page on small screens only; the last row of a
+   short page sits under the corner on a laptop too. Found because Playwright
+   refuses to click what a person could not either. B17.
+6. **Everybody entered on screen joined today.** The drawer had no start
+   date, so go-live would have made every tenure start that morning. B18.
+
+One more thing the SQL walk taught rather than found: **a day is read from
+four taps** (in, out to break, back, home). Two taps a day — what a
+simulation writes without thinking — leaves every day *belum dibaca* and the
+run unapprovable. It is now in the FAQ John Lau reads, because it is the first
+thing a new HR person will ask.
+
+The walk also ran into the limit of screenshots as specification: the
+knowledge said `Import N tap(s)` and the walk pressed `Import 27 tap(s)`.
+The walk records the button's shape, not its count.
+
+John Lau stage 4 (D301) rides on the same walk: *ajukan cuti untuk Wulan 2
+sampai 3 Oktober, acara keluarga* is a draft with the person, both dates and
+the reason read from the sentence; nothing is filed before *Ya, tulis*; a
+reader of HR is refused by the same gate as the screen; and the model's
+invented salary field and its *minggu depan* in a date field are dropped
+(`walk-john-lau.mjs`, 19 checks).

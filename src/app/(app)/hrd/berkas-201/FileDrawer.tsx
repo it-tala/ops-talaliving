@@ -1,17 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { FileBadge, Plus, AlertTriangle, Eye, EyeOff, Paperclip } from "lucide-react";
 import { Drawer } from "@/components/ui/drawer";
 import { Badge, Button } from "@/components/ui/primitives";
 import { Loaded, useLoad } from "@/components/ui/loaded";
 import { cn } from "@/lib/cn";
-import { hr } from "@/demo/api";
+import { documents, hr } from "@/demo/api";
+import type { DocKind } from "@/services/documents/contracts";
 import {
   EMPLOYEE_DOC_LABEL, DOC_NO_SOURCE_LABEL, DOC_NO_DIGITS,
   type EmployeeDocKind, type EmployeeFileView, type EmployeeDocumentView,
 } from "@/services/hr/contracts";
 import { useToast } from "@/store/toast";
+
+/** Which document kind a slot's scan is filed under — the kind picks the
+ *  shared drive, so a KTP lands with the other personnel files. */
+const SCAN_KIND: Record<EmployeeDocKind, DocKind> = {
+  ktp: "KTP", kartu_keluarga: "Kartu Keluarga", ijazah: "Ijazah", cv: "CV",
+  kontrak_kerja: "Kontrak Kerja", npwp: "NPWP", bpjs_kesehatan: "BPJS", bpjs_tk: "BPJS",
+  foto: "Foto", sertifikat: "Sertifikat", sp: "Surat Peringatan", lainnya: "Others",
+};
 
 /** One person's file, slot by slot.
  *
@@ -34,11 +43,23 @@ export function FileDrawer({
   const [adding, setAdding] = useState<EmployeeDocKind | null>(null);
   const [form, setForm] = useState({ doc_no: "", issued_on: "", expires_on: "", note: "" });
   const [busy, setBusy] = useState(false);
+  /* The scan. Until F154 the drawer could only type a number: the seam took
+     an attachment and the form never offered one, so "berkas di Drive" was a
+     state no slot could reach. */
+  const [scan, setScan] = useState<File | null>(null);
+  const scanRef = useRef<HTMLInputElement>(null);
 
   async function save(kind: EmployeeDocKind) {
     setBusy(true);
+    let attachmentId: string | null = null;
+    if (scan) {
+      const up = await documents.upload({ file: scan, kind: SCAN_KIND[kind] });
+      if (up.error) { setBusy(false); toast("critical", "Upload gagal", up.error.message); return; }
+      attachmentId = up.data.id;
+    }
     const res = await hr.saveEmployeeDocument({
       employee_no: employeeNo, kind,
+      attachment_id: attachmentId,
       doc_no: form.doc_no || null,
       issued_on: form.issued_on || null,
       expires_on: form.expires_on || null,
@@ -52,6 +73,7 @@ export function FileDrawer({
     toast("success", "Tercatat", EMPLOYEE_DOC_LABEL[kind]);
     setAdding(null);
     setForm({ doc_no: "", issued_on: "", expires_on: "", note: "" });
+    setScan(null);
     reload(); onChanged();
   }
 
@@ -149,13 +171,25 @@ export function FileDrawer({
                           />
                         </label>
                       </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          ref={scanRef} type="file" accept="application/pdf,image/*" className="hidden"
+                          aria-label="Scan atau foto berkas"
+                          onChange={(e) => { setScan(e.target.files?.[0] ?? null); e.target.value = ""; }}
+                        />
+                        <Button size="sm" variant="outline" icon={Paperclip} disabled={busy}
+                          onClick={() => scanRef.current?.click()}>
+                          {scan ? "Ganti scan" : "Pilih scan / foto"}
+                        </Button>
+                        {scan && <span className="truncate text-[11px] text-slate-600">{scan.name}</span>}
+                      </div>
                       <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
                         <input
                           value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })}
                           placeholder="Catatan — mis. PKWT satu tahun, perpanjangan kedua"
                           className="h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
                         />
-                        <Button size="sm" disabled={busy || !form.doc_no.trim()} onClick={() => save(s.kind)}>
+                        <Button size="sm" disabled={busy || (!form.doc_no.trim() && !scan)} onClick={() => save(s.kind)}>
                           {busy ? "Menyimpan…" : "Simpan"}
                         </Button>
                       </div>

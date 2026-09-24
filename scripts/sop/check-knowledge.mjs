@@ -31,6 +31,8 @@ const WALK = join(ROOT, "docs/sop", MODULE, "walk.json");
 /* Processes deliberately not walked through the screens, and why. */
 const NOT_WALKED = {
   "procure.master_data": "seeded by scripts/e2e/seed-procurement.sql; the walk starts from a curated vendor",
+  "hr.pay_rules": "IT's; seeded by scripts/e2e/seed-hr.sql, the walk starts from a version in force (59 smoke edits it)",
+  "hr.payslip": "opens a print dialog in a new tab — read-only, nothing to record",
 };
 
 if (!existsSync(WALK)) {

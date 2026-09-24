@@ -57,6 +57,7 @@ const RULES: Rule[] = [
      "berapa PO". */
   { tool: "procurement.draft_po", any: ["buatkan po", "buat po", "bikin po", "po baru", "order ke vendor", "create a po", "create po", "new po", "raise a po", "order from vendor"], understood: "menyiapkan purchase order baru" },
   { tool: "procurement.draft_pr_line", any: ["minta beli", "permintaan pembelian", "request beli", "ajukan pembelian", "pr baru", "purchase request", "request to buy", "new request line"], understood: "menyiapkan baris permintaan pembelian" },
+  { tool: "hr.draft_leave", any: ["ajukan cuti", "ajukan izin", "ajukan sakit", "minta cuti", "pengajuan cuti", "catat cuti", "request leave", "leave request", "file leave", "book leave"], understood: "menyiapkan pengajuan cuti" },
 
   /* Reading. */
   { tool: "procurement.pending_approvals", any: ["menunggu persetujuan", "belum disetujui", "perlu approve", "antrian approval", "rapat", "belum di-approve", "waiting for approval", "pending approval", "not approved", "approval queue"], understood: "melihat baris yang menunggu persetujuan" },

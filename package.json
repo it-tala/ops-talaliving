@@ -8,7 +8,7 @@
     "build": "next build",
     "//verify": "What to run before pushing. `build` is next build and it is NOT what ships: opennextjs-cloudflare build is, and it refuses things next build accepts — an edge-runtime route, for one, which cost a deploy on 2026-09-21. This is every step of the `app` CI job, in its order; cf:build runs next build itself, so `build` is not repeated. The database job is supabase/local/rebuild.sh + smoke.sh + check-view-contracts.mjs, which need a cluster.",
     "verify": "npx tsc --noEmit && npm run lint && node scripts/check-live-routes.mjs && node scripts/check-permissions.mjs && node scripts/check-api-parity.mjs && node scripts/check-api-schemas.mjs && npm run cf:build",
-    "verify:db": "supabase/local/rebuild.sh && supabase/local/smoke.sh && node scripts/check-view-contracts.mjs && node scripts/check-schedule-rules.mjs && node scripts/check-john-lau.mjs && node scripts/sop/check-knowledge.mjs procurement && supabase/import/test.sh",
+    "verify:db": "supabase/local/rebuild.sh && supabase/local/smoke.sh && node scripts/check-view-contracts.mjs && node scripts/check-schedule-rules.mjs && node scripts/check-john-lau.mjs && node scripts/sop/check-knowledge.mjs procurement && node scripts/sop/check-knowledge.mjs hr && supabase/import/test.sh",
     "start": "next start",
     "lint": "next lint",
     "cf:build": "opennextjs-cloudflare build",

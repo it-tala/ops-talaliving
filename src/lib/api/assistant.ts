@@ -57,8 +57,10 @@ import type {
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fail, fromSeam, fromRows, invalid, ok, refused, type Result } from "./_kit";
 import { getActiveLang } from "@/lib/i18n";
-import { GUIDES, resolveGuide, draftShape, resolvePoDraft, confirmPoDraft } from "@/lib/john-lau";
+import { GUIDES, resolveGuide, draftShape, resolvePoDraft, confirmPoDraft, resolveLeaveDraft, confirmLeaveDraft } from "@/lib/john-lau";
+import { officeToday } from "@/lib/office";
 import * as procurement from "./procurement";
+import * as hr from "./hr";
 import * as accounting from "./accounting";
 import * as inventory from "./inventory";
 import { isOk } from "@/services/_shared/envelope";
@@ -376,6 +378,12 @@ export async function ask(prompt: string, context?: AskContext): Promise<Result<
       const lines = await procurement.listOpenLines();
       if (isOk(lines)) match = { ...match, args: resolvePoDraft(match.args ?? {}, lines.data, prompt) };
     }
+    /* A leave request names somebody this person can already see (D301):
+       looked up as them, so a name they cannot read stays blank. */
+    if (tool.name === "hr.draft_leave") {
+      const people = await hr.listEmployees();
+      if (isOk(people)) match = { ...match, args: resolveLeaveDraft(match.args ?? {}, people.data, prompt, officeToday()) };
+    }
     const res = await record(prompt, {
       kind: "draft",
       understood_as: understood,
@@ -638,6 +646,13 @@ export async function confirmDraft(
      are in front of the person sending it to a vendor (D220). */
   if (draft.tool === "procurement.draft_po") {
     const res = await confirmPoDraft(procurement, input.fields, draft.args ?? {}, lang);
+    if (!isOk(res)) return res as unknown as Result<AssistantTurn>;
+    produced = res.data;
+  }
+  /* A leave request through the seam "Ajukan" on /hrd/cuti uses; it lands
+     PENDING and is decided there, by a person (D301). */
+  if (draft.tool === "hr.draft_leave") {
+    const res = await confirmLeaveDraft(hr, input.fields, draft.args ?? {}, lang);
     if (!isOk(res)) return res as unknown as Result<AssistantTurn>;
     produced = res.data;
   }

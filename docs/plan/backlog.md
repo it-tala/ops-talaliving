@@ -23,6 +23,12 @@ that only shows what is left teaches nobody anything.
 | B10 | **Kartu persetujuan PO belum sampai ke Google Chat** — `request_po_approval` memancarkan `procurement.po.approval_requested`, dan `po_approval_card` / `answer_po_approval` sudah siap untuk worker, tetapi belum ada worker yang mengirim kartu dan menerima jawabannya | outbox → Google Chat | open — 2026-09-23 (F151). Needs the owner: which Chat app sends it (the existing John Lau v01 bot, or a new Chat app on this Worker) and who administers it in Google Workspace |
 | B11 | ~~**Baris yang vendornya diputuskan di PO tidak bisa dibayar dari barisnya**~~ | `ops_acct.post_from_line` | **fixed** 2026-09-23 — `0135`: the vendor falls back to the order the line is on; a line on no order with no vendor is still refused `vendor_required` (F152) |
 | B12 | ~~**Setiap PO draft di live bertuliskan *Changed since it was sent***~~ | `/procurement/po/[po]` | **fixed** 2026-09-23 — the ladder starts a draft at revision 1 with nothing sent (`0011`), the demo at 0/0, so only live showed it. The banner now needs an order that has gone out (F152) |
+| B13 | ~~**Kontrak yang didaftarkan dari layar tidak pernah bisa diberlakukan**~~ | `/hrd/kontrak` | **fixed** 2026-09-24 — `0138` `attach_contract_paper` + tombol *Lampirkan kontrak* di halaman kontrak (F154). `activate_contract` menolak `paper_required`, dan satu-satunya jalan melampirkan kertasnya adalah argumen `register_contract` yang tidak dikirim formulir |
+| B14 | ~~**Berkas 201 hanya bisa dicatat nomornya, tidak pernah scan-nya**~~ | `/hrd/berkas-201` | **fixed** 2026-09-24 — *Pilih scan / foto* di laci berkas; scan saja atau nomor saja sama-sama boleh (F154) |
+| B15 | ~~**Run gaji berhenti di APPROVED — tidak ada layar yang membayarnya**~~ | `/hrd/payroll/[run]` | **fixed** 2026-09-24 — `0139` `ops_acct.post_payroll_run` + kartu *Bayar run ini* untuk pemegang `post_ledger` (D302, F154) |
+| B16 | ~~**Timesheet live terkunci di periode data demo (29 Agu – 7 Sep 2026)**~~ | `/hrd/absensi` | **fixed** 2026-09-24 — dua minggu terakhir secara bawaan, geser per minggu, `?from=` di alamat (F154) |
+| B17 | ~~**Tombol John Lau menutupi tombol terakhir di halaman pada layar lebar**~~ | semua halaman | **fixed** 2026-09-24 — ruang bawah `pb-24` di semua lebar layar, bukan hanya layar kecil (F65, F154) |
+| B18 | ~~**Karyawan yang dicatat dari layar selalu "masuk hari ini"**~~ | `/hrd/karyawan` | **fixed** 2026-09-24 — kolom *Tanggal masuk* di laci karyawan (F154) |
 
 ## Scheduled — the owner's answers of 2026-09-11
 

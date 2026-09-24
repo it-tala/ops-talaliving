@@ -604,6 +604,42 @@ export async function postToPo(
   return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
 }
 
+/** Paying an approved payroll run from its page (F154, `ops_acct.post_payroll_run`,
+ *  0139). One ledger row for the whole run — never one per person — and the
+ *  run marked PAID in the same call. */
+export async function postPayrollRun(
+  input: {
+    run_no: string;
+    amount: number;
+    account_id: string;
+    trx_date: string;
+    attachment_id: string;
+    type_code?: TransactionTypeCode;
+  },
+  idempotencyKey?: string,
+): Promise<Result<TransactionView>> {
+  const accountCode = await codeFor("accounts", input.account_id);
+  if (!accountCode) {
+    return invalid(SERVICE, "account_not_found",
+      "Akun itu tidak ada di database.", { field: "account_id" });
+  }
+  const { data, error } = await db().rpc("post_payroll_run", {
+    p_run_no:        input.run_no,
+    p_amount:        input.amount,
+    p_account_code:  accountCode,
+    p_attachment_id: input.attachment_id || null,
+    p_trx_date:      input.trx_date,
+    p_type_code:     input.type_code ?? null,
+    p_document_kind: "Payment Proof",
+    p_key:           idempotencyKey ?? null,
+  });
+  const posted = fromSeam<{ trx_no: string }>(SERVICE, data, error);
+  if (posted.error) return posted;
+  const row = await db()
+    .from("v_transaction").select("*").eq("trx_no", posted.data.trx_no).single();
+  return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
+}
+
 /** VOID keeps the row and the amount, with a reason beside it (A5, D84). The
  *  correction is a new row; this one stays, saying what was once believed. */
 export async function voidTransaction(

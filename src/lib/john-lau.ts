@@ -24,6 +24,7 @@
  */
 import type { AssistantDraft, GuideStep } from "@/services/assistant/contracts";
 import type { PrLineView, UomCode, Vendor } from "@/services/procurement/contracts";
+import type { LeaveKind } from "@/services/hr/contracts";
 import { invalid, isOk, ok, type Result } from "@/services/_shared/envelope";
 import type { Message, Lang } from "@/lib/i18n";
 
@@ -177,6 +178,34 @@ export function draftShape(
         id
           ? "PO dibuat sebagai draft. Pimpinan harus mengonfirmasinya sebelum bisa dikirim ke vendor — kalau Anda bukan pimpinan, permintaan konfirmasi langsung dikirim ke pimpinan."
           : "The PO is created as a draft. Leadership must confirm it before it can go to the vendor — if you are not leadership, the request for confirmation goes to them straight away.",
+      ],
+    };
+  }
+
+  if (tool === "hr.draft_leave") {
+    const candidates = args.candidates ? args.candidates.split(";").filter(Boolean) : [];
+    const KIND: Record<string, string> = id
+      ? { cuti: "Cuti", izin: "Izin", sakit: "Sakit" } : { cuti: "Leave", izin: "Permit", sakit: "Sick" };
+    return {
+      headline: id ? "Pengajuan cuti / izin / sakit" : "Leave, permit or sick-day request",
+      fields: [
+        { key: "employee", label: id ? "Karyawan" : "Employee", value: args.employee ?? blank },
+        { key: "kind", label: id ? "Jenis (cuti / izin / sakit)" : "Kind (cuti / izin / sakit)", value: args.kind ?? blank },
+        { key: "from", label: id ? "Dari tanggal" : "From", value: args.from ?? blank },
+        { key: "to", label: id ? "Sampai tanggal" : "To", value: args.to ?? args.from ?? blank },
+        { key: "reason", label: id ? "Alasan" : "Reason", value: args.reason ?? blank },
+      ],
+      warnings: [
+        ...(candidates.length ? [id
+          ? `Ada ${candidates.length} karyawan yang cocok: ${candidates.join(", ")}. Isi "Karyawan" dengan nomornya.`
+          : `${candidates.length} employees match: ${candidates.join(", ")}. Put the right number in "Employee".`] : []),
+        ...(args.kind ? [] : [id ? "Jenisnya belum disebut — isi cuti, izin atau sakit." : "The kind was not said — fill in cuti, izin or sakit."]),
+        ...(args.kind === "sakit" ? [id
+          ? `${KIND.sakit} dibayar penuh hanya dengan surat dokter — lampirkan di Absensi setelah disetujui.`
+          : "A sick day is paid in full only with a doctor's note — attach it in Attendance once approved."] : []),
+        id
+          ? "Pengajuan masuk sebagai PENDING. Yang menyetujui atau menolak tetap orang, di layar Cuti; persetujuan menulis tanda hari di absensi."
+          : "The request goes in PENDING. Approving or refusing it stays a person's act on the Leave screen; approval marks the days in attendance.",
       ],
     };
   }
@@ -339,3 +368,164 @@ export async function confirmPoDraft(
     : (id ? `${po.po_no} · draft dibuat, tetapi permintaan konfirmasi gagal: ${asked.error.message}` : `${po.po_no} · drafted, but asking for confirmation failed: ${asked.error.message}`));
 }
 
+
+/* ────────────────────────────────────────────────────────────────────────
+ * A leave request from a sentence (D301)
+ * ──────────────────────────────────────────────────────────────────────── */
+
+const MONTHS: Record<string, number> = {
+  januari: 1, jan: 1, january: 1, februari: 2, feb: 2, february: 2, maret: 3, mar: 3, march: 3,
+  april: 4, apr: 4, mei: 5, may: 5, juni: 6, jun: 6, june: 6, juli: 7, jul: 7, july: 7,
+  agustus: 8, agu: 8, agt: 8, aug: 8, august: 8, september: 9, sep: 9, sept: 9,
+  oktober: 10, okt: 10, oct: 10, october: 10, november: 11, nov: 11, desember: 12, des: 12, dec: 12, december: 12,
+};
+const ISO = /^\d{4}-\d{2}-\d{2}$/;
+const pad = (n: number) => String(n).padStart(2, "0");
+function addDays(key: string, days: number): string {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d) + days * 86_400_000).toISOString().slice(0, 10);
+}
+/** A day and month said without a year is the next one on or after about
+ *  two months ago — *3 Januari* said in December is next month, not last year. */
+function dated(day: number, month: number, year: number | null, today: string): string | null {
+  if (!(day >= 1 && day <= 31 && month >= 1 && month <= 12)) return null;
+  const [ty] = today.split("-").map(Number);
+  let key = `${year ?? ty}-${pad(month)}-${pad(day)}`;
+  if (year == null && key < addDays(today, -60)) key = `${ty + 1}-${pad(month)}-${pad(day)}`;
+  return key;
+}
+
+/** The dates a sentence names: *2 sampai 3 Oktober*, *30 September – 2 Oktober*,
+ *  *5 Oktober*, *hari ini*, *besok*. Reading the sentence, not composing: a
+ *  date nobody said stays blank. */
+export function datesFromSentence(sentence: string, today: string): { from?: string; to?: string } {
+  const t = sentence.toLowerCase();
+  const mon = Object.keys(MONTHS).sort((a, b) => b.length - a.length).join("|");
+  const sep = "(?:-|–|s\\/d|sd|sampai|hingga|to|until)";
+  let m = new RegExp(`(\\d{1,2})\\s+(${mon})\\s*${sep}\\s*(\\d{1,2})\\s+(${mon})(?:\\s+(\\d{4}))?`).exec(t);
+  if (m) {
+    const y = m[5] ? Number(m[5]) : null;
+    const from = dated(Number(m[1]), MONTHS[m[2]], y, today);
+    const to = dated(Number(m[3]), MONTHS[m[4]], y, today);
+    if (from && to) return { from, to: to < from ? dated(Number(m[3]), MONTHS[m[4]], Number(from.slice(0, 4)) + 1, today)! : to };
+  }
+  m = new RegExp(`(\\d{1,2})\\s*${sep}\\s*(\\d{1,2})\\s+(${mon})(?:\\s+(\\d{4}))?`).exec(t);
+  if (m) {
+    const y = m[4] ? Number(m[4]) : null;
+    const from = dated(Number(m[1]), MONTHS[m[3]], y, today);
+    const to = dated(Number(m[2]), MONTHS[m[3]], y, today);
+    if (from && to) return { from, to };
+  }
+  m = new RegExp(`(\\d{1,2})\\s+(${mon})(?:\\s+(\\d{4}))?`).exec(t);
+  if (m) {
+    const at = dated(Number(m[1]), MONTHS[m[2]], m[3] ? Number(m[3]) : null, today);
+    if (at) return { from: at, to: at };
+  }
+  if (/\bbesok\b|\btomorrow\b/.test(t)) { const at = addDays(today, 1); return { from: at, to: at }; }
+  if (/\bhari ini\b|\btoday\b/.test(t)) return { from: today, to: today };
+  return {};
+}
+
+/** A leave request as far as a sentence and the employee list can say it.
+ *
+ *  The person is found by name in the sentence (or the model's `employee`),
+ *  among the people this user can already see; one match fills it, several
+ *  are listed, none leaves it blank. The kind is the word they used. A reason
+ *  is what follows *karena* or the last comma. Anything the model proposed
+ *  that is not a date in the right shape is dropped rather than trusted.
+ */
+export function resolveLeaveDraft(
+  args: Record<string, string>,
+  employees: { employee_no: string; full_name: string }[],
+  sentence: string,
+  today: string,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  const t = sentence.toLowerCase();
+
+  const kind = (args.kind ?? "").toLowerCase();
+  if (["cuti", "izin", "sakit"].includes(kind)) out.kind = kind;
+  else if (/\bsakit\b|\bsick\b/.test(t)) out.kind = "sakit";
+  else if (/\bizin\b|\bpermit\b/.test(t)) out.kind = "izin";
+  else if (/\bcuti\b|\bleave\b/.test(t)) out.kind = "cuti";
+
+  const asked = (args.employee ?? "").trim().toLowerCase();
+  const words = new Set(t.split(/[^a-z0-9-]+/).filter(Boolean));
+  const hits = employees.filter((e) => {
+    const no = e.employee_no.toLowerCase();
+    const names = e.full_name.toLowerCase().split(/\s+/).filter((w) => w.length >= 3);
+    if (asked) return asked === no || e.full_name.toLowerCase().includes(asked) || names.some((w) => asked.split(/\s+/).includes(w));
+    return words.has(no) || names.some((w) => words.has(w));
+  });
+  if (hits.length === 1) {
+    out.employee_no = hits[0].employee_no;
+    out.employee = `${hits[0].employee_no} · ${hits[0].full_name}`;
+  } else if (hits.length > 1) {
+    out.candidates = hits.slice(0, 6).map((e) => `${e.employee_no} ${e.full_name}`).join(";");
+  }
+
+  const said = datesFromSentence(sentence, today);
+  const from = ISO.test(args.from ?? "") ? args.from : said.from;
+  const to = ISO.test(args.to ?? "") ? args.to : said.to ?? from;
+  if (from) out.from = from;
+  if (to) out.to = to;
+
+  const reason = (args.reason ?? "").trim()
+    || (/\b(?:karena|alasan|because)\b:?\s*(.+)$/i.exec(sentence)?.[1] ?? "").trim()
+    || (sentence.includes(",") ? sentence.slice(sentence.lastIndexOf(",") + 1).trim() : "");
+  if (reason) out.reason = reason.replace(/[.!]+$/, "");
+  return out;
+}
+
+/** The two calls confirming a leave draft needs, as either implementation has them. */
+export interface LeaveDraftApi {
+  listEmployees(): Promise<Result<{ employee_no: string; full_name: string }[]>>;
+  requestLeave(input: { employee_no: string; kind: LeaveKind; from_date: string; to_date: string; reason: string }):
+    Promise<Result<{ request_no: string }>>;
+}
+
+/** "Ya, tulis" on a leave draft: the fields as the person left them, through
+ *  `request_leave` as them. A person the field no longer names is looked up
+ *  again rather than assumed; the seam's own refusals (overlap, reason) come
+ *  back as they are, and the draft stays open to fix. */
+export async function confirmLeaveDraft(
+  api: LeaveDraftApi,
+  fields: Record<string, string>,
+  drafted: Record<string, string>,
+  lang: Lang,
+): Promise<Result<string>> {
+  const id = lang === "id";
+  const SERVICE = "hr" as const;
+  const typed = (fields.employee ?? "").trim();
+  let employeeNo = typed && typed === (drafted.employee ?? "") ? drafted.employee_no ?? "" : "";
+  if (!employeeNo) {
+    if (!typed || typed.startsWith("—")) {
+      return invalid(SERVICE, "employee_required", id ? "Isi karyawannya dulu." : "Fill in the employee first.", { field: "employee" });
+    }
+    const all = await api.listEmployees();
+    if (!isOk(all)) return all;
+    const pick = resolveLeaveDraft({ employee: typed.split(" · ")[0] }, all.data, "", "2000-01-01");
+    if (!pick.employee_no) {
+      return invalid(SERVICE, "employee_not_found", id
+        ? `Tidak menemukan satu karyawan "${typed}". Tulis nomornya, misalnya B-0102.`
+        : `Could not find one employee "${typed}". Write their number, e.g. B-0102.`, { field: "employee" });
+    }
+    employeeNo = pick.employee_no;
+  }
+  const kind = (fields.kind ?? "").trim().toLowerCase();
+  if (!["cuti", "izin", "sakit"].includes(kind)) {
+    return invalid(SERVICE, "kind_required", id ? "Jenisnya cuti, izin atau sakit." : "The kind is cuti, izin or sakit.", { field: "kind" });
+  }
+  const from = (fields.from ?? "").trim();
+  const to = ((fields.to ?? "").trim().startsWith("—") ? from : (fields.to ?? "").trim()) || from;
+  if (!ISO.test(from) || !ISO.test(to)) {
+    return invalid(SERVICE, "dates_required", id ? "Tanggalnya ditulis TTTT-BB-HH, misalnya 2026-10-02." : "Write the dates as YYYY-MM-DD, e.g. 2026-10-02.", { field: "from" });
+  }
+  const reason = (fields.reason ?? "").trim();
+  const made = await api.requestLeave({
+    employee_no: employeeNo, kind: kind as LeaveKind, from_date: from, to_date: to,
+    reason: reason.startsWith("—") ? "" : reason,
+  });
+  if (!isOk(made)) return made;
+  return ok(SERVICE, id ? `${made.data.request_no} · PENDING, menunggu keputusan di layar Cuti` : `${made.data.request_no} · PENDING, waiting for a decision on the Leave screen`);
+}

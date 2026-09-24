@@ -242,7 +242,9 @@ jobs:
       # button the walk did not press, or a walk that did not pass. No browser
       # here — the walk is recorded where one runs, and checked where it lands.
       - name: john lau's guide matches the recorded walk
-        run: node scripts/sop/check-knowledge.mjs procurement
+        run: |
+          node scripts/sop/check-knowledge.mjs procurement
+          node scripts/sop/check-knowledge.mjs hr
 
       # B8's import, proved on a fixture legacy system and run **twice**.
       # Idempotence is the property the whole cutover rests on and the one that

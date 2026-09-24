@@ -20,6 +20,12 @@ const RULES = [
   [/(siapkan|buatkan).*(pr|permintaan)/i, { tool: "procurement.draft_pr_line",
     args: { name: "KSA binder", qty: "5", uom: "ltr", invented_vendor: "PT Karangan" },
     understood: "baris permintaan untuk KSA binder 5 liter" }],
+  /* A leave request in words the router does not know. The model names the
+     person and the kind; its date is in the wrong shape and one field is
+     invented, and both must be dropped (D301). */
+  [/libur/i, { tool: "hr.draft_leave",
+    args: { employee: "Wulan", kind: "cuti", from: "minggu depan", reason: "menikah", invented_salary: "4500000" },
+    understood: "cuti untuk Wulan" }],
   [/pesankan/i, { tool: "procurement.draft_po",
     args: { item: "engsel", unit_price: "1", vendor: "PT Karangan" },
     understood: "PO untuk engsel" }],

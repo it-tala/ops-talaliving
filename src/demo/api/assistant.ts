@@ -27,13 +27,14 @@ import { TOOLS, findTool, resolveTool } from "../assistant/catalogue";
 import { settingText } from "../settings";
 import type { Lang } from "@/lib/i18n";
 import { route, normalise, rules } from "../assistant/router";
-import { GUIDES, resolveGuide, draftShape, resolvePoDraft, confirmPoDraft } from "@/lib/john-lau";
+import { GUIDES, resolveGuide, draftShape, resolvePoDraft, confirmPoDraft, resolveLeaveDraft, confirmLeaveDraft } from "@/lib/john-lau";
 import { accountBalances, approvalQueue, vendorJourney } from "../derive";
 import { stockItems } from "../inventory-derive";
 import { workOrderViews } from "../production-derive";
 import { fulfilmentViews } from "../delivery-derive";
 import { officeToday } from "@/lib/office";
 import * as procurement from "./procurement";
+import * as hr from "./hr";
 
 const SERVICE = "procurement" as const;
 
@@ -168,6 +169,11 @@ export async function ask(prompt: string, context?: AskContext): Promise<Result<
     if (tool.name === "procurement.draft_po") {
       const lines = await procurement.listOpenLines();
       if (!lines.error) args = resolvePoDraft(args, lines.data, prompt);
+    }
+    /* A leave request names somebody this person can already see (D301). */
+    if (tool.name === "hr.draft_leave") {
+      const people = await hr.listEmployees();
+      if (!people.error) args = resolveLeaveDraft(args, people.data, prompt, officeToday());
     }
     const draft = buildDraft(tool.name, args);
     const turn = newTurn(prompt, "draft");
@@ -366,6 +372,11 @@ export async function confirmDraft(
        author holds the authority, sent to leadership otherwise (D299, D300).
        Issuing it stays on the PO screen (D220). */
     const res = await confirmPoDraft(procurement, input.fields, (turn.draft.args ?? {}) as Record<string, string>, lang());
+    if (res.error) return res as unknown as Result<AssistantTurn>;
+    produced = res.data;
+  } else if (turn.draft.tool === "hr.draft_leave") {
+    /* Through the same call as "Ajukan" on /hrd/cuti; deciding it stays there (D301). */
+    const res = await confirmLeaveDraft(hr, input.fields, (turn.draft.args ?? {}) as Record<string, string>, lang());
     if (res.error) return res as unknown as Result<AssistantTurn>;
     produced = res.data;
   }

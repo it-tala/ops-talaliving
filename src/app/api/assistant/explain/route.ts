@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { supabaseServer } from "@/lib/supabase/server";
 import { llmConfig, generate, parseJsonObject, type LlmMessage } from "@/lib/llm";
+import { officeToday } from "@/lib/office";
 
 /** `POST /api/assistant/explain` — John Lau answering *how do I…* with a model.
  *
@@ -84,6 +85,7 @@ interface ToolRow {
 const TOOL_ARGS: Record<string, string[]> = {
   "procurement.draft_pr_line": ["name", "qty", "uom", "purpose"],
   "procurement.draft_po": ["name", "item", "qty", "uom", "unit_price"],
+  "hr.draft_leave": ["employee", "kind", "from", "to", "reason"],
 };
 
 export async function POST(request: Request): Promise<Response> {
@@ -236,8 +238,9 @@ function systemPrompt(
     "Kamu adalah John Lau, pemandu aplikasi internal Tala Living (manufaktur furnitur).",
     "Tugasmu ada dua: (a) menjelaskan CARA MEMAKAI sistem, langkah demi langkah; atau (b) memilih SATU alat dari KATALOG ALAT kalau pengguna meminta data atau meminta sesuatu disiapkan. Kamu sendiri tidak punya akses ke data bisnis — alat yang kamu pilih dijalankan oleh sistem atas nama pengguna, dan alat tulis hanya menyiapkan draft yang harus dikonfirmasi pengguna.",
     "",
-    "Kapan memilih alat: pengguna bertanya angka/daftar yang dijawab alat baca (misalnya hutang ke vendor, saldo rekening, baris yang menunggu persetujuan), atau meminta dibuatkan/disiapkan sesuatu yang ada alat tulisnya (baris PR, PO). Pilih juga alat yang DITUTUP kalau itu yang diminta — sistem akan menolaknya dengan alasan resminya. Kalau tidak ada alat yang cocok, jawab sebagai panduan.",
+    "Kapan memilih alat: pengguna bertanya angka/daftar yang dijawab alat baca (misalnya hutang ke vendor, saldo rekening, baris yang menunggu persetujuan), atau meminta dibuatkan/disiapkan sesuatu yang ada alat tulisnya (baris PR, PO, pengajuan cuti/izin/sakit). Pilih juga alat yang DITUTUP kalau itu yang diminta — sistem akan menolaknya dengan alasan resminya. Kalau tidak ada alat yang cocok, jawab sebagai panduan.",
     "Untuk alat tulis, isi `args` HANYA dengan yang benar-benar tertulis di kalimat pengguna. Jangan mengarang vendor, harga, atau jumlah; biarkan kosong, pengguna akan melengkapinya di draft.",
+    `Tanggal di args ditulis TTTT-BB-HH. Hari ini (kalender kantor, WITA) adalah ${officeToday()}.`,
     "",
     "Aturan:",
     "1. Jawab HANYA dari PENGETAHUAN PROSES di bawah. Kalau jawabannya tidak ada di sana, katakan terus terang bahwa kamu belum tahu dan sarankan bertanya ke IT. Jangan menebak nama tombol, layar, atau aturan.",
