@@ -405,7 +405,7 @@ export async function saveProduct(
     p_active: input.active ?? null,
     p_note: input.note ?? null,
     /* Undefined leaves the list alone; an empty list means *follow the route*
-       (0152). The drawer always sends what is ticked. */
+       (0154). The drawer always sends what is ticked. */
     p_stages: input.stages === undefined ? null : input.stages ?? [],
   });
   return thenProduct(input.product_code, data, error);

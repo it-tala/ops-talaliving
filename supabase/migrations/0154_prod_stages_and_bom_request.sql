@@ -1,4 +1,4 @@
--- 0152 — two things the production walk could not do from the screens (F155).
+-- 0154 — two things the production walk could not do from the screens (F156).
 --
 -- ── 1. A product's own stages ────────────────────────────────────────────
 --
@@ -181,7 +181,7 @@ begin
      item_total, vendor_id, category, purpose, need_by, source_wo_no)
   select v_doc_id, v_doc_no, ord,
          -- An id when the caller has one; otherwise the item its code names,
-         -- following a merge to the item that absorbed it (0152, F155).
+         -- following a merge to the item that absorbed it (0154, F156).
          coalesce(nullif(l ->> 'item_id','')::uuid,
                   (select coalesce(i.merged_into, i.id) from ops_procure.items i
                     where i.code = nullif(btrim(l ->> 'item_code'), '') limit 1)),

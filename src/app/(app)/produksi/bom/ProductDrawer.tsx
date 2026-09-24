@@ -290,7 +290,7 @@ function DrawingPanel({ p, mayEdit, busy, run, settle }: PartProps) {
 /** The owner's four stages, ticked per product (Q52, D278). None ticked means
  *  *follow the route* — all four — which is right for almost nothing: a table
  *  has no lamps, so it never visits Machinery, and an order waiting on a stage
- *  it will never reach never reads finished (F92). Until F155 the column
+ *  it will never reach never reads finished (F92). Until F156 the column
  *  existed and no screen could write it. */
 function StagePicker({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
   return (

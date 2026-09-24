@@ -3,7 +3,7 @@
 | 1 | 1. Klien & proyek | Klien baru: nama, kontak, telepon, alamat → Simpan | Ryan | `/master-data/clients` | `ops_procure.save_client` | OK | CL-0001 |  |
 | 2 | 1. Klien & proyek | Proyek baru: klien, lokasi, penanggung jawab, mulai, jadwal kirim → Simpan | Ryan | `/proyek/order` | `ops_procure.save_project` | OK | INQUIRY | Kode proyek dibuat otomatis kalau dikosongkan. |
 | 3 | 2. Produk & BOM | Produk baru: item code, kategori, nama, satuan, ukuran → Simpan | Wayan | `/produksi/bom` | `ops_prod.save_product` | OK | produk tanpa BOM |  |
-| 4 | 2. Produk & BOM | Tentukan tahap produksi meja (amplas, finishing, packing — tanpa machinery) | Wayan | `/produksi/bom` | `ops_prod.save_product` | OK | AMPLAS → FINISHING → PACKING | Tahap dicentang di laci produk; tanpa centang, produk ikut empat tahap rutenya (0152, F155). |
+| 4 | 2. Produk & BOM | Tentukan tahap produksi meja (amplas, finishing, packing — tanpa machinery) | Wayan | `/produksi/bom` | `ops_prod.save_product` | OK | AMPLAS → FINISHING → PACKING | Tahap dicentang di laci produk; tanpa centang, produk ikut empat tahap rutenya (0154, F156). |
 | 5 | 2. Produk & BOM | Tambah komponen dari database items: jati, cat, baut (jumlah, satuan, susut) | Wayan | `/produksi/bom` | `ops_prod.save_bom_line` | OK | draft BOM · 3 bahan |  |
 | 6 | 2. Produk & BOM | Tambah tenaga kerja tanpa tarif | Wayan | `/produksi/bom` | `ops_prod.save_bom_line` | DITOLAK |  | rate_required |
 | 7 | 2. Produk & BOM | Tenaga kerja: nama, satuan, tarif → Tambah | Wayan | `/produksi/bom` | `ops_prod.save_bom_line` | OK | draft BOM · 3 bahan + 1 tenaga kerja |  |
@@ -16,7 +16,7 @@
 | 14 | 3. Quotation | Klien setuju: Disetujui | Ryan | `/proyek/quotation` | `ops_procure.decide_quotation` | OK | ACCEPTED · proyek DEAL · 1 baris order | Item quotation menjadi baris order proyek. |
 | 15 | 4. Job Order | Dari baris order: Buat Job Order → jumlah, jatuh tempo, rute Bengkel sendiri → Buat | Wayan | `/proyek/order` | `ops_prod.create_work_order` | OK | OPEN · BOM rev 1 · proyek IN_PRODUCTION | Job Order mengunci revisi BOM yang dirilis terakhir. |
 | 16 | 5. Bahan | Buka Job Order → Buat PR dari BOM | Wayan | `/produksi/jadwal` | `ops_procure.create_pr` | OK | PR pr-26-09-24_01 DRAFT · 3 baris | Tiap baris membawa nomor Job Order-nya; PR masih harus diperiksa dan disubmit. |
-| 17 | 5. Bahan | Baris PR tersambung ke database items (untuk harga terakhir dan stok) | Wayan | `/produksi/jadwal` | `ops_procure.create_pr` | OK | 3 baris bertaut item | Harga terakhir, vendor terakhir dan stok item ikut terbaca di baris PR (0152, F155). |
+| 17 | 5. Bahan | Baris PR tersambung ke database items (untuk harga terakhir dan stok) | Wayan | `/produksi/jadwal` | `ops_procure.create_pr` | OK | 3 baris bertaut item | Harga terakhir, vendor terakhir dan stok item ikut terbaca di baris PR (0154, F156). |
 | 18 | 5. Bahan | Buka PR itu di Procurement → Requests, periksa, Submit for approval | Wayan | `/procurement/pr` | `ops_procure.submit_pr` | OK | SUBMITTED | Dari sini jalurnya procurement: persetujuan pimpinan, PO, barang datang. |
 | 19 | 6. Progres | Catat progres: tahap Amplas, jumlah 4, tanggal, siapa → Catat | Wayan | `/produksi/jadwal` | `ops_prod.record_progress` | OK | Amplas 4/4 |  |
 | 20 | 6. Progres | Catat lebih dari jumlah order | Wayan | `/produksi/jadwal` | `ops_prod.record_progress` | DITOLAK |  | over_order |

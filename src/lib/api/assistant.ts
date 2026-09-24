@@ -566,7 +566,7 @@ async function readFor(
 
     /* `ops_prod` has no tables in it at all, so there is nothing to read and
        nothing to be wrong about — which is a better answer than a zero. */
-    /* Both modules are live now (F155), so both reads answer from the same
+    /* Both modules are live now (F156), so both reads answer from the same
        views their screens read, as this person — the same arithmetic as the
        demo's branches, which is what makes the two answer alike. */
     case "production.late_orders": {

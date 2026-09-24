@@ -760,7 +760,7 @@ export async function getPr(docNo: string): Promise<Result<PrDocumentView>> {
 export interface NewLineInput {
   item_id?: string | null;
   /** The item by its code, when the caller knows the code and not the id —
-   *  a BOM line does (ADR-004). Resolved by `create_pr` (0152). */
+   *  a BOM line does (ADR-004). Resolved by `create_pr` (0154). */
   item_code?: string | null;
   description: string;
   qty?: number | null;

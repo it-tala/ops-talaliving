@@ -114,7 +114,7 @@ begin
     'ops_prod.save_product', case when st is not null then 'OK' else 'TEMUAN' end,
     coalesce(array_to_string(st, ' → '), 'ikut rute: 4 tahap'),
     case when st is null then 'Layar produk tidak punya isian tahap dan save_product tidak menerimanya: meja tanpa lampu atau kabel ikut menunggu tahap Machinery (F92).'
-      else 'Tahap dicentang di laci produk; tanpa centang, produk ikut empat tahap rutenya (0152, F155).' end);
+      else 'Tahap dicentang di laci produk; tanpa centang, produk ikut empat tahap rutenya (0154, F156).' end);
 
   r := ops_prod.save_bom_line('SIM-MJ-01', null, 'material', 'SIM-JATI', null, 0.12, 'm3', null, 10, null);
   assert ops_core.said_ok(r), format('bom jati: %s', r);
@@ -227,7 +227,7 @@ begin
   perform pg_temp.log('5. Bahan','Baris PR tersambung ke database items (untuk harga terakhir dan stok)','Wayan','/produksi/jadwal',
     'ops_procure.create_pr', case when n > 0 then 'OK' else 'TEMUAN' end, format('%s baris bertaut item', n),
     case when n = 0 then 'Tombol mengirim deskripsi saja, bukan item_id: baris PR dari BOM tidak tersambung ke item yang sudah ada di BOM.'
-      else 'Harga terakhir, vendor terakhir dan stok item ikut terbaca di baris PR (0152, F155).' end);
+      else 'Harga terakhir, vendor terakhir dan stok item ikut terbaca di baris PR (0154, F156).' end);
 
   r := ops_procure.submit_pr(doc, null);
   assert ops_core.said_ok(r), format('submit: %s', r);

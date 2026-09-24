@@ -1,11 +1,11 @@
--- 0153 — the third module walked: production, from a client's order to the
+-- 0155 — the third module walked: production, from a client's order to the
 -- signed handover.
 --
 -- Written from `supabase/local/smoke/99_sim_production_to_handover.sql` (four
 -- people, 37 steps) and `scripts/e2e/walk-production.mjs`, which presses the
 -- same buttons on the live screens. Button labels are the screens' own words.
--- The two doors the walk found shut are fixed in 0152 and the screens that go
--- with it (F155), so they are described as they now work.
+-- The two doors the walk found shut are fixed in 0154 and the screens that go
+-- with it (F156), so they are described as they now work.
 
 insert into ops_asst.processes (key, module, seq, title, purpose, route, permission, follows, sop_ref) values
 ('prod.project', 'production', 10,

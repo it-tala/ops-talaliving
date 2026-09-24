@@ -201,7 +201,7 @@ expect("a sentence the router does not know → the model picks the leave draft;
   t[0] === "draft" && t[2] === "hr.draft_leave,ai.openai" && mArgs.includes("B-0102") && !mArgs.includes("4500000")
   && !mArgs.includes("minggu depan") && !mArgs.includes("invented"), `${t.join("|")} ${mArgs}`);
 
-/* ═════ Production (F155): the two reads that answered "not built" ════ */
+/* ═════ Production (F156): the two reads that answered "not built" ════ */
 /* Wayan (production write, project read) from seed-production.sql. A late
    Job Order is made here if the production walk has not left one. */
 sql(`insert into ops_prod.work_orders (item_name, qty, uom, due_date, route, status, created_by)

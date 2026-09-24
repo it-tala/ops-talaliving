@@ -188,7 +188,7 @@ function CloseSnag({ snagNo, onDone }: { snagNo: string; onDone: () => void }) {
   const [on, setOn] = useState(false);
   const [note, setNote] = useState("");
   /* Who fixed it. The seam kept it and the screen always sent an empty
-     string, so every closed snag read *fixed by nobody* (F155). */
+     string, so every closed snag read *fixed by nobody* (F156). */
   const [by, setBy] = useState("");
   const [busy, setBusy] = useState(false);
 

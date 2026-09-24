@@ -315,7 +315,7 @@ function ProjectCost({ code }: { code: string }) {
                                 </p>
                                 {/* Only offered where the page it opens is live — in live
                                     mode it is not yet, and a button into a "not live"
-                                    screen is a dead end (F155). */}
+                                    screen is a dead end (F156). */}
                                 {isRouteLive("/accounting/liquidation") && (
                                   <Link href="/accounting/liquidation">
                                     <Button size="sm" variant="outline" className="mt-2">Lihat rinciannya di likuidasi</Button>

@@ -100,7 +100,7 @@ export function WorkOrderDrawer({
   const mayEdit = can("production.update");
   /* Raising the request is procurement's write (`create_pr` asks for
      procurement.create), so the button is offered to whoever may make it —
-     a floor lead without procurement access got a refusal after pressing (F155). */
+     a floor lead without procurement access got a refusal after pressing (F156). */
   const mayRequest = can("procurement.create");
   const [vendorOpen, setVendorOpen] = useState(false);
 
@@ -187,7 +187,7 @@ export function WorkOrderDrawer({
         return {
           /* The BOM knows which item each material line is; the request line
              now says so too, so its last price, vendor and stock come with it
-             (0152, F155). A sub-assembly is not an item and stays unlinked. */
+             (0154, F156). A sub-assembly is not an item and stays unlinked. */
           item_code: unexploded ? null : l.ref_code,
           description: l.ref_name ?? l.ref_code,
           qty: l.qty,
@@ -306,7 +306,7 @@ export function WorkOrderDrawer({
             {/* An in-house order can still send a stage out — a table
                 finished by a vendor is ordinary. The seam always allowed it;
                 the block used to appear only for SUBCON orders or ones that
-                already had a leg, so the first trip had no button (F155). */}
+                already had a leg, so the first trip had no button (F156). */}
             {w.legs.length === 0 && w.route !== "SUBCON" && !vendorOpen && mayEdit && w.status === "OPEN" && (
               <Button size="sm" variant="outline" icon={Factory} onClick={() => setVendorOpen(true)}>
                 Kirim ke vendor
