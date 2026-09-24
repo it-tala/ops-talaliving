@@ -120,7 +120,8 @@ begin
           'ops_procure.restamp_line_money',
           -- the chat worker's, below (§4)
           'ops_procure.answer_po_approval','ops_procure.po_approval_card',
-          'ops_procure.answer_request',
+          'ops_procure.answer_request','ops_procure.answer_batch',
+          'ops_procure.approval_card',
           -- the notification worker's, below (§4). Not seams: a person never
           -- "delivers an event", a machine does.
           'ops_core.outbox_due','ops_core.outbox_delivered','ops_core.outbox_failed')
@@ -146,7 +147,16 @@ end $$;
 -- the seam takes the answerer's address as an argument and the token is on the
 -- wire in `v_approval_request`.
 --
--- All five of the non-`file_evidence` verbs are shut to `authenticated`, for the
+-- The last two are `0159`'s, and they are the meeting's list rather than one
+-- line: `approval_card` reads everything the approver's card shows — the lines,
+-- the total, and BCA 271 against what approving them would owe — and
+-- `answer_batch` answers the whole list in one press. Both carry or accept live
+-- tokens, and a token in a browser is an approval anybody who can read it may
+-- give. `answer_batch` writes nothing itself: it calls `answer_request` per
+-- line, so the addressee check and the `approve_goods` check happen exactly
+-- once in the codebase.
+--
+-- All of the non-`file_evidence` verbs are shut to `authenticated`, for the
 -- same reason in two shapes: a card is answered from Chat by its addressee,
 -- never from a browser session, and a signed-in person calling
 -- `outbox_delivered` would write "this went out" about something that never
@@ -175,20 +185,22 @@ begin
      and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
      and has_function_privilege('service_role', p.oid, 'EXECUTE');
 
-  assert reach = 'answer_po_approval, answer_request, file_evidence, outbox_delivered, '
-               || 'outbox_due, outbox_failed, po_approval_card',
+  assert reach = 'answer_batch, answer_po_approval, answer_request, approval_card, '
+               || 'file_evidence, outbox_delivered, outbox_due, outbox_failed, po_approval_card',
     'The service_role key can execute ' || n || ' seam(s): ' || coalesce(reach, '(none)')
-    || '. 0038 (capture), D299 (PO approval by Chat) and 0155 (outbox to Chat) name exactly '
-    || 'these six, and that sentence is the reason a service_role key is allowed to exist '
-    || 'here at all. Widening it is a decision to write down — in the migration and in this '
-    || 'list — not a grant to add in passing.';
+    || '. 0038 (capture), D299 (PO approval by Chat), 0155 (outbox to Chat), 0157 (a request '
+    || 'line answered from Chat) and 0159 (the meeting''s whole list, and the card that carries '
+    || 'its money) name exactly these nine, and that sentence is the reason a service_role key '
+    || 'is allowed to exist here at all. Widening it is a decision to write down — in the '
+    || 'migration and in this list — not a grant to add in passing.';
 
   select count(*), string_agg(p.proname, ', ' order by p.proname)
     into n, reach
     from pg_proc p
     join pg_namespace ns on ns.oid = p.pronamespace
    where p.oid::regproc::text in ('ops_procure.answer_po_approval','ops_procure.po_approval_card',
-                                  'ops_procure.answer_request',
+                                  'ops_procure.answer_request','ops_procure.answer_batch',
+                                  'ops_procure.approval_card',
                                   'ops_core.outbox_due','ops_core.outbox_delivered',
                                   'ops_core.outbox_failed')
      and (has_function_privilege('authenticated', p.oid, 'EXECUTE')
@@ -198,7 +210,9 @@ begin
     || '. A PO approval card is answered from Chat by its addressee (D299), a request line the '
     || 'same way (0157), and a delivery that never happened must not be writable from a '
     || 'browser (0155). `answer_request` is the one that bit: it trusts its caller for the '
-    || 'answerer''s address, so a browser caller could approve as anybody the card was sent to.';
+    || 'answerer''s address, so a browser caller could approve as anybody the card was sent to. '
+    || '`answer_batch` and `approval_card` (0159) are the same trust over a whole meeting''s '
+    || 'list, and the card hands out the tokens as well.';
 
   -- The other half: shut to people is only half the rule, and on its own it is
   -- satisfied by a deliverer nobody granted anything to.
