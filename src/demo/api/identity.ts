@@ -3,6 +3,7 @@ import { ok, noop, invalid, notFound, refused, type Result } from "@/services/_s
 import type {
   Session, Authority, ModuleName, ModuleLevel,
   ActivityEvent, ActivityDaily, RetentionStatus, AuditRowView, AppSetting,
+  MyActivityEvent,
 } from "@/services/identity/contracts";
 import { expandPermissions } from "@/lib/roles";
 import { getState, apply, newId, writeAudit } from "../store";
@@ -246,6 +247,31 @@ export async function listActivity(
   if (opts.actor) rows = rows.filter((r) => r.actor_id === opts.actor || r.actor_email === opts.actor);
   if (opts.day) rows = rows.filter((r) => officeDay(new Date(r.at)) === opts.day);
   return ok(SERVICE, rows.sort((a, b) => b.at.localeCompare(a.at)).slice(0, opts.limit ?? 200));
+}
+
+/** The safe kinds a person may see about themselves (0155). Everything else —
+ *  `view`, `export`, `print` — is exactly the granular telemetry D190 refused
+ *  to show its own subject, and stays refused here too. */
+const SELF_ACTIVITY_KINDS = new Set([
+  "sign_in", "sign_out", "update",
+  "attendance_tap", "leave_requested", "overtime_requested", "task_acknowledged",
+]);
+
+/** The profile screen's own activity feed — the reader's rows, the safe
+ *  kinds only. No permission check: self-filtered by construction, the same
+ *  guarantee `ops_core.v_my_activity`'s RLS policy carries in the real
+ *  database. */
+export async function listMyActivity(
+  opts: { limit?: number } = {},
+): Promise<Result<MyActivityEvent[]>> {
+  await latency();
+  const user = actingUser();
+  const rows = getState().activity_events
+    .filter((r) => r.actor_id === user.id && SELF_ACTIVITY_KINDS.has(r.kind))
+    .sort((a, b) => b.at.localeCompare(a.at))
+    .slice(0, opts.limit ?? 100)
+    .map((r) => ({ id: r.id, at: r.at, kind: r.kind, target: r.target, label: r.label }));
+  return ok(SERVICE, rows);
 }
 
 /** The recaps: one row per person per day, 120 rows per person (D283). */

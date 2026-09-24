@@ -3,7 +3,7 @@ import { ok, invalid, notFound, noop, refused, type Result } from "@/services/_s
 import type {
   Employee, AttendanceScan, TimesheetDay, DayMark, DayMarkKind,
   OvertimeSheet, OvertimeLine, OvertimeSheetView, OvertimeKind,
-  PayrollRun, PayrollView, PayBasis,
+  PayrollRun, PayrollView, PayrollLine, PayBasis,
   AdjustmentKind, PayrollAdjustmentView,
   PayRules, PayRuleSet, PayRuleSetView, WorkSchedule, ScheduleHours,
   EmployeeDocKind, EmployeeFileView, DocNoSource, LeaveBalance, LeaveKind, LeaveRequestView, LeaveStatus,
@@ -285,6 +285,89 @@ export async function getDay(
   const emp = state.employees.find((e) => e.employee_no === input.employee_no);
   if (!emp) return notFound(SERVICE, "employee_not_found", `No employee ${input.employee_no}.`);
   return ok(SERVICE, timesheetDay(state, emp, input.work_date));
+}
+
+/* ------------------------------------------------------------------ */
+/* Profil — layanan mandiri (W7)                                       */
+/* ------------------------------------------------------------------ */
+//
+// The real database resolves "who am I as an employee" through
+// `ops_hr.my_employee_id()` — `employees.user_id = auth.uid()`, a link the
+// demo's `Employee` fixture has never carried because nothing here needed it
+// before this build. Five of the six demo personas already have a matching
+// employee row by name (Evin, Putri, Anggun, Andi, Made); this table is that
+// same link, kept beside the fixture rather than added to the shared
+// contract, because widening `Employee` with a `user_id` column would touch
+// every screen that already destructures one. Wulan (HRD) and the shared IT
+// account deliberately map to nothing — the same ordinary case as a
+// production worker with no login, exercised here by an office account
+// instead.
+const SELF_EMPLOYEE_NO: Record<string, string> = {
+  usr_evin: "K-001", usr_putri: "K-004", usr_anggun: "K-007",
+  usr_andi: "K-011", usr_made: "K-014",
+};
+
+function myEmployee(state: DemoState): Employee | null {
+  const no = SELF_EMPLOYEE_NO[actingUser().id];
+  if (!no) return null;
+  return state.employees.find((e) => e.employee_no === no) ?? null;
+}
+
+function noEmployeeLink() {
+  return refused(
+    SERVICE, "no_employee_link",
+    "Akun ini belum tertaut ke data karyawan, jadi tidak bisa memakai layanan mandiri ini. Minta HRD menautkannya.",
+  );
+}
+
+/** Records one self-service action into the same activity trail
+ *  `identity.recordActivity` writes to, with the same safe-kind rule
+ *  `listMyActivity` reads back (0155) — written here directly rather than
+ *  through a cross-module import, because `apply()` is already open. */
+function recordSelfActivity(draft: DemoState, kind: string, target: string, label: string) {
+  const user = actingUser();
+  draft.activity_events.unshift({
+    id: newId("act"), at: new Date().toISOString(),
+    actor_id: user.id, actor_email: user.email,
+    kind, target, label,
+  });
+}
+
+export async function myProfile(): Promise<Result<Employee | null>> {
+  await latency();
+  return ok(SERVICE, myEmployee(getState()));
+}
+
+/** A tap from the person's own session, not the reader at the door — one
+ *  more row on the same pile `read_day` already knows how to read (D141).
+ *  `source: "manual"` in the fixture only because the demo's own
+ *  `ScanSource` predates this build; the real database spells it `self`
+ *  (0156) and the distinction is cosmetic, never read by the derivation. */
+export async function tapSelf(): Promise<Result<{ id: string; at: string; work_date: string }>> {
+  await latency();
+  const state = getState();
+  const emp = myEmployee(state);
+  if (!emp) return noEmployeeLink();
+
+  const at = new Date().toISOString();
+  const work_date = sharedOfficeToday();
+  let id = "";
+  apply((draft) => {
+    id = newId("scn");
+    draft.attendance_scans.push({
+      id, employee_id: emp.id, work_date, at,
+      verify: "APP", location: null, source: "manual",
+      import_id: null, reason: null,
+      recorded_by: actingUser().id, recorded_at: at,
+    });
+    writeAudit(draft, {
+      service: SERVICE, entity: "attendance", entity_no: `${emp.employee_no}/${work_date}`,
+      action: "tap_self", outcome: "ok", reason: null,
+      detail: { at, by: actingUser().email },
+    });
+    recordSelfActivity(draft, "attendance_tap", "attendance", `Tap presensi pukul ${at.slice(11, 16)}`);
+  });
+  return ok(SERVICE, { id, at, work_date });
 }
 
 /** Taking the machine's export.
@@ -794,6 +877,7 @@ export async function addOvertimeLine(
       stage: input.stage?.trim() || null,
       qty_done: input.qty_done ?? null,
       form_amount: input.form_amount ?? null,
+      result_note: null,
     };
     draft.overtime_lines.push(row);
     writeAudit(draft, {
@@ -1018,7 +1102,7 @@ export async function importOvertimeForm(
         hours: row.jam ?? 0,
         task: row.description.trim() || "—",
         wo_no: null, stage: null, qty_done: null,
-        form_amount: row.gaji ?? null,
+        form_amount: row.gaji ?? null, result_note: null,
       });
     }
     writeAudit(draft, {
@@ -1168,6 +1252,85 @@ export async function getOvertimeSheet(sheetNo: string): Promise<Result<Overtime
   const sheet = state.overtime_sheets.find((x) => x.sheet_no === sheetNo);
   if (!sheet) return notFound(SERVICE, "sheet_not_found", `No sheet ${sheetNo}.`);
   return ok(SERVICE, sheetView(state, sheet));
+}
+
+/** Reporting the person's own night — one staff sheet, ships paid by default
+ *  (D146), no HRD grant needed. Evidence — the screenshot, the work itself —
+ *  travels the same road every document does, attached from the sheet this
+ *  returns (ADR-010); `result_note` is the sentence the evidence backs up,
+ *  not the evidence itself (0157). */
+export async function reportOvertimeSelf(
+  input: { work_date: string; hours: number; result_note: string; task?: string | null },
+): Promise<Result<{ sheet_no: string; work_date: string; hours: number }>> {
+  await latency();
+  const state = getState();
+  const emp = myEmployee(state);
+  if (!emp) return noEmployeeLink();
+
+  if (input.work_date > officeToday()) {
+    return invalid(SERVICE, "date_in_future",
+      "Lembur diajukan untuk malam yang sudah dijalani, bukan yang akan datang.", { field: "work_date" });
+  }
+  if (!(input.hours > 0) || input.hours > 12) {
+    return invalid(SERVICE, "hours_out_of_range",
+      "Durasi lembur ditulis dalam jam, lebih dari nol dan sampai 12.", { field: "hours" });
+  }
+  if (!input.result_note.trim()) {
+    return invalid(SERVICE, "result_required",
+      "Apa yang dikerjakan selama lembur ini? HRD memutuskan dari kalimat ini, bukan dari jam saja.",
+      { field: "result_note" });
+  }
+  const already = state.overtime_sheets.find((s) => s.kind === "staff" && s.work_date === input.work_date
+    && !s.declined_reason
+    && state.overtime_lines.some((l) => l.sheet_id === s.id && l.employee_id === emp.id));
+  if (already) {
+    return conflict(SERVICE, "already_reported", `Lembur tanggal ${input.work_date} sudah pernah diajukan.`);
+  }
+
+  const user = actingUser();
+  let sheetNo = "";
+  apply((draft) => {
+    sheetNo = nextDocNumber(draft, "lbr");
+    const sheetId = newId("lbr");
+    draft.overtime_sheets.push({
+      id: sheetId, sheet_no: sheetNo, kind: "staff", work_date: input.work_date,
+      purpose: "Diajukan sendiri lewat profil",
+      created_by: user.id, created_at: new Date().toISOString(),
+      hrd_checked_by: null, hrd_checked_at: null,
+      leader_approved_by: null, leader_approved_at: null,
+      paid: true, unpaid_reason: null, declined_by: null, declined_reason: null,
+    });
+    draft.overtime_lines.push({
+      id: newId("lbl"), sheet_id: sheetId, employee_id: emp.id,
+      hours: input.hours, task: input.task?.trim() || "",
+      wo_no: null, stage: null, qty_done: null, form_amount: null,
+      result_note: input.result_note.trim(),
+    });
+    writeAudit(draft, {
+      service: SERVICE, entity: "overtime_sheet", entity_no: sheetNo,
+      action: "report_self", outcome: "ok", reason: null,
+      detail: { via: "self", hours: input.hours, result_note: input.result_note.trim(), by: user.email },
+    });
+    recordSelfActivity(draft, "overtime_requested", "overtime_sheet",
+      `Mengajukan lembur ${input.hours} jam pada ${input.work_date}`);
+  });
+  return ok(SERVICE, { sheet_no: sheetNo, work_date: input.work_date, hours: input.hours });
+}
+
+/** My own overtime, whether HRD has looked at it yet or not — the same
+ *  self-or-hrd scope every other tab in this build applies, since
+ *  `listOvertimeSheets`/`getOvertimeSheet` answer for the whole roster and
+ *  are the admin screen's, not the profile's. */
+export async function myOvertimeSheets(): Promise<Result<OvertimeSheetView[]>> {
+  await latency();
+  const state = getState();
+  const emp = myEmployee(state);
+  if (!emp) return ok(SERVICE, []);
+  const mine = state.overtime_sheets
+    .filter((s) => state.overtime_lines.some((l) => l.sheet_id === s.id && l.employee_id === emp.id))
+    .sort((a, b) => b.work_date.localeCompare(a.work_date))
+    .map((s) => sheetView(state, s));
+  return ok(SERVICE, mine);
 }
 
 /** Attaching the surat dokter to a day somebody was ill.
@@ -1888,22 +2051,71 @@ export async function listLeaveRequests(): Promise<Result<LeaveRequestView[]>> {
     .map((r) => leaveRequestView(state, r)));
 }
 
+/** My own quota — one row of what `listLeaveBalances` already computes for
+ *  everybody, the same shape `ops_hr.leave_balances()` answers when the
+ *  caller's own RLS restricts it to one row (0157). `null` for an account
+ *  with no linked employee: no quota is a fact, not a refusal. */
+export async function myLeaveBalance(): Promise<Result<LeaveBalance | null>> {
+  await latency();
+  const state = getState();
+  const emp = myEmployee(state);
+  if (!emp) return ok(SERVICE, null);
+  const year = officeToday().slice(0, 4);
+  return ok(SERVICE, leaveBalance(state, emp, year));
+}
+
+/** My own requests, pending or decided. */
+export async function myLeaveRequests(): Promise<Result<LeaveRequestView[]>> {
+  await latency();
+  const state = getState();
+  const emp = myEmployee(state);
+  if (!emp) return ok(SERVICE, []);
+  return ok(SERVICE, state.leave_requests
+    .filter((r) => r.employee_id === emp.id)
+    .sort((a, b) => {
+      if ((a.status === "PENDING") !== (b.status === "PENDING")) return a.status === "PENDING" ? -1 : 1;
+      return b.requested_at.localeCompare(a.requested_at);
+    })
+    .map((r) => leaveRequestView(state, r)));
+}
+
 /** Asking. Never refused for being over the balance — days beyond it are taken
- *  and recorded, they are simply not paid (D144). The screen says which. */
+ *  and recorded, they are simply not paid (D144). The screen says which.
+ *
+ *  `employee_no` omitted is the profile screen's own road: no HRD grant
+ *  needed, resolved to the caller's own linked employee instead — the same
+ *  fork `ops_hr.request_leave` takes in the real database (0157). Given
+ *  explicitly, this is HRD filing for somebody else and the gate is exactly
+ *  what it was before this build.
+ */
 export async function requestLeave(
-  input: { employee_no: string; kind: LeaveKind; from_date: string; to_date: string; reason: string },
+  input: {
+    employee_no?: string | null;
+    kind: LeaveKind; from_date: string; to_date: string; reason: string;
+  },
   idempotencyKey?: string,
 ): Promise<Result<LeaveRequestView>> {
   await latency();
   const cached = replayed<LeaveRequestView>(SERVICE, "requestLeave", idempotencyKey);
   if (cached) return cached;
 
-  const denied = requireModule(SERVICE, "hrd");
-  if (denied) return denied;
-
   const state = getState();
-  const emp = state.employees.find((e) => e.employee_no === input.employee_no);
-  if (!emp) return notFound(SERVICE, "employee_not_found", `No employee ${input.employee_no}.`);
+  let found: Employee | null | undefined;
+  let viaSelf = false;
+  if (!input.employee_no) {
+    found = myEmployee(state);
+    if (!found) return noEmployeeLink();
+    viaSelf = true;
+  } else {
+    const denied = requireModule(SERVICE, "hrd");
+    if (denied) return denied;
+    found = state.employees.find((e) => e.employee_no === input.employee_no);
+    if (!found) return notFound(SERVICE, "employee_not_found", `No employee ${input.employee_no}.`);
+  }
+  /* Narrowed once, into a binding `apply`'s closure below can trust — a `let`
+     reassigned in two branches is widened back inside a nested function,
+     even though this point can only be reached with it set. */
+  const emp: Employee = found;
   if (input.to_date < input.from_date) {
     return invalid(SERVICE, "range_invalid", "Tanggal selesai mendahului tanggal mulai.", { field: "to_date" });
   }
@@ -1939,8 +2151,15 @@ export async function requestLeave(
     writeAudit(draft, {
       service: SERVICE, entity: "leave_request", entity_no: no,
       action: "request", outcome: "ok", reason: input.reason.trim(),
-      detail: { employee: emp.employee_no, kind: input.kind, from: input.from_date, to: input.to_date, by: user.email },
+      detail: {
+        employee: emp.employee_no, kind: input.kind, from: input.from_date, to: input.to_date,
+        via: viaSelf ? "self" : "hrd", by: user.email,
+      },
     });
+    if (viaSelf) {
+      recordSelfActivity(draft, "leave_requested", "leave_request",
+        `Mengajukan ${input.kind} ${input.from_date} s/d ${input.to_date}`);
+    }
   });
 
   const view = leaveRequestView(getState(), getState().leave_requests.find((r) => r.request_no === created)!);
@@ -2042,9 +2261,18 @@ export async function listTasks(
   filter: { assignee_no?: string; status?: Task["status"] } = {},
 ): Promise<Result<TaskView[]>> {
   await latency();
+  const state = getState();
   const denied = requireModule(SERVICE, "hrd");
-  if (denied) return denied;
-  return ok(SERVICE, taskViews(getState(), filter));
+  if (!denied) return ok(SERVICE, taskViews(state, filter));
+
+  /* No HRD grant: the real database's `tasks_read_own` RLS policy (0152)
+     would restrict the rows to this account's own regardless of what
+     `filter` asked for, so the demo forces the same scope rather than
+     honouring a filter a caller in this position could never actually use
+     to see anybody else's row. */
+  const mine = myEmployee(state);
+  if (!mine) return ok(SERVICE, []);
+  return ok(SERVICE, taskViews(state, { ...filter, assignee_no: mine.employee_no }));
 }
 
 /** Asking somebody to do something, by a date.
@@ -2301,16 +2529,23 @@ export async function chaseTask(
  *  still late when it is late (A6). A rule that let anybody escape a deadline
  *  by not clicking would be a worse tracker than no acknowledgement at all.
  */
+/** The one HR write a person with no HRD grant at all may call — real-DB
+ *  shape, not a demo simplification (`ops_hr.acknowledge_task`, 0152): it
+ *  sets a timestamp on a row already addressed to them, and can do nothing
+ *  else. HRD may also set it, for a task agreed by somebody with no account. */
 export async function acknowledgeTask(
   input: { task_no: string },
 ): Promise<Result<TaskView>> {
   await latency();
-  const denied = requireModule(SERVICE, "hrd");
-  if (denied) return denied;
-
   const state = getState();
   const t = state.tasks.find((x) => x.task_no === input.task_no);
   if (!t) return notFound(SERVICE, "task_not_found", `No task ${input.task_no}.`);
+
+  const mine = myEmployee(state)?.id === t.assignee_id;
+  if (!mine) {
+    const denied = requireModule(SERVICE, "hrd");
+    if (denied) return denied;
+  }
   if (t.acknowledged_at !== null) {
     return noop(SERVICE, taskView(state, t));
   }
@@ -2323,8 +2558,9 @@ export async function acknowledgeTask(
     writeAudit(draft, {
       service: SERVICE, entity: "task", entity_no: row.task_no,
       action: "acknowledge", outcome: "ok", reason: null,
-      detail: { by: user.email },
+      detail: { by: user.email, via: mine ? "assignee" : "hrd" },
     });
+    if (mine) recordSelfActivity(draft, "task_acknowledged", "task", `Menerima tugas ${row.task_no}`);
   });
   const after = getState();
   return ok(SERVICE, taskView(after, after.tasks.find((x) => x.task_no === input.task_no)!));
@@ -3188,6 +3424,34 @@ export async function getPayroll(runNo: string): Promise<Result<PayrollView>> {
   const run = state.payroll_runs.find((r) => r.run_no === runNo);
   if (!run) return notFound(SERVICE, "run_not_found", `No payroll run ${runNo}.`);
   return ok(SERVICE, payrollView(state, run));
+}
+
+/** Runs this account may see a payslip from. A `DRAFT` run stays off the
+ *  list — still being checked, not yet a fact anybody should read a figure
+ *  from (0158). */
+export async function myPayslips(): Promise<Result<
+  { run_no: string; period_start: string; period_end: string; status: PayrollRun["status"] }[]
+>> {
+  await latency();
+  return ok(SERVICE, getState().payroll_runs
+    .filter((r) => r.status !== "DRAFT")
+    .map((r) => ({ run_no: r.run_no, period_start: r.period_start, period_end: r.period_end, status: r.status }))
+    .sort((a, b) => b.period_start.localeCompare(a.period_start)));
+}
+
+/** One person's own line out of a run — the same computation
+ *  `getPayroll`/`payrollView` already does for everybody, read down to the
+ *  one row `employees_read_own` lets the real database's caller see (0158). */
+export async function myPayslip(runNo: string): Promise<Result<PayrollLine>> {
+  await latency();
+  const state = getState();
+  const emp = myEmployee(state);
+  if (!emp) return notFound(SERVICE, "payslip_not_found", `Tidak ada slip gaji untuk run ${runNo}.`);
+  const run = state.payroll_runs.find((r) => r.run_no === runNo);
+  if (!run) return notFound(SERVICE, "run_not_found", `No payroll run ${runNo}.`);
+  const line = payrollView(state, run).lines.find((l) => l.employee_no === emp.employee_no);
+  if (!line) return notFound(SERVICE, "payslip_not_found", `Tidak ada slip gaji untuk run ${runNo}.`);
+  return ok(SERVICE, line);
 }
 
 /** Any week, run or no run.

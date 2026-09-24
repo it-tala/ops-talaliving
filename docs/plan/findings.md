@@ -6390,3 +6390,30 @@ those run as the caller and are already bounded by that caller's RLS.
 
 Proved by deleting one revoke and watching it name that function, which is the
 only way to know a check checks. The rule is now the class, not the case.
+
+## F156 · 2026-09-24 · a route with no module at all read as permanently dark
+
+Building `/profil` (W7, D305), every `hr.*`/`identity.*` call it makes was
+already exported by `src/lib/api`, and `node scripts/check-live-routes.mjs
+--write` still would not add it — silently, with the same route count before
+and after. `check-live-routes.mjs`'s verdict is two gates: every
+`service.function` a route reaches has to be implemented, **and** the route's
+module (its first path segment, looked up in `MODULE_OF`) has to be in
+`LIVE_MODULES`. `/profil` is the one screen in this system that belongs to no
+permission-catalogue module by design — every account owns it regardless of
+any grant, so there is nothing for `can()` to gate and nothing in
+`src/lib/nav.ts` to hide it behind either — and `MODULE_OF["profil"]` was
+simply absent. `mod = MODULE_OF[...] ?? "unknown"`, `LIVE_MODULES.includes
+("unknown")` is `false`, and the route fails the second gate whatever the
+first one says. The failure is exactly the shape the whole file exists to
+catch on everybody else's behalf — a route that looks correct by the only
+measure somebody remembered to check — except this time the guard's own
+blind spot was the module list itself never having a "no module" entry.
+
+Fixed by giving `/profil` its own pseudo-module, mapped in `MODULE_OF` and
+listed in `LIVE_MODULES`, whose only job is to be exactly as open as the
+services it actually calls (`identity`, `hr`) — never on a schedule of its
+own, because there is no `ops_profil` schema to wait on. Worth remembering
+for the next module-less route: this gate assumes every route belongs to
+*some* catalogue module, and a route that correctly has none needs that
+assumption named rather than left to resolve to `"unknown"` and fail quietly.

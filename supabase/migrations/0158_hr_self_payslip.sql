@@ -1,0 +1,26 @@
+-- 0158_hr_self_payslip.sql — one policy, and the payslip screen's own
+-- computation does the rest.
+--
+-- `getPayroll` reads `run_lines(run_no)`, which is `period_lines` cross-joined
+-- over `ops_hr.employees` — invoker-rights, like every function in the HR
+-- payroll stack (0057, 0119). `employees_read_own` (0152) already narrows
+-- that `FROM` to one row for a self caller, so `run_lines`, `period_lines`
+-- and `payroll_totals` all already answer "just me" the moment they are
+-- called by somebody with no `hrd.read`/`payroll.read` — no new function, no
+-- new view, because writing one would be a second computation of the same
+-- money next to the one the admin screen already trusts, and two
+-- implementations of a payslip is two chances to round it differently (D9).
+--
+-- The one thing missing is `payroll_runs` itself: `run_lines` starts from
+-- `payroll_runs r where r.run_no = p_run_no`, and today only `hrd.read` and
+-- `payroll.read` may see that row at all — a self caller would resolve to an
+-- employees row of exactly one and then find no run to join it against, and
+-- the payslip would come back empty rather than refused, which is the
+-- "looks like an honest zero" failure `0156`'s own comment warns about.
+--
+-- `DRAFT` stays out of the grant. A run still being built can move before it
+-- is approved, and a person reading their own unfinished figures a day before
+-- HRD finishes checking them is the argument nobody can win version of a
+-- payslip.
+create policy runs_read_own on ops_hr.payroll_runs for select to authenticated
+  using (status in ('APPROVED','PAID') and ops_hr.my_employee_id() is not null);

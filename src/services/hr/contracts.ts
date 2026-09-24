@@ -71,8 +71,10 @@ export interface Employee {
 
 /** Where a scan came from. `import` is the machine's own export; `manual` is a
  *  person putting in what the machine missed, which always carries a reason
- *  (D137). */
-export type ScanSource = "import" | "manual";
+ *  (D137); `self` is the person themselves, tapped from their own signed-in
+ *  session rather than the reader at the door (W7) — evidence with a
+ *  different machine behind it, not a correction to anything. */
+export type ScanSource = "import" | "manual" | "self";
 
 /** One tap on the reader.
  *
@@ -301,6 +303,11 @@ export interface OvertimeLine {
    *  between the two is displayed rather than resolved: one of them is wrong
    *  and only a person knows which. */
   form_amount: number | null;
+  /** What was actually done during the overtime — the sentence a self-report
+   *  carries (W7), read by HRD when deciding whether the night is paid. Null
+   *  on every line HRD keyed from the paper form, where the task column
+   *  already says it. */
+  result_note: string | null;
 }
 
 /* ------------------------------------------------------------------ */

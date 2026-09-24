@@ -155,6 +155,25 @@ export interface ActivityEvent {
   label: string;
 }
 
+/** One of the reader's own rows in the profile screen's activity feed (W7).
+ *
+ *  Deliberately a narrower object than `ActivityEvent`, not the same one
+ *  filtered: D190 refused a person their own row in the IT-grade trail —
+ *  granular `view`/`export`/`print` telemetry stays closed, because seeing
+ *  exactly what is logged is a way to learn exactly what is not. This is a
+ *  different, safer object — the account's own security-relevant actions
+ *  (signed in, changed a password, clocked in, asked for leave) — so there is
+ *  no actor to name here; the actor is always the reader. */
+export interface MyActivityEvent {
+  id: string;
+  at: string;
+  /** `sign_in` · `sign_out` · `update` · `attendance_tap` ·
+   *  `leave_requested` · `overtime_requested` · `task_acknowledged`. */
+  kind: string;
+  target: string;
+  label: string;
+}
+
 /** One person, one day, in numbers. Written at the end of the day and kept
  *  120 working days per person — long after the events behind it are gone. */
 export interface ActivityDaily {

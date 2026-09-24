@@ -286,6 +286,14 @@ const MODULE_OF = {
   accounting: "accounting", marketing: "marketing", proyek: "project", produksi: "production",
   it: "it", pengaturan: "settings", "john-lau": "assistant", box: "project",
   "master-data": "master-data",
+  /* `/profil` (W7) has no permission-catalogue module at all, on purpose —
+     it is the one screen every account owns regardless of any grant
+     (0152/0155–0158), so `can()` never gates it and there is no module for
+     the sidebar to hide it behind either. It still deserves the same
+     guard everything else here gets: being open has to mean the services
+     it calls (`identity`, `hr`) are actually live, not that the file
+     compiled. Its own pseudo-module below is that guard, not a grant. */
+  profil: "profil",
 };
 
 /* The modules this deployment opens. Procurement and accounting are the two the
@@ -331,7 +339,15 @@ const MODULE_OF = {
    `project` opens with the order screen (`0111`): `/proyek/order` is live, and
    every other `/proyek` screen stays dark behind the functions it still
    waits for. */
-const LIVE_MODULES = ["dashboard", "procurement", "accounting", "it", "settings", "assistant", "inventory", "hrd", "master-data", "production", "project"];
+const LIVE_MODULES = [
+  "dashboard", "procurement", "accounting", "it", "settings", "assistant", "inventory", "hrd",
+  "master-data", "production", "project",
+  /* Open exactly when `identity` and `hr` are — both already are — never on
+     its own schedule, because there is no separate `profil` schema to wait
+     on (0155–0158 add policies and seams to `ops_core`/`ops_hr`, not a new
+     one). */
+  "profil",
+];
 
 const IMPL = Object.fromEntries(LIVE.map((s) => [s, implementedFunctions(s)]));
 
