@@ -1302,11 +1302,21 @@ export async function listDue(): Promise<Result<CashDue[]>> {
  *  includes `m`.
  *
  *  It used to be two runs, anchored a month apart, fired together. That cost
- *  HTTP 500 on a live money screen: `cash_plan()` takes ~4s under RLS (0.2s as
- *  the owner — the difference is the per-row policy checks, not the
- *  projection), and two of them in parallel put both over the 8-second
- *  statement timeout. `57014`, twice within 3ms, 2026-09-24 02:36, from
- *  `ops.talaliving.com`.
+ *  HTTP 500 on a live money screen — `57014`, statement timeout at 8s, twice
+ *  within 3ms, 2026-09-24 02:36, from `ops.talaliving.com`.
+ *
+ *  The first note written here blamed RLS, on the strength of 0.2s as the owner
+ *  against 4s as a signed-in reader. That was a cold call measured against a
+ *  warm one: properly, in one session, it is 193–248ms as `postgres` and
+ *  256–298ms as `authenticated`. RLS costs about a quarter. What was actually
+ *  costing seconds is F151 — 94 of 115 `ops_*` tables had never been analysed,
+ *  so the planner sized a 3-row table at 550 and hashed the whole ledger
+ *  instead of probing an index three times. `0127` analyses them and
+ *  `smoke/A4_core_planner_stats.sql` keeps it that way.
+ *
+ *  One run rather than two still earns its place: it halves the work and
+ *  removes the parallel contention that turned a slow read into two failed
+ *  ones.
  *
  *  Reading `m` out of the earlier window is only sound if `p_from` chooses the
  *  window and nothing else. It does — a cell is the schedule and the ledger for

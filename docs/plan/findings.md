@@ -6229,18 +6229,39 @@ is its own finding: nothing watches the error rate.
 error=57014`, statement timeout — with `response.origin_time=8235`, against the
 8-second limit. Two of them 3ms apart, same browser session.
 
-### The measurement that mattered was the ratio, not the duration
+### The ratio was real. The cause written here first was not.
+
+**Corrected 2026-09-24, same day, before the explanation reached anybody as
+advice.** What was written here was:
+
+> as `postgres` 205–729 ms, as `authenticated` 3,719–3,784 ms — eighteen times
+> slower for the same projection, and the cost is the per-row RLS policy
+> evaluation.
+
+That is wrong, and it is wrong in the most ordinary way available: the two
+numbers were taken from different moments, and the `authenticated` one was a
+**cold first call on a fresh backend** while the `postgres` one was a warm second
+call. Measured properly — one session, alternating roles, four rounds each:
 
 | `ops_acct.cash_plan()` | |
 |---|---|
-| as `postgres` | 205–729 ms |
-| as `authenticated` | **3,719–3,784 ms** |
-| two in parallel as `authenticated` | 8,235 ms → both time out |
+| as `postgres` | 193–248 ms |
+| as `authenticated` | 256–298 ms |
+| two in parallel, under real load | 8,235 ms → both time out |
 
-Eighteen times slower for the same projection over the same ledger. The cost is
-not the arithmetic, it is the per-row RLS policy evaluation on every table the
-projection touches — and it is invisible to anyone who benchmarks as the owner,
-which is how a four-second screen ships believing it takes a fifth of a second.
+**RLS costs about a quarter, not eighteen times.** Every base read the projection
+performs was also timed under both roles and not one was slower as
+`authenticated`, which should have been the first check and was the last.
+
+The nineteen was real and it belonged to something else entirely — the planner,
+not the policy. See F151, which is the actual cause and was found by refusing to
+let this number stand.
+
+The lesson is not "measure twice". It is that **a ratio between two measurements
+taken at different times is not a ratio**, and that an explanation which fits the
+number is not thereby the cause. This one fit beautifully: RLS is invisible to
+whoever benchmarks as the owner, it is a known class of problem, and it would
+have been repeated as advice for months.
 
 `getMonthlyBills` then fired two of these in `Promise.all`, anchored a month
 apart, because *last month* is never in the default twelve-month window (F68).
@@ -6266,7 +6287,78 @@ September.
 
 Fixed: the 500. One run, 3.7s, ~2.2x headroom under the timeout.
 
-Not fixed: 3.7s is a slow screen, and 2.2x is thin headroom for something that
-grows with the ledger. The 18x RLS penalty is the real defect and it belongs to
-every `ops_*` projection read as `authenticated`, not just this one. Halving the
-calls bought time; it did not make the read fast.
+Not fixed by that change alone: the projection was still being planned against
+invented table sizes on every cold backend. That is F151, and it is the defect
+that was actually costing the seconds. Halving the calls removed the parallel
+contention; it did not make the read fast.
+
+## F151 · 2026-09-24 · ninety-four tables the planner had never looked at
+
+`pg_class.reltuples = -1` does not mean "no rows". It means **nobody has ever
+looked**, and the planner then works from a default guess. On production, 94 of
+115 `ops_*` tables were in that state — never analysed, not once, since the
+ladder created them — and 34 of them held rows.
+
+The guesses were not close:
+
+| | planner thought | actually |
+|---|---|---|
+| `ops_acct.cash_settlements` | 550 | 3 |
+| `ops_acct.cash_components` | 190 | 8 |
+
+### The same join, before and after `analyze`
+
+```
+BEFORE  Hash Right Join  (cost=36.93..121.59 rows=550)
+          Hash Cond: (s.component_id = c.id)
+          -> Index Only Scan on transactions  (rows=3221)     ← all of it
+          -> Seq Scan on cash_settlements     (rows=550)
+
+AFTER   Hash Right Join  (cost=1.46..6.41 rows=8)
+          -> Nested Loop Left Join  (rows=3)
+               -> Seq Scan on cash_settlements  (rows=3)
+               -> Index Only Scan on transactions (rows=1)    ← three probes
+```
+
+Believing a three-row table holds 550 makes a hash join over **every one of
+3,221 transactions** look cheaper than three index probes. Cost 121.59 → 6.41,
+about nineteen times, on one join out of the several `cash_plan()` performs.
+
+That nineteen is the number F150 first attributed to RLS. It was the planner all
+along, and the two were indistinguishable from the outside: both make a query
+slow for reasons invisible in its text.
+
+### Autovacuum was never going to reach them
+
+Autoanalyze fires at `autovacuum_analyze_threshold +
+autovacuum_analyze_scale_factor × reltuples` — 50 modifications plus 10% by
+default. An eight-row table of cash components that somebody edits twice a year
+will not accumulate fifty modifications this decade.
+
+**So the small tables are precisely the ones autovacuum cannot help**, and they
+are also the ones whose misestimates flip a plan from a nested loop to a hash of
+the largest table in the schema. `ops_acct.transactions` had statistics because
+3,274 arriving rows got it past the threshold unaided; every lookup table beside
+it had none. The bug hides in exactly the tables nobody worries about.
+
+### What was done, and one thing that went wrong doing it
+
+`0127_core_analyze.sql` analyses every `ops_*` table, and
+`smoke/A4_core_planner_stats.sql` asserts that the ladder leaves none with
+`reltuples = -1` — because `0127` can only fix the tables that existed when it
+ran, and the rule that matters is *a migration creating a table ends by
+analysing it*. The guard names the table if that is forgotten.
+
+**The experiment that proved this was not as reversible as it was described.**
+The before/after `explain` was run inside a transaction deliberately aborted with
+`raise exception`, on the understanding that this would leave production
+untouched. It did not: `ANALYZE` writes `reltuples` and `relpages` in place,
+outside transaction semantics, so those survived the rollback while the
+`pg_statistic` column distributions did not — leaving four `ops_acct` tables
+half-analysed on a live database.
+
+The effect was benign and in the direction of the intended fix, which is luck
+rather than method. The rule worth keeping: **`begin … rollback` is not a
+sandbox for anything that touches the catalogue.** VACUUM, ANALYZE, sequence
+advances and `reltuples` are all outside it, and "I will roll it back" is a claim
+about ordinary DML only.
