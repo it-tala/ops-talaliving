@@ -56,6 +56,13 @@
 -- is alive. Only the last hop is dead. The fix is a deploy, not a repair, and
 -- the gap closes on `ref_id` with no backfill to write by hand.
 --
+-- GAP 1 was closed the same day by a second run of
+-- `supabase/legacy/03_bridge_review_queue.sql` — 35 filed, 0 refused — after
+-- which this script reads BERSIH and the web app holds 35 PENDING documents.
+-- That is the mop, not the fix: the gap reopens at the rate people photograph
+-- notas until the Cloud Run job carries the merged mirror. Noticing is this
+-- script's whole job, so it is worth running again tomorrow.
+--
 --   psql … -f supabase/import/09_queue_reconciliation.sql
 --
 -- Read-only. It writes nothing and decides nothing.
