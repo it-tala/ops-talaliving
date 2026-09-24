@@ -81,7 +81,7 @@ begin
             ('ops_prod.open_draft'),        -- 0109 — `revoke all`, not `revoke execute`
             ('ops_inv.asset_rent_invalid'), -- 0116
             ('ops_hr.schedules_in_use_lost'),-- 0117_hr_schedule_editable
-            ('ops_procure.restamp_line_money')-- 0129 — called only from inside other seams
+            ('ops_procure.restamp_line_money')-- 0139 — called only from inside other seams
          ) as shut(sig)
     join pg_proc p on p.oid::regproc::text = shut.sig
    where has_function_privilege('authenticated', p.oid, 'EXECUTE')
@@ -133,7 +133,7 @@ end $$;
 --
 -- `file_evidence` is the capture worker's one verb (0038). The other two
 -- belong to the chat worker that carries a PO approval card to leadership
--- and brings the answer back (D299, 0133): it reads one order's card and
+-- and brings the answer back (D299, 0143): it reads one order's card and
 -- answers it, and nothing else. Both are shut to `authenticated` — a card
 -- is answered from Chat by its addressee, never from a browser session — so
 -- they are excluded from §3, and asserted shut to signed-in people here.

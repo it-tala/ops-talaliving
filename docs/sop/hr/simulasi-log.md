@@ -9,7 +9,7 @@
 | 7 | 4. Berkas 201 | Simpan berkas tanpa scan dan tanpa nomor | Sari | `/hrd/berkas-201` | `ops_hr.file_employee_document` | DITOLAK |  | nothing_to_file |
 | 8 | 5. Kontrak | Daftarkan kontrak: jenis, mulai berlaku, berakhir | Sari | `/hrd/kontrak` | `ops_hr.register_contract` | OK | draft |  |
 | 9 | 5. Kontrak | Berlakukan sebelum kertasnya terlampir | Sari | `/hrd/kontrak/kkj-26-09-24_01` | `ops_hr.activate_contract` | DITOLAK | draft | paper_required |
-| 10 | 5. Kontrak | Lampirkan kontrak yang sudah ditandatangani (scan/PDF) | Sari | `/hrd/kontrak/kkj-26-09-24_01` | `ops_hr.attach_contract_paper` | OK | draft · berkas terlampir | Sebelum 0138 langkah ini tidak ada: formulir pendaftaran tidak punya kolom berkas (F154). |
+| 10 | 5. Kontrak | Lampirkan kontrak yang sudah ditandatangani (scan/PDF) | Sari | `/hrd/kontrak/kkj-26-09-24_01` | `ops_hr.attach_contract_paper` | OK | draft · berkas terlampir | Sebelum 0148 langkah ini tidak ada: formulir pendaftaran tidak punya kolom berkas (F154). |
 | 11 | 5. Kontrak | Berlakukan sebelum isi pokoknya dijawab | Sari | `/hrd/kontrak/kkj-26-09-24_01` | `ops_hr.activate_contract` | DITOLAK | draft | clauses_missing |
 | 12 | 5. Kontrak | Jawab sepuluh poin wajib: tekan "Jawab", salin kalimat aslinya, isi nilainya, "Konfirmasi" | Sari | `/hrd/kontrak/kkj-26-09-24_01` | `ops_hr.confirm_clause` | OK | 10 poin terjawab |  |
 | 13 | 5. Kontrak | Tekan "Berlakukan" | Sari | `/hrd/kontrak/kkj-26-09-24_01` | `ops_hr.activate_contract` | OK | active |  |

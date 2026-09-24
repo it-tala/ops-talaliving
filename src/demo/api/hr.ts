@@ -1726,7 +1726,7 @@ export async function confirmClause(
   return getContract(input.contract_no);
 }
 
-/** `ops_hr.attach_contract_paper` (0138): the signed paper on a draft. */
+/** `ops_hr.attach_contract_paper` (0148): the signed paper on a draft. */
 export async function attachContractPaper(
   input: { contract_no: string; attachment_id: string; sha256?: string | null },
 ): Promise<Result<ContractDetail>> {

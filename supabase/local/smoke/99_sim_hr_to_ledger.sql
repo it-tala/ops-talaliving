@@ -4,7 +4,7 @@
 -- be read by the people who will do it. Every step is a person doing one
 -- thing on one screen, in the order a real week happens, written into
 -- `sim_log`. `supabase/local/simulate.sh sim_hr_to_ledger` prints it; the SOP
--- (`docs/sop/hr/`) and John Lau's process knowledge (`0140`) were written from it.
+-- (`docs/sop/hr/`) and John Lau's process knowledge (`0150`) were written from it.
 --
 -- Four people, with the grants the real roles carry:
 --   Tomi — IT: it admin (aturan gaji dan pola jadwal live di /it/aturan-gaji)
@@ -178,7 +178,7 @@ begin
   assert ops_core.said_ok(r), format('kertas: %s', r);
   perform pg_temp.log('5. Kontrak','Lampirkan kontrak yang sudah ditandatangani (scan/PDF)','Sari','/hrd/kontrak/' || v_no,
     'ops_hr.attach_contract_paper','OK','draft · berkas terlampir',
-    'Sebelum 0138 langkah ini tidak ada: formulir pendaftaran tidak punya kolom berkas (F154).');
+    'Sebelum 0148 langkah ini tidak ada: formulir pendaftaran tidak punya kolom berkas (F154).');
 
   r := ops_hr.activate_contract(v_no);
   perform pg_temp.log('5. Kontrak','Berlakukan sebelum isi pokoknya dijawab','Sari','/hrd/kontrak/' || v_no,

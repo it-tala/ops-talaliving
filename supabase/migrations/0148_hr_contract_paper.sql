@@ -1,4 +1,4 @@
--- 0138 — the signed contract can be attached after the contract is registered.
+-- 0148 — the signed contract can be attached after the contract is registered.
 --
 -- Found by the HR walk (F154). `activate_contract` refuses `paper_required`
 -- until the signed paper is linked, and the only road to link it was an

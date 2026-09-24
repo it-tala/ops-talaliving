@@ -1,8 +1,8 @@
--- 0130 — the procurement guide, after B5–B8 were fixed.
+-- 0140 — the procurement guide, after B5–B8 were fixed.
 --
--- 0127 wrote four steps as they stood on the day of the walk, each with a
--- *(sementara)* question saying the step did not work yet. 0128 and 0129 fixed
--- them, so this removes those rows — as 0127 promised — and writes the steps
+-- 0137 wrote four steps as they stood on the day of the walk, each with a
+-- *(sementara)* question saying the step did not work yet. 0138 and 0139 fixed
+-- them, so this removes those rows — as 0137 promised — and writes the steps
 -- the way they now work: an order line chosen from an approved request line,
 -- arrivals that move the request, and an order paid from its own page.
 --

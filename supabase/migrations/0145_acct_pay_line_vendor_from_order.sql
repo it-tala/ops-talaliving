@@ -1,4 +1,4 @@
--- 0135 — a line whose supplier was decided on the order can be paid from its row (B11).
+-- 0145 — a line whose supplier was decided on the order can be paid from its row (B11).
 --
 -- Found by the first walk through the live screens (F152): *New request*
 -- allows a line with the vendor *not decided yet* — deliberately, because the

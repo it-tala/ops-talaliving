@@ -1,4 +1,4 @@
--- 0141 — John Lau drafts a leave request (stage 4, HR; D301).
+-- 0151 — John Lau drafts a leave request (stage 4, HR; D301).
 --
 -- The same road as `procurement.draft_po` (D300): a sentence — *ajukan cuti
 -- untuk Wulan 2 sampai 3 Oktober, acara keluarga* — becomes a **draft** of
@@ -22,7 +22,7 @@ values
    'Draft a leave, permit or sick-day request',
    'Menyiapkan pengajuan cuti, izin atau sakit',
    null, null, '/hrd/cuti', 32,
-   'Drafts the arguments of ops_hr.request_leave; the person confirms; decide_leave stays on the screen. (0141, D301)');
+   'Drafts the arguments of ops_hr.request_leave; the person confirms; decide_leave stays on the screen. (0151, D301)');
 
 -- A writing rule, so before the reads — and after the blocked ones, whose
 -- words it does not share: *ajukan cuti* is filing, not reading attendance.

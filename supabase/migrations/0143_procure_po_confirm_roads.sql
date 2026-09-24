@@ -1,4 +1,4 @@
--- 0133 — the two roads to a confirmed order, both in the database (D267, D69).
+-- 0143 — the two roads to a confirmed order, both in the database (D267, D69).
 --
 -- The owner, restating the rule: *a PO needs leadership's approval — either
 -- leadership writes it and approves it, or staff write it and it goes to
@@ -377,7 +377,7 @@ grant execute on function ops_procure.answer_po_approval(text, boolean, ops_core
 comment on function ops_procure.answer_po_approval is
   'Leadership''s answer to a PO approval card, from the chat worker only (service_role). The '
   'answerer must be the addressee and hold approve_goods; the decision is recorded against them, '
-  'never against a session. (0133, D69, D267)';
+  'never against a session. (0143, D69, D267)';
 
 /* What the chat worker puts on the card, read with the one capability it has.
  *

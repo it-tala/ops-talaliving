@@ -1,4 +1,4 @@
--- 0136 — two steps corrected by the first walk through the live screens.
+-- 0146 — two steps corrected by the first walk through the live screens.
 --
 -- `scripts/sop/check-knowledge.mjs` compares what the walk pressed with what
 -- the guide says. Its first run found the guide describing a click nobody

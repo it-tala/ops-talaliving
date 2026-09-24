@@ -1277,7 +1277,7 @@ export async function postFromLine(
     draft.transaction_lines.push({
       id: newId("trl"), trx_id: trxId, line_no: 1, item_id: null,
       /* A lump-sum line has no quantity (D75); its payment is described as
-         1 lot at the amount paid, the same as `post_from_line` (0131, D298). */
+         1 lot at the amount paid, the same as `post_from_line` (0141, D298). */
       description: line.description,
       qty: line.qty ?? 1, uom: (line.qty == null ? "lot" : line.uom) as never,
       unit_price: line.qty == null ? input.amount : line.unit_price, amount: input.amount,
@@ -1315,7 +1315,7 @@ export async function postFromLine(
 /** Every transfer of operating money into an account that pays people,
  *  newest first — the list the liquidation report opens from (D106). */
 
-/** `ops_acct.post_payroll_run` (0139): one OUT row for an approved run, and
+/** `ops_acct.post_payroll_run` (0149): one OUT row for an approved run, and
  *  the run marked PAID. The amount is not checked against the run while Q56
  *  (which figure a run pays) is open. */
 export async function postPayrollRun(
@@ -1396,7 +1396,7 @@ export async function postPayrollRun(
 }
 
 /** Paying an order from its own screen (B8) — the demo twin of
- *  `ops_acct.post_to_po` (0129). One ledger row; the amount split across the
+ *  `ops_acct.post_to_po` (0139). One ledger row; the amount split across the
  *  order's linked request lines by value, the rest on the order alone. */
 export async function postToPo(
   input: {

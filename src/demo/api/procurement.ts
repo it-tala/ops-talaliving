@@ -1841,7 +1841,7 @@ export async function createPo(
   }
 
   /* The request line each order line buys (B7) — the same three checks as
-     `create_po` (0129), in the same order, with the same sentences. */
+     `create_po` (0139), in the same order, with the same sentences. */
   const named = lines.map((l) => l.pr_line_no?.trim()).filter((x): x is string => !!x);
   const twice = named.find((n, i) => named.indexOf(n) !== i);
   if (twice) return invalid(SERVICE, "line_named_twice", `${twice} is named on two lines of this order.`, { field: "lines" });
@@ -2861,7 +2861,7 @@ export async function lineForPosting(lineNo: string): Promise<Result<{
     uom: line.uom,
     unit_price: line.unit_price,
     /* The line's own supplier, or the order's when the request left it
-       undecided (B11, 0135) — the same fallback as `post_from_line`. */
+       undecided (B11, 0145) — the same fallback as `post_from_line`. */
     vendor_id: line.vendor_id ?? (() => {
       const po = state.purchase_orders.find((p) => p.po_no === orderOfLine(state, line.line_no_full));
       return po?.vendor_id ?? null;

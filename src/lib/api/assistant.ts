@@ -277,7 +277,7 @@ export async function ask(prompt: string, context?: AskContext): Promise<Result<
        stays first and stays the only road to a figure: a sentence it
        recognises is answered exactly as before. What a model changes is this
        branch — *how do I…* in words nobody wrote a rule for — and it answers
-       from the process knowledge (0126), never from business data. A
+       from the process knowledge (0136), never from business data. A
        deployment with no model answers 501 and falls through to the honest
        *I do not understand* below, which is still John Lau as he was. */
     const explained = await explain(prompt, context, lang);

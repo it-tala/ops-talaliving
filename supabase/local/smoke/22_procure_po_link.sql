@@ -1,5 +1,5 @@
 -- procure — an order that knows its request line, and money that reads on
--- both sides (0129, B7, B8).
+-- both sides (0139, B7, B8).
 --
 -- Refusals: an unapproved line (409), a line already on a live order (409),
 -- a line in another unit (422), one line named twice (422), paying a draft

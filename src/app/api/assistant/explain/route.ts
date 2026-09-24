@@ -14,7 +14,7 @@ import { officeToday } from "@/lib/office";
  *  ## What the model is given, and what it is not
  *
  *  **Given:** the process knowledge (`ops_asst.processes`, `process_steps`,
- *  `process_faq` — written from walking the flows, 0126), the screen the person
+ *  `process_faq` — written from walking the flows, 0136), the screen the person
  *  is on, and their own last few turns so a question asked on the PO screen can
  *  lean on one asked on the PR screen.
  *

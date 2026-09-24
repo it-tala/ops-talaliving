@@ -1,4 +1,4 @@
--- 0140 — the second module walked: HR, through to the ledger.
+-- 0150 — the second module walked: HR, through to the ledger.
 --
 -- Written from `supabase/local/smoke/99_sim_hr_to_ledger.sql`, which walks
 -- this flow against the ladder as four people (IT, staf HRD, pimpinan,
@@ -8,7 +8,7 @@
 -- words, in the language the screen prints them — HR is mostly Indonesian,
 -- the payroll pages still partly English.
 --
--- Three doors the walk found shut (F154) are fixed in 0138 and 0139 and the
+-- Three doors the walk found shut (F154) are fixed in 0148 and 0149 and the
 -- screens that go with them, so they are described here as they now work.
 --
 -- Individual pay and attendance stay closed to John Lau's *data* tools (D218:

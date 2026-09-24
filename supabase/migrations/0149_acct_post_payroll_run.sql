@@ -1,4 +1,4 @@
--- 0139 — an approved payroll run is paid from its own page, and the ledger
+-- 0149 — an approved payroll run is paid from its own page, and the ledger
 -- says so in the same breath.
 --
 -- Found by the HR walk (F154). `approve_payroll_run` moves a run to APPROVED
@@ -8,7 +8,7 @@
 -- the screens a run stopped at APPROVED for ever, and the week's wages sat in
 -- the ledger, if at all, as an OUT row that named no run.
 --
--- The shape is `post_to_po`'s (0129, B8): the person who can write the ledger
+-- The shape is `post_to_po`'s (0139, B8): the person who can write the ledger
 -- pays the thing from the thing's page, and one call writes the transaction
 -- and marks what it paid. Two calls from the browser would leave a
 -- transaction with no run whenever the second one failed.
@@ -124,4 +124,4 @@ grant execute on function ops_acct.post_payroll_run(text, numeric, text, uuid, d
 comment on function ops_acct.post_payroll_run is
   'Pays an approved payroll run from its page: one ledger OUT transaction for the run (never per '
   'person) and the run marked PAID, in one call. post_ledger, not payroll access. The amount is '
-  'not checked against the run while Q56 is open; both figures are returned. (0139, F154)';
+  'not checked against the run while Q56 is open; both figures are returned. (0149, F154)';

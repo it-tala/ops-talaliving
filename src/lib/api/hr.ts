@@ -1244,7 +1244,7 @@ export async function confirmClause(
   return getContract(input.contract_no);
 }
 
-/** The signed paper, linked to a draft after it was registered (F154, 0138).
+/** The signed paper, linked to a draft after it was registered (F154, 0148).
  *  The register form has no file field — the scan comes back after signing —
  *  so without this road no contract registered on screen could go live. */
 export async function attachContractPaper(

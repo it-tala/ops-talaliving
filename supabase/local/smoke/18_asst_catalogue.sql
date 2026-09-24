@@ -45,7 +45,7 @@ do $$
 declare n int;
 begin
   select count(*) into n from ops_asst.tools;
-  -- Sixteen transcribed from the demo, and `hr.draft_leave` (0141, D301).
+  -- Sixteen transcribed from the demo, and `hr.draft_leave` (0151, D301).
   assert n = 17, format('seventeen tools: sixteen from the demo and the leave draft, got %s', n);
 
   select count(*) into n from ops_asst.tools where reach = 'blocked';
@@ -178,7 +178,7 @@ begin
   assert r -> 'data' ->> 'effect' = 'write', format('and it is a write, got %s', r -> 'data');
 
   -- Five things are out of reach for them and are not blocked: accounting,
-  -- inventory, production and project reads, and filing leave (hrd, 0141).
+  -- inventory, production and project reads, and filing leave (hrd, 0151).
   select count(*) into n from ops_asst.v_tool_catalogue where may = 'no_grant';
   assert n = 5, format('a buyer is short five open tools, got %s', n);
 end $$;

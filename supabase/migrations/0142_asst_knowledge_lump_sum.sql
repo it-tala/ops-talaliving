@@ -1,5 +1,5 @@
--- 0132 — the last (sementara) row goes: a lump-sum line is paid from its row
--- (B9, 0131, D298). The walk now pays the delivery charge like any other line.
+-- 0142 — the last (sementara) row goes: a lump-sum line is paid from its row
+-- (B9, 0141, D298). The walk now pays the delivery charge like any other line.
 
 delete from ops_asst.process_faq
  where question = 'Kenapa bayar ongkir ditolak line_detail_required? (sementara)';

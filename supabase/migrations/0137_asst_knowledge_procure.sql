@@ -1,4 +1,4 @@
--- 0127 — the first module walked: procurement, through to the ledger.
+-- 0137 — the first module walked: procurement, through to the ledger.
 --
 -- Written from `supabase/local/smoke/99_sim_procure_to_ledger.sql`, which
 -- walks this exact flow against the ladder as three people (staf procurement,

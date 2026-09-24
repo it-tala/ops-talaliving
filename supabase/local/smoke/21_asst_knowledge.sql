@@ -1,8 +1,8 @@
--- asst — the process knowledge John Lau's model reads (0126, 0127).
+-- asst — the process knowledge John Lau's model reads (0136, 0137).
 --
 -- Three things have to stay true, and each one is a way the model could be
 -- told something wrong without anybody seeing it happen:
---   * anybody signed in can read it — a guide is not a privilege (0126);
+--   * anybody signed in can read it — a guide is not a privilege (0136);
 --   * nobody can write it through the API — the rows arrive by migration, so
 --     a wrong instruction is a reviewable diff, never an edit from a browser;
 --   * the flow is walkable: every process has steps, numbered from one with

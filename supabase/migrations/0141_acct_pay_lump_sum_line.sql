@@ -1,4 +1,4 @@
--- 0131 — a lump-sum request line can be paid from its row (B9, D298).
+-- 0141 — a lump-sum request line can be paid from its row (B9, D298).
 --
 -- Found by the second procurement walk (F150): paying the delivery charge — a
 -- line with no quantity, by design (D75) — from *Post Rp… to the ledger* as

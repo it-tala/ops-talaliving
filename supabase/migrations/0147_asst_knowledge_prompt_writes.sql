@@ -1,4 +1,4 @@
--- 0137 — the guide says what John Lau can now do from a sentence (D300).
+-- 0147 — the guide says what John Lau can now do from a sentence (D300).
 --
 -- A person asking *bisa minta John Lau bikin PO?* should get the rule, not a
 -- guess: a draft built from the approved line, confirmed by the person, and
