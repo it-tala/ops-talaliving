@@ -212,6 +212,15 @@ export const EVIDENCE_INBOX: Omit<EvidenceInboxRow, "reported_by_name">[] = [
     extracted: { vendor_name: "TOKO BANGUNAN MAKMUR SENTOSA", document_date: "2026-09-09", amount_idr: 685_000, doc_type: "Receipt / Invoice / Nota", confidence: 88, note: "Bought first, no PR yet — urgent need." },
     produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
   },
+  /** The same photo as inb_01, filed as its second slot — the way the capture
+   *  worker files every row it reads. The screen shows the two as one
+   *  document with two lines (owner, 2026-09-24). */
+  {
+    id: "inb_09", ref_id: "upl_26-09-09_01~x1", origin: "chat", status: "PENDING",
+    attachment_id: "att_10", reported_by: "usr_made", reported_at: "2026-09-09T17:22:00+08:00",
+    extracted: { vendor_name: "TOKO BANGUNAN MAKMUR SENTOSA", document_date: "2026-09-09", amount_idr: 2_500, doc_type: "Receipt / Invoice / Nota", confidence: 88, note: "Transfer admin fee" },
+    produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
+  },
   {
     id: "inb_02", ref_id: "upl_26-09-10_01~x0", origin: "chat", status: "PENDING",
     attachment_id: "att_11", reported_by: "usr_andi", reported_at: "2026-09-10T08:05:00+08:00",

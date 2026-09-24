@@ -58,6 +58,56 @@ const ROADS: { key: Road; label: string; icon: typeof Receipt; hint: string }[] 
 /** How much of the history the card shows. */
 const DECIDED_SHOWN = 20;
 
+/** One photo, however many inbox rows it arrived as.
+ *
+ *  Owner, 2026-09-24: *alih-alih ada 5 dokumen yang sama untuk di record ke
+ *  ledger satu satu, lebih baik 1 dokumen ada 5 line untuk di approve jadi
+ *  satu.* The capture worker in john-lau files one inbox row per slot the
+ *  extractor read — `<event>~x0`, `<event>~x1`, … — so a transfer and its
+ *  admin fee, or a nota of five items, arrived here as two or five
+ *  "documents" that were the same photo. They are grouped back by the event
+ *  part of `ref_id`; the seam (0157) checks they really are one file rather
+ *  than trusting this.
+ *
+ *  `rows[0]` is the **main** row — the largest amount, so the transfer and not
+ *  its fee — and is what the header, the vendor guess and the date come from.
+ */
+interface InboxDoc {
+  key: string;
+  rows: EvidenceInboxRow[];
+  main: EvidenceInboxRow;
+  /** Sum of what was read, or null when none of the rows had an amount. */
+  amount: number | null;
+}
+
+/** The event a chat ref belongs to. A web upload has no slot and is its own. */
+function docKey(r: EvidenceInboxRow): string {
+  const i = r.ref_id.indexOf("~");
+  return r.origin === "chat" && i > 0 ? r.ref_id.slice(0, i) : r.ref_id;
+}
+
+function groupByDocument(rows: EvidenceInboxRow[]): InboxDoc[] {
+  const byKey = new Map<string, EvidenceInboxRow[]>();
+  for (const r of rows) {
+    const k = docKey(r);
+    const list = byKey.get(k);
+    if (list) list.push(r); else byKey.set(k, [r]);
+  }
+  /* Map keeps first-seen order, which is the server's order for the queue. */
+  return [...byKey.entries()].map(([key, list]) => {
+    const sorted = [...list].sort((a, b) =>
+      (b.extracted.amount_idr ?? 0) - (a.extracted.amount_idr ?? 0)
+      || a.ref_id.localeCompare(b.ref_id));
+    const read = sorted.filter((r) => r.extracted.amount_idr != null);
+    return {
+      key,
+      rows: sorted,
+      main: sorted[0],
+      amount: read.length > 0 ? read.reduce((n, r) => n + (r.extracted.amount_idr ?? 0), 0) : null,
+    };
+  });
+}
+
 export default function InboxPage() {
   const { hasAuthority } = useSession();
   const { toast } = useToast();
@@ -68,10 +118,8 @@ export default function InboxPage() {
   const [reviewing, setReviewing] = useState<string | null>(null);
   /* The queue and the history both page: an inbox is read from the top, and
      a year of decided evidence is not something to render at once (D157, B4). */
-  const { shown: queue, pager: queuePager } = usePaged(
-    rows.status === "ready" ? rows.data : [],
-    12,
-  );
+  const docs = rows.status === "ready" ? groupByDocument(rows.data) : [];
+  const { shown: queue, pager: queuePager } = usePaged(docs, 12);
   /* B4's other half, cut down to what the question needs: *what did we do
      with that photo* is asked about last week, not last year. The server
      sends only the latest twenty, and the card says how many it left out,
@@ -84,10 +132,10 @@ export default function InboxPage() {
      the right, and the twenty decided rows. Asking for "the latest 300
      uploads" fetched far more than that and still missed any row older than
      them. */
-  const selectedRow = rows.status === "ready" ? rows.data.find((r) => r.ref_id === selected) : undefined;
+  const selectedDoc = docs.find((d) => d.key === selected);
   const wantedIds = [...new Set([
-    ...queue.map((r) => r.attachment_id),
-    ...(selectedRow ? [selectedRow.attachment_id] : []),
+    ...queue.map((d) => d.main.attachment_id),
+    ...(selectedDoc ? [selectedDoc.main.attachment_id] : []),
     ...decided.map((r) => r.attachment_id),
   ].filter(Boolean))].sort().join(",");
   const [attachments] = useLoad(
@@ -136,7 +184,7 @@ export default function InboxPage() {
       )}
 
       <Loaded state={rows} onRetry={reload}>
-        {(all) => all.length === 0 ? (
+        {() => docs.length === 0 ? (
           <Card>
             <div className="p-5">
               <EmptyState
@@ -150,21 +198,23 @@ export default function InboxPage() {
           <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
             <Card className="h-fit">
               <CardHeader
-                title={`${all.length} waiting`}
+                title={`${docs.length} waiting`}
                 subtitle="Oldest first — a queue is not a filing cabinet."
                 icon={Inbox}
                 action={<SourceBadge state={rows} />}
               />
               <ul className="divide-y divide-slate-100">
-                {queue.map((r) => {
-                  const on = selected === r.ref_id;
+                {queue.map((d) => {
+                  const r = d.main;
+                  const on = selected === d.key;
                   const file = attachments.status === "ready"
                     ? attachments.data.find((a) => a.id === r.attachment_id)
                     : undefined;
+                  const similar = [...new Set(d.rows.flatMap((x) => x.similar_trx_nos))];
                   return (
-                    <li key={r.id}>
+                    <li key={d.key}>
                       <button
-                        onClick={() => setSelected(on ? null : r.ref_id)}
+                        onClick={() => setSelected(on ? null : d.key)}
                         className={cn(
                           "w-full px-4 py-3 text-left transition-colors hover:bg-slate-50",
                           on && "bg-brand-50",
@@ -175,19 +225,22 @@ export default function InboxPage() {
                           <span className="min-w-0 truncate">
                             {r.extracted.note ?? r.extracted.vendor_name ?? file?.filename ?? r.attachment_id}
                           </span>
+                          {d.rows.length > 1 && (
+                            <Badge tone="violet">{d.rows.length} baris</Badge>
+                          )}
                         </p>
                         <p className="mt-0.5 text-[12px] text-slate-600">
                           {r.extracted.vendor_name ?? "vendor not read"} ·{" "}
-                          {r.extracted.amount_idr != null ? formatIDR(r.extracted.amount_idr) : "amount not read"}
+                          {d.amount != null ? formatIDR(d.amount) : "amount not read"}
                         </p>
                         <p className="text-[11px] text-slate-400">
                           {r.reported_at.slice(0, 10)} · {r.origin}
                           {r.reported_by_name != null && ` · from ${r.reported_by_name}`}
                           {r.extracted.confidence != null && ` · read ${r.extracted.confidence}% sure`}
                         </p>
-                        {r.similar_trx_nos.length > 0 && (
+                        {similar.length > 0 && (
                           <p className="mt-1 text-[11px] text-amber-700">
-                            looks like {r.similar_trx_nos.join(", ")}
+                            looks like {similar.join(", ")}
                           </p>
                         )}
                       </button>
@@ -198,7 +251,7 @@ export default function InboxPage() {
               {queuePager}
             </Card>
 
-            {selected
+            {selectedDoc
               ? (
                 <ResolvePanel
                   /* Every field below is seeded from `row.extracted` in a
@@ -208,10 +261,10 @@ export default function InboxPage() {
                      previous row's amount/vendor/description on screen —
                      "pre-filled from the AI reading" only on the very first
                      row opened in a session, stale on every one after. */
-                  key={selected}
-                  row={all.find((r) => r.ref_id === selected)!}
+                  key={selectedDoc.key}
+                  doc={selectedDoc}
                   file={attachments.status === "ready"
-                    ? attachments.data.find((a) => a.id === all.find((r) => r.ref_id === selected)!.attachment_id)
+                    ? attachments.data.find((a) => a.id === selectedDoc.main.attachment_id)
                     : undefined}
                   mayResolve={mayResolve}
                   onDone={refresh}
@@ -339,9 +392,9 @@ function lineAmount(l: LineDraft): number {
 }
 
 function ResolvePanel({
-  row, file, mayResolve, onDone, toast,
+  doc, file, mayResolve, onDone, toast,
 }: {
-  row: EvidenceInboxRow;
+  doc: InboxDoc;
   file: AttachmentView | undefined;
   mayResolve: boolean;
   onDone: () => void;
@@ -351,17 +404,22 @@ function ResolvePanel({
   const [vendors] = useLoad(() => procurement.listVendors({}), []);
   const [projects] = useLoad(() => procurement.listProjects(), []);
   const [recent] = useLoad(() => accounting.listTransactions({ limit: 40 }), []);
+  /* The main row speaks for the photo; the others are its further lines. */
+  const row = doc.main;
+  const refs = doc.rows.map((r) => r.ref_id);
+  const similarTrxNos = [...new Set(doc.rows.flatMap((r) => r.similar_trx_nos))];
+  const vendorRead = doc.rows.find((r) => r.extracted.vendor_name)?.extracted.vendor_name ?? null;
   const filename = file?.filename ?? row.attachment_id;
   /* Re-read on every document, because *what does this paper already cover*
      is the question that stops the same nota being booked twice (D206). */
   const [coverage] = useLoad(
-    () => accounting.coverageForDocument(row.attachment_id, row.extracted.amount_idr ?? null),
-    [row.attachment_id, row.extracted.amount_idr],
+    () => accounting.coverageForDocument(row.attachment_id, doc.amount),
+    [row.attachment_id, doc.amount],
   );
 
   /* `Others` never reaches the ledger: it branches to notes before anything
      else is looked at (owner, 2026-08-27). */
-  const isOthers = row.extracted.doc_type === "Others";
+  const isOthers = doc.rows.every((r) => r.extracted.doc_type === "Others");
   const [road, setRoad] = useState<Road>(isOthers ? "note" : "transaction");
   const [busy, setBusy] = useState(false);
 
@@ -371,7 +429,7 @@ function ResolvePanel({
   const [typeCode, setTypeCode] = useState<TransactionTypeCode>("SUPPLIERS");
   const [vendorId, setVendorId] = useState("");
   const [description, setDescription] = useState(row.extracted.note ?? "");
-  const [amount, setAmount] = useState(row.extracted.amount_idr ?? 0);
+  const [amount, setAmount] = useState(doc.amount ?? 0);
   const [projectId, setProjectId] = useState("");
   /* `qty`/`uom` belong to the **retro request line** road only: that road
      writes one `pr_line`, and one line has one quantity. The transaction road
@@ -386,17 +444,18 @@ function ResolvePanel({
    * sementara tanggal, vendor, dan project sama semua.*
    *
    * That is what a nota is: one header, several things bought. It starts as
-   * one line carrying the whole reading, because most notas are one thing and
-   * an empty grid is a form somebody has to fill before they can read it.
+   * one line per row the extractor read from this photo — a transfer and its
+   * admin fee arrive as two lines of one document, not as two documents
+   * (owner, 2026-09-24) — so the grid is already filled when it opens.
    *
    * **`unit_price` is typed, not derived.** Until now the screen computed it
    * as `amount / qty`, which is backwards from the paper — the price per item
    * is printed on the nota and the total is the sum. Deriving it meant two
    * lines at different prices could not be expressed at all. */
-  const [lines, setLines] = useState<LineDraft[]>([
-    { key: 1, description: row.extracted.note ?? "", qty: 1, uom: "pcs",
-      unit_price: row.extracted.amount_idr ?? 0 },
-  ]);
+  const [lines, setLines] = useState<LineDraft[]>(() => doc.rows.map((r, i) => ({
+    key: i + 1, description: r.extracted.note ?? "", qty: 1, uom: "pcs",
+    unit_price: r.extracted.amount_idr ?? 0,
+  })));
   const linesTotal = lines.reduce((n, l) => n + lineAmount(l), 0);
   /* Shown live rather than left to the seam's refusal. The refusal is the net
      that stops a nota read as 3 items of 5 being booked as whole (§14 in
@@ -415,21 +474,37 @@ function ResolvePanel({
      (A13). Only an exact match — a near-miss silently picking the wrong
      supplier would be worse than an empty field. */
   useEffect(() => {
-    if (vendorId || vendors.status !== "ready" || !row.extracted.vendor_name) return;
+    if (vendorId || vendors.status !== "ready" || !vendorRead) return;
     const guess = vendors.data.find(
-      (v) => v.name.toLowerCase() === row.extracted.vendor_name!.toLowerCase(),
+      (v) => v.name.toLowerCase() === vendorRead.toLowerCase(),
     );
     if (guess) setVendorId(guess.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vendors.status, row.ref_id]);
+  }, [vendors.status, doc.key]);
   const unitPrice = qty > 0 ? Math.round(amount / qty) : amount;
+
+  /** Every row of the photo leaves by the same road. One by one, because
+   *  `resolve_inbox` takes one ref; stops at the first refusal and says how
+   *  far it got, so a half-resolved photo is never reported as done. */
+  async function resolveAll(
+    input: Omit<Parameters<typeof accounting.resolveInbox>[0], "ref_id">,
+  ): Promise<{ error: string; partial: boolean } | null> {
+    for (const [i, ref] of refs.entries()) {
+      const res = await accounting.resolveInbox({ ...input, ref_id: ref });
+      if (res.error) {
+        return i === 0 ? { error: res.error.message, partial: false }
+          : { error: `${res.error.message} (${i} dari ${refs.length} baris sudah tercatat)`, partial: true };
+      }
+    }
+    return null;
+  }
 
   async function run() {
     setBusy(true);
     try {
       if (road === "note" || road === "reject") {
-        const res = await accounting.resolveInbox({ ref_id: row.ref_id, resolution: road, reason });
-        if (res.error) { toast("warning", "Not recorded", res.error.message); return; }
+        const err = await resolveAll({ resolution: road, reason });
+        if (err) { toast("warning", "Not recorded", err.error); if (err.partial) onDone(); return; }
         toast("success", road === "note" ? "Kept as a note" : "Rejected, and kept", "No money was recorded either way.");
         onDone();
         return;
@@ -444,8 +519,8 @@ function ResolvePanel({
           toast("warning", "Not linked", link.error.message);
           return;
         }
-        const res = await accounting.resolveInbox({ ref_id: row.ref_id, resolution: "link", trx_no: trxNo });
-        if (res.error) { toast("warning", "Not recorded", res.error.message); return; }
+        const err = await resolveAll({ resolution: "link", trx_no: trxNo });
+        if (err) { toast("warning", "Not recorded", err.error); if (err.partial) onDone(); return; }
         toast("success", "Linked", `${filename} now proves ${trxNo}.`);
         onDone();
         return;
@@ -480,6 +555,7 @@ function ResolvePanel({
       if (road === "transaction") {
         const booked = await accounting.bookEvidence({
           ref_id: row.ref_id,
+          also_ref_ids: refs.slice(1),
           trx_date: date, account_id: accountId, direction, amount_idr: amount,
           type_code: typeCode, vendor_id: vendorId || null, project_id: projectId || null,
           description: description.trim() || filename,
@@ -517,11 +593,10 @@ function ResolvePanel({
         if (alloc.error) toast("warning", "Posted, not allocated", alloc.error.message);
       }
 
-      const res = await accounting.resolveInbox({
-        ref_id: row.ref_id, resolution: road,
-        trx_no: posted.data.trx_no, pr_line_no: lineNo,
+      const err = await resolveAll({
+        resolution: road, trx_no: posted.data.trx_no, pr_line_no: lineNo,
       });
-      if (res.error) { toast("warning", "Posted, inbox unchanged", res.error.message); return; }
+      if (err) { toast("warning", "Posted, inbox unchanged", err.error); return; }
       toast(
         "success",
         `Posted ${posted.data.trx_no}`,
@@ -574,12 +649,20 @@ function ResolvePanel({
           {(c) => <Coverage c={c} />}
         </Loaded>
 
+        {doc.rows.length > 1 && (
+          <p className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-[13px] text-violet-900">
+            Satu foto, terbaca <strong>{doc.rows.length} baris</strong>. Semuanya ada di
+            daftar baris di bawah dan dibukukan sekaligus sebagai satu dokumen — satu
+            transaksi, bukan {doc.rows.length}.
+          </p>
+        )}
+
         {/* What the reading proposed. A proposal, never a posting (A13). */}
         <dl className="grid gap-x-6 gap-y-2 rounded-lg bg-slate-50 px-3 py-2.5 sm:grid-cols-4">
           {([
-            ["Vendor", row.extracted.vendor_name ?? "not read"],
+            ["Vendor", vendorRead ?? "not read"],
             ["Date", row.extracted.document_date ?? "not read"],
-            ["Amount", row.extracted.amount_idr != null ? formatIDR(row.extracted.amount_idr) : "not read"],
+            ["Amount", doc.amount != null ? formatIDR(doc.amount) : "not read"],
             ["Type", row.extracted.doc_type ?? "not read"],
           ] as [string, string][]).map(([k, v]) => (
             <div key={k}>
@@ -588,19 +671,19 @@ function ResolvePanel({
             </div>
           ))}
         </dl>
-        {row.extracted.note && (
+        {doc.rows.length === 1 && row.extracted.note && (
           <p className="text-[13px] text-slate-600">{row.extracted.note}</p>
         )}
 
-        {row.similar_trx_nos.length > 0 && (
+        {similarTrxNos.length > 0 && (
           /* Advisory, and it points at the road it suggests rather than
              refusing anything (A6). */
           <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-900">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
-              This looks like <span className="font-mono">{row.similar_trx_nos.join(", ")}</span>,
+              This looks like <span className="font-mono">{similarTrxNos.join(", ")}</span>,
               already in the ledger. If it is the same money, the road is{" "}
-              <button className="font-medium underline" onClick={() => { setRoad("link"); setTrxNo(row.similar_trx_nos[0]); }}>
+              <button className="font-medium underline" onClick={() => { setRoad("link"); setTrxNo(similarTrxNos[0]); }}>
                 link to a row
               </button>{" "}
               — posting it again would invent money.
@@ -682,9 +765,9 @@ function ResolvePanel({
                 <option value="">Not a vendor purchase</option>
                 {vendors.status === "ready" && vendors.data.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
               </select>
-              {row.extracted.vendor_name && (
+              {vendorRead && (
                 <p id="rv-vendor-hint" className="mt-1 text-[11px] text-slate-500">
-                  Read as <span className="text-slate-700">{row.extracted.vendor_name}</span>
+                  Read as <span className="text-slate-700">{vendorRead}</span>
                   {!vendorId && " — not a vendor we have on record; pick one or add it first"}
                 </p>
               )}
@@ -719,7 +802,7 @@ function ResolvePanel({
             )}
             <div className="sm:col-span-2">
               <label htmlFor="rv-amount" className="block text-xs text-slate-500">
-                Amount <span className="text-slate-400">— the reading proposed {row.extracted.amount_idr != null ? formatIDR(row.extracted.amount_idr) : "nothing"}</span>
+                Amount <span className="text-slate-400">— the reading proposed {doc.amount != null ? formatIDR(doc.amount) : "nothing"}</span>
               </label>
               <MoneyInput id="rv-amount" value={amount} onChange={setAmount} className="mt-1" />
               <p className="mt-1 text-[11px] text-slate-500">

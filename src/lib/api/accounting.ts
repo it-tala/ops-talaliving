@@ -470,6 +470,11 @@ export async function postTransaction(
 export async function bookEvidence(
   input: {
     ref_id: string;
+    /** The other inbox rows of the **same photo**. The capture worker files
+     *  one row per slot it read (`<event>~x0`, `~x1`, …), so one nota can
+     *  arrive as several rows; they are booked as one document and closed
+     *  together (0157). */
+    also_ref_ids?: string[];
     trx_date: string;
     account_id: string;
     direction: Direction;
@@ -490,8 +495,11 @@ export async function bookEvidence(
       "Akun itu tidak ada di database.", { field: "account_id" });
   }
 
-  const { data, error } = await db().rpc("book_evidence", {
-    p_ref_id: input.ref_id,
+  /* One photo filed as several rows goes through `book_evidence_group`,
+     which calls `book_evidence` for the first and closes the rest against
+     the same ledger row, in the same transaction. */
+  const also = (input.also_ref_ids ?? []).filter((r) => r && r !== input.ref_id);
+  const args = {
     p_account_code: accountCode,
     p_direction: input.direction,
     p_amount: input.amount_idr,
@@ -503,7 +511,10 @@ export async function bookEvidence(
     p_lines: input.lines ?? [],
     p_remark: input.remark ?? null,
     p_key: idempotencyKey ?? null,
-  });
+  };
+  const { data, error } = also.length > 0
+    ? await db().rpc("book_evidence_group", { p_ref_ids: [input.ref_id, ...also], ...args })
+    : await db().rpc("book_evidence", { p_ref_id: input.ref_id, ...args });
 
   const booked = fromSeam<{ trx_no: string; lines: number; amount: number }>(
     SERVICE, data, error);

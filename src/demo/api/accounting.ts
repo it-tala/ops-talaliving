@@ -844,6 +844,11 @@ export async function getInboxHealth(): Promise<Result<InboxHealth>> {
 export async function bookEvidence(
   input: {
     ref_id: string;
+    /** The other inbox rows of the **same photo**. The capture worker files
+     *  one row per slot it read (`<event>~x0`, `~x1`, …), so one nota can
+     *  arrive as several rows; they are booked as one document and closed
+     *  together (0157). */
+    also_ref_ids?: string[];
     trx_date: string;
     account_id: string;
     direction: Direction;
@@ -875,6 +880,16 @@ export async function bookEvidence(
   if (row.status !== "PENDING") {
     return conflict(SERVICE, "already_resolved",
       `This document is already ${row.status} — nothing changed.`);
+  }
+  /* The other rows of the same photo (0157): all present, all still pending. */
+  const also = [...new Set(input.also_ref_ids ?? [])].filter((r) => r && r !== input.ref_id);
+  for (const ref of also) {
+    const other = getState().evidence_inbox.find((r) => r.ref_id === ref);
+    if (!other) return notFound(SERVICE, "inbox_row_not_found", `Row ${ref} not found.`);
+    if (other.status !== "PENDING") {
+      return conflict(SERVICE, "already_resolved",
+        `Part of this document is already ${other.status} — nothing changed. Reload the queue.`);
+    }
   }
 
   const lines = input.lines ?? [];
@@ -910,9 +925,12 @@ export async function bookEvidence(
   if (posted.error) return posted;
 
   apply((draft) => {
-    const r = draft.evidence_inbox.find((x) => x.ref_id === input.ref_id)!;
-    r.status = "CONFIRMED";
-    r.produced_trx_id = draft.transactions.find((t) => t.trx_no === posted.data.trx_no)?.id ?? null;
+    const trxId = draft.transactions.find((t) => t.trx_no === posted.data.trx_no)?.id ?? null;
+    for (const ref of [input.ref_id, ...also]) {
+      const r = draft.evidence_inbox.find((x) => x.ref_id === ref)!;
+      r.status = "CONFIRMED";
+      r.produced_trx_id = trxId;
+    }
     writeAudit(draft, {
       service: SERVICE, entity: "evidence_inbox", entity_no: input.ref_id,
       action: "book", outcome: "ok", reason: null,
