@@ -6,7 +6,7 @@ import { Badge, Button } from "./primitives";
 import { cn } from "@/lib/cn";
 import { documents } from "@/demo/api";
 import {
-  DOC_KINDS, PRIMARY_DOC_KINDS,
+  DOC_KINDS, DOC_KINDS_FOR, PRIMARY_DOC_KINDS,
   type DocKind, type LinkEntity, type AttachmentView,
 } from "@/services/documents/contracts";
 import { useToast } from "@/store/toast";
@@ -67,9 +67,10 @@ export function EvidenceStrip({
      defaulted to the checklist's first row. A shop link has its own button,
      so it is not a picker entry either. */
   const slotKinds = new Set<DocKind>(slots.map((sl) => sl.kind));
+  const kindsHere = DOC_KINDS_FOR[entity] ?? DOC_KINDS;
   const otherKinds: readonly DocKind[] = slots.length > 0
-    ? DOC_KINDS.filter((k) => !slotKinds.has(k) && k !== "Reference Link")
-    : DOC_KINDS;
+    ? kindsHere.filter((k) => !slotKinds.has(k) && k !== "Reference Link")
+    : kindsHere;
   const [rows, setRows] = useState<AttachmentView[]>([]);
   const [showOther, setShowOther] = useState(false);
   const [showLink, setShowLink] = useState(false);
