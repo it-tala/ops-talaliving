@@ -67,21 +67,17 @@ export const LIVE_ROUTES: readonly string[] = [
   "/accounting/rekening-koran",
   "/accounting/tagihan",
   "/accounting/verifikasi",
+  "/box/[box]",
   "/dashboard",
   "/hrd/absensi",
   "/hrd/berkas-201",
-  /* Lit by `0123`, which gave leave requests a table. This screen was dark
-     for a different reason from the payroll ones: they had a seam short of
-     its contract, this had nothing underneath it at all. */
   "/hrd/cuti",
+  "/hrd/tugas",
+  "/hrd/wlkp",
   "/hrd/jadwal",
   "/hrd/karyawan",
   "/hrd/kontrak",
   "/hrd/kontrak/[no]",
-  /* Lit by `0119`, which brought `payroll_figures` up to the contract, and by
-     the eight live functions that became writable once it had. Until then the
-     seam could only have half-filled `PayrollLine` and cast the gap away — a
-     payroll screen missing half its figures looks like a payroll screen. */
   "/hrd/payroll",
   "/hrd/payroll/[run]",
   "/hrd/payroll/[run]/payslip",
@@ -101,6 +97,8 @@ export const LIVE_ROUTES: readonly string[] = [
   "/master-data/accounts",
   "/master-data/asset-categories",
   "/master-data/categories",
+  "/master-data/clients",
+  "/master-data/clients/[code]",
   "/master-data/items",
   "/master-data/suppliers",
   "/master-data/transaction-types",
@@ -112,10 +110,23 @@ export const LIVE_ROUTES: readonly string[] = [
   "/procurement/po/[po]/print",
   "/procurement/pr",
   "/procurement/pr/documents",
+  "/procurement/pr/new",
   "/procurement/rounds",
   "/procurement/tracker",
   "/procurement/tracker/[vendor]",
   "/produksi/bom",
+  "/produksi/jadwal",
+  "/proyek/instalasi",
+  "/proyek/order",
+  "/proyek/pengiriman",
+  "/proyek/peti",
+  "/proyek/peti/label",
+  "/proyek/follow-up",
+  "/proyek/produksi",
+  "/proyek/quotation",
+  "/proyek/quotation/[no]",
+  "/proyek/quotation/[no]/print",
+  "/proyek/serah-terima",
 ];
 
 /** Is this deployment talking to a database at all?

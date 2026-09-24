@@ -1,5 +1,6 @@
 "use client";
 
+import { stripRefs } from "@/lib/refs";
 import { useState } from "react";
 import { Scale, History, Play, AlertTriangle, Clock } from "lucide-react";
 import { ScheduleEditor } from "./ScheduleEditor";
@@ -124,7 +125,7 @@ export default function PayRulesPage() {
               <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-[13px] shadow-card">
                 <Badge tone="brand">v{current.version}</Badge>
                 <span className="text-slate-700">
-                  Berlaku sejak <span className="font-mono">{current.effective_from}</span> — {current.note}
+                  Berlaku sejak <span className="font-mono">{current.effective_from}</span> — {stripRefs(current.note)}
                 </span>
                 <span className="ml-auto text-[11px] text-slate-500">
                   ditulis {current.created_by_name}, {current.created_at.slice(0, 10)}
@@ -156,7 +157,7 @@ export default function PayRulesPage() {
 
                       <Field
                         label="Hari kerja efektif setahun"
-                        hint={`Angkanya milik perusahaan, bukan hitungan layar ini — IT yang mengisi, HRD dan payroll membacanya (D271). Yang baru di bawah adalah buktinya: kalender perusahaan sendiri, diuraikan, supaya angka ini diperiksa dan bukan diwarisi (Q45). Rata-rata per bulan: ${(rules.effective_days_per_year / 12).toFixed(1)} hari, diturunkan dari angka setahun dan tidak pernah disimpan terpisah.`}
+                        hint={`Angkanya milik perusahaan, bukan hitungan layar ini — IT yang mengisi, HRD dan payroll membacanya. Yang baru di bawah adalah buktinya: kalender perusahaan sendiri, diuraikan, supaya angka ini diperiksa dan bukan diwarisi. Rata-rata per bulan: ${(rules.effective_days_per_year / 12).toFixed(1)} hari, diturunkan dari angka setahun dan tidak pernah disimpan terpisah.`}
                         value={rules.effective_days_per_year}
                         onChange={(v) => set({ effective_days_per_year: v })}
                         disabled={!mayEdit}
@@ -273,7 +274,7 @@ export default function PayRulesPage() {
                       <p className="rounded-lg bg-slate-50 px-3 py-2 text-[12px] text-slate-600">
                         <strong className="text-slate-700">Yang selalu menang:</strong> angka GAJI yang
                         tertulis di form lembur. Kalau kertasnya menyebut nominal, itu yang dibayar —
-                        tangga pengali tidak dipakai untuk baris itu (D154).
+                        tangga pengali tidak dipakai untuk baris itu.
                       </p>
                       <Example rules={rules} />
                     </div>
@@ -343,7 +344,7 @@ export default function PayRulesPage() {
                         Dua angka, bukan satu. Sebelumnya keduanya satu kolom bernama
                         <em> terlambat setelah 480 menit</em>, yang sebenarnya berarti
                         <em> terlambat setelah jam 08.00</em> — dan toleransi yang pemilik tetapkan tidak
-                        punya tempat untuk ditulis (F70).
+                        punya tempat untuk ditulis.
                       </p>
                       <label className="block">
                         <span className="block text-[12px] text-slate-500">Potongan keterlambatan</span>
@@ -379,7 +380,7 @@ export default function PayRulesPage() {
                       <p className="text-[12px] text-slate-500">
                         Aturannya sekarang ada; menyalakannya keputusan terpisah. Selama masih
                         <em> dicatat saja</em>, slip tetap mencetak menitnya <strong>dan</strong> berapa
-                        rupiah yang tidak dipotong — supaya keterlambatan tidak terbaca gratis (D174).
+                        rupiah yang tidak dipotong — supaya keterlambatan tidak terbaca gratis.
                       </p>
                     </div>
                   </Card>
@@ -455,7 +456,7 @@ export default function PayRulesPage() {
                                 "font-semibold",
                                 l.after > l.before ? "text-emerald-700" : "text-rose-700",
                               )}>{formatIDR(l.after)}</span>
-                              <span className="ml-2 text-slate-400">{l.note}</span>
+                              <span className="ml-2 text-slate-400">{stripRefs(l.note)}</span>
                             </span>
                           </li>
                         ))}
@@ -475,7 +476,7 @@ export default function PayRulesPage() {
                                 <span className="font-mono text-[11px] text-slate-500">{r.effective_from}</span>
                                 <span className="text-slate-400">{r.created_by_name}</span>
                               </span>
-                              <span className="mt-0.5 block text-slate-600">{r.note}</span>
+                              <span className="mt-0.5 block text-slate-600">{stripRefs(r.note)}</span>
                               <span className="mt-0.5 block text-[11px] text-slate-400">
                                 {OVERTIME_MODE_LABEL[r.rules.overtime_mode]} ·{" "}
                                 {UNDERTIME_MODE_LABEL[r.rules.undertime_mode].toLowerCase()}

@@ -389,7 +389,7 @@ function stockable(state: DemoState, itemCode: string) {
   const item = state.items.find((i) => i.code === itemCode);
   if (!item) return { ok: false as const, why: `No catalogue item ${itemCode}.` };
   if (!STOCKED_CATEGORIES.has(item.category_code)) {
-    return { ok: false as const, why: `${item.name} sits in ${item.category_code}, which is not counted — it is bought and used, not stocked (D169).` };
+    return { ok: false as const, why: `${item.name} sits in ${item.category_code}, which is not counted — it is bought and used, not stocked.` };
   }
   return { ok: true as const, item };
 }
@@ -819,7 +819,7 @@ export async function issueForWorkOrder(
 
   const state = getState();
   const wo = state.work_orders.find((w) => w.wo_no === input.wo_no);
-  if (!wo) return notFound(SERVICE, "wo_not_found", `Tidak ada SPK ${input.wo_no}.`);
+  if (!wo) return notFound(SERVICE, "wo_not_found", `Tidak ada Job Order ${input.wo_no}.`);
   if (wo.status === "CANCELLED") {
     return conflict(SERVICE, "wo_cancelled", `${wo.wo_no} sudah dibatalkan.`, {});
   }
@@ -882,7 +882,7 @@ export async function materialForWorkOrder(woNo: string): Promise<Result<Materia
   await latency();
   const state = getState();
   const wo = state.work_orders.find((w) => w.wo_no === woNo);
-  if (!wo) return notFound(SERVICE, "wo_not_found", `Tidak ada SPK ${woNo}.`);
+  if (!wo) return notFound(SERVICE, "wo_not_found", `Tidak ada Job Order ${woNo}.`);
   return ok(SERVICE, materialPlan(state, wo));
 }
 

@@ -46,6 +46,8 @@ import type {
   PayrollRun, PayrollView, PayrollLine, PayrollAdjustmentView,
   AdjustmentKind, ContributionScheme,
   LeaveKind, LeaveStatus, LeaveRequestView, LeaveBalance,
+  TaskStatus, TaskRefKind, TaskView, TaskCadence, TaskRoutineView,
+  Sex, Education, Citizenship, MaritalStatus, EmployeeIdentityView, WlkpRecap,
 } from "@/services/hr/contracts";
 import {
   EMPLOYEE_DOC_CHECKLIST, EMPLOYEE_DOC_LABEL, SENSITIVE_DOC_KINDS,
@@ -589,9 +591,11 @@ export async function listEmployeeFiles(): Promise<Result<EmployeeFileView[]>> {
 }
 
 export async function getEmployeeFile(employeeNo: string): Promise<Result<EmployeeFileView>> {
-  const emp = await readEmployee(employeeNo);
+  const [emp, { data, error }] = await Promise.all([
+    readEmployee(employeeNo),
+    db().rpc("employee_documents_of", { p_employee_no: employeeNo }),
+  ]);
   if (emp.error) return emp as unknown as Result<EmployeeFileView>;
-  const { data, error } = await db().rpc("employee_documents_of", { p_employee_no: employeeNo });
   if (error) return fromRows<EmployeeFileView>(SERVICE, null, error);
   return ok(SERVICE, buildFile(emp.data, (data ?? []) as DocRow[]));
 }
@@ -904,20 +908,21 @@ function buildDay(row: DayRow, scans: ScanRow[], marks: DayMark[]): TimesheetDay
 async function readDays(
   from: string, to: string, unit?: string, employeeNo?: string,
 ): Promise<Result<TimesheetDay[]>> {
-  const { data, error } = await db().rpc("timesheet_rows", {
-    p_from: from, p_to: to, p_unit: unit ?? null, p_employee_no: employeeNo ?? null,
-  });
+  const [{ data, error }, { data: scans, error: e2 }, { data: marks, error: e3 }] =
+    await Promise.all([
+      db().rpc("timesheet_rows", {
+        p_from: from, p_to: to, p_unit: unit ?? null, p_employee_no: employeeNo ?? null,
+      }),
+      db()
+        .from("attendance_scans").select("id,employee_id,work_date,at,verify,source")
+        .gte("work_date", from).lte("work_date", to),
+      db()
+        .from("day_marks").select("id,employee_id,work_date,kind,reason,marked_by,marked_at")
+        .gte("work_date", from).lte("work_date", to).is("withdrawn_at", null),
+    ]);
   if (error) return fromRows<TimesheetDay[]>(SERVICE, null, error);
   const rows = (data ?? []) as DayRow[];
-
-  const { data: scans, error: e2 } = await db()
-    .from("attendance_scans").select("id,employee_id,work_date,at,verify,source")
-    .gte("work_date", from).lte("work_date", to);
   if (e2) return fromRows<TimesheetDay[]>(SERVICE, null, e2);
-
-  const { data: marks, error: e3 } = await db()
-    .from("day_marks").select("id,employee_id,work_date,kind,reason,marked_by,marked_at")
-    .gte("work_date", from).lte("work_date", to).is("withdrawn_at", null);
   if (e3) return fromRows<TimesheetDay[]>(SERVICE, null, e3);
 
   return ok(SERVICE, rows.map(
@@ -940,14 +945,25 @@ export async function getTimesheet(
   needs_review: number;
   marked: number;
 }>> {
-  const read = await readDays(input.from, input.to, input.unit);
-  if (read.error) return read as unknown as Result<never>;
-  const days = read.data;
-
   let q = db().from("employees").select("employee_no,full_name,pay_basis")
     .eq("active", true).order("employee_no");
   if (input.unit) q = q.eq("unit", input.unit);
-  const { data: people, error } = await q;
+
+  /* Summed in the database, not here. Counting the rows below is counting what
+     `read_day` already decided; adding hours up is arithmetic, and `0057`
+     settled that one — two implementations doing it are two chances to round
+     it differently. */
+  const [read, { data: people, error }, { data: totals, error: totErr }] = await Promise.all([
+    readDays(input.from, input.to, input.unit),
+    q,
+    db().rpc("timesheet_totals", {
+      p_from: input.from, p_to: input.to,
+      p_unit: input.unit ?? null, p_employee_no: null,
+    }),
+  ]);
+  if (read.error) return read as unknown as Result<never>;
+  const days = read.data;
+
   if (error) {
     return fromRows<{
       days: TimesheetDay[]; dates: string[];
@@ -956,14 +972,6 @@ export async function getTimesheet(
     }>(SERVICE, null, error);
   }
 
-  /* Summed in the database, not here. Counting the rows below is counting what
-     `read_day` already decided; adding hours up is arithmetic, and `0057`
-     settled that one — two implementations doing it are two chances to round
-     it differently. */
-  const { data: totals, error: totErr } = await db().rpc("timesheet_totals", {
-    p_from: input.from, p_to: input.to,
-    p_unit: input.unit ?? null, p_employee_no: null,
-  });
   if (totErr) {
     return fromRows<{
       days: TimesheetDay[]; dates: string[];
@@ -999,28 +1007,32 @@ export async function getDay(
 /* ------------------------------------------------------------------ */
 
 export async function listOvertimeSheets(): Promise<Result<OvertimeSheetView[]>> {
-  const { data: sheets, error } = await db()
-    .from("overtime_sheets").select("*").order("work_date", { ascending: false });
+  const [
+    { data: sheets, error },
+    { data: claims, error: e2 },
+    { data: lines, error: e3 },
+    { data: people, error: e4 },
+    { data: links, error: e5 },
+  ] = await Promise.all([
+    db()
+      .from("overtime_sheets").select("*").order("work_date", { ascending: false }),
+    db()
+      .from("v_overtime_claim").select("sheet_no,stage,payable,hours"),
+    db()
+      .from("overtime_lines").select("*"),
+    db()
+      .from("employees").select("id,employee_no,full_name"),
+    /* The signed form, on the evidence road. One read for every sheet rather
+       than one per sheet. */
+    core()
+      .from("attachment_links")
+      .select("entity_no,kind,attachment_id,attachments(filename)")
+      .eq("entity", "overtime_sheet").is("unlinked_at", null),
+  ]);
   if (error) return fromRows<OvertimeSheetView[]>(SERVICE, null, error);
-
-  const { data: claims, error: e2 } = await db()
-    .from("v_overtime_claim").select("sheet_no,stage,payable,hours");
   if (e2) return fromRows<OvertimeSheetView[]>(SERVICE, null, e2);
-
-  const { data: lines, error: e3 } = await db()
-    .from("overtime_lines").select("*");
   if (e3) return fromRows<OvertimeSheetView[]>(SERVICE, null, e3);
-
-  const { data: people, error: e4 } = await db()
-    .from("employees").select("id,employee_no,full_name");
   if (e4) return fromRows<OvertimeSheetView[]>(SERVICE, null, e4);
-
-  /* The signed form, on the evidence road. One read for every sheet rather
-     than one per sheet. */
-  const { data: links, error: e5 } = await core()
-    .from("attachment_links")
-    .select("entity_no,kind,attachment_id,attachments(filename)")
-    .eq("entity", "overtime_sheet").is("unlinked_at", null);
   if (e5) return fromRows<OvertimeSheetView[]>(SERVICE, null, e5);
 
   const byId = new Map(
@@ -1145,23 +1157,27 @@ export async function listContracts(
  *  against, and the differences against what is actually being run. Four reads
  *  rather than four round trips per clause. */
 export async function getContract(contractNo: string): Promise<Result<ContractDetail>> {
-  const { data: row, error } = await db()
-    .from("v_contract").select("*").eq("contract_no", contractNo).maybeSingle();
+  const [
+    { data: row, error },
+    { data: clauses, error: e2 },
+    { data: coverage, error: e3 },
+    { data: conflicts, error: e4 },
+  ] = await Promise.all([
+    db()
+      .from("v_contract").select("*").eq("contract_no", contractNo).maybeSingle(),
+    db()
+      .from("contract_clauses")
+      .select("contract_no,kind,quote,page,value,source,confirmed_at,proposed_at")
+      .eq("contract_no", contractNo),
+    db()
+      .rpc("contract_coverage", { p_contract_no: contractNo }),
+    db()
+      .rpc("contract_conflicts", { p_contract_no: contractNo }),
+  ]);
   if (error) return fromRows<ContractDetail>(SERVICE, null, error);
   if (!row) return notFound(SERVICE, "contract_not_found", `Tidak ada kontrak ${contractNo}.`);
-
-  const { data: clauses, error: e2 } = await db()
-    .from("contract_clauses")
-    .select("contract_no,kind,quote,page,value,source,confirmed_at,proposed_at")
-    .eq("contract_no", contractNo);
   if (e2) return fromRows<ContractDetail>(SERVICE, null, e2);
-
-  const { data: coverage, error: e3 } = await db()
-    .rpc("contract_coverage", { p_contract_no: contractNo });
   if (e3) return fromRows<ContractDetail>(SERVICE, null, e3);
-
-  const { data: conflicts, error: e4 } = await db()
-    .rpc("contract_conflicts", { p_contract_no: contractNo });
   if (e4) return fromRows<ContractDetail>(SERVICE, null, e4);
 
   return ok(SERVICE, {
@@ -1237,6 +1253,23 @@ export async function confirmClause(
     p_quote: input.quote,
     p_page: input.page ?? null,
     p_value: input.value ?? null,
+    p_key: null,
+  });
+  const said = fromSeam<unknown>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<ContractDetail>;
+  return getContract(input.contract_no);
+}
+
+/** The signed paper, linked to a draft after it was registered (F154, 0148).
+ *  The register form has no file field — the scan comes back after signing —
+ *  so without this road no contract registered on screen could go live. */
+export async function attachContractPaper(
+  input: { contract_no: string; attachment_id: string; sha256?: string | null },
+): Promise<Result<ContractDetail>> {
+  const { data, error } = await db().rpc("attach_contract_paper", {
+    p_contract_no: input.contract_no,
+    p_attachment_id: input.attachment_id,
+    p_sha256: input.sha256 ?? null,
     p_key: null,
   });
   const said = fromSeam<unknown>(SERVICE, data, error);
@@ -1354,4 +1387,308 @@ export async function savePayRules(
   if (readErr) return fromRows<PayRuleSetView>(SERVICE, null, readErr);
   if (!row) return notFound(SERVICE, "pay_rules_not_found", String(said.data.version));
   return ok(SERVICE, row as unknown as PayRuleSetView);
+}
+
+/* ------------------------------------------------------------------ */
+/* Tugas: rutin, periode, penagihan, deliverable                       */
+/* ------------------------------------------------------------------ */
+//
+// The nine functions `/hrd/tugas` calls, and the reason `/hrd/kinerja` has sat
+// in the dark since it was built: until `0152` there was no seam to call. The
+// demo wrote straight into its own state, and a live client would have had to
+// insert into `ops_hr.tasks` by hand — which means re-deciding, in TypeScript,
+// which refusals apply. `chase_after_due` and `due_inside_period` are rules,
+// and a rule implemented twice is a rule that will be enforced once.
+//
+// Ordering comes from the database here, as everywhere else: `queue_rank` is a
+// column on `v_task`, so the demo and this client hand the screen the same list
+// in the same order (ADR-009) and no reader has to know how the ladder is
+// numbered.
+
+export async function listTasks(
+  filter: { assignee_no?: string; status?: TaskStatus } = {},
+): Promise<Result<TaskView[]>> {
+  let q = db().from("v_task").select("*")
+    .order("queue_rank", { ascending: true })
+    .order("due_date", { ascending: true });
+  if (filter.assignee_no) q = q.eq("assignee_no", filter.assignee_no);
+  if (filter.status) q = q.eq("status", filter.status);
+  const { data, error } = await q;
+  return fromRows<TaskView[]>(SERVICE, data as never, error);
+}
+
+/** Read one task back through the view.
+ *
+ *  Every write below ends here rather than assembling a row from what it just
+ *  sent. Nine of `TaskView`'s fields are derived — `overdue`, `chase_due`,
+ *  `period_label`, `queue_rank` — and a client that computed them would be a
+ *  second opinion about whether somebody is late.
+ */
+async function taskByNo(taskNo: string): Promise<Result<TaskView>> {
+  const { data, error } = await db()
+    .from("v_task").select("*").eq("task_no", taskNo).maybeSingle();
+  if (error) return fromRows<TaskView>(SERVICE, null as never, error);
+  if (!data) {
+    return notFound(SERVICE, "task_not_found",
+      `Tugas ${taskNo} tersimpan tapi tidak terbaca kembali.`);
+  }
+  return ok(SERVICE, data as unknown as TaskView);
+}
+
+export async function createTask(
+  input: {
+    assignee_no: string;
+    title: string;
+    due_date: string;
+    detail?: string | null;
+    ref_kind?: TaskRefKind;
+    ref_no?: string | null;
+    deliverable?: string | null;
+    period_start?: string | null;
+    period_end?: string | null;
+    chase_date?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<TaskView>> {
+  const { data, error } = await db().rpc("assign_task", {
+    p_assignee_no: input.assignee_no,
+    p_title: input.title,
+    p_due: input.due_date,
+    p_detail: input.detail ?? null,
+    p_deliverable: input.deliverable ?? null,
+    p_period_start: input.period_start ?? null,
+    p_period_end: input.period_end ?? null,
+    p_chase_date: input.chase_date ?? null,
+    p_ref_kind: input.ref_kind ?? "none",
+    p_ref_no: input.ref_no ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const made = fromSeam<{ task_no: string }>(SERVICE, data, error);
+  if (made.error) return made as unknown as Result<TaskView>;
+  return taskByNo(made.data.task_no);
+}
+
+export async function updateTask(
+  input: {
+    task_no: string;
+    action: "done" | "block" | "unblock" | "cancel";
+    reason?: string | null;
+    done_on?: string | null;
+    delivered?: string | null;
+  },
+): Promise<Result<TaskView>> {
+  const { data, error } = await db().rpc("update_task", {
+    p_task_no: input.task_no, p_action: input.action,
+    p_reason: input.reason ?? null, p_delivered: input.delivered ?? null,
+    p_done_on: input.done_on ?? null,
+  });
+  const said = fromSeam<{ task_no: string }>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<TaskView>;
+  return taskByNo(input.task_no);
+}
+
+export async function chaseTask(
+  input: { task_no: string; note?: string | null },
+): Promise<Result<TaskView>> {
+  const { data, error } = await db().rpc("chase_task", {
+    p_task_no: input.task_no, p_note: input.note ?? null,
+  });
+  const said = fromSeam<{ task_no: string }>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<TaskView>;
+  return taskByNo(input.task_no);
+}
+
+export async function acknowledgeTask(
+  input: { task_no: string },
+): Promise<Result<TaskView>> {
+  const { data, error } = await db().rpc("acknowledge_task", { p_task_no: input.task_no });
+  const said = fromSeam<{ task_no: string }>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<TaskView>;
+  return taskByNo(input.task_no);
+}
+
+export async function listTaskRoutines(): Promise<Result<TaskRoutineView[]>> {
+  const { data, error } = await db()
+    .from("v_task_routine").select("*")
+    /* Live first, then by number — a stopped routine is history and belongs
+       under the ones still expected, not mixed among them. `live` is a column
+       on the view, so this is the database's ordering and not a second one. */
+    .order("live", { ascending: false })
+    .order("routine_no", { ascending: true });
+  return fromRows<TaskRoutineView[]>(SERVICE, data as never, error);
+}
+
+async function routineByNo(routineNo: string): Promise<Result<TaskRoutineView>> {
+  const { data, error } = await db()
+    .from("v_task_routine").select("*").eq("routine_no", routineNo).maybeSingle();
+  if (error) return fromRows<TaskRoutineView>(SERVICE, null as never, error);
+  if (!data) {
+    return notFound(SERVICE, "routine_not_found",
+      `Tugas rutin ${routineNo} tersimpan tapi tidak terbaca kembali.`);
+  }
+  return ok(SERVICE, data as unknown as TaskRoutineView);
+}
+
+export async function saveTaskRoutine(
+  input: {
+    routine_no?: string | null;
+    title: string;
+    deliverable: string;
+    assignee_no: string;
+    cadence: TaskCadence;
+    due_offset_days?: number;
+    chase_lead_days?: number;
+    starts_on?: string | null;
+    detail?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<TaskRoutineView>> {
+  const { data, error } = await db().rpc("save_task_routine", {
+    p_routine_no: input.routine_no ?? null,
+    p_title: input.title,
+    p_deliverable: input.deliverable,
+    p_assignee_no: input.assignee_no,
+    p_cadence: input.cadence,
+    p_due_offset_days: input.due_offset_days ?? 0,
+    p_chase_lead_days: input.chase_lead_days ?? 2,
+    p_starts_on: input.starts_on ?? null,
+    p_detail: input.detail ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const made = fromSeam<{ routine_no: string }>(SERVICE, data, error);
+  if (made.error) return made as unknown as Result<TaskRoutineView>;
+  return routineByNo(made.data.routine_no);
+}
+
+export async function endTaskRoutine(
+  input: { routine_no: string; reason: string; on?: string | null },
+): Promise<Result<TaskRoutineView>> {
+  const { data, error } = await db().rpc("end_task_routine", {
+    p_routine_no: input.routine_no, p_reason: input.reason, p_on: input.on ?? null,
+  });
+  const said = fromSeam<{ routine_no: string }>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<TaskRoutineView>;
+  return routineByNo(input.routine_no);
+}
+
+/** Turning the standing expectations into dated tasks.
+ *
+ *  The seam counts what it created and what was already there, and both come
+ *  back untouched. A client that reported only `created` would say "0" for
+ *  *nothing was needed* and "0" for *every insert collided*, and those are not
+ *  the same news.
+ */
+export async function rollTaskRoutines(
+  input: { through?: string | null; backfill_days?: number } = {},
+): Promise<Result<{ through: string; created: number; already_there: number; tasks: TaskView[] }>> {
+  const { data, error } = await db().rpc("roll_task_routines", {
+    p_through: input.through ?? null,
+    p_backfill_days: input.backfill_days ?? 31,
+  });
+  const said = fromSeam<{
+    through: string; created: number; already_there: number;
+    tasks: { task_no: string }[];
+  }>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<{
+    through: string; created: number; already_there: number; tasks: TaskView[];
+  }>;
+
+  /* The seam names the numbers it raised; the rows themselves come back through
+     the view, so `overdue` and `chase_due` are the database's answer and not a
+     client's guess about dates it just sent. */
+  const nos = (said.data.tasks ?? []).map((t) => t.task_no);
+  let rows: TaskView[] = [];
+  if (nos.length > 0) {
+    const { data: raised, error: readErr } = await db()
+      .from("v_task").select("*").in("task_no", nos)
+      .order("due_date", { ascending: true });
+    if (readErr) return fromRows<{
+      through: string; created: number; already_there: number; tasks: TaskView[];
+    }>(SERVICE, null as never, readErr);
+    rows = (raised ?? []) as unknown as TaskView[];
+  }
+  return ok(SERVICE, {
+    through: said.data.through,
+    created: said.data.created,
+    already_there: said.data.already_there,
+    tasks: rows,
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Data diri untuk WLKP                                                */
+/* ------------------------------------------------------------------ */
+//
+// Three RPCs and no view, which is the whole point. `ops_hr.employee_identity`
+// has no read policy at all — a client that could select the table could select
+// a date of birth, and the permission check inside the seam would be decoration
+// (F127, the same shape as `employee_documents` in `0056`). So there is nothing
+// here for `check-view-contracts.mjs` to map, because there is no view to read.
+//
+// Nothing below computes anything. `age`, `age_band` and `missing` come out of
+// the seam; a client that worked out somebody's age from their birthday would
+// be a second opinion about which band they fall in, and the recap is counted
+// by exactly those bands.
+
+export async function listEmployeeIdentities(
+  filter: { employee_no?: string } = {},
+): Promise<Result<EmployeeIdentityView[]>> {
+  const { data, error } = await db().rpc("employee_identities", {
+    p_employee_no: filter.employee_no ?? null,
+  });
+  return fromRows<EmployeeIdentityView[]>(SERVICE, data as never, error);
+}
+
+export async function saveEmployeeIdentity(
+  input: {
+    employee_no: string;
+    born_on?: string | null;
+    sex?: Sex | null;
+    education?: Education | null;
+    citizenship?: Citizenship | null;
+    nationality?: string | null;
+    disabled?: boolean | null;
+    disability_note?: string | null;
+    marital_status?: MaritalStatus | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<EmployeeIdentityView>> {
+  const { data, error } = await db().rpc("save_employee_identity", {
+    p_employee_no: input.employee_no,
+    p_born_on: input.born_on ?? null,
+    p_sex: input.sex ?? null,
+    p_education: input.education ?? null,
+    p_citizenship: input.citizenship ?? null,
+    p_nationality: input.nationality ?? null,
+    p_disabled: input.disabled ?? null,
+    p_disability_note: input.disability_note ?? null,
+    p_marital_status: input.marital_status ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const said = fromSeam<{ employee_no: string }>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<EmployeeIdentityView>;
+
+  /* Read back through the seam rather than assembling the row from what was
+     just sent: `missing` and `age_band` are derived, and the screen decides who
+     still needs chasing from them. */
+  const back = await listEmployeeIdentities({ employee_no: input.employee_no });
+  if (back.error) return back as unknown as Result<EmployeeIdentityView>;
+  if (back.data.length === 0) {
+    return notFound(SERVICE, "employee_not_found",
+      `Data diri ${input.employee_no} tersimpan tapi tidak terbaca kembali.`);
+  }
+  return ok(SERVICE, back.data[0]);
+}
+
+/** The recap, for a date.
+ *
+ *  Answers `null` rather than a refusal when the caller may not see it, which
+ *  is the same shape `effectiveDaysCalendar` uses: the screen shows nothing
+ *  instead of a number nobody was meant to see (`0118`).
+ */
+export async function getWlkpRecap(
+  input: { asof?: string | null } = {},
+): Promise<Result<WlkpRecap | null>> {
+  const { data, error } = await db().rpc("wlkp_recap", { p_asof: input.asof ?? null });
+  return fromRows<WlkpRecap | null>(SERVICE, data as never, error);
 }

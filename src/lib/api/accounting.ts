@@ -275,6 +275,9 @@ export async function listTransactions(
   opts: {
     account_id?: string; type_code?: string; q?: string;
     project_code?: string; include_void?: boolean;
+    /** Inclusive `YYYY-MM-DD` bounds on `trx_date`. */
+    from?: string; to?: string;
+    direction?: "IN" | "OUT";
     limit?: number; offset?: number;
   } = {},
 ): Promise<Result<TransactionView[]>> {
@@ -285,6 +288,9 @@ export async function listTransactions(
   if (opts.account_id) q = q.eq("account_id", opts.account_id);
   if (opts.project_code) q = q.eq("project_code", opts.project_code);
   if (opts.type_code) q = q.eq("type_code", opts.type_code);
+  if (opts.direction) q = q.eq("direction", opts.direction);
+  if (opts.from) q = q.gte("trx_date", opts.from);
+  if (opts.to) q = q.lte("trx_date", opts.to);
   if (opts.q) q = q.or(ilikeOrFilter(opts.q, "description", "trx_no"));
   const { data, error, count } = await q
     .order("trx_date", { ascending: false })
@@ -567,6 +573,79 @@ export async function postFromLine(
   return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
 }
 
+/** Paying an order from its own screen (B8, `ops_acct.post_to_po`, 0139).
+ *  The seam splits the money across the order's linked request lines; this
+ *  passes the arguments and re-reads the row, like `postFromLine`. */
+export async function postToPo(
+  input: {
+    po_no: string;
+    amount: number;
+    account_id: string;
+    trx_date: string;
+    type_code: TransactionTypeCode;
+    attachment_id: string;
+    document_kind?: DocKind;
+  },
+  idempotencyKey?: string,
+): Promise<Result<TransactionView>> {
+  const accountCode = await codeFor("accounts", input.account_id);
+  if (!accountCode) {
+    return invalid(SERVICE, "account_not_found",
+      "Akun itu tidak ada di database.", { field: "account_id" });
+  }
+  const { data, error } = await db().rpc("post_to_po", {
+    p_po_no:         input.po_no,
+    p_amount:        input.amount,
+    p_account_code:  accountCode,
+    p_type_code:     input.type_code,
+    p_attachment_id: input.attachment_id || null,
+    p_trx_date:      input.trx_date,
+    p_document_kind: input.document_kind ?? "Payment Proof",
+    p_key:           idempotencyKey ?? null,
+  });
+  const posted = fromSeam<{ trx_no: string }>(SERVICE, data, error);
+  if (posted.error) return posted;
+  const row = await db()
+    .from("v_transaction").select("*").eq("trx_no", posted.data.trx_no).single();
+  return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
+}
+
+/** Paying an approved payroll run from its page (F154, `ops_acct.post_payroll_run`,
+ *  0149). One ledger row for the whole run — never one per person — and the
+ *  run marked PAID in the same call. */
+export async function postPayrollRun(
+  input: {
+    run_no: string;
+    amount: number;
+    account_id: string;
+    trx_date: string;
+    attachment_id: string;
+    type_code?: TransactionTypeCode;
+  },
+  idempotencyKey?: string,
+): Promise<Result<TransactionView>> {
+  const accountCode = await codeFor("accounts", input.account_id);
+  if (!accountCode) {
+    return invalid(SERVICE, "account_not_found",
+      "Akun itu tidak ada di database.", { field: "account_id" });
+  }
+  const { data, error } = await db().rpc("post_payroll_run", {
+    p_run_no:        input.run_no,
+    p_amount:        input.amount,
+    p_account_code:  accountCode,
+    p_attachment_id: input.attachment_id || null,
+    p_trx_date:      input.trx_date,
+    p_type_code:     input.type_code ?? null,
+    p_document_kind: "Payment Proof",
+    p_key:           idempotencyKey ?? null,
+  });
+  const posted = fromSeam<{ trx_no: string }>(SERVICE, data, error);
+  if (posted.error) return posted;
+  const row = await db()
+    .from("v_transaction").select("*").eq("trx_no", posted.data.trx_no).single();
+  return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
+}
+
 /** VOID keeps the row and the amount, with a reason beside it (A5, D84). The
  *  correction is a new row; this one stays, saying what was once believed. */
 export async function voidTransaction(
@@ -775,6 +854,22 @@ export async function listInboxAll(): Promise<Result<EvidenceInboxRow[]>> {
     .order("reported_at", { ascending: false });
   if (error) return fail(SERVICE, error);
   return withReporterNames(((data ?? []) as unknown as InboxRowDb[]).map(toInboxRow));
+}
+
+/** The last `limit` decided rows, newest first, with the total so the screen
+ *  can say how many it is not showing. The history grows forever; the screen
+ *  only ever asks the question about the recent ones. */
+export async function listInboxDecided(limit = 20): Promise<Result<EvidenceInboxRow[]>> {
+  const { data, error, count } = await db().from("evidence_inbox")
+    .select(INBOX_COLUMNS, { count: "exact" })
+    .neq("status", "PENDING")
+    .order("reported_at", { ascending: false })
+    .limit(limit);
+  if (error) return fail(SERVICE, error);
+  const named = await withReporterNames(((data ?? []) as unknown as InboxRowDb[]).map(toInboxRow));
+  if (named.error) return named;
+  const total = count ?? named.data.length;
+  return ok(SERVICE, named.data, { limit, cursor: null, has_more: total > limit, total });
 }
 
 /** Not decoration. If this number grows, people are routing around the normal
@@ -989,8 +1084,16 @@ async function coverageLines(trxNos: string[]): Promise<Result<CoverageLine[]>> 
   const lineNos = [...new Set((mine.data ?? []).map((a) => a.pr_line_no as string))];
   if (lineNos.length === 0) return ok(SERVICE, []);
 
-  const all = await db().from("v_allocation").select("trx_no, pr_line_no, amount, method")
-    .in("pr_line_no", lineNos).is("superseded_by", null);
+  /* Coverage and descriptions need only the line numbers, so they are asked
+     alongside the payments rather than after them. */
+  const [all, cov, desc] = await Promise.all([
+    db().from("v_allocation").select("trx_no, pr_line_no, amount, method")
+      .in("pr_line_no", lineNos).is("superseded_by", null),
+    procure().from("v_line_coverage")
+      .select("line_no_full, approved, covered, remaining, settled").in("line_no_full", lineNos),
+    procure().from("v_pr_line")
+      .select("line_no_full, description").in("line_no_full", lineNos),
+  ]);
   if (all.error) return fail(SERVICE, all.error);
   const payments = (all.data ?? []) as {
     trx_no: string; pr_line_no: string; amount: number | string; method: AllocMethod;
@@ -1009,8 +1112,6 @@ async function coverageLines(trxNos: string[]): Promise<Result<CoverageLine[]>> 
   /* Approved, covered, remaining and settled come from the view. **Not
      recomputed here** (A3): a second opinion about whether a line is settled
      is how a screen and the board disagree. */
-  const cov = await procure().from("v_line_coverage")
-    .select("line_no_full, approved, covered, remaining, settled").in("line_no_full", lineNos);
   if (cov.error) return fail(SERVICE, cov.error);
   const covOf = new Map(
     ((cov.data ?? []) as {
@@ -1019,8 +1120,6 @@ async function coverageLines(trxNos: string[]): Promise<Result<CoverageLine[]>> 
     }[]).map((c) => [c.line_no_full, c]),
   );
 
-  const desc = await procure().from("v_pr_line")
-    .select("line_no_full, description").in("line_no_full", lineNos);
   if (desc.error) return fail(SERVICE, desc.error);
   const descOf = new Map(
     ((desc.data ?? []) as { line_no_full: string; description: string }[])
@@ -1057,17 +1156,22 @@ export async function coverageForDocument(
   attachmentId: string,
   documentAmount: number | null = null,
 ): Promise<Result<DocumentCoverage>> {
-  const links = await core().from("attachment_links").select("entity_no")
-    .eq("attachment_id", attachmentId).eq("entity", "transaction").is("unlinked_at", null);
+  const [links, names] = await Promise.all([
+    core().from("attachment_links").select("entity_no")
+      .eq("attachment_id", attachmentId).eq("entity", "transaction").is("unlinked_at", null),
+    db().from("accounts").select("code, name"),
+  ]);
   if (links.error) return fail(SERVICE, links.error);
   const trxNos = [...new Set(((links.data ?? []) as { entity_no: string }[]).map((l) => l.entity_no))];
 
-  const trx = await db().from("v_transaction")
-    .select("trx_no, trx_date, account_code, direction, amount_idr, status, description, evidence_count")
-    .in("trx_no", trxNos);
+  const [trx, lines] = await Promise.all([
+    db().from("v_transaction")
+      .select("trx_no, trx_date, account_code, direction, amount_idr, status, description, evidence_count")
+      .in("trx_no", trxNos),
+    coverageLines(trxNos),
+  ]);
   if (trx.error) return fail(SERVICE, trx.error);
 
-  const names = await db().from("accounts").select("code, name");
   if (names.error) return fail(SERVICE, names.error);
   const nameOf = new Map(
     ((names.data ?? []) as { code: string; name: string }[]).map((a) => [a.code, a.name]),
@@ -1093,7 +1197,6 @@ export async function coverageForDocument(
       other_documents: Math.max(0, Number(t.evidence_count ?? 0) - 1),
     }));
 
-  const lines = await coverageLines(trxNos);
   if (lines.error) return lines;
 
   const coveredTotal = transactions.reduce((n, t) => n + t.amount_idr, 0);
@@ -1118,9 +1221,24 @@ export async function coverageForDocument(
  *  linked to (D207).
  */
 export async function coverageForTransaction(trxNo: string): Promise<Result<TransactionCoverage>> {
-  const t = await db().from("v_transaction")
-    .select("trx_no, amount_idr, status, account_code, description, allocated_total, unallocated")
-    .eq("trx_no", trxNo).maybeSingle();
+  /* The row, its documents (links, then their filenames), its allocations and
+     its lines are independent reads, asked together. */
+  const [t, { links, atts }, alloc, lines] = await Promise.all([
+    db().from("v_transaction")
+      .select("trx_no, amount_idr, status, account_code, description, allocated_total, unallocated")
+      .eq("trx_no", trxNo).maybeSingle(),
+    (async () => {
+      const links = await core().from("attachment_links").select("attachment_id, kind")
+        .eq("entity", "transaction").eq("entity_no", trxNo).is("unlinked_at", null);
+      if (links.error) return { links, atts: null };
+      const atts = await core().from("attachments").select("id, filename")
+        .in("id", ((links.data ?? []) as { attachment_id: string }[]).map((l) => l.attachment_id));
+      return { links, atts };
+    })(),
+    db().from("v_allocation").select("pr_line_no, po_no, amount, method")
+      .eq("trx_no", trxNo).is("superseded_by", null),
+    coverageLines([trxNo]),
+  ]);
   if (t.error) return fail(SERVICE, t.error);
   if (!t.data) return notFound(SERVICE, "transaction_not_found", `Tidak ada transaksi ${trxNo}.`);
   const row = t.data as unknown as {
@@ -1128,23 +1246,16 @@ export async function coverageForTransaction(trxNo: string): Promise<Result<Tran
     description: string; allocated_total: number | string | null; unallocated: number | string | null;
   };
 
-  const links = await core().from("attachment_links").select("attachment_id, kind")
-    .eq("entity", "transaction").eq("entity_no", trxNo).is("unlinked_at", null);
   if (links.error) return fail(SERVICE, links.error);
   const linkRows = (links.data ?? []) as { attachment_id: string; kind: string }[];
 
-  const atts = await core().from("attachments").select("id, filename")
-    .in("id", linkRows.map((l) => l.attachment_id));
-  if (atts.error) return fail(SERVICE, atts.error);
+  if (atts?.error) return fail(SERVICE, atts.error);
   const fileOf = new Map(
-    ((atts.data ?? []) as { id: string; filename: string }[]).map((a) => [a.id, a.filename]),
+    ((atts?.data ?? []) as { id: string; filename: string }[]).map((a) => [a.id, a.filename]),
   );
 
-  const alloc = await db().from("v_allocation").select("pr_line_no, po_no, amount, method")
-    .eq("trx_no", trxNo).is("superseded_by", null);
   if (alloc.error) return fail(SERVICE, alloc.error);
 
-  const lines = await coverageLines([trxNo]);
   if (lines.error) return lines;
 
   return ok(SERVICE, {
@@ -1200,6 +1311,21 @@ export async function getCashPlan(): Promise<Result<CashPlan>> {
  *  Monthly bills compares a month with the one before it, and the default
  *  window starts today. */
 async function planFrom(from?: string): Promise<Result<CashPlan>> {
+  /* The calendar asks for the plan twice as it opens — the grid and "Due
+     next" — and each ask is the whole twelve-month loop in the database. Two
+     asks that are in flight at once share one request. Nothing is kept once
+     it answers: the next ask, after a link or an edit, goes to the database. */
+  const key = from ?? "";
+  const pending = planInFlight.get(key);
+  if (pending) return pending;
+  const run = readPlan(from).finally(() => planInFlight.delete(key));
+  planInFlight.set(key, run);
+  return run;
+}
+
+const planInFlight = new Map<string, Promise<Result<CashPlan>>>();
+
+async function readPlan(from?: string): Promise<Result<CashPlan>> {
   const { data, error } = from
     ? await db().rpc("cash_plan", { p_from: from })
     : await db().rpc("cash_plan");
@@ -1305,18 +1431,22 @@ export async function listDue(): Promise<Result<CashDue[]>> {
  *  HTTP 500 on a live money screen — `57014`, statement timeout at 8s, twice
  *  within 3ms, 2026-09-24 02:36, from `ops.talaliving.com`.
  *
- *  The first note written here blamed RLS, on the strength of 0.2s as the owner
- *  against 4s as a signed-in reader. That was a cold call measured against a
- *  warm one: properly, in one session, it is 193–248ms as `postgres` and
- *  256–298ms as `authenticated`. RLS costs about a quarter. What was actually
- *  costing seconds is F151 — 94 of 115 `ops_*` tables had never been analysed,
- *  so the planner sized a 3-row table at 550 and hashed the whole ledger
- *  instead of probing an index three times. `0127` analyses them and
- *  `smoke/A4_core_planner_stats.sql` keeps it that way.
+ *  The cause was RLS — `has_permission` evaluated once per row instead of once
+ *  per statement — and `0154` fixed it by rewriting every policy as
+ *  `(select …)`, which Postgres plans as an InitPlan. Measured across the minute
+ *  it was applied: 121 calls at 4,290ms mean and 14 failures before, 13 calls at
+ *  552ms and none after.
  *
- *  One run rather than two still earns its place: it halves the work and
- *  removes the parallel contention that turned a slow read into two failed
- *  ones.
+ *  That diagnosis was briefly retracted here in favour of a wrong one, because
+ *  the re-measurement happened two hours after `0154` landed from another
+ *  branch. F157 has the sequence; the rule it cost is that a measurement taken
+ *  later is a measurement of a different system, and on a shared database that
+ *  means reading the migration history before concluding an earlier result was
+ *  wrong.
+ *
+ *  One run rather than two still earns its place, and never depended on that
+ *  argument: it halves the work and removes the contention that turned one slow
+ *  read into two failed ones.
  *
  *  Reading `m` out of the earlier window is only sound if `p_from` chooses the
  *  window and nothing else. It does — a cell is the schedule and the ledger for
@@ -1740,15 +1870,17 @@ export async function suggestionsFor(statementLineId: string): Promise<Result<un
  */
 export async function getStatement(statementNo: string): Promise<Result<BankStatementView>> {
 
-  const { data: head, error: headErr } = await db()
-    .from("v_bank_statement").select("*").eq("statement_no", statementNo).maybeSingle();
+  const [{ data: head, error: headErr }, { data: lines, error: lineErr }] = await Promise.all([
+    db()
+      .from("v_bank_statement").select("*").eq("statement_no", statementNo).maybeSingle(),
+    db()
+      .from("v_statement_line").select("*").eq("statement_no", statementNo).order("line_no"),
+  ]);
   if (headErr) return fail(SERVICE, headErr);
   if (!head) {
     return notFound(SERVICE, "statement_not_found", `No statement ${statementNo}.`);
   }
 
-  const { data: lines, error: lineErr } = await db()
-    .from("v_statement_line").select("*").eq("statement_no", statementNo).order("line_no");
   if (lineErr) return fail(SERVICE, lineErr);
 
   const rows = (lines ?? []) as StatementLineView[];

@@ -1,5 +1,6 @@
 "use client";
 
+import { stripRefs } from "@/lib/refs";
 import { useState } from "react";
 import { Settings, Lock, ExternalLink, AlertTriangle, RotateCcw } from "lucide-react";
 import Link from "next/link";
@@ -129,7 +130,7 @@ function SettingRow({ setting, mayEdit, onSaved }: {
             <Badge tone={REACH_TONE[setting.reach]}>{SETTING_REACH_LABEL[setting.reach]}</Badge>
             {locked && <Lock className="h-3 w-3 text-slate-400" />}
           </span>
-          <span className="mt-0.5 block text-[12px] text-slate-600">{setting.help}</span>
+          <span className="mt-0.5 block text-[12px] text-slate-600">{stripRefs(setting.help)}</span>
           <span className="block font-mono text-[10px] text-slate-400">{setting.key}</span>
         </span>
 
@@ -178,7 +179,7 @@ function SettingRow({ setting, mayEdit, onSaved }: {
 
       {locked && (
         <p className="mt-1.5 rounded-lg bg-slate-50 px-3 py-2 text-[12px] text-slate-600">
-          {setting.locked_reason}
+          {stripRefs(setting.locked_reason)}
           {setting.managed_at && (
             <>
               {" "}

@@ -220,11 +220,66 @@ export interface ItemPurchase {
  *  transaction. Who owns the table matters less than the code being stable,
  *  which is why the code is fixed once and never edited.
  */
+/** Where a customer's order stands (0111). Seven, confirmed by the owner;
+ *  any can follow any other — a deal does go back to a quotation when the
+ *  client changes the brief — and every move is logged. */
+export type ProjectStatus =
+  | "INQUIRY" | "QUOTATION_SENT" | "DEAL" | "IN_PRODUCTION" | "SHIPPED" | "DONE" | "CANCELLED";
+
+export const PROJECT_STATUSES: { code: ProjectStatus; label: string; tone: "slate" | "brand" | "violet" | "amber" | "green" | "red" }[] = [
+  { code: "INQUIRY", label: "Inquiry", tone: "slate" },
+  { code: "QUOTATION_SENT", label: "Quotation terkirim", tone: "brand" },
+  { code: "DEAL", label: "Deal / diproses", tone: "violet" },
+  { code: "IN_PRODUCTION", label: "Produksi", tone: "amber" },
+  { code: "SHIPPED", label: "Dikirim", tone: "brand" },
+  { code: "DONE", label: "Selesai", tone: "green" },
+  { code: "CANCELLED", label: "Batal", tone: "red" },
+];
+
+export const PROJECT_STATUS_LABEL = (s: ProjectStatus | null | undefined): string =>
+  PROJECT_STATUSES.find((x) => x.code === s)?.label ?? "—";
+
+/** A client — master data, not a sentence typed on each project (owner,
+ *  2026-09-23: *master klien perlu*). One live row per name. */
+export interface Client {
+  id: string;
+  /** CL-0001, minted by the database. */
+  code: string;
+  name: string;
+  contact_name: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  npwp: string | null;
+  note: string | null;
+  archived_at: string | null;
+}
+
+export interface ClientView extends Client {
+  project_count: number;
+  active_project_count: number;
+}
+
+/** One move of an order's status, with who and why. */
+export interface ProjectStatusChange {
+  from_status: ProjectStatus | null;
+  to_status: ProjectStatus;
+  reason: string | null;
+  changed_by: string | null;
+  changed_at: string;
+}
+
 export interface Project {
   id: string;
   code: string;
   name: string;
+  /** Kept in step with `status`: false once DONE or CANCELLED. Every picker
+   *  that offers a project to buy for reads this. */
   is_active: boolean;
+  /** Optional only because older demo fixtures predate 0111. */
+  client_id?: string | null;
+  status?: ProjectStatus;
+  status_changed_at?: string | null;
   /** Whose order it is. Blank for internal work — `STANDARD` is stock. */
   client_name: string | null;
   location: string | null;
@@ -268,6 +323,45 @@ export interface ProjectLine {
    *  sum and only `Project.contract_value` is known (Q37). */
   unit_price: number | null;
   note: string | null;
+  /** When this line ships. Per line, because an order that ships in two lots
+   *  has two dates (0111). */
+  delivery_date?: string | null;
+}
+
+/** A project as the order screens read it: the client, and what its lines
+ *  add up to. */
+export interface ProjectView extends Project {
+  client_code: string | null;
+  /** The master client's name, or the name typed before there was a master. */
+  client_display: string | null;
+  client_contact: string | null;
+  client_phone: string | null;
+  line_count: number;
+  lines_without_item_code: number;
+  /** Σ qty × unit price over the lines that have a price; null when none do. */
+  order_value: number | null;
+  unpriced_lines: number;
+  /** The earliest delivery date on any line. */
+  next_delivery: string | null;
+}
+
+/** An order line with its item code resolved — whether the catalogue has it,
+ *  its BOM revision, and what one unit costs to make. */
+export interface ProjectLineView extends ProjectLine {
+  project_code: string;
+  product_name: string | null;
+  product_exists: boolean;
+  product_current_rev: number | null;
+  product_draft_rev: number | null;
+  product_production_cost: number | null;
+  /** The Job Orders made from this line (0130): how many, for how many
+   *  units, and how many units are through the last stage. Cancelled ones do
+   *  not count. */
+  job_order_count: number;
+  job_order_qty: number;
+  job_order_completed: number;
+  /** Still open, of `job_order_count`. */
+  job_order_open: number | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -608,6 +702,9 @@ export interface PoLine {
   unit_price: number;
   line_total: number;
   superseded_by: string | null;
+  /** The approved request line this order line buys, when there is one
+   *  (B7). Optional in the demo's fixtures, which predate it. */
+  pr_line_id?: string | null;
 }
 
 export interface PoScheduleTerm {
@@ -649,6 +746,9 @@ export interface PoStatusView {
  *  arrived, and in what condition. */
 export interface PoLineJourney {
   po_line_id: string;
+  /** The request line it buys, or null for an order line with no request
+   *  behind it (B7). */
+  pr_line_no: string | null;
   /** Its number on the order — what an amendment addresses, and what a vendor
    *  says on the phone. */
   line_no: number;

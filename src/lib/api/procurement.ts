@@ -30,6 +30,7 @@ import type {
   VendorJourney, RoundSummary, RoundTransfer, VarianceReason, Channel, ApprovalBatchView,
   PoDetail, PoLine, PoStatusView, PurchaseOrder, Receipt, ReceiptCondition,
   UomCode, PrCategory, PrDocument,
+  ProjectView, ProjectLineView, ProjectStatus, ProjectStatusChange, Client, ClientView,
 } from "@/services/procurement/contracts";
 import type { DocKind } from "@/services/documents/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -757,7 +758,8 @@ async function afterPo(poNo: string, res: Result<unknown>): Promise<Result<PoDet
 export async function createPo(
   input: {
     vendor_id: string;
-    lines: { description: string; qty: number; uom: UomCode; unit_price: number }[];
+    /** `pr_line_no`: the approved request line this order line buys (B7). */
+    lines: { description: string; qty: number; uom: UomCode; unit_price: number; pr_line_no?: string | null }[];
     dp_percent?: number | null;
     note?: string | null;
     /** When the vendor says it will arrive (D134). */
@@ -1299,6 +1301,224 @@ export async function listProjects(): Promise<Result<Project[]>> {
   return fromRows<Project[]>(SERVICE, data as Project[], error);
 }
 
+/* ── the customer's order (0111) ─────────────────────────────────────────
+ *
+ *  Every write is a seam in `ops_procure` asking for `project.*`; every read
+ *  is a view. `contract_value`, `order_value` and line prices are `numeric`,
+ *  which PostgREST may hand back as strings, so each row is shaped by hand. */
+
+interface ProjectRow extends Omit<ProjectView, "contract_value" | "order_value"> {
+  contract_value: number | string | null;
+  order_value: number | string | null;
+}
+
+interface ProjectLineRow extends Omit<ProjectLineView, "qty" | "unit_price" | "product_production_cost" | "job_order_qty" | "job_order_completed"> {
+  qty: number | string;
+  job_order_qty: number | string | null;
+  job_order_completed: number | string | null;
+  unit_price: number | string | null;
+  product_production_cost: number | string | null;
+}
+
+const numOrNull = (v: number | string | null | undefined): number | null => (v == null ? null : Number(v));
+
+function toProjectView(r: ProjectRow): ProjectView {
+  return { ...r, contract_value: numOrNull(r.contract_value), order_value: numOrNull(r.order_value) };
+}
+
+function toProjectLineView(r: ProjectLineRow): ProjectLineView {
+  return {
+    ...r,
+    qty: Number(r.qty),
+    unit_price: numOrNull(r.unit_price),
+    product_production_cost: numOrNull(r.product_production_cost),
+    job_order_qty: Number(r.job_order_qty ?? 0),
+    job_order_completed: Number(r.job_order_completed ?? 0),
+  };
+}
+
+export async function listProjectViews(): Promise<Result<ProjectView[]>> {
+  const { data, error } = await db().from("v_project").select("*").order("code", { ascending: false });
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, ((data ?? []) as ProjectRow[]).map(toProjectView));
+}
+
+export async function getProject(code: string): Promise<Result<ProjectView>> {
+  const { data, error } = await db().from("v_project").select("*").eq("code", code).maybeSingle();
+  if (error) return fail(SERVICE, error);
+  if (!data) return notFound(SERVICE, "project_not_found", `No project ${code}.`);
+  return ok(SERVICE, toProjectView(data as ProjectRow));
+}
+
+export async function listProjectHistory(code: string): Promise<Result<ProjectStatusChange[]>> {
+  const project = await getProject(code);
+  if (project.error) return project;
+  const { data, error } = await db().from("project_status_log")
+    .select("from_status, to_status, reason, changed_by, changed_at")
+    .eq("project_id", project.data.id).order("changed_at", { ascending: false });
+  if (error) return fail(SERVICE, error);
+  const rows = (data ?? []) as ProjectStatusChange[];
+  /* Names, not uuids — one read, and a name the reader may not see stays the id. */
+  const ids = [...new Set(rows.map((r) => r.changed_by).filter((x): x is string => !!x))];
+  const { data: users } = ids.length
+    ? await supabaseBrowser().schema("ops_core").from("users").select("id, full_name").in("id", ids)
+    : { data: [] };
+  const nameOf = new Map(((users ?? []) as { id: string; full_name: string }[]).map((u) => [u.id, u.full_name]));
+  return ok(SERVICE, rows.map((r) => ({ ...r, changed_by: r.changed_by ? nameOf.get(r.changed_by) ?? r.changed_by : null })));
+}
+
+export async function saveProject(
+  input: {
+    code?: string | null;
+    name: string;
+    client_code?: string | null;
+    location?: string | null;
+    pic?: string | null;
+    started_on?: string | null;
+    target_date?: string | null;
+    contract_value?: number | null;
+    note?: string | null;
+  },
+  _idempotencyKey?: string,
+): Promise<Result<ProjectView>> {
+  const { data, error } = await db().rpc("save_project", {
+    p_code: input.code ?? null,
+    p_name: input.name,
+    p_client_code: input.client_code ?? null,
+    p_location: input.location ?? null,
+    p_pic: input.pic ?? null,
+    p_started_on: input.started_on || null,
+    p_target_date: input.target_date || null,
+    p_contract_value: input.contract_value ?? null,
+    p_note: input.note ?? null,
+  });
+  const res = fromSeam<{ code: string }>(SERVICE, data, error);
+  if (res.error) return res;
+  return getProject(res.data.code);
+}
+
+export async function setProjectStatus(
+  input: { code: string; status: ProjectStatus; reason?: string | null },
+): Promise<Result<ProjectView>> {
+  const { data, error } = await db().rpc("set_project_status", {
+    p_code: input.code, p_status: input.status, p_reason: input.reason ?? null,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return getProject(input.code);
+}
+
+export async function listProjectLines(code: string): Promise<Result<ProjectLineView[]>> {
+  const { data, error } = await db().from("v_project_line").select("*")
+    .eq("project_code", code).order("line_no");
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, ((data ?? []) as ProjectLineRow[]).map(toProjectLineView));
+}
+
+export async function saveProjectLine(
+  input: {
+    project_code: string;
+    line_id?: string | null;
+    product_code?: string | null;
+    description: string;
+    qty: number;
+    uom: string;
+    unit_price?: number | null;
+    delivery_date?: string | null;
+    note?: string | null;
+  },
+): Promise<Result<ProjectLineView[]>> {
+  const { data, error } = await db().rpc("save_project_line", {
+    p_project_code: input.project_code,
+    p_line_id: input.line_id ?? null,
+    p_product_code: input.product_code ?? null,
+    p_description: input.description,
+    p_qty: input.qty,
+    p_uom: input.uom,
+    p_unit_price: input.unit_price ?? null,
+    p_delivery_date: input.delivery_date || null,
+    p_note: input.note ?? null,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return listProjectLines(input.project_code);
+}
+
+export async function removeProjectLine(
+  input: { project_code: string; line_id: string },
+): Promise<Result<ProjectLineView[]>> {
+  const { data, error } = await db().rpc("remove_project_line", {
+    p_project_code: input.project_code, p_line_id: input.line_id,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return listProjectLines(input.project_code);
+}
+
+export async function listClients(
+  opts: { include_archived?: boolean } = {},
+): Promise<Result<ClientView[]>> {
+  let q = db().from("clients").select("*");
+  if (!opts.include_archived) q = q.is("archived_at", null);
+  const [{ data, error }, { data: projects, error: pErr }] = await Promise.all([
+    q.order("name"),
+    db().from("projects").select("client_id, is_active").not("client_id", "is", null),
+  ]);
+  if (error) return fail(SERVICE, error);
+  if (pErr) return fail(SERVICE, pErr);
+  const ps = (projects ?? []) as { client_id: string; is_active: boolean }[];
+  return ok(SERVICE, ((data ?? []) as Client[]).map((c) => ({
+    ...c,
+    project_count: ps.filter((p) => p.client_id === c.id).length,
+    active_project_count: ps.filter((p) => p.client_id === c.id && p.is_active).length,
+  })));
+}
+
+async function clientByCode(code: string): Promise<Result<ClientView>> {
+  const res = await listClients({ include_archived: true });
+  if (res.error) return res;
+  const c = res.data.find((x) => x.code === code);
+  return c ? ok(SERVICE, c) : notFound(SERVICE, "client_not_found", `Tidak ada klien ${code}.`);
+}
+
+export async function saveClient(
+  input: {
+    code?: string | null;
+    name: string;
+    contact_name?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    address?: string | null;
+    npwp?: string | null;
+    note?: string | null;
+  },
+): Promise<Result<ClientView>> {
+  const { data, error } = await db().rpc("save_client", {
+    p_code: input.code ?? null,
+    p_name: input.name,
+    p_contact_name: input.contact_name ?? null,
+    p_phone: input.phone ?? null,
+    p_email: input.email ?? null,
+    p_address: input.address ?? null,
+    p_npwp: input.npwp ?? null,
+    p_note: input.note ?? null,
+  });
+  const res = fromSeam<{ code: string }>(SERVICE, data, error);
+  if (res.error) return res;
+  return clientByCode(res.data.code);
+}
+
+export async function archiveClient(
+  input: { code: string; archived: boolean },
+): Promise<Result<ClientView>> {
+  const { data, error } = await db().rpc("archive_client", {
+    p_code: input.code, p_archived: input.archived,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return clientByCode(input.code);
+}
+
 export async function curateVendor(id: string, curated: boolean): Promise<Result<VendorView>> {
   const code = await codeFor("vendors", id);
   if (!code) return notFound(SERVICE, "vendor_not_found", "Vendor not found.");
@@ -1391,23 +1611,27 @@ interface RoundView extends RoundSummary {
  *  assembles in the demo. Not a derivation — every number here already came
  *  out of a view or a table as itself. */
 async function getRoundView(roundNo: string): Promise<Result<RoundView>> {
-  const { data: summary, error: e1 } = await db()
-    .from("v_round_summary").select("*").eq("round_no", roundNo).maybeSingle();
+  /* The round's lines are keyed by its number, so they need not wait for the
+     summary; the transfers need its id, and the line rows need the ids. */
+  const [{ data: summary, error: e1 }, roundLinesRes] = await Promise.all([
+    db().from("v_round_summary").select("*").eq("round_no", roundNo).maybeSingle(),
+    db().from("v_line_round").select("line_id").eq("round_no", roundNo),
+  ]);
   if (e1) return fail(SERVICE, e1);
   if (!summary) return notFound(SERVICE, "round_not_found", `Round ${roundNo} not found.`);
   const roundId = (summary as RoundSummary).round_id;
 
-  const [transfersRes, roundLinesRes] = await Promise.all([
+  const lineIds = (roundLinesRes.data ?? []).map((r) => (r as { line_id: string }).line_id);
+  const [transfersRes, lineRes] = await Promise.all([
     db().from("round_transfers").select("*").eq("round_id", roundId).order("recorded_at"),
-    db().from("v_line_round").select("line_id").eq("round_no", roundNo),
+    lineIds.length ? db().from("v_pr_line").select("*").in("id", lineIds) : null,
   ]);
   if (transfersRes.error) return fail(SERVICE, transfersRes.error);
   if (roundLinesRes.error) return fail(SERVICE, roundLinesRes.error);
 
-  const lineIds = (roundLinesRes.data ?? []).map((r) => (r as { line_id: string }).line_id);
   let lines: PrLineView[] = [];
-  if (lineIds.length) {
-    const { data: lineRows, error: e3 } = await db().from("v_pr_line").select("*").in("id", lineIds);
+  if (lineRes) {
+    const { data: lineRows, error: e3 } = lineRes;
     if (e3) return fail(SERVICE, e3);
     lines = (lineRows ?? []).map((r) => toLineView(r as LineRow));
   }

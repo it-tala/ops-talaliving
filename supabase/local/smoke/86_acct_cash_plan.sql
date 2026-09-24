@@ -138,6 +138,13 @@ do $$
 declare
   plan jsonb; months jsonb; rows_ jsonb; unplanned jsonb;
   sewa jsonb; payroll jsonb; bonus jsonb;
+  /* The **office** day, not the server's. `current_date` is UTC and WITA is
+     eight hours ahead of it, so from 16:00 UTC onwards the two name different
+     days — and `generated_for` comes from `ops_core.office_day()`. This file
+     passed for sixteen hours a day and went red for the other eight, which is
+     F17 arriving in a test rather than in a screen. Two sessions found it the
+     same day; all four dates come from the office day now, not just the one
+     that happened to fail first. */
   this_month text := to_char(ops_core.office_day(now()), 'YYYY-MM');
   next_month text := to_char(ops_core.office_day(now()) + interval '1 month', 'YYYY-MM');
   month_after text := to_char(ops_core.office_day(now()) + interval '2 months', 'YYYY-MM');

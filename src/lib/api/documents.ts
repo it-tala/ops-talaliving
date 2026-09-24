@@ -181,6 +181,17 @@ export async function getAttachment(id: string): Promise<Result<AttachmentView>>
   return ok(SERVICE, res.data[0]!);
 }
 
+/** Just these attachments — the ones a screen is actually drawing. A queue
+ *  of twelve rows needs twelve files, not the latest three hundred of
+ *  everything ever uploaded (and an older row's file was never in those). */
+export async function getAttachments(ids: string[]): Promise<Result<AttachmentView[]>> {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (unique.length === 0) return ok(SERVICE, []);
+  const { data, error } = await db().from("v_attachment").select("*").in("id", unique);
+  if (error) return fail(SERVICE, error);
+  return withLinks((data ?? []) as AttachmentRow[]);
+}
+
 export async function listAttachments(): Promise<Result<AttachmentView[]>> {
   const sb = supabaseBrowser();
   const { data, error } = await db()

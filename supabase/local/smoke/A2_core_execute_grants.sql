@@ -80,7 +80,8 @@ begin
             ('ops_inv.asset_refs_invalid'), -- 0107
             ('ops_prod.open_draft'),        -- 0109 — `revoke all`, not `revoke execute`
             ('ops_inv.asset_rent_invalid'), -- 0116
-            ('ops_hr.schedules_in_use_lost')-- 0117_hr_schedule_editable
+            ('ops_hr.schedules_in_use_lost'),-- 0117_hr_schedule_editable
+            ('ops_procure.restamp_line_money')-- 0139 — called only from inside other seams
          ) as shut(sig)
     join pg_proc p on p.oid::regproc::text = shut.sig
    where has_function_privilege('authenticated', p.oid, 'EXECUTE')
@@ -116,8 +117,11 @@ begin
          ('ops_core.bootstrap_admin','ops_core.idem_replay','ops_core.idem_remember',
           'ops_acct.account_guard','ops_inv.asset_refs_invalid','ops_prod.open_draft',
           'ops_inv.asset_rent_invalid','ops_hr.schedules_in_use_lost',
-          -- Worker-only (0126), asserted as its own category in §3b below. Not
-          -- seams: a person never "delivers an event", a machine does.
+          'ops_procure.restamp_line_money',
+          -- the chat worker's, below (§4)
+          'ops_procure.answer_po_approval','ops_procure.po_approval_card',
+          -- the notification worker's, below (§4). Not seams: a person never
+          -- "delivers an event", a machine does.
           'ops_core.outbox_due','ops_core.outbox_delivered','ops_core.outbox_failed')
      and not has_function_privilege('authenticated', p.oid, 'EXECUTE');
 
@@ -128,84 +132,29 @@ begin
     || 'puts the boundary in two places that must be kept in step:' || E'\n  ' || unreachable;
 end $$;
 
--- ── 3b. the worker-only verbs, shut to people and open to the worker ─────
+-- ── 4. the workers' reach is exactly what was decided ────────────────────
 --
--- A third category, introduced by `0126`, and it needed writing down because
--- §2 and §3 between them had assumed there were only two.
+-- `file_evidence` is the capture worker's one verb (0038). Two more belong to
+-- the chat worker that carries a PO approval card to leadership and brings the
+-- answer back (D299, 0143): it reads one order's card and answers it, and
+-- nothing else. Three more carry `ops_core.outbox` events out to Chat and
+-- record what happened (0155) — claim, delivered, failed.
 --
--- `ops_core.outbox_due`, `outbox_delivered` and `outbox_failed` carry an event
--- out to a chat channel and record what happened. They take no authority and
--- ask for none, because the caller is not a person: the worker has no
--- `auth.uid()` to check. That is the same shape as `idem_remember` — plumbing,
--- not a decision — and plumbing is shut to clients for the same reason: a
--- signed-in person calling `outbox_delivered` would write "this went out" about
--- something that never did, and the outbox's whole value is that its record is
--- true.
+-- All five of the non-`file_evidence` verbs are shut to `authenticated`, for the
+-- same reason in two shapes: a card is answered from Chat by its addressee,
+-- never from a browser session, and a signed-in person calling
+-- `outbox_delivered` would write "this went out" about something that never
+-- did. The outbox's whole value is that its record is true.
 --
--- So the rule for this category is both halves, asserted together, because
--- either one alone is satisfied by an accident:
+-- The outbox verbs take no authority and ask for none, because the caller is not
+-- a person — the worker has no `auth.uid()` to check. That is `idem_remember`'s
+-- shape: plumbing, not a decision. What keeps the widening safe is that
+-- `outbox_due` cannot choose what it carries: it reads
+-- `ops_core.delivery_rules`, so a row that is absent or not live is never
+-- returned, and the worker's *reach* grew without what it can *say* growing.
 --
---   `service_role` can execute it   (or the deliverer is dead and nothing says so)
---   nobody else can                 (or the record can be forged from a browser)
---
--- `file_evidence` is deliberately NOT here: it is granted to `authenticated`
--- too, because a person filing a document they are looking at is an ordinary
--- thing to do from a screen.
-do $$
-declare
-  wrong text;
-  n     int;
-begin
-  select count(*), string_agg(detail, E'\n  ' order by detail)
-    into n, wrong
-    from (
-      select w.sig || ' — ' ||
-             case when not has_function_privilege('service_role', p.oid, 'EXECUTE')
-                    then 'the worker cannot execute it'
-                  else 'reachable by ' ||
-                       concat_ws(' and ',
-                         case when has_function_privilege('authenticated', p.oid, 'EXECUTE')
-                                then 'authenticated' end,
-                         case when has_function_privilege('anon', p.oid, 'EXECUTE')
-                                then 'anon' end)
-             end as detail
-        from (values
-                ('ops_core.outbox_due'),
-                ('ops_core.outbox_delivered'),
-                ('ops_core.outbox_failed')
-             ) as w(sig)
-        join pg_proc p on p.oid::regproc::text = w.sig
-       where not has_function_privilege('service_role', p.oid, 'EXECUTE')
-          or has_function_privilege('authenticated', p.oid, 'EXECUTE')
-          or has_function_privilege('anon', p.oid, 'EXECUTE')
-    ) x;
-
-  assert n = 0,
-    n || ' worker-only verb(s) have the wrong reach: ' || E'\n  ' || wrong || E'\n'
-    || 'These three must be executable by service_role and by nothing else (0126). '
-    || 'A person who can call them can write a delivery that never happened.';
-end $$;
-
--- ── 4. the worker's reach is exactly four verbs ──────────────────────────
---
--- It was one until 2026-09-24, and `0038`'s sentence — *the worker's entire
--- reach is one verb* — was the reason a `service_role` key is allowed to exist
--- against this database at all. `0126` makes it four, so the sentence is
--- rewritten rather than quietly outgrown:
---
---   file_evidence      file a document the worker captured
---   outbox_due         claim events the catalogue has made live
---   outbox_delivered   say one went out
---   outbox_failed      say why one did not
---
--- The three new ones cannot choose what they carry. `outbox_due` reads
--- `ops_core.delivery_rules`, and a row that is not there or not `is_live` is
--- never returned — so widening the worker's *reach* did not widen what it can
--- *say*. That is the property that made four acceptable where four arbitrary
--- verbs would not have been.
---
--- The list is spelled out rather than counted. A count passes when one verb is
--- swapped for another, which is exactly the change that would matter.
+-- The list is spelled out rather than counted, because a count passes when one
+-- verb is swapped for another — which is exactly the change that would matter.
 do $$
 declare
   reach text;
@@ -220,11 +169,40 @@ begin
      and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
      and has_function_privilege('service_role', p.oid, 'EXECUTE');
 
-  assert reach = 'file_evidence, outbox_delivered, outbox_due, outbox_failed',
-    'The worker key can execute ' || n || ' seam(s): ' || coalesce(reach, '(none)')
-    || '. It may file a document it captured and carry an event it did not choose, and '
-    || 'nothing else (0038, 0126). Widening it is a decision to write down — in the '
-    || 'migration and in this list — not a grant to add in passing.';
+  assert reach = 'answer_po_approval, file_evidence, outbox_delivered, outbox_due, '
+               || 'outbox_failed, po_approval_card',
+    'The service_role key can execute ' || n || ' seam(s): ' || coalesce(reach, '(none)')
+    || '. 0038 (capture), D299 (PO approval by Chat) and 0155 (outbox to Chat) name exactly '
+    || 'these six, and that sentence is the reason a service_role key is allowed to exist '
+    || 'here at all. Widening it is a decision to write down — in the migration and in this '
+    || 'list — not a grant to add in passing.';
+
+  select count(*), string_agg(p.proname, ', ' order by p.proname)
+    into n, reach
+    from pg_proc p
+    join pg_namespace ns on ns.oid = p.pronamespace
+   where p.oid::regproc::text in ('ops_procure.answer_po_approval','ops_procure.po_approval_card',
+                                  'ops_core.outbox_due','ops_core.outbox_delivered',
+                                  'ops_core.outbox_failed')
+     and (has_function_privilege('authenticated', p.oid, 'EXECUTE')
+       or has_function_privilege('anon', p.oid, 'EXECUTE'));
+  assert n = 0,
+    'The workers'' seams are reachable from a browser session: ' || reach
+    || '. A PO approval card is answered from Chat by its addressee (D299), and a delivery '
+    || 'that never happened must not be writable from a browser (0155).';
+
+  -- The other half: shut to people is only half the rule, and on its own it is
+  -- satisfied by a deliverer nobody granted anything to.
+  select count(*), string_agg(p.oid::regproc::text, ', ' order by p.oid::regproc::text)
+    into n, reach
+    from pg_proc p
+   where p.oid::regproc::text in ('ops_core.outbox_due','ops_core.outbox_delivered',
+                                  'ops_core.outbox_failed')
+     and not has_function_privilege('service_role', p.oid, 'EXECUTE');
+  assert n = 0,
+    'The notification worker cannot execute: ' || reach
+    || '. Nothing would carry the outbox, and nothing would say so — the events would simply '
+    || 'sit there, which is the state 0155 exists to end.';
 end $$;
 
 -- ── 5. and the tables stay shut ──────────────────────────────────────────

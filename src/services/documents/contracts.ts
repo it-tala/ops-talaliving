@@ -53,6 +53,13 @@ export const DOC_KINDS = [
   "Foto",
   "Sertifikat",
   "Surat Peringatan",
+  /** The last leg (0131). **Our own** surat jalan going out, signed at the
+   *  site — not the vendor's coming in, which is "Delivery Note". The BAST is
+   *  the client's signature on the finished job (D211); a site photo is a
+   *  crate, a wall, a snag. All three are filed in PROJECT MANAGER. */
+  "Surat Jalan Keluar",
+  "BAST",
+  "Foto Lokasi",
   "Others",
 ] as const;
 export type DocKind = (typeof DOC_KINDS)[number];
@@ -91,6 +98,9 @@ export const SUPPORTING_DOC_KINDS: DocKind[] = [
    *  a product somebody will have to ask about (D150). */
   "Gambar Kerja",
   "Gambar Jadi",
+  "Surat Jalan Keluar",
+  "BAST",
+  "Foto Lokasi",
   "Others",
 ];
 
@@ -133,6 +143,34 @@ export type LinkEntity =
   | "employee"
   /** A photo of the thing, its purchase nota, its warranty card (`0106`). */
   | "asset";
+
+/** Which kinds make sense where. The full list is thirty kinds across HR,
+ *  production and money, and a ledger row offered "Ijazah" or "KTP" is a
+ *  picker that makes the right choice harder to find and the wrong one easy.
+ *  An entity not listed here is offered every kind. This is what the picker
+ *  offers, not a rule the database enforces — a file already filed under
+ *  another kind still shows and still counts. */
+export const DOC_KINDS_FOR: Partial<Record<LinkEntity, readonly DocKind[]>> = {
+  /* Money that moved: what proves it, what it bought, and the papers that
+     travel with a purchase. */
+  transaction: [
+    "Receipt / Invoice / Nota", "Payment Proof", "Receiving Item", "Invoice",
+    "Receiving Report", "Delivery Note", "Purchase Order", "Rekening Koran",
+    "Others",
+  ],
+  /* A request line: where the price came from, then the same purchase papers
+     as the ledger row that pays it. */
+  pr_line: [
+    "Reference Link", "Receipt / Invoice / Nota", "Payment Proof",
+    "Receiving Item", "Invoice", "Receiving Report", "Delivery Note",
+    "Purchase Order", "Foto", "Others",
+  ],
+  /* A thing the company owns: what it looks like, what it cost, what covers it. */
+  asset: [
+    "Foto", "Receipt / Invoice / Nota", "Invoice", "Sertifikat",
+    "Delivery Note", "Others",
+  ],
+};
 
 /** A piece of evidence — a **file or a link**, never both.
  *

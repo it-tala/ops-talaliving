@@ -104,6 +104,12 @@ export const TOOLS: ToolDef[] = [
     label: { en: "Draft a new purchase order", id: "Menyiapkan purchase order baru" },
     blocked_reason: null, instead_at: "/procurement/po",
   },
+  {
+    name: "hr.draft_leave", module: "hrd", level: "write",
+    effect: "write", reach: "open",
+    label: { en: "Draft a leave, permit or sick-day request", id: "Menyiapkan pengajuan cuti, izin atau sakit" },
+    blocked_reason: null, instead_at: "/hrd/cuti",
+  },
 
   /* ── Never, at any grant ──────────────────────────────────────────── */
   {
@@ -111,8 +117,8 @@ export const TOOLS: ToolDef[] = [
     effect: "read", reach: "blocked",
     label: { en: "Employee files — ID card, family card, contract, tax and insurance numbers", id: "Berkas 201 — KTP, kartu keluarga, kontrak, NPWP, BPJS" },
     blocked_reason: {
-      en: "Employee files cannot be read through the prompt, at any level of access. Identity numbers are opened one at a time by a person, with an eye button, and every opening is recorded in the audit trail under that person's name (D196). A conversation cannot carry that trail: it can copy, forward, and answer ten numbers at once.",
-      id: "Berkas 201 tidak bisa dibaca lewat prompt, pada tingkat akses mana pun. Nomor identitas dibuka satu per satu oleh orang, dengan tombol mata, dan setiap pembukaan tercatat atas nama orang itu di audit (D196). Percakapan tidak bisa memberikan jejak itu: ia bisa menyalin, meneruskan, dan menjawab sepuluh nomor sekaligus.",
+      en: "Employee files cannot be read through the prompt, at any level of access. Identity numbers are opened one at a time by a person, with an eye button, and every opening is recorded in the audit trail under that person's name. A conversation cannot carry that trail: it can copy, forward, and answer ten numbers at once.",
+      id: "Berkas 201 tidak bisa dibaca lewat prompt, pada tingkat akses mana pun. Nomor identitas dibuka satu per satu oleh orang, dengan tombol mata, dan setiap pembukaan tercatat atas nama orang itu di audit. Percakapan tidak bisa memberikan jejak itu: ia bisa menyalin, meneruskan, dan menjawab sepuluh nomor sekaligus.",
     },
     instead_at: "/hrd/berkas-201",
   },
@@ -141,8 +147,8 @@ export const TOOLS: ToolDef[] = [
     effect: "read", reach: "blocked",
     label: { en: "Audit log, activity log, users, roles", id: "Audit log, log aktivitas, pengguna, peran" },
     blocked_reason: {
-      en: "The IT module cannot be read through the prompt at all (owner). The audit trail is a record of what people did; reading it through a conversation turns it into a way to watch a colleague with one sentence. Only IT and leadership may open it, on its own screen (D190).",
-      id: "Modul IT tidak bisa dibaca lewat prompt sama sekali (pemilik). Jejak audit adalah catatan tentang apa yang dilakukan orang; membacanya lewat percakapan menjadikannya alat untuk mengawasi rekan kerja dengan satu kalimat. Yang boleh membukanya hanya IT dan pimpinan, di layarnya sendiri (D190).",
+      en: "The IT module cannot be read through the prompt at all (owner). The audit trail is a record of what people did; reading it through a conversation turns it into a way to watch a colleague with one sentence. Only IT and leadership may open it, on its own screen.",
+      id: "Modul IT tidak bisa dibaca lewat prompt sama sekali (pemilik). Jejak audit adalah catatan tentang apa yang dilakukan orang; membacanya lewat percakapan menjadikannya alat untuk mengawasi rekan kerja dengan satu kalimat. Yang boleh membukanya hanya IT dan pimpinan, di layarnya sendiri.",
     },
     instead_at: "/it/audit",
   },
@@ -151,8 +157,8 @@ export const TOOLS: ToolDef[] = [
     effect: "write", reach: "blocked",
     label: { en: "Change system settings", id: "Mengubah pengaturan sistem" },
     blocked_reason: {
-      en: "Settings are not changed through the prompt. Five of the twelve rewrite figures that already exist (D214), and the difference between the safe ones and the rest is exactly what a sentence loses — on the screen that difference is the first thing you read.",
-      id: "Pengaturan tidak diubah lewat prompt. Lima dari dua belas pengaturan mengubah angka yang sudah ada (D214), dan perbedaan antara yang aman dan yang tidak justru hilang dalam kalimat percakapan — di layarnya perbedaan itu yang pertama terbaca.",
+      en: "Settings are not changed through the prompt. Five of the twelve rewrite figures that already exist, and the difference between the safe ones and the rest is exactly what a sentence loses — on the screen that difference is the first thing you read.",
+      id: "Pengaturan tidak diubah lewat prompt. Lima dari dua belas pengaturan mengubah angka yang sudah ada, dan perbedaan antara yang aman dan yang tidak justru hilang dalam kalimat percakapan — di layarnya perbedaan itu yang pertama terbaca.",
     },
     instead_at: "/pengaturan",
   },

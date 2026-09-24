@@ -38,7 +38,7 @@ export const CONTRIBUTION_RATES: ContributionRate[] = [
   {
     id: "crt_jkk", scheme: "JKK", effective_from: "2026-01-01",
     employer_percent: 0.54, employee_percent: 0, wage_ceiling: null,
-    note: "Dibayar penuh perusahaan. Persentasenya mengikuti KELAS RISIKO usaha, 0,24%–1,74%, dan ditetapkan BPJS per pemberi kerja. 0,54% di sini adalah kelas II sebagai perkiraan — BELUM dikonfirmasi (Q49).",
+    note: "Dibayar penuh perusahaan. Persentasenya mengikuti KELAS RISIKO usaha, 0,24%–1,74%, dan ditetapkan BPJS per pemberi kerja. 0,54% di sini adalah kelas II sebagai perkiraan — BELUM dikonfirmasi.",
     confirmed: false, created_by: "usr_shared", created_at: "2026-01-01T08:00:00+08:00",
   },
   {

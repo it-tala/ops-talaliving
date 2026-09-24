@@ -17,6 +17,7 @@
  *     mapped below, by SQLSTATE.
  *  3. **Rows.** A view answered. `fromRows` wraps them.
  */
+import { stripRefs } from "@/lib/refs";
 import {
   ok, refused, conflict, invalid, notFound, replay, noop,
   type Result, type ServiceName,
@@ -63,19 +64,19 @@ export function fail(service: ServiceName, e: PostgrestLikeError): Result<never>
        keep the message, which names what was required. */
     case "42501":
     case "PGRST301":
-      return refused(service, "not_permitted", e.message, { sqlstate: code });
+      return refused(service, "not_permitted", stripRefs(e.message), { sqlstate: code });
 
     /* unique_violation. Already there — and the client must keep its
        idempotency claim, because the thing it asked for has happened. */
     case "23505":
-      return conflict(service, "already_exists", e.message, { sqlstate: code });
+      return conflict(service, "already_exists", stripRefs(e.message), { sqlstate: code });
 
     /* foreign_key_violation and check_violation are the schema saying the
        values are wrong: a vendor that does not exist, a quantity below zero. */
     case "23503":
     case "23514":
     case "23502":  // not_null_violation
-      return invalid(service, "constraint", e.message, {
+      return invalid(service, "constraint", stripRefs(e.message), {
         sqlstate: code, detail: e.details ?? undefined,
       });
 
@@ -83,13 +84,13 @@ export function fail(service: ServiceName, e: PostgrestLikeError): Result<never>
        `.single()` that found nothing. */
     case "P0002":
     case "PGRST116":
-      return notFound(service, "not_found", e.message);
+      return notFound(service, "not_found", stripRefs(e.message));
 
     default:
       return {
         error: {
           code: code || "database_error",
-          message: e.message,
+          message: stripRefs(e.message),
           outcome: "refused",
           status: 500,
           detail: { sqlstate: code, hint: e.hint ?? undefined },
@@ -128,7 +129,7 @@ export function fromSeam<T>(
     return conflict(
       service,
       env.error?.code ?? "duplicate",
-      env.error?.message ?? "This has already been done.",
+      stripRefs(env.error?.message) ?? "This has already been done.",
       env.error?.detail,
     );
   }
@@ -136,7 +137,7 @@ export function fromSeam<T>(
   if (env.outcome === "refused") {
     const status = env.error?.status ?? env.status ?? 403;
     const code = env.error?.code ?? "refused";
-    const message = env.error?.message ?? "Refused.";
+    const message = stripRefs(env.error?.message) ?? "Refused.";
     if (status === 404) return notFound(service, code, message);
     if (status === 422) return invalid(service, code, message, env.error?.detail);
     return refused(service, code, message, env.error?.detail);

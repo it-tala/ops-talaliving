@@ -162,23 +162,38 @@ export function receiptCounts(r: { condition: ReceiptCondition; status: ReceiptS
   return r.status === "CONFIRMED" && COUNTING_CONDITIONS.includes(r.condition);
 }
 
+/** Receipts that count for a request line: recorded against it, or against
+ *  the order line that buys it (B7) — superseded order lines included, so an
+ *  amendment does not forget what already arrived. */
+function receiptsOfLine(state: DemoState, line: PrLine) {
+  const orderLines = new Set(state.po_lines.filter((o) => o.pr_line_id === line.id).map((o) => o.id));
+  return state.receipts.filter((r) => r.line_id === line.id || (r.po_line_id != null && orderLines.has(r.po_line_id)));
+}
+
+/** The live order a request line is on, if any (B7, B8). */
+export function orderOfLine(state: DemoState, lineNoFull: string): string | null {
+  const line = state.pr_lines.find((l) => l.line_no_full === lineNoFull);
+  if (!line) return null;
+  const ol = state.po_lines.find((o) => o.pr_line_id === line.id && o.superseded_by === null
+    && state.purchase_orders.find((p) => p.id === o.po_id)?.status !== "CANCELLED");
+  return ol ? state.purchase_orders.find((p) => p.id === ol.po_id)?.po_no ?? null : null;
+}
+
 export function receivedQty(state: DemoState, line: PrLine): number {
-  return state.receipts
-    .filter((r) => r.line_id === line.id && receiptCounts(r))
+  return receiptsOfLine(state, line)
+    .filter((r) => receiptCounts(r))
     .reduce((sum, r) => sum + r.qty_received, 0);
 }
 
 /** Reported against this line and not yet confirmed — shown, never counted. */
 export function reportedQty(state: DemoState, line: PrLine): number {
-  return state.receipts
-    .filter((r) => r.line_id === line.id && r.status === "REPORTED")
+  return receiptsOfLine(state, line)
+    .filter((r) => r.status === "REPORTED")
     .reduce((sum, r) => sum + r.qty_received, 0);
 }
 
 export function hasProblemReceipt(state: DemoState, line: PrLine): boolean {
-  return state.receipts.some(
-    (r) => r.line_id === line.id && PROBLEM_CONDITIONS.includes(r.condition),
-  );
+  return receiptsOfLine(state, line).some((r) => PROBLEM_CONDITIONS.includes(r.condition));
 }
 
 /* ------------------------------------------------------------------ */
@@ -440,6 +455,7 @@ export function poJourney(state: DemoState, poId: string): PoJourney {
       const over = Math.max(received - l.qty, 0);
       return {
         po_line_id: l.id,
+        pr_line_no: l.pr_line_id ? state.pr_lines.find((p) => p.id === l.pr_line_id)?.line_no_full ?? null : null,
         line_no: l.line_no,
         description: l.description,
         qty: l.qty,

@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/primitives";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Drawer, Modal } from "@/components/ui/drawer";
-import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
+import { Loaded, SourceBadge, useDebounced, useLoad } from "@/components/ui/loaded";
 import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { procurement } from "@/demo/api";
@@ -81,9 +81,11 @@ export default function SuppliersPage() {
   const [renameTo, setRenameTo] = useState("");
   const [deleting, setDeleting] = useState<VendorView | null>(null);
 
+  const searched = useDebounced(q);
   const [state, reload] = useLoad(
-    () => procurement.listVendorViews({ q, include_archived: showArchived }),
-    [q, showArchived],
+    () => procurement.listVendorViews({ q: searched, include_archived: showArchived }),
+    [searched, showArchived],
+    { keepPrevious: true },
   );
   const [cats] = useLoad(() => procurement.listCategories(), []);
 

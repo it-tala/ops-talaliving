@@ -215,6 +215,10 @@ export interface WorkOrder {
   uom: string;
   /** Whose order this is for. A public code, validated at the seam (ADR-004). */
   project_code: string | null;
+  /** The customer's order line this Job Order was made from, where it was
+   *  made from one (0130). What lets the order screen say *12 dipesan · 12 di
+   *  Job Order · 4 selesai* without matching by product code. */
+  project_line_id?: string | null;
   /** Deadline. Not a plan — a promise somebody made to a customer. */
   due_date: string;
   /** Which stages this order actually goes through (D254). */
@@ -452,6 +456,21 @@ export interface StageProgress {
    *  above can be checked instead of believed. Only worth printing when there
    *  is more than one — a stage with a single source **is** that source. */
   parts: { code: string; name: string; done: number }[];
+}
+
+/** A work order as something to point at — the four fields a picker shows.
+ *
+ *  `/procurement/pr/new` asks *which job is this purchase for* and needed
+ *  nothing else from production, yet it called `listWorkOrders`, whose view
+ *  carries stages, vendor legs and BOM drift. That call is not written against
+ *  the database yet, so the one road to a PR stayed dark in the live system
+ *  for the sake of an optional dropdown (F149, B6). A reference is what the
+ *  question needs, and it is answerable from `ops_prod.work_orders` alone. */
+export interface WorkOrderRef {
+  wo_no: string;
+  item_name: string;
+  project_code: string | null;
+  due_date: string;
 }
 
 export interface WorkOrderView extends WorkOrder {

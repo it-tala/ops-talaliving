@@ -1,4 +1,4 @@
--- 0126_core_outbox_delivery.sql — the outbox gets a door out, and a list of
+-- 0155_core_outbox_delivery.sql — the outbox gets a door out, and a list of
 -- what is allowed through it.
 --
 -- ── Why 180 events have never left the building ──────────────────────────

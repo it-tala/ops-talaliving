@@ -58,7 +58,7 @@ export default function CalendarPage() {
                 title="Twelve months"
                 subtitle={mayEdit
                   ? "Planned on top, what actually happened underneath. Click a month to open it day by day, a line to change the estimate, a cell to change one month."
-                  : "Planned on top, what actually happened underneath. Click a month to open it day by day. The estimates themselves are set by leadership (Q24) — everything else on this screen is yours to read."}
+                  : "Planned on top, what actually happened underneath. Click a month to open it day by day. The estimates themselves are set by leadership — everything else on this screen is yours to read."}
                 icon={CalendarDays}
                 action={<SourceBadge state={plan} />}
               />

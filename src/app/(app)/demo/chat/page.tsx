@@ -143,7 +143,7 @@ function PoApprovalCards({
         <Card className="mb-5">
           <CardHeader
             title="Purchase orders waiting to be confirmed"
-            subtitle="An order is a promise made to a supplier in the company's name (D132). When the person writing it already holds the authority it is confirmed in the same act — asking yourself is theatre. When they do not, the question arrives here."
+            subtitle="An order is a promise made to a supplier in the company's name. When the person writing it already holds the authority it is confirmed in the same act — asking yourself is theatre. When they do not, the question arrives here."
             icon={FileSignature}
             action={<SourceBadge state={rows} />}
           />

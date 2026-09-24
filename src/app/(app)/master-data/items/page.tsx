@@ -9,7 +9,7 @@ import {
 import { Badge, Button, Card, CardHeader, PageHeader, StatCard } from "@/components/ui/primitives";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Drawer, Modal } from "@/components/ui/drawer";
-import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
+import { Loaded, SourceBadge, useDebounced, useLoad } from "@/components/ui/loaded";
 import { formatIDR, formatNumber } from "@/lib/format";
 import { procurement } from "@/demo/api";
 import { type ItemPurchase, type ItemView, type UomCode } from "@/services/procurement/contracts";
@@ -58,12 +58,13 @@ export default function CatalogPage() {
     if (c) setCategory(c);
   }, []);
 
+  const searched = useDebounced(q);
   const [state, reload] = useLoad(() => procurement.listItemViews({
-    q: q || undefined,
+    q: searched || undefined,
     category: category || undefined,
     curated: curated === "" ? undefined : curated === "yes",
     include_archived: showArchived,
-  }), [q, category, curated, showArchived]);
+  }), [searched, category, curated, showArchived], { keepPrevious: true });
   const [cats, reloadCats] = useLoad(() => procurement.listCategories(), []);
   const [suggesting, setSuggesting] = useState(false);
   const catList = cats.status === "ready" ? cats.data : [];

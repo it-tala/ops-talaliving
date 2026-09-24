@@ -13,7 +13,7 @@ import { MoneyInput } from "@/components/ui/money-input";
 import { NumberInput } from "@/components/ui/number-input";
 import { formatIDR } from "@/lib/format";
 import { cn } from "@/lib/cn";
-import { officeClock, officeToday } from "@/lib/office";
+import { officeClock } from "@/lib/office";
 import { accounting, documents, procurement } from "@/demo/api";
 import { DocumentPreview } from "@/components/ui/doc-preview";
 import type { EvidenceInboxRow, TransactionTypeCode, Direction, DocumentCoverage } from "@/services/accounting/contracts";
@@ -57,13 +57,15 @@ const ROADS: { key: Road; label: string; icon: typeof Receipt; hint: string }[] 
   { key: "reject", label: "Reject", icon: XCircle, hint: "not ours" },
 ];
 
+/** How much of the history the card shows. */
+const DECIDED_SHOWN = 20;
+
 export default function InboxPage() {
   const { hasAuthority } = useSession();
   const { toast } = useToast();
-  const [rows, reload, refreshRows] = useLoad(() => accounting.listInbox(), []);
-  const [everything, reloadAll, refreshAll] = useLoad(() => accounting.listInboxAll(), []);
-  const [health, reloadHealth, refreshHealth] = useLoad(() => accounting.getInboxHealth(), []);
-  const [attachments] = useLoad(() => documents.listAttachments(), []);
+  const [rows, reload] = useLoad(() => accounting.listInbox(), [], { keepOnError: true });
+  const [decidedState, reloadDecided] = useLoad(() => accounting.listInboxDecided(DECIDED_SHOWN), [], { keepOnError: true });
+  const [health, reloadHealth] = useLoad(() => accounting.getInboxHealth(), [], { keepOnError: true });
   const [selected, setSelected] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState<string | null>(null);
   /* The queue and the history both page: an inbox is read from the top, and
@@ -72,73 +74,66 @@ export default function InboxPage() {
     rows.status === "ready" ? rows.data : [],
     12,
   );
-  /* B4's other half. Paging made the history usable; it never answered *how
-     far back is worth showing*, and a list that quietly stops somewhere is a
-     list that lies by omission.
-
-     The answer is a window with an honest edge: ninety days by default,
-     because the question this list gets asked — *what did we do with that
-     photo* — is an accounting-rhythm question and a quarter covers last month
-     and the month before. What makes the window safe rather than a hiding
-     place is that the card **always says what is outside it**, and names the
-     date the history actually starts, so nothing is invisible without being
-     counted (D269). */
-  const [windowDays, setWindowDays] = useState<number | null>(90);
-  const allDecided = everything.status === "ready"
-    ? everything.data.filter((r) => r.status !== "PENDING")
-    : [];
-  const cutoff = windowDays === null ? null : (() => {
-    const d = new Date(`${officeToday()}T00:00:00Z`);
-    d.setUTCDate(d.getUTCDate() - windowDays);
-    return d.toISOString().slice(0, 10);
-  })();
-  const decided = cutoff === null
-    ? allDecided
-    : allDecided.filter((r) => r.reported_at.slice(0, 10) >= cutoff);
-  const olderCount = allDecided.length - decided.length;
-  const oldest = allDecided.reduce<string | null>(
-    (acc, r) => (acc === null || r.reported_at < acc ? r.reported_at : acc), null);
-  const { shown: decidedPage, pager: decidedPager } = usePaged(decided, 12);
+  /* B4's other half, cut down to what the question needs: *what did we do
+     with that photo* is asked about last week, not last year. The server
+     sends only the latest twenty, and the card says how many it left out,
+     so the edge is honest rather than silent (D269). */
+  const decided = decidedState.status === "ready" ? decidedState.data : [];
+  const decidedTotal = decidedState.status === "ready"
+    ? decidedState.page?.total ?? decided.length
+    : 0;
+  /* Only the files this screen is drawing: the queue page, the row open on
+     the right, and the twenty decided rows. Asking for "the latest 300
+     uploads" fetched far more than that and still missed any row older than
+     them. */
+  const selectedRow = rows.status === "ready" ? rows.data.find((r) => r.ref_id === selected) : undefined;
+  const wantedIds = [...new Set([
+    ...queue.map((r) => r.attachment_id),
+    ...(selectedRow ? [selectedRow.attachment_id] : []),
+    ...decided.map((r) => r.attachment_id),
+  ].filter(Boolean))].sort().join(",");
+  const [attachments] = useLoad(
+    () => documents.getAttachments(wantedIds ? wantedIds.split(",") : []),
+    [wantedIds],
+    { keepPrevious: true },
+  );
   const mayResolve = hasAuthority("resolve_inbox");
 
   function refresh() {
     reload();
     reloadHealth();
-    reloadAll();
+    reloadDecided();
     setSelected(null);
   }
 
-  /* ── Why this screen polls, and what it refuses to do while polling ──────
+  /* ── Why this screen asks again on its own ───────────────────────────────
    *
    * Documents arrive here from Google Chat, not from anybody sitting at this
    * screen: somebody photographs a nota in Bali and a pipeline puts it in this
-   * queue minutes later. A screen that only changes when it is reloaded is a
-   * screen that is wrong most of the time it is open, and the person watching
-   * it has no way to tell whether the queue is empty or the page is stale.
+   * queue minutes later. A screen that only changes when it is reloaded is
+   * wrong most of the time it is open, and the reader cannot tell an empty
+   * queue from a page that stopped asking an hour ago.
    *
-   * Sixty seconds, not five: the documents come from a cycle that runs every
-   * few minutes, so a faster poll costs reads and buys nothing. `usePoll`
-   * pauses while the tab is in the background and asks again the moment it
-   * comes forward, so returning to this tab shows something current.
+   * Sixty seconds, because the documents come from a cycle that runs every few
+   * minutes — faster costs reads and buys nothing. `usePoll` pauses while the
+   * tab is in the background and asks the moment it comes forward.
    *
-   * **Never while somebody is deciding.** A refresh that reorders the list
-   * under an open confirmation is worse than a stale list — the row being
-   * decided about would move, and `selected` is a ref_id that could vanish
-   * from under a half-typed form. A minute of staleness is a smaller price
-   * than that, so the poll stops for as long as a document is open.
+   * **Never while somebody is deciding.** A reload that reorders the list under
+   * an open confirmation is worse than a stale list: the row being decided
+   * about would move, and `selected` is a ref_id that could vanish from under
+   * a half-typed form. A minute of staleness is the smaller price.
+   *
+   * The three loads it drives carry `keepOnError`, so one transient refusal on
+   * a request nobody asked for cannot take a working screen away.
    */
-  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
-  const [refreshFailed, setRefreshFailed] = useState(false);
+  const [lastPolled, setLastPolled] = useState<Date | null>(null);
 
-  const poll = useCallback(async () => {
-    const results = await Promise.all([refreshRows(), refreshAll(), refreshHealth()]);
-    const ok = results.every(Boolean);
-    setRefreshFailed(!ok);
-    /* Only a clean pass moves the clock. A time that advances while one of the
-       three reads is failing would be the screen saying "this is current" about
-       something it could not check. */
-    if (ok) setLastRefreshed(new Date());
-  }, [refreshRows, refreshAll, refreshHealth]);
+  const poll = useCallback(() => {
+    reload();
+    reloadHealth();
+    reloadDecided();
+    setLastPolled(new Date());
+  }, [reload, reloadHealth, reloadDecided]);
 
   usePoll(60_000, poll, { enabled: selected === null });
 
@@ -150,29 +145,24 @@ export default function InboxPage() {
         description="Documents that arrived with nothing to attach them to — somebody bought first and photographed the nota. Everything here leaves by one of five roads, and none of them throws the file away."
       />
 
-      {/* A screen that refreshes itself has to say when it last managed to.
+      {/* A screen that asks again on its own has to say when it last did.
           Otherwise "nothing new today" and "this stopped asking an hour ago"
-          look identical — which is the failure this whole screen exists
-          downstream of. */}
+          look identical — and that distinction is the whole reason this queue
+          exists to be watched. */}
       <div className="mb-3 flex items-center gap-2 text-[12px] text-slate-500">
         <button
           type="button"
-          onClick={() => { void poll(); }}
+          onClick={poll}
           className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 font-medium text-slate-600 hover:bg-slate-100"
         >
           <RefreshCw className="h-3.5 w-3.5" />
           Refresh
         </button>
-        {refreshFailed ? (
-          <span className="text-amber-700">
-            Could not refresh just now — showing the last good read
-            {lastRefreshed && ` from ${officeClock(lastRefreshed)}`}.
-          </span>
-        ) : lastRefreshed ? (
-          <span>Refreshed {officeClock(lastRefreshed)} · checks again every minute</span>
-        ) : (
-          <span>Checks for new documents every minute</span>
-        )}
+        <span>
+          {lastPolled
+            ? `Checked ${officeClock(lastPolled)} · asks again every minute`
+            : "Checks for new documents every minute"}
+        </span>
         {selected !== null && (
           <span className="text-slate-400">· paused while a document is open</span>
         )}
@@ -303,10 +293,9 @@ export default function InboxPage() {
           touched the ledger. "What did we decide about that photo" is asked
           months later, and a queue that empties into nothing cannot answer it
           (A16). */}
-      <Loaded state={everything} onRetry={reloadAll}>
-        {(all) => {
-          const done = all.filter((r) => r.status !== "PENDING");
-          if (done.length === 0) return <></>;
+      <Loaded state={decidedState} onRetry={reloadDecided}>
+        {() => {
+          if (decided.length === 0) return <></>;
           return (
             <Card className="mt-4">
               <CardHeader
@@ -314,40 +303,15 @@ export default function InboxPage() {
                 subtitle={
                   <>
                     Kept, whichever road they took — including the ones that never reached the ledger.{" "}
-                    {windowDays === null
-                      ? `Semuanya: ${allDecided.length} keputusan${oldest ? `, sejak ${oldest.slice(0, 10)}` : ""}.`
-                      : <>
-                          {decided.length} dari {allDecided.length} keputusan, dalam {windowDays} hari terakhir.{" "}
-                          {olderCount > 0
-                            ? <span className="text-amber-700">
-                                {olderCount} lagi lebih lama dari itu{oldest ? `, yang tertua ${oldest.slice(0, 10)}` : ""} — belum ditampilkan.
-                              </span>
-                            : "Tidak ada yang lebih lama dari itu."}
-                        </>}
+                    {decidedTotal > decided.length
+                      ? `${decided.length} keputusan terakhir dari ${decidedTotal}.`
+                      : `Semuanya: ${decided.length} keputusan.`}
                   </>
                 }
                 icon={StickyNote}
-                action={
-                  <div className="flex flex-wrap items-center gap-1">
-                    {([[30, "30 hari"], [90, "90 hari"], [365, "1 tahun"], [null, "Semua"]] as const).map(([d, label]) => (
-                      <button
-                        key={label}
-                        onClick={() => setWindowDays(d)}
-                        className={cn(
-                          "rounded-lg px-2.5 py-1 text-[12px] transition-colors",
-                          windowDays === d
-                            ? "bg-brand-600 text-white"
-                            : "border border-slate-200 text-slate-600 hover:bg-slate-50",
-                        )}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                }
               />
               <ul className="divide-y divide-slate-100">
-                {decidedPage.map((r) => {
+                {decided.map((r) => {
                   const on = reviewing === r.ref_id;
                   const f = attachments.status === "ready"
                     ? attachments.data.find((a) => a.id === r.attachment_id)
@@ -405,13 +369,6 @@ export default function InboxPage() {
                   );
                 })}
               </ul>
-              {decided.length === 0 && (
-                <p className="px-5 py-4 text-[13px] text-slate-500">
-                  Tidak ada keputusan dalam {windowDays} hari terakhir. {allDecided.length} keputusan lain
-                  ada di luar jendela ini — lebarkan jendelanya untuk melihatnya.
-                </p>
-              )}
-              {decidedPager}
             </Card>
           );
         }}

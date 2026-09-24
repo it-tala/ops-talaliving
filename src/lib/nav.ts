@@ -1,12 +1,13 @@
 import {
+  BellRing, FileSignature,
   LayoutDashboard, Users, CalendarCheck, FileBadge, Wallet,
   ShoppingCart, ClipboardList, FileText, PackageCheck, Boxes, TreePine,
   Landmark, BookOpen, TrendingUp, PiggyBank, Receipt,
   Megaphone, UserRound, Target, HandCoins, MessageSquare,
   FolderKanban, Hammer, Truck, Wrench, Stamp, Package,
-  PencilRuler, ListTree, CalendarClock, CalendarRange, Link2,
+  PencilRuler, ListTree, ListChecks, CalendarClock, CalendarRange, Link2,
   Cpu, ScrollText, Activity, UserCog, KeyRound, Clock, Scale, Factory,
-  Settings, FlaskConical, MessagesSquare, Route, ShieldCheck, Gauge, MessageSquareOff, Database, Ruler, FolderTree, Tags, MonitorSmartphone, type LucideIcon,
+  Settings, FlaskConical, MessagesSquare, Route, ShieldCheck, Gauge, MessageSquareOff, Database, Ruler, FolderTree, Tags, MonitorSmartphone, Building2, type LucideIcon,
 } from "lucide-react";
 
 /** Menu sebagai DATA, bukan JSX.
@@ -69,6 +70,8 @@ export const NAV: NavSection[] = [
       { label: "Payroll", labelKey: "payroll", href: "/hrd/payroll", icon: Wallet, permission: "payroll.read" },
       { label: "Gajian mingguan", labelKey: "payrollWeek", href: "/hrd/payroll/minggu", icon: CalendarRange, permission: "payroll.read", badge: "new" },
       { label: "Statutory contributions", labelKey: "contributions", href: "/hrd/iuran", icon: ShieldCheck, permission: "payroll.read", orPermission: "accounting.read", badge: "new" },
+      { label: "Task monitoring", href: "/hrd/tugas", icon: ListChecks, permission: "hrd.read", badge: "new" },
+      { label: "Wajib Lapor (WLKP)", href: "/hrd/wlkp", icon: ClipboardList, permission: "hrd.read", orPermission: "payroll.read", badge: "new" },
       { label: "Performance & tasks", labelKey: "performance", href: "/hrd/kinerja", icon: Gauge, permission: "payroll.read", orPermission: "hrd.read", badge: "new" },
       /* Under Payroll, not under IT. Its gate has always been `payroll.read`
        * — HRD owns the rule book — and once the IT heading means "IT and
@@ -134,6 +137,7 @@ export const NAV: NavSection[] = [
       { label: "Accounts", href: "/master-data/accounts", icon: Landmark, permission: "accounting.read", badge: "new" },
       { label: "Transaction types", href: "/master-data/transaction-types", icon: Tags, permission: "accounting.read", badge: "new" },
       { label: "Asset categories", href: "/master-data/asset-categories", icon: MonitorSmartphone, permission: "inventory.read", badge: "new" },
+      { label: "Clients", href: "/master-data/clients", icon: Building2, permission: "project.read", badge: "new" },
     ],
   },
   {
@@ -151,13 +155,15 @@ export const NAV: NavSection[] = [
     icon: FolderKanban,
     items: [
       { label: "Projects", labelKey: "orders", href: "/proyek/order", icon: FolderKanban, permission: "project.read", badge: "core" },
+      { label: "Quotations", labelKey: "quotations", href: "/proyek/quotation", icon: FileSignature, permission: "project.read", badge: "new" },
+      { label: "Client follow-ups", labelKey: "followUps", href: "/proyek/follow-up", icon: BellRing, permission: "project.read", badge: "new" },
       { label: "Cost vs projection", labelKey: "costVsPlan", href: "/proyek/produksi", icon: Scale, permission: "project.read", badge: "new" },
-      { label: "Delivery", labelKey: "delivery", href: "/proyek/pengiriman", icon: Truck, permission: "project.read", badge: "new" },
-      { label: "Packing boxes & labels", labelKey: "boxes", href: "/proyek/peti", icon: Package, permission: "project.read", badge: "new" },
-      { label: "Installation", labelKey: "installation", href: "/proyek/instalasi", icon: Wrench, permission: "project.read", badge: "new" },
+      { label: "Delivery", labelKey: "delivery", href: "/proyek/pengiriman", icon: Truck, permission: "project.read", orPermission: "delivery.read", badge: "new" },
+      { label: "Packing boxes & labels", labelKey: "boxes", href: "/proyek/peti", icon: Package, permission: "project.read", orPermission: "delivery.read", badge: "new" },
+      { label: "Installation", labelKey: "installation", href: "/proyek/instalasi", icon: Wrench, permission: "project.read", orPermission: "delivery.read", badge: "new" },
       /* Readable by anyone on the project; signing needs `project.handover`,
        * which the screen gates separately (D211). */
-      { label: "Handover", labelKey: "handover", href: "/proyek/serah-terima", icon: Stamp, permission: "project.read", badge: "new" },
+      { label: "Handover", labelKey: "handover", href: "/proyek/serah-terima", icon: Stamp, permission: "project.read", orPermission: "delivery.read", badge: "new" },
     ],
   },
   {
@@ -169,7 +175,7 @@ export const NAV: NavSection[] = [
       { label: "Who did the work", labelKey: "workAttribution", href: "/produksi/penautan", icon: Link2, permission: "production.read", badge: "new" },
       { label: "Goods at vendors", labelKey: "vendorWork", href: "/produksi/vendor", icon: Factory, permission: "production.read", badge: "new" },
       { label: "Products & BOM", labelKey: "bom", href: "/produksi/bom", icon: ListTree, permission: "production.read", badge: "core" },
-      { label: "Planning & Schedule", labelKey: "schedule", href: "/produksi/jadwal", icon: CalendarClock, permission: "production.read", badge: "new" },
+      { label: "Job Orders", labelKey: "schedule", href: "/produksi/jadwal", icon: CalendarClock, permission: "production.read", badge: "new" },
     ],
   },
   {

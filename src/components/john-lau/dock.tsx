@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { stripRefs } from "@/lib/refs";
+import { useEffect, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  MessageSquare, X, Send, ShieldAlert, KeyRound, ArrowUpRight, Check, Wrench, BookOpen,
+  MessageSquare, X, Send, ShieldAlert, KeyRound, ArrowUpRight, Check, Wrench, BookOpen, Sparkles, MapPin,
 } from "lucide-react";
 import { Badge, Button } from "@/components/ui/primitives";
 import { cn } from "@/lib/cn";
@@ -27,10 +28,22 @@ import { MESSAGES, EXAMPLES } from "@/lib/messages";
  *  So navigation happens **under** the panel. The conversation is untouched by
  *  the route change, the steps stay on screen beside the form they describe,
  *  and nothing has to be repeated.
+ *
+ *  **A reload is not allowed to forget either** (D296). The conversation is
+ *  already stored — every turn is a row in `ops_asst.turns` — so the dock reads
+ *  it back when it mounts, and a refresh, a second tab or tomorrow morning
+ *  opens where the person left off. Whether the panel was open is a
+ *  convenience of this tab and lives in `sessionStorage`, guarded, because a
+ *  browser that refuses storage must still get a working dock.
  */
+const OPEN_KEY = "john-lau.open";
+
 export function JohnLauDock() {
-  const [open, setOpen] = useState(false);
+  const [open, setOpenState] = useState(false);
   const [turns, setTurns] = useState<AssistantTurn[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const pathname = usePathname();
+  const bottom = useRef<HTMLDivElement>(null);
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
   const { toast } = useToast();
@@ -38,12 +51,37 @@ export function JohnLauDock() {
   const t = useT();
   const router = useRouter();
 
+  function setOpen(v: boolean) {
+    setOpenState(v);
+    try { sessionStorage.setItem(OPEN_KEY, v ? "1" : "0"); } catch { /* storage refused */ }
+  }
+
+  useEffect(() => {
+    try { if (sessionStorage.getItem(OPEN_KEY) === "1") setOpenState(true); } catch { /* storage refused */ }
+  }, []);
+
+  /* The conversation so far, read back once the session is known. A failure
+     here costs only the history — the dock still answers. */
+  useEffect(() => {
+    if (!ready || loaded || !isRouteLive("/john-lau")) return;
+    let live = true;
+    assistant.listTurns(30).then((res) => {
+      if (!live) return;
+      if (!res.error) setTurns((cur) => (cur.length ? cur : res.data));
+      setLoaded(true);
+    });
+    return () => { live = false; };
+  }, [ready, loaded]);
+
+  /* The newest turn in view — a restored conversation opens at its end. */
+  useEffect(() => { bottom.current?.scrollIntoView({ block: "end" }); }, [turns.length, open, busy]);
+
   async function send(text: string) {
     const q = text.trim();
     if (!q) return;
     setPrompt("");
     setBusy(true);
-    const res = await assistant.ask(q);
+    const res = await assistant.ask(q, { pathname });
     setBusy(false);
     if (res.error) { toast("warning", "Tidak terkirim", res.error.message); return; }
     setTurns((t) => [...t, res.data.turn]);
@@ -94,14 +132,17 @@ export function JohnLauDock() {
 
           <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
             {turns.length === 0 && <Opening onPick={send} />}
-            {turns.map((t) => (
+            {turns.map((t, i) => (
               <Turn
                 key={t.id} turn={t}
+                pathname={pathname}
+                current={i === lastGuide(turns)}
                 onNavigate={(href) => router.push(href)}
                 onChanged={(u) => setTurns((all) => all.map((x) => (x.id === u.id ? u : x)))}
               />
             ))}
             {busy && <p className="text-[12px] text-slate-400">…</p>}
+            <div ref={bottom} />
           </div>
 
           <form
@@ -143,8 +184,18 @@ function Opening({ onPick }: { onPick: (s: string) => void }) {
   );
 }
 
-function Turn({ turn, onNavigate, onChanged }: {
+/** The latest turn that has steps — the tutorial being followed. Only that
+ *  one marks *you are here*, so an old guide further up does not light up as
+ *  well when its screen happens to be open. */
+function lastGuide(turns: AssistantTurn[]): number {
+  for (let i = turns.length - 1; i >= 0; i--) if (turns[i].steps.length > 0) return i;
+  return -1;
+}
+
+function Turn({ turn, pathname, current, onNavigate, onChanged }: {
   turn: AssistantTurn;
+  pathname: string;
+  current: boolean;
   onNavigate: (href: string) => void;
   onChanged: (t: AssistantTurn) => void;
 }) {
@@ -195,7 +246,7 @@ function Turn({ turn, onNavigate, onChanged }: {
             <KeyRound className="h-3.5 w-3.5" /> {t(MESSAGES.johnLau.refusedPermission)}
           </p>
         )}
-        <p className="text-[13px] text-slate-700">{turn.text}</p>
+        <p className="text-[13px] text-slate-700">{stripRefs(turn.text)}</p>
 
         {turn.facts.length > 0 && (
           <ul className="mt-2 space-y-1">
@@ -222,14 +273,27 @@ function Turn({ turn, onNavigate, onChanged }: {
 
         {turn.steps.length > 0 && (
           <ol className="mt-2 space-y-2">
-            {turn.steps.map((s, i) => (
-              <li key={i} className="text-[12px]">
+            {turn.steps.map((s, i) => {
+              /* **You are here.** The tutorial follows the person: the step
+                 whose screen is open is marked, so after *Buka di sini* the
+                 panel says which of its steps this page is for. */
+              const here = current && !!s.href && pathname === s.href;
+              return (
+              <li key={i} className={cn("text-[12px]", here && "-mx-1.5 rounded-lg bg-brand-50 px-1.5 py-1 ring-1 ring-brand-200")}>
                 <span className="flex gap-2">
-                  <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand-100 text-[10px] font-semibold text-brand-800">
+                  <span className={cn(
+                    "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold",
+                    here ? "bg-brand-700 text-white" : "bg-brand-100 text-brand-800",
+                  )}>
                     {i + 1}
                   </span>
                   <span className="text-slate-700">
-                    {s.text}
+                    {here && (
+                      <span className="mr-1 inline-flex items-center gap-0.5 rounded bg-brand-700 px-1 text-[10px] font-medium text-white">
+                        <MapPin className="h-2.5 w-2.5" /> {t(MESSAGES.johnLau.youAreHere)}
+                      </span>
+                    )}
+                    {stripRefs(s.text)}
                     {s.href && (
                       <button onClick={() => onNavigate(s.href!)} className="ml-1 inline-flex items-center gap-0.5 font-medium text-brand-700 hover:underline">
                         {t(MESSAGES.johnLau.openHere)} <ArrowUpRight className="h-3 w-3" />
@@ -241,7 +305,8 @@ function Turn({ turn, onNavigate, onChanged }: {
                   <span className="mt-0.5 block pl-6 text-[11px] italic text-slate-500">{s.rule}</span>
                 )}
               </li>
-            ))}
+              );
+            })}
           </ol>
         )}
 
@@ -282,7 +347,8 @@ function Turn({ turn, onNavigate, onChanged }: {
         <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-slate-200 pt-1.5 text-[10px] text-slate-400">
           {turn.tools_used.map((t) => (
             <span key={t} className="inline-flex items-center gap-1 font-mono">
-              {t.startsWith("guide.") ? <BookOpen className="h-3 w-3" /> : <Wrench className="h-3 w-3" />}
+              {t.startsWith("ai.") ? <Sparkles className="h-3 w-3" />
+                : t.startsWith("guide.") ? <BookOpen className="h-3 w-3" /> : <Wrench className="h-3 w-3" />}
               {t}
             </span>
           ))}

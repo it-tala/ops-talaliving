@@ -1,10 +1,12 @@
 "use client";
 
+import { stripRefs } from "@/lib/refs";
 import React from "react";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { Button } from "./primitives";
 import { cn } from "@/lib/cn";
 import type { ApiError, Page } from "@/services/_shared/envelope";
+import type { CachedPromise } from "@/lib/api-cache";
 
 /** A load, carried as a value.
  *
@@ -16,7 +18,9 @@ import type { ApiError, Page } from "@/services/_shared/envelope";
  */
 export type LoadState<T> =
   | { status: "loading" }
-  | { status: "ready"; data: T; page?: Page }
+  /* `refreshing` is a ready state being asked again: the rows on screen are
+     the last answer, and the next one is on its way. */
+  | { status: "ready"; data: T; page?: Page; refreshing?: boolean }
   | { status: "failed"; error: ApiError };
 
 export function SourceBadge({ state }: { state: LoadState<unknown> }) {
@@ -64,7 +68,7 @@ export function Loaded<T>({
           <p className="text-sm font-semibold text-slate-700">Could not load this</p>
           {/* The message the service gave, verbatim. A refusal a person cannot
               read is a refusal they will report as a mystery. */}
-          <p className="mt-1 max-w-sm text-sm text-slate-500">{state.error.message}</p>
+          <p className="mt-1 max-w-sm text-sm text-slate-500">{stripRefs(state.error.message)}</p>
           <p className="mt-1 font-mono text-[11px] text-slate-400">
             {state.error.status} {state.error.code}
           </p>
@@ -78,51 +82,85 @@ export function Loaded<T>({
     );
   }
 
-  return <>{children(state.data)}</>;
+  return (
+    <>
+      {children(state.data)}
+      {state.refreshing && <RefreshBar />}
+    </>
+  );
+}
+
+/** A reload says so at the top of the window and leaves the table alone.
+ *  Swapping forty rows for a skeleton because one of them changed makes every
+ *  save feel like a page load, and takes the reader's place with it. */
+function RefreshBar() {
+  return (
+    <div
+      role="progressbar"
+      aria-label="Refreshing"
+      className="pointer-events-none fixed inset-x-0 top-0 z-[60] h-0.5 overflow-hidden bg-brand-100"
+    >
+      <div className="h-full w-1/3 animate-pulse bg-brand-500" />
+    </div>
+  );
 }
 
 /** Turns a service call into a `LoadState`. One line per screen, so no screen
  *  invents its own loading convention.
  *
- *  Two ways to ask again, and the difference is the whole reason the second one
- *  exists. `reload()` starts over — skeleton first, because the person pressed
- *  something and deserves to see that it is happening. `refresh()` asks
- *  quietly: the current answer stays on screen until a better one arrives, and
- *  if the call fails the old answer stays rather than the screen going blank.
+ *  A `reload()` keeps what is on screen and refreshes it in the background:
+ *  it is the same question asked again, so the old answer is the right thing
+ *  to look at while the new one arrives.
  *
- *  A polling screen has to use the second. `reload()` on a timer drops every
- *  list back to a skeleton every minute, which reads as the page breaking, and
- *  a failed poll would replace a working screen with an error — losing data
- *  that was fine, because of a request nobody asked for. `refresh()` answers
- *  false instead, and the screen can say "showing the last good read" without
- *  throwing it away.
- */
+ *  A change of `deps` shows the skeleton by default, because most deps are an
+ *  id — the drawer that moved from PO-12 to PO-13 must not show PO-12's lines
+ *  while it waits. A list whose deps are its filters and search box passes
+ *  `keepPrevious`, and keeps its rows while the narrower set loads. */
 export function useLoad<T>(
   run: () => Promise<{ data?: T; error?: ApiError; meta?: { page?: Page } }>,
   deps: React.DependencyList,
-): [LoadState<T>, () => void, () => Promise<boolean>] {
+  opts: { keepPrevious?: boolean; keepOnError?: boolean } = {},
+): [LoadState<T>, () => void] {
   const [state, setState] = React.useState<LoadState<T>>({ status: "loading" });
   const [tick, setTick] = React.useState(0);
+  const lastTick = React.useRef(tick);
+  const keepPrevious = opts.keepPrevious ?? false;
+  /* For a screen that reloads on a timer rather than on a press. A poll nobody
+     asked for must not be able to take a working screen away: one transient
+     refusal would replace forty good rows with an error box, over a request the
+     reader never made. With this set the old answer stays and the failure is
+     the caller's to surface — which a polling screen has to do anyway, since it
+     is the only thing that knows the difference between "nothing new" and
+     "stopped asking an hour ago". Off by default: when somebody presses
+     Reload, a refusal IS the news. */
+  const keepOnError = opts.keepOnError ?? false;
 
-  /* `run` is a fresh closure on every render, and `refresh` must call the
-     current one without being a new function every render itself — otherwise it
-     changes identity each pass and any effect depending on it restarts, which
-     turns a one-minute poll into a poll on every keystroke. */
-  const latest = React.useRef(run);
-  latest.current = run;
-
-  /* Whether anything is on screen right now, read inside `refresh` without
-     making it depend on `state` — see above. A quiet failure may only be
-     swallowed when there is a good answer left to show. */
-  const hasData = React.useRef(false);
-  hasData.current = state.status === "ready";
-
-  React.useEffect(() => {
+  /* Before paint, so a remembered answer replaces the skeleton in the same
+     frame rather than flashing it first. */
+  useIsoLayoutEffect(() => {
     let alive = true;
-    setState({ status: "loading" });
-    void run().then((res) => {
+    const isReload = lastTick.current !== tick;
+    lastTick.current = tick;
+    const asked = run() as CachedPromise<{ data?: T; error?: ApiError; meta?: { page?: Page } }>;
+    const cached = asked.cached;
+    setState((prev) => {
+      /* The last answer to this very question (`src/lib/api-cache.ts`): drawn
+         at once — the reader coming back to a page sees it as they left it —
+         and marked refreshing, because the database is asked again anyway. */
+      if (cached && !cached.error) {
+        return { status: "ready", data: cached.data as T, page: cached.meta?.page, refreshing: true };
+      }
+      return prev.status === "ready" && (isReload || keepPrevious)
+        ? { ...prev, refreshing: true }
+        : { status: "loading" };
+    });
+    void asked.then((res) => {
       if (!alive) return;
-      if (res.error) setState({ status: "failed", error: res.error });
+      if (res.error) {
+        setState((prev) => (keepOnError && prev.status === "ready"
+          ? { ...prev, refreshing: false }
+          : { status: "failed", error: res.error as ApiError }));
+      }
       /* The page meta rides along with the data: a screen that pages needs to
          know how many there are, and asking twice would be two answers. */
       else setState({ status: "ready", data: res.data as T, page: res.meta?.page });
@@ -131,56 +169,62 @@ export function useLoad<T>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, tick]);
 
-  const refresh = React.useCallback(async () => {
-    const res = await latest.current();
-    if (res.error) {
-      // Nothing on screen yet: a failure is the news, so say it.
-      if (!hasData.current) setState({ status: "failed", error: res.error });
-      return false;
-    }
-    setState({ status: "ready", data: res.data as T, page: res.meta?.page });
-    return true;
-  }, []);
-
-  return [state, () => setTick((t) => t + 1), refresh];
+  return [state, React.useCallback(() => setTick((t) => t + 1), [])];
 }
 
-/** Ask again every `ms`, while the tab is in front and `enabled` is true.
+/* `useLayoutEffect` warns during the server render, where it cannot run;
+   there `useEffect` is the same no-op without the warning. */
+const useIsoLayoutEffect = typeof window === "undefined" ? React.useEffect : React.useLayoutEffect;
+
+/** The value, once it has stopped changing for `ms`. A search box that asks
+ *  the server wants the word, not every letter of it. */
+export function useDebounced<T>(value: T, ms = 300): T {
+  const [settled, setSettled] = React.useState(value);
+  React.useEffect(() => {
+    const t = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return settled;
+}
+
+/** Reload every `ms`, while the tab is in front and `enabled` is true.
  *
- *  Three conditions, and each one is a mistake this hook exists to not make:
+ *  For a screen whose subject changes without anybody touching it. Purchase
+ *  verification is the case that asked for this: documents arrive there from
+ *  Google Chat, so somebody photographs a nota in Bali and the queue is stale
+ *  until the page is reloaded — and a reader has no way to tell a queue that is
+ *  empty from a page that stopped asking.
  *
- *  **Paused when the tab is hidden.** A queue screen left open on a second
- *  monitor overnight is 480 needless round trips, and some of the reads behind
- *  these screens cost seconds under RLS. It also refreshes *immediately* on
- *  coming back, so the first thing somebody sees on returning is current
- *  rather than a minute old.
+ *  Three conditions, each a mistake this exists to not make:
  *
- *  **Paused when the caller says so.** A list that reorders itself under an
- *  open form is worse than a list that is a minute stale — the row somebody is
- *  deciding about must not move while they decide.
+ *  **Paused when the tab is hidden**, and it asks again the moment the tab comes
+ *  forward. A queue left open overnight on a second monitor is 480 needless
+ *  round trips, and the first thing somebody sees on returning should be
+ *  current rather than a minute old.
  *
- *  **One in flight at a time.** A refresh slower than the interval would
- *  otherwise stack, and the answers can land out of order, so the screen
- *  settles on whichever reply was slowest rather than whichever was latest.
+ *  **Paused when the caller says so.** A list that reorders itself under an open
+ *  form is worse than a list that is a minute stale: the row being decided about
+ *  moves, and an id held in state can vanish from under a half-typed answer.
+ *
+ *  **One pass at a time.** `reload()` returns nothing, so this cannot await it;
+ *  the interval is instead skipped while the tab is hidden and kept long enough
+ *  that overlapping passes are not the failure mode. Pair it with `keepOnError`
+ *  on the loads it drives, or a single blip takes the screen away.
  */
 export function usePoll(
   ms: number,
-  refresh: () => Promise<unknown>,
+  reload: () => void,
   { enabled = true }: { enabled?: boolean } = {},
 ): void {
-  const latest = React.useRef(refresh);
-  latest.current = refresh;
+  const latest = React.useRef(reload);
+  latest.current = reload;
 
   React.useEffect(() => {
     if (!enabled || ms <= 0) return;
-    let stopped = false;
-    let running = false;
 
     const ask = () => {
-      if (stopped || running) return;
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-      running = true;
-      void Promise.resolve(latest.current()).finally(() => { running = false; });
+      latest.current();
     };
 
     const timer = setInterval(ask, ms);
@@ -188,7 +232,6 @@ export function usePoll(
     document.addEventListener("visibilitychange", onVisible);
 
     return () => {
-      stopped = true;
       clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };

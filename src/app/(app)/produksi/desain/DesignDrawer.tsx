@@ -107,7 +107,7 @@ export function DesignDrawer({
                 ["Dibutuhkan", t.needed_by ?? "—",
                   t.days_left == null ? "belum ada yang menunggu"
                     : t.days_left < 0 ? `lewat ${Math.abs(t.days_left)} hari` : `${t.days_left} hari lagi`],
-                ["Ukuran", t.dimension ?? "belum ada", t.dimension ? "dari master produk" : "isi dulu di master produk (D150)"],
+                ["Ukuran", t.dimension ?? "belum ada", t.dimension ? "dari master produk" : "isi dulu di master produk"],
               ] as [string, string, string][]).map(([k, v, note]) => (
                 <div key={k}>
                   <dt className="text-[10px] uppercase tracking-wide text-slate-400">{k}</dt>

@@ -170,9 +170,10 @@ jobs:
       - uses: actions/checkout@v4
 
       # Node and the project's own dependencies, which this job did not need
-      # until `check-schedule-rules.mjs`: that gate compiles
-      # `src/services/hr/schedule-rules.ts` with the repo's own `tsc` and runs
-      # it against the same battery it puts to the database. Without `npm ci`,
+      # until `check-schedule-rules.mjs`: that gate, and `check-task-periods.mjs`
+      # beside it, compile a module under `src/services/hr/` with the repo's own
+      # `tsc` and run it against the same battery they put to the database.
+      # Without `npm ci`,
       # `npx` would fetch a TypeScript from the network — a gate whose result
       # depends on which compiler happened to download is not a gate.
       - uses: actions/setup-node@v4
@@ -224,6 +225,16 @@ jobs:
       - name: schedule rules say the same thing in both places
         run: node scripts/check-schedule-rules.mjs
 
+      # Period boundaries, the same way and for a harder reason. The task module
+      # holds one task per routine per period through a unique index on
+      # `(routine_id, period_start)`, so two implementations that cut a period
+      # differently never collide — the generator raises the same month twice
+      # and nothing reports an error. F143 was this shape and shipped: a JS
+      # `.sort()` and an `en_US.UTF-8` `order by` disagreed, and the gate that
+      # should have caught it was blind because both sides collated like `C`.
+      - name: period boundaries agree in both places
+        run: node scripts/check-task-periods.mjs
+
       # John Lau's suggestions, put through his own router.
       #
       # F64 is the dock offering `stoknya menipis` while the rule said `stok
@@ -235,6 +246,16 @@ jobs:
       # which is a promise broken in the most visible place there is.
       - name: john lau offers nothing he cannot answer
         run: node scripts/check-john-lau.mjs
+
+      # The guide against the screens. `scripts/e2e/walk-procurement.mjs`
+      # presses the real buttons in live mode and commits what it pressed to
+      # `docs/sop/procurement/walk.json`; this refuses a guide that names a
+      # button the walk did not press, or a walk that did not pass. No browser
+      # here — the walk is recorded where one runs, and checked where it lands.
+      - name: john lau's guide matches the recorded walk
+        run: |
+          node scripts/sop/check-knowledge.mjs procurement
+          node scripts/sop/check-knowledge.mjs hr
 
       # B8's import, proved on a fixture legacy system and run **twice**.
       # Idempotence is the property the whole cutover rests on and the one that

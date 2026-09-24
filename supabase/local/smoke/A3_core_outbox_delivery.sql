@@ -1,4 +1,4 @@
--- ops_core outbox delivery (`0126`) — a door that opens for the worker, for the
+-- ops_core outbox delivery (`0155`) — a door that opens for the worker, for the
 -- events the catalogue allows, while they are still news.
 --
 -- ── What this file is actually guarding ──────────────────────────────────

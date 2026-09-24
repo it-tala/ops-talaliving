@@ -6130,7 +6130,268 @@ relying on.
 **A privilege that is right in the catalogue and wrong at the call site is
 worth nothing**, and the only way to know which you have is to make the call.
 
-## F149 · 2026-09-24 · the review queue was clean and the web app was empty, because "merged" is not "deployed"
+## F149 · 2026-09-23 · walking the week as three people found four doors that do not open
+
+Every seam in procurement had a smoke file, and every smoke file was green.
+The simulation (`supabase/local/smoke/99_sim_procure_to_ledger.sql`) asked a
+different question: not *does this seam work* but *can Andi, Evin and Rina get
+from an empty database to a matched bank line using only what the screens
+send*. Thirty-five steps. Four of them could not be taken as the SOP would
+describe them (backlog B5–B8).
+
+**The one that matters most is B5, and it hid in plain sight.** `05_procure_lifecycle`
+calls `create_receipt` with `'kind','goods_photo'` — the code — and passes.
+The live screen sends `'Receiving Item'` — the label — because every other
+evidence road in the application accepts labels through `doc_kind_of`. This
+one does not. So the smoke file proved the seam against an input no screen
+produces, and the screen was never put against the seam. The simulation
+passes exactly what `ReceiveForm.tsx` passes, and gets `photo_required` with a
+photo attached. **A test that calls a seam the way its author thinks it is
+called proves the author, not the seam.**
+
+B6 is the same shape from the other side: `/procurement/pr/new` is the only
+road to a PR, and `check-live-routes` correctly keeps it shut because one
+optional dropdown reads `production`. Nothing is broken; the rule is right and
+the page is dark. A derived gate is only as fine-grained as the thing it walks.
+
+B7 and B8 are not bugs but a missing join: the PO never learnt which request
+line it buys, so a payment can be allocated to the line or to the order and
+never both, and the order's deposit reads UNPAID after it is paid.
+
+The walk is kept as a smoke file rather than a document. It logs `TEMUAN`
+instead of asserting, so it stays green while the findings are open — and when
+B5 is fixed, the step's own `case` turns it to `OK` without anybody editing the
+simulation.
+
+## F150 · 2026-09-23 · the second walk went all the way to COMPLETED, and found the fifth door on the way
+
+With B5–B8 fixed, the simulation was rewritten to walk the road as it now
+works: the PO is built from the approved line, the deposit is paid from the
+order's page, the balance from the line. L01 now goes WAITING FOR APPROVAL →
+APPROVED → PARTIAL (arrived, not settled) → COMPLETED, and its order DRAFT →
+ISSUED → PARTIAL → SETTLED, every rupiah counted once on each side. The first
+walk never got a line past PAID.
+
+**Going further is what found B9.** The first walk paid only L01, a line with
+a quantity. The second paid the delivery charge too — the lump-sum line D75
+exists to protect — and `post_from_line` handed the ledger a detail line with
+no quantity under SUPPLIERS, a purchase type that insists on one. Refused
+`line_detail_required`. The requests board offers that button on every
+approved line. Nothing had ever pressed it on a lump sum.
+
+Two smaller things worth keeping:
+
+- **The shape assertion in `14_procure_po_board` earned its place.** Adding
+  `pr_line_no` to the drawer's lines and not the tracker's failed there
+  within one run — exactly the drift it was written for.
+- **A procurement-only reader sees no payments at all.** `v_po_status` is
+  `security_invoker` and the allocations are accounting's, so Andi's PO page
+  says *Rp 0 paid* on an order Rina paid in full. Correct by the policies, and
+  probably surprising on a screen; noted, not changed.
+
+B9 was closed the same day by the owner's choice (D298, `0141`): the ledger
+detail of a lump-sum payment is *1 lot × the amount paid*. The walk now runs
+37 steps from an empty database to a matched bank line with **no findings**,
+and L02 — the delivery charge — ends PAID beside L01's COMPLETED.
+
+## F151 · 2026-09-23 · the approval rule was complete in the demo and half-built in the database
+
+The owner restated the rule for orders — leadership confirms every one,
+either by writing it themselves or by answering a card in Google Chat — and
+checking the ladder against that sentence, rather than against the demo,
+found three gaps the demo had been hiding:
+
+- `create_po` never self-confirmed. D267 was built in `src/demo` only, so a
+  CEO's own order in the live system waited for the CEO to ask himself.
+- There was **no seam for the chat answer** to an order. `answer_request`
+  exists for request lines; for orders the token was minted and nothing could
+  ever redeem it.
+- **No worker delivers the card.** The outbox holds the event; nothing reads
+  it. `/demo/chat` stands in for the whole road, convincingly enough that the
+  absence did not show.
+
+The first two are `0143`. The third needs an answer about infrastructure the
+repository cannot see (B10). The general lesson is the one the parity check
+cannot catch: **a function that exists only in the demo is not a pending
+function, it is an unbuilt one**, and nothing lists it. `answerPoFromChat`
+and `listPoApprovals` are demo-only by design — a browser must not answer
+for the CEO — and that is exactly why their live counterparts had to be
+looked for by hand.
+
+Two smaller things the smoke file pinned: the token never travels in the
+outbox (it is readable by signed-in users), and the worker reads a card
+through one function rather than a table grant, the shape `0038` chose for
+the capture worker.
+
+## F152 · 2026-09-23 · the first walk through the live screens, and what only a browser could find
+
+`scripts/e2e/walk-procurement.mjs` walks the procurement week in a real
+browser, in live mode, against the ladder: PostgREST as a static binary and a
+three-endpoint auth stub (`scripts/e2e/local-stack.mjs`), because the Supabase
+images cannot be pulled from here. The only thing not real is the Drive hop of
+an upload; the walk intercepts it and does the route's database half as the
+signed-in person. 22 steps, three people, from an empty request to a matched
+bank line. Both approval roads are walked: staff ask and Evin confirms;
+Evin writes his own and it is confirmed on creation.
+
+What it found, none of which the SQL walk could have:
+
+- **B11** — *New request* lets a line leave its vendor *not decided yet*, and
+  the order decides it. `post_from_line` read only the line's vendor, so the
+  delivery charge could not be paid from its row. The SQL fixture put a vendor
+  on every line, so it never met the case the form invites.
+- **B12** — every live draft order said *Changed since it was sent*. The
+  ladder starts a draft at revision 1 with nothing sent; the demo at 0/0. The
+  demo is where every screen was built, so nobody had ever seen a live draft.
+- **`config.toml` did not expose `ops_asst` or `ops_mkt`**, both read by the
+  app through PostgREST. The harness exposes every `ops_*` schema and so did
+  not trip on it; reading the file to write the harness is what found it. The
+  hosted project's *Exposed schemas* setting needs the same check.
+- **The guide named a button that does not exist.** *Approve this* is the
+  checkbox column's header; the button is *Approve N · Rp…*. And attaching a
+  price said *dari laci baris* where the drawer asks for a type and a button.
+  `scripts/sop/check-knowledge.mjs` compares the walk's buttons to the guide
+  and refused both on its first run (`0146`).
+
+And one that was not the walk's to find but surfaced while running it:
+`86_acct_cash_plan` compared `office_day()` with `current_date`, so it failed
+every evening between 16:00 and 24:00 UTC, when Makassar is already on the
+next day. The test now uses the office's day, as the system does — the same
+shape as F146, a test asserting against a clock the code does not use.
+
+The walk is recorded where a browser runs and checked where it lands: CI has
+no browser, but it reads the committed `walk.json` against the knowledge the
+migrations write, so a guide that drifts from the screens fails the build.
+
+## F153 · 2026-09-23 · the sentence the owner used was the one the router half-understood
+
+*buat PO untuk KSA binder 5 liter* — the owner's own example — is matched by
+the keyword router (rule 60, `procurement.draft_po`) with **no arguments**:
+the router knows it is an order and not what for. A model would have been
+bypassed, because the router reads first. So the item is taken from the
+person's own sentence with the asking words removed, and the approved line
+it names is looked up; nothing is composed.
+
+Two more things the dock walk (`scripts/e2e/walk-john-lau.mjs`, 15 checks,
+against `scripts/e2e/mock-llm.mjs`) pinned down:
+
+- **Confirming `draft_po` wrote nothing, on purpose, since D220.** The comment
+  said so; the dock said *Tersimpan*. It now writes a DRAFT order.
+- **A line approved without a price drafted a PO at Rp 0**, and `create_po`
+  refused it — correctly — as `price_required`. The draft now leaves an
+  unknown price blank, which is the same rule as D217 read the other way: a
+  zero is a figure, and nobody said it.
+
+The mock model proves the road, not the reading. How well a real model picks
+tools from Indonesian shop-floor sentences is the next measurement, with a
+key and the turns people actually type.
+
+
+## F154 · 2026-09-24 · HR, walked the same way: every seam was right and six doors were shut
+
+HR had a smoke file for every seam, and they were all green. The walk asked
+the procurement question again — *can Sari, Evin and Rina get from an empty
+database to a paid week using only what the screens send* — first in SQL
+(`99_sim_hr_to_ledger.sql`, four people, 33 steps), then pressing the buttons
+(`scripts/e2e/walk-hr.mjs`, 18 steps). The answer was no, six times over, and
+not one of them was a seam that did the wrong thing:
+
+1. **A contract registered on screen could never go live.** `activate_contract`
+   refuses `paper_required` — rightly — and the only way to link the paper was
+   an argument of `register_contract` the form has no field for. The rule was
+   right and there was no door to satisfy it. B13, `0148`.
+2. **The 201 file could hold numbers but never scans.** The drawer shows
+   *berkas di Drive* for a document with an attachment, and had no way to give
+   one. B14.
+3. **An approved payroll run stopped at APPROVED for ever.** `record_payroll_paid`
+   wanted a ledger number typed elsewhere and nothing called it; the approval
+   event has no consumer. The same missing join as B8, so the same shape of
+   fix: pay it from its own page, one call, one ledger row per run (D302). B15.
+4. **The live timesheet showed the demo's fortnight.** `PERIOD` was a constant,
+   29 Aug – 7 Sep 2026. In live mode the grid could never show a day anybody
+   could still read, so *open days* could only be closed through somebody
+   else's screen — and approval refuses while any are open. B16.
+5. **The John Lau launcher covered the only *Pasang* button** on `/hrd/jadwal`.
+   F65 had added room under the page on small screens only; the last row of a
+   short page sits under the corner on a laptop too. Found because Playwright
+   refuses to click what a person could not either. B17.
+6. **Everybody entered on screen joined today.** The drawer had no start
+   date, so go-live would have made every tenure start that morning. B18.
+
+One more thing the SQL walk taught rather than found: **a day is read from
+four taps** (in, out to break, back, home). Two taps a day — what a
+simulation writes without thinking — leaves every day *belum dibaca* and the
+run unapprovable. It is now in the FAQ John Lau reads, because it is the first
+thing a new HR person will ask.
+
+The walk also ran into the limit of screenshots as specification: the
+knowledge said `Import N tap(s)` and the walk pressed `Import 27 tap(s)`.
+The walk records the button's shape, not its count.
+
+John Lau stage 4 (D301) rides on the same walk: *ajukan cuti untuk Wulan 2
+sampai 3 Oktober, acara keluarga* is a draft with the person, both dates and
+the reason read from the sentence; nothing is filed before *Ya, tulis*; a
+reader of HR is refused by the same gate as the screen; and the model's
+invented salary field and its *minggu depan* in a date field are dropped
+(`walk-john-lau.mjs`, 19 checks).
+
+## F155 · 2026-09-24 · a one-time sweep grows back, and the very next migration proved it
+
+`F148` found that 278 of 285 `ops_*` functions were executable by `anon` — the
+publishable key inside every browser bundle — because a new function is
+executable by `PUBLIC` and Supabase's three roles all inherit it. `0125` swept
+the lot: revoke from `public`, grant to `authenticated`, for every security
+definer function that existed.
+
+Every function **that existed**. This branch's task module was written before
+that merge landed and renumbered to `0152` after it, which puts it twenty-seven
+files downstream of the sweep. Rebuilding the merged ladder and asking the
+question `0125` had asked:
+
+```sql
+select n.nspname||'.'||p.proname
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+ where n.nspname like 'ops\_%' and p.prosecdef
+   and has_function_privilege('public', p.oid, 'EXECUTE');
+```
+
+Seven rows: `assign_task`, `acknowledge_task`, `chase_task`, `update_task`,
+`save_task_routine`, `end_task_routine`, `roll_task_routines`. Two days after
+the hole was closed, it was seven functions wide again.
+
+## What is actually interesting about it
+
+Not that somebody forgot. `0152` **has** a revoke — for `my_employee_id()`, and
+its comment explains at length why that one needed it: the function answers with
+a person. The other seven were considered and left, on a reason that is true:
+each of them calls `ops_core.has_permission()` before it does anything, so an
+`anon` caller gets a 403 and no data.
+
+That reasoning is correct and it is the problem. It makes the safety of every
+seam a fresh argument, to be made correctly by whoever writes the next one, at
+the moment they are thinking about something else. `0007` and `0015` revoked
+PUBLIC explicitly, which shows the ladder's earlier authors knew the default;
+ninety migrations later nobody was thinking about it, and that is exactly what
+`F148` said. A sweep does not change that — it resets the count to zero and
+leaves the reasoning intact.
+
+**The defence-in-depth argument has the layers backwards.** A permission check
+inside a definer function is the second line. The grant is the first. Skipping
+the first because the second holds is how a module ends up with one line of
+defence and a comment explaining why that was fine.
+
+## The fix
+
+The seven revokes, and then `supabase/local/check_execute_grants.sh`, which
+fails on any `ops_*` security definer function PUBLIC can execute — wired into
+`smoke.sh` beside `check_shadowing` and `check_schema_isolation`, so it runs on
+every push without anybody choosing to run it. Invoker functions are left alone:
+those run as the caller and are already bounded by that caller's RLS.
+
+Proved by deleting one revoke and watching it name that function, which is the
+only way to know a check checks. The rule is now the class, not the case.
+
+## F156 · 2026-09-24 · the review queue was clean and the web app was empty, because "merged" is not "deployed"
 
 35 documents were waiting for somebody to decide about them and nobody could
 see them. Not lost — safe in Drive, safe in `public.ledger_review_queue`, and
@@ -6218,81 +6479,83 @@ Reading a table as its owner proves nothing about a screen: `postgres` has
 this gap reopens at the rate people photograph notas. A third run of the bridge
 would be a symptom, not a task.
 
-## F150 · 2026-09-24 · a live money screen returned 500 because one projection was asked for twice at once
+## F157 · 2026-09-24 · the right diagnosis, abandoned for a wrong one, because the fix had already shipped
 
-`ops.talaliving.com` answered **HTTP 500** on `rpc/cash_plan` fifteen times in
-24 hours, to real signed-in people in Jakarta. It was found by reading
-`edge_logs` while verifying something else, not by anybody reporting it, which
-is its own finding: nothing watches the error rate.
+A live money screen answered **HTTP 500** fourteen times: `rpc/cash_plan`,
+`57014` statement timeout, `origin_time` 8,235 ms against the 8-second limit,
+two of them 3 ms apart in one browser session. Found by reading `edge_logs`
+while verifying something else — nothing watches the error rate, which is its own
+finding.
 
-`response.headers.proxy_status` named the cause exactly — `PostgREST;
-error=57014`, statement timeout — with `response.origin_time=8235`, against the
-8-second limit. Two of them 3ms apart, same browser session.
+The first explanation written down was **RLS: `has_permission` evaluated per row
+rather than once per statement.** That was correct. It was then retracted on the
+strength of a second measurement, and replaced with "the ratio was an artifact of
+comparing a cold call to a warm one; RLS costs about a quarter."
 
-### The ratio was real. The cause written here first was not.
+The retraction was wrong, and the reason is worth the whole finding.
 
-**Corrected 2026-09-24, same day, before the explanation reached anybody as
-advice.** What was written here was:
+### What actually happened, in order
 
-> as `postgres` 205–729 ms, as `authenticated` 3,719–3,784 ms — eighteen times
-> slower for the same projection, and the cost is the per-row RLS policy
-> evaluation.
-
-That is wrong, and it is wrong in the most ordinary way available: the two
-numbers were taken from different moments, and the `authenticated` one was a
-**cold first call on a fresh backend** while the `postgres` one was a warm second
-call. Measured properly — one session, alternating roles, four rounds each:
-
-| `ops_acct.cash_plan()` | |
+| time (UTC) | |
 |---|---|
-| as `postgres` | 193–248 ms |
-| as `authenticated` | 256–298 ms |
-| two in parallel, under real load | 8,235 ms → both time out |
+| 02:36 | 14 × HTTP 500 on `rpc/cash_plan`, `57014` |
+| ~03:00 | RLS named as the cause — correctly |
+| **04:43** | **`0154_rls_initplan.sql` applied to production, from another branch** |
+| ~06:20 | re-measured: `authenticated` now 256–298 ms. Concluded the first diagnosis was wrong |
 
-**RLS costs about a quarter, not eighteen times.** Every base read the projection
-performs was also timed under both roles and not one was slower as
-`authenticated`, which should have been the first check and was the last.
+`0154` rewrote every `ops_*` policy from `using (ops_core.has_permission('x'))`
+to `using ((select ops_core.has_permission('x')))`, which Postgres plans as an
+InitPlan — once per statement instead of once per row. Its own header says it
+plainly: *`cash_plan()` needs about 0.3 s as the table owner; as a signed-in
+accountant it needed 3.9 s. The difference was entirely row-level security.*
 
-The nineteen was real and it belonged to something else entirely — the planner,
-not the policy. See F151, which is the actual cause and was found by refusing to
-let this number stand.
+The production numbers, split at the minute `0154` was applied:
 
-The lesson is not "measure twice". It is that **a ratio between two measurements
-taken at different times is not a ratio**, and that an explanation which fits the
-number is not thereby the cause. This one fit beautifully: RLS is invisible to
-whoever benchmarks as the owner, it is a known class of problem, and it would
-have been repeated as advice for months.
+| | calls | mean | max | HTTP 500 |
+|---|---|---|---|---|
+| before `0154` | 121 | 4,290 ms | 8,517 ms | **14** |
+| after `0154` | 13 | **552 ms** | 886 ms | **0** |
 
-`getMonthlyBills` then fired two of these in `Promise.all`, anchored a month
-apart, because *last month* is never in the default twelve-month window (F68).
-Each call alone fits inside the timeout. Together they do not, and the failure
-is all-or-nothing: the page shows nothing rather than something slow.
+So the "correction" was measuring a system somebody else had already fixed, two
+hours earlier, on a branch not yet merged here — and attributing the improvement
+to an error in the original measurement.
 
-### The fix was to stop asking twice, and the reason it is legal is a guard
+### Why this was easy to get wrong twice
 
-Twelve months forward from `prev` already contains `m`, so one run anchored at
-the earlier month answers both questions — *if* `p_from` chooses the window and
-nothing else. It does: a cell is the schedule and the ledger for its month, and
-its state is relative to `p_now`, which is a separate parameter.
+Both stories fit. A cold-versus-warm comparison is a real way to manufacture a
+fake ratio, and it is exactly the mistake a careful reader would suspect. The
+number even survived: the planner finding next door (F158) produces a 19× cost
+change of its own, so there was a second plausible culprit standing right there.
 
-That was established by measuring production once: month `m`'s cells, event for
-event, and the component list, identical from both anchors. **A measurement
-holds for one input**, so it is now an assertion in
-`smoke/86_acct_cash_plan.sql` — twelve months from either anchor, the same
-components in the same order, and the same cell for the overlapping month.
-Without it the substitution is a guess that happened to be right on 24
-September.
+What was missing was one question: **did anything change between the two
+measurements?** `list_migrations` answers it in one call, and would have shown
+`rls_initplan` sitting at 04:43 with a name that says what it did.
 
-### What is fixed and what is not
+### The rule worth keeping
 
-Fixed: the 500. One run, 3.7s, ~2.2x headroom under the timeout.
+**A measurement taken two hours later is a measurement of a different system.**
+Before concluding that an earlier result was wrong, establish that the thing being
+measured did not change — and on a production database shared with other
+branches, that means reading the migration history, not reasoning about
+methodology.
 
-Not fixed by that change alone: the projection was still being planned against
-invented table sizes on every cold backend. That is F151, and it is the defect
-that was actually costing the seconds. Halving the calls removed the parallel
-contention; it did not make the read fast.
+The cost of getting this wrong was not the 500s, which were already fixed. It was
+that a correct diagnosis, written down in a commit and a findings entry, was
+publicly retracted in favour of a false one. The retraction is now itself
+retracted, which is two entries of noise where there should have been one.
 
-## F151 · 2026-09-24 · ninety-four tables the planner had never looked at
+### What stands from the episode
+
+- `getMonthlyBills` runs one projection instead of two fired in parallel. Still
+  correct: it halves the work and removes the contention. The anchor-independence
+  property it relies on is asserted in `smoke/86_acct_cash_plan.sql` rather than
+  assumed.
+- F158 is real and unrelated to the incident: 94 of 115 `ops_*` tables had never
+  been analysed.
+- Nothing watches the 500 rate. That is still true and is the reason this was
+  found by accident.
+
+## F158 · 2026-09-24 · ninety-four tables the planner had never looked at
 
 `pg_class.reltuples = -1` does not mean "no rows". It means **nobody has ever
 looked**, and the planner then works from a default guess. On production, 94 of
@@ -6324,9 +6587,9 @@ Believing a three-row table holds 550 makes a hash join over **every one of
 3,221 transactions** look cheaper than three index probes. Cost 121.59 → 6.41,
 about nineteen times, on one join out of the several `cash_plan()` performs.
 
-That nineteen is the number F150 first attributed to RLS. It was the planner all
-along, and the two were indistinguishable from the outside: both make a query
-slow for reasons invisible in its text.
+This is a real cost and it is worth removing. It is **not** what caused the 500s
+on `/accounting/tagihan` — that was RLS, and `0154` on main had already fixed it
+before this was measured. See F157, which is the whole embarrassing sequence.
 
 ### Autovacuum was never going to reach them
 
@@ -6343,9 +6606,9 @@ it had none. The bug hides in exactly the tables nobody worries about.
 
 ### What was done, and one thing that went wrong doing it
 
-`0127_core_analyze.sql` analyses every `ops_*` table, and
+`0156_core_analyze.sql` analyses every `ops_*` table, and
 `smoke/A4_core_planner_stats.sql` asserts that the ladder leaves none with
-`reltuples = -1` — because `0127` can only fix the tables that existed when it
+`reltuples = -1` — because `0156` can only fix the tables that existed when it
 ran, and the rule that matters is *a migration creating a table ends by
 analysing it*. The guard names the table if that is forgotten.
 

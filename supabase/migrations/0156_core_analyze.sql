@@ -1,4 +1,4 @@
--- 0127_core_analyze.sql — give the planner the numbers it has never had.
+-- 0156_core_analyze.sql — give the planner the numbers it has never had.
 --
 -- ── Ninety-four tables the planner was guessing about ────────────────────
 --

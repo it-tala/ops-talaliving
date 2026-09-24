@@ -24,6 +24,7 @@ import type {
   TimberVendorSummary, BoardStockView, BoardMoveView, BoardMoveKind, NotaScan,
   AssetView, AssetCategory, AssetStatus, AssetInput, AssetService, AssetServiceInput,
 } from "@/services/inventory/contracts";
+import type { MaterialPlan } from "@/services/production/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fail, fromRows, fromSeam, invalid, noop, notFound, ok, conflict, type Result } from "./_kit";
 import { scanNota } from "./_nota_kayu";
@@ -82,7 +83,7 @@ async function stockable(
   if (!cat) {
     return {
       ok: false,
-      why: `${item.name} sits in ${item.category_code}, which is not counted — it is bought and used, not stocked (D169).`,
+      why: `${item.name} sits in ${item.category_code}, which is not counted — it is bought and used, not stocked.`,
     };
   }
   return { ok: true, base_uom: item.base_uom as string };
@@ -150,7 +151,14 @@ async function withGroupAndLocation(
 }
 
 export async function getStockItem(itemCode: string): Promise<Result<StockItemDetail>> {
-  const { data: row, error } = await db().from("v_stock_item").select("*").eq("item_code", itemCode).maybeSingle();
+  /* Moves, orders and BOM use are keyed by the code alone, so they are asked
+     alongside the row rather than after it. */
+  const [{ data: row, error }, movesRes, onOrderRes, usedInRes] = await Promise.all([
+    db().from("v_stock_item").select("*").eq("item_code", itemCode).maybeSingle(),
+    listStockMoves({ item_code: itemCode }),
+    onOrderFor(itemCode),
+    itemUsedIn(itemCode),
+  ]);
   if (error) return fail(SERVICE, error);
   if (!row) {
     return notFound(
@@ -162,11 +170,6 @@ export async function getStockItem(itemCode: string): Promise<Result<StockItemDe
   if (withLoc.error) return withLoc;
   const view = withLoc.data[0];
 
-  const [movesRes, onOrderRes, usedInRes] = await Promise.all([
-    listStockMoves({ item_code: itemCode }),
-    onOrderFor(itemCode),
-    itemUsedIn(itemCode),
-  ]);
   if (movesRes.error) return movesRes;
   if (usedInRes.error) return usedInRes;
 
@@ -1164,4 +1167,110 @@ export async function deleteAssetCategory(code: string): Promise<Result<{ code: 
   const res = fromSeam(SERVICE, data, error);
   if (res.error) return res;
   return ok(SERVICE, { code, deleted: true as const });
+}
+
+/* ── material against a Job Order (0130) ─────────────────────────────── */
+
+/** Material out to a Job Order, every line or none (`issue_for_work_order`,
+ *  which runs each line through `issue_stock`). */
+export async function issueForWorkOrder(
+  input: {
+    wo_no: string; location: string; lines: { item_code: string; qty: number }[];
+    note?: string | null; idempotency_key?: string;
+  },
+): Promise<Result<{
+  wo_no: string; move_nos: string[]; issued: number;
+  negative: { item_code: string; item_name: string; on_hand_after: number }[];
+}>> {
+  const { data, error } = await db().rpc("issue_for_work_order", {
+    p_wo_no: input.wo_no, p_location: input.location, p_lines: input.lines,
+    p_note: input.note ?? null, p_key: input.idempotency_key ?? null,
+  });
+  return fromSeam(SERVICE, data, error);
+}
+
+/** The list beside the record: what the run should take, from the Job
+ *  Order's **own** pinned BOM revision (D256), what has gone out against it,
+ *  and what is on the rack now. The same shape the demo's `materialPlan`
+ *  builds, from `explode_bom` and `stock_moves`. */
+export async function materialForWorkOrder(woNo: string): Promise<Result<MaterialPlan>> {
+  const wo = await prod().from("v_work_order").select("wo_no, product_code, qty, bom_rev, status, completed")
+    .eq("wo_no", woNo).maybeSingle();
+  if (wo.error) return fail(SERVICE, wo.error);
+  if (!wo.data) return notFound(SERVICE, "wo_not_found", `Tidak ada Job Order ${woNo}.`);
+  const w = wo.data as { wo_no: string; product_code: string | null; qty: number | string; bom_rev: number | null; status: string; completed: number | string | null };
+  const qty = Number(w.qty);
+
+  let rev: number | null = w.bom_rev;
+  let no_plan_reason: string | null = null;
+  const expected = new Map<string, { qty: number; uom: string }>();
+  if (!w.product_code) {
+    no_plan_reason = "Produk Job Order ini tidak ada di katalog.";
+  } else {
+    const p = await prod().from("v_product_summary").select("current_rev").eq("product_code", w.product_code).maybeSingle();
+    if (p.error) return fail(SERVICE, p.error);
+    if (!p.data) no_plan_reason = "Produk Job Order ini tidak ada di katalog.";
+    rev = rev ?? (p.data?.current_rev as number | null) ?? null;
+    if (!no_plan_reason && rev === null) {
+      no_plan_reason = "Produk ini belum punya BOM yang dirilis, jadi tidak ada daftar bahan yang bisa dibandingkan.";
+    }
+    if (!no_plan_reason) {
+      const ex = await prod().rpc("explode_bom", { p_product_code: w.product_code, p_qty: qty, p_rev: rev });
+      if (ex.error) return fail(SERVICE, ex.error);
+      const rows = (ex.data ?? []) as { ref_code: string; kind: string; qty: number | string; uom: string; cycle: boolean }[];
+      const cyc = rows.find((r) => r.cycle);
+      const items = rows.filter((r) => r.kind === "item");
+      if (cyc) no_plan_reason = `BOM produk ini berputar di ${cyc.ref_code}, jadi kebutuhannya belum bisa dihitung.`;
+      else if (items.length === 0) no_plan_reason = "Produk ini belum punya bill of material, jadi tidak ada daftar bahan yang bisa dibandingkan.";
+      else for (const r of items) expected.set(r.ref_code, { qty: Number(r.qty), uom: r.uom });
+    }
+  }
+
+  /* Issues minus returns against this Job Order. */
+  const mv = await db().from("stock_moves").select("item_code, qty, kind").eq("ref_no", woNo).in("kind", ["issue", "return"]);
+  if (mv.error) return fail(SERVICE, mv.error);
+  const moved = new Map<string, number>();
+  for (const m of mv.data ?? []) moved.set(m.item_code as string, (moved.get(m.item_code as string) ?? 0) - Number(m.qty));
+
+  const codes = [...new Set([...expected.keys(), ...moved.keys()])];
+  const stock = codes.length
+    ? await db().from("v_stock_item").select("item_code, item_name, uom, on_hand").in("item_code", codes)
+    : { data: [], error: null };
+  if (stock.error) return fail(SERVICE, stock.error);
+  const names = codes.length
+    ? await procure().from("items").select("code, name, base_uom").in("code", codes)
+    : { data: [], error: null };
+  if (names.error) return fail(SERVICE, names.error);
+  const onHand = new Map((stock.data ?? []).map((s) => [s.item_code as string, Number(s.on_hand)]));
+  const item = new Map((names.data ?? []).map((i) => [i.code as string, i as { code: string; name: string; base_uom: string }]));
+  const r3 = (n: number) => Math.round(n * 1000) / 1000;
+
+  const lines = codes.map((code) => {
+    const exp = expected.get(code);
+    const issued = r3(moved.get(code) ?? 0);
+    return {
+      item_code: code,
+      item_name: item.get(code)?.name ?? code,
+      uom: exp?.uom ?? item.get(code)?.base_uom ?? "",
+      expected: exp ? r3(exp.qty) : null,
+      issued,
+      remaining: exp ? r3(exp.qty - issued) : null,
+      on_hand: onHand.get(code) ?? 0,
+      off_bom: !exp,
+    };
+  }).sort((a, b) =>
+    Number(a.off_bom) - Number(b.off_bom)
+    || (b.remaining ?? -Infinity) - (a.remaining ?? -Infinity)
+    || a.item_name.localeCompare(b.item_name));
+
+  const completed = Number(w.completed ?? 0);
+  return ok(SERVICE, {
+    wo_no: w.wo_no,
+    rev: no_plan_reason ? null : rev,
+    no_plan_reason,
+    lines,
+    variance_readable: completed >= qty || w.status === "DONE",
+    completed,
+    ordered: qty,
+  });
 }

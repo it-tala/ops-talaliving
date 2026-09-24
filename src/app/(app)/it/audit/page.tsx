@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ScrollText, Search, ShieldAlert, Eye } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
-import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
+import { Loaded, SourceBadge, useDebounced, useLoad } from "@/components/ui/loaded";
 import { Paged } from "@/components/ui/pager";
 import { cn } from "@/lib/cn";
 import { identity } from "@/demo/api";
@@ -29,9 +29,11 @@ export default function AuditPage() {
   const [q, setQ] = useState("");
   const [outcome, setOutcome] = useState("");
   const [action, setAction] = useState("");
+  const searched = useDebounced(q);
   const [rows, reload] = useLoad(
-    () => identity.listAudit({ entity_no: q || undefined, outcome: outcome || undefined, action: action || undefined }),
-    [q, outcome, action],
+    () => identity.listAudit({ entity_no: searched || undefined, outcome: outcome || undefined, action: action || undefined }),
+    [searched, outcome, action],
+    { keepPrevious: true },
   );
 
   return (

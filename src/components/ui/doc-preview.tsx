@@ -76,7 +76,7 @@ export function DocumentPreview({ doc, height = 340 }: { doc: PreviewDoc; height
           </a>
         )}
         <p className="max-w-xs text-[11px] text-slate-400">
-          Halaman toko bisa berubah atau hilang. Ia bukti pendukung, tidak pernah bukti utama (D125).
+          Halaman toko bisa berubah atau hilang. Ia bukti pendukung, tidak pernah bukti utama.
         </p>
       </div>
     );

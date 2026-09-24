@@ -304,6 +304,163 @@ export interface OvertimeLine {
 }
 
 /* ------------------------------------------------------------------ */
+/* Data diri untuk WLKP — the dimensions the regulator counts by        */
+/* ------------------------------------------------------------------ */
+
+/** Wajib Lapor Ketenagakerjaan asks for a headcount broken down seven ways.
+ *  Four of them had no data behind them anywhere in this system, so the report
+ *  could not be produced at all — not approximately: at all (D304).
+ *
+ *  These fields live in their own table with **no read policy**, not as columns
+ *  on `employees`, for the reason `EmployeeDocument` already carries: that
+ *  table is readable by every `payroll.read` account, and a date of birth on it
+ *  would have been readable by all of them the day it was added (D196). Reads
+ *  go through one seam that asks the permission itself.
+ *
+ *  **Every field is nullable and null is not a category.** Today none of it has
+ *  been collected. A `disabled` of `false` means somebody asked and the answer
+ *  was no; `null` means nobody has asked, and a report that folds the second
+ *  into the first is finished-looking and wrong. Same rule as `KpiMeasure`:
+ *  unmeasured is not zero.
+ */
+export type Sex = "L" | "P";
+
+/** The ladder WLKP's own form uses. `TIDAK_TAMAT_SD` is a real answer and a
+ *  common one in a workshop; leaving it out would push those people into `SD`,
+ *  which is a wrong figure rather than a missing one. */
+export type Education =
+  | "TIDAK_TAMAT_SD" | "SD" | "SMP" | "SMA" | "SMK"
+  | "D1" | "D2" | "D3" | "D4" | "S1" | "S2" | "S3";
+
+export type Citizenship = "WNI" | "WNA";
+
+export type MaritalStatus = "BELUM_KAWIN" | "KAWIN" | "CERAI_HIDUP" | "CERAI_MATI";
+
+export const SEX_LABEL: Record<Sex, string> = { L: "Laki-laki", P: "Perempuan" };
+
+export const EDUCATION_LABEL: Record<Education, string> = {
+  TIDAK_TAMAT_SD: "Tidak tamat SD", SD: "SD", SMP: "SMP", SMA: "SMA", SMK: "SMK",
+  D1: "D1", D2: "D2", D3: "D3", D4: "D4", S1: "S1", S2: "S2", S3: "S3",
+};
+
+export const MARITAL_LABEL: Record<MaritalStatus, string> = {
+  BELUM_KAWIN: "Belum kawin", KAWIN: "Kawin",
+  CERAI_HIDUP: "Cerai hidup", CERAI_MATI: "Cerai mati",
+};
+
+/** The age bands the form asks for. Keys match `ops_hr.age_band()` exactly —
+ *  two copies of a boundary is how somebody aged exactly 25 gets counted
+ *  twice, so the boundaries live in SQL and only the words live here. */
+export const AGE_BAND_LABEL: Record<string, string> = {
+  di_bawah_18: "Di bawah 18", "18_24": "18–24", "25_34": "25–34",
+  "35_44": "35–44", "45_54": "45–54", "55_ke_atas": "55 ke atas",
+  tidak_diketahui: "Belum diisi",
+};
+
+/** Which of the six a person is still missing. Field names, never values. */
+export type IdentityField =
+  | "tanggal_lahir" | "jenis_kelamin" | "pendidikan"
+  | "kewarganegaraan" | "disabilitas" | "status_kawin";
+
+export const IDENTITY_FIELD_LABEL: Record<IdentityField, string> = {
+  tanggal_lahir: "Tanggal lahir", jenis_kelamin: "Jenis kelamin",
+  pendidikan: "Pendidikan", kewarganegaraan: "Kewarganegaraan",
+  disabilitas: "Disabilitas", status_kawin: "Status kawin",
+};
+
+/** The stored half — one row per person, no history. A date of birth does not
+ *  change, and the three that can (education, marital status, citizenship) are
+ *  corrected rather than appended, with the audit log holding who corrected
+ *  them and **which fields**, never their values (D196). */
+export interface EmployeeIdentity {
+  employee_id: string;
+  born_on: string | null;
+  sex: Sex | null;
+  education: Education | null;
+  citizenship: Citizenship | null;
+  nationality: string | null;
+  disabled: boolean | null;
+  disability_note: string | null;
+  marital_status: MaritalStatus | null;
+  updated_by: string | null;
+  updated_at: string;
+}
+
+export interface EmployeeIdentityView {
+  employee_id: string;
+  employee_no: string;
+  full_name: string;
+  position: string | null;
+  unit: string | null;
+  active: boolean;
+  joined_on: string | null;
+  born_on: string | null;
+  /** Derived from `born_on` against the office day, never stored (A3). Null
+   *  when nobody has recorded a date of birth. */
+  age: number | null;
+  age_band: string;
+  sex: Sex | null;
+  education: Education | null;
+  citizenship: Citizenship | null;
+  /** Only for WNA, and required for them: *tenaga kerja asing* is counted by
+   *  country on the form. */
+  nationality: string | null;
+  /** Nullable on purpose. `false` is an answer; `null` is nobody having
+   *  asked. */
+  disabled: boolean | null;
+  disability_note: string | null;
+  marital_status: MaritalStatus | null;
+  /** The fields still empty for this person — what turns *the report is not
+   *  ready* into a list of people to go and ask. */
+  missing: IdentityField[];
+  /** PKWT or PKWTT, from the contract that covers today **and was activated**.
+   *  Null when there is none: a draft nobody signed does not describe anybody's
+   *  status. */
+  contract_kind: string | null;
+  updated_at: string | null;
+}
+
+export interface WlkpBucket {
+  key: string;
+  count: number;
+}
+
+/** The recap the form is transcribed from: **counts and nothing else.**
+ *
+ *  No name leaves the seam behind this, which is why it opens to `hrd.read`
+ *  *or* `payroll.read` while the person-by-person list stays on `hrd.read`
+ *  alone. *Berapa orang* is a different question from *siapa*, and only the
+ *  first one is on the form.
+ *
+ *  Every dimension carries its own `tidak_diketahui` bucket and the counts add
+ *  to `headcount` in all of them. That property is asserted in SQL, because the
+ *  failure it catches is silent: a breakdown that quietly drops the unknowns
+ *  looks finished and is short by nine people.
+ */
+export interface WlkpRecap {
+  /** WLKP is filed **for a date**, and who was employed on 31 December is not
+   *  answerable from `active` alone — somebody who left in November is inactive
+   *  now and was staff then. */
+  asof: string;
+  headcount: number;
+  complete: number;
+  incomplete: number;
+  by: {
+    jenis_kelamin: WlkpBucket[];
+    kelompok_umur: WlkpBucket[];
+    pendidikan: WlkpBucket[];
+    kewarganegaraan: WlkpBucket[];
+    disabilitas: WlkpBucket[];
+    status_kawin: WlkpBucket[];
+    jabatan: WlkpBucket[];
+    status_hubungan_kerja: WlkpBucket[];
+  };
+  nationalities: { country: string; count: number }[];
+  /** Which field is holding the report up, and for how many people. */
+  missing_by_field: Partial<Record<IdentityField, number>>;
+}
+
+/* ------------------------------------------------------------------ */
 /* Tasks, and measuring people — the one module that scores a person    */
 /* ------------------------------------------------------------------ */
 
@@ -353,12 +510,54 @@ export interface Task {
   blocked_reason: string | null;
   blocked_at: string | null;
   cancelled_reason: string | null;
+
+  /** The stretch of work the task covers, when it covers one (D303).
+   *
+   *  A due date says when it is late. A period says *what it is about*: the
+   *  monthly report for August is a different thing from the monthly report for
+   *  September, and without this they are two rows with different dates and the
+   *  same title. Both dates or neither — one of them is a range nobody can
+   *  read. */
+  period_start: string | null;
+  period_end: string | null;
+  /** The day somebody should **ask for it**, which is not the day it is due.
+   *
+   *  This column is the whole answer to *pimpinan lupa*: the leader is not
+   *  expected to remember, the board is. It stops being due to be asked the
+   *  moment somebody records that they asked — not when the work arrives,
+   *  because those are two different events and only one of them belongs to
+   *  the person doing the asking. */
+  chase_date: string | null;
+  /** What has to be handed over. `laporan stok dalam bentuk excel`, not
+   *  `laporan stok` — *finished* has to be a thing two people can check against
+   *  one sentence rather than against two memories of a meeting. */
+  deliverable: string | null;
+  /** What actually was handed over, written when it is marked finished. Never
+   *  required: refusing to let somebody close their own work over an empty text
+   *  box is how a tracker stops being used (A6). */
+  delivered_note: string | null;
+  /** When the person it was given to confirmed they had it.
+   *
+   *  Evidence, not a gate. An unacknowledged task is still due and still late
+   *  when it is late — a rule that let anybody escape a deadline by not
+   *  clicking would be worse than no acknowledgement at all. It is here so that
+   *  *he never told me* and *I told him in the meeting* both have something to
+   *  point at. */
+  acknowledged_at: string | null;
+  chased_at: string | null;
+  chased_by: string | null;
+  chase_note: string | null;
+  /** The standing expectation that raised this, when one did. */
+  routine_id: string | null;
 }
 
 export interface TaskView extends Task {
   assignee_name: string;
   assignee_no: string;
   assigned_by_name: string;
+  chased_by_name: string | null;
+  routine_no: string | null;
+  routine_cadence: TaskCadence | null;
   /** Negative once the due date has passed. */
   days_left: number;
   /** Open, past its date, and not blocked. */
@@ -368,6 +567,69 @@ export interface TaskView extends Task {
   /** Days between the due date and completion; negative means early. Null
    *  while it is open. */
   days_early: number | null;
+  acknowledged: boolean;
+  /** Open, not blocked, its chase date reached, and nobody has asked yet.
+   *
+   *  Blocked is excluded for the same reason it is excluded from `overdue`:
+   *  chasing somebody for work that is waiting on a third party is how a
+   *  tracker teaches people to stop reporting blockers (D261). */
+  chase_due: boolean;
+  days_to_chase: number | null;
+  /** The period as a person says it out loud — `Sep 2026`, `TW3 2026`. Null
+   *  when the task covers no period. */
+  period_label: string | null;
+}
+
+/** How often a standing expectation comes round.
+ *
+ *  An enum and not a cron string, because every value here has an obvious first
+ *  and last day and a cron field does not — and the period's edges are what the
+ *  whole module is keyed on. */
+export type TaskCadence = "WEEKLY" | "MONTHLY" | "QUARTERLY" | "SEMESTER" | "ANNUAL";
+
+/** A standing expectation — *tugas rutin*.
+ *
+ *  Not a task: it has no due date, cannot be finished, and outlives every row
+ *  it raises. `rollTaskRoutines()` turns it into dated tasks, one per period,
+ *  and may be run as often as you like — the database holds one task per
+ *  routine per period, so running it twice produces the same database.
+ */
+export interface TaskRoutine {
+  id: string;
+  routine_no: string;
+  title: string;
+  detail: string | null;
+  /** Required here, unlike on a one-off task. A standing expectation whose
+   *  deliverable nobody wrote down is the one argued about every period. */
+  deliverable: string;
+  assignee_id: string;
+  cadence: TaskCadence;
+  /** Days after the period ends that the work is due. A monthly report due on
+   *  the 5th is `4`. */
+  due_offset_days: number;
+  /** Days **before** the due date that somebody should ask for it. */
+  chase_lead_days: number;
+  starts_on: string;
+  /** Null while it is still expected. Ending a routine never touches the tasks
+   *  it already raised: those stay owed (A2). */
+  ends_on: string | null;
+  ended_reason: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+export interface TaskRoutineView extends TaskRoutine {
+  assignee_name: string;
+  assignee_no: string;
+  live: boolean;
+  /** The period this routine is in right now, and what it would raise for it —
+   *  shown beside the definition so *setiap tanggal 5* can be checked against a
+   *  real date before anybody commits to it. */
+  current_period_start: string;
+  current_period: string;
+  current_due: string;
+  raised_count: number;
+  open_count: number;
 }
 
 /** One measure of one person, over one period.

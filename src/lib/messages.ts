@@ -58,6 +58,8 @@ export const MESSAGES = {
 
     projects: m("Projects", "Proyek"),
     orders: m("Client orders", "Pesanan klien"),
+    quotations: m("Quotations", "Quotation"),
+    followUps: m("Client follow-ups", "Follow-up klien"),
     costVsPlan: m("Cost vs projection", "Biaya vs proyeksi"),
     delivery: m("Delivery", "Pengiriman"),
     boxes: m("Packing boxes & labels", "Peti & label"),
@@ -69,7 +71,7 @@ export const MESSAGES = {
     workAttribution: m("Who did the work", "Penautan nama"),
     vendorWork: m("Goods at vendors", "Barang di vendor"),
     bom: m("Products & BOM", "Produk & BOM"),
-    schedule: m("Planning & schedule", "Perencanaan & jadwal"),
+    schedule: m("Job Orders", "Job Order"),
 
     johnLau: m("John Lau", "John Lau"),
     johnLauScope: m("What you may ask", "Apa yang boleh ditanyakan"),
@@ -117,6 +119,7 @@ export const MESSAGES = {
     refusedPermission: m("Your access is not enough", "Akses Anda belum cukup"),
     openScreen: m("open the screen", "buka layarnya"),
     openHere: m("open", "buka"),
+    youAreHere: m("you are here", "Anda di sini"),
     writeIt: m("Yes, write it", "Ya, tulis"),
     savedAs: m("Saved", "Tersimpan"),
     abandoned: m("Cancelled. Nothing was written.", "Dibatalkan. Tidak ada yang ditulis."),

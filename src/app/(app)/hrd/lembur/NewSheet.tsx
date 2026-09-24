@@ -167,7 +167,7 @@ export function NewSheet({
                             aria-label="Pesanan"
                             className="h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
                           >
-                            <option value="">Item / SPK…</option>
+                            <option value="">Item / Job Order…</option>
                             {wos.map((w) => (
                               <option key={w.wo_no} value={w.wo_no}>
                                 {w.item_name} · {w.wo_no} ({formatNumber(w.completed)}/{formatNumber(w.qty)} {w.uom})
