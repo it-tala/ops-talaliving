@@ -16,6 +16,20 @@ that only shows what is left teaches nobody anything.
 | B2 | ~~The evidence chips — *photo of the goods*, *tanda terima*, *on file* — read as labels and cannot be opened~~ | `/procurement/tracker/[vendor]` | **fixed** 2026-09-13 (M55) — D268. The booleans behind them became attachment ids, so presence is derived from the thing itself; one `EvidenceChip` for all three. It found a mislabelled file on its first use (F88) |
 | B3 | ~~An image has to be opened through a button before it can be seen. Every picture in the queue should show its own preview~~ | `/accounting/verifikasi` | **fixed** 2026-09-12 (M39) — a preview on the selected document and on every decided one, swapping in place rather than opening a modal. What it draws is a stand-in that says so on its face (D208); Phase 2 puts the file in the same slot |
 | B4 | ~~**Already decided** grows without limit and pushes the queue off the screen~~ | `/accounting/verifikasi` | **fixed** — paging 2026-09-12 (M26, D157); the date window 2026-09-13 (M55, D269). Ninety days by default, and the card always says how many decisions are outside the window and names the oldest, because a list that quietly stops somewhere lies by omission |
+| B5 | ~~**Barang datang tidak bisa dicatat di mode live** — `ReceiveForm` mengirim label, `create_receipt` membandingkan kode~~ | `/procurement/tracker/[vendor]` | **fixed** 2026-09-23 — `0138`: the seam resolves kinds through `ops_core.doc_kind_of`, like every other evidence road; an unknown kind is named (`unknown_kind`). The simulation step turned from TEMUAN to OK without being edited |
+| B6 | ~~**Halaman *New request* tidak live** — satu dropdown opsional memanggil `production.listWorkOrders`~~ | `/procurement/pr/new` | **fixed** 2026-09-23 — the picker asks `production.listOpenWorkOrderRefs()` (four columns from `ops_prod.work_orders`, readable by anybody signed in), so the route is live; `listWorkOrders` itself stays unwritten |
+| B7 | ~~**PO tidak tersambung ke baris PR**~~ | `ops_procure.po_lines` · `/procurement/po` | **fixed** 2026-09-23 — `0139`, D297: `po_lines.pr_line_id`, optional, checked in `create_po` (approved, one live order, same unit, not a lump sum). Arrivals on the order move the request line; *From request line* on the New PO form |
+| B8 | ~~**Termin PO tidak bisa dibayar dari layar mana pun**~~ | `/procurement/po/[po]` | **fixed** 2026-09-23 — `0139`, D297: `ops_acct.post_to_po` and *Pay this order*; an allocation names the line and the order, so one payment reads on both and is counted once on each |
+| B9 | ~~**Ongkir (baris tanpa jumlah) tidak bisa dibayar dari barisnya dengan jenis SUPPLIERS**~~ | `/procurement/pr` · `ops_acct.post_from_line` | **fixed** 2026-09-23 — `0141`, D298 (owner chose option 1): the ledger detail of a lump-sum payment is *1 lot × the amount paid*; the request line keeps no quantity. The walk now ends with no findings |
+| B10 | **Kartu persetujuan PO belum sampai ke Google Chat** — `request_po_approval` memancarkan `procurement.po.approval_requested`, dan `po_approval_card` / `answer_po_approval` sudah siap untuk worker, tetapi belum ada worker yang mengirim kartu dan menerima jawabannya | outbox → Google Chat | open — 2026-09-23 (F151). Needs the owner: which Chat app sends it (the existing John Lau v01 bot, or a new Chat app on this Worker) and who administers it in Google Workspace |
+| B11 | ~~**Baris yang vendornya diputuskan di PO tidak bisa dibayar dari barisnya**~~ | `ops_acct.post_from_line` | **fixed** 2026-09-23 — `0145`: the vendor falls back to the order the line is on; a line on no order with no vendor is still refused `vendor_required` (F152) |
+| B12 | ~~**Setiap PO draft di live bertuliskan *Changed since it was sent***~~ | `/procurement/po/[po]` | **fixed** 2026-09-23 — the ladder starts a draft at revision 1 with nothing sent (`0011`), the demo at 0/0, so only live showed it. The banner now needs an order that has gone out (F152) |
+| B13 | ~~**Kontrak yang didaftarkan dari layar tidak pernah bisa diberlakukan**~~ | `/hrd/kontrak` | **fixed** 2026-09-24 — `0148` `attach_contract_paper` + tombol *Lampirkan kontrak* di halaman kontrak (F154). `activate_contract` menolak `paper_required`, dan satu-satunya jalan melampirkan kertasnya adalah argumen `register_contract` yang tidak dikirim formulir |
+| B14 | ~~**Berkas 201 hanya bisa dicatat nomornya, tidak pernah scan-nya**~~ | `/hrd/berkas-201` | **fixed** 2026-09-24 — *Pilih scan / foto* di laci berkas; scan saja atau nomor saja sama-sama boleh (F154) |
+| B15 | ~~**Run gaji berhenti di APPROVED — tidak ada layar yang membayarnya**~~ | `/hrd/payroll/[run]` | **fixed** 2026-09-24 — `0149` `ops_acct.post_payroll_run` + kartu *Bayar run ini* untuk pemegang `post_ledger` (D302, F154) |
+| B16 | ~~**Timesheet live terkunci di periode data demo (29 Agu – 7 Sep 2026)**~~ | `/hrd/absensi` | **fixed** 2026-09-24 — dua minggu terakhir secara bawaan, geser per minggu, `?from=` di alamat (F154) |
+| B17 | ~~**Tombol John Lau menutupi tombol terakhir di halaman pada layar lebar**~~ | semua halaman | **fixed** 2026-09-24 — ruang bawah `pb-24` di semua lebar layar, bukan hanya layar kecil (F65, F154) |
+| B18 | ~~**Karyawan yang dicatat dari layar selalu "masuk hari ini"**~~ | `/hrd/karyawan` | **fixed** 2026-09-24 — kolom *Tanggal masuk* di laci karyawan (F154) |
 
 ## Scheduled — the owner's answers of 2026-09-11
 
@@ -98,7 +112,7 @@ nothing: `WLKP`, `Disnaker`, `Kemnaker`, `UMK`, `peraturan perusahaan`,
 was built to run attendance and payroll, which it does, and a regulator asks
 different questions.
 
-**C1 was built the same day (D297). Everything below it was deliberately
+**C1 was built the same day (D304). Everything below it was deliberately
 deferred by the owner — *abaikan 2–4* — and is recorded here rather than
 dropped.** The mapping is against the obligations that are commonly known to
 apply to a twelve-person PT; which of them actually bind this company is for
@@ -107,7 +121,7 @@ that conversation, not legal advice.
 
 | # | Kewajiban | Status hari ini | Yang kurang |
 |---|---|---|---|
-| C1 | ~~**WLKP** — lapor tahunan, rincian menurut tujuh dimensi~~ | **built 2026-09-24 (D297)** — `0125`, `/hrd/wlkp` | data dirinya sendiri masih harus dikumpulkan dari dua belas orang; layarnya menyebut siapa kurang apa |
+| C1 | ~~**WLKP** — lapor tahunan, rincian menurut tujuh dimensi~~ | **built 2026-09-24 (D304)** — `0125`, `/hrd/wlkp` | data dirinya sendiri masih harus dikumpulkan dari dua belas orang; layarnya menyebut siapa kurang apa |
 | C2 | **Upah minimum (UMK)** | tidak dimodelkan di mana pun | tidak ada angka UMK dan tidak ada yang memeriksa `base_rate` terhadapnya. Sistem akan membayar di bawah minimum tanpa berkata apa-apa. Bentuk yang benar adalah peringatan, bukan penolakan (A6): boleh ada alasan sah, yang tidak boleh adalah diam |
 | C3 | **Batas lembur** — 4 jam/hari, 18 jam/minggu | tangga pengalinya benar (D173–176), batasnya tidak ada | satu peringatan di `/hrd/lembur` saat sebuah sheet melewatinya. Tidak ada pula catatan persetujuan pekerja: `overtime_sheets` punya tanda tangan pimpinan, dan surat perintah lembur adalah dokumen yang berbeda |
 | C4 | **Cuti tahunan 12 hari** | kolomnya ada, isinya nol untuk **12 dari 12** orang di produksi | ini data, bukan kode. Selama nol, setiap pengajuan dihitung tidak berbayar dan payroll memotong orang yang berhak |

@@ -16,7 +16,7 @@ import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 
 /** Wajib Lapor Ketenagakerjaan — the six answers the form needs, and the tables
- *  it is transcribed from (D297).
+ *  it is transcribed from (D304).
  *
  *  The screen is built around one admission: **today the report cannot be
  *  filed.** WLKP wants a headcount broken down seven ways and four of those

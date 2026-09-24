@@ -130,7 +130,7 @@ export const TASKS: Task[] = [
       chase_date: "2026-09-28", deliverable: "Foto buku kas dan selisihnya, ke grup WA" }),
 ];
 
-/** The standing expectations themselves (D296).
+/** The standing expectations themselves (D303).
  *
  *  Two, and deliberately of different cadences: a monthly report due on the
  *  5th and chased two days before, and a weekly count due on the Monday after

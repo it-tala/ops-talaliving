@@ -186,10 +186,10 @@ export interface DemoState {
   tasks: Task[];
   /** The standing expectations tasks are raised from: what recurs, how often,
    *  what has to be handed over, and how many days before it is due somebody
-   *  should ask for it (D296). */
+   *  should ask for it (D303). */
   task_routines: TaskRoutine[];
   /** The dimensions WLKP counts people by — date of birth, sex, education,
-   *  citizenship, disability, marital status (D297). Its own table, not columns
+   *  citizenship, disability, marital status (D304). Its own table, not columns
    *  on `employees`, because `employees` is readable by every payroll account
    *  and this is not (D196). */
   employee_identities: EmployeeIdentity[];

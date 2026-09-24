@@ -1,4 +1,4 @@
--- 0136 — tugas rutin, periode, penagihan, deliverable.
+-- 0152 — tugas rutin, periode, penagihan, deliverable.
 --
 -- ── the failure this is built against ─────────────────────────────────────
 --
@@ -879,13 +879,14 @@ end $$;
  *  grant re-opened `employee_documents` four migrations after `0056` revoked
  *  it. Six lines is cheap.
  *
- *  ── and the revoke, which this file originally got wrong (F148) ──────────
+ *  ── and the revoke, which this file originally got wrong (F155) ──────────
  *
  *  A new function is executable by **PUBLIC** — that is the PostgreSQL default,
  *  and `anon` is a key that ships inside every browser bundle. `0125` swept
  *  every `ops_*` definer function and moved execute from `public` to
  *  `authenticated`, but a sweep is a one-time act: it ran at 0125 and these
- *  functions are created at 0136, so all seven of them came back open. This
+ *  functions are created twenty-seven files downstream of it, so all seven of
+ *  them came back open — two days after the hole was closed (F155). This
  *  file had one revoke, for `my_employee_id()`, written because that function
  *  answers with a person; the other seven were left because each checks
  *  `has_permission()` on its own first.

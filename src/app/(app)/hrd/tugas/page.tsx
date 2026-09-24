@@ -16,7 +16,7 @@ import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 
 /** Pemantauan tugas — the module built against a failure the owner described
- *  in one sentence (D296):
+ *  in one sentence (D303):
  *
  *    *karyawan meeting dengan pimpinan, pimpinan assign tugas baik rutin maupun
  *     tugas tambahan baru. Pimpinan lupa. Karyawan tidak mengerjakan.*

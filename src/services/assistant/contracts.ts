@@ -181,6 +181,13 @@ export interface AssistantTurn {
   route: string | null;
 }
 
+/** Where the person is when they ask. Sent so *what do I do next?* can be
+ *  answered about the screen they are on, not the one they asked from last
+ *  time. Optional — the keyword router does not need it. */
+export interface AskContext {
+  pathname?: string;
+}
+
 export interface AssistantReply {
   turn: AssistantTurn;
   /** What it understood, in its own words, so a wrong reading is visible

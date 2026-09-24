@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ScrollText, Check, AlertTriangle, Scale, Paperclip, Undo2, CircleDashed, Sparkles,
@@ -8,7 +8,7 @@ import {
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { cn } from "@/lib/cn";
-import { hr } from "@/demo/api";
+import { documents, hr } from "@/demo/api";
 import {
   CLAUSE_LABEL, CLAUSE_FIELDS, clauseValueOk,
   type ClauseKind, type ClauseField, type ContractDetail, type ContractClause,
@@ -67,6 +67,20 @@ function Summary({ c, mayEdit, onDone }: { c: ContractDetail; mayEdit: boolean; 
   const [busy, setBusy] = useState(false);
   const [ending, setEnding] = useState(false);
   const [reason, setReason] = useState("");
+  const paperRef = useRef<HTMLInputElement>(null);
+
+  /** The scan comes back after the person signs, so the paper is attached
+   *  here, on the draft — the register form never had a file field (F154). */
+  async function attachPaper(f: File) {
+    setBusy(true);
+    const up = await documents.upload({ file: f, kind: "Kontrak Kerja" });
+    if (up.error) { setBusy(false); toast("critical", "Upload gagal", up.error.message); return; }
+    const res = await hr.attachContractPaper({ contract_no: c.contract_no, attachment_id: up.data.id });
+    setBusy(false);
+    if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", "Belum terlampir", res.error.message); return; }
+    toast("success", "Kontrak terlampir", "Setelah sepuluh poin wajib dijawab, kontrak ini bisa diberlakukan.");
+    onDone();
+  }
 
   async function activate() {
     setBusy(true);
@@ -139,6 +153,19 @@ function Summary({ c, mayEdit, onDone }: { c: ContractDetail; mayEdit: boolean; 
         )}
 
         <div className="ml-auto flex items-center gap-2">
+          {mayEdit && c.status === "draft" && (
+            <>
+              <input
+                ref={paperRef} type="file" accept="application/pdf,image/*" className="hidden"
+                aria-label="Berkas kontrak yang ditandatangani"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) void attachPaper(f); e.target.value = ""; }}
+              />
+              <Button size="sm" variant="outline" icon={Paperclip} disabled={busy}
+                onClick={() => paperRef.current?.click()}>
+                {c.attachment_id ? "Ganti berkas kontrak" : "Lampirkan kontrak"}
+              </Button>
+            </>
+          )}
           {mayEdit && c.status === "draft" && (
             <Button size="sm" icon={Check} disabled={busy} onClick={activate}>
               Berlakukan

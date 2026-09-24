@@ -309,7 +309,7 @@ export interface OvertimeLine {
 
 /** Wajib Lapor Ketenagakerjaan asks for a headcount broken down seven ways.
  *  Four of them had no data behind them anywhere in this system, so the report
- *  could not be produced at all — not approximately: at all (D297).
+ *  could not be produced at all — not approximately: at all (D304).
  *
  *  These fields live in their own table with **no read policy**, not as columns
  *  on `employees`, for the reason `EmployeeDocument` already carries: that
@@ -511,7 +511,7 @@ export interface Task {
   blocked_at: string | null;
   cancelled_reason: string | null;
 
-  /** The stretch of work the task covers, when it covers one (D296).
+  /** The stretch of work the task covers, when it covers one (D303).
    *
    *  A due date says when it is late. A period says *what it is about*: the
    *  monthly report for August is a different thing from the monthly report for

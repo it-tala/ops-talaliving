@@ -11,6 +11,7 @@ import { cn } from "@/lib/cn";
 import { hr } from "@/demo/api";
 import type { PayrollLine } from "@/services/hr/contracts";
 import { Adjustments } from "./Adjustments";
+import { PayRun } from "./PayRun";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 
@@ -268,6 +269,8 @@ export default function PayrollRunPage({ params }: { params: Promise<{ run: stri
                 </span>
               </div>
             )}
+
+            <PayRun run={d} onPosted={reload} />
 
             <Adjustments
               runNo={d.run_no}

@@ -81,7 +81,7 @@ export default function NewPurchaseRequestPage() {
   /* What is actually on the floor right now. A request line can name one, and
      then it is not "plywood" — it is plywood for the BABY ISLAND tables, which
      is what makes it countable against a projection later (D152). */
-  const [wos] = useLoad(() => production.listWorkOrders(), []);
+  const [wos] = useLoad(() => production.listOpenWorkOrderRefs(), []);
 
   const itemOptions: ComboboxOption[] = items.status === "ready"
     ? items.data.map((i) => ({

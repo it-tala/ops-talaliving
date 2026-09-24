@@ -702,6 +702,9 @@ export interface PoLine {
   unit_price: number;
   line_total: number;
   superseded_by: string | null;
+  /** The approved request line this order line buys, when there is one
+   *  (B7). Optional in the demo's fixtures, which predate it. */
+  pr_line_id?: string | null;
 }
 
 export interface PoScheduleTerm {
@@ -743,6 +746,9 @@ export interface PoStatusView {
  *  arrived, and in what condition. */
 export interface PoLineJourney {
   po_line_id: string;
+  /** The request line it buys, or null for an order line with no request
+   *  behind it (B7). */
+  pr_line_no: string | null;
   /** Its number on the order — what an amendment addresses, and what a vendor
    *  says on the phone. */
   line_no: number;

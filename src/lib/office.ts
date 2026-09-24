@@ -36,3 +36,17 @@ export function officeDay(at: Date | number = Date.now()): string {
 export function officeToday(): string {
   return officeDay(Date.now());
 }
+
+/** A `YYYY-MM-DD` key moved by whole days. UTC arithmetic on the string,
+ *  because the office day is not the browser's day (F17). */
+export function shiftDay(key: string, days: number): string {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d) + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** Monday of the week a `YYYY-MM-DD` key falls in. */
+export function mondayOf(key: string): string {
+  const [y, m, d] = key.split("-").map(Number);
+  const js = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return shiftDay(key, -((js === 0 ? 7 : js) - 1));
+}

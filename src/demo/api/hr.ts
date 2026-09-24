@@ -1731,6 +1731,38 @@ export async function confirmClause(
   return getContract(input.contract_no);
 }
 
+/** `ops_hr.attach_contract_paper` (0148): the signed paper on a draft. */
+export async function attachContractPaper(
+  input: { contract_no: string; attachment_id: string; sha256?: string | null },
+): Promise<Result<ContractDetail>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+
+  const state = getState();
+  const c = state.employment_contracts.find((x) => x.contract_no === input.contract_no);
+  if (!c) return notFound(SERVICE, "contract_not_found", `Tidak ada kontrak ${input.contract_no}.`);
+  if (c.status !== "draft") {
+    return conflict(SERVICE, "not_a_draft",
+      `${input.contract_no} sudah ${c.status}. Kertas kontrak yang sudah berlaku tidak diganti — buat kontrak baru.`);
+  }
+  if (!input.attachment_id) {
+    return invalid(SERVICE, "attachment_required", "Pilih berkas kontrak yang sudah ditandatangani.",
+      { field: "attachment_id" });
+  }
+  apply((draft) => {
+    const row = draft.employment_contracts.find((x) => x.contract_no === input.contract_no)!;
+    row.attachment_id = input.attachment_id;
+    if (input.sha256) row.sha256 = input.sha256;
+    writeAudit(draft, {
+      service: SERVICE, entity: "contract", entity_no: input.contract_no,
+      action: "attach_paper", outcome: "ok", reason: null,
+      detail: { attachment_id: input.attachment_id, by: actingUser().email },
+    });
+  });
+  return getContract(input.contract_no);
+}
+
 export async function activateContract(
   contractNo: string, idempotencyKey?: string,
 ): Promise<Result<ContractDetail>> {
@@ -2030,7 +2062,7 @@ export async function createTask(
     ref_no?: string | null;
     /** What has to be handed over. Optional on a one-off task and required on
      *  a routine, because a standing expectation whose deliverable nobody wrote
-     *  down is the one argued about every period (D296). */
+     *  down is the one argued about every period (D303). */
     deliverable?: string | null;
     period_start?: string | null;
     period_end?: string | null;
@@ -3403,7 +3435,7 @@ export async function setEmployeeSchedule(
  *  counts and nothing else, so it opens to anybody who can already see the
  *  roster; the **list** is dates of birth, so it does not. *Berapa orang* is a
  *  different question from *siapa*, and only the first one is on the form
- *  (D196, D297).
+ *  (D196, D304).
  */
 
 export async function listEmployeeIdentities(

@@ -10,7 +10,7 @@ import { NumberInput } from "@/components/ui/number-input";
 import { useLoad } from "@/components/ui/loaded";
 import { formatIDR } from "@/lib/format";
 import { procurement } from "@/demo/api";
-import { type UomCode, type Vendor } from "@/services/procurement/contracts";
+import { type PrLineView, type UomCode, type Vendor } from "@/services/procurement/contracts";
 import { useToast } from "@/store/toast";
 import { UomOptions } from "@/components/ui/uom-options";
 
@@ -31,14 +31,26 @@ import { UomOptions } from "@/components/ui/uom-options";
  *  What it produces is a **draft**. An order is a promise made to a supplier
  *  in the company's name, so leadership confirms it before it is sent, which
  *  means creating one cannot also send it (D132).
+ *
+ *  **Each line can name the request line it buys** (B7). Choosing one fills
+ *  the line from what was approved, and from then on arrivals on this order
+ *  move that request line and money paid on either side reads on both. Only
+ *  approved lines with a quantity are offered — a lump sum is money, not
+ *  goods, and is paid rather than ordered (A1). The database refuses the rest
+ *  with a sentence, so the list here is a convenience and not the rule.
  */
-type Line = { description: string; qty: number; uom: UomCode; unit_price: number };
+type Line = { description: string; qty: number; uom: UomCode; unit_price: number; pr_line_no: string };
 
-const EMPTY: Line = { description: "", qty: 1, uom: "pcs", unit_price: 0 };
+const EMPTY: Line = { description: "", qty: 1, uom: "pcs", unit_price: 0, pr_line_no: "" };
+
+function orderable(l: PrLineView): boolean {
+  return (l.status === "APPROVED" || l.status === "PAID") && l.qty != null && l.qty > 0 && !l.removed_at;
+}
 
 export function NewPo({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const { toast } = useToast();
   const [vendors] = useLoad(() => procurement.listVendors({ curated: true }), []);
+  const [openLines] = useLoad(() => procurement.listOpenLines(), []);
   const [vendorId, setVendorId] = useState("");
   const [lines, setLines] = useState<Line[]>([{ ...EMPTY }]);
   const [dpPercent, setDpPercent] = useState(0);
@@ -54,11 +66,32 @@ export function NewPo({ onClose, onCreated }: { onClose: () => void; onCreated: 
     setLines((prev) => prev.map((l, n) => (n === i ? { ...l, ...patch } : l)));
   }
 
+  /* Approved lines for this vendor first, then approved lines with no vendor
+     named — the room sometimes decides the supplier after the request. */
+  const candidates = openLines.status === "ready"
+    ? openLines.data.filter((l) => orderable(l) && (!vendorId || !l.vendor_id || l.vendor_id === vendorId))
+    : [];
+
+  function pickRequestLine(i: number, lineNo: string) {
+    const pr = candidates.find((c) => c.line_no_full === lineNo);
+    if (!pr) { setLine(i, { pr_line_no: "" }); return; }
+    const qty = pr.approval?.approved_qty ?? pr.qty ?? 1;
+    const amount = pr.approval?.approved_amount ?? pr.item_total;
+    setLine(i, {
+      pr_line_no: pr.line_no_full,
+      description: pr.description,
+      qty,
+      uom: (pr.uom ?? "pcs") as UomCode,
+      unit_price: qty > 0 ? Math.round(amount / qty) : pr.unit_price ?? 0,
+    });
+  }
+
   async function create() {
     setBusy(true);
     const res = await procurement.createPo({
       vendor_id: vendorId,
-      lines: lines.filter((l) => l.description.trim()),
+      lines: lines.filter((l) => l.description.trim())
+        .map((l) => ({ ...l, pr_line_no: l.pr_line_no || null })),
       dp_percent: dpPercent || null,
       note: note.trim() || null,
       expected_delivery: expected || null,
@@ -145,6 +178,22 @@ export function NewPo({ onClose, onCreated }: { onClose: () => void; onCreated: 
           <div className="mt-1 space-y-2">
             {lines.map((l, i) => (
               <div key={i} className="grid gap-2 rounded-lg border border-slate-200 px-3 py-2.5 sm:grid-cols-12">
+                <div className="sm:col-span-12">
+                  <label htmlFor={`po-pr-${i}`} className="block text-[11px] text-slate-500">From request line (optional)</label>
+                  <select
+                    id={`po-pr-${i}`}
+                    value={l.pr_line_no}
+                    onChange={(e) => pickRequestLine(i, e.target.value)}
+                    className="mt-1 h-8 w-full rounded-lg border border-slate-200 bg-white px-1.5 text-[13px] focus:border-brand-400 focus:outline-none"
+                  >
+                    <option value="">— not from a request —</option>
+                    {candidates.map((c) => (
+                      <option key={c.line_no_full} value={c.line_no_full}>
+                        {c.line_no_full} · {c.description} · {c.qty} {c.uom}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <div className="sm:col-span-5">
                   <label htmlFor={`po-desc-${i}`} className="block text-[11px] text-slate-500">Item</label>
                   <input
