@@ -120,6 +120,7 @@ begin
           'ops_procure.restamp_line_money',
           -- the chat worker's, below (§4)
           'ops_procure.answer_po_approval','ops_procure.po_approval_card',
+          'ops_procure.answer_request',
           -- the notification worker's, below (§4). Not seams: a person never
           -- "delivers an event", a machine does.
           'ops_core.outbox_due','ops_core.outbox_delivered','ops_core.outbox_failed')
@@ -138,7 +139,12 @@ end $$;
 -- the chat worker that carries a PO approval card to leadership and brings the
 -- answer back (D299, 0143): it reads one order's card and answers it, and
 -- nothing else. Three more carry `ops_core.outbox` events out to Chat and
--- record what happened (0155) — claim, delivered, failed.
+-- record what happened (0155) — claim, delivered, failed. One more is
+-- `answer_request` (0157): the same road as `answer_po_approval`, for a request
+-- line rather than an order, and it was reachable from a browser until then —
+-- which let any signed-in reader record an approval against leadership, because
+-- the seam takes the answerer's address as an argument and the token is on the
+-- wire in `v_approval_request`.
 --
 -- All five of the non-`file_evidence` verbs are shut to `authenticated`, for the
 -- same reason in two shapes: a card is answered from Chat by its addressee,
@@ -169,8 +175,8 @@ begin
      and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
      and has_function_privilege('service_role', p.oid, 'EXECUTE');
 
-  assert reach = 'answer_po_approval, file_evidence, outbox_delivered, outbox_due, '
-               || 'outbox_failed, po_approval_card',
+  assert reach = 'answer_po_approval, answer_request, file_evidence, outbox_delivered, '
+               || 'outbox_due, outbox_failed, po_approval_card',
     'The service_role key can execute ' || n || ' seam(s): ' || coalesce(reach, '(none)')
     || '. 0038 (capture), D299 (PO approval by Chat) and 0155 (outbox to Chat) name exactly '
     || 'these six, and that sentence is the reason a service_role key is allowed to exist '
@@ -182,14 +188,17 @@ begin
     from pg_proc p
     join pg_namespace ns on ns.oid = p.pronamespace
    where p.oid::regproc::text in ('ops_procure.answer_po_approval','ops_procure.po_approval_card',
+                                  'ops_procure.answer_request',
                                   'ops_core.outbox_due','ops_core.outbox_delivered',
                                   'ops_core.outbox_failed')
      and (has_function_privilege('authenticated', p.oid, 'EXECUTE')
        or has_function_privilege('anon', p.oid, 'EXECUTE'));
   assert n = 0,
     'The workers'' seams are reachable from a browser session: ' || reach
-    || '. A PO approval card is answered from Chat by its addressee (D299), and a delivery '
-    || 'that never happened must not be writable from a browser (0155).';
+    || '. A PO approval card is answered from Chat by its addressee (D299), a request line the '
+    || 'same way (0157), and a delivery that never happened must not be writable from a '
+    || 'browser (0155). `answer_request` is the one that bit: it trusts its caller for the '
+    || 'answerer''s address, so a browser caller could approve as anybody the card was sent to.';
 
   -- The other half: shut to people is only half the rule, and on its own it is
   -- satisfied by a deliverer nobody granted anything to.
