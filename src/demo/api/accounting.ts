@@ -247,6 +247,9 @@ export async function listTransactions(
     /** By project **code**, resolved here — the caller crosses the seam with
      *  the public identifier, never an internal id (ADR-004). */
     project_code?: string;
+    /** Inclusive `YYYY-MM-DD` bounds on `trx_date`. */
+    from?: string; to?: string;
+    direction?: "IN" | "OUT";
     include_void?: boolean; limit?: number; offset?: number;
   } = {},
 ): Promise<Result<TransactionView[]>> {
@@ -262,6 +265,9 @@ export async function listTransactions(
     rows = project ? rows.filter((t) => t.project_id === project.id) : [];
   }
   if (opts.type_code) rows = rows.filter((t) => t.type_code === opts.type_code);
+  if (opts.direction) rows = rows.filter((t) => t.direction === opts.direction);
+  if (opts.from) rows = rows.filter((t) => t.trx_date >= opts.from!);
+  if (opts.to) rows = rows.filter((t) => t.trx_date <= opts.to!);
   if (opts.q) {
     const q = opts.q.toLowerCase();
     rows = rows.filter((t) => t.description.toLowerCase().includes(q) || t.trx_no.includes(q));
@@ -1009,6 +1015,18 @@ export async function listInboxAll(): Promise<Result<EvidenceInboxRow[]>> {
   return ok(SERVICE, [...state.evidence_inbox]
     .sort((a, b) => b.reported_at.localeCompare(a.reported_at))
     .map((r) => withReporterName(state, r)));
+}
+
+/** The last `limit` decided rows, newest first, with the total. */
+export async function listInboxDecided(limit = 20): Promise<Result<EvidenceInboxRow[]>> {
+  await latency();
+  const state = getState();
+  const decided = state.evidence_inbox
+    .filter((r) => r.status !== "PENDING")
+    .sort((a, b) => b.reported_at.localeCompare(a.reported_at));
+  return ok(SERVICE, decided.slice(0, limit).map((r) => withReporterName(state, r)), {
+    limit, cursor: null, has_more: decided.length > limit, total: decided.length,
+  });
 }
 
 /** Every payment made to one vendor, newest first, with what each one closed.

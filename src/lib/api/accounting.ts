@@ -275,6 +275,9 @@ export async function listTransactions(
   opts: {
     account_id?: string; type_code?: string; q?: string;
     project_code?: string; include_void?: boolean;
+    /** Inclusive `YYYY-MM-DD` bounds on `trx_date`. */
+    from?: string; to?: string;
+    direction?: "IN" | "OUT";
     limit?: number; offset?: number;
   } = {},
 ): Promise<Result<TransactionView[]>> {
@@ -285,6 +288,9 @@ export async function listTransactions(
   if (opts.account_id) q = q.eq("account_id", opts.account_id);
   if (opts.project_code) q = q.eq("project_code", opts.project_code);
   if (opts.type_code) q = q.eq("type_code", opts.type_code);
+  if (opts.direction) q = q.eq("direction", opts.direction);
+  if (opts.from) q = q.gte("trx_date", opts.from);
+  if (opts.to) q = q.lte("trx_date", opts.to);
   if (opts.q) q = q.or(ilikeOrFilter(opts.q, "description", "trx_no"));
   const { data, error, count } = await q
     .order("trx_date", { ascending: false })
@@ -848,6 +854,22 @@ export async function listInboxAll(): Promise<Result<EvidenceInboxRow[]>> {
     .order("reported_at", { ascending: false });
   if (error) return fail(SERVICE, error);
   return withReporterNames(((data ?? []) as unknown as InboxRowDb[]).map(toInboxRow));
+}
+
+/** The last `limit` decided rows, newest first, with the total so the screen
+ *  can say how many it is not showing. The history grows forever; the screen
+ *  only ever asks the question about the recent ones. */
+export async function listInboxDecided(limit = 20): Promise<Result<EvidenceInboxRow[]>> {
+  const { data, error, count } = await db().from("evidence_inbox")
+    .select(INBOX_COLUMNS, { count: "exact" })
+    .neq("status", "PENDING")
+    .order("reported_at", { ascending: false })
+    .limit(limit);
+  if (error) return fail(SERVICE, error);
+  const named = await withReporterNames(((data ?? []) as unknown as InboxRowDb[]).map(toInboxRow));
+  if (named.error) return named;
+  const total = count ?? named.data.length;
+  return ok(SERVICE, named.data, { limit, cursor: null, has_more: total > limit, total });
 }
 
 /** Not decoration. If this number grows, people are routing around the normal

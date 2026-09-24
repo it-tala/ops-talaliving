@@ -144,6 +144,34 @@ export type LinkEntity =
   /** A photo of the thing, its purchase nota, its warranty card (`0106`). */
   | "asset";
 
+/** Which kinds make sense where. The full list is thirty kinds across HR,
+ *  production and money, and a ledger row offered "Ijazah" or "KTP" is a
+ *  picker that makes the right choice harder to find and the wrong one easy.
+ *  An entity not listed here is offered every kind. This is what the picker
+ *  offers, not a rule the database enforces — a file already filed under
+ *  another kind still shows and still counts. */
+export const DOC_KINDS_FOR: Partial<Record<LinkEntity, readonly DocKind[]>> = {
+  /* Money that moved: what proves it, what it bought, and the papers that
+     travel with a purchase. */
+  transaction: [
+    "Receipt / Invoice / Nota", "Payment Proof", "Receiving Item", "Invoice",
+    "Receiving Report", "Delivery Note", "Purchase Order", "Rekening Koran",
+    "Others",
+  ],
+  /* A request line: where the price came from, then the same purchase papers
+     as the ledger row that pays it. */
+  pr_line: [
+    "Reference Link", "Receipt / Invoice / Nota", "Payment Proof",
+    "Receiving Item", "Invoice", "Receiving Report", "Delivery Note",
+    "Purchase Order", "Foto", "Others",
+  ],
+  /* A thing the company owns: what it looks like, what it cost, what covers it. */
+  asset: [
+    "Foto", "Receipt / Invoice / Nota", "Invoice", "Sertifikat",
+    "Delivery Note", "Others",
+  ],
+};
+
 /** A piece of evidence — a **file or a link**, never both.
  *
  *  A marketplace listing is not a file, and photographing the screen to make

@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { BookOpen, Paperclip, AlertTriangle, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
+import { Loaded, SourceBadge, useDebounced, useLoad } from "@/components/ui/loaded";
 import { StatusPill } from "@/components/ui/status-pill";
 import { formatIDR } from "@/lib/format";
 import { cn } from "@/lib/cn";
@@ -54,16 +54,19 @@ export default function LedgerPage() {
   /* Paged at the service, not sliced in the browser: the real ledger is tens
      of thousands of rows and a screen that fetches them all to show 25 is a
      screen that will stop working on a phone. */
+  /* The box updates as it is typed; the server is asked once the word settles. */
+  const searched = useDebounced(q);
   const [rows, reload] = useLoad(
     () => accounting.listTransactions({
       account_id: accountId || undefined,
       type_code: typeCode || undefined,
-      q: q || undefined,
+      q: searched || undefined,
       include_void: showVoid,
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
     }),
-    [accountId, typeCode, q, page, showVoid],
+    [accountId, typeCode, searched, page, showVoid],
+    { keepPrevious: true },
   );
   const mayPost = hasAuthority("post_ledger");
 

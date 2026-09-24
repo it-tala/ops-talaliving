@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Bell, Link2 } from "lucide-react";
+import { Bell, Link2, Search } from "lucide-react";
 import { Badge, Button, Card, CardHeader } from "@/components/ui/primitives";
 import { Modal } from "@/components/ui/drawer";
 import { Loaded, useLoad } from "@/components/ui/loaded";
+import { Paged } from "@/components/ui/pager";
 import { formatIDR } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { accounting } from "@/demo/api";
@@ -92,6 +93,14 @@ function DueBadge({ d }: { d: CashDue }) {
   return <Badge tone={d.days_away <= 7 ? "amber" : "slate"}>in {d.days_away} day(s)</Badge>;
 }
 
+const LINK_PAGE_SIZE = 10;
+
+/** `2026-02` → `2026-02-28`. */
+function lastDayOf(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  return `${month}-${String(new Date(Date.UTC(y!, m!, 0)).getUTCDate()).padStart(2, "0")}`;
+}
+
 /** Pointing at the ledger row that paid a bill.
  *
  *  The calendar guesses by category, and says when it is guessing. This is how
@@ -100,8 +109,16 @@ function DueBadge({ d }: { d: CashDue }) {
  *  transactions would be a second books nobody reconciles. */
 function LinkPayment({ due, onClose, onLinked }: { due: CashDue; onClose: () => void; onLinked: () => void }) {
   const { toast } = useToast();
-  const [rows] = useLoad(() => accounting.listTransactions({ limit: 200 }), []);
+  /* The month's outgoing rows, asked of the database directly. Taking the
+     latest 200 of everything and filtering here missed any month older than
+     those 200 — the bill from two months back had no candidates at all. A
+     month of payments is a bounded set, so the search box below filters it
+     in the browser, without a round trip per letter. */
+  const [rows, reloadRows] = useLoad(() => accounting.listTransactions({
+    direction: "OUT", from: `${due.month}-01`, to: lastDayOf(due.month), limit: 1000,
+  }), [due.month]);
   const [busy, setBusy] = useState(false);
+  const [q, setQ] = useState("");
 
   async function link(trxNo: string) {
     setBusy(true);
@@ -124,37 +141,93 @@ function LinkPayment({ due, onClose, onLinked }: { due: CashDue; onClose: () => 
         ledger appear here — a payment is recorded there, with its evidence,
         and named here afterwards.
       </p>
-      <Loaded state={rows} onRetry={() => {}}>
+      <label className="relative mb-3 block">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+        <input
+          value={q} onChange={(e) => setQ(e.target.value)} autoFocus
+          placeholder="Cari deskripsi, nomor, tipe, akun, atau nominal…"
+          className="h-9 w-full rounded-lg border border-slate-200 pl-8 pr-2 text-sm focus:border-brand-400 focus:outline-none"
+        />
+      </label>
+      <Loaded state={rows} onRetry={reloadRows}>
         {(all) => {
-          const candidates = all.filter(
-            (t) => t.direction === "OUT" && t.trx_date.startsWith(due.month),
-          );
+          const inMonth = all;
+          /* The row that paid a bill is almost always the one whose amount is
+           * nearest the plan, so that one goes first; the date breaks ties,
+           * newest first, the way the ledger reads. */
+          const needle = q.trim().toLowerCase();
+          const digits = needle.replace(/[^0-9]/g, "");
+          const candidates = inMonth
+            .filter((t) => !needle
+              || [t.description, t.trx_no, t.type_code, t.account_code]
+                .some((f) => f?.toLowerCase().includes(needle))
+              || (digits !== "" && /^(rp\s*)?[\d.,\s]+$/.test(needle) && String(Math.round(t.amount_idr)).includes(digits)))
+            .sort((a, b) =>
+              Math.abs(a.amount_idr - due.planned) - Math.abs(b.amount_idr - due.planned)
+              || b.trx_date.localeCompare(a.trx_date));
+          if (inMonth.length === 0) {
+            return (
+              <p className="text-[13px] text-amber-700">
+                Nothing left an account in {due.month} yet. Post the payment in the
+                ledger first, then come back and name it here.
+              </p>
+            );
+          }
+          const cut = rows.status === "ready" && rows.page?.has_more
+            ? <p className="mb-2 text-[12px] text-amber-700">
+                Hanya {all.length} dari {rows.page.total} transaksi bulan ini yang dimuat; sisanya tidak ditampilkan di sini.
+              </p>
+            : null;
           return candidates.length === 0 ? (
-            <p className="text-[13px] text-amber-700">
-              Nothing left an account in {due.month} yet. Post the payment in the
-              ledger first, then come back and name it here.
-            </p>
+            <p className="text-[13px] text-slate-500">Tidak ada transaksi yang cocok dengan &ldquo;{q}&rdquo;.</p>
           ) : (
-            <ul className="divide-y divide-slate-100">
-              {candidates.map((t) => (
-                <li key={t.trx_no} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
-                  <span className="w-[86px] shrink-0 font-mono text-[11px] text-slate-500">{t.trx_date}</span>
-                  <span className="min-w-[200px] flex-1 text-[13px] text-slate-700">
-                    {t.description}
-                    <span className="block text-[11px] text-slate-500">
-                      {t.type_code} · {t.account_code}
-                    </span>
-                  </span>
-                  <span className="tabular-nums text-[13px] text-slate-800">{formatIDR(t.amount_idr)}</span>
-                  <Button size="sm" variant="outline" disabled={busy} onClick={() => link(t.trx_no)}>
-                    This one
-                  </Button>
-                </li>
-              ))}
-            </ul>
+            /* Ten at a time, at a fixed height: a month of ledger rows is a
+             * hundred-odd lines, and a modal that grows with it pushes its own
+             * title and close button off the screen. */
+            <>
+            {cut}
+            <Paged rows={candidates} pageSize={LINK_PAGE_SIZE} unit="transaksi">
+              {(shown) => (
+                <ul className="-mx-5 h-[480px] divide-y divide-slate-100 overflow-y-auto border-t border-slate-100 px-5">
+                  {shown.map((t) => (
+                    <li key={t.trx_no} className="flex h-12 items-center gap-3">
+                      <span className="w-[76px] shrink-0 font-mono text-[11px] text-slate-500">{t.trx_date}</span>
+                      <span className="min-w-0 flex-1 text-[13px] text-slate-700">
+                        <span className="block truncate" title={t.description}>{t.description}</span>
+                        <span className="block truncate text-[11px] text-slate-500">
+                          {t.type_code} · {t.account_code}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-right">
+                        <span className="block tabular-nums text-[13px] text-slate-800">{formatIDR(t.amount_idr)}</span>
+                        <AmountGap amount={t.amount_idr} planned={due.planned} />
+                      </span>
+                      <Button size="sm" variant="outline" disabled={busy} onClick={() => link(t.trx_no)}>
+                        This one
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Paged>
+            </>
           );
         }}
       </Loaded>
     </Modal>
+  );
+}
+
+/** How far a ledger row sits from the plan — the reason it is where it is in
+ *  the list. */
+function AmountGap({ amount, planned }: { amount: number; planned: number }) {
+  const gap = amount - planned;
+  if (Math.abs(gap) < 1) {
+    return <span className="block text-[11px] font-medium text-emerald-700">sama persis</span>;
+  }
+  return (
+    <span className="block text-[11px] tabular-nums text-slate-400">
+      {gap > 0 ? "+" : "−"}{formatIDR(Math.abs(gap))}
+    </span>
   );
 }

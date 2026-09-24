@@ -242,6 +242,13 @@ export async function getAttachment(id: string): Promise<Result<AttachmentView>>
   return ok(SERVICE, view(found));
 }
 
+/** Just these attachments — the ones a screen is actually drawing. */
+export async function getAttachments(ids: string[]): Promise<Result<AttachmentView[]>> {
+  await latency();
+  const wanted = new Set(ids);
+  return ok(SERVICE, getState().attachments.filter((a) => wanted.has(a.id)).map(view));
+}
+
 export async function listAttachments(): Promise<Result<AttachmentView[]>> {
   await latency();
   return ok(SERVICE, getState().attachments.map(view));
