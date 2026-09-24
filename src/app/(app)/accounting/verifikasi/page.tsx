@@ -66,7 +66,7 @@ const DECIDED_SHOWN = 20;
  *  extractor read — `<event>~x0`, `<event>~x1`, … — so a transfer and its
  *  admin fee, or a nota of five items, arrived here as two or five
  *  "documents" that were the same photo. They are grouped back by the event
- *  part of `ref_id`; the seam (0157) checks they really are one file rather
+ *  part of `ref_id`; the seam (0161) checks they really are one file rather
  *  than trusting this.
  *
  *  `rows[0]` is the **main** row — the largest amount, so the transfer and not
@@ -495,7 +495,7 @@ function ResolvePanel({
    * one transfer proof. The old road took one row and then closed the photo,
    * so the other four could only get their proof by uploading it again. Now
    * the rows are ticked, any number of them, and `linkEvidence` files the
-   * proof on all of them in one act (0158).
+   * proof on all of them in one act (0162).
    *
    * The list starts on the week around the document's date — where a nota's
    * own rows are — and a search reaches anything else by description or
@@ -570,7 +570,7 @@ function ResolvePanel({
 
       if (road === "link") {
         /* One call: the proof on every ticked row and every inbox row of the
-           photo closed, or nothing (0158). */
+           photo closed, or nothing (0162). */
         const res = await accounting.linkEvidence({
           ref_ids: refs, trx_nos: linked.map((t) => t.trx_no),
         });

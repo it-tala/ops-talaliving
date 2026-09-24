@@ -848,7 +848,7 @@ export async function bookEvidence(
     /** The other inbox rows of the **same photo**. The capture worker files
      *  one row per slot it read (`<event>~x0`, `~x1`, …), so one nota can
      *  arrive as several rows; they are booked as one document and closed
-     *  together (0157). */
+     *  together (0161). */
     also_ref_ids?: string[];
     trx_date: string;
     account_id: string;
@@ -882,7 +882,7 @@ export async function bookEvidence(
     return conflict(SERVICE, "already_resolved",
       `This document is already ${row.status} — nothing changed.`);
   }
-  /* The other rows of the same photo (0157): all present, all still pending. */
+  /* The other rows of the same photo (0161): all present, all still pending. */
   const also = [...new Set(input.also_ref_ids ?? [])].filter((r) => r && r !== input.ref_id);
   for (const ref of also) {
     const other = getState().evidence_inbox.find((r) => r.ref_id === ref);
@@ -951,7 +951,7 @@ export async function bookEvidence(
 }
 
 /** One proof, several ledger rows, one act. The live seam is
- *  `ops_acct.link_evidence` (0158); same refusals, same answer. */
+ *  `ops_acct.link_evidence` (0162); same refusals, same answer. */
 export async function linkEvidence(
   input: { ref_ids: string[]; trx_nos: string[] },
   idempotencyKey?: string,

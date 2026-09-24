@@ -1,4 +1,4 @@
--- acct — one photo filed as several inbox rows, booked as one document (0157).
+-- acct — one photo filed as several inbox rows, booked as one document (0161).
 --
 -- The capture worker files one inbox row per slot the extractor read, so a
 -- transfer proof with its admin fee arrives as `<event>~x0` and `<event>~x1`,

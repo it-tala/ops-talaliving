@@ -1,4 +1,4 @@
--- 0158_acct_link_evidence.sql — one proof, several ledger rows, one act.
+-- 0162_acct_link_evidence.sql — one proof, several ledger rows, one act.
 --
 -- ── The question ────────────────────────────────────────────────────────
 --
@@ -179,7 +179,7 @@ end $$;
 comment on function ops_acct.link_evidence(text[], text[], text) is
   'One proof, several ledger rows: files the document against every named row and '
   'marks every inbox row of the photo ATTACHED, in one act. No money moves. Refuses '
-  'unless the rows exist, the inbox rows are PENDING and one file. (0158)';
+  'unless the rows exist, the inbox rows are PENDING and one file. (0162)';
 
 revoke execute on function ops_acct.link_evidence(text[], text[], text) from public;
 grant execute on function ops_acct.link_evidence(text[], text[], text) to authenticated;

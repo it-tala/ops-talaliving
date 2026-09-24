@@ -1,4 +1,4 @@
--- 0157_acct_book_evidence_group.sql — one photo, several inbox rows, one booking.
+-- 0161_acct_book_evidence_group.sql — one photo, several inbox rows, one booking.
 --
 -- ── What 0124 fixed, and what it left ───────────────────────────────────
 --

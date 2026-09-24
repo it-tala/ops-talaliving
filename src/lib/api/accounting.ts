@@ -473,7 +473,7 @@ export async function bookEvidence(
     /** The other inbox rows of the **same photo**. The capture worker files
      *  one row per slot it read (`<event>~x0`, `~x1`, …), so one nota can
      *  arrive as several rows; they are booked as one document and closed
-     *  together (0157). */
+     *  together (0161). */
     also_ref_ids?: string[];
     trx_date: string;
     account_id: string;
@@ -912,7 +912,7 @@ export async function getInboxHealth(): Promise<Result<InboxHealth>> {
  *  the answer. */
 type InboxResolution = "transaction" | "retro_pr_line" | "link" | "note" | "reject";
 
-/** One proof, several ledger rows, one act (0158).
+/** One proof, several ledger rows, one act (0162).
  *
  *  Owner, 2026-09-24: five ledger rows came from one nota and the payment is
  *  one transfer proof. *Link to a row* took one row and then resolved the
