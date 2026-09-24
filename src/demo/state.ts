@@ -25,7 +25,8 @@ import type {
   Employee, AttendanceScan, DayMark, OvertimeSheet, OvertimeLine, PayrollRun,
   PayrollAdjustment, PayRuleSet, EmployeeDocument, LeaveRequest,
   AllowanceWithholding, ContributionRate, Enrolment, Task,
-  EmploymentContract, ContractClause, ClauseChecklistItem,
+  EmploymentContract, ContractClause, ClauseChecklistItem, TaskRoutine,
+  EmployeeIdentity,
 } from "@/services/hr/contracts";
 import type {
   WorkOrder, ProgressEntry, VendorLeg, Product, BomComponent, BomRevision,
@@ -183,6 +184,15 @@ export interface DemoState {
   /** What one person is expected to do, by a date — the record a KPI over
    *  deliverables has to be built on (D260). */
   tasks: Task[];
+  /** The standing expectations tasks are raised from: what recurs, how often,
+   *  what has to be handed over, and how many days before it is due somebody
+   *  should ask for it (D303). */
+  task_routines: TaskRoutine[];
+  /** The dimensions WLKP counts people by — date of birth, sex, education,
+   *  citizenship, disability, marital status (D304). Its own table, not columns
+   *  on `employees`, because `employees` is readable by every payroll account
+   *  and this is not (D196). */
+  employee_identities: EmployeeIdentity[];
 
   /* --- production ------------------------------------------------- */
   /** What is being made, in what quantity, by when (D148). */

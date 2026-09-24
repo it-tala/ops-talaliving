@@ -11,6 +11,7 @@ that only shows what is left teaches nobody anything.
 
 | # | What happens | Where | Status |
 |---|---|---|---|
+| B5 | **Moving between pages feels heavy** — noticeable lag on navigation, reported 2026-09-23 | everywhere | **recorded, not diagnosed.** Written down exactly as reported and nothing more, because the plausible causes are several and picking one from a feeling is how the wrong thing gets optimised. The candidates worth measuring first, in the order they are cheap to test: every screen loads through `useLoad` on mount, so a route change is a blank card and then a round trip with nothing cached between pages; the client bundle ships the whole demo fixture set (`src/demo/fixtures`) even in live mode, which is a large module graph to parse; and several reads fan out into two or three sequential round trips where one would do (`periodView` is now one of them). None of that is established — the first task is a measurement, not a fix: a profile of one real navigation against the deployed Worker, so the argument is about a number |
 | B1 | ~~Clicking into the instruction box opens the line drawer behind it and takes the focus with it~~ | `/procurement/meeting` | **fixed** 2026-09-11 — the cell stops the row's click (F36) |
 | B2 | ~~The evidence chips — *photo of the goods*, *tanda terima*, *on file* — read as labels and cannot be opened~~ | `/procurement/tracker/[vendor]` | **fixed** 2026-09-13 (M55) — D268. The booleans behind them became attachment ids, so presence is derived from the thing itself; one `EvidenceChip` for all three. It found a mislabelled file on its first use (F88) |
 | B3 | ~~An image has to be opened through a button before it can be seen. Every picture in the queue should show its own preview~~ | `/accounting/verifikasi` | **fixed** 2026-09-12 (M39) — a preview on the selected document and on every decided one, swapping in place rather than opening a modal. What it draws is a stand-in that says so on its face (D208); Phase 2 puts the file in the same slot |
@@ -97,7 +98,38 @@ and I numbered them while agreeing what to do first.
 
 | # | What | Note |
 |---|---|---|
+| W7 | **A profile screen every account owns** — password, when they last signed in, what they have been doing, what they may open, and **their own tasks with the deliverable handed in through the app** | Asked 2026-09-23, alongside the task module (D296), and deliberately not built with it. Most of its parts already exist and are scattered: `/set-password` and the reset road (`03_chat_users.sql`), `auth.users.last_sign_in_at`, `ops_core.audit_log`, `ops_core.user_modules` and `user_authorities`, and now `ops_hr.tasks`. **The screen is the easy half; the hard half is who may see it.** An activity log read by its own subject is a different object from the IT audit trail — D196's masking and the roster-name rule (F141) both say a person's page may show *their* history and nobody else's, and that is a seam with its own permission, not a filter in a browser. Handing a deliverable in means attachments against a task, which is `ops_core.attach_link` (ADR-010) and a storage road HR does not have yet. Sized large, and worth doing after the task module has been used for a fortnight: what people actually attach will decide the shape |
 | W2 | ~~**Two roads to a confirmed PO**~~ | **built 2026-09-13 (M55)** — D267. Leadership writing their own order confirms it in the same act, recorded as `self_confirmed` and said plainly on the banner; anybody else's order goes out as a chat card answered from the approver's own account, refused from anybody else's (D69's rule, one level up) |
 | W3 | **The PDF a vendor receives should carry its own signature** — answered: a **QR resolving to our own PO page** (D244). Still Phase 2: a vendor has no account here, so it needs a public read route and a token scoped per order. The PO screen now renders the QR **inside the app** with a note saying exactly that, and it is deliberately not printed on the vendor's PDF — a QR that fails for the person holding it is worse than no QR | Raised 2026-09-11, answered 2026-09-13. The two other candidates are dead: a scanned signature survives a photocopier and therefore proves nothing, a cryptographic one nobody in this trade can verify. The QR also catches an amended order presented as the original, because what the vendor sees is live |
 | W4 | ~~**QR per box, as the marker for installation**~~ — **built 2026-09-13 (M52)**, D262/D263 — the owner's second sentence on Q29, and a different thing from W3 | Raised 2026-09-13 (D244). A purchase order is one document with one QR; an installation needs a code **per box** that survives being carried to a site, and resolves to what is inside it and where it goes. Not built by widening W3 |
 | W1 | ~~Receiving reported by whoever actually saw the goods arrive~~ | **answered and built** 2026-09-11 (D131). The owner's answer changed the shape: there *is* a procurement team with access, so accountability was never in doubt — the problem is only that goods arrive outside working hours. So receiving split into a report (photo, anyone present) and a confirmation (tanda terima, procurement). The Chat route is no longer required for it: the same two acts work from the app tonight, and a bot can produce the report later without changing anything |
+
+## Kepatuhan ketenagakerjaan — audited 2026-09-24, mostly not built
+
+The owner asked *compliance ke dinas tenaga kerja itu gimana* and the answer was
+nothing: `WLKP`, `Disnaker`, `Kemnaker`, `UMK`, `peraturan perusahaan`,
+`pesangon` and `bukti potong` appeared nowhere in this repository. The HR module
+was built to run attendance and payroll, which it does, and a regulator asks
+different questions.
+
+**C1 was built the same day (D304). Everything below it was deliberately
+deferred by the owner — *abaikan 2–4* — and is recorded here rather than
+dropped.** The mapping is against the obligations that are commonly known to
+apply to a twelve-person PT; which of them actually bind this company is for
+whoever handles its filings to confirm, and this table is the database half of
+that conversation, not legal advice.
+
+| # | Kewajiban | Status hari ini | Yang kurang |
+|---|---|---|---|
+| C1 | ~~**WLKP** — lapor tahunan, rincian menurut tujuh dimensi~~ | **built 2026-09-24 (D304)** — `0125`, `/hrd/wlkp` | data dirinya sendiri masih harus dikumpulkan dari dua belas orang; layarnya menyebut siapa kurang apa |
+| C2 | **Upah minimum (UMK)** | tidak dimodelkan di mana pun | tidak ada angka UMK dan tidak ada yang memeriksa `base_rate` terhadapnya. Sistem akan membayar di bawah minimum tanpa berkata apa-apa. Bentuk yang benar adalah peringatan, bukan penolakan (A6): boleh ada alasan sah, yang tidak boleh adalah diam |
+| C3 | **Batas lembur** — 4 jam/hari, 18 jam/minggu | tangga pengalinya benar (D173–176), batasnya tidak ada | satu peringatan di `/hrd/lembur` saat sebuah sheet melewatinya. Tidak ada pula catatan persetujuan pekerja: `overtime_sheets` punya tanda tangan pimpinan, dan surat perintah lembur adalah dokumen yang berbeda |
+| C4 | **Cuti tahunan 12 hari** | kolomnya ada, isinya nol untuk **12 dari 12** orang di produksi | ini data, bukan kode. Selama nol, setiap pengajuan dihitung tidak berbayar dan payroll memotong orang yang berhak |
+| C5 | **Jenis cuti yang wajib ada** | `leave_kind_t` hanya `cuti`, `izin`, `sakit` | cuti melahirkan, cuti haid, dan cuti karena alasan penting adalah hak dengan aturan berbeda-beda, dan sekarang ketiganya masuk ke `izin` |
+| C6 | **Pencatatan PKWT ke Disnaker** — 3 hari kerja | PKWT/PKWTT dimodelkan lengkap dengan daftar periksa klausul (`0058`) | tidak ada yang melacak apakah sudah dicatatkan dan kapan; tidak ada pemeriksaan batas 5 tahun; tidak ada uang kompensasi PKWT |
+| C7 | **Peraturan Perusahaan** — wajib ≥10 karyawan, daftar ulang 2 tahun | tidak ada tempatnya sama sekali | 12 karyawan, jadi ini berlaku. Satu baris dengan tanggal berlaku dan tanggal kedaluwarsa sudah cukup untuk mulai |
+| C8 | **BPJS TK + Kesehatan** | rangkanya lengkap — `enrolments`, `contribution_rates`, audit rekap (D227, D259) | **0 pendaftaran tercatat di produksi**, dan `/hrd/iuran` masih gelap: 6 fungsi live client belum ditulis |
+| C9 | **PPh 21 / bukti potong 1721-A1** | sengaja tidak dihitung (D140) | keputusan yang masih berlaku dan masih benar — potongan yang salah lebih buruk daripada yang tidak ada. Tapi artinya payroll berhenti di bruto dan pajaknya dikerjakan di luar sistem. Tidak ada kolom PTKP dan NPWP hanya ada sebagai berkas pindaian |
+| C10 | **Surat Peringatan** | hanya sebagai jenis dokumen pindaian | SP punya masa berlaku. *Apakah SP1 orang ini masih hidup* tidak bisa dijawab dari sebuah file di folder |
+| C11 | **K3 / kecelakaan kerja** | tidak ada register insiden | klaim JKK perlu laporan 2×24 jam, dan yang dilaporkan harus dicatat sebelum bisa dilaporkan |
+| C12 | **PHK & pesangon** | `left_on` tanpa alasan dan tanpa jenis | masa kerja ada, hak tidak dihitung, dan perputaran karyawan tidak bisa dilaporkan |
