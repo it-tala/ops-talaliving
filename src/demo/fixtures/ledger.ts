@@ -73,6 +73,16 @@ const TRX_SEEDS: TrxSeed[] = [
      audit screen exists to catch (D259). */
   ["trx-26-09-10_001", "2026-09-10", "acc_bni325", "OUT", 1_525_000, "RECCURING - PAYROLL", "vnd_50", null, "BPJS Kesehatan September", "COMPLETED"],
   ["trx-26-09-10_002", "2026-09-10", "acc_bni325", "OUT", 3_310_689, "RECCURING - PAYROLL", "vnd_51", null, "BPJS Ketenagakerjaan September", "COMPLETED"],
+  /* One nota from UD KARYA LOGAM ABADI, booked the old way — one ledger row
+     per item, as the legacy sheet did — and paid by ONE transfer whose proof
+     is still in the inbox (inb_13). The case `link_evidence` exists for
+     (owner, 2026-09-24): the proof belongs on all six rows at once. */
+  ["trx-26-09-17_111", "2026-09-15", "acc_bca271", "OUT", 900_000, "SUPPLIERS", "vnd_06", null, "SCREW FAB 6X2 - UD KARYA LOGAM", "POSTED"],
+  ["trx-26-09-17_112", "2026-09-15", "acc_bca271", "OUT", 85_000, "SUPPLIERS", "vnd_06", null, "MATA BOR BESI 4 INC - UD KARYA LOGAM", "POSTED"],
+  ["trx-26-09-17_113", "2026-09-15", "acc_bca271", "OUT", 90_000, "SUPPLIERS", "vnd_06", null, "MATA BOR BESI 5 INC - UD KARYA LOGAM", "POSTED"],
+  ["trx-26-09-17_114", "2026-09-15", "acc_bca271", "OUT", 192_500, "SUPPLIERS", "vnd_06", null, "JCBC 8 X 70 SST - UD KARYA LOGAM", "POSTED"],
+  ["trx-26-09-17_115", "2026-09-15", "acc_bca271", "OUT", 44_000, "SUPPLIERS", "vnd_06", null, "MUR BAUT SST M 8 - UD KARYA LOGAM", "POSTED"],
+  ["trx-26-09-17_117", "2026-09-15", "acc_bca271", "OUT", 2_500, "BANK CHARGES", null, null, "ADMIN FEE UD KARYA LOGAM", "COMPLETED"],
   /* HADI GLASS, five payments across three orders — including one transfer on
    * 19 August that closes three of them at once (D97). */
   ["trx-26-07-01_001", "2026-07-01", "acc_bca271", "OUT", 9_562_500, "SUPPLIERS", "vnd_13", "prj_25007", "HADI GLASS — DP 50% po-26-06-30_01", "COMPLETED"],
@@ -237,6 +247,20 @@ export const EVIDENCE_INBOX: Omit<EvidenceInboxRow, "reported_by_name">[] = [
     id: "inb_12", ref_id: "upl_26-09-09_01~x4", origin: "chat", status: "PENDING",
     attachment_id: "att_10", reported_by: "usr_made", reported_at: "2026-09-09T17:22:00+08:00",
     extracted: { vendor_name: "TOKO BANGUNAN MAKMUR SENTOSA", document_date: "2026-09-09", amount_idr: 20_000, doc_type: "Receipt / Invoice / Nota", confidence: 88, note: "AMPLAS NO. 120" },
+    produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
+  },
+  /** The transfer that paid the six UD KARYA LOGAM rows above, filed as two
+   *  slots (the transfer and its fee). Linking it is one act on six rows. */
+  {
+    id: "inb_13", ref_id: "upl_26-09-15_04~x0", origin: "chat", status: "PENDING",
+    attachment_id: "att_69", reported_by: "usr_made", reported_at: "2026-09-15T15:10:00+08:00",
+    extracted: { vendor_name: "UD KARYA LOGAM ABADI", document_date: "2026-09-15", amount_idr: 1_311_500, doc_type: "Payment Proof", confidence: 95, note: "Transfer BCA 271 ke UD KARYA LOGAM" },
+    produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
+  },
+  {
+    id: "inb_14", ref_id: "upl_26-09-15_04~x1", origin: "chat", status: "PENDING",
+    attachment_id: "att_69", reported_by: "usr_made", reported_at: "2026-09-15T15:10:00+08:00",
+    extracted: { vendor_name: "UD KARYA LOGAM ABADI", document_date: "2026-09-15", amount_idr: 2_500, doc_type: "Payment Proof", confidence: 95, note: "Transfer admin fee" },
     produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
   },
   {

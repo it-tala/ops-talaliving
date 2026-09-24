@@ -912,6 +912,29 @@ export async function getInboxHealth(): Promise<Result<InboxHealth>> {
  *  the answer. */
 type InboxResolution = "transaction" | "retro_pr_line" | "link" | "note" | "reject";
 
+/** One proof, several ledger rows, one act (0158).
+ *
+ *  Owner, 2026-09-24: five ledger rows came from one nota and the payment is
+ *  one transfer proof. *Link to a row* took one row and then resolved the
+ *  document, so the other four could only be proven by uploading the same
+ *  file again. This files the document against every row named and closes
+ *  every inbox row of the photo, or does nothing. No money moves.
+ */
+export async function linkEvidence(
+  input: { ref_ids: string[]; trx_nos: string[] },
+  idempotencyKey?: string,
+): Promise<Result<{ trx_nos: string[]; rows: number; rows_total: number }>> {
+  const { data, error } = await db().rpc("link_evidence", {
+    p_ref_ids: input.ref_ids,
+    p_trx_nos: input.trx_nos,
+    p_key: idempotencyKey ?? null,
+  });
+  const res = fromSeam<{ trx_nos: string[]; rows: number; rows_total: number | string }>(
+    SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, { ...res.data, rows_total: Number(res.data.rows_total) });
+}
+
 /** The road the screen names, and the status it arrives at.
  *
  *  Two roads land on `CONFIRMED` because *it became a ledger row* and *it

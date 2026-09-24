@@ -24,6 +24,7 @@ import {
 import { latency, actingUser, requireAuthority, requireModule, requireLevel, conflict, replayed, remember, paged } from "./_kit";
 import { PRIMARY_DOC_KINDS, COMPLETION_DOC_KINDS, type DocKind } from "@/services/documents/contracts";
 import * as procurement from "./procurement";
+import { link as linkDocument } from "./documents";
 
 const SERVICE = "accounting" as const;
 
@@ -947,6 +948,85 @@ export async function bookEvidence(
 
   remember(SERVICE, endpoint, idempotencyKey, posted.data);
   return ok(SERVICE, posted.data);
+}
+
+/** One proof, several ledger rows, one act. The live seam is
+ *  `ops_acct.link_evidence` (0158); same refusals, same answer. */
+export async function linkEvidence(
+  input: { ref_ids: string[]; trx_nos: string[] },
+  idempotencyKey?: string,
+): Promise<Result<{ trx_nos: string[]; rows: number; rows_total: number }>> {
+  await latency();
+  const refs = [...new Set(input.ref_ids.map((r) => r.trim()).filter(Boolean))];
+  const trxNos = [...new Set(input.trx_nos.map((t) => t.trim()).filter(Boolean))];
+  const endpoint = `linkEvidence:${refs[0] ?? ""}`;
+  const cached = replayed<{ trx_nos: string[]; rows: number; rows_total: number }>(
+    SERVICE, endpoint, idempotencyKey);
+  if (cached) return cached;
+
+  const denied = requireAuthority(SERVICE, "resolve_inbox");
+  if (denied) return denied;
+  if (refs.length === 0) {
+    return invalid(SERVICE, "ref_required", "Say which inbox document this is.", { field: "ref_ids" });
+  }
+  if (trxNos.length === 0) {
+    return invalid(SERVICE, "trx_required",
+      "Which ledger rows is this the proof of? Pick at least one.", { field: "trx_nos" });
+  }
+
+  const state = getState();
+  const rows = refs.map((r) => state.evidence_inbox.find((x) => x.ref_id === r));
+  if (rows.some((r) => !r)) {
+    return notFound(SERVICE, "inbox_row_not_found", "Some of the inbox rows named do not exist.");
+  }
+  if (rows.some((r) => r!.status !== "PENDING")) {
+    return conflict(SERVICE, "already_resolved",
+      "Part of this document is already decided — nothing changed. Reload the queue.");
+  }
+  if (new Set(rows.map((r) => r!.attachment_id)).size > 1) {
+    return invalid(SERVICE, "not_one_document",
+      "These inbox rows are different files. Only rows of the same photo can be linked as one document.",
+      { field: "ref_ids" });
+  }
+  const missing = trxNos.filter((t) => !state.transactions.some((x) => x.trx_no === t));
+  if (missing.length > 0) {
+    return invalid(SERVICE, "no_such_transaction",
+      `There is no ledger row ${missing.join(", ")}.`, { field: "trx_nos", missing });
+  }
+
+  const head = rows[0]!;
+  const kind: DocKind = /payment|transfer|bukti/i.test(head.extracted.doc_type ?? "")
+    ? "Payment Proof" : "Receipt / Invoice / Nota";
+  for (const trxNo of trxNos) {
+    const linked = await linkDocument({
+      attachment_id: head.attachment_id, entity: "transaction", entity_no: trxNo, kind,
+    });
+    if (linked.error && linked.error.status !== 409) return linked;
+  }
+
+  const rowsTotal = trxNos.reduce(
+    (n, t) => n + (state.transactions.find((x) => x.trx_no === t)?.amount_idr ?? 0), 0);
+  apply((draft) => {
+    const trxId = draft.transactions.find((t) => t.trx_no === trxNos[0])?.id ?? null;
+    for (const ref of refs) {
+      const r = draft.evidence_inbox.find((x) => x.ref_id === ref)!;
+      r.status = "ATTACHED";
+      r.produced_trx_id = trxId;
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "evidence_inbox", entity_no: refs[0],
+      action: "link", outcome: "ok", reason: null,
+      detail: { status_before: "PENDING", status_after: "ATTACHED", trx_nos: trxNos },
+    });
+    writeOutbox(draft, {
+      service: SERVICE, event_type: "accounting.inbox.resolved",
+      payload: { ref_id: refs[0], ref_ids: refs, resolution: "link", trx_nos: trxNos },
+    });
+  });
+
+  const answer = { trx_nos: trxNos, rows: trxNos.length, rows_total: rowsTotal };
+  remember(SERVICE, endpoint, idempotencyKey, answer);
+  return ok(SERVICE, answer);
 }
 
 export async function resolveInbox(

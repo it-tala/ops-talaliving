@@ -14,7 +14,7 @@ import { formatIDR } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { accounting, documents, procurement } from "@/demo/api";
 import { DocumentPreview } from "@/components/ui/doc-preview";
-import type { EvidenceInboxRow, TransactionTypeCode, Direction, DocumentCoverage } from "@/services/accounting/contracts";
+import type { EvidenceInboxRow, TransactionTypeCode, Direction, DocumentCoverage, TransactionView } from "@/services/accounting/contracts";
 import type { AttachmentView } from "@/services/documents/contracts";
 import { type UomCode } from "@/services/procurement/contracts";
 import { useToast } from "@/store/toast";
@@ -84,6 +84,13 @@ interface InboxDoc {
 function docKey(r: EvidenceInboxRow): string {
   const i = r.ref_id.indexOf("~");
   return r.origin === "chat" && i > 0 ? r.ref_id.slice(0, i) : r.ref_id;
+}
+
+/** `YYYY-MM-DD` moved by whole days, in UTC so a timezone never shifts it. */
+function shiftDate(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
 }
 
 /** What a document is called on screen. A photo of five things is named by
@@ -423,7 +430,6 @@ function ResolvePanel({
   const [accounts] = useLoad(() => accounting.listAccounts(), []);
   const [vendors] = useLoad(() => procurement.listVendors({}), []);
   const [projects] = useLoad(() => procurement.listProjects(), []);
-  const [recent] = useLoad(() => accounting.listTransactions({ limit: 40 }), []);
   /* The main row speaks for the photo; the others are its further lines. */
   const row = doc.main;
   const refs = doc.rows.map((r) => r.ref_id);
@@ -483,7 +489,39 @@ function ResolvePanel({
      the form. */
   const linesAgree = lines.length === 0 || linesTotal === amount;
   const [purpose, setPurpose] = useState("");
-  const [trxNo, setTrxNo] = useState("");
+  /* ── Link: one proof, as many ledger rows as it pays for ─────────────
+   *
+   * Owner, 2026-09-24: five ledger rows came from one nota, and its payment is
+   * one transfer proof. The old road took one row and then closed the photo,
+   * so the other four could only get their proof by uploading it again. Now
+   * the rows are ticked, any number of them, and `linkEvidence` files the
+   * proof on all of them in one act (0158).
+   *
+   * The list starts on the week around the document's date — where a nota's
+   * own rows are — and a search reaches anything else by description or
+   * number. Ticked rows are kept by value, so a new search never drops them. */
+  const [linked, setLinked] = useState<TransactionView[]>([]);
+  const [linkQ, setLinkQ] = useState("");
+  const [linkQuery, setLinkQuery] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setLinkQuery(linkQ.trim()), 300);
+    return () => clearTimeout(t);
+  }, [linkQ]);
+  const docDate = row.extracted.document_date ?? null;
+  const [candidates] = useLoad(
+    () => accounting.listTransactions(linkQuery
+      ? { q: linkQuery, limit: 60 }
+      : docDate ? { from: shiftDate(docDate, -7), to: shiftDate(docDate, 7), limit: 100 }
+        : { limit: 60 }),
+    [linkQuery, docDate],
+    { keepPrevious: true },
+  );
+  const linkedTotal = linked.reduce((n, t) => n + t.amount_idr, 0);
+  function toggleLinked(t: TransactionView) {
+    setLinked((ls) => ls.some((x) => x.trx_no === t.trx_no)
+      ? ls.filter((x) => x.trx_no !== t.trx_no)
+      : [...ls, t]);
+  }
   const [reason, setReason] = useState("");
 
   const accountRows = accounts.status === "ready" ? accounts.data.filter((a) => a.is_active !== false) : [];
@@ -531,17 +569,16 @@ function ResolvePanel({
       }
 
       if (road === "link") {
-        const link = await documents.link({
-          attachment_id: row.attachment_id, entity: "transaction", entity_no: trxNo,
-          kind: "Receipt / Invoice / Nota",
+        /* One call: the proof on every ticked row and every inbox row of the
+           photo closed, or nothing (0158). */
+        const res = await accounting.linkEvidence({
+          ref_ids: refs, trx_nos: linked.map((t) => t.trx_no),
         });
-        if (link.error && link.error.status !== 409) {
-          toast("warning", "Not linked", link.error.message);
-          return;
-        }
-        const err = await resolveAll({ resolution: "link", trx_no: trxNo });
-        if (err) { toast("warning", "Not recorded", err.error); if (err.partial) onDone(); return; }
-        toast("success", "Linked", `${filename} now proves ${trxNo}.`);
+        if (res.error) { toast("warning", "Not linked", res.error.message); return; }
+        toast("success", "Linked",
+          res.data.rows === 1
+            ? `${filename} now proves ${res.data.trx_nos[0]}.`
+            : `${filename} now proves ${res.data.rows} ledger rows · ${formatIDR(res.data.rows_total)}.`);
         onDone();
         return;
       }
@@ -630,7 +667,7 @@ function ResolvePanel({
 
   const canRun = mayResolve && (
     road === "note" || road === "reject" ? reason.trim().length > 0
-      : road === "link" ? !!trxNo
+      : road === "link" ? linked.length > 0
         /* The button is disabled while the lines disagree, and the reason is
            shown beside them. The seam refuses this too — the screen refusing
            first is a courtesy, not the control (D220: the database decides). */
@@ -671,9 +708,11 @@ function ResolvePanel({
 
         {doc.rows.length > 1 && (
           <p className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-[13px] text-violet-900">
-            Satu foto, terbaca <strong>{doc.rows.length} baris</strong>. Semuanya ada di
-            daftar baris di bawah dan dibukukan sekaligus sebagai satu dokumen — satu
-            transaksi, bukan {doc.rows.length}.
+            Satu foto, terbaca <strong>{doc.rows.length} baris</strong>, diperlakukan sebagai
+            satu dokumen.{" "}
+            {road === "transaction"
+              ? <>Semuanya ada di daftar baris di bawah dan dibukukan sekaligus — satu transaksi, bukan {doc.rows.length}.</>
+              : <>Keputusan di bawah berlaku untuk semua {doc.rows.length} barisnya sekaligus.</>}
           </p>
         )}
 
@@ -703,7 +742,10 @@ function ResolvePanel({
             <span>
               This looks like <span className="font-mono">{similarTrxNos.join(", ")}</span>,
               already in the ledger. If it is the same money, the road is{" "}
-              <button className="font-medium underline" onClick={() => { setRoad("link"); setTrxNo(similarTrxNos[0]); }}>
+              <button className="font-medium underline" onClick={() => {
+                setRoad("link");
+                setLinkQ(similarTrxNos[0]);
+              }}>
                 link to a row
               </button>{" "}
               — posting it again would invent money.
@@ -936,24 +978,75 @@ function ResolvePanel({
 
         {road === "link" && (
           <div>
-            <label htmlFor="rv-trx" className="block text-xs text-slate-500">Which ledger row is this the proof of?</label>
-            <select id="rv-trx" value={trxNo} onChange={(e) => setTrxNo(e.target.value)}
-              className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none">
-              <option value="">Choose…</option>
-              {recent.status === "ready" && recent.data.map((t) => (
-                <option key={t.trx_no} value={t.trx_no}>
-                  {t.trx_date} · {t.trx_no} · {formatIDR(t.amount_idr)} · {t.description.slice(0, 40)}
-                </option>
-              ))}
-            </select>
+            <label htmlFor="rv-trx-q" className="block text-xs text-slate-500">
+              Which ledger rows is this the proof of? Tick every row it pays for.
+            </label>
+            <input id="rv-trx-q" value={linkQ} onChange={(e) => setLinkQ(e.target.value)}
+              placeholder={`${docDate ? `Rows around ${docDate} — or search` : "Search"} by description or trx number`}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none" />
+
+            <Loaded state={candidates}>
+              {(list) => {
+                /* Ticked rows stay on top even when a search no longer finds
+                   them, so what is about to be linked is always in view. */
+                const shown = [...linked, ...list.filter((t) => !linked.some((x) => x.trx_no === t.trx_no))];
+                return shown.length === 0 ? (
+                  <p className="mt-2 text-[12px] text-slate-500">No ledger rows match.</p>
+                ) : (
+                  <ul className="mt-2 max-h-72 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200">
+                    {shown.map((t) => {
+                      const on = linked.some((x) => x.trx_no === t.trx_no);
+                      return (
+                        <li key={t.trx_no}>
+                          <label className={cn(
+                            "flex cursor-pointer items-baseline gap-2 px-3 py-1.5 text-[12px] hover:bg-slate-50",
+                            on && "bg-brand-50/60",
+                          )}>
+                            <input type="checkbox" checked={on} onChange={() => toggleLinked(t)}
+                              className="translate-y-0.5" />
+                            <span className="shrink-0 tabular-nums text-slate-500">{t.trx_date}</span>
+                            <span className="shrink-0 font-mono text-[11px] text-slate-500">{t.trx_no}</span>
+                            <span className="min-w-0 flex-1 truncate text-slate-700">{t.description}</span>
+                            <span className="shrink-0 tabular-nums font-medium text-slate-800">{formatIDR(t.amount_idr)}</span>
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                );
+              }}
+            </Loaded>
+
+            {/* The sum against the document, as a warning and not a block
+                (A6): no money moves on this road, and a proof covering part of
+                a nota, or a nota and a fee, is ordinary. */}
+            {linked.length > 0 && (
+              <div className={cn(
+                "mt-2 flex items-center justify-between rounded-lg px-3 py-2 text-sm",
+                doc.amount == null || linkedTotal === doc.amount
+                  ? "bg-slate-50 text-slate-600" : "bg-amber-50 text-amber-900",
+              )}>
+                <span>
+                  {linked.length} baris dipilih berjumlah <strong>{formatIDR(linkedTotal)}</strong>
+                </span>
+                {doc.amount == null
+                  ? <span className="text-[12px]">nilai dokumen belum terbaca</span>
+                  : linkedTotal === doc.amount
+                    ? <span className="inline-flex items-center gap-1 text-[12px]"><Check className="h-3.5 w-3.5" /> cocok dengan dokumen</span>
+                    : (
+                      <span className="inline-flex items-center gap-1 text-[12px]">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        selisih {formatIDR(linkedTotal - doc.amount)} dari {formatIDR(doc.amount)}
+                      </span>
+                    )}
+              </div>
+            )}
             <p className="mt-1 text-[11px] text-slate-500">
-              No new money: the row already exists and was missing its document.
+              No new money: the rows already exist and were missing this document.
             </p>
-            {/* The check that actually bites. The document in the queue is
-                attached to nothing, so its own coverage decides nothing; what
-                decides whether *link* is right is what the row already
-                carries (D207). */}
-            {trxNo && <TargetRow trxNo={trxNo} />}
+            {/* The check that actually bites for one row: what it already
+                carries (D207). With several, the sum above is the check. */}
+            {linked.length === 1 && <TargetRow trxNo={linked[0].trx_no} />}
           </div>
         )}
 
