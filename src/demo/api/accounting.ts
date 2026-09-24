@@ -1011,6 +1011,18 @@ export async function listInboxAll(): Promise<Result<EvidenceInboxRow[]>> {
     .map((r) => withReporterName(state, r)));
 }
 
+/** The last `limit` decided rows, newest first, with the total. */
+export async function listInboxDecided(limit = 20): Promise<Result<EvidenceInboxRow[]>> {
+  await latency();
+  const state = getState();
+  const decided = state.evidence_inbox
+    .filter((r) => r.status !== "PENDING")
+    .sort((a, b) => b.reported_at.localeCompare(a.reported_at));
+  return ok(SERVICE, decided.slice(0, limit).map((r) => withReporterName(state, r)), {
+    limit, cursor: null, has_more: decided.length > limit, total: decided.length,
+  });
+}
+
 /** Every payment made to one vendor, newest first, with what each one closed.
  *
  *  Read from the ledger rather than from procurement's side, because a payment

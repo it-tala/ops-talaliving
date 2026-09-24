@@ -16,7 +16,9 @@ import type { ApiError, Page } from "@/services/_shared/envelope";
  */
 export type LoadState<T> =
   | { status: "loading" }
-  | { status: "ready"; data: T; page?: Page }
+  /* `refreshing` is a ready state being asked again: the rows on screen are
+     the last answer, and the next one is on its way. */
+  | { status: "ready"; data: T; page?: Page; refreshing?: boolean }
   | { status: "failed"; error: ApiError };
 
 export function SourceBadge({ state }: { state: LoadState<unknown> }) {
@@ -78,21 +80,59 @@ export function Loaded<T>({
     );
   }
 
-  return <>{children(state.data)}</>;
+  return (
+    <>
+      {children(state.data)}
+      {state.refreshing && <RefreshBar />}
+    </>
+  );
+}
+
+/** A reload says so at the top of the window and leaves the table alone.
+ *  Swapping forty rows for a skeleton because one of them changed makes every
+ *  save feel like a page load, and takes the reader's place with it. */
+function RefreshBar() {
+  return (
+    <div
+      role="progressbar"
+      aria-label="Refreshing"
+      className="pointer-events-none fixed inset-x-0 top-0 z-[60] h-0.5 overflow-hidden bg-brand-100"
+    >
+      <div className="h-full w-1/3 animate-pulse bg-brand-500" />
+    </div>
+  );
 }
 
 /** Turns a service call into a `LoadState`. One line per screen, so no screen
- *  invents its own loading convention. */
+ *  invents its own loading convention.
+ *
+ *  A `reload()` keeps what is on screen and refreshes it in the background:
+ *  it is the same question asked again, so the old answer is the right thing
+ *  to look at while the new one arrives.
+ *
+ *  A change of `deps` shows the skeleton by default, because most deps are an
+ *  id — the drawer that moved from PO-12 to PO-13 must not show PO-12's lines
+ *  while it waits. A list whose deps are its filters and search box passes
+ *  `keepPrevious`, and keeps its rows while the narrower set loads. */
 export function useLoad<T>(
   run: () => Promise<{ data?: T; error?: ApiError; meta?: { page?: Page } }>,
   deps: React.DependencyList,
+  opts: { keepPrevious?: boolean } = {},
 ): [LoadState<T>, () => void] {
   const [state, setState] = React.useState<LoadState<T>>({ status: "loading" });
   const [tick, setTick] = React.useState(0);
+  const lastTick = React.useRef(tick);
+  const keepPrevious = opts.keepPrevious ?? false;
 
   React.useEffect(() => {
     let alive = true;
-    setState({ status: "loading" });
+    const isReload = lastTick.current !== tick;
+    lastTick.current = tick;
+    setState((prev) => (
+      prev.status === "ready" && (isReload || keepPrevious)
+        ? { ...prev, refreshing: true }
+        : { status: "loading" }
+    ));
     void run().then((res) => {
       if (!alive) return;
       if (res.error) setState({ status: "failed", error: res.error });
@@ -104,5 +144,16 @@ export function useLoad<T>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, tick]);
 
-  return [state, () => setTick((t) => t + 1)];
+  return [state, React.useCallback(() => setTick((t) => t + 1), [])];
+}
+
+/** The value, once it has stopped changing for `ms`. A search box that asks
+ *  the server wants the word, not every letter of it. */
+export function useDebounced<T>(value: T, ms = 300): T {
+  const [settled, setSettled] = React.useState(value);
+  React.useEffect(() => {
+    const t = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return settled;
 }

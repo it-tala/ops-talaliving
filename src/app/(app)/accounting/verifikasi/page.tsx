@@ -12,7 +12,6 @@ import { MoneyInput } from "@/components/ui/money-input";
 import { NumberInput } from "@/components/ui/number-input";
 import { formatIDR } from "@/lib/format";
 import { cn } from "@/lib/cn";
-import { officeToday } from "@/lib/office";
 import { accounting, documents, procurement } from "@/demo/api";
 import { DocumentPreview } from "@/components/ui/doc-preview";
 import type { EvidenceInboxRow, TransactionTypeCode, Direction, DocumentCoverage } from "@/services/accounting/contracts";
@@ -56,11 +55,14 @@ const ROADS: { key: Road; label: string; icon: typeof Receipt; hint: string }[] 
   { key: "reject", label: "Reject", icon: XCircle, hint: "not ours" },
 ];
 
+/** How much of the history the card shows. */
+const DECIDED_SHOWN = 20;
+
 export default function InboxPage() {
   const { hasAuthority } = useSession();
   const { toast } = useToast();
   const [rows, reload] = useLoad(() => accounting.listInbox(), []);
-  const [everything, reloadAll] = useLoad(() => accounting.listInboxAll(), []);
+  const [decidedState, reloadDecided] = useLoad(() => accounting.listInboxDecided(DECIDED_SHOWN), []);
   const [health, reloadHealth] = useLoad(() => accounting.getInboxHealth(), []);
   const [attachments] = useLoad(() => documents.listAttachments(), []);
   const [selected, setSelected] = useState<string | null>(null);
@@ -71,39 +73,20 @@ export default function InboxPage() {
     rows.status === "ready" ? rows.data : [],
     12,
   );
-  /* B4's other half. Paging made the history usable; it never answered *how
-     far back is worth showing*, and a list that quietly stops somewhere is a
-     list that lies by omission.
-
-     The answer is a window with an honest edge: ninety days by default,
-     because the question this list gets asked — *what did we do with that
-     photo* — is an accounting-rhythm question and a quarter covers last month
-     and the month before. What makes the window safe rather than a hiding
-     place is that the card **always says what is outside it**, and names the
-     date the history actually starts, so nothing is invisible without being
-     counted (D269). */
-  const [windowDays, setWindowDays] = useState<number | null>(90);
-  const allDecided = everything.status === "ready"
-    ? everything.data.filter((r) => r.status !== "PENDING")
-    : [];
-  const cutoff = windowDays === null ? null : (() => {
-    const d = new Date(`${officeToday()}T00:00:00Z`);
-    d.setUTCDate(d.getUTCDate() - windowDays);
-    return d.toISOString().slice(0, 10);
-  })();
-  const decided = cutoff === null
-    ? allDecided
-    : allDecided.filter((r) => r.reported_at.slice(0, 10) >= cutoff);
-  const olderCount = allDecided.length - decided.length;
-  const oldest = allDecided.reduce<string | null>(
-    (acc, r) => (acc === null || r.reported_at < acc ? r.reported_at : acc), null);
-  const { shown: decidedPage, pager: decidedPager } = usePaged(decided, 12);
+  /* B4's other half, cut down to what the question needs: *what did we do
+     with that photo* is asked about last week, not last year. The server
+     sends only the latest twenty, and the card says how many it left out,
+     so the edge is honest rather than silent (D269). */
+  const decided = decidedState.status === "ready" ? decidedState.data : [];
+  const decidedTotal = decidedState.status === "ready"
+    ? decidedState.page?.total ?? decided.length
+    : 0;
   const mayResolve = hasAuthority("resolve_inbox");
 
   function refresh() {
     reload();
     reloadHealth();
-    reloadAll();
+    reloadDecided();
     setSelected(null);
   }
 
@@ -240,10 +223,9 @@ export default function InboxPage() {
           touched the ledger. "What did we decide about that photo" is asked
           months later, and a queue that empties into nothing cannot answer it
           (A16). */}
-      <Loaded state={everything} onRetry={reloadAll}>
-        {(all) => {
-          const done = all.filter((r) => r.status !== "PENDING");
-          if (done.length === 0) return <></>;
+      <Loaded state={decidedState} onRetry={reloadDecided}>
+        {() => {
+          if (decided.length === 0) return <></>;
           return (
             <Card className="mt-4">
               <CardHeader
@@ -251,40 +233,15 @@ export default function InboxPage() {
                 subtitle={
                   <>
                     Kept, whichever road they took — including the ones that never reached the ledger.{" "}
-                    {windowDays === null
-                      ? `Semuanya: ${allDecided.length} keputusan${oldest ? `, sejak ${oldest.slice(0, 10)}` : ""}.`
-                      : <>
-                          {decided.length} dari {allDecided.length} keputusan, dalam {windowDays} hari terakhir.{" "}
-                          {olderCount > 0
-                            ? <span className="text-amber-700">
-                                {olderCount} lagi lebih lama dari itu{oldest ? `, yang tertua ${oldest.slice(0, 10)}` : ""} — belum ditampilkan.
-                              </span>
-                            : "Tidak ada yang lebih lama dari itu."}
-                        </>}
+                    {decidedTotal > decided.length
+                      ? `${decided.length} keputusan terakhir dari ${decidedTotal}.`
+                      : `Semuanya: ${decided.length} keputusan.`}
                   </>
                 }
                 icon={StickyNote}
-                action={
-                  <div className="flex flex-wrap items-center gap-1">
-                    {([[30, "30 hari"], [90, "90 hari"], [365, "1 tahun"], [null, "Semua"]] as const).map(([d, label]) => (
-                      <button
-                        key={label}
-                        onClick={() => setWindowDays(d)}
-                        className={cn(
-                          "rounded-lg px-2.5 py-1 text-[12px] transition-colors",
-                          windowDays === d
-                            ? "bg-brand-600 text-white"
-                            : "border border-slate-200 text-slate-600 hover:bg-slate-50",
-                        )}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                }
               />
               <ul className="divide-y divide-slate-100">
-                {decidedPage.map((r) => {
+                {decided.map((r) => {
                   const on = reviewing === r.ref_id;
                   const f = attachments.status === "ready"
                     ? attachments.data.find((a) => a.id === r.attachment_id)
@@ -342,13 +299,6 @@ export default function InboxPage() {
                   );
                 })}
               </ul>
-              {decided.length === 0 && (
-                <p className="px-5 py-4 text-[13px] text-slate-500">
-                  Tidak ada keputusan dalam {windowDays} hari terakhir. {allDecided.length} keputusan lain
-                  ada di luar jendela ini — lebarkan jendelanya untuk melihatnya.
-                </p>
-              )}
-              {decidedPager}
             </Card>
           );
         }}

@@ -5,7 +5,7 @@ import { MonitorSmartphone, Plus, Pencil, Trash2, History, ShieldAlert, Wrench, 
 import { Badge, Button, Card, CardHeader, PageHeader, StatCard, type Tone } from "@/components/ui/primitives";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Drawer, Modal } from "@/components/ui/drawer";
-import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
+import { Loaded, SourceBadge, useDebounced, useLoad } from "@/components/ui/loaded";
 import { MoneyInput } from "@/components/ui/money-input";
 import { EvidenceStrip, type EvidenceSlot } from "@/components/ui/evidence-strip";
 import { formatIDR } from "@/lib/format";
@@ -75,10 +75,11 @@ export default function AssetsPage() {
   const [category, setCategory] = useState("");
   const [status, setStatus] = useState<"" | AssetStatus>("");
   const [showGone, setShowGone] = useState(false);
+  const searched = useDebounced(q);
   const [state, reload] = useLoad(() => inventory.listAssets({
-    q: q || undefined, category: category || undefined,
+    q: searched || undefined, category: category || undefined,
     status: status || undefined, include_gone: showGone,
-  }), [q, category, status, showGone]);
+  }), [searched, category, status, showGone], { keepPrevious: true });
   const [cats] = useLoad(() => inventory.listAssetCategories(), []);
   const catList = cats.status === "ready" ? cats.data : [];
 
