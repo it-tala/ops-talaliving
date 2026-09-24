@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertTriangle, ListTree, Plus, Search } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
@@ -32,6 +32,14 @@ export default function BomPage() {
   const [open, setOpen] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const mayEdit = can("production.update");
+
+  /* `?open=CODE` — an order line's item code links straight to its BOM. Read
+     once on mount rather than through `useSearchParams`, which would need a
+     Suspense boundary around a page that renders fine without one. */
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get("open");
+    if (code) setOpen(code);
+  }, []);
 
   return (
     <div>

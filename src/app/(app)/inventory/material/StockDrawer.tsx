@@ -163,7 +163,7 @@ export function StockDrawer({
                       ) : (
                         <input
                           value={form.ref} onChange={(e) => setForm({ ...form, ref: e.target.value })}
-                          placeholder="Nomor SPK (opsional)"
+                          placeholder="Nomor Job Order (opsional)"
                           className="h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
                         />
                       )}
@@ -257,7 +257,7 @@ export function StockDrawer({
                         {/* A reference nothing follows is a reference nothing
                             checks — which is how nine seeded issues pointed at
                             work orders that had never existed (F86). */}
-                        {m.ref_missing && <span className="ml-1">· SPK ini tidak ada</span>}
+                        {m.ref_missing && <span className="ml-1">· Job Order ini tidak ada</span>}
                       </span>
                     )}
                     <span className="min-w-[160px] flex-1 text-[11px] text-slate-500">

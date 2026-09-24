@@ -133,7 +133,7 @@ export default function OvertimePage() {
                         </span>
                         {s.kind === "production" && s.lines.some((l) => l.wo_no) && (
                           <Badge tone="slate">
-                            {new Set(s.lines.filter((l) => l.wo_no).map((l) => l.wo_no)).size} SPK
+                            {new Set(s.lines.filter((l) => l.wo_no).map((l) => l.wo_no)).size} Job Order
                           </Badge>
                         )}
                         <Badge tone={STAGE_TONE[s.stage]} dot>{OVERTIME_STAGE_LABEL[s.stage]}</Badge>

@@ -565,7 +565,7 @@ async function readFor(
     /* `ops_prod` has no tables in it at all, so there is nothing to read and
        nothing to be wrong about — which is a better answer than a zero. */
     case "production.late_orders":
-      return notBuilt(id ? "SPK yang lewat tanggal" : "work orders past their date", "/produksi/jadwal");
+      return notBuilt(id ? "Job Order yang lewat tanggal" : "Job Orders past their date", "/produksi/jadwal");
     case "delivery.fulfilment":
       return notBuilt(id ? "progres pengiriman" : "delivery progress", "/proyek/serah-terima");
 

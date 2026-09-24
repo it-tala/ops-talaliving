@@ -21,6 +21,7 @@ export const USERS: DemoUser[] = [
       { module: "production", level: "read" },
       { module: "inventory", level: "read" },
       { module: "project", level: "read" },
+      { module: "delivery", level: "read" },
       { module: "settings", level: "read" },
       /* Read, not admin. The owner's answer to Q22: the IT module is open to
        * IT and to leadership, and what leadership was given is the right to
@@ -83,8 +84,10 @@ export const USERS: DemoUser[] = [
        * record are the same person reporting what happened, one step further
        * down the line. Building those screens found that **nobody in the seed
        * could use them at all** — the only `project` grant was leadership's,
-       * at read (F61). */
-      { module: "project", level: "write" },
+       * at read (F61). Since 0131 that is the `delivery` module; the BAST,
+       * which closes the project, stays with whoever holds `project`. */
+      { module: "delivery", level: "write" },
+      { module: "project", level: "read" },
     ],
     authorities: [],
   },
@@ -113,6 +116,7 @@ export const USERS: DemoUser[] = [
       { module: "marketing", level: "admin" },
       { module: "project", level: "admin" },
       { module: "production", level: "admin" },
+      { module: "delivery", level: "admin" },
       { module: "it", level: "admin" },
       { module: "settings", level: "admin" },
     ],

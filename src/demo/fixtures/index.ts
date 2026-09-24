@@ -77,8 +77,23 @@ export function initialState(): DemoState {
     uom_conversions: UOM_CONVERSIONS,
     item_categories: ITEM_CATEGORIES,
     items: ITEMS,
-    projects: PROJECTS,
+    projects: PROJECTS.map((p) => ({
+      ...p,
+      client_id: p.client_name ? `cl_${p.code}` : null,
+      /* The fixtures' running projects are in production, the closed ones
+         done — the same reading 0111 gives the real ones. */
+      status: p.status ?? (p.is_active ? "IN_PRODUCTION" : "DONE"),
+    })),
     project_lines: PROJECT_LINES,
+    clients: PROJECTS.filter((p) => p.client_name).map((p, i) => ({
+      id: `cl_${p.code}`, code: `CL-${String(i + 1).padStart(4, "0")}`, name: p.client_name!,
+      contact_name: null, phone: null, email: null, address: p.location, npwp: null, note: null,
+      archived_at: null,
+    })),
+    project_status_log: [],
+    quotations: [],
+    quotation_lines: [],
+    client_activities: [],
 
     pr_documents: PR_DOCUMENTS,
     pr_lines: PR_LINES,

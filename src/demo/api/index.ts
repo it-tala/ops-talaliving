@@ -27,6 +27,8 @@ import * as demoProduction from "./production";
 import * as demoInventory from "./inventory";
 import * as demoMarketing from "./marketing";
 import * as demoDelivery from "./delivery";
+import * as demoQuotation from "./quotation";
+import * as demoCrm from "./crm";
 import * as demoAssistant from "./assistant";
 
 import * as liveIdentity from "@/lib/api/identity";
@@ -37,6 +39,9 @@ import * as liveInventory from "@/lib/api/inventory";
 import * as liveProduction from "@/lib/api/production";
 import * as liveAssistant from "@/lib/api/assistant";
 import * as liveHr from "@/lib/api/hr";
+import * as liveDelivery from "@/lib/api/delivery";
+import * as liveQuotation from "@/lib/api/quotation";
+import * as liveCrm from "@/lib/api/crm";
 
 export const identity = swap("identity", demoIdentity, liveIdentity);
 export const procurement = swap("procurement", demoProcurement, liveProcurement);
@@ -78,7 +83,11 @@ export const marketing = swap("marketing", demoMarketing);
    refusal carries the same name their successes would. Inventing two more
    `ServiceName` values to make this line read nicely would put a name in the
    audit trail that no envelope anywhere else uses. */
-export const delivery = swap("production", demoDelivery);
+export const delivery = swap("production", demoDelivery, liveDelivery);
+/* The quotation is the project's, like the order it turns into. */
+export const quotation = swap("procurement", demoQuotation, liveQuotation);
+/* The client log sits with the clients it is about. */
+export const crm = swap("procurement", demoCrm, liveCrm);
 export const assistant = swap("procurement", demoAssistant, liveAssistant);
 
 export { isOk } from "@/services/_shared/envelope";

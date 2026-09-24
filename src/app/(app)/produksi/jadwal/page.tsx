@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { AlertTriangle, CalendarClock, Factory, Hammer, Plus } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AlertTriangle, CalendarClock, Factory, Hammer, Plus, Search, X } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { Paged } from "@/components/ui/pager";
@@ -31,16 +31,27 @@ export default function ProductionSchedulePage() {
   const [orders, reload] = useLoad(() => production.listWorkOrders({ include_done: true }), []);
   const [creating, setCreating] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
-  const mayEdit = can("production.update");
+  const [project, setProject] = useState<string | null>(null);
+  const [show, setShow] = useState<"OPEN" | "DONE" | "ALL">("OPEN");
+  const [q, setQ] = useState("");
+  const mayEdit = can("production.create");
+
+  /* `?project=CODE` from an order line, `?open=NO` to a Job Order. Read once
+     on mount, the same as the BOM page's `?open=`. */
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get("project")) { setProject(sp.get("project")); setShow("ALL"); }
+    if (sp.get("open")) setOpen(sp.get("open"));
+  }, []);
 
   return (
     <div>
       <PageHeader
         breadcrumb="Production"
-        title="Planning &amp; Schedule"
+        title="Job Order"
         description="Apa yang sedang dibuat, sampai tahap mana, berapa, dan kapan jatuh temponya. Yang terlambat ada di atas."
         actions={mayEdit ? (
-          <Button icon={Plus} onClick={() => setCreating(true)}>Pesanan kerja baru</Button>
+          <Button icon={Plus} onClick={() => setCreating(true)}>Job Order baru</Button>
         ) : undefined}
       />
 
@@ -50,13 +61,18 @@ export default function ProductionSchedulePage() {
           const late = openOrders.filter((w) => w.late);
           const soon = openOrders.filter((w) => !w.late && w.days_left >= 0 && w.days_left <= 3);
           const flagged = openOrders.filter((w) => w.warnings.length > 0);
+          const rows = all
+            .filter((w) => show === "ALL" || (show === "OPEN" ? w.status === "OPEN" : w.status !== "OPEN"))
+            .filter((w) => !project || w.project_code === project)
+            .filter((w) => `${w.wo_no} ${w.item_name} ${w.product_code ?? ""} ${w.project_code ?? ""}`
+              .toLowerCase().includes(q.toLowerCase()));
 
           return (
             <>
               <div className="mb-4 rounded-xl border border-slate-200 bg-white shadow-card">
                 <dl className="grid divide-y divide-slate-100 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x">
                   {([
-                    ["Sedang dikerjakan", String(openOrders.length), "pesanan terbuka"],
+                    ["Sedang dikerjakan", String(openOrders.length), "Job Order terbuka"],
                     ["Lewat tenggat", String(late.length), late.length > 0 ? "harus dibicarakan hari ini" : "tidak ada yang terlambat"],
                     ["Jatuh tempo ≤ 3 hari", String(soon.length), "waktunya tinggal sedikit"],
                     ["Perlu diperiksa", String(flagged.length), "angka atau tahap yang tidak masuk akal"],
@@ -77,18 +93,40 @@ export default function ProductionSchedulePage() {
 
               <Card>
                 <CardHeader
-                  title="Papan produksi"
-                  subtitle="Klik satu pesanan untuk melihat tiap tahap, siapa yang mengerjakan, dan mencatat hasil."
+                  title="Papan Job Order"
+                  subtitle="Klik satu Job Order untuk melihat tiap tahap, siapa yang mengerjakan, dan mencatat hasil."
                   icon={Hammer}
                   action={<SourceBadge state={orders} />}
                 />
-                {/* Pesanan kerja menumpuk sepanjang tahun — dipaginasi (D157). */}
-                <Paged rows={all} pageSize={15} unit="pesanan">
+                <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-100 px-4 py-2">
+                  {([["OPEN", "Berjalan"], ["DONE", "Selesai"], ["ALL", "Semua"]] as const).map(([k, label]) => (
+                    <button key={k} onClick={() => setShow(k)}
+                      className={cn("rounded-full px-2.5 py-1 text-[12px] font-medium",
+                        show === k ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-100")}>
+                      {label}
+                    </button>
+                  ))}
+                  {project && (
+                    <Badge tone="brand">
+                      proyek {project}
+                      <button onClick={() => setProject(null)} aria-label="Hapus filter proyek" className="ml-1"><X className="h-3 w-3" /></button>
+                    </Badge>
+                  )}
+                  <label className="ml-auto flex min-w-[220px] items-center gap-2 rounded-lg border border-slate-200 px-2">
+                    <Search className="h-4 w-4 text-slate-400" />
+                    <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari nomor, item, proyek…"
+                      aria-label="Cari Job Order" className="h-8 w-full text-sm focus:outline-none" />
+                  </label>
+                </div>
+                {/* Job Order menumpuk sepanjang tahun — dipaginasi (D157). */}
+                <Paged rows={rows} pageSize={15} unit="Job Order">
                   {(shown) => (
                     <ul className="divide-y divide-slate-100">
                       {shown.map((w) => <Row key={w.id} wo={w} onOpen={() => setOpen(w.wo_no)} />)}
-                      {all.length === 0 && (
-                        <li className="px-5 py-8 text-[13px] text-slate-500">Belum ada pesanan kerja.</li>
+                      {rows.length === 0 && (
+                        <li className="px-5 py-8 text-[13px] text-slate-500">
+                          {all.length === 0 ? "Belum ada Job Order. Buat dari item pesanan di halaman Proyek, atau dengan tombol di atas." : "Tidak ada Job Order di sini."}
+                        </li>
                       )}
                     </ul>
                   )}

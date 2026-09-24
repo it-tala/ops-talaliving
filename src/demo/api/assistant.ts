@@ -261,8 +261,8 @@ function readFor(tool: string): { text: string; facts: AnswerFact[] } {
       const late = workOrderViews(state, today).filter((w) => w.late && w.status === "OPEN");
       return {
         text: late.length === 0
-          ? (id ? "Tidak ada SPK yang lewat tanggal janji." : "No work order is past its promised date.")
-          : (id ? `${late.length} SPK sudah lewat tanggal janji.` : `${late.length} work orders are past their promised date.`),
+          ? (id ? "Tidak ada Job Order yang lewat tanggal janji." : "No Job Order is past its promised date.")
+          : (id ? `${late.length} Job Order sudah lewat tanggal janji.` : `${late.length} Job Orders are past their promised date.`),
         facts: late.map((w) => ({
           label: `${w.wo_no} · ${w.item_name}`,
           value: `lewat ${-w.days_left} hari, ${w.percent}% selesai`,

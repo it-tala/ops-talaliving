@@ -22,6 +22,7 @@ import {
 } from "@/services/production/contracts";
 import { attributionOf } from "@/services/production/contracts";
 import { stockItems } from "./inventory-derive";
+import { deriveWorkOrderView, boardOrder } from "@/services/production/work-order-view";
 
 /** Today, as an office day. The board is about deadlines, so "what day is it"
  *  has to be the workshop's day rather than UTC's (F17, F39). One definition
@@ -155,234 +156,27 @@ export function workOrderView(
   wo: WorkOrder,
   today = officeToday(),
 ): WorkOrderView {
-  const entries = state.production_progress.filter((p) => p.wo_id === wo.id);
+  /* The arithmetic lives in `services/production/work-order-view.ts`, shared
+     with the live client so the two cannot disagree. This only gathers what
+     it needs out of the fixtures. */
   const productOf = wo.product_code
     ? state.products.find((p) => p.product_code === wo.product_code)
     : undefined;
-  const route = ROUTE(wo.route);
-  /* Which stages this product goes through, or the route's own list where
-     nobody has said (D278). Null is not "all of them" — it is a gap, and
-     `stages_unset` below is what the screen says about it. */
-  const productStages = state.products.find((pr) => pr.product_code === wo.product_code)?.stages ?? null;
-  const stageSet = productStages ?? route.stages;
-  const total = (code: string) =>
-    entries.filter((p) => p.stage === code).reduce((a, p) => a + p.qty, 0);
-
-  /* Only the stages this order actually goes through. A subcontracted order
-     has no `PEMBUATAN` row at all — not a row reading 0%, which would say
-     *nobody has started building this* about goods a vendor has already built
-     (D254). */
-  const stages: StageProgress[] = PROCESS_STAGES
-    /* Route **and** product. The route says what this order's path allows; the
-       product says which of those it actually goes through (D278) — a dining
-       table has no lamps in it, and drawing it a Machinery column it will
-       never fill is what made every later stage look like it jumped a step
-       (F92). A product that has not been told falls back to the route, and the
-       board says so rather than inventing a list. */
-    .filter((s) => route.stages.includes(s.code) && stageSet.includes(s.code))
-    .map((s) => {
-      /* **A minimum over every source that carried a figure, never a sum.**
-         Four chairs cut, four planed and four assembled is four chairs made,
-         not twelve; four sanded and three finished is three finished, not
-         seven. A piece has passed the stage when it has passed every step
-         inside it, so the count is the smallest of the steps actually
-         recorded. A step nobody recorded is a step this order never used, and
-         it does not drag the whole stage to zero.
-
-         The stage's own code is one of the sources (F74): `FINISHING` names
-         one of the four *and* one of the seven, so "direct" and "rolled up"
-         cannot be told apart — and must not be added together. */
-      const parts = (STAGE_SOURCES[s.code] ?? [{ code: s.code, name: s.name }])
-        .map((x) => ({ code: x.code, name: x.name, done: total(x.code) }))
-        .filter((p) => p.done !== 0);
-      const done = parts.length > 0 ? Math.min(...parts.map((p) => p.done)) : 0;
-      return {
-        stage: s.code,
-        name: s.name,
-        seq: s.seq,
-        covers: s.covers,
-        done,
-        /* **Nobody has reported anything against this stage**, which is not the
-           same fact as *nothing has passed it* — and the difference started
-           mattering the day the four stages became the owner's four (D275).
-           A dining table has no lamps in it, so *Machinery / instalasi* sits
-           empty on almost every order, and reading that empty as a zero made
-           every later stage look like it had jumped a step. An unknown cannot
-           be overtaken (F60, F74's rule one level out). */
-        recorded: parts.length > 0,
-        percent: wo.qty > 0 ? Math.round((done / wo.qty) * 100) : 0,
-        /* Only interesting where more than one source spoke. */
-        parts: parts.length > 1 ? parts : [],
-      };
-    });
-
-  const started = stages.filter((s) => s.done > 0);
-  const current = started.length > 0 ? started[started.length - 1] : null;
-  const last = stages[stages.length - 1];
-  const completed = last.done;
-
-  /* Progress across the whole order, counted as stages finished rather than
-     as the furthest stage reached: eleven doors cut and one packed is not
-     "packing", it is a tenth of the way through. */
-  const totalSteps = stages.length * wo.qty;
-  const doneSteps = stages.reduce((a, s) => a + Math.min(Math.max(s.done, 0), wo.qty), 0);
-  const percent = totalSteps > 0 ? Math.round((doneSteps / totalSteps) * 100) : 0;
-
-  const days_left = daysBetween(today, wo.due_date);
-  const warnings: string[] = [];
-
-  /* Where the goods physically are. `at_vendor` is derived from the two dates
-     rather than stored, for the reason every status here is derived: a flag is
-     a field somebody forgets to move while the lorry is still on the road. */
-  /* From the **legs**, which is where the fact now lives (W6, D280). The four
-     `subcon_*` columns could describe one trip; this order may have several,
-     to different vendors, for different processes. */
-  const legs = state.vendor_legs.filter((l) => l.wo_id === wo.id);
-  const openLegs = legs.filter((l) => l.returned_on === null);
-  const at_vendor_qty = openLegs.reduce((t, l) => t + (l.qty - (l.returned_qty ?? 0)), 0);
-  const at_vendor = openLegs.length > 0;
-  const firstSent = legs.map((l) => l.sent_on).sort()[0] ?? null;
-  const lastBack = legs.every((l) => l.returned_on)
-    ? legs.map((l) => l.returned_on!).sort().pop() ?? null
-    : null;
-  const days_at_vendor = firstSent === null
-    ? null
-    : daysBetween(firstSent, lastBack ?? today);
-  /* Overdue against a promise, never against silence: a leg with no promised
-     date cannot be late, only absent (D134). */
-  const overdueLegs = openLegs.filter((l) => l.expected_back !== null && l.expected_back < today);
-  const subcon_overdue = overdueLegs.length > 0;
-
-  /* Work recorded against steps the business no longer has.
-   *
-   *  `POTONG`, `SERUT` and `RAKIT` are bought in as *barang mentah* now
-   *  (D275), so they belong to none of the four and are deliberately not
-   *  rolled into Sanding — six pieces cut is not six pieces sanded. But the
-   *  work happened, and a process change must never make past work disappear
-   *  (A5). It is carried separately, named, and shown apart from the four
-   *  rather than inside one of them. */
-  const retired = RETIRED_STAGES
-    .map((r) => ({ code: r.code, name: r.name, done: total(r.code) }))
-    .filter((r) => r.done !== 0);
-
-  /* Steps **inside** one stage that disagree.
-   *
-   *  The minimum resolves the count, and resolving it silently would be the
-   *  worse half of the fix: eleven doors reported finished when four were
-   *  sanded is not a rounding difference, it is seven doors somebody has to
-   *  explain. The stage counts four; the sentence says why it is not eleven
-   *  (F74). */
-  for (const s of stages) {
-    for (let i = 1; i < s.parts.length; i += 1) {
-      const before = s.parts[i - 1];
-      const after = s.parts[i];
-      /* A later step **lagging** the one before it is not a fault, it is work
-         in progress: six cut and two assembled is four waiting on the bench.
-         A later step **ahead** of the one before it cannot have happened. */
-      if (after.done <= before.done) continue;
-      warnings.push(
-        `${s.name}: ${after.name} tercatat ${after.done} padahal ${before.name} baru ${before.done} — ${
-          after.done - before.done
-        } ${wo.uom} melewati satu langkah. Yang dihitung selesai ${s.done}, angka yang lebih kecil, sampai ada yang membetulkan salah satunya.`,
-      );
-    }
-  }
-
-  /* A stage ahead of the one before it. Physically impossible, so it is either
-     a mis-keyed number or work that skipped a step — both worth a sentence,
-     neither worth blocking the report that revealed it (A6). */
-  for (let i = 1; i < stages.length; i += 1) {
-    /* Skip a comparison whose earlier stage nobody has written anything
-       against: *this order does not go through it* and *it is behind* are
-       different states, and only the second is worth a sentence (D275). */
-    if (!stages[i - 1].recorded) continue;
-    if (stages[i].done > stages[i - 1].done) {
-      warnings.push(
-        `${stages[i].name} (${stages[i].done}) melebihi ${stages[i - 1].name} (${stages[i - 1].done}) — salah ketik, atau ada tahap yang dilewati.`,
-      );
-    }
-  }
-  for (const s of stages) {
-    if (s.done > wo.qty) {
-      warnings.push(`${s.name} tercatat ${s.done} dari ${wo.qty} yang dipesan.`);
-    }
-  }
-  if (wo.status === "OPEN" && completed >= wo.qty) {
-    warnings.push("Semua unit sudah melewati tahap terakhir — pesanan ini bisa ditutup.");
-  }
-  if (wo.status === "OPEN" && days_left < 0 && completed < wo.qty) {
-    warnings.push(`Lewat tenggat ${Math.abs(days_left)} hari, sisa ${wo.qty - completed} ${wo.uom}.`);
-  } else if (wo.status === "OPEN" && days_left >= 0 && days_left <= 3 && percent < 70 && !at_vendor) {
-    /* Not while the goods are at the vendor. `percent` counts **our** stages,
-       and none of them can have happened yet — so *baru 0% selesai* would read
-       as the workshop being behind on work it is not allowed to start. The
-       vendor-overdue sentence above says the true thing instead. */
-    warnings.push(`Tinggal ${days_left} hari dan baru ${percent}% selesai.`);
-  }
-  if (wo.status === "OPEN" && started.length === 0 && !at_vendor) {
-    warnings.push(
-      wo.route === "SUBCON" && legs.length === 0
-        ? "Belum dikirim ke vendor, dan belum ada tahap yang dikerjakan."
-        : "Belum ada satu tahap pun yang dikerjakan.",
-    );
-  }
-  for (const l of overdueLegs) {
-    warnings.push(
-      `${VENDOR_PROCESS_NAME(l.process)} di ${state.vendors.find((v) => v.id === l.vendor_id)?.name ?? l.vendor_id}: dijanjikan kembali ${l.expected_back}, sudah lewat ${
-        Math.abs(daysBetween(today, l.expected_back!))
-      } hari. ${l.qty - (l.returned_qty ?? 0)} ${wo.uom} masih di sana.`,
-    );
-  }
-  if (wo.route === "SUBCON" && legs.length === 0 && days_left <= 3) {
-    warnings.push("Tenggatnya dekat dan barangnya belum berangkat ke vendor.");
-  }
-
-  return {
-    ...wo,
-    stages,
-    retired,
-    /* Named, never filled in: a product whose stages nobody has set runs on
-       the route's list, and the board says which it is doing (D278, D150). */
-    stages_unset: productStages === null,
-    route_name: route.name,
-    at_vendor,
-    goods_on_site: goodsOnSite({ route: wo.route, qty: wo.qty, at_vendor_qty }),
-    /* What the product's BOM is on **now**, against what this order was
-       written against. Different is not wrong — this order is deliberately
-       measured against the list it was written from (D256) — but it is worth
-       seeing, because *the projection looks off* usually means the BOM moved. */
+  return deriveWorkOrderView(wo, {
+    entries: state.production_progress.filter((p) => p.wo_id === wo.id),
+    legs: state.vendor_legs.filter((l) => l.wo_id === wo.id).map((l) => vendorLegView(state, l, today)),
+    product_stages: productOf?.stages ?? null,
+    product_exists: productOf !== undefined,
     product_current_rev: productOf ? currentBomRev(state, productOf) : null,
-    bom_drifted: productOf !== undefined && wo.bom_rev !== null
-      && currentBomRev(state, productOf) !== wo.bom_rev,
-    bom_repinnable: bomRepinnable(state, wo),
-    days_at_vendor,
-    subcon_overdue,
-    legs: legs.map((l) => vendorLegView(state, l, today)),
-    at_vendor_qty,
-    current_stage: current?.stage ?? null,
-    current_stage_name: at_vendor
-      ? "Di vendor"
-      : current?.name ?? (wo.route === "SUBCON" ? "Belum dikirim" : "Belum mulai"),
-    completed,
-    percent,
-    days_left,
-    late: wo.status === "OPEN" && days_left < 0 && completed < wo.qty,
-    warnings,
-  };
+    today,
+  });
 }
 
 export function workOrderViews(state: DemoState, today = officeToday()): WorkOrderView[] {
   return state.work_orders
     .map((w) => workOrderView(state, w, today))
-    /* Late first, then by how soon it is due: the board's job is to put the
-       thing somebody has to deal with at the top. */
-    .sort((a, b) => {
-      if (a.status !== b.status) return a.status === "OPEN" ? -1 : 1;
-      if (a.late !== b.late) return a.late ? -1 : 1;
-      return a.due_date.localeCompare(b.due_date);
-    });
+    .sort(boardOrder);
 }
-
 
 /** A product with its bill of materials priced.
  *
