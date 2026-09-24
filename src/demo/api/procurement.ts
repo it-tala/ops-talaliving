@@ -759,6 +759,9 @@ export async function getPr(docNo: string): Promise<Result<PrDocumentView>> {
 
 export interface NewLineInput {
   item_id?: string | null;
+  /** The item by its code, when the caller knows the code and not the id —
+   *  a BOM line does (ADR-004). Resolved by `create_pr` (0152). */
+  item_code?: string | null;
   description: string;
   qty?: number | null;
   uom?: UomCode | null;
@@ -805,7 +808,9 @@ export async function createPr(
       draft.pr_lines.push({
         id: newId("prl"), doc_id: docId, line_no: lineNo,
         line_no_full: `${docNo}-L${String(lineNo).padStart(2, "0")}`,
-        item_id: l.item_id ?? null, description: l.description,
+        item_id: l.item_id
+          ?? (l.item_code ? draft.items.find((it) => it.code === l.item_code)?.id ?? null : null),
+        description: l.description,
         qty: l.qty ?? null, uom: l.uom ?? null, unit_price: l.unit_price ?? null,
         item_total: l.item_total ?? Math.round((l.qty ?? 0) * (l.unit_price ?? 0)),
         vendor_id: l.vendor_id ?? null, po_line_id: null,

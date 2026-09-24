@@ -201,5 +201,31 @@ expect("a sentence the router does not know → the model picks the leave draft;
   t[0] === "draft" && t[2] === "hr.draft_leave,ai.openai" && mArgs.includes("B-0102") && !mArgs.includes("4500000")
   && !mArgs.includes("minggu depan") && !mArgs.includes("invented"), `${t.join("|")} ${mArgs}`);
 
+/* ═════ Production (F155): the two reads that answered "not built" ════ */
+/* Wayan (production write, project read) from seed-production.sql. A late
+   Job Order is made here if the production walk has not left one. */
+sql(`insert into ops_prod.work_orders (item_name, qty, uom, due_date, route, status, created_by)
+     select 'Kursi uji terlambat', 2, 'unit', ops_core.office_day() - 3, 'IN_HOUSE', 'OPEN', 'e2e00000-0000-0000-0000-0000000007b2'
+      where not exists (select 1 from ops_prod.work_orders where status = 'OPEN' and due_date < ops_core.office_day())`);
+await page.context().clearCookies();
+await page.evaluate(() => { try { sessionStorage.clear(); localStorage.clear(); } catch {} });
+await page.goto(`${APP}/signin`, { waitUntil: "networkidle" });
+await page.fill("input[type=email]", "wayan@talaliving.com");
+await page.fill("input[type=password]", "e2e");
+await page.getByRole("button", { name: "Masuk" }).click();
+await page.waitForURL((u) => !u.pathname.startsWith("/signin"), { timeout: 15000 }).catch(() => {});
+await page.goto(`${APP}/produksi/jadwal`, { waitUntil: "networkidle" });
+await page.locator("[data-dock-open='john-lau']").click().catch(() => {});
+
+await ask("SPK mana yang terlambat");
+t = lastTurnOf("wayan@talaliving.com").split("|");
+expect("\"SPK mana yang terlambat\" → late Job Orders read live, with at least one fact",
+  t[0] === "answer" && t[2] === "production.late_orders" && Number(t[5]) >= 1, t.join("|"));
+
+await ask("sudah sampai mana pengiriman ke klien");
+t = lastTurnOf("wayan@talaliving.com").split("|");
+expect("\"sudah sampai mana pengiriman ke klien\" → fulfilment read live, not \"not built\"",
+  t[0] === "answer" && t[2] === "delivery.fulfilment", t.join("|"));
+
 await browser.close();
 if (failures.length) { console.error(`\n${failures.length} failure(s)`); process.exitCode = 1; }

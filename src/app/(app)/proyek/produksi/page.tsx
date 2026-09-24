@@ -7,6 +7,7 @@ import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/pri
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { isRouteLive } from "@/lib/live";
 import { accounting, procurement, production } from "@/demo/api";
 
 /** Projected against actual, for one project.
@@ -312,9 +313,14 @@ function ProjectCost({ code }: { code: string }) {
                                   hanya memakai bahan, supaya dua sisi yang dibandingkan sama
                                   isinya. Upah tetap belum dialokasikan ke proyek sama sekali (Q38).
                                 </p>
-                                <Link href="/accounting/liquidation">
-                                  <Button size="sm" variant="outline" className="mt-2">Lihat rinciannya di likuidasi</Button>
-                                </Link>
+                                {/* Only offered where the page it opens is live — in live
+                                    mode it is not yet, and a button into a "not live"
+                                    screen is a dead end (F155). */}
+                                {isRouteLive("/accounting/liquidation") && (
+                                  <Link href="/accounting/liquidation">
+                                    <Button size="sm" variant="outline" className="mt-2">Lihat rinciannya di likuidasi</Button>
+                                  </Link>
+                                )}
                               </div>
                             </Card>
                           </>

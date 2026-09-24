@@ -6334,3 +6334,40 @@ the reason read from the sentence; nothing is filed before *Ya, tulis*; a
 reader of HR is refused by the same gate as the screen; and the model's
 invented salary field and its *minggu depan* in a date field are dropped
 (`walk-john-lau.mjs`, 19 checks).
+
+## F155 · 2026-09-24 · production, walked from a client's order to the signed BAST
+
+The third module, the same way: a simulation in SQL
+(`99_sim_production_to_handover.sql`, four people, 37 steps) and a walk
+pressing the buttons (`scripts/e2e/walk-production.mjs`, 19 steps). The
+chain holds end to end — a quotation accepted becomes order lines, the first
+Job Order moves the project to IN_PRODUCTION, the first delivery note to
+SHIPPED, the BAST to DONE — and the refusals are where they should be:
+`not_enough_made`, `surat_jalan_required`, `bast_required`, a delivery crew
+refused the BAST. Five things could not be done from the screens:
+
+1. **A product's stages could not be set.** `products.stages` existed and
+   `save_product` had no argument for it; the demo's `saveProduct` took
+   `stages` and the live one dropped them. So every product made on screen
+   waited on all four stages — a dining table on *Machinery* — which is F92's
+   problem arriving by a different road. B19, `0152`.
+2. **Requests raised from a BOM named no item.** The BOM knows each line's
+   item; the button sent only the description, because `create_pr` takes an
+   id and the screen has the code. B20, `0152`.
+3. **An in-house order could not send its first piece to a vendor.** The
+   vendor block appeared only for SUBCON orders or ones that already had a
+   leg; the seam always allowed it. B21.
+4. **The request button was gated on the wrong grant.** Offered on
+   `production.update`, refused by `create_pr` on `procurement.create`. B22.
+5. **Closing a snag always recorded nobody as the fixer**, and the project
+   page offered a button into the liquidation screen, which is not live. B23.
+
+The walk also found the other half of the stage question in the harness
+itself: a progress form and a vendor form both have a quantity box, and
+"the first number input" is not a way to say which. The walk now targets the
+box after the stage picker — which is how a person reads the drawer too.
+
+John Lau (D303): `production.late_orders` and `delivery.fulfilment` said
+*not built* in live mode because the modules were not live when they were
+written. They now answer from the same views as the screens, as the person
+asking; the John Lau walk checks both (21 checks).

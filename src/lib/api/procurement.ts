@@ -127,6 +127,9 @@ async function itemViewByCode(code: string): Promise<Result<ItemView>> {
  */
 export interface NewLineInput {
   item_id?: string | null;
+  /** The item by its code, when the caller knows the code and not the id —
+   *  a BOM line does (ADR-004). Resolved by `create_pr` (0152). */
+  item_code?: string | null;
   description: string;
   qty?: number | null;
   uom?: UomCode | null;

@@ -29,6 +29,11 @@ that only shows what is left teaches nobody anything.
 | B16 | ~~**Timesheet live terkunci di periode data demo (29 Agu – 7 Sep 2026)**~~ | `/hrd/absensi` | **fixed** 2026-09-24 — dua minggu terakhir secara bawaan, geser per minggu, `?from=` di alamat (F154) |
 | B17 | ~~**Tombol John Lau menutupi tombol terakhir di halaman pada layar lebar**~~ | semua halaman | **fixed** 2026-09-24 — ruang bawah `pb-24` di semua lebar layar, bukan hanya layar kecil (F65, F154) |
 | B18 | ~~**Karyawan yang dicatat dari layar selalu "masuk hari ini"**~~ | `/hrd/karyawan` | **fixed** 2026-09-24 — kolom *Tanggal masuk* di laci karyawan (F154) |
+| B19 | ~~**Tahap produksi produk tidak bisa diatur dari layar** — setiap produk dari layar menunggu keempat tahap, termasuk Machinery~~ | `/produksi/bom` | **fixed** 2026-09-24 — `0152` `save_product(p_stages)` + centang tahap di laci produk (D303, F155) |
+| B20 | ~~**Baris PR dari BOM tidak tersambung ke item**~~ | `/produksi/jadwal` | **fixed** 2026-09-24 — `create_pr` membaca `item_code` (0152); tombol mengirim kode bahan (F155) |
+| B21 | ~~**Job Order bengkel sendiri tidak bisa dikirim ke vendor dari layar**~~ | `/produksi/jadwal` | **fixed** 2026-09-24 — tombol *Kirim ke vendor* membuka form vendor untuk rute bengkel sendiri (F155) |
+| B22 | ~~**Tombol *Buat PR dari BOM* tampil untuk yang tidak boleh membuat PR**~~ | `/produksi/jadwal` | **fixed** 2026-09-24 — digerbang `procurement.create`, sama dengan `create_pr` (F155) |
+| B23 | ~~**Temuan pemasangan ditutup tanpa siapa yang memperbaiki; tautan likuidasi mati di live**~~ | `/proyek/instalasi` · `/proyek/produksi` | **fixed** 2026-09-24 — kolom *Diperbaiki oleh*; tautan likuidasi hanya tampil kalau halamannya live (F155) |
 
 ## Scheduled — the owner's answers of 2026-09-11
 

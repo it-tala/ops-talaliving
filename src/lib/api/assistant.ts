@@ -63,6 +63,8 @@ import * as procurement from "./procurement";
 import * as hr from "./hr";
 import * as accounting from "./accounting";
 import * as inventory from "./inventory";
+import * as production from "./production";
+import * as delivery from "./delivery";
 import { isOk } from "@/services/_shared/envelope";
 
 /** John Lau stamps his envelopes `procurement`, as the demo does. Inventing an
@@ -564,10 +566,38 @@ async function readFor(
 
     /* `ops_prod` has no tables in it at all, so there is nothing to read and
        nothing to be wrong about — which is a better answer than a zero. */
-    case "production.late_orders":
-      return notBuilt(id ? "Job Order yang lewat tanggal" : "Job Orders past their date", "/produksi/jadwal");
-    case "delivery.fulfilment":
-      return notBuilt(id ? "progres pengiriman" : "delivery progress", "/proyek/serah-terima");
+    /* Both modules are live now (F155), so both reads answer from the same
+       views their screens read, as this person — the same arithmetic as the
+       demo's branches, which is what makes the two answer alike. */
+    case "production.late_orders": {
+      const res = await production.listWorkOrders();
+      if (!isOk(res)) return { text: res.error.message, facts: [] };
+      const late = res.data.filter((w) => w.late && w.status === "OPEN");
+      return {
+        text: late.length === 0
+          ? (id ? "Tidak ada Job Order yang lewat tanggal janji." : "No Job Order is past its promised date.")
+          : (id ? `${late.length} Job Order sudah lewat tanggal janji.` : `${late.length} Job Orders are past their promised date.`),
+        facts: late.slice(0, 8).map((w): AnswerFact => ({
+          label: `${w.wo_no} · ${w.item_name}`,
+          value: id ? `lewat ${-w.days_left} hari, ${w.percent}% selesai` : `${-w.days_left} days late, ${w.percent}% done`,
+          source: src, href: "/produksi/jadwal",
+        })),
+      };
+    }
+    case "delivery.fulfilment": {
+      const res = await delivery.listFulfilment();
+      if (!isOk(res)) return { text: res.error.message, facts: [] };
+      return {
+        text: id ? "Sejauh mana tiap pesanan klien sampai ke mereka." : "How far each client order has reached them.",
+        facts: res.data.slice(0, 8).map((f): AnswerFact => ({
+          label: f.project_name,
+          value: f.installed_percent == null
+            ? (id ? "belum bisa dihitung" : "cannot be counted yet")
+            : `${f.installed_percent}% ${id ? "terpasang" : "installed"}${f.open_snags > 0 ? (id ? `, ${f.open_snags} temuan terbuka` : `, ${f.open_snags} open snags`) : ""}`,
+          source: src, href: "/proyek/serah-terima",
+        })),
+      };
+    }
 
     default:
       /* A tool that is `effect: 'read'` in the catalogue and has no branch

@@ -16,8 +16,9 @@ import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { documents, procurement, production } from "@/demo/api";
 import type { Item, ItemCategory } from "@/services/procurement/contracts";
-import type {
-  BomKind, BomLineView, ProductDrawingEntry, ProductView,
+import {
+  PROCESS_STAGES,
+  type BomKind, type BomLineView, type ProductDrawingEntry, type ProductView,
 } from "@/services/production/contracts";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
@@ -284,6 +285,40 @@ function DrawingPanel({ p, mayEdit, busy, run, settle }: PartProps) {
   );
 }
 
+/* ── which stages this product goes through ──────────────────────────────── */
+
+/** The owner's four stages, ticked per product (Q52, D278). None ticked means
+ *  *follow the route* — all four — which is right for almost nothing: a table
+ *  has no lamps, so it never visits Machinery, and an order waiting on a stage
+ *  it will never reach never reads finished (F92). Until F155 the column
+ *  existed and no screen could write it. */
+function StagePicker({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  return (
+    <div>
+      <span className="block text-[11px] text-slate-500">Tahap produksi yang dilewati</span>
+      <div className="mt-1 flex flex-wrap gap-1.5">
+        {PROCESS_STAGES.map((st) => {
+          const on = value.includes(st.code);
+          return (
+            <label key={st.code}
+              className={cn("inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2 py-1 text-[12px]",
+                on ? "border-brand-300 bg-brand-50 text-brand-800" : "border-slate-200 text-slate-600")}>
+              <input type="checkbox" checked={on} aria-label={`Tahap ${st.name}`}
+                onChange={() => onChange(on ? value.filter((x) => x !== st.code) : [...value, st.code])} />
+              {st.name}
+            </label>
+          );
+        })}
+      </div>
+      <p className="mt-1 text-[11px] text-slate-500">
+        {value.length === 0
+          ? "Tidak ada yang dicentang: Job Order-nya melewati keempat tahap, termasuk Machinery."
+          : "Job Order produk ini hanya menunggu tahap yang dicentang."}
+      </p>
+    </div>
+  );
+}
+
 /* ── size and the rest of the product record ─────────────────────────────── */
 
 function ProductFacts({ p, mayEdit, busy, run, settle }: PartProps) {
@@ -291,6 +326,7 @@ function ProductFacts({ p, mayEdit, busy, run, settle }: PartProps) {
   const [f, setF] = useState({
     name: p.name, category: p.category, uom: p.uom,
     l: p.length_mm ?? 0, w: p.width_mm ?? 0, h: p.height_mm ?? 0, lead: p.lead_time_days ?? 0,
+    stages: p.stages ?? [],
   });
 
   async function save() {
@@ -298,6 +334,7 @@ function ProductFacts({ p, mayEdit, busy, run, settle }: PartProps) {
       product_code: p.product_code, name: f.name, category: f.category, uom: f.uom,
       length_mm: f.l || null, width_mm: f.w || null, height_mm: f.h || null,
       lead_time_days: f.lead || null,
+      stages: f.stages,
     }));
     if (settle(res, "Produk disimpan", p.product_code)) setEditing(false);
   }
@@ -309,6 +346,9 @@ function ProductFacts({ p, mayEdit, busy, run, settle }: PartProps) {
           <Ruler className="h-3.5 w-3.5 text-slate-400" />
           <span className={cn(!p.dimension && "text-amber-700")}>{p.dimension ?? "Ukuran belum diisi"}</span>
           {p.lead_time_days != null && <span className="text-slate-400">· lead time {p.lead_time_days} hari</span>}
+          <span className={cn(p.stages ? "text-slate-400" : "text-amber-700")}>
+            · {p.stages ? p.stages.map((c) => PROCESS_STAGES.find((x) => x.code === c)?.name ?? c).join(" → ") : "tahap ikut rute (4)"}
+          </span>
           {mayEdit && (
             <Button size="sm" variant="ghost" icon={Pencil} className="ml-auto" onClick={() => setEditing(true)}>
               Ubah
@@ -348,6 +388,9 @@ function ProductFacts({ p, mayEdit, busy, run, settle }: PartProps) {
         <label className="text-[11px] text-slate-500">Lead time (hari)
           <NumberInput value={f.lead} min={0} max={365} onChange={(v) => setF({ ...f, lead: v })} className="mt-0.5 !w-20" />
         </label>
+        <div className="basis-full">
+          <StagePicker value={f.stages} onChange={(v) => setF({ ...f, stages: v })} />
+        </div>
         <div className="ml-auto flex gap-1.5">
           <Button size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={busy}>Batal</Button>
           <Button size="sm" icon={Save} onClick={save} disabled={busy || !f.name.trim()}>Simpan</Button>
@@ -1034,6 +1077,7 @@ function NewProduct({ onClose, onChanged }: { onClose: () => void; onChanged: ()
   const [category, setCategory] = useState("");
   const [uom, setUom] = useState("unit");
   const [dims, setDims] = useState({ l: 0, w: 0, h: 0 });
+  const [stages, setStages] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
   async function create() {
@@ -1041,6 +1085,7 @@ function NewProduct({ onClose, onChanged }: { onClose: () => void; onChanged: ()
     const res = await production.saveProduct({
       product_code: code, name, category, uom,
       length_mm: dims.l || null, width_mm: dims.w || null, height_mm: dims.h || null,
+      stages,
     });
     setBusy(false);
     if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", "Tidak tersimpan", res.error.message); return; }
@@ -1091,6 +1136,7 @@ function NewProduct({ onClose, onChanged }: { onClose: () => void; onChanged: ()
             </div>
           </div>
         </div>
+        <StagePicker value={stages} onChange={setStages} />
         <p className="text-[11px] text-slate-500">
           Gambar kerja dan komponennya ditambahkan setelah produk tersimpan.
         </p>

@@ -187,11 +187,14 @@ function CloseSnag({ snagNo, onDone }: { snagNo: string; onDone: () => void }) {
   const { toast } = useToast();
   const [on, setOn] = useState(false);
   const [note, setNote] = useState("");
+  /* Who fixed it. The seam kept it and the screen always sent an empty
+     string, so every closed snag read *fixed by nobody* (F155). */
+  const [by, setBy] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function submit() {
     setBusy(true);
-    const res = await delivery.closeSnag({ snag_no: snagNo, fixed_by: "", fix_note: note });
+    const res = await delivery.closeSnag({ snag_no: snagNo, fixed_by: by.trim(), fix_note: note });
     setBusy(false);
     if (res.error) { toast("warning", "Belum ditutup", res.error.message); return; }
     toast("success", "Temuan ditutup", snagNo);
@@ -205,6 +208,11 @@ function CloseSnag({ snagNo, onDone }: { snagNo: string; onDone: () => void }) {
         value={note} onChange={(e) => setNote(e.target.value)}
         placeholder="Apa yang dikerjakan?" aria-label="Keterangan perbaikan"
         className="h-8 flex-1 rounded-lg border border-slate-200 px-2 text-[12px] focus:border-brand-400 focus:outline-none"
+      />
+      <input
+        value={by} onChange={(e) => setBy(e.target.value)}
+        placeholder="Siapa yang memperbaiki" aria-label="Diperbaiki oleh"
+        className="h-8 w-40 rounded-lg border border-slate-200 px-2 text-[12px] focus:border-brand-400 focus:outline-none"
       />
       <Button size="sm" disabled={busy || !note.trim()} onClick={submit}>Simpan</Button>
       <Button size="sm" variant="ghost" onClick={() => setOn(false)}>Batal</Button>

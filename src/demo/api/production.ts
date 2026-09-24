@@ -676,7 +676,7 @@ export async function saveProduct(
         height_mm: input.height_mm ?? row.height_mm,
         dimension_note: input.dimension_note?.trim() ?? row.dimension_note,
         lead_time_days: input.lead_time_days ?? row.lead_time_days,
-        stages: input.stages ?? row.stages,
+        stages: input.stages === undefined ? row.stages : (input.stages?.length ? input.stages : null),
         active: input.active ?? row.active,
         note: input.note?.trim() ?? row.note,
       });
@@ -700,7 +700,7 @@ export async function saveProduct(
         /* Null, not the four: nobody has said which stages this product goes
            through, and that is a thing to be named rather than assumed (D278,
            D150's rule). */
-        stages: input.stages ?? null,
+        stages: input.stages?.length ? input.stages : null,
         labour_cost: null, labour_note: null,
         active: input.active ?? true,
         note: input.note?.trim() || null,

@@ -96,6 +96,17 @@ const TEXT = {
     drafts: `<p><b>Minta John Lau menyiapkan pengajuan cuti.</b> Ketik "ajukan cuti untuk Wulan 2 sampai 3 Oktober, acara keluarga". John Lau menyiapkan <b>draft</b> pengajuan, dan tidak ada yang tersimpan sampai Anda memeriksanya dan menekan <b class="btn">Ya, tulis</b>. Gaji, absensi dan berkas 201 seseorang <b>tidak</b> dibacakan John Lau — angkanya dibaca di layar HRD oleh yang berhak.</p>`,
     figures: ["11-john-lau-cuti.jpg"],
   },
+  produksi: {
+    title: "Produksi sampai serah terima",
+    lede: "Cara memakai sistem produksi, langkah demi langkah: klien dan proyek, produk dan BOM, quotation, Job Order, bahan dari BOM, progres dan vendor, peti, surat jalan, pemasangan, sampai BAST ditandatangani.",
+    intro: [
+      `<p><b>Siapa mengerjakan apa.</b> Sales/PM (akses <code>project</code>) mencatat klien, proyek, quotation dan serah terima. PPIC/mandor (akses <code>production</code>, dan <code>procurement</code> untuk PR) membuat produk dan BOM, Job Order, mencatat progres dan vendor. Tim pengiriman (akses <code>delivery</code>) mengemas peti, membuat surat jalan, mencatat sampai dan pemasangan. BAST hanya dicatat oleh yang memegang wewenang serah terima proyek.</p>`,
+      `<p><b>Status proyek bergerak sendiri.</b> INQUIRY → QUOTATION_SENT (quotation dikirim) → DEAL (disetujui) → IN_PRODUCTION (Job Order pertama) → SHIPPED (surat jalan pertama) → DONE (BAST). Surat jalan hanya boleh berisi yang sudah selesai dibuat, jadi Job Order dibuat dari baris order dan semua tahapnya dicatat.</p>`,
+    ],
+    ask: `Tanyakan "SPK mana yang terlambat?", "sudah sampai mana pengiriman ke klien?" atau "kenapa surat jalan saya ditolak?".`,
+    drafts: `<p><b>Angka dibaca dari layarnya.</b> John Lau menjawab Job Order yang lewat tanggal dan progres pengiriman per proyek langsung dari data yang sama dengan layar Produksi dan Serah terima, sesuai akses Anda.</p>`,
+    figures: [],
+  },
 };
 const T = TEXT[MODULE] ?? TEXT.procurement;
 

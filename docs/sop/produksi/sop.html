@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8">
+<title>SOP produksi — Tala Living</title>
+<style>
+  @page { size: A4; margin: 16mm 14mm 18mm; }
+  :root { --brand: #2f6b52; --ink: #1e293b; --muted: #64748b; --line: #e2e8f0; --warn: #b45309; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", system-ui, -apple-system, sans-serif; color: var(--ink); font-size: 10.5pt; line-height: 1.5; margin: 0; background: #fff; }
+  .cover { height: 250mm; display: flex; flex-direction: column; justify-content: center; page-break-after: always; }
+  .cover .kicker { color: var(--brand); font-weight: 700; letter-spacing: .12em; font-size: 10pt; text-transform: uppercase; }
+  .cover h1 { font-size: 30pt; margin: 6mm 0 3mm; line-height: 1.15; }
+  .cover p { color: var(--muted); max-width: 140mm; }
+  .cover ol { list-style: none; padding: 0; margin-top: 10mm; columns: 2; }
+  .cover ol li { padding: 1.5mm 0; border-bottom: 1px solid var(--line); break-inside: avoid; }
+  .cover ol span { color: var(--brand); font-weight: 700; display: inline-block; width: 7mm; }
+  .intro { page-break-after: always; }
+  h2 { margin: 0; font-size: 16pt; }
+  h3 { font-size: 11pt; margin: 0 0 2mm; }
+  .proc { page-break-before: always; }
+  .proc header { display: flex; gap: 4mm; align-items: center; border-bottom: 2px solid var(--brand); padding-bottom: 3mm; margin-bottom: 3mm; }
+  .num { background: var(--brand); color: #fff; width: 11mm; height: 11mm; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13pt; flex: none; }
+  .meta { margin: 1mm 0 0; color: var(--muted); font-size: 9pt; }
+  code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 8.8pt; background: #f1f5f9; padding: 0 1.2mm; border-radius: 1mm; }
+  .purpose { background: #f0f7f3; border-left: 3px solid var(--brand); padding: 2.5mm 3.5mm; margin: 0 0 4mm; }
+  .steps { padding-left: 6mm; margin: 0; }
+  .steps > li { margin: 0 0 4mm; padding-left: 1mm; }
+  .steps > li::marker { color: var(--brand); font-weight: 700; }
+  .act { font-weight: 600; }
+  .btn { background: #e8f1ec; color: var(--brand); border: 1px solid #b9d5c6; border-radius: 1.2mm; padding: 0 1.4mm; font-weight: 700; white-space: nowrap; }
+  .rule { color: #334155; font-size: 9.5pt; margin-top: 1mm; }
+  .status { display: inline-block; margin-top: 1.2mm; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 8.5pt; background: #f8fafc; border: 1px solid var(--line); border-radius: 1mm; padding: .4mm 2mm; }
+  .status span { color: var(--brand); font-weight: 700; }
+  figure { margin: 2.5mm 0 0; break-inside: avoid; }
+  figure img { width: 100%; border: 1px solid var(--line); border-radius: 1.5mm; }
+  .faq { margin-top: 4mm; border-top: 1px solid var(--line); padding-top: 3mm; font-size: 9.5pt; break-inside: avoid; }
+  .faq p { margin: 0 0 2mm; }
+  .next { color: var(--muted); font-size: 9.5pt; border-top: 1px dashed var(--line); padding-top: 2mm; }
+  .temuan { page-break-before: always; }
+  .temuan li { margin-bottom: 3mm; }
+  .temuan li b { color: var(--warn); }
+  .note { color: var(--muted); font-size: 9pt; }
+  .proof { color: var(--brand); font-weight: 600; }
+</style></head>
+<body>
+  <div class="cover">
+    <div class="kicker">SOP · OPS TALALIVING</div>
+    <h1>Produksi sampai serah terima</h1>
+    <p>Cara memakai sistem produksi, langkah demi langkah: klien dan proyek, produk dan BOM, quotation, Job Order, bahan dari BOM, progres dan vendor, peti, surat jalan, pemasangan, sampai BAST ditandatangani. Setiap langkah di dokumen ini sudah dijalankan dalam simulasi terhadap database yang sama dengan sistem live.</p>
+    <p class="note">Versi 24 September 2026 · dibuat otomatis dari tabel pengetahuan John Lau (<code>ops_asst.processes</code>). Gambar diambil dari uji jalan lewat layar live (19 langkah, 2026-09-24) dengan data uji; yang tidak ada di uji jalan diambil dari mode demo.</p>
+    <ol><li><span>1.</span> Klien dan proyek (order)</li><li><span>2.</span> Produk, tahap produksi dan BOM</li><li><span>3.</span> Quotation ke klien</li><li><span>4.</span> Job Order (SPK)</li><li><span>5.</span> Bahan: PR dari BOM</li><li><span>6.</span> Progres produksi dan vendor</li><li><span>7.</span> Mengemas peti dan label</li><li><span>8.</span> Surat jalan dan barang sampai</li><li><span>9.</span> Pemasangan dan temuan</li><li><span>10.</span> Serah terima (BAST)</li></ol>
+  </div>
+
+  <section class="intro">
+    <h2>Sebelum mulai</h2>
+    <p><b>Siapa mengerjakan apa.</b> Sales/PM (akses <code>project</code>) mencatat klien, proyek, quotation dan serah terima. PPIC/mandor (akses <code>production</code>, dan <code>procurement</code> untuk PR) membuat produk dan BOM, Job Order, mencatat progres dan vendor. Tim pengiriman (akses <code>delivery</code>) mengemas peti, membuat surat jalan, mencatat sampai dan pemasangan. BAST hanya dicatat oleh yang memegang wewenang serah terima proyek.</p>
+    <p><b>Status proyek bergerak sendiri.</b> INQUIRY → QUOTATION_SENT (quotation dikirim) → DEAL (disetujui) → IN_PRODUCTION (Job Order pertama) → SHIPPED (surat jalan pertama) → DONE (BAST). Surat jalan hanya boleh berisi yang sudah selesai dibuat, jadi Job Order dibuat dari baris order dan semua tahapnya dicatat.</p>
+    <p><b>Tanya John Lau kapan saja.</b> Tombol <b class="btn">John Lau</b> ada di pojok kanan bawah setiap halaman. Tanyakan "SPK mana yang terlambat?", "sudah sampai mana pengiriman ke klien?" atau "kenapa surat jalan saya ditolak?". Panduannya tetap terbuka saat Anda pindah halaman, dan langkah yang sesuai dengan halaman yang sedang dibuka ditandai <b class="btn">you are here</b>. Percakapan tersimpan, jadi tidak hilang walaupun halaman di-refresh.</p>
+    <p><b>Angka dibaca dari layarnya.</b> John Lau menjawab Job Order yang lewat tanggal dan progres pengiriman per proyek langsung dari data yang sama dengan layar Produksi dan Serah terima, sesuai akses Anda.</p>
+    
+  </section>
+
+  
+  <section class="proc">
+    <header>
+      <div class="num">1</div>
+      <div>
+        <h2>Klien dan proyek (order)</h2>
+        <p class="meta">Layar: <code>/proyek/order</code> · Butuh: <code>project.create</code> · <span class="proof">diuji lewat layar live: 2 langkah</span></p>
+      </div>
+    </header>
+    <p class="purpose">Setiap pesanan dimulai sebagai proyek milik seorang klien. Status proyek bergerak sendiri mengikuti pekerjaan: INQUIRY → QUOTATION_SENT (quotation dikirim) → DEAL (disetujui) → IN_PRODUCTION (Job Order pertama) → SHIPPED (surat jalan pertama) → DONE (BAST).</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka Master data → Clients, tekan <b class="btn">Klien baru</b>, isi nama klien, kontak, telepon dan alamat, lalu <b class="btn">Simpan</b>. Klien juga bisa dibuat langsung dari laci proyek.</div>
+        <div class="rule"><b>Kenapa:</b> Nama klien wajib (name_required); nama yang sudah ada ditolak (client_exists).</div>
+        <div class="status">— <span>→</span> klien baru</div>
+        <figure><img src="walk-01-klien.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Buka Proyek → Order, tekan <b class="btn">Proyek baru</b>. Pilih klien, isi lokasi, penanggung jawab, tanggal mulai dan jadwal kirim, lalu <b class="btn">Simpan</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Kosongkan kode proyek untuk nomor otomatis. Jadwal kirim sebelum tanggal mulai ditolak (dates_reversed).</div>
+        <div class="status">— <span>→</span> INQUIRY</div>
+        <figure><img src="walk-02-proyek.jpg" alt=""></figure>
+      </li>
+    </ol>
+    <div class="faq"><h3>Tanya-jawab</h3><p><b>Apakah status proyek perlu diubah manual?</b><br>Biasanya tidak. Status bergerak sendiri: quotation dikirim, disetujui, Job Order pertama, surat jalan pertama, dan BAST. Tombol status di laci proyek untuk koreksi atau pembatalan (dengan alasan).</p></div>
+    <p class="next">Berikutnya: <b>Produk, tahap produksi dan BOM</b></p>
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">2</div>
+      <div>
+        <h2>Produk, tahap produksi dan BOM</h2>
+        <p class="meta">Layar: <code>/produksi/bom</code> · Butuh: <code>production.create</code> · <span class="proof">diuji lewat layar live: 3 langkah</span></p>
+      </div>
+    </header>
+    <p class="purpose">Produk (item code) adalah yang dibuat bengkel. BOM-nya berisi bahan dari database items dan tenaga kerja dengan tarifnya, dirilis sebagai revisi. Tahap produksi dicentang per produk: meja tanpa lampu atau kabel tidak melewati Machinery.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka Produksi → BOM, tekan <b class="btn">Produk baru</b>. Isi item code, kategori, nama, satuan dan ukuran, centang tahap produksi yang dilewati, lalu <b class="btn">Simpan</b>. Produk juga bisa dibuat dari baris order dengan <b class="btn">Jadikan item code</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Item code tidak pernah diubah lagi. Tanpa centang, Job Order-nya menunggu keempat tahap termasuk Machinery.</div>
+        <div class="status">— <span>→</span> produk tanpa BOM</div>
+        <figure><img src="walk-03-produk.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Buka produknya, tekan <b class="btn">Tambah komponen</b>. Pilih <b class="btn">Dari database items</b> untuk bahan (jumlah, satuan, susut) atau <b class="btn">Tenaga kerja</b> untuk upah (nama, satuan, tarif), lalu <b class="btn">Tambah</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Tenaga kerja tanpa tarif ditolak (rate_required). Barang yang belum ada di database bisa dibuat dengan "Buat item".</div>
+        <div class="status">— <span>→</span> draft BOM</div>
+        <figure><img src="walk-04-bom.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Isi catatan rilis, lalu tekan <b class="btn">Rilis rev N</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Catatan wajib (note_required). Harga bahan diambil dari harga standar atau terakhir di database items; baris tanpa harga menahan rilis (unpriced_lines).</div>
+        <div class="status">draft BOM <span>→</span> rev dirilis</div>
+        <figure><img src="walk-05-bom-rilis.jpg" alt=""></figure>
+      </li>
+    </ol>
+    
+    <p class="next">Berikutnya: <b>Quotation ke klien</b></p>
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">3</div>
+      <div>
+        <h2>Quotation ke klien</h2>
+        <p class="meta">Layar: <code>/proyek/quotation</code> · Butuh: <code>project.update</code> · <span class="proof">diuji lewat layar live: 4 langkah</span></p>
+      </div>
+    </header>
+    <p class="purpose">Quotation dihitung dari biaya BOM yang dirilis ditambah persen marketing, overhead dan margin. Dikirim ke klien, dan kalau disetujui, itemnya langsung menjadi baris order proyek.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka Proyek → Quotation, tekan <b class="btn">Quotation baru</b>, pilih proyek, lalu <b class="btn">Buat draft</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Satu proyek hanya punya satu draft (draft_exists).</div>
+        <div class="status">— <span>→</span> DRAFT</div>
+        <figure><img src="walk-06-quotation.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Di quotation itu tekan <b class="btn">Tambah item</b>: item code, jumlah, satuan, lalu simpan. Harga jual dihitung dari biaya BOM ditambah persen; bisa ditetapkan manual.</div>
+        <div class="rule"><b>Kenapa:</b> Item tanpa biaya (BOM belum dirilis dan tanpa ongkos manual) menahan pengiriman (cost_missing).</div>
+        <div class="status">DRAFT <span>→</span> DRAFT</div>
+        
+      </li>
+      <li>
+        <div class="act">Tekan <b class="btn">Kirim ke klien</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Quotation tanpa item ditolak (no_lines). Proyek pindah ke QUOTATION_SENT.</div>
+        <div class="status">DRAFT <span>→</span> SENT</div>
+        
+      </li>
+      <li>
+        <div class="act">Kalau klien setuju tekan <b class="btn">Disetujui</b>; kalau menolak tekan <b class="btn">Ditolak</b>, tulis alasannya, lalu <b class="btn">Catat ditolak</b>. Untuk mengubah harga setelah dikirim pakai <b class="btn">Revisi</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Menolak wajib beralasan (reason_required). Disetujui menyalin item menjadi baris order dan memindahkan proyek ke DEAL.</div>
+        <div class="status">SENT <span>→</span> ACCEPTED / REJECTED</div>
+        <figure><img src="walk-09-quotation-setuju.jpg" alt=""></figure>
+      </li>
+    </ol>
+    <div class="faq"><h3>Tanya-jawab</h3><p><b>Quotation tidak bisa dikirim karena "cost_missing".</b><br>Ada item yang belum punya biaya: BOM produknya belum dirilis, atau item tanpa item code belum diberi ongkos manual. Rilis BOM-nya di Produksi → BOM, atau isi ongkos manual per unit.</p></div>
+    <p class="next">Berikutnya: <b>Job Order (SPK)</b></p>
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">4</div>
+      <div>
+        <h2>Job Order (SPK)</h2>
+        <p class="meta">Layar: <code>/proyek/order</code> · Butuh: <code>production.create</code> · <span class="proof">diuji lewat layar live: 1 langkah</span></p>
+      </div>
+    </header>
+    <p class="purpose">Job Order dibuat dari baris order proyek, sehingga yang dibuat bengkel terhitung terhadap yang dipesan klien. Job Order mengunci revisi BOM yang dirilis terakhir.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka proyeknya di Proyek → Order. Pada baris order tekan <b class="btn">Buat Job Order</b>, isi jumlah, jatuh tempo dan rute (Bengkel sendiri / Lewat vendor), lalu <b class="btn">Buat</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Tombol muncul setelah baris punya item code. Job Order dari baris order ikut terhitung "sudah dibuat" saat surat jalan; Job Order yang dibuat di Produksi → Jadwal tanpa proyek tidak.</div>
+        <div class="status">— <span>→</span> OPEN · proyek IN_PRODUCTION</div>
+        <figure><img src="walk-10-job-order.jpg" alt=""></figure>
+      </li>
+    </ol>
+    
+    <p class="next">Berikutnya: <b>Bahan: PR dari BOM</b></p>
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">5</div>
+      <div>
+        <h2>Bahan: PR dari BOM</h2>
+        <p class="meta">Layar: <code>/produksi/jadwal</code> · Butuh: <code>procurement.create</code> · <span class="proof">diuji lewat layar live: 1 langkah</span></p>
+      </div>
+    </header>
+    <p class="purpose">Kebutuhan bahan satu Job Order dihitung dari BOM-nya (dengan susut) dan dijadikan draft PR. Tiap baris membawa nomor Job Order dan item-nya, supaya proyeksi dan belanja nyata bisa dibandingkan.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka Produksi → Jadwal, klik Job Order-nya, lalu di bagian bahan tekan <b class="btn">Buat PR dari BOM</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Butuh akses procurement. PR dibuat sebagai draft: tiap baris membawa nomor Job Order dan item-nya; tenaga kerja tidak ikut.</div>
+        <div class="status">— <span>→</span> PR DRAFT</div>
+        <figure><img src="walk-11-pr-bom.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Buka PR itu di Procurement → Requests, periksa jumlah dan harga, lalu <b class="btn">Submit for approval</b>. Selanjutnya mengikuti SOP procurement.</div>
+        
+        <div class="status">PR DRAFT <span>→</span> SUBMITTED</div>
+        
+      </li>
+    </ol>
+    <div class="faq"><h3>Tanya-jawab</h3><p><b>Tombol "Buat PR dari BOM" tidak muncul.</b><br>Tombol itu hanya untuk yang punya akses procurement, karena yang dibuat adalah permintaan pembelian. Job Order juga harus masih OPEN dan produknya punya BOM yang dirilis.</p></div>
+    
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">6</div>
+      <div>
+        <h2>Progres produksi dan vendor</h2>
+        <p class="meta">Layar: <code>/produksi/jadwal</code> · Butuh: <code>production.update</code> · <span class="proof">diuji lewat layar live: 3 langkah</span></p>
+      </div>
+    </header>
+    <p class="purpose">Progres dicatat per tahap per hari. Barang yang dikerjakan di luar (finishing, jok) dicatat keluar ke vendor dan kembali. Job Order ditutup setelah semua tahapnya selesai.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Di laci Job Order pilih tahap, isi jumlah, tanggal dan siapa yang mengerjakan, lalu <b class="btn">Catat</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Tahap yang tidak dilewati produk ditolak (stage_not_on_product). Melebihi jumlah order ditolak (over_order). Koreksi pakai jumlah negatif dengan catatan.</div>
+        
+        <figure><img src="walk-12-progres.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Untuk dikerjakan di vendor (misalnya finishing atau jok): pada Job Order bengkel sendiri tekan <b class="btn">Kirim ke vendor</b> dulu. Pilih proses dan vendor, isi jumlah dan tanggal dijanjikan kembali, lalu <b class="btn">Catat dikirim</b>. Saat kembali tekan <b class="btn">Catat kembali</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Tanggal janji di masa lalu ditolak (promise_in_past). Yang kembali tidak boleh melebihi yang dikirim (over_sent).</div>
+        <div class="status">— <span>→</span> di vendor → kembali</div>
+        <figure><img src="walk-12-progres.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Setelah semua tahap selesai tekan <b class="btn">Tutup Job Order</b>, lalu <b class="btn">Tutup</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Menutup sebelum selesai wajib beralasan.</div>
+        <div class="status">OPEN <span>→</span> DONE</div>
+        
+      </li>
+    </ol>
+    <div class="faq"><h3>Tanya-jawab</h3><p><b>Kenapa Job Order meja saya masih menunggu tahap Machinery?</b><br>Produknya belum punya daftar tahap sendiri, jadi ikut keempat tahap rutenya. Buka produk di Produksi → BOM, tekan "Ubah", centang hanya tahap yang benar-benar dilewati (misalnya Amplas, Finishing, Packing), lalu simpan. Tahap yang sudah punya progres di Job Order terbuka tidak bisa dibuang sampai Job Order itu ditutup.</p></div>
+    <p class="next">Berikutnya: <b>Mengemas peti dan label</b></p>
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">7</div>
+      <div>
+        <h2>Mengemas peti dan label</h2>
+        <p class="meta">Layar: <code>/proyek/peti</code> · Butuh: <code>delivery.create</code> · <span class="proof">diuji lewat layar live: 1 langkah</span></p>
+      </div>
+    </header>
+    <p class="purpose">Barang jadi dikemas per peti dengan tujuan di dalam gedung klien dan isinya. Tiap peti punya label dengan QR yang dibuka tim di lokasi.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka Proyek → Peti, tekan <b class="btn">Kemas peti</b>. Pilih proyek, isi tujuan di dalam gedung dan isi peti, lalu <b class="btn">Kemas &amp; beri label</b>. Cetak labelnya dengan <b class="btn">Cetak label</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Tujuan dan isi wajib (destination_required, contents_required).</div>
+        <div class="status">— <span>→</span> PACKED</div>
+        <figure><img src="walk-15-peti.jpg" alt=""></figure>
+      </li>
+    </ol>
+    
+    <p class="next">Berikutnya: <b>Surat jalan dan barang sampai</b></p>
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">8</div>
+      <div>
+        <h2>Surat jalan dan barang sampai</h2>
+        <p class="meta">Layar: <code>/proyek/pengiriman</code> · Butuh: <code>delivery.create</code> · <span class="proof">diuji lewat layar live: 2 langkah</span></p>
+      </div>
+    </header>
+    <p class="purpose">Surat jalan hanya boleh berisi yang sudah selesai dibuat. Sampai di lokasi dicatat dengan foto surat jalan yang ditandatangani penerima.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka Proyek → Pengiriman, tekan <b class="btn">Buat surat jalan</b>. Isi jumlah per baris, centang peti yang ikut, isi sopir dan kendaraan, lalu <b class="btn">Berangkatkan N</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Tidak boleh melebihi yang sudah selesai dibuat (not_enough_made). Proyek pindah ke SHIPPED.</div>
+        <div class="status">— <span>→</span> IN_TRANSIT</div>
+        <figure><img src="walk-16-surat-jalan.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Saat sampai tekan <b class="btn">Catat sampai</b>, isi penerima, unggah foto surat jalan bertanda tangan (dan foto barang kalau ada), lalu <b class="btn">Simpan</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Foto surat jalan yang ditandatangani wajib (surat_jalan_required).</div>
+        <div class="status">IN_TRANSIT <span>→</span> ARRIVED</div>
+        
+      </li>
+      <li>
+        <div class="act">Di lokasi, scan QR di label peti lalu tekan <b class="btn">Sampai di site</b>; setelah dipasang tekan <b class="btn">Terpasang</b>, atau <b class="btn">Ada masalah</b> kalau isinya kurang atau rusak.</div>
+        
+        <div class="status">IN_TRANSIT <span>→</span> ON_SITE / INSTALLED / PROBLEM</div>
+        
+      </li>
+    </ol>
+    <div class="faq"><h3>Tanya-jawab</h3><p><b>Surat jalan ditolak "not_enough_made", padahal barangnya sudah ada.</b><br>Surat jalan menghitung yang sudah selesai dibuat dari Job Order yang dibuat dari baris order itu, sampai tahap terakhirnya. Pastikan Job Order dibuat dari baris order (bukan dari Jadwal tanpa proyek) dan semua tahapnya sudah dicatat.</p></div>
+    <p class="next">Berikutnya: <b>Pemasangan dan temuan</b></p>
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">9</div>
+      <div>
+        <h2>Pemasangan dan temuan</h2>
+        <p class="meta">Layar: <code>/proyek/instalasi</code> · Butuh: <code>delivery.create</code> · <span class="proof">diuji lewat layar live: 1 langkah</span></p>
+      </div>
+    </header>
+    <p class="purpose">Pemasangan dicatat per kunjungan: berapa unit terpasang dan oleh tim siapa. Yang salah dicatat sebagai temuan dan ditutup dengan keterangan perbaikannya.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka Proyek → Instalasi, tekan <b class="btn">Catat pemasangan</b>. Isi jumlah terpasang per baris dan tim yang datang; kalau ada yang salah, tulis temuannya dan tingkatnya. Lalu <b class="btn">Catat N unit terpasang</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Tidak boleh memasang lebih dari yang sudah di lokasi (not_enough_on_site).</div>
+        <div class="status">— <span>→</span> terpasang</div>
+        <figure><img src="walk-18-instalasi.jpg" alt=""></figure>
+      </li>
+      <li>
+        <div class="act">Setelah diperbaiki, pada temuan itu tekan <b class="btn">Tutup</b>, tulis apa yang dikerjakan dan siapa yang memperbaiki, lalu <b class="btn">Simpan</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Keterangan perbaikan wajib (fix_note_required).</div>
+        <div class="status">temuan terbuka <span>→</span> temuan selesai</div>
+        
+      </li>
+    </ol>
+    
+    <p class="next">Berikutnya: <b>Serah terima (BAST)</b></p>
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">10</div>
+      <div>
+        <h2>Serah terima (BAST)</h2>
+        <p class="meta">Layar: <code>/proyek/serah-terima</code> · Butuh: <code>project.handover</code> · <span class="proof">diuji lewat layar live: 1 langkah</span></p>
+      </div>
+    </header>
+    <p class="purpose">Serah terima dicatat dengan BAST yang sudah ditandatangani kedua pihak. Setelah itu proyek selesai (DONE).</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka Proyek → Serah terima, tekan <b class="btn">Serah terima</b>. Isi yang tanda tangan dari klien dan dari kita, unggah BAST yang sudah ditandatangani, lalu <b class="btn">Catat serah terima</b>.</div>
+        <div class="rule"><b>Kenapa:</b> Butuh wewenang serah terima proyek; tim pengiriman saja ditolak (not_permitted). BAST wajib (bast_required).</div>
+        <div class="status">SHIPPED <span>→</span> DONE</div>
+        <figure><img src="walk-19-bast.jpg" alt=""></figure>
+      </li>
+    </ol>
+    
+    
+  </section>
+
+  
+</body></html>

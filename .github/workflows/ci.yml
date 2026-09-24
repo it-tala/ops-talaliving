@@ -245,6 +245,7 @@ jobs:
         run: |
           node scripts/sop/check-knowledge.mjs procurement
           node scripts/sop/check-knowledge.mjs hr
+          node scripts/sop/check-knowledge.mjs produksi
 
       # B8's import, proved on a fixture legacy system and run **twice**.
       # Idempotence is the property the whole cutover rests on and the one that
