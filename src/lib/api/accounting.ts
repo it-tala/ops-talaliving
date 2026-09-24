@@ -1456,24 +1456,58 @@ export async function listDue(): Promise<Result<CashDue[]>> {
 }
 
 /** The month's bills as a worklist — `monthlyBills()` in the demo, over the
- *  same `cash_plan()` the calendar reads (D227, D228). Two runs of one seam:
- *  one anchored at the month shown, one at the month before, so *last month*
- *  exists at all (F68). Everything below is arithmetic on what those two runs
- *  already decided, the demo's rules line for line. */
+ *  same `cash_plan()` the calendar reads (D227, D228). *Last month* is never in
+ *  the default window (F68), so the plan is anchored a month back — and one run
+ *  anchored there covers both months, because twelve months forward from `prev`
+ *  includes `m`.
+ *
+ *  It used to be two runs, anchored a month apart, fired together. That cost
+ *  HTTP 500 on a live money screen — `57014`, statement timeout at 8s, twice
+ *  within 3ms, 2026-09-24 02:36, from `ops.talaliving.com`.
+ *
+ *  The cause was RLS — `has_permission` evaluated once per row instead of once
+ *  per statement — and `0154` fixed it by rewriting every policy as
+ *  `(select …)`, which Postgres plans as an InitPlan. Measured across the minute
+ *  it was applied: 121 calls at 4,290ms mean and 14 failures before, 13 calls at
+ *  552ms and none after.
+ *
+ *  That diagnosis was briefly retracted here in favour of a wrong one, because
+ *  the re-measurement happened two hours after `0154` landed from another
+ *  branch. F157 has the sequence; the rule it cost is that a measurement taken
+ *  later is a measurement of a different system, and on a shared database that
+ *  means reading the migration history before concluding an earlier result was
+ *  wrong.
+ *
+ *  One run rather than two still earns its place, and never depended on that
+ *  argument: it halves the work and removes the contention that turned one slow
+ *  read into two failed ones.
+ *
+ *  Reading `m` out of the earlier window is only sound if `p_from` chooses the
+ *  window and nothing else. It does — a cell is the schedule and the ledger for
+ *  its month, and its state is relative to `p_now` — and
+ *  `smoke/86_acct_cash_plan.sql` asserts it rather than trusting it, because it
+ *  was first established by measuring production once and a measurement holds
+ *  for one input.
+ *
+ *  Everything below is arithmetic on what that run already decided, the demo's
+ *  rules line for line. The demo still runs its own projection twice: it is
+ *  in-memory and costs nothing, and D228 asks for one *calculation*, not one
+ *  call. */
 export async function getMonthlyBills(month?: string): Promise<Result<MonthlyBills>> {
   const today = officeToday();
   const m = month || today.slice(0, 7);
   const prev = previousMonth(m);
 
-  const [planRes, prevRes, setting] = await Promise.all([
-    planFrom(`${m}-01`),
+  const [planRes, setting] = await Promise.all([
     planFrom(`${prev}-01`),
     core().from("settings").select("value").eq("key", "ops.bill_anomaly_percent").maybeSingle(),
   ]);
   if (planRes.error) return planRes;
-  if (prevRes.error) return prevRes;
+  /* One projection, read twice. The two names are kept because the arithmetic
+     below asks two different questions of it, and collapsing them to one name
+     is how a comparison quietly starts comparing a month with itself. */
   const plan = planRes.data;
-  const prevPlan = prevRes.data;
+  const prevPlan = plan;
   const threshold = Number((setting.data as { value?: unknown } | null)?.value ?? 25) || 25;
 
   /* A month that has ended is worth what it cost; one still running, what it

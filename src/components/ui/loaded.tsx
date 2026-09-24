@@ -119,12 +119,21 @@ function RefreshBar() {
 export function useLoad<T>(
   run: () => Promise<{ data?: T; error?: ApiError; meta?: { page?: Page } }>,
   deps: React.DependencyList,
-  opts: { keepPrevious?: boolean } = {},
+  opts: { keepPrevious?: boolean; keepOnError?: boolean } = {},
 ): [LoadState<T>, () => void] {
   const [state, setState] = React.useState<LoadState<T>>({ status: "loading" });
   const [tick, setTick] = React.useState(0);
   const lastTick = React.useRef(tick);
   const keepPrevious = opts.keepPrevious ?? false;
+  /* For a screen that reloads on a timer rather than on a press. A poll nobody
+     asked for must not be able to take a working screen away: one transient
+     refusal would replace forty good rows with an error box, over a request the
+     reader never made. With this set the old answer stays and the failure is
+     the caller's to surface — which a polling screen has to do anyway, since it
+     is the only thing that knows the difference between "nothing new" and
+     "stopped asking an hour ago". Off by default: when somebody presses
+     Reload, a refusal IS the news. */
+  const keepOnError = opts.keepOnError ?? false;
 
   /* Before paint, so a remembered answer replaces the skeleton in the same
      frame rather than flashing it first. */
@@ -147,7 +156,11 @@ export function useLoad<T>(
     });
     void asked.then((res) => {
       if (!alive) return;
-      if (res.error) setState({ status: "failed", error: res.error });
+      if (res.error) {
+        setState((prev) => (keepOnError && prev.status === "ready"
+          ? { ...prev, refreshing: false }
+          : { status: "failed", error: res.error as ApiError }));
+      }
       /* The page meta rides along with the data: a screen that pages needs to
          know how many there are, and asking twice would be two answers. */
       else setState({ status: "ready", data: res.data as T, page: res.meta?.page });
@@ -172,4 +185,55 @@ export function useDebounced<T>(value: T, ms = 300): T {
     return () => clearTimeout(t);
   }, [value, ms]);
   return settled;
+}
+
+/** Reload every `ms`, while the tab is in front and `enabled` is true.
+ *
+ *  For a screen whose subject changes without anybody touching it. Purchase
+ *  verification is the case that asked for this: documents arrive there from
+ *  Google Chat, so somebody photographs a nota in Bali and the queue is stale
+ *  until the page is reloaded — and a reader has no way to tell a queue that is
+ *  empty from a page that stopped asking.
+ *
+ *  Three conditions, each a mistake this exists to not make:
+ *
+ *  **Paused when the tab is hidden**, and it asks again the moment the tab comes
+ *  forward. A queue left open overnight on a second monitor is 480 needless
+ *  round trips, and the first thing somebody sees on returning should be
+ *  current rather than a minute old.
+ *
+ *  **Paused when the caller says so.** A list that reorders itself under an open
+ *  form is worse than a list that is a minute stale: the row being decided about
+ *  moves, and an id held in state can vanish from under a half-typed answer.
+ *
+ *  **One pass at a time.** `reload()` returns nothing, so this cannot await it;
+ *  the interval is instead skipped while the tab is hidden and kept long enough
+ *  that overlapping passes are not the failure mode. Pair it with `keepOnError`
+ *  on the loads it drives, or a single blip takes the screen away.
+ */
+export function usePoll(
+  ms: number,
+  reload: () => void,
+  { enabled = true }: { enabled?: boolean } = {},
+): void {
+  const latest = React.useRef(reload);
+  latest.current = reload;
+
+  React.useEffect(() => {
+    if (!enabled || ms <= 0) return;
+
+    const ask = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      latest.current();
+    };
+
+    const timer = setInterval(ask, ms);
+    const onVisible = () => { if (document.visibilityState === "visible") ask(); };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [ms, enabled]);
 }

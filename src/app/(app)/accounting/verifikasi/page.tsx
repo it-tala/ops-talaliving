@@ -1,17 +1,19 @@
 "use client";
 
 import { TypeOptions } from "@/components/ui/type-options";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Inbox, FileText, Receipt, Undo2, Link2, StickyNote, XCircle, AlertTriangle, Check,
+  RefreshCw,
 } from "lucide-react";
 import { Badge, Button, Card, CardHeader, EmptyState, PageHeader } from "@/components/ui/primitives";
-import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
+import { Loaded, SourceBadge, useLoad, usePoll } from "@/components/ui/loaded";
 import { usePaged } from "@/components/ui/pager";
 import { MoneyInput } from "@/components/ui/money-input";
 import { NumberInput } from "@/components/ui/number-input";
 import { formatIDR } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { officeClock } from "@/lib/office";
 import { accounting, documents, procurement } from "@/demo/api";
 import { DocumentPreview } from "@/components/ui/doc-preview";
 import type { EvidenceInboxRow, TransactionTypeCode, Direction, DocumentCoverage, TransactionView } from "@/services/accounting/contracts";
@@ -133,9 +135,9 @@ function groupByDocument(rows: EvidenceInboxRow[]): InboxDoc[] {
 export default function InboxPage() {
   const { hasAuthority } = useSession();
   const { toast } = useToast();
-  const [rows, reload] = useLoad(() => accounting.listInbox(), []);
-  const [decidedState, reloadDecided] = useLoad(() => accounting.listInboxDecided(DECIDED_SHOWN), []);
-  const [health, reloadHealth] = useLoad(() => accounting.getInboxHealth(), []);
+  const [rows, reload] = useLoad(() => accounting.listInbox(), [], { keepOnError: true });
+  const [decidedState, reloadDecided] = useLoad(() => accounting.listInboxDecided(DECIDED_SHOWN), [], { keepOnError: true });
+  const [health, reloadHealth] = useLoad(() => accounting.getInboxHealth(), [], { keepOnError: true });
   const [selected, setSelected] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState<string | null>(null);
   /* The queue and the history both page: an inbox is read from the top, and
@@ -177,6 +179,37 @@ export default function InboxPage() {
     setSelected(null);
   }
 
+  /* ── Why this screen asks again on its own ───────────────────────────────
+   *
+   * Documents arrive here from Google Chat, not from anybody sitting at this
+   * screen: somebody photographs a nota in Bali and a pipeline puts it in this
+   * queue minutes later. A screen that only changes when it is reloaded is
+   * wrong most of the time it is open, and the reader cannot tell an empty
+   * queue from a page that stopped asking an hour ago.
+   *
+   * Sixty seconds, because the documents come from a cycle that runs every few
+   * minutes — faster costs reads and buys nothing. `usePoll` pauses while the
+   * tab is in the background and asks the moment it comes forward.
+   *
+   * **Never while somebody is deciding.** A reload that reorders the list under
+   * an open confirmation is worse than a stale list: the row being decided
+   * about would move, and `selected` is a ref_id that could vanish from under
+   * a half-typed form. A minute of staleness is the smaller price.
+   *
+   * The three loads it drives carry `keepOnError`, so one transient refusal on
+   * a request nobody asked for cannot take a working screen away.
+   */
+  const [lastPolled, setLastPolled] = useState<Date | null>(null);
+
+  const poll = useCallback(() => {
+    reload();
+    reloadHealth();
+    reloadDecided();
+    setLastPolled(new Date());
+  }, [reload, reloadHealth, reloadDecided]);
+
+  usePoll(60_000, poll, { enabled: selected === null });
+
   return (
     <div>
       <PageHeader
@@ -184,6 +217,29 @@ export default function InboxPage() {
         title="Purchase verification"
         description="Documents that arrived with nothing to attach them to — somebody bought first and photographed the nota. Everything here leaves by one of five roads, and none of them throws the file away."
       />
+
+      {/* A screen that asks again on its own has to say when it last did.
+          Otherwise "nothing new today" and "this stopped asking an hour ago"
+          look identical — and that distinction is the whole reason this queue
+          exists to be watched. */}
+      <div className="mb-3 flex items-center gap-2 text-[12px] text-slate-500">
+        <button
+          type="button"
+          onClick={poll}
+          className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 font-medium text-slate-600 hover:bg-slate-100"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Refresh
+        </button>
+        <span>
+          {lastPolled
+            ? `Checked ${officeClock(lastPolled)} · asks again every minute`
+            : "Checks for new documents every minute"}
+        </span>
+        {selected !== null && (
+          <span className="text-slate-400">· paused while a document is open</span>
+        )}
+      </div>
 
       {health.status === "ready" && (
         <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-card">

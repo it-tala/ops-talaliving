@@ -159,7 +159,12 @@ declare r jsonb; tok text; doc text; st text; att jsonb;
 begin
   select doc_no into doc from ops_procure.pr_documents order by created_at desc limit 1;
   select token into tok from ops_procure.approval_requests where answered_at is null limit 1;
+  -- The worker's call, not this session's (0157): `answer_request` trusts its
+  -- caller for the answerer's address, so only a caller that verified it may
+  -- make it.
+  set local role service_role;
   r := ops_procure.answer_request(tok, true, 'evin@talaliving.com');
+  set local role authenticated;
   assert ops_core.said_ok(r), format('answer: %s', r);
   select status::text into st from ops_procure.v_pr_line_status where line_no_full = doc || '-L01';
   assert st = 'APPROVED', st;

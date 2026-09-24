@@ -575,11 +575,21 @@ export async function updateLine(
  *  from `v_approval_batch`.
  */
 export async function requestApproval(
-  input: { line_nos: string[]; to?: string; notes?: Record<string, string | null> },
+  input: {
+    line_nos: string[];
+    to?: string;
+    /** The approver by address, which is what the seam takes. `to` (an id) stays
+     *  for callers that hold a user row; a screen that offers the choice from
+     *  `identity.listApprovers()` has only the address, and looking the id back
+     *  up to look the address up again would be two round trips to arrive where
+     *  it started. */
+    to_email?: string;
+    notes?: Record<string, string | null>;
+  },
   idempotencyKey?: string,
 ): Promise<Result<ApprovalBatchView>> {
-  let toEmail: string | null = null;
-  if (input.to) {
+  let toEmail: string | null = input.to_email ?? null;
+  if (!toEmail && input.to) {
     const { data } = await supabaseBrowser().schema("ops_core")
       .from("users").select("email").eq("id", input.to).maybeSingle();
     toEmail = (data as { email: string } | null)?.email ?? null;
