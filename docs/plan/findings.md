@@ -6625,3 +6625,92 @@ rather than method. The rule worth keeping: **`begin … rollback` is not a
 sandbox for anything that touches the catalogue.** VACUUM, ANALYZE, sequence
 advances and `reltuples` are all outside it, and "I will roll it back" is a claim
 about ordinary DML only.
+
+## F159 · 2026-09-24 · a fingerprint that only looks inside `$$…$$` cannot see what was dropped outside it
+
+**Nineteen migrations went to production in one sitting** — `0136`–`0153`, then
+`0158` — through `apply_migration`, which takes the migration as a *text
+argument*. There is no file transfer: the text is retyped into the call. So the
+question after every one is not "did it run" but "is what ran the file".
+
+The method used for the first few was to fingerprint the deployed function:
+`md5(prosrc)` on production against the same function on the local ladder built
+from the real files. It is a good check and it caught a real fault earlier in the
+week (`create_pr` in `0158`, which lost its `lines_required` refusal when it was
+re-created from a partial read).
+
+**It cannot see anything outside a function body.** `prosrc` is what lies between
+`$$` and `$$`. Every top-level comment, every `alter table`, every `grant`, the
+`comment on` statements — all of it is invisible to that check.
+
+### The check that does see it
+
+`supabase_migrations.schema_migrations.statements[1]` holds the text that was
+applied, verbatim. So:
+
+```sql
+select name,
+       length(regexp_replace(statements[1], '\s+$', '')) as chars,
+       md5(convert_to(regexp_replace(statements[1], '\s+$', ''), 'UTF8')) as fp
+  from supabase_migrations.schema_migrations where name = '…';
+```
+
+against the file, trimmed the same way. Count characters, not bytes — the files
+are full of `—` and `·`, and `wc -c` and `length()` disagree by exactly the
+number of multi-byte characters, which looks like corruption and is not.
+
+Run over the sixteen migrations this session had applied, **fourteen were
+byte-identical and two were not**:
+
+| | file | production | missing |
+|---|---|---|---|
+| `0139_procure_po_from_pr_line` | 40,239 | 37,138 | 3,101 chars · 51 comment lines |
+| `0143_procure_po_confirm_roads` | 21,347 | 19,779 | 1,568 chars · 26 comment lines |
+
+Both had been declared verified, on the strength of six function fingerprints
+that were genuinely identical. Stripping blank lines and comments from both
+sides gives **589 code lines and `bdc029b2…` for `0139`, 308 and `2885ab28…` for
+`0143`, on production and locally alike**. Not one statement was lost. What was
+lost is the header narrative — the part that says *why* — abridged while
+retyping, in the two longest files of the nineteen.
+
+### Why that is worth an entry rather than a shrug
+
+The behaviour is right, and the repo file still carries the reasoning, so nothing
+is unrecoverable. Two things still follow.
+
+**The record no longer matches the file.** Anyone who later diffs what production
+was told against what the repo says will find two files that do not reconcile,
+and will have to re-derive whether the difference is a comment or a missing
+constraint. That is the expensive question, and it was cheap to avoid.
+
+**The temptation afterwards is worse than the fault.** `schema_migrations` is
+writable. Pasting the full text in would make the record look right, and would
+make it a record of something that never ran. It was left as it is.
+
+### It is not one person's slip
+
+Production already carried `hr_task_monitoring` and `hr_wlkp_identity`, applied
+from another branch three hours earlier — `0152` and `0153` under un-numbered
+names. Immediately after them sits a migration called
+**`hr_task_wlkp_restore_comments`**, 26,707 characters. Somebody else hit exactly
+this, noticed, and re-emitted the two files to put the prose back.
+
+So the failure is not carelessness, it is the shape of the tool: a 50 KB
+migration passed as a text argument gets abridged, and every check anyone
+reached for first — does it run, do the objects exist, do the functions match —
+returns green. **The only check that fails is the one against the stored text.**
+
+`0152` and `0153` needed no work as a result: eleven functions, two views, eleven
+policies, fifteen constraints and nine indexes on production all carry the same
+fingerprints as the local ladder, and so do `0153`'s five functions, five enums
+and eleven columns. They were verified rather than applied.
+
+### And one thing the run measured on the way past
+
+`0158` rewrote `v_line_evidence` to start from `pr_lines` instead of
+`attachment_links`, so that a line supported only by the order it is against has
+a row at all. Before: 55 rows, 26 supported, 32 with payment proof, 12 documents
+filed on lines. After: **290 rows — every line — and still 26, 32 and 12.** The
+view got wider without inventing a single piece of evidence, which is the only
+way that change is allowed to look.
