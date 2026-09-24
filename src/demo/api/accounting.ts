@@ -247,6 +247,9 @@ export async function listTransactions(
     /** By project **code**, resolved here — the caller crosses the seam with
      *  the public identifier, never an internal id (ADR-004). */
     project_code?: string;
+    /** Inclusive `YYYY-MM-DD` bounds on `trx_date`. */
+    from?: string; to?: string;
+    direction?: "IN" | "OUT";
     include_void?: boolean; limit?: number; offset?: number;
   } = {},
 ): Promise<Result<TransactionView[]>> {
@@ -262,6 +265,9 @@ export async function listTransactions(
     rows = project ? rows.filter((t) => t.project_id === project.id) : [];
   }
   if (opts.type_code) rows = rows.filter((t) => t.type_code === opts.type_code);
+  if (opts.direction) rows = rows.filter((t) => t.direction === opts.direction);
+  if (opts.from) rows = rows.filter((t) => t.trx_date >= opts.from!);
+  if (opts.to) rows = rows.filter((t) => t.trx_date <= opts.to!);
   if (opts.q) {
     const q = opts.q.toLowerCase();
     rows = rows.filter((t) => t.description.toLowerCase().includes(q) || t.trx_no.includes(q));

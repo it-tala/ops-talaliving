@@ -95,6 +95,12 @@ function DueBadge({ d }: { d: CashDue }) {
 
 const LINK_PAGE_SIZE = 10;
 
+/** `2026-02` → `2026-02-28`. */
+function lastDayOf(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  return `${month}-${String(new Date(Date.UTC(y!, m!, 0)).getUTCDate()).padStart(2, "0")}`;
+}
+
 /** Pointing at the ledger row that paid a bill.
  *
  *  The calendar guesses by category, and says when it is guessing. This is how
@@ -103,7 +109,14 @@ const LINK_PAGE_SIZE = 10;
  *  transactions would be a second books nobody reconciles. */
 function LinkPayment({ due, onClose, onLinked }: { due: CashDue; onClose: () => void; onLinked: () => void }) {
   const { toast } = useToast();
-  const [rows] = useLoad(() => accounting.listTransactions({ limit: 200 }), []);
+  /* The month's outgoing rows, asked of the database directly. Taking the
+     latest 200 of everything and filtering here missed any month older than
+     those 200 — the bill from two months back had no candidates at all. A
+     month of payments is a bounded set, so the search box below filters it
+     in the browser, without a round trip per letter. */
+  const [rows, reloadRows] = useLoad(() => accounting.listTransactions({
+    direction: "OUT", from: `${due.month}-01`, to: lastDayOf(due.month), limit: 1000,
+  }), [due.month]);
   const [busy, setBusy] = useState(false);
   const [q, setQ] = useState("");
 
@@ -136,11 +149,9 @@ function LinkPayment({ due, onClose, onLinked }: { due: CashDue; onClose: () => 
           className="h-9 w-full rounded-lg border border-slate-200 pl-8 pr-2 text-sm focus:border-brand-400 focus:outline-none"
         />
       </label>
-      <Loaded state={rows} onRetry={() => {}}>
+      <Loaded state={rows} onRetry={reloadRows}>
         {(all) => {
-          const inMonth = all.filter(
-            (t) => t.direction === "OUT" && t.trx_date.startsWith(due.month),
-          );
+          const inMonth = all;
           /* The row that paid a bill is almost always the one whose amount is
            * nearest the plan, so that one goes first; the date breaks ties,
            * newest first, the way the ledger reads. */
@@ -162,12 +173,19 @@ function LinkPayment({ due, onClose, onLinked }: { due: CashDue; onClose: () => 
               </p>
             );
           }
+          const cut = rows.status === "ready" && rows.page?.has_more
+            ? <p className="mb-2 text-[12px] text-amber-700">
+                Hanya {all.length} dari {rows.page.total} transaksi bulan ini yang dimuat; sisanya tidak ditampilkan di sini.
+              </p>
+            : null;
           return candidates.length === 0 ? (
             <p className="text-[13px] text-slate-500">Tidak ada transaksi yang cocok dengan &ldquo;{q}&rdquo;.</p>
           ) : (
             /* Ten at a time, at a fixed height: a month of ledger rows is a
              * hundred-odd lines, and a modal that grows with it pushes its own
              * title and close button off the screen. */
+            <>
+            {cut}
             <Paged rows={candidates} pageSize={LINK_PAGE_SIZE} unit="transaksi">
               {(shown) => (
                 <ul className="-mx-5 h-[480px] divide-y divide-slate-100 overflow-y-auto border-t border-slate-100 px-5">
@@ -192,6 +210,7 @@ function LinkPayment({ due, onClose, onLinked }: { due: CashDue; onClose: () => 
                 </ul>
               )}
             </Paged>
+            </>
           );
         }}
       </Loaded>

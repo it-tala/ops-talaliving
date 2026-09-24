@@ -64,7 +64,6 @@ export default function InboxPage() {
   const [rows, reload] = useLoad(() => accounting.listInbox(), []);
   const [decidedState, reloadDecided] = useLoad(() => accounting.listInboxDecided(DECIDED_SHOWN), []);
   const [health, reloadHealth] = useLoad(() => accounting.getInboxHealth(), []);
-  const [attachments] = useLoad(() => documents.listAttachments(), []);
   const [selected, setSelected] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState<string | null>(null);
   /* The queue and the history both page: an inbox is read from the top, and
@@ -81,6 +80,21 @@ export default function InboxPage() {
   const decidedTotal = decidedState.status === "ready"
     ? decidedState.page?.total ?? decided.length
     : 0;
+  /* Only the files this screen is drawing: the queue page, the row open on
+     the right, and the twenty decided rows. Asking for "the latest 300
+     uploads" fetched far more than that and still missed any row older than
+     them. */
+  const selectedRow = rows.status === "ready" ? rows.data.find((r) => r.ref_id === selected) : undefined;
+  const wantedIds = [...new Set([
+    ...queue.map((r) => r.attachment_id),
+    ...(selectedRow ? [selectedRow.attachment_id] : []),
+    ...decided.map((r) => r.attachment_id),
+  ].filter(Boolean))].sort().join(",");
+  const [attachments] = useLoad(
+    () => documents.getAttachments(wantedIds ? wantedIds.split(",") : []),
+    [wantedIds],
+    { keepPrevious: true },
+  );
   const mayResolve = hasAuthority("resolve_inbox");
 
   function refresh() {

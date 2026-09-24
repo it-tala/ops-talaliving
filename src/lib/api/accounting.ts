@@ -275,6 +275,9 @@ export async function listTransactions(
   opts: {
     account_id?: string; type_code?: string; q?: string;
     project_code?: string; include_void?: boolean;
+    /** Inclusive `YYYY-MM-DD` bounds on `trx_date`. */
+    from?: string; to?: string;
+    direction?: "IN" | "OUT";
     limit?: number; offset?: number;
   } = {},
 ): Promise<Result<TransactionView[]>> {
@@ -285,6 +288,9 @@ export async function listTransactions(
   if (opts.account_id) q = q.eq("account_id", opts.account_id);
   if (opts.project_code) q = q.eq("project_code", opts.project_code);
   if (opts.type_code) q = q.eq("type_code", opts.type_code);
+  if (opts.direction) q = q.eq("direction", opts.direction);
+  if (opts.from) q = q.gte("trx_date", opts.from);
+  if (opts.to) q = q.lte("trx_date", opts.to);
   if (opts.q) q = q.or(ilikeOrFilter(opts.q, "description", "trx_no"));
   const { data, error, count } = await q
     .order("trx_date", { ascending: false })
