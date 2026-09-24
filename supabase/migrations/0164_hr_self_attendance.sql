@@ -1,4 +1,4 @@
--- 0156_hr_self_attendance.sql — a tap from the person's own phone, not the
+-- 0164_hr_self_attendance.sql — a tap from the person's own phone, not the
 -- machine at the door.
 --
 -- ── why this is a new source, not a new function on top of `add_scan` ─────

@@ -22,7 +22,7 @@ import { useToast } from "@/store/toast";
 /** The profile every account owns (W7) — a different object from every other
  *  screen in this system, because it is the one screen where "which rows may
  *  this account see" is answered by an account-to-employee link rather than
- *  by a module grant (0152, 0155–0158). Reset a password, read a personal
+ *  by a module grant (0152, 0163–0166). Reset a password, read a personal
  *  history of what was done through this page, tap presensi from a phone
  *  instead of the reader at the door, ask for overtime and leave, see a
  *  reminder of what is due, and read one's own payslip.

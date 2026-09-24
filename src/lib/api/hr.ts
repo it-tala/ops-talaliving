@@ -207,7 +207,7 @@ export async function listLeaveBalances(): Promise<Result<LeaveBalance[]>> {
  *  one made conditional, the same reasoning as `myOvertimeSheets`: the admin
  *  screen's query already assumes it may see the roster. `leave_balances()`
  *  itself needs no change — RLS (`employees_read_own`, `marks_read_own`,
- *  `leave_read_own`, 0157) already narrows it to one row for a caller with
+ *  `leave_read_own`, 0165) already narrows it to one row for a caller with
  *  no `hrd.read`/`payroll.read`, so this differs from the admin call only in
  *  what it promises the caller. */
 export async function myLeaveBalance(): Promise<Result<LeaveBalance | null>> {
@@ -229,7 +229,7 @@ export async function myLeaveRequests(): Promise<Result<LeaveRequestView[]>> {
 export async function requestLeave(
   input: {
     /** Omitted from the profile screen — the seam resolves the caller's own
-       linked employee instead (0157). Given explicitly, this is HRD filing on
+       linked employee instead (0165). Given explicitly, this is HRD filing on
        somebody else's behalf, gated the same as it always was. */
     employee_no?: string | null;
     kind: LeaveKind; from_date: string; to_date: string; reason: string;
@@ -378,7 +378,7 @@ export async function getPayroll(runNo: string): Promise<Result<PayrollView>> {
   return periodView(run, true);
 }
 
-/** Runs this account may see a payslip from — `runs_read_own` (0158) already
+/** Runs this account may see a payslip from — `runs_read_own` (0166) already
  *  keeps a `DRAFT` run off this list, because a run still being checked is
  *  not yet a fact anybody should read a figure from. */
 export async function myPayslips(): Promise<Result<
@@ -395,7 +395,7 @@ export async function myPayslips(): Promise<Result<
 
 /** One person's own line out of a run — the same `run_lines` the admin
  *  screen calls (0057), reading only the row `employees_read_own` lets this
- *  account see (0158). Not a second computation of anybody's pay: the same
+ *  account see (0166). Not a second computation of anybody's pay: the same
  *  view, restricted to one row by the same account-to-employee link every
  *  self seam in this build uses. */
 export async function myPayslip(runNo: string): Promise<Result<PayrollLine>> {
@@ -1084,7 +1084,7 @@ export async function myProfile(): Promise<Result<Employee | null>> {
 }
 
 /** Presensi dari akun sendiri — a tap with a different machine behind it
- *  (0156). Not "clock in" or "clock out": a tap is a tap, and which slot it
+ *  (0164). Not "clock in" or "clock out": a tap is a tap, and which slot it
  *  fills is a reading of the whole day, computed the same way whether the
  *  door's own reader produced it or a phone did (D141). */
 export async function tapSelf(
@@ -1167,7 +1167,7 @@ export async function listOvertimeSheets(): Promise<Result<OvertimeSheetView[]>>
 }
 
 /** Reporting the person's own night — duration, and the result the hours
- *  produced (0157). The evidence itself (a screenshot, a photo of the work)
+ *  produced (0165). The evidence itself (a screenshot, a photo of the work)
  *  is not a field here: it travels the same road every document does,
  *  attached from the sheet this returns via `documents.link` with kind
  *  `"Laporan Lembur"` and entity `"overtime"` (ADR-010). */
@@ -1190,7 +1190,7 @@ export async function reportOvertimeSelf(
  *  everybody, and composing two audiences into one query is how a filter
  *  meant for a rare case ends up in the common one's critical path. RLS
  *  restricts the rows either way (`ot_sheets_read_own`/`ot_lines_read_own`,
- *  0157) — this is the shape a person with no HRD grant at all can still
+ *  0165) — this is the shape a person with no HRD grant at all can still
  *  read. */
 export async function myOvertimeSheets(): Promise<Result<OvertimeSheetView[]>> {
   const { data: myId, error: idErr } = await db().rpc("my_employee_id");

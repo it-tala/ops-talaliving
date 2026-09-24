@@ -211,7 +211,12 @@ begin
   -- Andi is still the signed-in user. The approval is Evin's, because the
   -- signed webhook said so — that is the whole reason the question left the
   -- room (D69).
+  -- The worker's call, not this session's (0157): `answer_request` trusts its
+  -- caller for the answerer's address, so only a caller that verified it may
+  -- make it.
+  set local role service_role;
   r := ops_procure.answer_request(tok, true, 'evin@talaliving.com');
+  set local role authenticated;
   assert ops_core.said_ok(r), format('got %s', r);
   assert r -> 'data' ->> 'by' = 'evin@talaliving.com', format('got %s', r);
 

@@ -37,6 +37,19 @@ export function officeToday(): string {
   return officeDay(Date.now());
 }
 
+/** A moment as `HH:MM` on the office clock.
+ *
+ *  Not the browser's clock, deliberately. Every date on every screen here is
+ *  reckoned in WITA, so a time rendered in the reader's own zone would disagree
+ *  with the row above it the moment anybody opens the app from anywhere else —
+ *  and the disagreement would be a quiet hour or two, which is exactly the kind
+ *  nobody notices until a cut-off is missed.
+ */
+export function officeClock(at: Date | number = Date.now()): string {
+  const ms = typeof at === "number" ? at : at.getTime();
+  return new Date(ms + OFFSET_MS).toISOString().slice(11, 16);
+}
+
 /** A `YYYY-MM-DD` key moved by whole days. UTC arithmetic on the string,
  *  because the office day is not the browser's day (F17). */
 export function shiftDay(key: string, days: number): string {

@@ -322,7 +322,7 @@ function noEmployeeLink() {
 
 /** Records one self-service action into the same activity trail
  *  `identity.recordActivity` writes to, with the same safe-kind rule
- *  `listMyActivity` reads back (0155) — written here directly rather than
+ *  `listMyActivity` reads back (0163) — written here directly rather than
  *  through a cross-module import, because `apply()` is already open. */
 function recordSelfActivity(draft: DemoState, kind: string, target: string, label: string) {
   const user = actingUser();
@@ -342,7 +342,7 @@ export async function myProfile(): Promise<Result<Employee | null>> {
  *  more row on the same pile `read_day` already knows how to read (D141).
  *  `source: "manual"` in the fixture only because the demo's own
  *  `ScanSource` predates this build; the real database spells it `self`
- *  (0156) and the distinction is cosmetic, never read by the derivation. */
+ *  (0164) and the distinction is cosmetic, never read by the derivation. */
 export async function tapSelf(): Promise<Result<{ id: string; at: string; work_date: string }>> {
   await latency();
   const state = getState();
@@ -1258,7 +1258,7 @@ export async function getOvertimeSheet(sheetNo: string): Promise<Result<Overtime
  *  (D146), no HRD grant needed. Evidence — the screenshot, the work itself —
  *  travels the same road every document does, attached from the sheet this
  *  returns (ADR-010); `result_note` is the sentence the evidence backs up,
- *  not the evidence itself (0157). */
+ *  not the evidence itself (0165). */
 export async function reportOvertimeSelf(
   input: { work_date: string; hours: number; result_note: string; task?: string | null },
 ): Promise<Result<{ sheet_no: string; work_date: string; hours: number }>> {
@@ -2053,7 +2053,7 @@ export async function listLeaveRequests(): Promise<Result<LeaveRequestView[]>> {
 
 /** My own quota — one row of what `listLeaveBalances` already computes for
  *  everybody, the same shape `ops_hr.leave_balances()` answers when the
- *  caller's own RLS restricts it to one row (0157). `null` for an account
+ *  caller's own RLS restricts it to one row (0165). `null` for an account
  *  with no linked employee: no quota is a fact, not a refusal. */
 export async function myLeaveBalance(): Promise<Result<LeaveBalance | null>> {
   await latency();
@@ -2084,7 +2084,7 @@ export async function myLeaveRequests(): Promise<Result<LeaveRequestView[]>> {
  *
  *  `employee_no` omitted is the profile screen's own road: no HRD grant
  *  needed, resolved to the caller's own linked employee instead — the same
- *  fork `ops_hr.request_leave` takes in the real database (0157). Given
+ *  fork `ops_hr.request_leave` takes in the real database (0165). Given
  *  explicitly, this is HRD filing for somebody else and the gate is exactly
  *  what it was before this build.
  */
@@ -3428,7 +3428,7 @@ export async function getPayroll(runNo: string): Promise<Result<PayrollView>> {
 
 /** Runs this account may see a payslip from. A `DRAFT` run stays off the
  *  list — still being checked, not yet a fact anybody should read a figure
- *  from (0158). */
+ *  from (0166). */
 export async function myPayslips(): Promise<Result<
   { run_no: string; period_start: string; period_end: string; status: PayrollRun["status"] }[]
 >> {
@@ -3441,7 +3441,7 @@ export async function myPayslips(): Promise<Result<
 
 /** One person's own line out of a run — the same computation
  *  `getPayroll`/`payrollView` already does for everybody, read down to the
- *  one row `employees_read_own` lets the real database's caller see (0158). */
+ *  one row `employees_read_own` lets the real database's caller see (0166). */
 export async function myPayslip(runNo: string): Promise<Result<PayrollLine>> {
   await latency();
   const state = getState();

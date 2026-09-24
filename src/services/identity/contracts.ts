@@ -107,6 +107,22 @@ export interface Session extends UserAccess {
   permissions: string[];
 }
 
+/** Somebody a question can be addressed to, and the authority that makes them
+ *  the right person for it.
+ *
+ *  **Not a `User`, on purpose.** It carries a name and an address and nothing
+ *  else — no id, no modules, no other authority — because that is the whole of
+ *  what `ops_core.approvers()` answers, and the shape is the contract: a screen
+ *  that wanted more would have to widen the seam, where widening it is an
+ *  argument about who may read the authority map rather than a field added in
+ *  passing (0159).
+ */
+export interface Approver {
+  email: string;
+  full_name: string;
+  authority: Authority;
+}
+
 /* Permission expansion lives in `src/lib/roles.ts`, which owns the catalogue
  * of what each module actually offers. Keeping it there means the list a human
  * reviews and the list the code expands are the same list. */

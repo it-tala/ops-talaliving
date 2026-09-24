@@ -1,4 +1,4 @@
--- 0158_hr_self_payslip.sql — one policy, and the payslip screen's own
+-- 0166_hr_self_payslip.sql — one policy, and the payslip screen's own
 -- computation does the rest.
 --
 -- `getPayroll` reads `run_lines(run_no)`, which is `period_lines` cross-joined
@@ -16,7 +16,7 @@
 -- `payroll.read` may see that row at all — a self caller would resolve to an
 -- employees row of exactly one and then find no run to join it against, and
 -- the payslip would come back empty rather than refused, which is the
--- "looks like an honest zero" failure `0156`'s own comment warns about.
+-- "looks like an honest zero" failure `0164`'s own comment warns about.
 --
 -- `DRAFT` stays out of the grant. A run still being built can move before it
 -- is approved, and a person reading their own unfinished figures a day before

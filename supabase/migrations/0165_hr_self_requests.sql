@@ -1,4 +1,4 @@
--- 0157_hr_self_requests.sql — asking for overtime pay and asking for leave,
+-- 0165_hr_self_requests.sql — asking for overtime pay and asking for leave,
 -- from the person the ask is about.
 --
 -- ── overtime: a fourth road onto a table that already has three ──────────
@@ -133,7 +133,7 @@ grant execute on function ops_hr.report_overtime_self(date, numeric, text, text,
 
 /* Own leave requests, and their own quota is already served for free —
    `leave_balances()` is invoker-rights over `ops_hr.employees` (0152's
-   `employees_read_own`) and now over `day_marks` (0156's `marks_read_own`);
+   `employees_read_own`) and now over `day_marks` (0164's `marks_read_own`);
    the one table in that chain with no self policy yet is this one, needed
    for the `future`/`booked` half of the balance and for the request list
    itself. */

@@ -288,7 +288,7 @@ const MODULE_OF = {
   "master-data": "master-data",
   /* `/profil` (W7) has no permission-catalogue module at all, on purpose —
      it is the one screen every account owns regardless of any grant
-     (0152/0155–0158), so `can()` never gates it and there is no module for
+     (0152/0163–0166), so `can()` never gates it and there is no module for
      the sidebar to hide it behind either. It still deserves the same
      guard everything else here gets: being open has to mean the services
      it calls (`identity`, `hr`) are actually live, not that the file
@@ -344,7 +344,7 @@ const LIVE_MODULES = [
   "master-data", "production", "project",
   /* Open exactly when `identity` and `hr` are — both already are — never on
      its own schedule, because there is no separate `profil` schema to wait
-     on (0155–0158 add policies and seams to `ops_core`/`ops_hr`, not a new
+     on (0163–0166 add policies and seams to `ops_core`/`ops_hr`, not a new
      one). */
   "profil",
 ];

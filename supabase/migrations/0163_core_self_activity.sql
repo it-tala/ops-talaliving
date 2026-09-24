@@ -1,4 +1,4 @@
--- 0155_core_self_activity.sql — the profile screen's own activity feed.
+-- 0163_core_self_activity.sql — the profile screen's own activity feed.
 --
 -- ── the tension this sits on top of ───────────────────────────────────────
 --

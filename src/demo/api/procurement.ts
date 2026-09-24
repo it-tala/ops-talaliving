@@ -770,6 +770,13 @@ export interface NewLineInput {
   need_by?: string | null;
   /** The work order whose BOM produced this line (D151). */
   source_wo_no?: string | null;
+  /** The open order this line is raised against — a balance payment, a
+   *  call-off (`0158`). It stands as what is behind the line, so a request for
+   *  the remainder of an order we already hold needs no photograph of that
+   *  order: the order is a record here, with its own lines, prices and
+   *  approval. An order we do not hold, or one already closed, is refused by
+   *  name rather than filed as null. */
+  against_po_no?: string | null;
 }
 
 export async function createPr(
@@ -812,6 +819,7 @@ export async function createPr(
         category: l.category ?? null, purpose: l.purpose ?? null,
         need_by: l.need_by ?? null,
         source_wo_no: l.source_wo_no ?? null,
+        against_po_no: l.against_po_no ?? null,
         removed_at: null, removed_by: null,
       });
     });
@@ -1084,6 +1092,9 @@ export async function requestApproval(
   input: {
     line_nos: string[];
     to?: string;
+    /** The approver by address — the shape the seam takes and the shape
+     *  `identity.listApprovers()` answers in. */
+    to_email?: string;
     /** What the room said about each item, by line number. Travels with the
      *  question so the approver has the context the meeting had (D127). */
     notes?: Record<string, string | null>;
@@ -1098,9 +1109,33 @@ export async function requestApproval(
   const state = getState();
   /* Whoever holds the authority to approve goods is who the question goes to.
    * Not a name in a config file: if the authority moves, the notification
-   * follows it (D19). */
-  const approver = state.users.find((u) =>
-    input.to ? u.id === input.to : u.authorities.includes("approve_goods"));
+   * follows it (D19).
+   *
+   * **Addressing is not granting** (0159). A named person who does not hold the
+   * authority is refused here, because they would be refused at the answer too
+   * — and a card nobody can act on is worse than no card. The refusal names who
+   * can, which is what the asker was trying to find out. */
+  const holders = state.users.filter(
+    (u) => u.is_active && u.authorities.includes("approve_goods"));
+  const named = input.to_email
+    ? state.users.find((u) => u.email.toLowerCase() === input.to_email!.toLowerCase())
+    : input.to
+      ? state.users.find((u) => u.id === input.to)
+      : undefined;
+
+  if ((input.to_email || input.to) && (!named || !holders.some((h) => h.id === named.id))) {
+    return invalid(
+      SERVICE,
+      "not_an_approver",
+      `${input.to_email ?? "That person"} does not hold the authority to approve goods, so they cannot answer this.`,
+      {
+        field: "to_email",
+        approvers: holders.map((h) => ({ email: h.email, name: h.full_name })),
+      },
+    );
+  }
+
+  const approver = named ?? holders[0];
   if (!approver) {
     return conflict(SERVICE, "no_approver", "Nobody currently holds the authority to approve goods, so there is no one to ask.");
   }

@@ -12,7 +12,7 @@
  */
 import type {
   Session, Authority, ModuleName, ModuleLevel, ModuleGrant, AuditRowView,
-  ActivityEvent, ActivityDaily, RetentionStatus, MyActivityEvent,
+  ActivityEvent, ActivityDaily, RetentionStatus, Approver, MyActivityEvent,
 } from "@/services/identity/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fail, fromRows, fromSeam, invalid, notFound, ok, type Result } from "./_kit";
@@ -132,6 +132,23 @@ export async function listUsers(): Promise<Result<Session[]>> {
   const { data, error } = await db().from("v_user_access").select("*").order("full_name");
   if (error) return fail(SERVICE, error);
   return ok(SERVICE, (data as AccessRow[]).map(toSession));
+}
+
+/** Who a question can be addressed to.
+ *
+ *  A seam and not a table read, and that is the whole point of it:
+ *  `ops_core.user_authorities` is readable only for your own row unless you hold
+ *  `it.manage_roles`, so a `.from("user_authorities")` here would answer *you*
+ *  for every signed-in person and nobody for a member of staff. The board could
+ *  not name the approver for exactly that reason until `0159`.
+ *
+ *  `ops_core.approvers()` is definer with no parameter, so this cannot be asked
+ *  who holds `post_ledger`.
+ */
+export async function listApprovers(): Promise<Result<Approver[]>> {
+  const { data, error } = await db().rpc("approvers");
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, (data ?? []) as Approver[]);
 }
 
 /** `it.manage_roles`, and never self-service. Both refusals are the database's
@@ -264,7 +281,7 @@ export async function listActivity(
   return fromRows<ActivityEvent[]>(SERVICE, data as ActivityEvent[] | null, error);
 }
 
-/** The profile screen's own activity feed (0155). `ops_core.v_my_activity`
+/** The profile screen's own activity feed (0163). `ops_core.v_my_activity`
  *  is already self-filtered by RLS to the safe kinds — this does not repeat
  *  that check, for the same reason `listActivity` does not repeat `it.read`:
  *  a rule in two places is a rule that only has to drift in one of them.

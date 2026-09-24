@@ -353,7 +353,12 @@ export function prLineView(state: DemoState, line: PrLine): PrLineView {
     trx_nos: fundingTransactions(state, line.line_no_full).map((t) => t.trx_no),
     round_no: lineInRound(state, line.id)?.round_no ?? null,
     round_status: lineInRound(state, line.id)?.status ?? null,
-    has_support: [...lineEvidenceKinds(state, line)].some((k) => REQUEST_SUPPORT_KINDS.includes(k)),
+    /* An order this line is raised against counts, and counts without any
+       document: the order is a record here. Live says the same thing in
+       `v_line_evidence` (`0158`); if these two ever disagree, the meeting board
+       refuses in one and not the other. */
+    has_support: Boolean(line.against_po_no)
+      || [...lineEvidenceKinds(state, line)].some((k) => REQUEST_SUPPORT_KINDS.includes(k)),
   };
 }
 

@@ -2,7 +2,7 @@
 import { ok, noop, invalid, notFound, refused, type Result } from "@/services/_shared/envelope";
 import type {
   Session, Authority, ModuleName, ModuleLevel,
-  ActivityEvent, ActivityDaily, RetentionStatus, AuditRowView, AppSetting,
+  ActivityEvent, ActivityDaily, RetentionStatus, AuditRowView, AppSetting, Approver,
   MyActivityEvent,
 } from "@/services/identity/contracts";
 import { expandPermissions } from "@/lib/roles";
@@ -32,6 +32,27 @@ export async function me(): Promise<Result<Session>> {
 export async function listUsers(): Promise<Result<Session[]>> {
   await latency();
   return ok(SERVICE, getState().users.map(toSession));
+}
+
+/** The demo's half. It reads the same thing from the sandbox's own users, and
+ *  the two authorities are named here as well rather than derived from a list,
+ *  so the demo cannot start offering an approver the database would refuse. */
+export async function listApprovers(): Promise<Result<Approver[]>> {
+  await latency();
+  const askable: Authority[] = ["approve_goods", "approve_funds"];
+  const rows = getState().users
+    .filter((u) => u.is_active)
+    .flatMap((u) =>
+      u.authorities
+        .filter((a) => askable.includes(a))
+        .map((a) => ({ email: u.email, full_name: u.full_name, authority: a })),
+    );
+  rows.sort((a, b) =>
+    a.authority === b.authority
+      ? a.full_name.localeCompare(b.full_name)
+      : a.authority.localeCompare(b.authority),
+  );
+  return ok(SERVICE, rows);
 }
 
 /** Sign in with an email and a password — **the demo's half of the pair**.
@@ -249,7 +270,7 @@ export async function listActivity(
   return ok(SERVICE, rows.sort((a, b) => b.at.localeCompare(a.at)).slice(0, opts.limit ?? 200));
 }
 
-/** The safe kinds a person may see about themselves (0155). Everything else —
+/** The safe kinds a person may see about themselves (0163). Everything else —
  *  `view`, `export`, `print` — is exactly the granular telemetry D190 refused
  *  to show its own subject, and stays refused here too. */
 const SELF_ACTIVITY_KINDS = new Set([
