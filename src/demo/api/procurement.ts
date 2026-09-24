@@ -770,6 +770,13 @@ export interface NewLineInput {
   need_by?: string | null;
   /** The work order whose BOM produced this line (D151). */
   source_wo_no?: string | null;
+  /** The open order this line is raised against — a balance payment, a
+   *  call-off (`0158`). It stands as what is behind the line, so a request for
+   *  the remainder of an order we already hold needs no photograph of that
+   *  order: the order is a record here, with its own lines, prices and
+   *  approval. An order we do not hold, or one already closed, is refused by
+   *  name rather than filed as null. */
+  against_po_no?: string | null;
 }
 
 export async function createPr(
@@ -812,6 +819,7 @@ export async function createPr(
         category: l.category ?? null, purpose: l.purpose ?? null,
         need_by: l.need_by ?? null,
         source_wo_no: l.source_wo_no ?? null,
+        against_po_no: l.against_po_no ?? null,
         removed_at: null, removed_by: null,
       });
     });

@@ -69,6 +69,11 @@ interface DraftLine {
   support_kind: SupportKind;
   support_url: string;
   support_file: { id: string; name: string } | null;
+  /** The open order this line is against — a balance payment, a call-off. Picked
+   *  from what we hold rather than uploaded: none of our open orders carries an
+   *  attachment, so "attach the PO" meant photographing a record already in the
+   *  database (`0158`). */
+  against_po_no: string;
 }
 
 /** The document kinds that `ops_procure.v_line_evidence.has_support` counts —
@@ -97,11 +102,13 @@ const blankLine = (key: string): DraftLine => ({
   unit_price: 0, vendor_id: "", category: "RAW MATERIAL", purpose: "", need_by: "",
   source_wo_no: "",
   support_kind: "Reference Link", support_url: "", support_file: null,
+  against_po_no: "",
 });
 
 /** Does this line have something behind it? The same question the meeting
  *  board asks, asked here while it can still be answered cheaply. */
-const hasSupport = (l: DraftLine) => Boolean(l.support_file || l.support_url.trim());
+const hasSupport = (l: DraftLine) =>
+  Boolean(l.support_file || l.support_url.trim() || l.against_po_no);
 
 export default function NewPurchaseRequestPage() {
   const router = useRouter();
@@ -117,6 +124,14 @@ export default function NewPurchaseRequestPage() {
   const [items, reloadItems] = useLoad(() => procurement.listItemViews({ curated: true }), []);
   const [vendors, reloadVendors] = useLoad(() => procurement.listVendors({ curated: true }), []);
   const [projects] = useLoad(() => procurement.listProjects(), []);
+  /* Only what a request can honestly be raised against: an order we hold that
+     is still open. The seam refuses anything else by name, and offering a
+     closed order here would be offering a refusal. */
+  const [openPos] = useLoad(async () => {
+    const res = await procurement.listPo();
+    if (res.error) return res;
+    return { ...res, data: res.data.filter((p) => p.status === "DRAFT" || p.status === "ISSUED") };
+  }, []);
   /* What is actually on the floor right now. A request line can name one, and
      then it is not "plywood" — it is plywood for the BABY ISLAND tables, which
      is what makes it countable against a projection later (D152). */
@@ -181,6 +196,9 @@ export default function NewPurchaseRequestPage() {
         purpose: l.purpose.trim() || null,
         need_by: l.need_by || null,
         source_wo_no: l.source_wo_no || null,
+        /* The seam resolves the order by number and refuses one we do not hold
+           or one already closed — by name, before anything is written. */
+        against_po_no: l.against_po_no || null,
       })),
     });
     if (res.error) { setSaving(false); toast("critical", "Not saved", res.error.message); return; }
@@ -202,6 +220,10 @@ export default function NewPurchaseRequestPage() {
       const line = created[i];
       if (!line) continue;
       if (!hasSupport(draft)) { bare.push(line.line_no_full); continue; }
+      /* An order is not a document. It went in with the line itself and there
+         is nothing to file — filing a copy of a record we already hold is the
+         thing this road exists to stop. */
+      if (draft.against_po_no) continue;
 
       let attachmentId = draft.support_file?.id ?? null;
       if (!attachmentId) {
@@ -458,22 +480,44 @@ export default function NewPurchaseRequestPage() {
                     >
                       {SUPPORT_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
                     </select>
-                    <input
-                      type="url"
-                      inputMode="url"
-                      placeholder="Paste the shop link or the quotation address"
-                      value={l.support_url}
-                      disabled={Boolean(l.support_file)}
-                      onChange={(e) => patch(l.key, { support_url: e.target.value })}
-                      className="min-w-[240px] flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-brand-400 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400"
-                    />
-                    <span className="text-[12px] text-slate-400">or</span>
-                    <FileEvidence
-                      kind={l.support_kind}
-                      label="Attach the quotation or the nota"
-                      value={l.support_file}
-                      onChange={(v) => patch(l.key, { support_file: v })}
-                    />
+                    {l.support_kind === "Purchase Order" ? (
+                      /* An order is a record here, not a document. Picked from
+                         what we hold — nothing to upload, and nothing to keep
+                         in step with the order if it is amended. */
+                      <select
+                        value={l.against_po_no}
+                        onChange={(e) => patch(l.key, { against_po_no: e.target.value })}
+                        className="min-w-[240px] flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-brand-400 focus:outline-none"
+                      >
+                        <option value="">— which order is this against? —</option>
+                        {openPos.status === "ready" && openPos.data.map((p) => (
+                          <option key={p.po_no} value={p.po_no}>
+                            {p.po_no} · {p.vendor_name} · {formatIDR(p.status_view.contract_value)}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="url"
+                        inputMode="url"
+                        placeholder="Paste the shop link or the quotation address"
+                        value={l.support_url}
+                        disabled={Boolean(l.support_file)}
+                        onChange={(e) => patch(l.key, { support_url: e.target.value })}
+                        className="min-w-[240px] flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-brand-400 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400"
+                      />
+                    )}
+                    {l.support_kind !== "Purchase Order" && (
+                      <>
+                        <span className="text-[12px] text-slate-400">or</span>
+                        <FileEvidence
+                          kind={l.support_kind}
+                          label="Attach the quotation or the nota"
+                          value={l.support_file}
+                          onChange={(v) => patch(l.key, { support_file: v })}
+                        />
+                      </>
+                    )}
                   </div>
                   {!hasSupport(l) && l.description.trim() !== "" && (
                     <p className="mt-1.5 text-[12px] text-amber-700">
