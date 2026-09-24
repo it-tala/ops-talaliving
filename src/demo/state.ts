@@ -18,7 +18,7 @@ import type {
   Market, Property, PropertyAgent, SalesRep, Referral, ScrapeRow,
 } from "@/services/marketing/contracts";
 import type {
-  LogPurchase, LogPiece, SawnBoard, BoardMove,
+  LogPurchase, LogPiece, SawnBoard, BoardMove, LogCost,
   StockLocation, StockMove, StockSetting, Asset, AssetService, AssetCategory,
 } from "@/services/inventory/contracts";
 import type {
@@ -240,6 +240,9 @@ export interface DemoState {
    *  saw between them (D153). */
   log_purchases: LogPurchase[];
   log_pieces: LogPiece[];
+  /** Transport, sawing and the rest, each from its own nota — never folded
+   *  into the timber invoice (`0156`). */
+  log_costs: DemoLogCost[];
   /* The last leg: what left the yard, what was fitted, what was found wrong,
      and the one record that says a job is finished (D209). */
   deliveries: Delivery[];
@@ -290,3 +293,7 @@ export interface DemoState {
 }
 
 export type SessionView = Session;
+
+/** A load's cost as stored: keyed to the load by row id, as `0156` does; the
+ *  view's `purchase_no` is derived on read. */
+export type DemoLogCost = Omit<LogCost, "purchase_no"> & { purchase_id: string };

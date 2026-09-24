@@ -20,7 +20,7 @@ import {
 import { WORK_ORDERS, PRODUCTION_PROGRESS, VENDOR_LEGS } from "./production";
 import { PRODUCTS, BOM_COMPONENTS, BOM_REVISIONS } from "./products";
 import { APP_SETTINGS } from "./settings";
-import { LOG_PURCHASES, LOG_PIECES, SAWN_BOARDS, BOARD_MOVES } from "./timber";
+import { LOG_PURCHASES, LOG_PIECES, LOG_COSTS, SAWN_BOARDS, BOARD_MOVES } from "./timber";
 import {
   DELIVERIES, DELIVERY_LINES, INSTALLATIONS, INSTALLATION_LINES, SNAGS, HANDOVERS,
 } from "./delivery";
@@ -174,6 +174,7 @@ export function initialState(): DemoState {
 
     log_purchases: LOG_PURCHASES,
     log_pieces: LOG_PIECES,
+    log_costs: LOG_COSTS,
     deliveries: DELIVERIES,
     delivery_lines: DELIVERY_LINES,
     packing_boxes: PACKING_BOXES,

@@ -9,7 +9,7 @@
  */
 import type { DemoState } from "./state";
 import type {
-  LogPurchase, LogPurchaseView, LogPieceView, SawnBoardView, LogMeasure,
+  LogPurchase, LogPurchaseView, LogPieceView, SawnBoardView, LogMeasure, LogCost,
   TimberVendorSummary, BoardStockView, BoardMoveView,
 } from "@/services/inventory/contracts";
 
@@ -76,11 +76,24 @@ export function logPurchaseView(state: DemoState, p: LogPurchase): LogPurchaseVi
     : null;
 
   /* The invoice covers every log. Only the share belonging to the logs that
-     were sawn may be divided by the boards that came out of them. */
-  const sawnCost = basis > 0 && log_m3 > 0 ? p.total_cost * (basis / log_m3) : 0;
+     were sawn may be divided by the boards that came out of them — and a load
+     bought as boards, with no logs at all, is all boards (`0156`). */
+  const share = log_m3 > 0 ? basis / log_m3 : 1;
+  const sawnCost = sawn_m3 > 0 ? p.total_cost * share : 0;
+
+  /* The truck and the sawmill, each from its own nota. Summed beside the
+     invoice, never into it: paper price and landed price both stay visible. */
+  const costs: LogCost[] = state.log_costs
+    .filter((c) => c.purchase_id === p.id)
+    .map(({ purchase_id: _purchase, ...c }) => ({ ...c, purchase_no: p.purchase_no }))
+    .sort((a, b) => a.incurred_on.localeCompare(b.incurred_on));
+  const extra_cost = costs.reduce((a, c) => a + c.amount, 0);
+  const landed_cost = p.total_cost + extra_cost;
+  /* Board face, width × length — every thickness together (owner, 2026-09-24). */
+  const sawn_m2 = round4(boards.reduce((a, b) => a + (b.width_mm / 1000) * (b.length_mm / 1000) * b.qty, 0));
 
   const warnings: string[] = [];
-  if (logs.length === 0) {
+  if (logs.length === 0 && boards.length === 0) {
     warnings.push("Belum ada batang yang diukur — kubikasi dan harga per m³ belum bisa dihitung.");
   }
   if (log_m3 > 0 && sawn_m3 === 0) {
@@ -122,6 +135,13 @@ export function logPurchaseView(state: DemoState, p: LogPurchase): LogPurchaseVi
     unsawn_m3,
     measure_gap_m3,
     warnings,
+    costs,
+    extra_cost,
+    landed_cost,
+    sawn_m2,
+    landed_cost_per_log_m3: log_m3 > 0 ? Math.round(landed_cost / log_m3) : null,
+    landed_cost_per_sawn_m3: sawn_m3 > 0 ? Math.round((landed_cost * share) / sawn_m3) : null,
+    landed_cost_per_sawn_m2: sawn_m2 > 0 ? Math.round((landed_cost * share) / sawn_m2) : null,
   };
 }
 
@@ -163,6 +183,19 @@ export function timberVendorSummaries(state: DemoState): TimberVendorSummary[] {
       const allocatedCost = rows.reduce(
         (a, r) => a + (r.cost_per_sawn_m3 != null ? r.cost_per_sawn_m3 * r.sawn_m3 : 0), 0,
       );
+      const allocatedLanded = rows.reduce(
+        (a, r) => a + (r.landed_cost_per_sawn_m3 != null ? r.landed_cost_per_sawn_m3 * r.sawn_m3 : 0), 0,
+      );
+      const allocatedLandedM2 = rows.reduce(
+        (a, r) => a + (r.landed_cost_per_sawn_m2 != null ? r.landed_cost_per_sawn_m2 * r.sawn_m2 : 0), 0,
+      );
+      const sawn_m2 = round4(rows.reduce((a, r) => a + r.sawn_m2, 0));
+      const byKind = (k: LogCost["kind"]) =>
+        rows.reduce((a, r) => a + r.costs.filter((c) => c.kind === k).reduce((x, c) => x + c.amount, 0), 0);
+      const landed_cost = rows.reduce((a, r) => a + r.landed_cost, 0);
+      /* Per log m³ only over loads that had logs — a load bought as boards has
+         no log volume to divide by. */
+      const withLogs = rows.filter((r) => r.log_m3 > 0);
 
       return {
         vendor_id,
@@ -172,18 +205,30 @@ export function timberVendorSummaries(state: DemoState): TimberVendorSummary[] {
         log_m3,
         sawn_m3,
         total_cost,
+        /* A load bought as boards has no logs to yield from, so its boards
+           stay out of the ratio (`0156`). */
         yield_percent: sawnBasis > 0 && sawn_m3 > 0
-          ? Math.round((sawn_m3 / sawnBasis) * 1000) / 10
+          ? Math.round((withLogs.reduce((a, r) => a + r.sawn_m3, 0) / sawnBasis) * 1000) / 10
           : null,
-        cost_per_log_m3: log_m3 > 0 ? Math.round(total_cost / log_m3) : null,
+        cost_per_log_m3: log_m3 > 0 ? Math.round(withLogs.reduce((a, r) => a + r.total_cost, 0) / log_m3) : null,
         cost_per_sawn_m3: sawn_m3 > 0 ? Math.round(allocatedCost / sawn_m3) : null,
         unsawn_m3: round4(rows.reduce((a, r) => a + r.unsawn_m3, 0)),
+        sawn_m2,
+        cost_angkut: byKind("angkut"),
+        cost_potong: byKind("potong"),
+        cost_bongkar: byKind("bongkar"),
+        cost_lain: byKind("lain"),
+        extra_cost: rows.reduce((a, r) => a + r.extra_cost, 0),
+        landed_cost,
+        landed_cost_per_log_m3: log_m3 > 0 ? Math.round(withLogs.reduce((a, r) => a + r.landed_cost, 0) / log_m3) : null,
+        landed_cost_per_sawn_m3: sawn_m3 > 0 ? Math.round(allocatedLanded / sawn_m3) : null,
+        landed_cost_per_sawn_m2: sawn_m2 > 0 ? Math.round(allocatedLandedM2 / sawn_m2) : null,
       };
     })
     /* Grouped by species, dearest usable wood first inside each — the row a
        buyer should look at before ringing anybody. */
     .sort((a, b) => a.species.localeCompare(b.species)
-      || (b.cost_per_sawn_m3 ?? 0) - (a.cost_per_sawn_m3 ?? 0));
+      || (b.landed_cost_per_sawn_m3 ?? 0) - (a.landed_cost_per_sawn_m3 ?? 0));
 }
 
 /* ── Stock ──────────────────────────────────────────────────────────────── */

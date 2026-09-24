@@ -33,6 +33,17 @@ export type LlmProvider = "gemini" | "anthropic" | "openai";
 export interface LlmMessage {
   role: "user" | "assistant";
   text: string;
+  /** Photos or a PDF for the model to read — a nota, for one. Every provider
+   *  here reads images; PDFs go as a document where the provider takes one.
+   *  User turns only. */
+  files?: LlmFile[];
+}
+
+export interface LlmFile {
+  /** `image/jpeg`, `image/png`, `image/webp`, `application/pdf`. */
+  mime: string;
+  /** The bytes, base64, no `data:` prefix and no line breaks. */
+  base64: string;
 }
 
 export interface LlmRequest {
@@ -116,7 +127,10 @@ async function gemini(cfg: LlmConfig, req: LlmRequest): Promise<string> {
     systemInstruction: { parts: [{ text: req.system }] },
     contents: req.messages.map((m) => ({
       role: m.role === "assistant" ? "model" : "user",
-      parts: [{ text: m.text }],
+      parts: [
+        ...(m.files ?? []).map((f) => ({ inline_data: { mime_type: f.mime, data: f.base64 } })),
+        { text: m.text },
+      ],
     })),
     generationConfig: {
       temperature: 0.2,
@@ -134,9 +148,20 @@ async function anthropic(cfg: LlmConfig, req: LlmRequest): Promise<string> {
   }, {
     model: cfg.model,
     max_tokens: req.maxTokens ?? 2048,
-    temperature: 0.2,
+    /* No `temperature`: the current Claude models refuse sampling parameters
+       with a 400, and the default model here is one of them. */
     system: req.system,
-    messages: req.messages.map((m) => ({ role: m.role, content: m.text })),
+    messages: req.messages.map((m) => ({
+      role: m.role,
+      content: m.files?.length
+        ? [
+            ...m.files.map((f) => f.mime === "application/pdf"
+              ? { type: "document", source: { type: "base64", media_type: f.mime, data: f.base64 } }
+              : { type: "image", source: { type: "base64", media_type: f.mime, data: f.base64 } }),
+            { type: "text", text: m.text },
+          ]
+        : m.text,
+    })),
   }) as { content?: { type: string; text?: string }[] };
   return (out.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("");
 }
@@ -150,7 +175,17 @@ async function openai(cfg: LlmConfig, req: LlmRequest): Promise<string> {
     ...(req.json ? { response_format: { type: "json_object" } } : {}),
     messages: [
       { role: "system", content: req.system },
-      ...req.messages.map((m) => ({ role: m.role, content: m.text })),
+      ...req.messages.map((m) => ({
+        role: m.role,
+        content: m.files?.length
+          ? [
+              ...m.files.map((f) => f.mime === "application/pdf"
+                ? { type: "file", file: { filename: "nota.pdf", file_data: `data:${f.mime};base64,${f.base64}` } }
+                : { type: "image_url", image_url: { url: `data:${f.mime};base64,${f.base64}` } }),
+              { type: "text", text: m.text },
+            ]
+          : m.text,
+      })),
     ],
   }) as { choices?: { message?: { content?: string } }[] };
   return out.choices?.[0]?.message?.content ?? "";

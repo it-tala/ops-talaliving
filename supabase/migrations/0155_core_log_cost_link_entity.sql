@@ -1,0 +1,11 @@
+-- 0155_core_log_cost_link_entity.sql — a timber cost's own nota can be attached.
+--
+-- The truck that brought a load and the sawmill that cut it send their own
+-- nota, separate from the timber seller's (owner, 2026-09-24). Each of those
+-- costs is a row in `ops_inv.log_costs` (`0156`), and its paper takes the same
+-- evidence road as every other nota (ADR-010) — keyed by the cost's own number,
+-- so the transport nota is never mistaken for the load's own (`has_nota`).
+--
+-- Alone in its file: Postgres will not let a new enum value be used in the
+-- transaction that added it.
+alter type ops_core.link_entity_t add value if not exists 'log_cost';

@@ -57,7 +57,7 @@ export default function TimberPage() {
         description="Satu modul untuk tiga hal: kubikasi lawan harga, isi rak papan, dan ke mana papannya pergi. Log dan papan tidak lagi dipisah — mereka kayu yang sama, sebelum dan sesudah gergaji."
         actions={
           <Button size="sm" variant={adding ? "primary" : "outline"} icon={FileSearch} onClick={() => setAdding(!adding)}>
-            {adding ? "Tutup" : "Kiriman dari nota"}
+            {adding ? "Tutup" : "Masukkan dari nota"}
           </Button>
         }
       />
@@ -67,6 +67,12 @@ export default function TimberPage() {
           <NotaImport
             vendors={vendorList.status === "ready"
               ? vendorList.data.map((v) => ({ id: v.id, name: v.name }))
+              : []}
+            loads={purchases.status === "ready"
+              ? purchases.data.map((p) => ({
+                  purchase_no: p.purchase_no,
+                  label: `${p.received_on} · ${p.species} · ${p.vendor_name} (${p.purchase_no})`,
+                }))
               : []}
             onCreated={() => { setAdding(false); reload(); reloadVendors(); setBump((n) => n + 1); }}
           />
@@ -97,10 +103,12 @@ export default function TimberPage() {
              where two vendors sell it. Anything else is mahoni against jati. */
           const species = [...new Set(rows.map((r) => r.species))];
           const contested = species
-            .map((sp) => rows.filter((r) => r.species === sp && r.cost_per_sawn_m3 != null))
+            .map((sp) => rows.filter((r) => r.species === sp && r.landed_cost_per_sawn_m3 != null && r.cost_per_log_m3 != null))
             .filter((g) => g.length > 1)[0] ?? [];
+          /* **Landed**, not invoiced: the truck from further away and the
+             sawmill's bill are part of what a cubic metre of board cost. */
           const cheapest = contested.length > 0
-            ? contested.reduce((a, b) => ((a.cost_per_sawn_m3 ?? 0) < (b.cost_per_sawn_m3 ?? 0) ? a : b))
+            ? contested.reduce((a, b) => ((a.landed_cost_per_sawn_m3 ?? 0) < (b.landed_cost_per_sawn_m3 ?? 0) ? a : b))
             : null;
           const cheapestLog = contested.length > 0
             ? contested.reduce((a, b) => ((a.cost_per_log_m3 ?? 0) < (b.cost_per_log_m3 ?? 0) ? a : b))
@@ -111,27 +119,28 @@ export default function TimberPage() {
             <Card className="mb-4">
               <CardHeader
                 title="Per vendor"
-                subtitle="Yang menentukan adalah kolom terakhir — harga per m³ papan, bukan harga per m³ log."
+                subtitle="Yang menentukan adalah dua kolom terakhir — biaya sampai di rak (kayu + angkut + potong + lain-lain) per m³ dan per m² papan, bukan harga di nota."
                 icon={Scale}
                 action={<SourceBadge state={vendors} />}
               />
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[820px] border-collapse text-[13px]">
+                <table className="w-full min-w-[880px] border-collapse whitespace-nowrap text-[13px]">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
                       <th className="px-4 py-2 text-left">Vendor · jenis</th>
-                      <th className="px-4 py-2 text-right">Log m³</th>
-                      <th className="px-4 py-2 text-right">Papan m³</th>
-                      <th className="px-4 py-2 text-right">Rendemen</th>
-                      <th className="px-4 py-2 text-right">Total biaya</th>
-                      <th className="px-4 py-2 text-right">Rp / m³ log</th>
-                      <th className="px-4 py-2 text-right">Rp / m³ papan</th>
+                      <th className="px-3 py-2 text-right">Log m³</th>
+                      <th className="px-3 py-2 text-right">Papan</th>
+                      <th className="px-3 py-2 text-right">Rendemen</th>
+                      <th className="px-3 py-2 text-right">Nilai kayu</th>
+                      <th className="px-3 py-2 text-right">Angkut · potong · lain</th>
+                      <th className="px-3 py-2 text-right">Rp / m³ papan</th>
+                      <th className="px-4 py-2 text-right">Rp / m² papan</th>
                     </tr>
                   </thead>
                   <tbody>
                     {rows.map((v) => (
-                      <tr key={`${v.vendor_id}|${v.species}`} className="border-b border-slate-100">
-                        <td className="px-4 py-2">
+                      <tr key={`${v.vendor_id}|${v.species}`} className="border-b border-slate-100 align-top">
+                        <td className="whitespace-normal px-4 py-2">
                           <span className="block font-medium text-slate-800">
                             {v.vendor_name} <span className="font-normal text-slate-500">· {v.species}</span>
                           </span>
@@ -140,29 +149,48 @@ export default function TimberPage() {
                             {v.unsawn_m3 > 0 && ` · ${formatNumber(v.unsawn_m3)} m³ belum digergaji`}
                           </span>
                         </td>
-                        <td className="px-4 py-2 text-right tabular-nums text-slate-700">{formatNumber(v.log_m3)}</td>
-                        <td className="px-4 py-2 text-right tabular-nums text-slate-700">{formatNumber(v.sawn_m3)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-slate-700">{v.log_m3 > 0 ? formatNumber(v.log_m3) : "—"}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-slate-700">
+                          {formatNumber(v.sawn_m3)} m³
+                          <span className="block text-[11px] text-slate-400">{formatNumber(v.sawn_m2)} m²</span>
+                        </td>
                         <td className={cn(
-                          "px-4 py-2 text-right tabular-nums",
+                          "px-3 py-2 text-right tabular-nums",
                           v.yield_percent == null ? "text-slate-300"
                             : v.yield_percent < 50 ? "text-amber-700 font-medium" : "text-slate-700",
                         )}>
                           {v.yield_percent == null ? "—" : `${v.yield_percent}%`}
                         </td>
-                        <td className="px-4 py-2 text-right tabular-nums text-slate-600">{formatIDR(v.total_cost)}</td>
-                        <td className="px-4 py-2 text-right tabular-nums text-slate-500">
-                          {v.cost_per_log_m3 == null ? "—" : formatIDR(v.cost_per_log_m3)}
+                        <td className="px-3 py-2 text-right tabular-nums text-slate-600">
+                          {formatIDR(v.total_cost)}
+                          {v.cost_per_log_m3 != null && (
+                            <span className="block text-[10px] text-slate-400">{formatIDR(v.cost_per_log_m3)} / m³ log</span>
+                          )}
                           {cheapestLog?.vendor_id === v.vendor_id && cheapestLog.species === v.species && best.length > 1 && (
                             <span className="block text-[10px] text-slate-400">termurah di kertas</span>
                           )}
                         </td>
-                        <td className="px-4 py-2 text-right">
+                        <td className="px-3 py-2 text-right tabular-nums text-slate-600">
+                          {v.extra_cost > 0 ? formatIDR(v.extra_cost) : "—"}
+                          {([["angkut", v.cost_angkut], ["potong", v.cost_potong], ["lain", v.cost_bongkar + v.cost_lain]] as const)
+                            .filter(([, n]) => n > 0)
+                            .map(([label, n]) => (
+                              <span key={label} className="block text-[10px] text-slate-400">{label} {formatIDR(n)}</span>
+                            ))}
+                        </td>
+                        <td className="px-3 py-2 text-right">
                           <span className="font-semibold tabular-nums text-slate-900">
-                            {v.cost_per_sawn_m3 == null ? "—" : formatIDR(v.cost_per_sawn_m3)}
+                            {v.landed_cost_per_sawn_m3 == null ? "—" : formatIDR(v.landed_cost_per_sawn_m3)}
                           </span>
+                          {v.extra_cost > 0 && v.cost_per_sawn_m3 != null && (
+                            <span className="block text-[10px] text-slate-400">kayu saja {formatIDR(v.cost_per_sawn_m3)}</span>
+                          )}
                           {cheapest?.vendor_id === v.vendor_id && cheapest.species === v.species && best.length > 1 && (
                             <span className="block text-[10px] font-medium text-emerald-700">termurah sebenarnya</span>
                           )}
+                        </td>
+                        <td className="px-4 py-2 text-right font-semibold tabular-nums text-slate-900">
+                          {v.landed_cost_per_sawn_m2 == null ? "—" : formatIDR(v.landed_cost_per_sawn_m2)}
                         </td>
                       </tr>
                     ))}
@@ -176,14 +204,17 @@ export default function TimberPage() {
                     <strong>{cheapestLog.vendor_name}</strong> lebih murah per m³ log, tapi{" "}
                     <strong>{cheapest.vendor_name}</strong> lebih murah per m³ papan untuk{" "}
                     {cheapest.species} — selisih{" "}
-                    {formatIDR(Math.abs((cheapest.cost_per_sawn_m3 ?? 0) - (cheapestLog.cost_per_sawn_m3 ?? 0)))} per m³
-                    kayu yang benar-benar bisa dipakai. Rendemennya yang berbeda, bukan harganya.
+                    {formatIDR(Math.abs((cheapest.landed_cost_per_sawn_m3 ?? 0) - (cheapestLog.landed_cost_per_sawn_m3 ?? 0)))} per m³
+                    kayu yang benar-benar bisa dipakai, setelah angkut dan potong. Rendemen dan ongkosnya yang
+                    berbeda, bukan harga di nota.
                   </span>
                 </p>
               )}
               <p className="border-t border-slate-100 px-4 py-2 text-[11px] text-slate-500">
                 Kiriman yang belum digergaji tidak ikut menentukan harga per m³ papan — bagian
-                tagihannya disisihkan sampai kayunya benar-benar keluar dari gergaji.
+                tagihannya disisihkan sampai kayunya benar-benar keluar dari gergaji. Per m² dihitung dari
+                luas papan (lebar × panjang) semua ketebalan; bandingkan antar vendor yang digergaji ke tebal
+                yang mirip.
               </p>
             </Card>
           );
@@ -226,10 +257,12 @@ export default function TimberPage() {
                           rendemen {p.yield_percent}%
                         </Badge>
                       )}
-                      <span className="w-32 text-right text-[12px] tabular-nums text-slate-800">
-                        {p.cost_per_sawn_m3 == null ? formatIDR(p.total_cost) : formatIDR(p.cost_per_sawn_m3)}
+                      <span className="w-36 text-right text-[12px] tabular-nums text-slate-800">
+                        {p.landed_cost_per_sawn_m3 == null ? formatIDR(p.landed_cost) : formatIDR(p.landed_cost_per_sawn_m3)}
                         <span className="block text-[10px] text-slate-400">
-                          {p.cost_per_sawn_m3 == null ? "nilai tagihan" : "per m³ papan"}
+                          {p.landed_cost_per_sawn_m3 == null
+                            ? (p.extra_cost > 0 ? "kayu + biaya" : "nilai tagihan")
+                            : p.extra_cost > 0 ? "per m³ papan, + biaya" : "per m³ papan"}
                         </span>
                       </span>
                     </div>

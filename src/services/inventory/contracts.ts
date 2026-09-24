@@ -93,6 +93,64 @@ export interface NotaScan {
   /** Rows the reader could not make sense of. Never dropped silently: a nota
    *  with four unread rows is a nota somebody has to look at. */
   unread: string[];
+  /** Where the reading came from: pasted text read by rules, or a photo/PDF
+   *  read by a language model. The screen says which, because a model's
+   *  reading is a proposal in exactly the same way and deserves the same
+   *  checking — more, not less. */
+  source: "text" | "image";
+  /** Who issued it and when, as printed. Guesses that prefill the form, never
+   *  values filed without somebody seeing them. */
+  vendor_guess: string | null;
+  /** `YYYY-MM-DD`. */
+  date_guess: string | null;
+  /** Charges on the paper that are not wood — *ongkos angkut*, *ongkos
+   *  potong*. Filed as the load's costs, never added to the timber invoice. */
+  costs: NotaCostLine[];
+}
+
+/* ── What the wood cost beyond its invoice ────────────────────────────────
+ *
+ *  The owner's question (2026-09-24): per vendor, what does a cubic metre and
+ *  a square metre of board **really** cost — with the truck, the sawing and
+ *  everything else. Those charges arrive on **separate notas** from other
+ *  people, often after the load, so each is a row of its own against the load.
+ *  The timber invoice (`total_cost`) is never rewritten: *paper price* and
+ *  *landed price* both stay on the screen, and the gap between them is the
+ *  point.
+ */
+export type LogCostKind = "angkut" | "potong" | "bongkar" | "lain";
+
+export const LOG_COST_LABEL: Record<LogCostKind, string> = {
+  angkut: "Angkut",
+  potong: "Potong / gergaji",
+  bongkar: "Bongkar muat",
+  lain: "Lain-lain",
+};
+
+/** A charge read off a nota — a proposal until somebody files it. */
+export interface NotaCostLine {
+  raw: string;
+  kind: LogCostKind;
+  amount: number;
+}
+
+/** One charge paid to get a load onto the rack. */
+export interface LogCost {
+  id: string;
+  cost_no: string;
+  purchase_no: string;
+  kind: LogCostKind;
+  amount: number;
+  incurred_on: string;
+  /** Who was paid — a trucker is often nobody in the vendor list. */
+  payee: string | null;
+  /** Public vendor id, when they are. */
+  vendor_id: string | null;
+  trx_no: string | null;
+  /** The cost's own nota, on the evidence road under its own number. */
+  nota_attachment_id: string | null;
+  note: string | null;
+  created_at: string;
 }
 
 /** One delivery of logs from one vendor: the thing that has a price on it. */
@@ -203,6 +261,18 @@ export interface LogPurchaseView extends LogPurchase {
   /** Our measurement against the seller's, in m³. */
   measure_gap_m3: number | null;
   warnings: string[];
+  /** Transport, sawing and the rest, each from its own nota. */
+  costs: LogCost[];
+  extra_cost: number;
+  /** Invoice plus every cost — what the wood actually cost. */
+  landed_cost: number;
+  /** Board face, width × length × qty, every thickness together. */
+  sawn_m2: number;
+  landed_cost_per_log_m3: number | null;
+  /** The figure that belongs in a quotation: landed cost of the sawn share ÷
+   *  board m³ (D153, 2026-09-24). */
+  landed_cost_per_sawn_m3: number | null;
+  landed_cost_per_sawn_m2: number | null;
 }
 
 /* ── The rack: boards as stock, and what leaves it ────────────────────────
@@ -340,6 +410,17 @@ export interface TimberVendorSummary {
   /** How much of the bought volume has not been through the saw yet — a
    *  vendor's real figure is not final until it has. */
   unsawn_m3: number;
+  sawn_m2: number;
+  /** Costs beyond the timber invoices, by kind, summed over the loads. */
+  cost_angkut: number;
+  cost_potong: number;
+  cost_bongkar: number;
+  cost_lain: number;
+  extra_cost: number;
+  landed_cost: number;
+  landed_cost_per_log_m3: number | null;
+  landed_cost_per_sawn_m3: number | null;
+  landed_cost_per_sawn_m2: number | null;
 }
 
 /* ── Stock: what is on the rack, and how it got there ──────────────────────

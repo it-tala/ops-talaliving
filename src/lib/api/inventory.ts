@@ -22,6 +22,7 @@ import type {
   StockLocation, StockMove, StockMoveView, StockItemView, StockItemDetail,
   LogMeasure, LogPiece, LogPieceView, SawnBoard, SawnBoardView, LogPurchaseView,
   TimberVendorSummary, BoardStockView, BoardMoveView, BoardMoveKind, NotaScan,
+  LogCost, LogCostKind,
   AssetView, AssetCategory, AssetStatus, AssetInput, AssetService, AssetServiceInput,
 } from "@/services/inventory/contracts";
 import type { MaterialPlan } from "@/services/production/contracts";
@@ -510,22 +511,62 @@ async function buildLogPurchaseViews(purchaseNos?: string[]): Promise<Result<Log
   const nos = rows.map((r) => r.purchase_no as string);
   const vendorCodes = [...new Set(rows.map((r) => r.vendor_code as string))];
 
-  const [piecesRes, boardsRes, vendorsRes, linksRes, lowYieldRes] = await Promise.all([
+  const [piecesRes, boardsRes, costsRes, linksRes, lowYieldRes] = await Promise.all([
     db().from("log_pieces").select("*").in("purchase_id", ids),
     db().from("sawn_boards").select("*").in("purchase_id", ids),
-    procure().from("vendors").select("id, code").in("code", vendorCodes),
+    db().from("log_costs").select("*").in("purchase_id", ids).order("incurred_on"),
     core().from("attachment_links").select("entity_no, attachment_id")
       .eq("entity", "log_purchase").eq("kind", "nota").is("unlinked_at", null).in("entity_no", nos),
     core().rpc("setting_num", { p_key: "ops.low_yield_percent" }),
   ]);
   if (piecesRes.error) return fail(SERVICE, piecesRes.error);
   if (boardsRes.error) return fail(SERVICE, boardsRes.error);
-  if (vendorsRes.error) return fail(SERVICE, vendorsRes.error);
+  if (costsRes.error) return fail(SERVICE, costsRes.error);
   if (linksRes.error) return fail(SERVICE, linksRes.error);
+
+  /* A trucker's vendor code joins the timber sellers' in one lookup, and each
+     cost's own nota is found by its own number (`0155`) — never counted as
+     the load's (`has_nota`). */
+  const costRows = (costsRes.data ?? []) as Array<Record<string, unknown>>;
+  const allCodes = [...new Set([...vendorCodes, ...costRows.map((c) => c.vendor_code as string | null).filter((c): c is string => !!c)])];
+  const [vendorsRes, costLinksRes] = await Promise.all([
+    procure().from("vendors").select("id, code").in("code", allCodes),
+    costRows.length === 0
+      ? Promise.resolve({ data: [] as { entity_no: string; attachment_id: string }[], error: null })
+      : core().from("attachment_links").select("entity_no, attachment_id")
+        .eq("entity", "log_cost").eq("kind", "nota").is("unlinked_at", null)
+        .in("entity_no", costRows.map((c) => c.cost_no as string)),
+  ]);
+  if (vendorsRes.error) return fail(SERVICE, vendorsRes.error);
+  if (costLinksRes.error) return fail(SERVICE, costLinksRes.error);
 
   const lowYieldThreshold = (lowYieldRes.data as number | null) ?? 45;
   const vendorIdByCode = new Map((vendorsRes.data ?? []).map((v) => [v.code as string, v.id as string]));
   const notaByPurchaseNo = new Map((linksRes.data ?? []).map((l) => [l.entity_no as string, l.attachment_id as string]));
+  const notaByCostNo = new Map((costLinksRes.data ?? []).map((l) => [l.entity_no as string, l.attachment_id as string]));
+  const purchaseNoById = new Map(rows.map((r) => [r.id as string, r.purchase_no as string]));
+
+  const costsByPurchase = new Map<string, LogCost[]>();
+  for (const c of costRows) {
+    const code = c.vendor_code as string | null;
+    const cost: LogCost = {
+      id: c.id as string,
+      cost_no: c.cost_no as string,
+      purchase_no: purchaseNoById.get(c.purchase_id as string) ?? "",
+      kind: c.kind as LogCostKind,
+      amount: c.amount as number,
+      incurred_on: c.incurred_on as string,
+      payee: c.payee as string | null,
+      vendor_id: code ? vendorIdByCode.get(code) ?? code : null,
+      trx_no: c.trx_no as string | null,
+      nota_attachment_id: notaByCostNo.get(c.cost_no as string) ?? null,
+      note: c.note as string | null,
+      created_at: c.created_at as string,
+    };
+    const list = costsByPurchase.get(c.purchase_id as string) ?? [];
+    list.push(cost);
+    costsByPurchase.set(c.purchase_id as string, list);
+  }
 
   const piecesByPurchase = new Map<string, LogPieceView[]>();
   for (const p of piecesRes.data ?? []) {
@@ -568,7 +609,9 @@ async function buildLogPurchaseViews(purchaseNos?: string[]): Promise<Result<Log
     const claimed_m3 = r.claimed_m3 as number | null;
 
     const warnings: string[] = [];
-    if ((r.pieces as number) === 0) {
+    /* A load bought as boards has no sticks to measure, and is not missing
+       any (`0156`). */
+    if ((r.pieces as number) === 0 && boards.length === 0) {
       warnings.push("Belum ada batang yang diukur — kubikasi dan harga per m³ belum bisa dihitung.");
     }
     if (log_m3 > 0 && sawn_m3 === 0) {
@@ -609,6 +652,13 @@ async function buildLogPurchaseViews(purchaseNos?: string[]): Promise<Result<Log
       cost_per_log_m3: r.cost_per_log_m3 as number | null,
       cost_per_sawn_m3: r.cost_per_sawn_m3 as number | null,
       unsawn_m3, measure_gap_m3, warnings,
+      costs: costsByPurchase.get(r.id as string) ?? [],
+      extra_cost: r.extra_cost as number,
+      landed_cost: r.landed_cost as number,
+      sawn_m2: r.sawn_m2 as number,
+      landed_cost_per_log_m3: r.landed_cost_per_log_m3 as number | null,
+      landed_cost_per_sawn_m3: r.landed_cost_per_sawn_m3 as number | null,
+      landed_cost_per_sawn_m2: r.landed_cost_per_sawn_m2 as number | null,
     };
   });
 
@@ -627,13 +677,13 @@ export async function getLogPurchase(purchaseNo: string): Promise<Result<LogPurc
   return ok(SERVICE, found);
 }
 
-/** Every vendor's timber side by side. The column that decides is
- *  `cost_per_sawn_m3`, not the invoice price (D153) — `v_timber_by_vendor`
- *  (`0070`) already groups by vendor and species; `unsawn_m3` is not one of
- *  its columns, but is exactly `log_m3 - sawn_logs_m3`, which are. */
+/** Every vendor's timber side by side. The column that decides is the
+ *  landed cost per board m³, not the invoice price (D153) —
+ *  `v_timber_by_vendor` (`0070`, `0156`) groups by vendor and species and sums
+ *  the transport and sawing notas beside the invoices. */
 export async function timberByVendor(): Promise<Result<TimberVendorSummary[]>> {
   const { data, error } = await db().from("v_timber_by_vendor").select("*")
-    .order("species").order("cost_per_sawn_m3", { ascending: false });
+    .order("species").order("landed_cost_per_sawn_m3", { ascending: false });
   if (error) return fail(SERVICE, error);
   const rows = data ?? [];
   const codes = [...new Set(rows.map((r) => r.vendor_code as string))];
@@ -652,8 +702,75 @@ export async function timberByVendor(): Promise<Result<TimberVendorSummary[]>> {
     yield_percent: r.yield_percent as number | null,
     cost_per_log_m3: r.cost_per_log_m3 as number | null,
     cost_per_sawn_m3: r.cost_per_sawn_m3 as number | null,
-    unsawn_m3: round4((r.log_m3 as number) - (r.sawn_logs_m3 as number)),
+    unsawn_m3: r.unsawn_m3 as number,
+    sawn_m2: r.sawn_m2 as number,
+    cost_angkut: r.cost_angkut as number,
+    cost_potong: r.cost_potong as number,
+    cost_bongkar: r.cost_bongkar as number,
+    cost_lain: r.cost_lain as number,
+    extra_cost: r.extra_cost as number,
+    landed_cost: r.landed_cost as number,
+    landed_cost_per_log_m3: r.landed_cost_per_log_m3 as number | null,
+    landed_cost_per_sawn_m3: r.landed_cost_per_sawn_m3 as number | null,
+    landed_cost_per_sawn_m2: r.landed_cost_per_sawn_m2 as number | null,
   })));
+}
+
+/** A charge against a load — the truck, the sawmill — from **its own nota**.
+ *
+ *  One row, so `0156`'s RLS is enough (no seam, matching this file's header).
+ *  The timber invoice is never touched: the landed figures are summed on read.
+ *  The cost's nota is linked afterwards under the cost's own number, the same
+ *  optional, non-atomic evidence link `receiveLogs` makes (A6). */
+export async function addLogCost(
+  input: {
+    purchase_no: string;
+    kind: LogCostKind;
+    amount: number;
+    incurred_on: string;
+    payee?: string | null;
+    vendor_id?: string | null;
+    trx_no?: string | null;
+    nota_attachment_id?: string | null;
+    note?: string | null;
+  },
+): Promise<Result<LogPurchaseView>> {
+  if (!input.amount || input.amount <= 0) {
+    return invalid(SERVICE, "amount_required", "Berapa biayanya?", { field: "amount" });
+  }
+  const { data: purchase, error: pErr } = await db().from("log_purchases").select("id")
+    .eq("purchase_no", input.purchase_no).maybeSingle();
+  if (pErr) return fail(SERVICE, pErr);
+  if (!purchase) return notFound(SERVICE, "purchase_not_found", `No log purchase ${input.purchase_no}.`);
+
+  let vendorCode: string | null = null;
+  if (input.vendor_id) {
+    vendorCode = await vendorCodeFor(input.vendor_id);
+    if (!vendorCode) return notFound(SERVICE, "vendor_not_found", "Vendor itu tidak ada.");
+  }
+
+  const { data: row, error } = await db().from("log_costs").insert({
+    purchase_id: purchase.id,
+    kind: input.kind,
+    amount: Math.round(input.amount),
+    incurred_on: input.incurred_on,
+    payee: input.payee?.trim() || null,
+    vendor_code: vendorCode,
+    trx_no: input.trx_no?.trim() || null,
+    note: input.note?.trim() || null,
+  }).select("cost_no").single();
+  if (error) return fail(SERVICE, error);
+
+  if (input.nota_attachment_id) {
+    const uid = await currentUserId();
+    if (!uid.error) {
+      await core().from("attachment_links").insert({
+        attachment_id: input.nota_attachment_id, entity: "log_cost",
+        entity_no: (row as { cost_no: string }).cost_no, kind: "nota", linked_by: uid.data,
+      });
+    }
+  }
+  return getLogPurchase(input.purchase_no);
 }
 
 /** A load of logs arriving — `ops_inv.receive_logs()` (`0095`), the one
@@ -808,6 +925,41 @@ export async function markLogSawn(
  *  `_nota_kayu.ts`, no database involved. */
 export async function readNota(text: string): Promise<Result<NotaScan>> {
   return ok(SERVICE, scanNota(text));
+}
+
+/** Reading a **photo** of a nota, without writing anything (D200).
+ *
+ *  The one call here that is not PostgREST: the model key cannot be in a
+ *  browser, so the photo makes one hop through `/api/inventory/nota/read`,
+ *  which answers the same `NotaScan` the text reader does. The route's
+ *  refusals are relayed whole — *no model configured* names the thing to do. */
+export async function readNotaImage(file: File): Promise<Result<NotaScan>> {
+  const body = new FormData();
+  body.append("file", file);
+  let res: Response;
+  try {
+    res = await fetch("/api/inventory/nota/read", { method: "POST", body, credentials: "same-origin" });
+  } catch (e) {
+    return {
+      error: {
+        code: "upload_interrupted",
+        message: `Foto nota terputus sebelum sampai. Coba lagi. (${String((e as Error).message)})`,
+        outcome: "refused", status: 500,
+      },
+      meta: { request_id: "", service: SERVICE, version: "1", outcome: "refused" },
+    };
+  }
+  const envelope = await res.json().catch(() => ({})) as { data?: NotaScan; error?: Result<never>["error"] };
+  if (!res.ok || envelope.error || !envelope.data) {
+    return {
+      error: envelope.error ?? {
+        code: "read_failed", message: `Nota tidak terbaca (${res.status}).`,
+        outcome: "refused", status: res.status as never,
+      },
+      meta: { request_id: "", service: SERVICE, version: "1", outcome: "refused" },
+    } as Result<never>;
+  }
+  return ok(SERVICE, envelope.data);
 }
 
 /* ------------------------------------------------------------------ */

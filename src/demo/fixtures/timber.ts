@@ -1,6 +1,7 @@
 import type {
   LogPurchase, LogPiece, SawnBoard, BoardMove,
 } from "@/services/inventory/contracts";
+import type { DemoLogCost } from "../state";
 
 /** Four loads of logs, two vendors, and the thing nobody could see before.
  *
@@ -49,6 +50,37 @@ export const LOG_PURCHASES: LogPurchase[] = [
     total_cost: 6_600_000, claimed_m3: 0.95, measure: "round", nota_attachment_id: null,
     note: "Belum digergaji — masih menunggu jadwal sawmill.",
     created_at: "2026-09-08T16:40:00+08:00", created_by: "usr_made",
+  },
+];
+
+/** What the invoices leave out: the truck and the sawmill, each on its own
+ *  nota. Kayu Manis is further away, so its logs cost more to bring in — one
+ *  more reason the invoice price is not the price (2026-09-24). */
+export const LOG_COSTS: DemoLogCost[] = [
+  {
+    id: "lgc_01", cost_no: "kyb-26-07-12_01", purchase_id: "lgp_01", kind: "angkut",
+    amount: 1_500_000, incurred_on: "2026-07-12", payee: "Pak Darto (colt diesel)", vendor_id: null,
+    trx_no: null, nota_attachment_id: null, note: null, created_at: "2026-07-12T11:00:00+08:00",
+  },
+  {
+    id: "lgc_02", cost_no: "kyb-26-07-20_01", purchase_id: "lgp_01", kind: "potong",
+    amount: 1_800_000, incurred_on: "2026-07-20", payee: "Sawmill Sinar Jaya", vendor_id: null,
+    trx_no: null, nota_attachment_id: null, note: null, created_at: "2026-07-20T15:00:00+08:00",
+  },
+  {
+    id: "lgc_03", cost_no: "kyb-26-08-05_01", purchase_id: "lgp_02", kind: "angkut",
+    amount: 2_400_000, incurred_on: "2026-08-05", payee: "Ekspedisi Borneo Trans", vendor_id: null,
+    trx_no: null, nota_attachment_id: null, note: "Dari Kotabaru, dua hari jalan.", created_at: "2026-08-05T16:00:00+08:00",
+  },
+  {
+    id: "lgc_04", cost_no: "kyb-26-08-12_01", purchase_id: "lgp_02", kind: "potong",
+    amount: 1_400_000, incurred_on: "2026-08-12", payee: "Sawmill Sinar Jaya", vendor_id: null,
+    trx_no: null, nota_attachment_id: null, note: null, created_at: "2026-08-12T15:00:00+08:00",
+  },
+  {
+    id: "lgc_05", cost_no: "kyb-26-08-26_01", purchase_id: "lgp_03", kind: "angkut",
+    amount: 1_200_000, incurred_on: "2026-08-26", payee: "Pak Darto (colt diesel)", vendor_id: null,
+    trx_no: null, nota_attachment_id: null, note: null, created_at: "2026-08-26T12:00:00+08:00",
   },
 ];
 

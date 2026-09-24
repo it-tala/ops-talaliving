@@ -9,7 +9,7 @@ import { ok, noop, invalid, notFound, type Result } from "@/services/_shared/env
 import type {
   LogPurchaseView, LogMeasure, TimberVendorSummary,
   StockItemView, StockItemDetail, StockLocation, StockMove, StockMoveView,
-  BoardStockView, BoardMoveView, BoardMoveKind, NotaScan,
+  BoardStockView, BoardMoveView, BoardMoveKind, NotaScan, LogCostKind,
   Asset, AssetView, AssetCategory, AssetStatus, AssetInput, AssetService, AssetServiceInput,
 } from "@/services/inventory/contracts";
 import { ASSET_GONE, ASSET_OWNERSHIP_LABEL } from "@/services/inventory/contracts";
@@ -151,6 +151,59 @@ export async function receiveLogs(
   const view = await getLogPurchase(no);
   if (view.data) remember(SERVICE, "receiveLogs", idempotencyKey, view.data);
   return view;
+}
+
+/** A charge against a load — the truck, the sawmill — from **its own nota**.
+ *
+ *  Beside the timber invoice, never into it: `total_cost` stays what the
+ *  timber seller billed, and the landed figures are summed on read (`0156`).
+ */
+export async function addLogCost(
+  input: {
+    purchase_no: string;
+    kind: LogCostKind;
+    amount: number;
+    incurred_on: string;
+    payee?: string | null;
+    vendor_id?: string | null;
+    trx_no?: string | null;
+    nota_attachment_id?: string | null;
+    note?: string | null;
+  },
+): Promise<Result<LogPurchaseView>> {
+  await latency();
+  const denied = requireModule(SERVICE, "inventory");
+  if (denied) return denied;
+
+  const state = getState();
+  const p = state.log_purchases.find((x) => x.purchase_no === input.purchase_no);
+  if (!p) return notFound(SERVICE, "purchase_not_found", `No log purchase ${input.purchase_no}.`);
+  if (!input.amount || input.amount <= 0) {
+    return invalid(SERVICE, "amount_required", "Berapa biayanya?", { field: "amount" });
+  }
+  if (input.vendor_id && !state.vendors.some((v) => v.id === input.vendor_id)) {
+    return notFound(SERVICE, "vendor_not_found", "Vendor itu tidak ada.");
+  }
+
+  const user = actingUser();
+  apply((draft) => {
+    const no = nextDocNumber(draft, "kyb");
+    draft.log_costs.push({
+      id: newId("lgc"), cost_no: no, purchase_id: p.id,
+      kind: input.kind, amount: Math.round(input.amount), incurred_on: input.incurred_on,
+      payee: input.payee?.trim() || null, vendor_id: input.vendor_id ?? null,
+      trx_no: input.trx_no?.trim() || null,
+      nota_attachment_id: input.nota_attachment_id ?? null,
+      note: input.note?.trim() || null,
+      created_at: new Date().toISOString(),
+    });
+    writeAudit(draft, {
+      service: SERVICE, entity: "log_purchase", entity_no: p.purchase_no,
+      action: "add_cost", outcome: "ok", reason: null,
+      detail: { cost_no: no, kind: input.kind, amount: input.amount, payee: input.payee ?? null, by: user.email },
+    });
+  });
+  return getLogPurchase(p.purchase_no);
 }
 
 /** One log, measured. Diameter is the average of the two ends, in centimetres,
@@ -774,6 +827,18 @@ export async function moveBoards(
 export async function readNota(text: string): Promise<Result<NotaScan>> {
   await latency();
   return ok(SERVICE, scanNota(text));
+}
+
+/** Reading a photo needs a language model behind a server key, and the
+ *  sandbox has neither. Said as itself rather than faked: a demo that
+ *  invented a reading would teach somebody to trust one. */
+export async function readNotaImage(_file: File): Promise<Result<NotaScan>> {
+  await latency();
+  return invalid(
+    SERVICE, "image_needs_live",
+    "Membaca foto nota hanya bisa di aplikasi live (butuh model bahasa di server). Di demo, tempel teks notanya.",
+    { field: "file" },
+  );
 }
 
 /* ── Issuing a whole run's material against its SPK ────────────────────
