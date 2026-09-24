@@ -5,6 +5,7 @@ import { Bell, Link2 } from "lucide-react";
 import { Badge, Button, Card, CardHeader } from "@/components/ui/primitives";
 import { Modal } from "@/components/ui/drawer";
 import { Loaded, useLoad } from "@/components/ui/loaded";
+import { Paged } from "@/components/ui/pager";
 import { formatIDR } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { accounting } from "@/demo/api";
@@ -92,6 +93,8 @@ function DueBadge({ d }: { d: CashDue }) {
   return <Badge tone={d.days_away <= 7 ? "amber" : "slate"}>in {d.days_away} day(s)</Badge>;
 }
 
+const LINK_PAGE_SIZE = 10;
+
 /** Pointing at the ledger row that paid a bill.
  *
  *  The calendar guesses by category, and says when it is guessing. This is how
@@ -135,23 +138,30 @@ function LinkPayment({ due, onClose, onLinked }: { due: CashDue; onClose: () => 
               ledger first, then come back and name it here.
             </p>
           ) : (
-            <ul className="divide-y divide-slate-100">
-              {candidates.map((t) => (
-                <li key={t.trx_no} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
-                  <span className="w-[86px] shrink-0 font-mono text-[11px] text-slate-500">{t.trx_date}</span>
-                  <span className="min-w-[200px] flex-1 text-[13px] text-slate-700">
-                    {t.description}
-                    <span className="block text-[11px] text-slate-500">
-                      {t.type_code} · {t.account_code}
-                    </span>
-                  </span>
-                  <span className="tabular-nums text-[13px] text-slate-800">{formatIDR(t.amount_idr)}</span>
-                  <Button size="sm" variant="outline" disabled={busy} onClick={() => link(t.trx_no)}>
-                    This one
-                  </Button>
-                </li>
-              ))}
-            </ul>
+            /* Ten at a time, at a fixed height: a month of ledger rows is a
+             * hundred-odd lines, and a modal that grows with it pushes its own
+             * title and close button off the screen. */
+            <Paged rows={candidates} pageSize={LINK_PAGE_SIZE} unit="transaksi">
+              {(shown) => (
+                <ul className="-mx-5 h-[480px] divide-y divide-slate-100 overflow-y-auto border-t border-slate-100 px-5">
+                  {shown.map((t) => (
+                    <li key={t.trx_no} className="flex h-12 items-center gap-3">
+                      <span className="w-[76px] shrink-0 font-mono text-[11px] text-slate-500">{t.trx_date}</span>
+                      <span className="min-w-0 flex-1 text-[13px] text-slate-700">
+                        <span className="block truncate" title={t.description}>{t.description}</span>
+                        <span className="block truncate text-[11px] text-slate-500">
+                          {t.type_code} · {t.account_code}
+                        </span>
+                      </span>
+                      <span className="shrink-0 tabular-nums text-[13px] text-slate-800">{formatIDR(t.amount_idr)}</span>
+                      <Button size="sm" variant="outline" disabled={busy} onClick={() => link(t.trx_no)}>
+                        This one
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Paged>
           );
         }}
       </Loaded>
