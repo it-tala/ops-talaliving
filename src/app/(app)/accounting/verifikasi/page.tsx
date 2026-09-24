@@ -1,18 +1,19 @@
 "use client";
 
 import { TypeOptions } from "@/components/ui/type-options";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Inbox, FileText, Receipt, Undo2, Link2, StickyNote, XCircle, AlertTriangle, Check,
+  RefreshCw,
 } from "lucide-react";
 import { Badge, Button, Card, CardHeader, EmptyState, PageHeader } from "@/components/ui/primitives";
-import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
+import { Loaded, SourceBadge, useLoad, usePoll } from "@/components/ui/loaded";
 import { usePaged } from "@/components/ui/pager";
 import { MoneyInput } from "@/components/ui/money-input";
 import { NumberInput } from "@/components/ui/number-input";
 import { formatIDR } from "@/lib/format";
 import { cn } from "@/lib/cn";
-import { officeToday } from "@/lib/office";
+import { officeClock, officeToday } from "@/lib/office";
 import { accounting, documents, procurement } from "@/demo/api";
 import { DocumentPreview } from "@/components/ui/doc-preview";
 import type { EvidenceInboxRow, TransactionTypeCode, Direction, DocumentCoverage } from "@/services/accounting/contracts";
@@ -59,9 +60,9 @@ const ROADS: { key: Road; label: string; icon: typeof Receipt; hint: string }[] 
 export default function InboxPage() {
   const { hasAuthority } = useSession();
   const { toast } = useToast();
-  const [rows, reload] = useLoad(() => accounting.listInbox(), []);
-  const [everything, reloadAll] = useLoad(() => accounting.listInboxAll(), []);
-  const [health, reloadHealth] = useLoad(() => accounting.getInboxHealth(), []);
+  const [rows, reload, refreshRows] = useLoad(() => accounting.listInbox(), []);
+  const [everything, reloadAll, refreshAll] = useLoad(() => accounting.listInboxAll(), []);
+  const [health, reloadHealth, refreshHealth] = useLoad(() => accounting.getInboxHealth(), []);
   const [attachments] = useLoad(() => documents.listAttachments(), []);
   const [selected, setSelected] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState<string | null>(null);
@@ -107,6 +108,40 @@ export default function InboxPage() {
     setSelected(null);
   }
 
+  /* ── Why this screen polls, and what it refuses to do while polling ──────
+   *
+   * Documents arrive here from Google Chat, not from anybody sitting at this
+   * screen: somebody photographs a nota in Bali and a pipeline puts it in this
+   * queue minutes later. A screen that only changes when it is reloaded is a
+   * screen that is wrong most of the time it is open, and the person watching
+   * it has no way to tell whether the queue is empty or the page is stale.
+   *
+   * Sixty seconds, not five: the documents come from a cycle that runs every
+   * few minutes, so a faster poll costs reads and buys nothing. `usePoll`
+   * pauses while the tab is in the background and asks again the moment it
+   * comes forward, so returning to this tab shows something current.
+   *
+   * **Never while somebody is deciding.** A refresh that reorders the list
+   * under an open confirmation is worse than a stale list — the row being
+   * decided about would move, and `selected` is a ref_id that could vanish
+   * from under a half-typed form. A minute of staleness is a smaller price
+   * than that, so the poll stops for as long as a document is open.
+   */
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const [refreshFailed, setRefreshFailed] = useState(false);
+
+  const poll = useCallback(async () => {
+    const results = await Promise.all([refreshRows(), refreshAll(), refreshHealth()]);
+    const ok = results.every(Boolean);
+    setRefreshFailed(!ok);
+    /* Only a clean pass moves the clock. A time that advances while one of the
+       three reads is failing would be the screen saying "this is current" about
+       something it could not check. */
+    if (ok) setLastRefreshed(new Date());
+  }, [refreshRows, refreshAll, refreshHealth]);
+
+  usePoll(60_000, poll, { enabled: selected === null });
+
   return (
     <div>
       <PageHeader
@@ -114,6 +149,34 @@ export default function InboxPage() {
         title="Purchase verification"
         description="Documents that arrived with nothing to attach them to — somebody bought first and photographed the nota. Everything here leaves by one of five roads, and none of them throws the file away."
       />
+
+      {/* A screen that refreshes itself has to say when it last managed to.
+          Otherwise "nothing new today" and "this stopped asking an hour ago"
+          look identical — which is the failure this whole screen exists
+          downstream of. */}
+      <div className="mb-3 flex items-center gap-2 text-[12px] text-slate-500">
+        <button
+          type="button"
+          onClick={() => { void poll(); }}
+          className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 font-medium text-slate-600 hover:bg-slate-100"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Refresh
+        </button>
+        {refreshFailed ? (
+          <span className="text-amber-700">
+            Could not refresh just now — showing the last good read
+            {lastRefreshed && ` from ${officeClock(lastRefreshed)}`}.
+          </span>
+        ) : lastRefreshed ? (
+          <span>Refreshed {officeClock(lastRefreshed)} · checks again every minute</span>
+        ) : (
+          <span>Checks for new documents every minute</span>
+        )}
+        {selected !== null && (
+          <span className="text-slate-400">· paused while a document is open</span>
+        )}
+      </div>
 
       {health.status === "ready" && (
         <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-card">
