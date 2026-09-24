@@ -61,11 +61,23 @@ export function EvidenceStrip({
   slots?: EvidenceSlot[];
 }) {
   const { toast } = useToast();
+  /* With a checklist, each expected kind already has its own button, so the
+     free picker below offers only what the checklist does not — otherwise a
+     nota could be filed from two places on one screen, and the picker even
+     defaulted to the checklist's first row. A shop link has its own button,
+     so it is not a picker entry either. */
+  const slotKinds = new Set<DocKind>(slots.map((sl) => sl.kind));
+  const otherKinds: readonly DocKind[] = slots.length > 0
+    ? DOC_KINDS.filter((k) => !slotKinds.has(k) && k !== "Reference Link")
+    : DOC_KINDS;
   const [rows, setRows] = useState<AttachmentView[]>([]);
+  const [showOther, setShowOther] = useState(false);
   const [showLink, setShowLink] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [linking, setLinking] = useState(false);
-  const [kindSelected, setKind] = useState<DocKind>(defaultKind);
+  const [kindSelected, setKind] = useState<DocKind>(
+    otherKinds.includes(defaultKind) ? defaultKind : otherKinds[0] ?? defaultKind,
+  );
   const [spreading, setSpreading] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
@@ -333,22 +345,10 @@ export function EvidenceStrip({
         </div>
       ))}
 
+      {/* The pickers live outside the collapsible box: the checklist's own
+          buttons open them, and must work while the box is folded away. */}
       {canEdit && (
-        <div className="rounded-lg border border-dashed border-slate-300 px-3 py-3">
-          <label htmlFor={`ev-kind-${entityNo}`} className="block text-xs text-slate-500">Document type</label>
-          <select
-            id={`ev-kind-${entityNo}`}
-            value={kindSelected}
-            onChange={(e) => setKind(e.target.value as DocKind)}
-            className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none"
-          >
-            {DOC_KINDS.map((k) => (
-              <option key={k} value={k}>
-                {k}{PRIMARY_DOC_KINDS.includes(k) ? "" : " (supporting)"}
-              </option>
-            ))}
-          </select>
-
+        <>
           <input
             ref={fileRef} id={`ev-file-${entityNo}`} type="file" className="hidden"
             onChange={(e) => {
@@ -369,6 +369,45 @@ export function EvidenceStrip({
               e.target.value = "";
             }}
           />
+        </>
+      )}
+
+      {canEdit && slots.length > 0 && !showOther && (
+        <Button variant="ghost" size="sm" icon={Plus} onClick={() => setShowOther(true)}>
+          Dokumen lain atau link
+        </Button>
+      )}
+
+      {canEdit && (slots.length === 0 || showOther) && (
+        <div className="rounded-lg border border-dashed border-slate-300 px-3 py-3">
+          <div className="flex items-center justify-between">
+            <label htmlFor={`ev-kind-${entityNo}`} className="block text-xs text-slate-500">
+              {slots.length > 0 ? "Dokumen lain — di luar daftar di atas" : "Document type"}
+            </label>
+            {slots.length > 0 && (
+              <button
+                type="button"
+                onClick={() => { setShowOther(false); setShowLink(false); }}
+                aria-label="Tutup"
+                className="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-100"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          <select
+            id={`ev-kind-${entityNo}`}
+            value={kindSelected}
+            onChange={(e) => setKind(e.target.value as DocKind)}
+            className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none"
+          >
+            {otherKinds.map((k) => (
+              <option key={k} value={k}>
+                {k}{PRIMARY_DOC_KINDS.includes(k) ? "" : " (supporting)"}
+              </option>
+            ))}
+          </select>
+
           <div className="mt-2 grid grid-cols-3 gap-2">
             <Button variant="outline" size="sm" icon={Camera} onClick={() => cameraRef.current?.click()}>
               Photograph
