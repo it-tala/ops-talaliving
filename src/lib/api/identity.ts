@@ -12,7 +12,7 @@
  */
 import type {
   Session, Authority, ModuleName, ModuleLevel, ModuleGrant, AuditRowView,
-  ActivityEvent, ActivityDaily, RetentionStatus, Approver,
+  ActivityEvent, ActivityDaily, RetentionStatus, Approver, MyActivityEvent,
 } from "@/services/identity/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fail, fromRows, fromSeam, invalid, notFound, ok, type Result } from "./_kit";
@@ -279,6 +279,20 @@ export async function listActivity(
     .limit(opts.limit ?? 200);
 
   return fromRows<ActivityEvent[]>(SERVICE, data as ActivityEvent[] | null, error);
+}
+
+/** The profile screen's own activity feed (0163). `ops_core.v_my_activity`
+ *  is already self-filtered by RLS to the safe kinds — this does not repeat
+ *  that check, for the same reason `listActivity` does not repeat `it.read`:
+ *  a rule in two places is a rule that only has to drift in one of them.
+ */
+export async function listMyActivity(
+  opts: { limit?: number } = {},
+): Promise<Result<MyActivityEvent[]>> {
+  const { data, error } = await db().from("v_my_activity").select("*")
+    .order("at", { ascending: false })
+    .limit(opts.limit ?? 100);
+  return fromRows<MyActivityEvent[]>(SERVICE, data as MyActivityEvent[] | null, error);
 }
 
 /** The recaps: one row per person per day. */
