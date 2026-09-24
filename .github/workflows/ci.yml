@@ -29,11 +29,16 @@
 
 name: CI
 
+# `push` alone, not `pull_request` too. A branch matching `claude/**` that
+# also has an open PR into `main` used to get two full runs per commit — one
+# per event, on the same SHA — because GitHub fires both for the same push.
+# Branch protection looks up required checks by SHA, not by which event
+# produced them, so the `push` run alone still satisfies it once a PR opens.
+# `pull_request` stays out entirely: nothing here reads PR-only context
+# (labels, base-branch diff) that `push` doesn't already have.
 on:
   push:
     branches: [main, "claude/**"]
-  pull_request:
-    branches: [main]
 
 # A second push to the same branch makes the first run pointless. Runs against
 # `main` are never cancelled: that is the history of what was actually green.
