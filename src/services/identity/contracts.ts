@@ -23,6 +23,10 @@ export type ModuleName =
   | "marketing"
   | "project"
   | "production"
+  /** The last leg: crates, surat jalan, installation, snags (0131). Its own
+   *  module because the people who pack and fit are not the people who change
+   *  a client's order — the BAST stays `project.handover`. */
+  | "delivery"
   | "it"
   | "settings";
 
@@ -45,7 +49,7 @@ export type Authority =
 
 export const MODULES: ModuleName[] = [
   "dashboard", "hrd", "payroll", "procurement", "inventory", "accounting",
-  "marketing", "project", "production", "it", "settings",
+  "marketing", "project", "production", "delivery", "it", "settings",
 ];
 
 export const MODULE_LABEL: Record<ModuleName, string> = {
@@ -58,6 +62,7 @@ export const MODULE_LABEL: Record<ModuleName, string> = {
   marketing: "Marketing",
   project: "Projects",
   production: "Production",
+  delivery: "Delivery",
   it: "IT",
   settings: "Settings",
 };

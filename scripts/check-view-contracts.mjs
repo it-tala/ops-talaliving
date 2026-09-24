@@ -97,6 +97,29 @@ const VIEW_CONTRACTS = {
      because nothing past these rows is cast. */
   v_product_summary: "ProductSummaryRow",
   v_product_bom:     "BomLineRow",
+  /* The order screens (0111): rows carry every field of `ProjectView` /
+     `ProjectLineView`; numerics are converted by hand in the client. */
+  v_project:         "ProjectView",
+  v_project_line:    "ProjectLineView",
+  /* Read as rows and assembled by `deriveWorkOrderView`; the contract is the
+     derived view, not the row. */
+  v_work_order:      null,
+  v_vendor_leg:      null,
+  /* ops_dlv (0132): read as rows and assembled field by field in
+     `src/lib/api/delivery.ts`, the board by `buildFulfilment`. */
+  v_fulfilment_line:   null,
+  v_delivery:          null,
+  v_delivery_line:     null,
+  v_installation:      null,
+  v_installation_line: null,
+  v_snag:              null,
+  v_box:               null,
+  /* The quotation (0133): rows converted field by field in
+     `src/lib/api/quotation.ts`; the contract is the one the client builds. */
+  v_quotation:         "QuotationView",
+  v_quotation_line:    "QuotationLineView",
+  /* The client log (0134), converted field by field in `src/lib/api/crm.ts`. */
+  v_client_activity:   "ClientActivityView",
 
   /* ── core ────────────────────────────────────────────────────────────── */
   v_user_access:     "AccessRow",

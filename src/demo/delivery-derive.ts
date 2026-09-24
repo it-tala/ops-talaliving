@@ -13,12 +13,10 @@ import type {
 import { BOX_STATUS_LABEL } from "@/services/delivery/contracts";
 import { workOrderView } from "./production-derive";
 import { VENDOR_PROCESS_NAME } from "@/services/production/contracts";
+import {
+  buildFulfilment, fulfilmentOrder, deliveryWarnings, boxWarnings, daysBetween,
+} from "@/services/delivery/fulfilment";
 
-const DAY = 86_400_000;
-
-function daysBetween(from: string, to: string): number {
-  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY);
-}
 
 /** How many of this product this project has actually finished.
  *
@@ -37,13 +35,19 @@ function daysBetween(from: string, to: string): number {
  *  (D282). Null where the line cannot be matched to a work order at all —
  *  the same distinction `madeFor` makes, for the same reason (F60).
  */
+/** The Job Orders behind one order line: those made from it (0130), or — for
+ *  a project that predates the link — those for its project and product that
+ *  name no line. The same rule `ops_dlv.v_fulfilment_line` uses. */
+function jobsFor(state: DemoState, projectCode: string, line: { id: string; product_code: string | null }) {
+  return state.work_orders.filter((w) => w.status !== "CANCELLED" && (
+    w.project_line_id === line.id
+    || (!w.project_line_id && w.project_code === projectCode && !!line.product_code && w.product_code === line.product_code)));
+}
+
 function atVendorFor(
-  state: DemoState, projectCode: string, productCode: string | null, today: string,
+  state: DemoState, projectCode: string, line: { id: string; product_code: string | null }, today: string,
 ): { qty: number; where: string[] } | null {
-  if (!productCode) return null;
-  const orders = state.work_orders.filter(
-    (w) => w.project_code === projectCode && w.product_code === productCode && w.status !== "CANCELLED",
-  );
+  const orders = jobsFor(state, projectCode, line);
   if (orders.length === 0) return null;
   const ids = new Set(orders.map((w) => w.id));
   const open = state.vendor_legs.filter((l) => ids.has(l.wo_id) && l.returned_on === null);
@@ -59,16 +63,11 @@ function atVendorFor(
   };
 }
 
-function madeFor(state: DemoState, projectCode: string, productCode: string | null): number | null {
-  if (!productCode) return null;
-  const orders = state.work_orders.filter(
-    (w) => w.project_code === projectCode && w.product_code === productCode && w.status !== "CANCELLED",
-  );
-  /* **No work order at all is not zero.** Zero means the floor has an order
-     and has finished none of it; null means nothing in production knows about
-     this line — an old job migrated in, or an order somebody shipped without
-     ever writing an SPK. The two look identical in a column of numbers and
-     they need completely different conversations (F60). */
+/** Finished all the way through, on the line's Job Orders. **No Job Order at
+ *  all is not zero** — it is nothing in production knowing about this line,
+ *  and the two need completely different conversations (F60). */
+function madeFor(state: DemoState, projectCode: string, line: { id: string; product_code: string | null }): number | null {
+  const orders = jobsFor(state, projectCode, line);
   if (orders.length === 0) return null;
   return orders.reduce((sum, w) => sum + workOrderView(state, w).completed, 0);
 }
@@ -114,8 +113,8 @@ export function fulfilmentView(state: DemoState, projectCode: string, today: str
     .filter((l) => l.project_id === project.id)
     .sort((a, b) => a.line_no - b.line_no)
     .map((l) => {
-      const made = madeFor(state, projectCode, l.product_code);
-      const atVendor = atVendorFor(state, projectCode, l.product_code, today);
+      const made = madeFor(state, projectCode, l);
+      const atVendor = atVendorFor(state, projectCode, l, today);
       const delivered = deliveredFor(state, l.id);
       const arrived = arrivedFor(state, l.id);
       const installed = installedFor(state, l.id);
@@ -134,94 +133,28 @@ export function fulfilmentView(state: DemoState, projectCode: string, today: str
         on_site: Math.max(0, arrived - installed),
         at_vendor: atVendor?.qty ?? null,
         at_vendor_where: atVendor?.where ?? [],
-        /* A line with no product code and nothing delivered against it is a
-           service — installation labour, a delivery fee. It has nothing to
-           build and should not sit on a board reading 0 of 1 for ever. */
+        /* Nothing to build — installation labour, a delivery fee. */
         is_service: l.product_code == null && delivered === 0,
       };
     });
 
-  const goods = lines.filter((l) => !l.is_service);
-  const matchable = goods.filter((l) => l.made != null);
-
-  const ordered_qty = goods.reduce((s, l) => s + l.ordered, 0);
-  const made_qty = matchable.length === goods.length
-    ? goods.reduce((s, l) => s + (l.made ?? 0), 0)
-    : matchable.length > 0 ? matchable.reduce((s, l) => s + (l.made ?? 0), 0) : null;
-  const delivered_qty = goods.reduce((s, l) => s + l.delivered, 0);
-  const installed_qty = goods.reduce((s, l) => s + l.installed, 0);
-
-  const handoverOf = state.handovers.find((h) => h.project_code === projectCode) ?? null;
-  const handover = handoverOf;
-
   const snags = state.snags.filter((s) => s.project_code === projectCode);
-  const open_snags = snags.filter((s) => s.status === "OPEN").length;
-  const major_snags = snags.filter((s) => s.status === "OPEN" && s.severity === "major").length;
-
   const mine = state.deliveries.filter((d) => d.project_code === projectCode && d.status !== "CANCELLED");
-  const in_transit = mine.filter((d) => d.status === "IN_TRANSIT").length;
-
-  /* The furthest thing that is true, not the furthest thing that has started.
-     A project with one crate on a truck is not *in transit* as a whole. */
-  const stage: FulfilmentStage =
-    handover ? "handed_over"
-      : ordered_qty > 0 && installed_qty >= ordered_qty ? "installed"
-        : installed_qty > 0 || delivered_qty > 0 ? (in_transit > 0 ? "in_transit" : "on_site")
-          : in_transit > 0 ? "in_transit"
-            : made_qty != null && made_qty > 0 ? "ready_to_ship"
-              : "in_production";
-
-  const warnings: string[] = [];
-  for (const l of goods) {
-    if (l.made != null && l.made > l.ordered) {
-      warnings.push(`Baris ${l.line_no}: dibuat ${l.made} ${l.uom}, dipesan ${l.ordered} — kelebihan ${l.made - l.ordered} perlu dijelaskan.`);
-    }
-    if (l.delivered > l.ordered) {
-      warnings.push(`Baris ${l.line_no}: terkirim ${l.delivered} ${l.uom} dari pesanan ${l.ordered}.`);
-    }
-    /* Shipped more than the floor ever reported finishing. Not impossible —
-       it usually means nobody reported the last stage — but it is the one gap
-       that makes every other number on this row unreadable. */
-    if (l.made != null && l.delivered > l.made) {
-      warnings.push(`Baris ${l.line_no}: terkirim ${l.delivered} ${l.uom} tapi produksi baru melaporkan ${l.made} selesai. Biasanya tahap terakhirnya yang belum dilaporkan, bukan barangnya yang tidak ada.`);
-    }
-    /* A finished job's missing SPK is history, not a task. Saying it on a
-       handed-over project puts a permanent warning on something nobody can
-       act on — the same mistake F51 made with a closed project's date. */
-    if (l.made == null && !handoverOf) {
-      warnings.push(l.product_code
-        ? `Baris ${l.line_no} tidak punya SPK sama sekali, jadi jumlah yang sudah dibuat tidak diketahui — bukan nol.`
-        : `Baris ${l.line_no} tidak punya kode produk, jadi jumlah yang sudah dibuat tidak bisa dicocokkan ke SPK mana pun.`);
-    }
-  }
-  if (handover && handover.open_snags_at_handover > 0) {
-    warnings.push(`Diserahterimakan dengan ${handover.open_snags_at_handover} catatan masih terbuka.`);
-  }
-  if (!handover && project.target_date && project.target_date < today) {
-    warnings.push(`Lewat tanggal janji ${project.target_date} dan belum serah terima.`);
-  }
-
-  return {
-    project_code: project.code,
-    project_name: project.name,
-    client_name: project.client_name,
-    location: project.location,
-    target_date: project.target_date,
+  const clientName = project.client_id
+    ? state.clients.find((c) => c.id === project.client_id)?.name ?? project.client_name
+    : project.client_name;
+  return buildFulfilment(
+    { code: project.code, name: project.name, client_name: clientName ?? null, location: project.location, target_date: project.target_date },
     lines,
-    ordered_qty,
-    made_qty,
-    delivered_qty,
-    installed_qty,
-    installed_percent: ordered_qty > 0 ? Math.round((installed_qty / ordered_qty) * 100) : null,
-    open_snags,
-    major_snags,
-    deliveries: mine.length,
-    in_transit,
-    handover,
-    stage,
-    days_to_target: project.target_date ? daysBetween(today, project.target_date) : null,
-    warnings,
-  };
+    {
+      handover: state.handovers.find((h) => h.project_code === projectCode) ?? null,
+      open_snags: snags.filter((s) => s.status === "OPEN").length,
+      major_snags: snags.filter((s) => s.status === "OPEN" && s.severity === "major").length,
+      deliveries: mine.length,
+      in_transit: mine.filter((d) => d.status === "IN_TRANSIT").length,
+      today,
+    },
+  );
 }
 
 export function fulfilmentViews(state: DemoState, today: string): FulfilmentView[] {
@@ -233,11 +166,7 @@ export function fulfilmentViews(state: DemoState, today: string): FulfilmentView
     .filter((p) => p.client_name && (p.is_active || state.handovers.some((h) => h.project_code === p.code)))
     .map((p) => fulfilmentView(state, p.code, today))
     .filter((v): v is FulfilmentView => v !== null)
-    .sort((a, b) => {
-      /* Handed over sinks; everything else by how close the promise is. */
-      if ((a.stage === "handed_over") !== (b.stage === "handed_over")) return a.stage === "handed_over" ? 1 : -1;
-      return (a.days_to_target ?? 9999) - (b.days_to_target ?? 9999);
-    });
+    .sort(fulfilmentOrder);
 }
 
 export function deliveryView(state: DemoState, d: Delivery, today: string): DeliveryView {
@@ -250,14 +179,7 @@ export function deliveryView(state: DemoState, d: Delivery, today: string): Deli
     }))
     .sort((a, b) => a.line_no - b.line_no);
 
-  const warnings: string[] = [];
-  if (d.status === "ARRIVED" && !d.surat_jalan_attachment_id) {
-    warnings.push("Sampai tapi surat jalannya belum dilampirkan.");
-  }
-  if (d.status === "IN_TRANSIT" && daysBetween(d.dispatched_on, today) >= 3) {
-    warnings.push(`Berangkat ${daysBetween(d.dispatched_on, today)} hari lalu dan belum tercatat sampai.`);
-  }
-  if (lines.length === 0) warnings.push("Tidak ada barang di surat jalan ini.");
+  const warnings = deliveryWarnings(d, lines.length, today);
 
   return {
     ...d,
@@ -328,17 +250,7 @@ export function boxView(state: DemoState, b: PackingBox): BoxView {
     if (at >= 0) position = `${at + 1} dari ${siblings.length}`;
   }
 
-  const warnings: string[] = [];
-  if (lines.length === 0) warnings.push("Peti ini tercatat tanpa isi.");
-  if ((b.status === "ON_SITE" || b.status === "INSTALLED") && !delivery) {
-    warnings.push("Tercatat sampai di site, tapi tidak menempel pada pengiriman mana pun.");
-  }
-  if (delivery && delivery.status === "ARRIVED" && b.scanned_at == null) {
-    warnings.push("Pengirimannya sudah tercatat sampai, tapi peti ini belum ada yang scan.");
-  }
-  if (b.status === "PROBLEM" && !b.problem_note) {
-    warnings.push("Ditandai bermasalah tanpa keterangan.");
-  }
+  const warnings = boxWarnings(b, lines.length, delivery ?? null);
 
   return {
     ...b,

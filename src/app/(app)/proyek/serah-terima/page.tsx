@@ -7,6 +7,7 @@ import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { cn } from "@/lib/cn";
 import { delivery } from "@/demo/api";
 import { FULFILMENT_STAGE_LABEL, type FulfilmentView } from "@/services/delivery/contracts";
+import { FileEvidence } from "@/components/ui/file-evidence";
 import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
 import { officeToday } from "@/lib/office";
@@ -224,7 +225,7 @@ function HandoverDrawer({ project, onClose, onDone }: {
   const { toast } = useToast();
   const [clientRep, setClientRep] = useState("");
   const [ourRep, setOurRep] = useState("");
-  const [attached, setAttached] = useState(false);
+  const [bast, setBast] = useState<{ id: string; name: string } | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -234,9 +235,9 @@ function HandoverDrawer({ project, onClose, onDone }: {
       project_code: project.project_code,
       handed_on: officeToday(),
       client_rep: clientRep, our_rep: ourRep,
-      /* The demo's stand-in file. What is being demonstrated is that the call
-         refuses without one at all (D211). */
-      bast_attachment_id: attached ? "att_68" : "",
+      /* The signed paper itself, uploaded to PROJECT MANAGER. The seam refuses
+         without it (D211). */
+      bast_attachment_id: bast?.id ?? "",
       note: note || null,
     });
     setBusy(false);
@@ -279,17 +280,16 @@ function HandoverDrawer({ project, onClose, onDone }: {
               className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none" />
           </label>
 
-          <label className="flex items-start gap-2 rounded-lg border border-slate-200 px-3 py-2 text-[12px] text-slate-700">
-            <input type="checkbox" checked={attached} onChange={(e) => setAttached(e.target.checked)} className="mt-0.5" />
+          <div className="rounded-lg border border-slate-200 px-3 py-2 text-[12px] text-slate-700">
+            <FileEvidence kind="BAST" label="Unggah BAST yang sudah ditandatangani" value={bast} onChange={setBast} />
             <span>
-              BAST yang sudah ditandatangani dilampirkan
-              <span className="block text-[11px] text-slate-500">
+              <span className="mt-1 block text-[11px] text-slate-500">
                 Tanpa ini permintaannya ditolak. Serah terima tanpa dokumennya adalah klaim bahwa
                 klien menerima pekerjaan — dan klien satu-satunya pihak yang tidak bisa mengoreksi
                 catatan kita.
               </span>
             </span>
-          </label>
+          </div>
 
           <label className="block text-[12px] text-slate-500">
             Catatan
@@ -298,7 +298,7 @@ function HandoverDrawer({ project, onClose, onDone }: {
           </label>
 
           <div className="flex gap-2 pt-1">
-            <Button disabled={busy || !clientRep.trim() || !ourRep.trim()} onClick={submit}>
+            <Button disabled={busy || !clientRep.trim() || !ourRep.trim() || !bast} onClick={submit}>
               {busy ? "Menyimpan…" : "Catat serah terima"}
             </Button>
             <Button variant="ghost" onClick={onClose}>Batal</Button>

@@ -39,6 +39,7 @@ export const PERMISSION_CATALOG: Record<ModuleName, readonly string[]> = {
   marketing: ["read", "create", "update"],
   project: ["read", "create", "update", "handover"],
   production: ["read", "create", "update", "schedule"],
+  delivery: ["read", "create", "update"],
   it: ["read", "update", "manage_users", "manage_roles", "purge_activity"],
   settings: ["read", "update"],
 } as const;

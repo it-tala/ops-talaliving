@@ -34,7 +34,7 @@ export default function BoxesPage() {
   const { can } = useSession();
   const [rows, reload] = useLoad(() => delivery.listBoxes(), []);
   const [packing, setPacking] = useState(false);
-  const mayEdit = can("project.update");
+  const mayEdit = can("delivery.create");
 
   return (
     <div>

@@ -79,6 +79,7 @@ fi
 # that returns a wrong answer rather than an error (see `0001`). A replay
 # "from nothing" has to mean from nothing.
 q -q -c "
+  drop schema if exists ops_dlv cascade;
   drop schema if exists ops_asst cascade;
   drop schema if exists ops_mkt cascade;
   drop schema if exists ops_inv cascade;
@@ -110,5 +111,5 @@ done
 q -Atc "
   select table_schema || ': ' || count(*)
     from information_schema.tables
-   where table_schema in ('ops_core','ops_procure','ops_acct','ops_hr','ops_prod','ops_inv','ops_mkt','ops_asst')
+   where table_schema in ('ops_core','ops_procure','ops_acct','ops_hr','ops_prod','ops_inv','ops_mkt','ops_asst','ops_dlv')
    group by table_schema order by 1;"

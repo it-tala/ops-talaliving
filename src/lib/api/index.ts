@@ -56,6 +56,19 @@ export * as inventory from "./inventory";
    screens dark and opens `/produksi/bom` alone. */
 export * as production from "./production";
 
+/* The last leg (`ops_dlv`, 0131–0132): crates, surat jalan, installation,
+   snags and the BAST. A module, not a service — its envelopes say
+   `production`, the same as the demo's. */
+export * as delivery from "./delivery";
+
+/* The quotation (0133): a released BOM priced for the client, sent, revised
+   and accepted into the order. A module of `project`, stamped `procurement`. */
+export * as quotation from "./quotation";
+
+/* The client log (0134): contacts and follow-ups, per client, project and
+   quotation. Stamped `procurement`, checked against `project`. */
+export * as crm from "./crm";
+
 /* ## `marketing` is written and is deliberately not exported here yet
  *
  *  `src/lib/api/marketing.ts` exists, type-checks, and matches the demo on all

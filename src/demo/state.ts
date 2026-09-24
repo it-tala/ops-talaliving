@@ -3,7 +3,7 @@ import type {
 } from "@/services/identity/contracts";
 import type { AssistantTurn } from "@/services/assistant/contracts";
 import type {
-  Vendor, Uom, UomConversion, ItemCategory, Item, Project, ProjectLine,
+  Vendor, Uom, UomConversion, ItemCategory, Item, Project, ProjectLine, Client, ProjectStatusChange,
   PrDocument, PrLine, PrApproval, PaymentRound, PaymentRoundLine,
   Receipt, LineSettlement, PurchaseOrder, PoLine, PoScheduleTerm, LineVariance,
   LineNote, ApprovalRequest, ApprovalBatch, RoundTransfer,
@@ -35,6 +35,8 @@ import type {
 import type {
   Delivery, DeliveryLine, PackingBox, BoxLine, Installation, InstallationLine, Snag, Handover,
 } from "@/services/delivery/contracts";
+import type { Quotation, QuotationLine } from "@/services/quotation/contracts";
+import type { ClientActivity } from "@/services/crm/contracts";
 
 export interface DemoUser extends User {
   modules: ModuleGrant[];
@@ -86,7 +88,20 @@ export interface DemoState {
   items: Item[];
   projects: Project[];
   /** What the customer actually ordered, line by line (D150). */
-  project_lines: ProjectLine[];
+  project_lines: (ProjectLine & {
+    /** The quotation line it was ordered from (0133) — stored, not shown:
+     *  it is what stops an accepted quotation being ordered twice. */
+    quotation_line_id?: string | null;
+  })[];
+  /** The client master (0111). */
+  clients: Client[];
+  /** Every move of every project's status (0111). */
+  project_status_log: (ProjectStatusChange & { project_id: string })[];
+  /** Quotations to the client, revision by revision, and their lines (0133). */
+  quotations: Quotation[];
+  quotation_lines: QuotationLine[];
+  /** What was said to each client, and what to do next (0134). */
+  client_activities: ClientActivity[];
 
   pr_documents: PrDocument[];
   pr_lines: PrLine[];

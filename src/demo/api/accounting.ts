@@ -11,7 +11,7 @@ import type {
   BankStatementView, DocumentCoverage, TransactionCoverage, MonthlyBills,
   AssetRentSchedule, AccountCode,
 } from "@/services/accounting/contracts";
-import { getActiveLocale } from "@/lib/format";
+import { getActiveLocale, formatIDR } from "@/lib/format";
 import { officeToday } from "@/lib/office";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
 import type { AuditRow, DemoState } from "../state";
@@ -818,6 +818,111 @@ export async function getInboxHealth(): Promise<Result<InboxHealth>> {
  *  you say "no money of ours moved here", and the file stays so the decision
  *  can be read later — which is the whole reason nothing is deleted.
  */
+/** Book one document — the whole nota, in one act.
+ *
+ *  The live seam is `ops_acct.book_evidence` (0124); this answers the same
+ *  shapes and the same refusals so the two clients stay one contract.
+ *
+ *  Not a third write seam (ADR-006): it composes `postTransaction` and the
+ *  inbox resolution, and adds no rule about money. What it adds is that the
+ *  two happen together — the screen's old two-call path had a toast reading
+ *  *"Posted, inbox unchanged"*, which is a document in the ledger and still
+ *  in the queue for the next person to confirm again.
+ *
+ *  The sum check is reproduced here rather than left to the database, because
+ *  the demo is where somebody first meets this refusal, and meeting it late
+ *  is how a contract quietly diverges.
+ */
+export async function bookEvidence(
+  input: {
+    ref_id: string;
+    trx_date: string;
+    account_id: string;
+    direction: Direction;
+    amount_idr: number;
+    type_code: TransactionTypeCode;
+    vendor_id?: string | null;
+    project_id?: string | null;
+    description: string;
+    remark?: string | null;
+    lines?: { description: string; qty?: number | null; uom?: string | null;
+              unit_price?: number | null; amount: number }[];
+  },
+  idempotencyKey?: string,
+): Promise<Result<TransactionView>> {
+  await latency();
+  const endpoint = `bookEvidence:${input.ref_id}`;
+  const cached = replayed<TransactionView>(SERVICE, endpoint, idempotencyKey);
+  if (cached) return cached;
+
+  /* Both, because it does both things (D24). The refusal names which is
+     missing — "no" with no noun is a dead end for whoever reads it. */
+  const deniedPost = requireAuthority(SERVICE, "post_ledger");
+  if (deniedPost) return deniedPost;
+  const deniedResolve = requireAuthority(SERVICE, "resolve_inbox");
+  if (deniedResolve) return deniedResolve;
+
+  const row = getState().evidence_inbox.find((r) => r.ref_id === input.ref_id);
+  if (!row) return notFound(SERVICE, "inbox_row_not_found", `Row ${input.ref_id} not found.`);
+  if (row.status !== "PENDING") {
+    return conflict(SERVICE, "already_resolved",
+      `This document is already ${row.status} — nothing changed.`);
+  }
+
+  const lines = input.lines ?? [];
+  if (lines.length > 0) {
+    const total = lines.reduce((n, l) => n + l.amount, 0);
+    if (total !== input.amount_idr) {
+      return invalid(
+        SERVICE, "lines_do_not_add_up",
+        `Dokumen menyebut ${formatIDR(input.amount_idr)} dan ${lines.length} barisnya `
+        + `berjumlah ${formatIDR(total)} — selisih ${formatIDR(total - input.amount_idr)}. `
+        + "Tambahkan baris untuk sisanya, atau perbaiki salah satunya, sebelum dibukukan.",
+        { field: "lines", amount: input.amount_idr, lines_total: total,
+          difference: total - input.amount_idr },
+      );
+    }
+  }
+
+  const posted = await postTransaction({
+    trx_date: input.trx_date,
+    account_id: input.account_id,
+    direction: input.direction,
+    amount_idr: input.amount_idr,
+    type_code: input.type_code,
+    vendor_id: input.vendor_id ?? null,
+    project_id: input.project_id ?? null,
+    description: input.description,
+    source_ref: `inbox:${input.ref_id}`,
+    lines,
+    documents: [{ attachment_id: row.attachment_id, kind: "Receipt / Invoice / Nota" }],
+  });
+  /* Relayed whole. Its refusals name the account or the vendor, and those are
+     the words the person needs — nothing has been written at this point. */
+  if (posted.error) return posted;
+
+  apply((draft) => {
+    const r = draft.evidence_inbox.find((x) => x.ref_id === input.ref_id)!;
+    r.status = "CONFIRMED";
+    r.produced_trx_id = draft.transactions.find((t) => t.trx_no === posted.data.trx_no)?.id ?? null;
+    writeAudit(draft, {
+      service: SERVICE, entity: "evidence_inbox", entity_no: input.ref_id,
+      action: "book", outcome: "ok", reason: null,
+      detail: {
+        status_before: "PENDING", status_after: "CONFIRMED",
+        trx_no: posted.data.trx_no, lines: lines.length, amount: input.amount_idr,
+      },
+    });
+    writeOutbox(draft, {
+      service: SERVICE, event_type: "accounting.inbox.resolved",
+      payload: { ref_id: input.ref_id, resolution: "transaction", trx_no: posted.data.trx_no },
+    });
+  });
+
+  remember(SERVICE, endpoint, idempotencyKey, posted.data);
+  return ok(SERVICE, posted.data);
+}
+
 export async function resolveInbox(
   input: {
     ref_id: string;

@@ -34,7 +34,7 @@
  *  ## Why the age bands live here too
  *
  *  They are the same kind of thing and they carry the same risk. WLKP counts
- *  people by age band (`0125`), the demo and the database each compute the
+ *  people by age band (`0137`), the demo and the database each compute the
  *  band, and two copies of a boundary is how somebody aged exactly twenty-five
  *  ends up in both `18_24` and `25_34` — or in neither. The bands are not about
  *  tasks, and the file's name says periods; what the file actually is, and has

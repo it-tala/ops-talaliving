@@ -25,8 +25,27 @@ import {
 } from "../delivery-derive";
 import { latency, actingUser, requireModule, conflict, replayed, remember } from "./_kit";
 import { officeToday } from "@/lib/office";
+import type { DemoState } from "../state";
+import type { ProjectStatus } from "@/services/procurement/contracts";
 
 const SERVICE = "production" as const;
+
+/** The project moves forward, never back, and says why — the same rule as
+ *  `ops_dlv.move_project`. */
+function moveProject(
+  draft: DemoState, code: string, to: ProjectStatus, from: ProjectStatus[], reason: string, by: string,
+): void {
+  const p = draft.projects.find((x) => x.code === code);
+  if (!p) return;
+  const now = (p.status ?? (p.is_active ? "IN_PRODUCTION" : "DONE")) as ProjectStatus;
+  if (!from.includes(now)) return;
+  p.status = to;
+  p.status_changed_at = new Date().toISOString();
+  p.is_active = to !== "DONE" && to !== "CANCELLED";
+  draft.project_status_log.push({
+    project_id: p.id, from_status: now, to_status: to, reason, changed_by: by, changed_at: new Date().toISOString(),
+  });
+}
 
 function today(): string {
   return officeToday();
@@ -94,13 +113,15 @@ export async function createDelivery(
     driver?: string | null;
     lines: { project_line_id: string; qty: number; note?: string | null }[];
     note?: string | null;
+    /** Crates going on this lorry, loaded in the same act. */
+    box_nos?: string[];
   },
   idempotencyKey?: string,
 ): Promise<Result<DeliveryView>> {
   await latency();
   const cached = replayed<DeliveryView>(SERVICE, "createDelivery", idempotencyKey);
   if (cached) return cached;
-  const denied = requireModule(SERVICE, "project");
+  const denied = requireModule(SERVICE, "delivery");
   if (denied) return denied;
 
   const state = getState();
@@ -110,7 +131,11 @@ export async function createDelivery(
     return invalid(SERVICE, "no_lines", "Surat jalan tanpa barang bukan surat jalan.", { field: "lines" });
   }
 
-  for (const l of input.lines) {
+  /* Summed per line, so the same line twice cannot slip past the check. */
+  const asked = new Map<string, number>();
+  for (const l of input.lines) asked.set(l.project_line_id, (asked.get(l.project_line_id) ?? 0) + l.qty);
+  for (const [lineId, qty] of asked) {
+    const l = { project_line_id: lineId, qty };
     const line = ful.lines.find((x) => x.project_line_id === l.project_line_id);
     if (!line) return notFound(SERVICE, "line_not_found", "Baris pesanan itu bukan milik proyek ini.");
     if (l.qty <= 0) return invalid(SERVICE, "qty_required", "Berapa yang dikirim?", { field: "qty" });
@@ -157,7 +182,14 @@ export async function createDelivery(
       action: "dispatch", outcome: "ok", reason: null,
       detail: { project: input.project_code, lines: input.lines.length, by: user.email },
     });
+    /* The first surat jalan moves the project to SHIPPED, logged (0132). */
+    moveProject(draft, input.project_code, "SHIPPED",
+      ["INQUIRY", "QUOTATION_SENT", "DEAL", "IN_PRODUCTION"], `Surat jalan ${no} berangkat`, user.id);
   });
+  if (input.box_nos?.length) {
+    const loaded = await loadBoxes({ delivery_no: no, box_nos: input.box_nos });
+    if (loaded.error) return loaded;
+  }
 
   const view = await getDelivery(no);
   if (view.data) remember(SERVICE, "createDelivery", idempotencyKey, view.data);
@@ -183,7 +215,7 @@ export async function markArrived(
   },
 ): Promise<Result<DeliveryView>> {
   await latency();
-  const denied = requireModule(SERVICE, "project");
+  const denied = requireModule(SERVICE, "delivery");
   if (denied) return denied;
 
   const state = getState();
@@ -233,7 +265,7 @@ export async function recordInstallation(
   await latency();
   const cached = replayed<InstallationView>(SERVICE, "recordInstallation", idempotencyKey);
   if (cached) return cached;
-  const denied = requireModule(SERVICE, "project");
+  const denied = requireModule(SERVICE, "delivery");
   if (denied) return denied;
 
   const state = getState();
@@ -303,7 +335,7 @@ export async function raiseSnag(
   },
 ): Promise<Result<SnagView>> {
   await latency();
-  const denied = requireModule(SERVICE, "project");
+  const denied = requireModule(SERVICE, "delivery");
   if (denied) return denied;
   if (!input.description?.trim()) {
     return invalid(SERVICE, "description_required", "Apa yang salah? Catatan tanpa isi tidak bisa diperbaiki siapa pun.", { field: "description" });
@@ -343,7 +375,7 @@ export async function closeSnag(
   input: { snag_no: string; fixed_by: string; fix_note: string },
 ): Promise<Result<SnagView>> {
   await latency();
-  const denied = requireModule(SERVICE, "project");
+  const denied = requireModule(SERVICE, "delivery");
   if (denied) return denied;
 
   const state = getState();
@@ -438,6 +470,9 @@ export async function recordHandover(
       note: input.note?.trim() || null,
       created_by: user.id, created_at: new Date().toISOString(),
     });
+    /* The BAST closes the project (0132). */
+    moveProject(draft, input.project_code, "DONE",
+      ["INQUIRY", "QUOTATION_SENT", "DEAL", "IN_PRODUCTION", "SHIPPED"], `BAST ${no} ditandatangani`, user.id);
     writeAudit(draft, {
       service: SERVICE, entity: "handover", entity_no: no,
       action: "hand_over", outcome: "ok", reason: null,
@@ -500,7 +535,7 @@ export async function packBox(
   },
 ): Promise<Result<BoxView>> {
   await latency();
-  const denied = requireModule(SERVICE, "project");
+  const denied = requireModule(SERVICE, "delivery");
   if (denied) return denied;
   const dup = replayed<BoxView>(SERVICE, "packBox", input.idempotency_key);
   if (dup) return dup;
@@ -565,7 +600,7 @@ export async function loadBoxes(
   input: { delivery_no: string; box_nos: string[] },
 ): Promise<Result<BoxView[]>> {
   await latency();
-  const denied = requireModule(SERVICE, "project");
+  const denied = requireModule(SERVICE, "delivery");
   if (denied) return denied;
 
   const state = getState();
@@ -613,7 +648,7 @@ export async function scanBox(
   input: { box_no: string; idempotency_key?: string },
 ): Promise<Result<BoxView>> {
   await latency();
-  const denied = requireModule(SERVICE, "project");
+  const denied = requireModule(SERVICE, "delivery");
   if (denied) return denied;
   const dup = replayed<BoxView>(SERVICE, "scanBox", input.idempotency_key);
   if (dup) return dup;
@@ -651,7 +686,7 @@ export async function markBoxInstalled(
   input: { box_no: string; idempotency_key?: string },
 ): Promise<Result<BoxView>> {
   await latency();
-  const denied = requireModule(SERVICE, "project");
+  const denied = requireModule(SERVICE, "delivery");
   if (denied) return denied;
   const dup = replayed<BoxView>(SERVICE, "markBoxInstalled", input.idempotency_key);
   if (dup) return dup;
@@ -693,7 +728,7 @@ export async function flagBoxProblem(
   input: { box_no: string; problem_note: string; idempotency_key?: string },
 ): Promise<Result<BoxView>> {
   await latency();
-  const denied = requireModule(SERVICE, "project");
+  const denied = requireModule(SERVICE, "delivery");
   if (denied) return denied;
   const dup = replayed<BoxView>(SERVICE, "flagBoxProblem", input.idempotency_key);
   if (dup) return dup;

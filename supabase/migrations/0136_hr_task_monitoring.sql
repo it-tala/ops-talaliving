@@ -1,4 +1,4 @@
--- 0124 — tugas rutin, periode, penagihan, deliverable.
+-- 0136 — tugas rutin, periode, penagihan, deliverable.
 --
 -- ── the failure this is built against ─────────────────────────────────────
 --
@@ -878,7 +878,32 @@ end $$;
  *  next migration that ran it — the same shape as F147, where a blanket table
  *  grant re-opened `employee_documents` four migrations after `0056` revoked
  *  it. Six lines is cheap.
+ *
+ *  ── and the revoke, which this file originally got wrong (F148) ──────────
+ *
+ *  A new function is executable by **PUBLIC** — that is the PostgreSQL default,
+ *  and `anon` is a key that ships inside every browser bundle. `0125` swept
+ *  every `ops_*` definer function and moved execute from `public` to
+ *  `authenticated`, but a sweep is a one-time act: it ran at 0125 and these
+ *  functions are created at 0136, so all seven of them came back open. This
+ *  file had one revoke, for `my_employee_id()`, written because that function
+ *  answers with a person; the other seven were left because each checks
+ *  `has_permission()` on its own first.
+ *
+ *  That reasoning is how the hole stays open. The permission check is the
+ *  second line and not the first, and *this seam happens to be safe* is an
+ *  argument that has to be re-made correctly for every future function by
+ *  everyone who writes one. `check_execute_grants.sh` now refuses the whole
+ *  class, so nobody has to make the argument again.
  */
+revoke execute on function ops_hr.assign_task(text, text, date, text, text, date, date, date, ops_hr.task_ref_t, text, text) from public;
+revoke execute on function ops_hr.acknowledge_task(text) from public;
+revoke execute on function ops_hr.chase_task(text, text) from public;
+revoke execute on function ops_hr.update_task(text, text, text, text, date) from public;
+revoke execute on function ops_hr.save_task_routine(text, text, text, text, ops_hr.task_cadence_t, int, int, date, text, text) from public;
+revoke execute on function ops_hr.end_task_routine(text, text, date) from public;
+revoke execute on function ops_hr.roll_task_routines(date, int) from public;
+
 grant execute on function ops_hr.task_period_start(ops_hr.task_cadence_t, date) to authenticated;
 grant execute on function ops_hr.task_period_end(ops_hr.task_cadence_t, date) to authenticated;
 grant execute on function ops_hr.task_period_label(ops_hr.task_cadence_t, date) to authenticated;

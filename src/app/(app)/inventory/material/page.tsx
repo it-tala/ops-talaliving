@@ -171,7 +171,7 @@ export default function StockPage() {
 
                 <p className="flex flex-wrap items-start gap-2 border-t border-slate-100 px-4 py-2.5 text-[11px] text-slate-500">
                   <PackageMinus className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
-                  Barang keluar dicatat dari layar ini atau dari SPK-nya. Mengeluarkan lebih banyak
+                  Barang keluar dicatat dari layar ini atau dari Job Order-nya. Mengeluarkan lebih banyak
                   dari yang tercatat <strong>tidak ditolak</strong> — kayunya ada atau tidak ada, dan
                   layar yang menolak mencatat kenyataan hanya mengajari orang berhenti mencatat.
                   Stok yang jadi minus ditandai supaya dihitung ulang.

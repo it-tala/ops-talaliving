@@ -143,7 +143,7 @@ export function officeDay(at: Date = new Date()): string {
  *  is only one candidate now. */
 export function nextDocNumber(
   draft: DemoState,
-  prefix: "pr" | "fund" | "trx" | "pay" | "po" | "ask" | "pyr" | "spk" | "lbr" | "kyu" | "stk" | "izn" | "dsn" | "rkk" | "agn" | "lead" | "ppn" | "krm" | "pas" | "tmn" | "bast" | "tgs" | "rtn" | "kol" | "vnl" | "kkj",
+  prefix: "pr" | "fund" | "trx" | "pay" | "po" | "ask" | "pyr" | "spk" | "jo" | "lbr" | "kyu" | "stk" | "izn" | "dsn" | "rkk" | "agn" | "lead" | "ppn" | "krm" | "pas" | "tmn" | "bast" | "tgs" | "rtn" | "kol" | "vnl" | "kkj" | "qt",
   at: Date = new Date(),
 ): string {
   const day = officeDay(at);

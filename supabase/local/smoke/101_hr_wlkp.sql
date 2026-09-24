@@ -79,7 +79,7 @@ begin
 
   /* The guard that keeps holding **after somebody re-runs a blanket
      `grant select on all tables in schema ops_hr`**, which is F147 and has
-     happened. The revoke in `0125` is insurance and changes nothing today,
+     happened. The revoke in `0137` is insurance and changes nothing today,
      because no grant was ever made on a table created after `0040` ran. What
      actually closes the door is this: row level security on, and **not one
      select policy**. Asserted rather than the revoke, because the revoke is the

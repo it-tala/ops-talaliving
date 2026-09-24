@@ -8,6 +8,13 @@
  *  **Two write seams, and only two** (ADR-006): `postTransaction` and
  *  `allocate`. Everything else that moves money is one of those two under a
  *  different name, and adding a third road is how the check gets skipped.
+ *
+ *  `bookEvidence` is not a third one, and the distinction is worth stating
+ *  because it looks like one. ADR-006's own words: `post_transaction` is the
+ *  only grantee of INSERT on its tables, *"everything else calls them"*.
+ *  `book_evidence` calls it and adds no rule about money — what it adds is
+ *  the inbox row moving in the same transaction as the posting, so a
+ *  document cannot end up booked and still queued.
  */
 import type {
   Account, AccountBalance, TransactionView, TransactionDetail,
@@ -427,6 +434,80 @@ export async function postTransaction(
      as it is rather than dressed as a failed post — retrying a post that
      already happened is how a payment gets made twice. */
   const row = await db().from("v_transaction").select("*").eq("trx_no", posted.data.trx_no).single();
+  return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
+}
+
+/** Book one document — the whole nota, in one act.
+ *
+ *  ## Why this is not a third write seam
+ *
+ *  The note at the top of this file says two write seams and only two, and
+ *  that adding a third is how the check gets skipped. This is not one.
+ *  ADR-006 is precise about it: `post_transaction` is *"the only grantee of
+ *  INSERT on their tables; **everything else calls them**"* — and this is the
+ *  everything else. `ops_acct.book_evidence` writes no ledger row itself; it
+ *  calls `post_transaction`, which still owns every rule about money. Not one
+ *  of those rules is restated, here or in the seam.
+ *
+ *  ## What it buys, which two calls could not
+ *
+ *  The screen used to post the transaction and then resolve the inbox row,
+ *  and its own toast admitted the gap: **"Posted, inbox unchanged"**. That
+ *  state is a document already in the ledger and still sitting in the queue,
+ *  which the next person confirms again. One call, one answer, or nothing.
+ *
+ *  And the lines. One nota is one date, one vendor, one project, and several
+ *  things bought — so the person confirms **the document**, not each line
+ *  (owner, 2026-09-23). The seam refuses when the lines do not add up to the
+ *  document total, which is the net for a nota read as 3 items of 5.
+ */
+export async function bookEvidence(
+  input: {
+    ref_id: string;
+    trx_date: string;
+    account_id: string;
+    direction: Direction;
+    amount_idr: number;
+    type_code: TransactionTypeCode;
+    vendor_id?: string | null;
+    project_id?: string | null;
+    description: string;
+    remark?: string | null;
+    lines?: { description: string; qty?: number | null; uom?: string | null;
+              unit_price?: number | null; amount: number }[];
+  },
+  idempotencyKey?: string,
+): Promise<Result<TransactionView>> {
+  const accountCode = await codeFor("accounts", input.account_id);
+  if (!accountCode) {
+    return invalid(SERVICE, "account_not_found",
+      "Akun itu tidak ada di database.", { field: "account_id" });
+  }
+
+  const { data, error } = await db().rpc("book_evidence", {
+    p_ref_id: input.ref_id,
+    p_account_code: accountCode,
+    p_direction: input.direction,
+    p_amount: input.amount_idr,
+    p_type_code: input.type_code,
+    p_description: input.description,
+    p_trx_date: input.trx_date,
+    p_vendor_code: await codeFor("vendors", input.vendor_id),
+    p_project_code: await codeFor("projects", input.project_id),
+    p_lines: input.lines ?? [],
+    p_remark: input.remark ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+
+  const booked = fromSeam<{ trx_no: string; lines: number; amount: number }>(
+    SERVICE, data, error);
+  if (booked.error) return booked;
+
+  /* Same reasoning as `postTransaction`: the row exists whether or not this
+     read succeeds, so a failed read is returned as itself rather than dressed
+     as a failed booking. Retrying a booking that already happened is how a
+     payment gets made twice. */
+  const row = await db().from("v_transaction").select("*").eq("trx_no", booked.data.trx_no).single();
   return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
 }
 
