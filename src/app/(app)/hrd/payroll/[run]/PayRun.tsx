@@ -118,7 +118,7 @@ export function PayRun({
           {amount !== run.net_total && amount > 0 && (
             <p className="mt-2 text-[12px] text-amber-800">
               Berbeda dari <em>Diterima</em> ({formatIDR(run.net_total)}). Tetap dicatat — mana yang
-              dibayar sebuah run belum diputuskan (Q56) — dan keduanya tersimpan berdampingan.
+              dibayar sebuah run belum diputuskan — dan keduanya tersimpan berdampingan.
             </p>
           )}
           <Button size="sm" className="mt-3 w-full" onClick={post}

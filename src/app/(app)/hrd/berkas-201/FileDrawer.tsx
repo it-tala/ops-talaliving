@@ -207,7 +207,7 @@ export function FileDrawer({
             <p className="flex items-start gap-2 text-[11px] text-slate-500">
               <FileBadge className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
               Berkas yang dipindai naik lewat jalur dokumen yang sama dengan bukti lain — satu
-              lampiran, satu tautan, satu orang yang menautkannya (ADR-010).
+              lampiran, satu tautan, satu orang yang menautkannya.
             </p>
           </div>
         </Drawer>

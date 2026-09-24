@@ -381,7 +381,7 @@ export function DayDrawer({
                         <p className="mt-1 text-[11px] text-slate-500">
                           {kind === "half_day" ? "Dihitung 0,5 hari."
                             : kind === "holiday" ? "Jam yang dikerjakan pada tanggal merah dihitung lembur."
-                              : kind === "sick" ? "Dibayar penuh bila surat dokter dilampirkan — bisa menyusul (D144)."
+                              : kind === "sick" ? "Dibayar penuh bila surat dokter dilampirkan — bisa menyusul."
                                 : kind === "leave" ? "Dibayar bila hak cuti orang ini masih ada; sisanya tercatat tanpa dibayar."
                                   : "Tercatat, tidak dibayar."}
                         </p>

@@ -1,5 +1,6 @@
 "use client";
 
+import { stripRefs } from "@/lib/refs";
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
@@ -245,7 +246,7 @@ function Turn({ turn, pathname, current, onNavigate, onChanged }: {
             <KeyRound className="h-3.5 w-3.5" /> {t(MESSAGES.johnLau.refusedPermission)}
           </p>
         )}
-        <p className="text-[13px] text-slate-700">{turn.text}</p>
+        <p className="text-[13px] text-slate-700">{stripRefs(turn.text)}</p>
 
         {turn.facts.length > 0 && (
           <ul className="mt-2 space-y-1">
@@ -292,7 +293,7 @@ function Turn({ turn, pathname, current, onNavigate, onChanged }: {
                         <MapPin className="h-2.5 w-2.5" /> {t(MESSAGES.johnLau.youAreHere)}
                       </span>
                     )}
-                    {s.text}
+                    {stripRefs(s.text)}
                     {s.href && (
                       <button onClick={() => onNavigate(s.href!)} className="ml-1 inline-flex items-center gap-0.5 font-medium text-brand-700 hover:underline">
                         {t(MESSAGES.johnLau.openHere)} <ArrowUpRight className="h-3 w-3" />

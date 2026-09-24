@@ -1,5 +1,6 @@
 "use client";
 
+import { stripRefs } from "@/lib/refs";
 import React from "react";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { Button } from "./primitives";
@@ -66,7 +67,7 @@ export function Loaded<T>({
           <p className="text-sm font-semibold text-slate-700">Could not load this</p>
           {/* The message the service gave, verbatim. A refusal a person cannot
               read is a refusal they will report as a mystery. */}
-          <p className="mt-1 max-w-sm text-sm text-slate-500">{state.error.message}</p>
+          <p className="mt-1 max-w-sm text-sm text-slate-500">{stripRefs(state.error.message)}</p>
           <p className="mt-1 font-mono text-[11px] text-slate-400">
             {state.error.status} {state.error.code}
           </p>

@@ -94,7 +94,7 @@ export default function DemoDiagnosticsPage() {
       line_no: "pr-26-09-10_01-L03", approved: true,
     });
     results.push({
-      name: "D125 — approving a request with no document behind it",
+      name: "approving a request with no document behind it",
       expect: "422 support_required",
       got: bare.error ? `${bare.error.status} ${bare.error.code}` : "accepted",
       pass: bare.error?.status === 422 && bare.error.code === "support_required",
@@ -103,7 +103,7 @@ export default function DemoDiagnosticsPage() {
     await identity.actAs("usr_andi");
     const noAuth = await procurement.approveLine({ line_no: "pr-26-09-10_01-L01", approved: true });
     results.push({
-      name: "D19 — approving without the approve_goods authority",
+      name: "approving without the approve_goods authority",
       expect: "403 authority_required",
       got: noAuth.error ? `${noAuth.error.status} ${noAuth.error.code}` : "accepted",
       pass: noAuth.error?.status === 403 && noAuth.error.code === "authority_required",
@@ -111,7 +111,7 @@ export default function DemoDiagnosticsPage() {
 
     const removePaid = await procurement.removeLine({ line_no: "pr-26-08-18_01-L01" });
     results.push({
-      name: "D29 — removing a line that money has reached",
+      name: "removing a line that money has reached",
       expect: "409 money_already_allocated",
       got: removePaid.error ? `${removePaid.error.status} ${removePaid.error.code}` : "accepted",
       pass: removePaid.error?.status === 409 && removePaid.error.code === "money_already_allocated",
@@ -122,7 +122,7 @@ export default function DemoDiagnosticsPage() {
       trx_no: "trx-26-08-20_003", pr_line_no: "pr-26-08-27_01-L01", amount: 900_000_000,
     });
     results.push({
-      name: "A9 — allocating more than the transaction moved",
+      name: "allocating more than the transaction moved",
       expect: "422 over_allocated",
       got: over.error ? `${over.error.status} ${over.error.code}` : "accepted",
       pass: over.error?.status === 422 && over.error.code === "over_allocated",
@@ -142,7 +142,7 @@ export default function DemoDiagnosticsPage() {
       trx_no: "trx-26-08-20_003", pr_line_no: "pr-99-99-99_01-L01", amount: 1_000,
     });
     results.push({
-      name: "ADR-004 — allocating to a PR line that does not exist",
+      name: "allocating to a PR line that does not exist",
       expect: "422 pr_line_not_found (validated at the seam)",
       got: badLine.error ? `${badLine.error.status} ${badLine.error.code}` : "accepted",
       pass: badLine.error?.code === "pr_line_not_found",
@@ -167,7 +167,7 @@ export default function DemoDiagnosticsPage() {
       leg_no: "vnl-26-09-01_01", returned_qty: 99,
     });
     results.push({
-      name: "D280 — recording more back from a vendor than was sent",
+      name: "recording more back from a vendor than was sent",
       expect: "422 over_sent",
       got: tooMany.error ? `${tooMany.error.status} ${tooMany.error.code}` : "accepted",
       pass: tooMany.error?.status === 422 && tooMany.error.code === "over_sent",
@@ -179,7 +179,7 @@ export default function DemoDiagnosticsPage() {
       wo_no: "spk-26-09-01_01", vendor_id: "vnd_21", process: "JOK", qty: 99,
     });
     results.push({
-      name: "D280 — sending more units to a vendor than the order is for",
+      name: "sending more units to a vendor than the order is for",
       expect: "422 over_order",
       got: overOrder.error ? `${overOrder.error.status} ${overOrder.error.code}` : "accepted",
       pass: overOrder.error?.status === 422 && overOrder.error.code === "over_order",
@@ -192,7 +192,7 @@ export default function DemoDiagnosticsPage() {
       wo_no: "spk-26-08-24_01", stage: "MACHINERY", qty: 1, work_date: officeToday(),
     });
     results.push({
-      name: "D278 — reporting a stage the product does not go through",
+      name: "reporting a stage the product does not go through",
       expect: "422 stage_not_on_product",
       got: notOnProduct.error ? `${notOnProduct.error.status} ${notOnProduct.error.code}` : "accepted",
       pass: notOnProduct.error?.status === 422 && notOnProduct.error.code === "stage_not_on_product",
@@ -203,7 +203,7 @@ export default function DemoDiagnosticsPage() {
          same four stages now — so what this probe reaches is the guard one
          step earlier, and that is the one worth proving: a board must refuse
          work reported against a step the business no longer has. */
-      name: "D254/D275 — reporting work against a step the business no longer has",
+      name: "reporting work against a step the business no longer has",
       expect: "422 unknown_stage",
       got: offRoute.error ? `${offRoute.error.status} ${offRoute.error.code}` : "accepted",
       pass: offRoute.error?.status === 422 && offRoute.error.code === "unknown_stage",
@@ -213,7 +213,7 @@ export default function DemoDiagnosticsPage() {
       wo_no: "spk-26-09-01_01", stage: "FINISHING", qty: 1, work_date: officeToday(),
     });
     results.push({
-      name: "D255 — reporting work on goods still at the vendor",
+      name: "reporting work on goods still at the vendor",
       expect: "409 still_at_vendor",
       got: atVendor.error ? `${atVendor.error.status} ${atVendor.error.code}` : "accepted",
       pass: atVendor.error?.status === 409 && atVendor.error.code === "still_at_vendor",
@@ -230,7 +230,7 @@ export default function DemoDiagnosticsPage() {
       && editReleased.data.draft_rev !== 1 && !stillReleased.error
       && stillReleased.data.some((r) => r.rev === 1 && !r.is_draft);
     results.push({
-      name: "D256 — editing a line on a released BOM revision lands on the draft",
+      name: "editing a line on a released BOM revision lands on the draft",
       expect: "accepted into a new draft, rev 1 untouched",
       got: editReleased.error ? `${editReleased.error.status} ${editReleased.error.code}` : `draft rev ${editReleased.data.draft_rev}`,
       pass: rev1Untouched,
@@ -240,7 +240,7 @@ export default function DemoDiagnosticsPage() {
       product_code: "PRD-MJ-220", note: "",
     });
     results.push({
-      name: "D256 — releasing a revision with no reason for it",
+      name: "releasing a revision with no reason for it",
       expect: "422 note_required",
       got: emptyRelease.error ? `${emptyRelease.error.status} ${emptyRelease.error.code}` : "accepted",
       pass: emptyRelease.error?.status === 422 && emptyRelease.error.code === "note_required",
@@ -254,7 +254,7 @@ export default function DemoDiagnosticsPage() {
       ref_code: "PRD-LM-3P", qty: 1, uom: "unit",
     });
     results.push({
-      name: "D257 — a BOM component that would close a loop",
+      name: "a BOM component that would close a loop",
       expect: "422 bom_cycle",
       got: cycle.error ? `${cycle.error.status} ${cycle.error.code}` : "accepted",
       pass: cycle.error?.status === 422 && cycle.error.code === "bom_cycle",
@@ -266,7 +266,7 @@ export default function DemoDiagnosticsPage() {
     const hasSubMaterial = !walked.error
       && walked.data.lines.some((l) => l.via.length > 0 && l.via.some((v) => v.includes("PRD-SUB-LACI")));
     results.push({
-      name: "D257 — a run's materials include what its sub-assemblies are made of",
+      name: "a run's materials include what its sub-assemblies are made of",
       expect: "lines reached through PRD-SUB-LACI",
       got: walked.error
         ? `${walked.error.status} ${walked.error.code}`
@@ -282,7 +282,7 @@ export default function DemoDiagnosticsPage() {
       employee_no: "K-004", scheme: "BPJS_KESEHATAN", enrolled_on: "2026-09-01",
     });
     results.push({
-      name: "D259 — enrolling somebody who is already in that scheme",
+      name: "enrolling somebody who is already in that scheme",
       expect: "409 already_enrolled",
       got: twice.error ? `${twice.error.status} ${twice.error.code}` : "accepted",
       pass: twice.error?.status === 409 && twice.error.code === "already_enrolled",
@@ -290,7 +290,7 @@ export default function DemoDiagnosticsPage() {
 
     const noReason = await hr.endEnrolment({ id: "enr_001", ended_on: "2026-09-30", reason: "" });
     results.push({
-      name: "D259 — ending an enrolment with no reason",
+      name: "ending an enrolment with no reason",
       expect: "422 reason_required",
       got: noReason.error ? `${noReason.error.status} ${noReason.error.code}` : "accepted",
       pass: noReason.error?.status === 422 && noReason.error.code === "reason_required",
@@ -301,7 +301,7 @@ export default function DemoDiagnosticsPage() {
        say why. */
     const blockBlind = await hr.updateTask({ task_no: "tgs-26-09-06_01", action: "block", reason: "" });
     results.push({
-      name: "D261 — blocking a task without saying what it waits on",
+      name: "blocking a task without saying what it waits on",
       expect: "422 reason_required",
       got: blockBlind.error ? `${blockBlind.error.status} ${blockBlind.error.code}` : "accepted",
       pass: blockBlind.error?.status === 422 && blockBlind.error.code === "reason_required",
@@ -311,7 +311,7 @@ export default function DemoDiagnosticsPage() {
       assignee_no: "K-004", title: "Tugas tanpa tanggal", due_date: "",
     });
     results.push({
-      name: "D260 — a task nobody can tell is late",
+      name: "a task nobody can tell is late",
       expect: "422 due_date_required",
       got: noDate.error ? `${noDate.error.status} ${noDate.error.code}` : "accepted",
       pass: noDate.error?.status === 422 && noDate.error.code === "due_date_required",
@@ -331,7 +331,7 @@ export default function DemoDiagnosticsPage() {
       approved: true,
     });
     results.push({
-      name: "D267 — confirming a purchase order from somebody else's chat account",
+      name: "confirming a purchase order from somebody else's chat account",
       expect: "403 not_the_addressee",
       got: wrongHands.error ? `${wrongHands.error.status} ${wrongHands.error.code}` : "accepted",
       pass: wrongHands.error?.status === 403 && wrongHands.error.code === "not_the_addressee",
@@ -345,7 +345,7 @@ export default function DemoDiagnosticsPage() {
       approved: false,
     });
     results.push({
-      name: "D267 — declining a purchase order with nothing to tell the supplier",
+      name: "declining a purchase order with nothing to tell the supplier",
       expect: "422 reason_required",
       got: blindDecline.error ? `${blindDecline.error.status} ${blindDecline.error.code}` : "accepted",
       pass: blindDecline.error?.status === 422 && blindDecline.error.code === "reason_required",
@@ -359,7 +359,7 @@ export default function DemoDiagnosticsPage() {
       lines: [{ item_code: "ITM-0007", qty: 0 }],
     });
     results.push({
-      name: "D266 — issuing a work order's material with every line at zero",
+      name: "issuing a work order's material with every line at zero",
       expect: "422 nothing_to_issue",
       got: emptyIssue.error ? `${emptyIssue.error.status} ${emptyIssue.error.code}` : "accepted",
       pass: emptyIssue.error?.status === 422 && emptyIssue.error.code === "nothing_to_issue",
@@ -372,7 +372,7 @@ export default function DemoDiagnosticsPage() {
       lines: [{ item_code: "ITM-0007", qty: 1 }, { item_code: "ITM-0039", qty: 1 }],
     });
     results.push({
-      name: "D266 — issuing a mixed list where one line is a service, not stock",
+      name: "issuing a mixed list where one line is a service, not stock",
       expect: "422 not_stocked",
       got: notStocked.error ? `${notStocked.error.status} ${notStocked.error.code}` : "accepted",
       pass: notStocked.error?.status === 422 && notStocked.error.code === "not_stocked",
@@ -385,7 +385,7 @@ export default function DemoDiagnosticsPage() {
       name: "Pranowo", employee_id: "emp_w015", not_a_person: true,
     });
     results.push({
-      name: "D264 — resolving a name as an employee AND as not-a-person at once",
+      name: "resolving a name as an employee AND as not-a-person at once",
       expect: "422 one_answer_only",
       got: bothAnswers.error ? `${bothAnswers.error.status} ${bothAnswers.error.code}` : "accepted",
       pass: bothAnswers.error?.status === 422 && bothAnswers.error.code === "one_answer_only",
@@ -395,7 +395,7 @@ export default function DemoDiagnosticsPage() {
        a state somebody has to leave on purpose rather than by submitting. */
     const noAnswer = await production.resolveWorkName({ name: "Pranowo" });
     results.push({
-      name: "D264 — resolving a name without saying who it is",
+      name: "resolving a name without saying who it is",
       expect: "422 answer_required",
       got: noAnswer.error ? `${noAnswer.error.status} ${noAnswer.error.code}` : "accepted",
       pass: noAnswer.error?.status === 422 && noAnswer.error.code === "answer_required",
@@ -406,7 +406,7 @@ export default function DemoDiagnosticsPage() {
        whole box flow: everything else about a box warns. */
     const notSeen = await delivery.markBoxInstalled({ box_no: "kol-26-09-08_01" });
     results.push({
-      name: "D262 — marking a box installed that nobody has scanned on site",
+      name: "marking a box installed that nobody has scanned on site",
       expect: "409 not_on_site",
       got: notSeen.error ? `${notSeen.error.status} ${notSeen.error.code}` : "accepted",
       pass: notSeen.error?.status === 409 && notSeen.error.code === "not_on_site",
@@ -416,7 +416,7 @@ export default function DemoDiagnosticsPage() {
        workshop, and the person who saw the problem is the only one who knows. */
     const blindFlag = await delivery.flagBoxProblem({ box_no: "kol-26-09-08_01", problem_note: "" });
     results.push({
-      name: "D262 — flagging a box as a problem with nothing written on it",
+      name: "flagging a box as a problem with nothing written on it",
       expect: "422 problem_note_required",
       got: blindFlag.error ? `${blindFlag.error.status} ${blindFlag.error.code}` : "accepted",
       pass: blindFlag.error?.status === 422 && blindFlag.error.code === "problem_note_required",
@@ -429,7 +429,7 @@ export default function DemoDiagnosticsPage() {
       lines: [{ description: "Nakas jati kecil", qty: 1, uom: "unit" }],
     });
     results.push({
-      name: "D262 — packing a box with no destination inside the building",
+      name: "packing a box with no destination inside the building",
       expect: "422 destination_required",
       got: noRoom.error ? `${noRoom.error.status} ${noRoom.error.code}` : "accepted",
       pass: noRoom.error?.status === 422 && noRoom.error.code === "destination_required",
@@ -588,7 +588,7 @@ export default function DemoDiagnosticsPage() {
         </Card>
 
         <Card>
-          <CardHeader title="Demo session" subtitle="Module access and authority are separate grants — D22 to D24" icon={ShieldAlert} />
+          <CardHeader title="Demo session" subtitle="Module access and authority are separate grants" icon={ShieldAlert} />
           <div className="space-y-4 px-5 py-4">
             <div>
               <p className="text-xs text-slate-400">Acting as</p>

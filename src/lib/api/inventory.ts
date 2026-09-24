@@ -83,7 +83,7 @@ async function stockable(
   if (!cat) {
     return {
       ok: false,
-      why: `${item.name} sits in ${item.category_code}, which is not counted — it is bought and used, not stocked (D169).`,
+      why: `${item.name} sits in ${item.category_code}, which is not counted — it is bought and used, not stocked.`,
     };
   }
   return { ok: true, base_uom: item.base_uom as string };

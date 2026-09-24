@@ -137,7 +137,7 @@ export default function ContributionsPage() {
                     {unconfirmed.map((r) => SCHEME_LABEL[r.scheme as ContributionScheme]).join(", ")}.
                     Angkanya dipakai untuk menghitung, tapi belum ada yang memastikannya — tarif yang
                     belum dicek tidak boleh terlihat sama dengan yang sudah. IT yang mengubahnya.
-                    Untuk JKK, pemilik sudah memutuskan kelas risikonya tidak perlu dikejar (Q49):
+                    Untuk JKK, pemilik sudah memutuskan kelas risikonya tidak perlu dikejar:
                     yang dipakai memeriksa adalah <strong>tagihan bulanan dibanding daftar nama</strong>
                     di bawah, bukan ketepatan persentasenya.
                   </span>
@@ -246,7 +246,7 @@ export default function ContributionsPage() {
                 <p className="px-5 py-3 text-[13px] text-slate-600">
                   Siapa punya NPWP dan status PTKP-nya dicatat di register bawah. Perhitungannya
                   <strong> bukan pekerjaan sistem ini</strong> — itu keputusan pemilik, bukan pekerjaan
-                  yang tertunda (Q50). PPh 21 progresif memakai tabel TER yang berubah, dan yang
+                  yang tertunda. PPh 21 progresif memakai tabel TER yang berubah, dan yang
                   melaporkan SPT-lah yang memegangnya. Potongan yang salah lebih buruk daripada potongan
                   yang tidak ada — yang tidak ada kelihatan di slip, yang salah ditemukan karyawan yang
                   uangnya kurang.

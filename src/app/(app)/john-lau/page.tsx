@@ -1,5 +1,6 @@
 "use client";
 
+import { stripRefs } from "@/lib/refs";
 import { MessageSquare, ShieldAlert, Wrench, BookOpen, PencilLine } from "lucide-react";
 import Link from "next/link";
 import { Badge, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
@@ -108,7 +109,7 @@ function Row({ tool }: { tool: AssistantTool }) {
         <span className="ml-auto font-mono text-[10px] text-slate-400">{tool.name}</span>
       </div>
       {tool.blocked_reason && (
-        <p className="mt-1 text-[12px] text-slate-600">{tool.blocked_reason}</p>
+        <p className="mt-1 text-[12px] text-slate-600">{stripRefs(tool.blocked_reason)}</p>
       )}
       {tool.instead_at && (
         <p className="mt-1 text-[11px]">

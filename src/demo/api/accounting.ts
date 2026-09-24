@@ -74,7 +74,7 @@ export async function createAccount(input: {
     return invalid(SERVICE, "currency_invalid", "A currency is a three-letter code, e.g. IDR or USD.", { field: "currency" });
   }
   if (input.custody === "leadership" && input.is_paying) {
-    return invalid(SERVICE, "leadership_not_paying", "A leadership account never pays a vendor directly (D87).", { field: "is_paying" });
+    return invalid(SERVICE, "leadership_not_paying", "A leadership account never pays a vendor directly.", { field: "is_paying" });
   }
   if (getState().accounts.some((a) => a.code.toUpperCase() === code)) {
     return conflict(SERVICE, "account_exists", `Account ${code} already exists.`, { field: "code" });
@@ -110,7 +110,7 @@ export async function updateAccount(
   }
   const isPaying = input.is_paying ?? a.is_paying;
   if (custody === "leadership" && isPaying) {
-    return invalid(SERVICE, "leadership_not_paying", "A leadership account never pays a vendor directly (D87).", { field: "is_paying" });
+    return invalid(SERVICE, "leadership_not_paying", "A leadership account never pays a vendor directly.", { field: "is_paying" });
   }
   const currency = input.currency?.trim().toUpperCase() ?? a.currency;
   if (!/^[A-Z]{3}$/.test(currency)) {
@@ -2082,7 +2082,7 @@ export async function bookStatementLine(
   if (line.amount_idr == null) {
     return invalid(
       SERVICE, "rate_required",
-      `Baris ini dalam ${st.currency}. Isi kursnya dulu — sistem tidak menebak kurs, karena yang benar adalah kurs yang bank berikan hari itu (D181).`,
+      `Baris ini dalam ${st.currency}. Isi kursnya dulu — sistem tidak menebak kurs, karena yang benar adalah kurs yang bank berikan hari itu.`,
       { field: "fx_rate" },
     );
   }

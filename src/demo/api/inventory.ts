@@ -389,7 +389,7 @@ function stockable(state: DemoState, itemCode: string) {
   const item = state.items.find((i) => i.code === itemCode);
   if (!item) return { ok: false as const, why: `No catalogue item ${itemCode}.` };
   if (!STOCKED_CATEGORIES.has(item.category_code)) {
-    return { ok: false as const, why: `${item.name} sits in ${item.category_code}, which is not counted — it is bought and used, not stocked (D169).` };
+    return { ok: false as const, why: `${item.name} sits in ${item.category_code}, which is not counted — it is bought and used, not stocked.` };
   }
   return { ok: true as const, item };
 }

@@ -108,7 +108,7 @@ export default function RolesPage() {
           <Card>
             <CardHeader
               title="Siapa memegang wewenang apa"
-              subtitle="Keputusan bernama, diberikan sendiri-sendiri. Tidak pernah tersirat dari level modul (D24)."
+              subtitle="Keputusan bernama, diberikan sendiri-sendiri. Tidak pernah tersirat dari level modul."
               icon={KeyRound}
             />
             <ul className="divide-y divide-slate-100">

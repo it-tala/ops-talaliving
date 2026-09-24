@@ -142,7 +142,7 @@ export default function LeavePage() {
                 </div>
                 <p className="mt-1 text-[11px] text-slate-500">
                   Melebihi jatah tidak ditolak — harinya tetap tercatat, hanya tidak dibayar, dan
-                  angkanya terlihat di bawah sebelum diputuskan (D144).
+                  angkanya terlihat di bawah sebelum diputuskan.
                 </p>
               </div>
             )}
@@ -205,7 +205,7 @@ export default function LeavePage() {
                           </>
                         ) : r.kind === "sakit" ? (
                           <span className="text-slate-500">
-                            Dibayar hanya kalau surat dokternya dilampirkan pada harinya (D144).
+                            Dibayar hanya kalau surat dokternya dilampirkan pada harinya.
                           </span>
                         ) : (
                           <span className="text-slate-500">Izin tercatat, tidak dibayar.</span>
