@@ -6129,3 +6129,144 @@ relying on.
 
 **A privilege that is right in the catalogue and wrong at the call site is
 worth nothing**, and the only way to know which you have is to make the call.
+
+## F149 · 2026-09-24 · the review queue was clean and the web app was empty, because "merged" is not "deployed"
+
+35 documents were waiting for somebody to decide about them and nobody could
+see them. Not lost — safe in Drive, safe in `public.ledger_review_queue`, and
+invisible in the only screen anybody is going to open.
+
+The owner's cutover rule is one sentence: *every row still waiting in the old
+queue has to appear in the web app's queue.* Nothing measured that, so the
+answer to "is it clean?" was an opinion. `supabase/import/09_queue_reconciliation
+.sql` now measures it, and the first run said 35.
+
+### The dates were the finding, not the count
+
+| | |
+|---|---|
+| newest row in `public.ledger_review_queue` | 2026-09-24 00:02 |
+| newest row in `ops_acct.evidence_inbox` | 2026-09-21 04:04 |
+| the 35 invisible rows | every one dated **on or after 2026-09-22** |
+
+A count says how much is missing. Those three lines say *why*: ingestion is
+alive, the last hop is dead, and it died on 2026-09-21. `john-lau`'s
+`modules/accounting/ops_inbox.py` — the mirror — merged at 11:01 that day, and
+the Cloud Run job still runs the revision from before it. A gap that starts the
+day after a merge is a deploy that never happened.
+
+Confirmed from the other side too. In 24 hours of `edge_logs` the bot made
+~19,000 REST calls and **not one** to `rpc/file_evidence`. Every RPC in the log
+came from a browser. The database's own timestamps and the HTTP log agree, which
+is what makes the conclusion a measurement rather than a theory.
+
+### Two gaps that count the same and need opposite things
+
+Counting "PENDING in the old queue, not PENDING in the new one" gives 42, and 42
+is the wrong number to tell anybody:
+
+- **35 never mirrored.** Real work, invisible. Fix: deploy.
+- **7 already decided in the web app.** The *old* queue is the stale one.
+  Nothing is waiting; the old screen is showing work that is done.
+
+One figure overstates the loss and understates the cutover progress, which is
+how a reconciliation stops being believed. They are reported separately.
+
+### A pattern that looks like a contradiction and is agreement
+
+20 rows are `CONFIRMED` in the old queue and `REJECTED` in the new one. On first
+reading that is two systems disagreeing about real money, and it was reported
+that way. It is not: every one of the 20 is rejected `duplicate upload`. The
+document was booked once, in the old system, and the copy the bridge carried
+across was rejected — which is what stops it being booked twice.
+
+The lesson is worth more than the correction. **Two systems holding different
+statuses for one document is not automatically a disagreement, and the reason
+column is what tells you which it is.** A check that flagged this would cry wolf
+twenty times and be switched off, taking the real findings with it.
+
+### Three faults in the mop, found by using it twice
+
+`supabase/legacy/03_bridge_review_queue.sql` already existed for exactly this.
+Running it a second time exposed what a single run had hidden:
+
+1. `create temp table … on commit drop`, with the two reports at the foot of the
+   file reading that table *after* the commit. The first run ended on
+   `relation "_bridged" does not exist` with the bridge already committed — a
+   script that did its job and reported a failure, which is the one failure mode
+   that makes people stop trusting a correct run.
+2. No skip for what the inbox already held. The seam is idempotent so a second
+   run was safe, but it answered `already_filed` 38 times and buried whatever
+   was new. The printed count has to be the work actually done or nobody reads it.
+3. `p_reported_at` left to default to `now()` — which is why
+   `04_backfill_reported_at.sql` had to exist at all. Migration `0096` added the
+   parameter; passing `captured_at` means the backfill does not have to exist
+   twice.
+
+Dry run first, then for real: 35 filed, 0 refused. GAP 1 reads BERSIH.
+
+### Present in the database and present on the screen are different claims
+
+Only the second one was asked for, so only the second one was checked. As
+`authenticated`, under each of the four active people's JWT claims:
+`ops_acct.evidence_inbox` returns all 35 PENDING rows, `ops_core.users` resolves
+both reporters' names, `v_inbox_health` answers `unresolved 35 · chat 65 · web 0`.
+Reading a table as its owner proves nothing about a screen: `postgres` has
+`bypassrls`, and the row a policy hides is exactly the row that will be missing.
+
+**The bridge is the mop, not the fix.** Until the job carries the merged mirror,
+this gap reopens at the rate people photograph notas. A third run of the bridge
+would be a symptom, not a task.
+
+## F150 · 2026-09-24 · a live money screen returned 500 because one projection was asked for twice at once
+
+`ops.talaliving.com` answered **HTTP 500** on `rpc/cash_plan` fifteen times in
+24 hours, to real signed-in people in Jakarta. It was found by reading
+`edge_logs` while verifying something else, not by anybody reporting it, which
+is its own finding: nothing watches the error rate.
+
+`response.headers.proxy_status` named the cause exactly — `PostgREST;
+error=57014`, statement timeout — with `response.origin_time=8235`, against the
+8-second limit. Two of them 3ms apart, same browser session.
+
+### The measurement that mattered was the ratio, not the duration
+
+| `ops_acct.cash_plan()` | |
+|---|---|
+| as `postgres` | 205–729 ms |
+| as `authenticated` | **3,719–3,784 ms** |
+| two in parallel as `authenticated` | 8,235 ms → both time out |
+
+Eighteen times slower for the same projection over the same ledger. The cost is
+not the arithmetic, it is the per-row RLS policy evaluation on every table the
+projection touches — and it is invisible to anyone who benchmarks as the owner,
+which is how a four-second screen ships believing it takes a fifth of a second.
+
+`getMonthlyBills` then fired two of these in `Promise.all`, anchored a month
+apart, because *last month* is never in the default twelve-month window (F68).
+Each call alone fits inside the timeout. Together they do not, and the failure
+is all-or-nothing: the page shows nothing rather than something slow.
+
+### The fix was to stop asking twice, and the reason it is legal is a guard
+
+Twelve months forward from `prev` already contains `m`, so one run anchored at
+the earlier month answers both questions — *if* `p_from` chooses the window and
+nothing else. It does: a cell is the schedule and the ledger for its month, and
+its state is relative to `p_now`, which is a separate parameter.
+
+That was established by measuring production once: month `m`'s cells, event for
+event, and the component list, identical from both anchors. **A measurement
+holds for one input**, so it is now an assertion in
+`smoke/86_acct_cash_plan.sql` — twelve months from either anchor, the same
+components in the same order, and the same cell for the overlapping month.
+Without it the substitution is a guess that happened to be right on 24
+September.
+
+### What is fixed and what is not
+
+Fixed: the 500. One run, 3.7s, ~2.2x headroom under the timeout.
+
+Not fixed: 3.7s is a slow screen, and 2.2x is thin headroom for something that
+grows with the ledger. The 18x RLS penalty is the real defect and it belongs to
+every `ops_*` projection read as `authenticated`, not just this one. Halving the
+calls bought time; it did not make the read fast.

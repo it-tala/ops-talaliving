@@ -1296,24 +1296,44 @@ export async function listDue(): Promise<Result<CashDue[]>> {
 }
 
 /** The month's bills as a worklist — `monthlyBills()` in the demo, over the
- *  same `cash_plan()` the calendar reads (D227, D228). Two runs of one seam:
- *  one anchored at the month shown, one at the month before, so *last month*
- *  exists at all (F68). Everything below is arithmetic on what those two runs
- *  already decided, the demo's rules line for line. */
+ *  same `cash_plan()` the calendar reads (D227, D228). *Last month* is never in
+ *  the default window (F68), so the plan is anchored a month back — and one run
+ *  anchored there covers both months, because twelve months forward from `prev`
+ *  includes `m`.
+ *
+ *  It used to be two runs, anchored a month apart, fired together. That cost
+ *  HTTP 500 on a live money screen: `cash_plan()` takes ~4s under RLS (0.2s as
+ *  the owner — the difference is the per-row policy checks, not the
+ *  projection), and two of them in parallel put both over the 8-second
+ *  statement timeout. `57014`, twice within 3ms, 2026-09-24 02:36, from
+ *  `ops.talaliving.com`.
+ *
+ *  Reading `m` out of the earlier window is only sound if `p_from` chooses the
+ *  window and nothing else. It does — a cell is the schedule and the ledger for
+ *  its month, and its state is relative to `p_now` — and
+ *  `smoke/86_acct_cash_plan.sql` asserts it rather than trusting it, because it
+ *  was first established by measuring production once and a measurement holds
+ *  for one input.
+ *
+ *  Everything below is arithmetic on what that run already decided, the demo's
+ *  rules line for line. The demo still runs its own projection twice: it is
+ *  in-memory and costs nothing, and D228 asks for one *calculation*, not one
+ *  call. */
 export async function getMonthlyBills(month?: string): Promise<Result<MonthlyBills>> {
   const today = officeToday();
   const m = month || today.slice(0, 7);
   const prev = previousMonth(m);
 
-  const [planRes, prevRes, setting] = await Promise.all([
-    planFrom(`${m}-01`),
+  const [planRes, setting] = await Promise.all([
     planFrom(`${prev}-01`),
     core().from("settings").select("value").eq("key", "ops.bill_anomaly_percent").maybeSingle(),
   ]);
   if (planRes.error) return planRes;
-  if (prevRes.error) return prevRes;
+  /* One projection, read twice. The two names are kept because the arithmetic
+     below asks two different questions of it, and collapsing them to one name
+     is how a comparison quietly starts comparing a month with itself. */
   const plan = planRes.data;
-  const prevPlan = prevRes.data;
+  const prevPlan = plan;
   const threshold = Number((setting.data as { value?: unknown } | null)?.value ?? 25) || 25;
 
   /* A month that has ended is worth what it cost; one still running, what it

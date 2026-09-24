@@ -217,4 +217,59 @@ begin
   assert (plan ->> 'undated_obligations')::numeric = 0, 'no procurement orders in this fixture, so nothing owed';
 end $$;
 
+-- ── A month is worth the same whichever window it is seen through ────────
+--
+-- `p_from` chooses the twelve-month window and nothing else: a cell is the
+-- schedule and the ledger for that month, and its state is relative to `now`,
+-- which `p_now` carries separately. So the same month read from two different
+-- anchors has to agree.
+--
+-- This is not a curiosity. Monthly bills needs *last* month, which is never in
+-- the default window (F68), and the obvious way to get it was a second call
+-- anchored a month back — two runs of a function that costs four seconds
+-- through RLS, fired in parallel, which put both over the 8-second statement
+-- timeout and returned **HTTP 500 on ops.talaliving.com** (`57014`, twice
+-- within 3ms, 2026-09-24 02:36). One run anchored at the earlier month serves
+-- both months, and this assertion is what makes that substitution legal rather
+-- than merely convenient.
+--
+-- Written as a guard because it was first established by measuring production
+-- once. A measurement holds for one input; an assertion holds for every run of
+-- the ladder.
+do $$
+declare
+  here  text := to_char(ops_core.office_day(now()), 'YYYY-MM');
+  prev  text := to_char(date_trunc('month', ops_core.office_day(now())) - interval '1 month', 'YYYY-MM');
+  a jsonb; b jsonb; ca jsonb; cb jsonb;
+begin
+  a := ops_acct.cash_plan(null, (here || '-01')::date);
+  b := ops_acct.cash_plan(null, (prev || '-01')::date);
+
+  -- Both windows are twelve months; the earlier anchor simply starts earlier.
+  assert jsonb_array_length(a -> 'months') = 12, format('got %s', jsonb_array_length(a -> 'months'));
+  assert jsonb_array_length(b -> 'months') = 12, format('got %s', jsonb_array_length(b -> 'months'));
+  assert (b -> 'months' -> 0 ->> 'month') = prev, format('got %s', b -> 'months' -> 0 ->> 'month');
+
+  -- The same components, in the same order.
+  assert (select jsonb_agg(r -> 'component' order by r -> 'component' ->> 'id')
+            from jsonb_array_elements(a -> 'rows') r)
+       = (select jsonb_agg(r -> 'component' order by r -> 'component' ->> 'id')
+            from jsonb_array_elements(b -> 'rows') r),
+    'the anchor chose a different set of components, so it is not just a window';
+
+  -- This month's cell, event for event, from both anchors.
+  select jsonb_agg(jsonb_build_object('id', id, 'cell', c) order by id) into ca
+    from (select r -> 'component' ->> 'id' as id, c
+            from jsonb_array_elements(a -> 'rows') r, jsonb_array_elements(r -> 'cells') c
+           where c ->> 'month' = here) s;
+  select jsonb_agg(jsonb_build_object('id', id, 'cell', c) order by id) into cb
+    from (select r -> 'component' ->> 'id' as id, c
+            from jsonb_array_elements(b -> 'rows') r, jsonb_array_elements(r -> 'cells') c
+           where c ->> 'month' = here) s;
+
+  assert ca = cb,
+    format('%s read through its own window and through %s must be the same month: %s versus %s',
+           here, prev, left(ca::text, 400), left(cb::text, 400));
+end $$;
+
 rollback;
