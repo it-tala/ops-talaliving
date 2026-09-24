@@ -221,9 +221,10 @@ end $$;
 -- ── The grant, written down rather than added in passing ──────────────────
 --
 -- `0038` said the worker's entire reach is one verb and `A2` has been asserting
--- it since. It is four now, and the sentence has to change with it: the worker
--- may **file a document it captured** and **carry an event it did not choose**.
--- Every one of the four takes validated arguments and none of them can read a
+-- it since. `0143` made it three; this makes it six, and the sentence has to
+-- change with it: the worker may **file a document it captured**, **answer a PO
+-- approval card** and **carry an event it did not choose**.
+-- Every one of the six takes validated arguments and none of them can read a
 -- table — `service_role` still has no table privilege anywhere in `ops_*`, and
 -- `A2` still asserts that, which is the half of the claim that matters most
 -- because that role carries `rolbypassrls`.
