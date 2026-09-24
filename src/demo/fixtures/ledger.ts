@@ -206,19 +206,37 @@ export const EVIDENCE_INBOX: Omit<EvidenceInboxRow, "reported_by_name">[] = [
     produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
     money_direction: "IN",
   },
+  /** One nota of five things, filed as five slots — the way the capture
+   *  worker files every row it reads. The screen shows them as one document
+   *  with five lines, booked once (owner, 2026-09-24). */
   {
     id: "inb_01", ref_id: "upl_26-09-09_01~x0", origin: "chat", status: "PENDING",
     attachment_id: "att_10", reported_by: "usr_made", reported_at: "2026-09-09T17:22:00+08:00",
-    extracted: { vendor_name: "TOKO BANGUNAN MAKMUR SENTOSA", document_date: "2026-09-09", amount_idr: 685_000, doc_type: "Receipt / Invoice / Nota", confidence: 88, note: "Bought first, no PR yet — urgent need." },
+    extracted: { vendor_name: "TOKO BANGUNAN MAKMUR SENTOSA", document_date: "2026-09-09", amount_idr: 325_000, doc_type: "Receipt / Invoice / Nota", confidence: 88, note: "SEMEN TIGA RODA 50KG" },
     produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
   },
-  /** The same photo as inb_01, filed as its second slot — the way the capture
-   *  worker files every row it reads. The screen shows the two as one
-   *  document with two lines (owner, 2026-09-24). */
   {
     id: "inb_09", ref_id: "upl_26-09-09_01~x1", origin: "chat", status: "PENDING",
     attachment_id: "att_10", reported_by: "usr_made", reported_at: "2026-09-09T17:22:00+08:00",
-    extracted: { vendor_name: "TOKO BANGUNAN MAKMUR SENTOSA", document_date: "2026-09-09", amount_idr: 2_500, doc_type: "Receipt / Invoice / Nota", confidence: 88, note: "Transfer admin fee" },
+    extracted: { vendor_name: "TOKO BANGUNAN MAKMUR SENTOSA", document_date: "2026-09-09", amount_idr: 180_000, doc_type: "Receipt / Invoice / Nota", confidence: 88, note: "PASIR BETON 1 PICK UP" },
+    produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
+  },
+  {
+    id: "inb_10", ref_id: "upl_26-09-09_01~x2", origin: "chat", status: "PENDING",
+    attachment_id: "att_10", reported_by: "usr_made", reported_at: "2026-09-09T17:22:00+08:00",
+    extracted: { vendor_name: "TOKO BANGUNAN MAKMUR SENTOSA", document_date: "2026-09-09", amount_idr: 100_000, doc_type: "Receipt / Invoice / Nota", confidence: 88, note: "PAKU 5CM 4 KG" },
+    produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
+  },
+  {
+    id: "inb_11", ref_id: "upl_26-09-09_01~x3", origin: "chat", status: "PENDING",
+    attachment_id: "att_10", reported_by: "usr_made", reported_at: "2026-09-09T17:22:00+08:00",
+    extracted: { vendor_name: "TOKO BANGUNAN MAKMUR SENTOSA", document_date: "2026-09-09", amount_idr: 60_000, doc_type: "Receipt / Invoice / Nota", confidence: 88, note: "KAWAT BENDRAT 2 ROL" },
+    produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
+  },
+  {
+    id: "inb_12", ref_id: "upl_26-09-09_01~x4", origin: "chat", status: "PENDING",
+    attachment_id: "att_10", reported_by: "usr_made", reported_at: "2026-09-09T17:22:00+08:00",
+    extracted: { vendor_name: "TOKO BANGUNAN MAKMUR SENTOSA", document_date: "2026-09-09", amount_idr: 20_000, doc_type: "Receipt / Invoice / Nota", confidence: 88, note: "AMPLAS NO. 120" },
     produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
   },
   {

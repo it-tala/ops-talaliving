@@ -86,6 +86,21 @@ function docKey(r: EvidenceInboxRow): string {
   return r.origin === "chat" && i > 0 ? r.ref_id.slice(0, i) : r.ref_id;
 }
 
+/** What a document is called on screen. A photo of five things is named by
+ *  where it came from, not by whichever of the five was largest. */
+function docTitle(d: InboxDoc, filename?: string): string {
+  const r = d.main;
+  return (d.rows.length > 1
+    ? r.extracted.vendor_name ?? r.extracted.note
+    : r.extracted.note ?? r.extracted.vendor_name) ?? filename ?? r.attachment_id;
+}
+
+/** The reading the preview shows, with the document's total rather than the
+ *  main row's own amount. */
+function docReading(d: InboxDoc): EvidenceInboxRow["extracted"] {
+  return d.rows.length > 1 ? { ...d.main.extracted, amount_idr: d.amount } : d.main.extracted;
+}
+
 function groupByDocument(rows: EvidenceInboxRow[]): InboxDoc[] {
   const byKey = new Map<string, EvidenceInboxRow[]>();
   for (const r of rows) {
@@ -124,9 +139,12 @@ export default function InboxPage() {
      with that photo* is asked about last week, not last year. The server
      sends only the latest twenty, and the card says how many it left out,
      so the edge is honest rather than silent (D269). */
-  const decided = decidedState.status === "ready" ? decidedState.data : [];
+  const decidedRows = decidedState.status === "ready" ? decidedState.data : [];
+  /* Grouped like the queue: a photo booked as one document reads as one
+     decision, not five. */
+  const decided = groupByDocument(decidedRows);
   const decidedTotal = decidedState.status === "ready"
-    ? decidedState.page?.total ?? decided.length
+    ? decidedState.page?.total ?? decidedRows.length
     : 0;
   /* Only the files this screen is drawing: the queue page, the row open on
      the right, and the twenty decided rows. Asking for "the latest 300
@@ -136,7 +154,7 @@ export default function InboxPage() {
   const wantedIds = [...new Set([
     ...queue.map((d) => d.main.attachment_id),
     ...(selectedDoc ? [selectedDoc.main.attachment_id] : []),
-    ...decided.map((r) => r.attachment_id),
+    ...decided.map((d) => d.main.attachment_id),
   ].filter(Boolean))].sort().join(",");
   const [attachments] = useLoad(
     () => documents.getAttachments(wantedIds ? wantedIds.split(",") : []),
@@ -222,9 +240,7 @@ export default function InboxPage() {
                       >
                         <p className="flex items-center gap-2 text-[13px] font-medium text-slate-800">
                           <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                          <span className="min-w-0 truncate">
-                            {r.extracted.note ?? r.extracted.vendor_name ?? file?.filename ?? r.attachment_id}
-                          </span>
+                          <span className="min-w-0 truncate">{docTitle(d, file?.filename)}</span>
                           {d.rows.length > 1 && (
                             <Badge tone="violet">{d.rows.length} baris</Badge>
                           )}
@@ -300,27 +316,28 @@ export default function InboxPage() {
                 subtitle={
                   <>
                     Kept, whichever road they took — including the ones that never reached the ledger.{" "}
-                    {decidedTotal > decided.length
-                      ? `${decided.length} keputusan terakhir dari ${decidedTotal}.`
-                      : `Semuanya: ${decided.length} keputusan.`}
+                    {decidedTotal > decidedRows.length
+                      ? `${decidedRows.length} keputusan terakhir dari ${decidedTotal}.`
+                      : `Semuanya: ${decidedRows.length} keputusan.`}
                   </>
                 }
                 icon={StickyNote}
               />
               <ul className="divide-y divide-slate-100">
-                {decided.map((r) => {
-                  const on = reviewing === r.ref_id;
+                {decided.map((d) => {
+                  const r = d.main;
+                  const on = reviewing === d.key;
                   const f = attachments.status === "ready"
                     ? attachments.data.find((a) => a.id === r.attachment_id)
                     : undefined;
                   return (
-                    <li key={r.id}>
+                    <li key={d.key}>
                       {/* A decided document is the one most worth looking at
                           again — *what did we do with that photo* is asked
                           months later, and it was previously answerable only
                           as a row of words (B3). */}
                       <button
-                        onClick={() => setReviewing(on ? null : r.ref_id)}
+                        onClick={() => setReviewing(on ? null : d.key)}
                         className={cn(
                           "flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2.5 text-left text-[13px] hover:bg-slate-50",
                           on && "bg-slate-50",
@@ -334,10 +351,13 @@ export default function InboxPage() {
                           {r.status}
                         </Badge>
                         <span className="min-w-0 flex-1 text-slate-700">
-                          {r.extracted.note ?? r.extracted.vendor_name ?? f?.filename ?? r.attachment_id}
+                          {docTitle(d, f?.filename)}
+                          {d.rows.length > 1 && (
+                            <span className="ml-2"><Badge tone="violet">{d.rows.length} baris</Badge></span>
+                          )}
                         </span>
-                        {r.extracted.amount_idr != null && (
-                          <span className="tabular-nums text-slate-500">{formatIDR(r.extracted.amount_idr)}</span>
+                        {d.amount != null && (
+                          <span className="tabular-nums text-slate-500">{formatIDR(d.amount)}</span>
                         )}
                         <span className="font-mono text-[11px] text-slate-400">
                           {r.produced_pr_line_no ?? (r.produced_trx_id ? "posted" : "no ledger row")}
@@ -352,13 +372,13 @@ export default function InboxPage() {
                               doc={{
                                 id: f.id, filename: f.filename, mime: f.mime, bytes: f.bytes,
                                 url: f.url, uploaded_at: f.uploaded_at,
-                                kind: f.links[0]?.kind ?? null, read: r.extracted,
+                                kind: f.links[0]?.kind ?? null, read: docReading(d),
                               }}
                             />
                           )}
                           <DecidedCoverage
                             attachmentId={r.attachment_id}
-                            amount={r.extracted.amount_idr ?? null}
+                            amount={d.amount}
                           />
                         </div>
                       )}
@@ -621,7 +641,7 @@ function ResolvePanel({
   return (
     <Card>
       <CardHeader
-        title={row.extracted.note ?? row.extracted.vendor_name ?? file?.filename ?? row.attachment_id}
+        title={docTitle(doc, file?.filename)}
         subtitle={`${row.origin} · ${row.reported_at.slice(0, 16).replace("T", " ")}`
           + (row.reported_by_name != null ? ` · from ${row.reported_by_name}` : "")
           + ` · read ${row.extracted.confidence ?? "—"}% sure`}
@@ -640,7 +660,7 @@ function ResolvePanel({
               id: file.id, filename: file.filename, mime: file.mime, bytes: file.bytes,
               url: file.url, uploaded_at: file.uploaded_at,
               kind: file.links[0]?.kind ?? null,
-              read: row.extracted,
+              read: docReading(doc),
             }}
           />
         )}
