@@ -24,7 +24,7 @@
  */
 import type {
   BomDiff, BomDiffLine, BomDiffShape, BomKind, BomLineView, BomRevisionView,
-  ProductDrawing, ProductDrawingEntry, ProductView, RateSource,
+  ProductDrawing, ProductDrawingEntry, ProductView, RateSource, WorkOrderRef,
   BomExplodedLine, BomExplosion, ProgressEntry, RouteCode, VendorLegView,
   WorkOrder, WorkOrderStatus, WorkOrderView,
 } from "@/services/production/contracts";
@@ -530,6 +530,8 @@ export async function listOpenWorkOrderRefs(): Promise<Result<WorkOrderRef[]>> {
     .order("due_date");
   if (error) return fail(SERVICE, error);
   return ok(SERVICE, (data ?? []) as WorkOrderRef[]);
+}
+
 /** An order line becomes an item code — or is linked to one that exists
  *  (0111's `product_from_order_line`). */
 export async function createProductFromOrderLine(
