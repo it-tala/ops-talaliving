@@ -46,8 +46,9 @@ begin
   -- guarantees — asserted anyway, because the count is the thing a person
   -- reads when they ask whether this is set up.
   select count(*) into n from ops_core.doc_kind_drive;
-  -- 26 since `0101` added the receiving report.
-  assert n = 26, format('every kind is mapped, got %s', n);
+  -- 26 since `0101` added the receiving report; 29 since `0132` added the
+  -- BAST, our own surat jalan and the site photo, all in PROJECT MANAGER.
+  assert n = 29, format('every kind is mapped, got %s', n);
 end $$;
 
 /* ── the boundary that had to survive the move ─────────────────────────── */

@@ -53,6 +53,13 @@ export const DOC_KINDS = [
   "Foto",
   "Sertifikat",
   "Surat Peringatan",
+  /** The last leg (0131). **Our own** surat jalan going out, signed at the
+   *  site — not the vendor's coming in, which is "Delivery Note". The BAST is
+   *  the client's signature on the finished job (D211); a site photo is a
+   *  crate, a wall, a snag. All three are filed in PROJECT MANAGER. */
+  "Surat Jalan Keluar",
+  "BAST",
+  "Foto Lokasi",
   "Others",
 ] as const;
 export type DocKind = (typeof DOC_KINDS)[number];
@@ -91,6 +98,9 @@ export const SUPPORTING_DOC_KINDS: DocKind[] = [
    *  a product somebody will have to ask about (D150). */
   "Gambar Kerja",
   "Gambar Jadi",
+  "Surat Jalan Keluar",
+  "BAST",
+  "Foto Lokasi",
   "Others",
 ];
 

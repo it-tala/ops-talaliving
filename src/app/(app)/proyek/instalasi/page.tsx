@@ -11,6 +11,7 @@ import {
   INSTALLATION_STATUS_LABEL, SNAG_SEVERITY_LABEL,
   type FulfilmentView, type SnagSeverity,
 } from "@/services/delivery/contracts";
+import { FileEvidence } from "@/components/ui/file-evidence";
 import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
 import { officeToday } from "@/lib/office";
@@ -31,7 +32,7 @@ export default function InstallationPage() {
   const [visits, reloadVisits] = useLoad(() => delivery.listInstallations(), []);
   const [snags, reloadSnags] = useLoad(() => delivery.listSnags(), []);
   const [open, setOpen] = useState<FulfilmentView | null>(null);
-  const mayEdit = can("project.update");
+  const mayEdit = can("delivery.create");
 
   function refresh() { reloadFul(); reloadVisits(); reloadSnags(); }
 
@@ -220,6 +221,7 @@ function VisitDrawer({ project, onClose, onDone }: {
   const [snagText, setSnagText] = useState("");
   const [severity, setSeverity] = useState<SnagSeverity>("minor");
   const [raisedBy, setRaisedBy] = useState("");
+  const [photo, setPhoto] = useState<{ id: string; name: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const fittable = project.lines.filter((l) => l.on_site > 0);
 
@@ -242,6 +244,7 @@ function VisitDrawer({ project, onClose, onDone }: {
         project_code: project.project_code,
         raised_by: raisedBy || crew || "Tim pemasangan",
         description: snagText, severity,
+        photo_attachment_id: photo?.id ?? null,
       });
     }
     setBusy(false);
@@ -303,6 +306,7 @@ function VisitDrawer({ project, onClose, onDone }: {
               placeholder="Ditemukan siapa"
               className="h-8 flex-1 rounded-lg border border-slate-200 px-2 text-[12px] focus:border-brand-400 focus:outline-none"
             />
+            <FileEvidence kind="Foto Lokasi" label="Foto temuan" value={photo} onChange={setPhoto} accept="image/*" />
           </div>
           <p className="mt-1 text-[11px] text-slate-500">
             Temuan tercatat terpisah dari kunjungannya: ia ditutup di hari yang lain, dan jarak
