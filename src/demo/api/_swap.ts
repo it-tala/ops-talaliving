@@ -60,7 +60,7 @@ import { isPendingParity } from "@/lib/api/_pending";
  *  and the distinction matters to whoever reads it: nothing they can be granted
  *  will make this work, so the message names the call rather than an authority
  *  to go and ask for. */
-function notImplemented(service: ServiceName, fn: string) {
+export function notImplemented(service: ServiceName, fn: string) {
   return {
     error: {
       code: "not_implemented" as const,
@@ -130,4 +130,47 @@ export function swap<T extends object>(
   }
 
   return out as T;
+}
+
+/** The live build's half of `swap`, with no demo module to read the shape
+ *  from.
+ *
+ *  A deployment that talks to the database has no use for the fixtures, and
+ *  shipping them anyway put the whole demo — its store, its seed data, and a
+ *  second implementation of every service — into the bundle of every screen.
+ *  `next.config.mjs` points `@/demo/api` at `src/live/api.ts` for a live build,
+ *  and this is what that file builds each service from.
+ *
+ *  Without the demo there is no list of names to walk, so the 501 is handed
+ *  out on demand: any name the real client does not export, or exports but
+ *  `_pending.ts` says is still wrong, answers with the same refusal `swap`
+ *  gives it. What a screen can call is still checked against the demo's types
+ *  at compile time — the alias only changes what is bundled.
+ */
+export function liveOnly<T extends object>(
+  service: ServiceName,
+  live: Record<string, unknown>,
+): T {
+  const stubs = new Map<string, () => Promise<ReturnType<typeof notImplemented>>>();
+  return new Proxy({} as T, {
+    get(_target, key) {
+      /* Not service calls: a symbol, or the names a promise, JSON or React
+         probe any object for. Answering those with a function would make the
+         module look like something it is not. */
+      if (typeof key !== "string" || key === "then" || key === "toJSON" || key === "$$typeof") {
+        return undefined;
+      }
+      const fromLive = isPendingParity(service, key) ? undefined : live[key];
+      if (fromLive !== undefined) return fromLive;
+      let stub = stubs.get(key);
+      if (!stub) {
+        stub = async () => notImplemented(service, key);
+        stubs.set(key, stub);
+      }
+      return stub;
+    },
+    has(_target, key) {
+      return typeof key === "string";
+    },
+  });
 }
