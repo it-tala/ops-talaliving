@@ -151,7 +151,14 @@ async function withGroupAndLocation(
 }
 
 export async function getStockItem(itemCode: string): Promise<Result<StockItemDetail>> {
-  const { data: row, error } = await db().from("v_stock_item").select("*").eq("item_code", itemCode).maybeSingle();
+  /* Moves, orders and BOM use are keyed by the code alone, so they are asked
+     alongside the row rather than after it. */
+  const [{ data: row, error }, movesRes, onOrderRes, usedInRes] = await Promise.all([
+    db().from("v_stock_item").select("*").eq("item_code", itemCode).maybeSingle(),
+    listStockMoves({ item_code: itemCode }),
+    onOrderFor(itemCode),
+    itemUsedIn(itemCode),
+  ]);
   if (error) return fail(SERVICE, error);
   if (!row) {
     return notFound(
@@ -163,11 +170,6 @@ export async function getStockItem(itemCode: string): Promise<Result<StockItemDe
   if (withLoc.error) return withLoc;
   const view = withLoc.data[0];
 
-  const [movesRes, onOrderRes, usedInRes] = await Promise.all([
-    listStockMoves({ item_code: itemCode }),
-    onOrderFor(itemCode),
-    itemUsedIn(itemCode),
-  ]);
   if (movesRes.error) return movesRes;
   if (usedInRes.error) return usedInRes;
 

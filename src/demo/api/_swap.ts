@@ -52,9 +52,10 @@
  *  somebody adds an import, and a claim that rots silently is the kind this
  *  project keeps finding.
  */
-import { type ServiceName } from "@/services/_shared/envelope";
+import { type ServiceName, type Result } from "@/services/_shared/envelope";
 import { isRealApi } from "@/lib/supabase/env";
 import { isPendingParity } from "@/lib/api/_pending";
+import { withCache } from "@/lib/api-cache";
 
 /** 501. Not a refusal about *this person* — a statement about this deployment,
  *  and the distinction matters to whoever reads it: nothing they can be granted
@@ -110,7 +111,7 @@ export function swap<T extends object>(
        is not an implementation — it is the same gap as a missing one, wearing a
        name that makes it look closed. `_pending.ts` says which, and why. */
     const fromLive = isPendingParity(service, key) ? undefined : live[key];
-    if (fromLive !== undefined) { out[key] = fromLive; continue; }
+    if (fromLive !== undefined) { out[key] = cachedIfCall(service, key, fromLive); continue; }
 
     const fromDemo = (demo as Record<string, unknown>)[key];
     if (typeof fromDemo !== "function") { out[key] = fromDemo; continue; }
@@ -126,7 +127,7 @@ export function swap<T extends object>(
      hide a genuine divergence, and a name the screens cannot call costs
      nothing. */
   for (const key of Object.keys(live)) {
-    if (!(key in out)) out[key] = live[key];
+    if (!(key in out)) out[key] = cachedIfCall(service, key, live[key]);
   }
 
   return out as T;
@@ -152,6 +153,7 @@ export function liveOnly<T extends object>(
   live: Record<string, unknown>,
 ): T {
   const stubs = new Map<string, () => Promise<ReturnType<typeof notImplemented>>>();
+  const wrapped = new Map<string, unknown>();
   return new Proxy({} as T, {
     get(_target, key) {
       /* Not service calls: a symbol, or the names a promise, JSON or React
@@ -161,7 +163,12 @@ export function liveOnly<T extends object>(
         return undefined;
       }
       const fromLive = isPendingParity(service, key) ? undefined : live[key];
-      if (fromLive !== undefined) return fromLive;
+      if (fromLive !== undefined) {
+        /* One wrapper per name, so a screen that keeps a service function in
+           a dependency list sees the same function every time. */
+        if (!wrapped.has(key)) wrapped.set(key, cachedIfCall(service, key, fromLive));
+        return wrapped.get(key);
+      }
       let stub = stubs.get(key);
       if (!stub) {
         stub = async () => notImplemented(service, key);
@@ -173,4 +180,11 @@ export function liveOnly<T extends object>(
       return typeof key === "string";
     },
   });
+}
+
+/** A live service function, remembered by `src/lib/api-cache.ts` — reads kept,
+ *  writes forgetting. Anything that is not a function passes through. */
+function cachedIfCall(service: ServiceName, key: string, value: unknown): unknown {
+  if (typeof value !== "function") return value;
+  return withCache(service, key, value as (...args: never[]) => Promise<Result<unknown>>);
 }

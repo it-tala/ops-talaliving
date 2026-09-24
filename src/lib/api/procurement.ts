@@ -1611,23 +1611,27 @@ interface RoundView extends RoundSummary {
  *  assembles in the demo. Not a derivation — every number here already came
  *  out of a view or a table as itself. */
 async function getRoundView(roundNo: string): Promise<Result<RoundView>> {
-  const { data: summary, error: e1 } = await db()
-    .from("v_round_summary").select("*").eq("round_no", roundNo).maybeSingle();
+  /* The round's lines are keyed by its number, so they need not wait for the
+     summary; the transfers need its id, and the line rows need the ids. */
+  const [{ data: summary, error: e1 }, roundLinesRes] = await Promise.all([
+    db().from("v_round_summary").select("*").eq("round_no", roundNo).maybeSingle(),
+    db().from("v_line_round").select("line_id").eq("round_no", roundNo),
+  ]);
   if (e1) return fail(SERVICE, e1);
   if (!summary) return notFound(SERVICE, "round_not_found", `Round ${roundNo} not found.`);
   const roundId = (summary as RoundSummary).round_id;
 
-  const [transfersRes, roundLinesRes] = await Promise.all([
+  const lineIds = (roundLinesRes.data ?? []).map((r) => (r as { line_id: string }).line_id);
+  const [transfersRes, lineRes] = await Promise.all([
     db().from("round_transfers").select("*").eq("round_id", roundId).order("recorded_at"),
-    db().from("v_line_round").select("line_id").eq("round_no", roundNo),
+    lineIds.length ? db().from("v_pr_line").select("*").in("id", lineIds) : null,
   ]);
   if (transfersRes.error) return fail(SERVICE, transfersRes.error);
   if (roundLinesRes.error) return fail(SERVICE, roundLinesRes.error);
 
-  const lineIds = (roundLinesRes.data ?? []).map((r) => (r as { line_id: string }).line_id);
   let lines: PrLineView[] = [];
-  if (lineIds.length) {
-    const { data: lineRows, error: e3 } = await db().from("v_pr_line").select("*").in("id", lineIds);
+  if (lineRes) {
+    const { data: lineRows, error: e3 } = lineRes;
     if (e3) return fail(SERVICE, e3);
     lines = (lineRows ?? []).map((r) => toLineView(r as LineRow));
   }
