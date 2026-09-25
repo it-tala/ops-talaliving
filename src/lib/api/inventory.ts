@@ -21,12 +21,16 @@
 import type {
   StockLocation, StockMove, StockMoveView, StockItemView, StockItemDetail,
   LogMeasure, LogPiece, LogPieceView, SawnBoard, SawnBoardView, LogPurchaseView,
-  TimberVendorSummary, BoardStockView, BoardMoveView, BoardMoveKind, NotaScan,
+  TimberVendorSummary, TimberMonthSummary, BoardStockView, BoardMoveView, BoardMoveKind, NotaScan,
+  LogCost, LogCostKind,
+  ProductStockRow, ProductLedgerRow, ProductMoveInput, ProductCountInput, ProductAllocateInput, ProductOrderLine,
   AssetView, AssetCategory, AssetStatus, AssetInput, AssetService, AssetServiceInput,
 } from "@/services/inventory/contracts";
 import type { MaterialPlan } from "@/services/production/contracts";
+import { materialShort, materialStatus } from "@/services/production/contracts";
+import type { ItemPurchase } from "@/services/procurement/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { fail, fromRows, fromSeam, invalid, noop, notFound, ok, conflict, type Result } from "./_kit";
+import { fail, fromRows, fromSeam, invalid, noop, notFound, ok, conflict, refused, type Result } from "./_kit";
 import { scanNota } from "./_nota_kayu";
 
 const SERVICE = "inventory" as const;
@@ -109,9 +113,232 @@ export async function listStock(
   if (opts.low_only) filtered = filtered.filter((r) => r.below_min);
   if (opts.q) {
     const q = opts.q.toLowerCase();
-    filtered = filtered.filter((r) => `${r.item_code} ${r.item_name} ${r.category_name}`.toLowerCase().includes(q));
+    filtered = filtered.filter((r) =>
+      `${r.item_code} ${r.item_name} ${r.item_name_local ?? ""} ${r.category_name}`.toLowerCase().includes(q));
   }
   return ok(SERVICE, filtered);
+}
+
+/** The categories counted on a rack — the only ones an item registered at the
+ *  rack may go into (`register_item` refuses the rest as `not_stocked`). */
+export async function listStockedCategories(): Promise<Result<{ code: string; name: string }[]>> {
+  const [{ data: stocked, error: sErr }, { data: cats, error: cErr }] = await Promise.all([
+    db().from("stocked_categories").select("category_code"),
+    procure().from("item_categories").select("code, name"),
+  ]);
+  if (sErr) return fail(SERVICE, sErr);
+  if (cErr) return fail(SERVICE, cErr);
+  const names = new Map((cats ?? []).map((c) => [c.code as string, c.name as string]));
+  return ok(SERVICE, (stocked ?? [])
+    .map((s) => ({ code: s.category_code as string, name: names.get(s.category_code as string) ?? (s.category_code as string) }))
+    .sort((a, b) => a.name.localeCompare(b.name)));
+}
+
+/** An item registered at the rack (`0168`, `ops_inv.register_item`): the
+ *  catalogue entry, its 1–4 photos and — when the counter has the number —
+ *  what is on the rack right now, as an opname adjustment against a location
+ *  (D171). One seam, so a refused count never leaves an item with no count and
+ *  a refused item never leaves orphan links. The photos are uploaded first
+ *  (`documents.upload`) and arrive here as attachment ids. */
+export async function registerItem(
+  input: {
+    name: string;
+    name_local?: string | null;
+    category_code: string;
+    base_uom: string;
+    photo_ids: string[];
+    location?: string | null;
+    counted?: number | null;
+    reason?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<StockItemDetail>> {
+  const { data, error } = await db().rpc("register_item", {
+    p_name: input.name,
+    p_name_local: input.name_local ?? null,
+    p_category_code: input.category_code,
+    p_base_uom: input.base_uom,
+    p_photo_ids: input.photo_ids,
+    p_location: input.location ?? null,
+    p_counted: input.counted ?? null,
+    p_reason: input.reason ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const res = fromSeam<{ code: string }>(SERVICE, data, error);
+  if (res.error) return res;
+  return getStockItem(res.data.code);
+}
+
+/** The floor's name for an item already in the catalogue — most of the rack
+ *  predates `0168`. Blank clears it. */
+export async function setItemLocalName(itemCode: string, nameLocal: string | null): Promise<Result<StockItemDetail>> {
+  const { data, error } = await db().rpc("set_item_local_name", {
+    p_code: itemCode,
+    p_name_local: nameLocal,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return getStockItem(itemCode);
+}
+
+/** The ledger lines that bought this item (`0104`'s `item_purchases`, opened
+ *  to `inventory.read` by `0168`) — merged duplicates included. The link is
+ *  `transaction_lines.item_id`, set when the purchase was booked; this reads
+ *  it, it never guesses one. */
+export async function stockItemPurchases(itemCode: string): Promise<Result<ItemPurchase[]>> {
+  const { data, error } = await procure().rpc("item_purchases", { p_code: itemCode });
+  const res = fromSeam<ItemPurchase[]>(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, res.data.map((r) => ({
+    ...r,
+    qty: r.qty == null ? null : Number(r.qty),
+    unit_price: r.unit_price == null ? null : Number(r.unit_price),
+    amount: Number(r.amount),
+  })));
+}
+
+/* ── finished goods (0170) ─────────────────────────────────────────────── */
+
+const num = (v: unknown) => (v == null ? 0 : Number(v));
+
+function toProductStockRow(r: Record<string, unknown>): ProductStockRow {
+  const byLoc = (r.by_location ?? {}) as Record<string, unknown>;
+  return {
+    product_code: r.product_code as string,
+    product_name: (r.product_name as string | null) ?? null,
+    uom: (r.uom as string | null) ?? null,
+    project_line_id: (r.project_line_id as string | null) ?? null,
+    project_code: (r.project_code as string | null) ?? null,
+    line_no: r.line_no == null ? null : Number(r.line_no),
+    line_description: (r.line_description as string | null) ?? null,
+    ordered: r.ordered == null ? null : Number(r.ordered),
+    produced: num(r.produced),
+    shipped: num(r.shipped),
+    other: num(r.other),
+    allocated: num(r.allocated),
+    on_hand: num(r.on_hand),
+    overrun: num(r.overrun),
+    still_owed: num(r.still_owed),
+    surplus: num(r.surplus),
+    by_location: Object.fromEntries(Object.entries(byLoc).map(([k, v]) => [k, Number(v)])),
+    wo_nos: (r.wo_nos as string[] | null) ?? [],
+    home_location: (r.home_location as string | null) ?? null,
+    last_move_at: (r.last_move_at as string | null) ?? null,
+  };
+}
+
+/** The finished-goods rack (`ops_inv.product_stock`): one row per product ×
+ *  customer order line, with the overrun and the surplus computed by the
+ *  database — shipments read off the delivery notes, never entered twice. */
+export async function listProductStock(productCode?: string): Promise<Result<ProductStockRow[]>> {
+  const { data, error } = await db().rpc("product_stock", { p_product_code: productCode ?? null });
+  const res = fromSeam<Record<string, unknown>[]>(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, res.data.map(toProductStockRow));
+}
+
+/** Every move of one product, newest first — stored moves and the shipments
+ *  derived from delivery notes, in one list. */
+export async function productLedger(productCode: string): Promise<Result<ProductLedgerRow[]>> {
+  const { data, error } = await db().rpc("product_ledger", { p_product_code: productCode });
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, ((data ?? []) as Record<string, unknown>[])
+    .map((r) => ({ ...(r as unknown as ProductLedgerRow), qty: Number(r.qty) }))
+    .sort((a, b) => b.moved_at.localeCompare(a.moved_at)));
+}
+
+/** What the finished-goods forms choose from: catalogued products, and the
+ *  job orders that make them (a `produced` move names its JO). */
+export async function productMoveOptions(): Promise<Result<{
+  products: { product_code: string; name: string; uom: string }[];
+  work_orders: { wo_no: string; product_code: string; item_name: string; qty: number; status: string; project_code: string | null }[];
+  order_lines: ProductOrderLine[];
+}>> {
+  const [{ data: products, error: pErr }, { data: wos, error: wErr }, { data: lines, error: lErr }] = await Promise.all([
+    prod().from("products").select("product_code, name, uom").eq("active", true).order("product_code"),
+    prod().from("work_orders").select("wo_no, product_code, item_name, qty, status, project_code")
+      .not("product_code", "is", null).neq("status", "CANCELLED").order("created_at", { ascending: false }),
+    procure().from("project_lines").select("id, product_code, line_no, description, qty, projects!inner(code, is_active)")
+      .not("product_code", "is", null).eq("projects.is_active", true),
+  ]);
+  if (pErr) return fail(SERVICE, pErr);
+  if (wErr) return fail(SERVICE, wErr);
+  if (lErr) return fail(SERVICE, lErr);
+  return ok(SERVICE, {
+    products: (products ?? []) as { product_code: string; name: string; uom: string }[],
+    work_orders: (wos ?? []).map((w) => ({ ...w, qty: Number(w.qty) })) as {
+      wo_no: string; product_code: string; item_name: string; qty: number; status: string; project_code: string | null;
+    }[],
+    order_lines: ((lines ?? []) as unknown as {
+      id: string; product_code: string; line_no: number; description: string; qty: number | string;
+      projects: { code: string } | { code: string }[];
+    }[]).map((l) => ({
+      id: l.id, product_code: l.product_code, line_no: l.line_no, description: l.description, qty: Number(l.qty),
+      project_code: (Array.isArray(l.projects) ? l.projects[0]?.code : l.projects?.code) ?? "",
+    })).sort((a, b) => a.project_code.localeCompare(b.project_code) || a.line_no - b.line_no),
+  });
+}
+
+/** Surplus used for another order (`ops_inv.allocate_product`, D313). */
+export async function allocateProduct(input: ProductAllocateInput, idempotencyKey?: string): Promise<Result<ProductStockRow[]>> {
+  const { data, error } = await db().rpc("allocate_product", {
+    p_product_code: input.product_code,
+    p_from_line_id: input.from_line_id,
+    p_to_line_id: input.to_line_id,
+    p_location: input.location,
+    p_qty: input.qty,
+    p_reason: input.reason,
+    p_key: idempotencyKey ?? null,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return listProductStock(input.product_code);
+}
+
+export async function moveProduct(input: ProductMoveInput, idempotencyKey?: string): Promise<Result<ProductStockRow[]>> {
+  const { data, error } = await db().rpc("move_product", {
+    p_product_code: input.product_code,
+    p_kind: input.kind,
+    p_qty: input.qty,
+    p_location: input.location,
+    p_to_location: input.to_location ?? null,
+    p_wo_no: input.wo_no ?? null,
+    p_project_line_id: input.project_line_id ?? null,
+    p_ref_no: input.ref_no ?? null,
+    p_reason: input.reason ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return listProductStock(input.product_code);
+}
+
+/** Opname on the finished-goods rack: the difference is stored with its
+ *  reason (D171); a count that matches writes nothing. */
+export async function countProduct(input: ProductCountInput, idempotencyKey?: string): Promise<Result<ProductStockRow[]>> {
+  const { data, error } = await db().rpc("count_product", {
+    p_product_code: input.product_code,
+    p_location: input.location,
+    p_counted: input.counted,
+    p_reason: input.reason ?? null,
+    p_project_line_id: input.project_line_id ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return listProductStock(input.product_code);
+}
+
+/** Where a product's finished goods normally stand — and where a delivery
+ *  note takes them from. */
+export async function setProductHome(productCode: string, location: string | null): Promise<Result<ProductStockRow[]>> {
+  const { data, error } = await db().rpc("set_product_home", {
+    p_product_code: productCode,
+    p_location: location,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return listProductStock(productCode);
 }
 
 /** Joins `v_stock_item` rows to `v_stock_by_location` (one query for every row
@@ -226,9 +453,63 @@ async function onOrderFor(itemCode: string): Promise<{ pr_line_no: string; qty: 
     .map((l) => ({ pr_line_no: l.line_no_full as string, qty: l.qty as number, need_by: l.need_by as string | null }));
 }
 
-export async function listStockLocations(): Promise<Result<StockLocation[]>> {
-  const { data, error } = await db().from("stock_locations").select("*").eq("is_active", true).order("name");
+export async function listStockLocations(
+  opts: { all?: boolean } = {},
+): Promise<Result<StockLocation[]>> {
+  let q = db().from("stock_locations").select("*");
+  if (!opts.all) q = q.eq("is_active", true);
+  const { data, error } = await q.order("name");
   return fromRows<StockLocation[]>(SERVICE, data as StockLocation[], error);
+}
+
+/** Adding a rack to count (`0157`). RLS alone gates it (`loc_new`,
+ *  `inventory.update` — the same authority `stock_settings` already answers
+ *  to), so a duplicate code lands here as `23505` and `fail()` turns it into
+ *  `conflict` on its own; nothing here needs to pre-check for one. */
+export async function createStockLocation(
+  input: { code: string; name: string },
+): Promise<Result<StockLocation>> {
+  const code = input.code.trim().toUpperCase();
+  const name = input.name.trim();
+  if (!code) return invalid(SERVICE, "code_required", "Kode lokasi wajib diisi.", { field: "code" });
+  if (!name) return invalid(SERVICE, "name_required", "Nama lokasi wajib diisi.", { field: "name" });
+  const { data, error } = await db().from("stock_locations")
+    .insert({ code, name }).select("*").single();
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, data as StockLocation);
+}
+
+/** Renaming a rack, or retiring/reviving it. Never a delete — a rack once
+ *  counted against stays addressable in `stock_moves` for ever (A5); `false`
+ *  is how it stops being offered on new counts. */
+export async function updateStockLocation(
+  code: string,
+  patch: { name?: string; is_active?: boolean },
+): Promise<Result<StockLocation>> {
+  const update: Record<string, unknown> = {};
+  if (patch.name !== undefined) {
+    const name = patch.name.trim();
+    if (!name) return invalid(SERVICE, "name_required", "Nama lokasi wajib diisi.", { field: "name" });
+    update.name = name;
+  }
+  if (patch.is_active !== undefined) update.is_active = patch.is_active;
+  if (Object.keys(update).length === 0) return invalid(SERVICE, "nothing_to_change", "Tidak ada yang diubah.");
+
+  /* Existence first, under the READ policy: a plain `.update()` under RLS
+     matches zero rows both when the code does not exist and when the UPDATE
+     policy hides it, and those are different answers (not_found vs refused).
+     Checking existence separately is the only way to tell them apart without
+     a security-definer seam, which this table deliberately has none of. */
+  const { data: existing, error: findErr } = await db().from("stock_locations")
+    .select("code").eq("code", code).maybeSingle();
+  if (findErr) return fail(SERVICE, findErr);
+  if (!existing) return notFound(SERVICE, "location_not_found", `No location ${code}.`);
+
+  const { data, error } = await db().from("stock_locations")
+    .update(update).eq("code", code).select("*").maybeSingle();
+  if (error) return fail(SERVICE, error);
+  if (!data) return refused(SERVICE, "not_permitted", "Tidak diizinkan mengubah lokasi ini.");
+  return ok(SERVICE, data as StockLocation);
 }
 
 export async function listStockMoves(
@@ -408,73 +689,10 @@ export async function setStockMinimum(
   return ok(SERVICE, { item_code: input.item_code, min_qty: input.min_qty });
 }
 
-/** Stock from a confirmed receipt — the one move the system makes by itself.
- *  Called by `procurement.confirmReceipt`'s caller, not a screen — same three
- *  arguments as the demo's `stockFromReceipt(draft, receiptNo, userId,
- *  userEmail)`, minus `draft`: there is no in-memory state to pass, so the
- *  receipt → po_line/pr_line → item chain the demo walks over `draft` is
- *  walked here over the database instead (D172's resolution belongs to this
- *  module, not to whoever calls it — the demo puts it here for the same
- *  reason).
- *
- *  `userEmail` is accepted and unused: the demo's `writeMove` puts it in an
- *  audit-row detail column, and `ops_inv` (`0071`) has no audit trail at all
- *  to put it in — every other write-seam in this codebase is `security
- *  definer` specifically to write one, and `stock_moves` was never given
- *  that seam. Not this pass's call to add one.
- *
- *  Necessarily `Promise`-wrapped where the demo is not: resolving the chain
- *  is a database read here, which the demo already has in `draft`. Listed on
- *  `PENDING_PARITY` for that reason — `check-api-parity.mjs` cannot see past
- *  a return type this different, and it should not: a screen awaiting this
- *  needs to know it can. */
-export async function stockFromReceipt(
-  receiptNo: string, userId: string, _userEmail: string,
-): Promise<{ stocked: boolean; why?: string }> {
-  const { data: receipt } = await procure().from("receipts")
-    .select("receipt_no, po_line_id, line_id, qty_received").eq("receipt_no", receiptNo).maybeSingle();
-  if (!receipt) return { stocked: false, why: "receipt not found" };
-
-  const { data: existing } = await db().from("stock_moves").select("id")
-    .eq("ref_no", receiptNo).eq("kind", "receipt").maybeSingle();
-  if (existing) return { stocked: false, why: "already stocked" };
-
-  const [poLine, prLine] = await Promise.all([
-    receipt.po_line_id
-      ? procure().from("po_lines").select("item_id, uom, unit_price").eq("id", receipt.po_line_id).maybeSingle()
-      : Promise.resolve({ data: null }),
-    receipt.line_id
-      ? procure().from("pr_lines").select("item_id, uom, unit_price").eq("id", receipt.line_id).maybeSingle()
-      : Promise.resolve({ data: null }),
-  ]);
-  const line = poLine.data ?? prLine.data;
-  const itemId = line?.item_id;
-  if (!itemId) return { stocked: false, why: "the line names no catalogue item" };
-
-  const { data: item } = await procure().from("items").select("code, base_uom, category_code").eq("id", itemId).maybeSingle();
-  if (!item) return { stocked: false, why: "catalogue item missing" };
-  const { data: cat } = await db().from("stocked_categories").select("category_code")
-    .eq("category_code", item.category_code).maybeSingle();
-  if (!cat) return { stocked: false, why: `${item.category_code} is not a counted category` };
-
-  const { data: setting } = await db().from("stock_settings").select("home_location").eq("item_code", item.code).maybeSingle();
-
-  const { error } = await db().from("stock_moves").insert({
-    item_code: item.code,
-    location: setting?.home_location ?? "GUDANG",
-    kind: "receipt",
-    qty: Math.abs(receipt.qty_received),
-    uom: line?.uom ?? item.base_uom,
-    unit_cost: line?.unit_price ?? null,
-    ref_no: receiptNo,
-    moved_by: userId,
-  });
-  if (error) {
-    if (error.code === "23505") return { stocked: false, why: "already stocked" };
-    return { stocked: false, why: error.message };
-  }
-  return { stocked: true };
-}
+/* Stock from a confirmed receipt is not a client call. It is `0169`'s
+   trigger on `ops_procure.receipts`, in the same transaction as the signature,
+   so a dropped connection cannot leave a signed delivery with nothing on the
+   rack. The client function that stood here was never called by anything. */
 
 /* ------------------------------------------------------------------ */
 /* Timber                                                               */
@@ -510,22 +728,62 @@ async function buildLogPurchaseViews(purchaseNos?: string[]): Promise<Result<Log
   const nos = rows.map((r) => r.purchase_no as string);
   const vendorCodes = [...new Set(rows.map((r) => r.vendor_code as string))];
 
-  const [piecesRes, boardsRes, vendorsRes, linksRes, lowYieldRes] = await Promise.all([
+  const [piecesRes, boardsRes, costsRes, linksRes, lowYieldRes] = await Promise.all([
     db().from("log_pieces").select("*").in("purchase_id", ids),
     db().from("sawn_boards").select("*").in("purchase_id", ids),
-    procure().from("vendors").select("id, code").in("code", vendorCodes),
+    db().from("log_costs").select("*").in("purchase_id", ids).order("incurred_on"),
     core().from("attachment_links").select("entity_no, attachment_id")
       .eq("entity", "log_purchase").eq("kind", "nota").is("unlinked_at", null).in("entity_no", nos),
     core().rpc("setting_num", { p_key: "ops.low_yield_percent" }),
   ]);
   if (piecesRes.error) return fail(SERVICE, piecesRes.error);
   if (boardsRes.error) return fail(SERVICE, boardsRes.error);
-  if (vendorsRes.error) return fail(SERVICE, vendorsRes.error);
+  if (costsRes.error) return fail(SERVICE, costsRes.error);
   if (linksRes.error) return fail(SERVICE, linksRes.error);
+
+  /* A trucker's vendor code joins the timber sellers' in one lookup, and each
+     cost's own nota is found by its own number (`0155`) — never counted as
+     the load's (`has_nota`). */
+  const costRows = (costsRes.data ?? []) as Array<Record<string, unknown>>;
+  const allCodes = [...new Set([...vendorCodes, ...costRows.map((c) => c.vendor_code as string | null).filter((c): c is string => !!c)])];
+  const [vendorsRes, costLinksRes] = await Promise.all([
+    procure().from("vendors").select("id, code").in("code", allCodes),
+    costRows.length === 0
+      ? Promise.resolve({ data: [] as { entity_no: string; attachment_id: string }[], error: null })
+      : core().from("attachment_links").select("entity_no, attachment_id")
+        .eq("entity", "log_cost").eq("kind", "nota").is("unlinked_at", null)
+        .in("entity_no", costRows.map((c) => c.cost_no as string)),
+  ]);
+  if (vendorsRes.error) return fail(SERVICE, vendorsRes.error);
+  if (costLinksRes.error) return fail(SERVICE, costLinksRes.error);
 
   const lowYieldThreshold = (lowYieldRes.data as number | null) ?? 45;
   const vendorIdByCode = new Map((vendorsRes.data ?? []).map((v) => [v.code as string, v.id as string]));
   const notaByPurchaseNo = new Map((linksRes.data ?? []).map((l) => [l.entity_no as string, l.attachment_id as string]));
+  const notaByCostNo = new Map((costLinksRes.data ?? []).map((l) => [l.entity_no as string, l.attachment_id as string]));
+  const purchaseNoById = new Map(rows.map((r) => [r.id as string, r.purchase_no as string]));
+
+  const costsByPurchase = new Map<string, LogCost[]>();
+  for (const c of costRows) {
+    const code = c.vendor_code as string | null;
+    const cost: LogCost = {
+      id: c.id as string,
+      cost_no: c.cost_no as string,
+      purchase_no: purchaseNoById.get(c.purchase_id as string) ?? "",
+      kind: c.kind as LogCostKind,
+      amount: c.amount as number,
+      incurred_on: c.incurred_on as string,
+      payee: c.payee as string | null,
+      vendor_id: code ? vendorIdByCode.get(code) ?? code : null,
+      trx_no: c.trx_no as string | null,
+      nota_attachment_id: notaByCostNo.get(c.cost_no as string) ?? null,
+      note: c.note as string | null,
+      created_at: c.created_at as string,
+    };
+    const list = costsByPurchase.get(c.purchase_id as string) ?? [];
+    list.push(cost);
+    costsByPurchase.set(c.purchase_id as string, list);
+  }
 
   const piecesByPurchase = new Map<string, LogPieceView[]>();
   for (const p of piecesRes.data ?? []) {
@@ -568,7 +826,9 @@ async function buildLogPurchaseViews(purchaseNos?: string[]): Promise<Result<Log
     const claimed_m3 = r.claimed_m3 as number | null;
 
     const warnings: string[] = [];
-    if ((r.pieces as number) === 0) {
+    /* A load bought as boards has no sticks to measure, and is not missing
+       any (`0156`). */
+    if ((r.pieces as number) === 0 && boards.length === 0) {
       warnings.push("Belum ada batang yang diukur — kubikasi dan harga per m³ belum bisa dihitung.");
     }
     if (log_m3 > 0 && sawn_m3 === 0) {
@@ -609,6 +869,13 @@ async function buildLogPurchaseViews(purchaseNos?: string[]): Promise<Result<Log
       cost_per_log_m3: r.cost_per_log_m3 as number | null,
       cost_per_sawn_m3: r.cost_per_sawn_m3 as number | null,
       unsawn_m3, measure_gap_m3, warnings,
+      costs: costsByPurchase.get(r.id as string) ?? [],
+      extra_cost: r.extra_cost as number,
+      landed_cost: r.landed_cost as number,
+      sawn_m2: r.sawn_m2 as number,
+      landed_cost_per_log_m3: r.landed_cost_per_log_m3 as number | null,
+      landed_cost_per_sawn_m3: r.landed_cost_per_sawn_m3 as number | null,
+      landed_cost_per_sawn_m2: r.landed_cost_per_sawn_m2 as number | null,
     };
   });
 
@@ -627,13 +894,13 @@ export async function getLogPurchase(purchaseNo: string): Promise<Result<LogPurc
   return ok(SERVICE, found);
 }
 
-/** Every vendor's timber side by side. The column that decides is
- *  `cost_per_sawn_m3`, not the invoice price (D153) — `v_timber_by_vendor`
- *  (`0070`) already groups by vendor and species; `unsawn_m3` is not one of
- *  its columns, but is exactly `log_m3 - sawn_logs_m3`, which are. */
+/** Every vendor's timber side by side. The column that decides is the
+ *  landed cost per board m³, not the invoice price (D153) —
+ *  `v_timber_by_vendor` (`0070`, `0156`) groups by vendor and species and sums
+ *  the transport and sawing notas beside the invoices. */
 export async function timberByVendor(): Promise<Result<TimberVendorSummary[]>> {
   const { data, error } = await db().from("v_timber_by_vendor").select("*")
-    .order("species").order("cost_per_sawn_m3", { ascending: false });
+    .order("species").order("landed_cost_per_sawn_m3", { ascending: false });
   if (error) return fail(SERVICE, error);
   const rows = data ?? [];
   const codes = [...new Set(rows.map((r) => r.vendor_code as string))];
@@ -652,8 +919,96 @@ export async function timberByVendor(): Promise<Result<TimberVendorSummary[]>> {
     yield_percent: r.yield_percent as number | null,
     cost_per_log_m3: r.cost_per_log_m3 as number | null,
     cost_per_sawn_m3: r.cost_per_sawn_m3 as number | null,
-    unsawn_m3: round4((r.log_m3 as number) - (r.sawn_logs_m3 as number)),
+    unsawn_m3: r.unsawn_m3 as number,
+    sawn_m2: r.sawn_m2 as number,
+    cost_angkut: r.cost_angkut as number,
+    cost_potong: r.cost_potong as number,
+    cost_bongkar: r.cost_bongkar as number,
+    cost_lain: r.cost_lain as number,
+    extra_cost: r.extra_cost as number,
+    landed_cost: r.landed_cost as number,
+    landed_cost_per_log_m3: r.landed_cost_per_log_m3 as number | null,
+    landed_cost_per_sawn_m3: r.landed_cost_per_sawn_m3 as number | null,
+    landed_cost_per_sawn_m2: r.landed_cost_per_sawn_m2 as number | null,
   })));
+}
+
+/** Timber purchases recapped by month, for reporting rather than comparing
+ *  vendors (`0157`). `v_timber_by_month` carries no per-cubic-metre rate —
+ *  that figure only means anything within one species (D153) and a month
+ *  usually spans several — so this is totals only. */
+export async function timberByMonth(): Promise<Result<TimberMonthSummary[]>> {
+  const { data, error } = await db().from("v_timber_by_month").select("*").order("month", { ascending: false });
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, (data ?? []).map((r) => ({
+    month: r.month as string,
+    loads: r.loads as number,
+    vendors: r.vendors as number,
+    species_count: r.species_count as number,
+    wood_cost: r.wood_cost as number,
+    extra_cost: r.extra_cost as number,
+    landed_cost: r.landed_cost as number,
+    log_m3: r.log_m3 as number,
+    sawn_m3: r.sawn_m3 as number,
+    sawn_m2: r.sawn_m2 as number,
+  })));
+}
+
+/** A charge against a load — the truck, the sawmill — from **its own nota**.
+ *
+ *  One row, so `0156`'s RLS is enough (no seam, matching this file's header).
+ *  The timber invoice is never touched: the landed figures are summed on read.
+ *  The cost's nota is linked afterwards under the cost's own number, the same
+ *  optional, non-atomic evidence link `receiveLogs` makes (A6). */
+export async function addLogCost(
+  input: {
+    purchase_no: string;
+    kind: LogCostKind;
+    amount: number;
+    incurred_on: string;
+    payee?: string | null;
+    vendor_id?: string | null;
+    trx_no?: string | null;
+    nota_attachment_id?: string | null;
+    note?: string | null;
+  },
+): Promise<Result<LogPurchaseView>> {
+  if (!input.amount || input.amount <= 0) {
+    return invalid(SERVICE, "amount_required", "Berapa biayanya?", { field: "amount" });
+  }
+  const { data: purchase, error: pErr } = await db().from("log_purchases").select("id")
+    .eq("purchase_no", input.purchase_no).maybeSingle();
+  if (pErr) return fail(SERVICE, pErr);
+  if (!purchase) return notFound(SERVICE, "purchase_not_found", `No log purchase ${input.purchase_no}.`);
+
+  let vendorCode: string | null = null;
+  if (input.vendor_id) {
+    vendorCode = await vendorCodeFor(input.vendor_id);
+    if (!vendorCode) return notFound(SERVICE, "vendor_not_found", "Vendor itu tidak ada.");
+  }
+
+  const { data: row, error } = await db().from("log_costs").insert({
+    purchase_id: purchase.id,
+    kind: input.kind,
+    amount: Math.round(input.amount),
+    incurred_on: input.incurred_on,
+    payee: input.payee?.trim() || null,
+    vendor_code: vendorCode,
+    trx_no: input.trx_no?.trim() || null,
+    note: input.note?.trim() || null,
+  }).select("cost_no").single();
+  if (error) return fail(SERVICE, error);
+
+  if (input.nota_attachment_id) {
+    const uid = await currentUserId();
+    if (!uid.error) {
+      await core().from("attachment_links").insert({
+        attachment_id: input.nota_attachment_id, entity: "log_cost",
+        entity_no: (row as { cost_no: string }).cost_no, kind: "nota", linked_by: uid.data,
+      });
+    }
+  }
+  return getLogPurchase(input.purchase_no);
 }
 
 /** A load of logs arriving — `ops_inv.receive_logs()` (`0095`), the one
@@ -808,6 +1163,41 @@ export async function markLogSawn(
  *  `_nota_kayu.ts`, no database involved. */
 export async function readNota(text: string): Promise<Result<NotaScan>> {
   return ok(SERVICE, scanNota(text));
+}
+
+/** Reading a **photo** of a nota, without writing anything (D200).
+ *
+ *  The one call here that is not PostgREST: the model key cannot be in a
+ *  browser, so the photo makes one hop through `/api/inventory/nota/read`,
+ *  which answers the same `NotaScan` the text reader does. The route's
+ *  refusals are relayed whole — *no model configured* names the thing to do. */
+export async function readNotaImage(file: File): Promise<Result<NotaScan>> {
+  const body = new FormData();
+  body.append("file", file);
+  let res: Response;
+  try {
+    res = await fetch("/api/inventory/nota/read", { method: "POST", body, credentials: "same-origin" });
+  } catch (e) {
+    return {
+      error: {
+        code: "upload_interrupted",
+        message: `Foto nota terputus sebelum sampai. Coba lagi. (${String((e as Error).message)})`,
+        outcome: "refused", status: 500,
+      },
+      meta: { request_id: "", service: SERVICE, version: "1", outcome: "refused" },
+    };
+  }
+  const envelope = await res.json().catch(() => ({})) as { data?: NotaScan; error?: Result<never>["error"] };
+  if (!res.ok || envelope.error || !envelope.data) {
+    return {
+      error: envelope.error ?? {
+        code: "read_failed", message: `Nota tidak terbaca (${res.status}).`,
+        outcome: "refused", status: res.status as never,
+      },
+      meta: { request_id: "", service: SERVICE, version: "1", outcome: "refused" },
+    } as Result<never>;
+  }
+  return ok(SERVICE, envelope.data);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1257,6 +1647,7 @@ export async function materialForWorkOrder(woNo: string): Promise<Result<Materia
       remaining: exp ? r3(exp.qty - issued) : null,
       on_hand: onHand.get(code) ?? 0,
       off_bom: !exp,
+      short: materialShort(exp ? r3(exp.qty - issued) : null, onHand.get(code) ?? 0),
     };
   }).sort((a, b) =>
     Number(a.off_bom) - Number(b.off_bom)
@@ -1269,6 +1660,7 @@ export async function materialForWorkOrder(woNo: string): Promise<Result<Materia
     rev: no_plan_reason ? null : rev,
     no_plan_reason,
     lines,
+    material_status: materialStatus(no_plan_reason, lines),
     variance_readable: completed >= qty || w.status === "DONE",
     completed,
     ordered: qty,

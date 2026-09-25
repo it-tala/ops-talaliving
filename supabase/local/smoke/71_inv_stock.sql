@@ -31,6 +31,11 @@ insert into ops_core.user_modules (user_id, module, level) values
   ('ffffffff-0000-0000-0000-000000003301','inventory','write'),
   ('ffffffff-0000-0000-0000-000000003302','inventory','read');
 
+-- The JO the issues below are written against. Since 0171 an issue whose
+-- ref reads like a JO must name one that exists (D312, after F86).
+insert into ops_prod.work_orders (wo_no, item_name, qty, uom, route, due_date) values
+  ('spk-26-09-03_01', 'Uji', 1, 'unit', 'IN_HOUSE', current_date + 7);
+
 insert into ops_procure.items (code, name, category_code, base_uom) values
   ('KAYU-01','Papan jati 3cm','raw-wood','lembar'),
   ('SEKRUP-01','Sekrup 4x40','hardware','pcs'),

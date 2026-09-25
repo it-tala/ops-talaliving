@@ -110,7 +110,7 @@ export function EvidenceStrip({
   async function attach(file: File) {
     const kind = slotKind.current ?? kindSelected;
     slotKind.current = null;
-    const up = await documents.upload({ file, kind });
+    const up = await documents.upload({ file, kind, entity });
     if (up.error) { toast("critical", "Upload failed", up.error.message); return; }
     const link = await documents.link({
       attachment_id: up.data.id, entity, entity_no: entityNo, kind,

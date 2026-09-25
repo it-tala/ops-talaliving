@@ -221,12 +221,14 @@ export async function listAttachments(): Promise<Result<AttachmentView[]>> {
  *  in the least visible place in the system.
  */
 export async function upload(
-  input: { file: File; kind: DocKind; sha256?: string },
+  input: { file: File; kind: DocKind; sha256?: string; entity?: LinkEntity },
   idempotencyKey?: string,
 ): Promise<Result<AttachmentView>> {
   const body = new FormData();
   body.append("file", input.file);
   body.append("kind", input.kind);
+  /* Picks the task folder under the drive's OPS folder (0172, D313). */
+  if (input.entity) body.append("entity", input.entity);
 
   let res: Response;
   try {

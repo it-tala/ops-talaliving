@@ -6,6 +6,7 @@ import {
   type DesignKind, type DesignTaskView, type RouteCode, type BomExplosion,
   type VendorLegView, type VendorRecord,
   type WorkAttribution, type BomKind,
+  type JobTrail, type TrailEvent, type TrailStage,
 } from "@/services/production/contracts";
 import type { ProjectStatus } from "@/services/procurement/contracts";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
@@ -19,6 +20,7 @@ import {
   latency, actingUser, requireModule, requireAuthority, conflict, replayed, remember,
 } from "./_kit";
 import { settingNumber } from "../settings";
+import { lineCoverage } from "../derive";
 
 const SERVICE = "production" as const;
 
@@ -1851,4 +1853,286 @@ export async function unresolveWorkName(
     });
   });
   return ok(SERVICE, { name, updated: targets.length });
+}
+
+/* ── the trail (0171) ──────────────────────────────────────────────────── */
+
+/** `ops_prod.job_trail`, row for row: any number in, the project's whole
+ *  purchase→production story out, with the stages this reader may not see
+ *  named in `hidden`. */
+export async function jobTrail(no: string): Promise<Result<JobTrail>> {
+  await latency();
+  const state = getState();
+  const user = actingUser();
+  const has = (m: string) => user.modules.some((g) => g.module === m);
+  const vProc = has("procurement");
+  const vInv = has("inventory");
+  const vProd = has("production") || has("project");
+  const vDlv = has("delivery") || has("project");
+  const key = no.trim();
+  if (!(vProc || vInv || vProd || vDlv)) {
+    return refused(SERVICE, "not_permitted",
+      "Riwayat ini butuh akses baca produksi, proyek, pembelian, gudang, atau pengiriman.");
+  }
+  if (!key) {
+    return invalid(SERVICE, "number_required",
+      "Ketik satu nomor: proyek, Job Order, PR, PO, penerimaan, atau surat jalan.", { field: "no" });
+  }
+
+  const docNo = (docId: string) => state.pr_documents.find((d) => d.id === docId)?.doc_no ?? null;
+  const projectCodeById = (id: string | null) => state.projects.find((p) => p.id === id)?.code ?? null;
+  let kind: JobTrail["resolved_as"];
+  let project: string | null = null;
+  let wos: string[] = [];
+  let prl: string[] = [];
+  let pol: string[] = [];
+
+  const wo = state.work_orders.find((w) => w.wo_no === key);
+  const doc = state.pr_documents.find((d) => d.doc_no === key);
+  const po = state.purchase_orders.find((o) => o.po_no === key);
+  const rcv = state.receipts.find((r) => r.receipt_no === key);
+  const dlv = state.deliveries.find((d) => d.delivery_no === key);
+  if (wo) {
+    kind = "job_order"; project = wo.project_code; wos = [key];
+  } else if (state.projects.some((p) => p.code === key)) {
+    kind = "project"; project = key;
+  } else if (doc) {
+    kind = "purchase_request"; project = projectCodeById(doc.project_id);
+    prl = state.pr_lines.filter((l) => l.doc_id === doc.id && !l.removed_at).map((l) => l.id);
+  } else if (po) {
+    kind = "purchase_order";
+    const lines = state.po_lines.filter((l) => l.po_id === po.id && !l.superseded_by);
+    pol = lines.map((l) => l.id);
+    prl = lines.map((l) => l.pr_line_id).filter((x): x is string => !!x);
+  } else if (rcv) {
+    kind = "receipt";
+    if (rcv.line_id) prl.push(rcv.line_id);
+    if (rcv.po_line_id) {
+      pol.push(rcv.po_line_id);
+      const src = state.po_lines.find((l) => l.id === rcv.po_line_id)?.pr_line_id;
+      if (src) prl.push(src);
+    }
+  } else if (dlv) {
+    kind = "delivery"; project = dlv.project_code;
+  } else if (state.items.some((i) => i.code === key)) {
+    return itemTrail(key, { vProc, vInv, vProd });
+  } else {
+    return notFound(SERVICE, "not_found",
+      `Nomor ${key} tidak ditemukan sebagai proyek, Job Order, PR, PO, penerimaan, surat jalan, atau kode barang.`);
+  }
+
+  wos.push(...state.pr_lines.filter((l) => prl.includes(l.id) && l.source_wo_no).map((l) => l.source_wo_no!));
+  if (!project) {
+    project = state.work_orders.filter((w) => wos.includes(w.wo_no) && w.project_code)
+      .map((w) => w.project_code!).sort()[0] ?? null;
+  }
+  if (project) wos.push(...state.work_orders.filter((w) => w.project_code === project).map((w) => w.wo_no));
+  wos = [...new Set(wos)];
+
+  const projectId = state.projects.find((p) => p.code === project)?.id ?? null;
+  prl = [...new Set(state.pr_lines.filter((l) => !l.removed_at && (
+    prl.includes(l.id) || (l.source_wo_no != null && wos.includes(l.source_wo_no))
+    || (projectId != null && state.pr_documents.find((d) => d.id === l.doc_id)?.project_id === projectId)))
+    .map((l) => l.id))];
+  pol = [...new Set(state.po_lines.filter((l) => !l.superseded_by && (pol.includes(l.id) || (l.pr_line_id && prl.includes(l.pr_line_id))))
+    .map((l) => l.id))];
+  const receipts = state.receipts.filter((r) => (r.line_id && prl.includes(r.line_id)) || (r.po_line_id && pol.includes(r.po_line_id)));
+  const rcvNos = receipts.map((r) => r.receipt_no);
+  const orderLines = state.work_orders.filter((w) => wos.includes(w.wo_no) && w.project_line_id).map((w) => w.project_line_id!);
+  const itemCode = (id: string | null | undefined) => state.items.find((i) => i.id === id)?.code ?? null;
+
+  const events: TrailEvent[] = [];
+  const hidden: TrailStage[] = [];
+  const woRows = state.work_orders.filter((w) => wos.includes(w.wo_no));
+  if (vProd) {
+    for (const w of woRows) {
+      events.push({ at: w.created_at, stage: "job_order", no: w.wo_no, wo_no: w.wo_no, item_code: w.product_code,
+        text: w.item_name, qty: w.qty, uom: w.uom, status: w.status });
+    }
+    for (const e of state.production_progress) {
+      const w = woRows.find((x) => x.id === e.wo_id);
+      if (!w) continue;
+      events.push({ at: e.work_date, stage: "progress", no: w.wo_no, wo_no: w.wo_no, item_code: w.product_code,
+        text: e.stage, qty: e.qty, uom: w.uom, status: null });
+    }
+  } else hidden.push("job_order", "progress");
+
+  if (vProc) {
+    for (const l of state.pr_lines.filter((x) => prl.includes(x.id))) {
+      const d = state.pr_documents.find((x) => x.id === l.doc_id);
+      events.push({ at: d?.submitted_at ?? d?.created_at ?? "", stage: "purchase_request", no: l.line_no_full,
+        doc_no: docNo(l.doc_id), wo_no: l.source_wo_no, item_code: itemCode(l.item_id), text: l.description,
+        qty: l.qty, uom: l.uom, amount: l.item_total, paid: lineCoverage(state, l).covered, status: d?.status ?? null });
+    }
+    for (const l of state.po_lines.filter((x) => pol.includes(x.id))) {
+      const o = state.purchase_orders.find((x) => x.id === l.po_id);
+      const v = state.vendors.find((x) => x.id === o?.vendor_id);
+      const src = state.pr_lines.find((x) => x.id === l.pr_line_id);
+      events.push({ at: o?.issued_at ?? o?.created_at ?? "", stage: "purchase_order", no: `${o?.po_no}/${l.line_no}`,
+        doc_no: o?.po_no ?? null, wo_no: src?.source_wo_no ?? null, item_code: itemCode(l.item_id),
+        text: `${l.description} — ${v?.name ?? "?"}`, qty: l.qty, uom: l.uom, amount: l.line_total, status: o?.status ?? null });
+    }
+    for (const r of receipts) {
+      const src = state.pr_lines.find((x) => x.id === r.line_id);
+      const pl = state.po_lines.find((x) => x.id === r.po_line_id);
+      const psrc = state.pr_lines.find((x) => x.id === pl?.pr_line_id);
+      events.push({ at: r.received_at, stage: "receipt", no: r.receipt_no, doc_no: r.receipt_no,
+        wo_no: src?.source_wo_no ?? psrc?.source_wo_no ?? null, item_code: itemCode(src?.item_id ?? pl?.item_id),
+        text: src?.description ?? pl?.description ?? null, qty: r.qty_received, uom: pl?.uom ?? src?.uom ?? null,
+        status: `${r.status} · ${r.condition}` });
+    }
+  } else hidden.push("purchase_request", "purchase_order", "receipt");
+
+  if (vInv) {
+    for (const m of state.stock_moves) {
+      const isIn = m.kind === "receipt" && m.ref_no != null && rcvNos.includes(m.ref_no);
+      const isOut = (m.kind === "issue" || m.kind === "return") && m.ref_no != null && wos.includes(m.ref_no);
+      if (!isIn && !isOut) continue;
+      events.push({ at: m.moved_at, stage: isIn ? "stock_in" : m.kind === "issue" ? "issue" : "return",
+        no: m.move_no, doc_no: m.ref_no, wo_no: isIn ? null : m.ref_no, item_code: m.item_code,
+        text: m.location, qty: m.qty, uom: m.uom, status: null });
+    }
+    for (const m of state.product_moves) {
+      if (!((m.wo_no && wos.includes(m.wo_no)) || (m.project_line_id && orderLines.includes(m.project_line_id)))) continue;
+      events.push({ at: m.moved_at, stage: "finished", no: m.move_no, doc_no: m.ref_no, wo_no: m.wo_no,
+        item_code: m.product_code, text: `${m.kind} · ${m.location}`, qty: m.qty, uom: null, status: null });
+    }
+  } else hidden.push("stock_in", "issue", "finished");
+
+  if (vDlv) {
+    if (project) {
+      for (const dl of state.delivery_lines) {
+        const d = state.deliveries.find((x) => x.id === dl.delivery_id);
+        if (!d || d.project_code !== project) continue;
+        const pl = state.project_lines.find((x) => x.id === dl.project_line_id);
+        events.push({ at: d.created_at, stage: "delivery", no: d.delivery_no, doc_no: d.delivery_no, wo_no: null,
+          item_code: pl?.product_code ?? null, text: dl.description, qty: dl.qty, uom: dl.uom, status: d.status });
+      }
+      for (const h of state.handovers.filter((x) => x.project_code === project)) {
+        events.push({ at: h.created_at, stage: "handover", no: h.handover_no, doc_no: h.handover_no, wo_no: null,
+          item_code: null, text: `BAST — ${h.client_rep} / ${h.our_rep}`, qty: null, uom: null,
+          status: h.open_snags_at_handover > 0 ? `${h.open_snags_at_handover} snag terbuka` : null });
+      }
+    }
+  } else hidden.push("delivery", "handover");
+
+  const at = (s: string) => new Date(s).getTime();
+  events.sort((a, b) => at(a.at) - at(b.at) || a.stage.localeCompare(b.stage) || a.no.localeCompare(b.no));
+  const p = state.projects.find((x) => x.code === project);
+
+  return ok(SERVICE, {
+    no: key,
+    resolved_as: kind,
+    project: p ? { code: p.code, name: p.name, status: p.status ?? null, client_name: p.client_name, target_date: p.target_date } : null,
+    job_orders: vProd
+      ? woRows.sort((a, b) => a.created_at.localeCompare(b.created_at)).map((w) => ({
+          wo_no: w.wo_no, product_code: w.product_code, item_name: w.item_name, qty: w.qty, uom: w.uom,
+          status: w.status, completed: workOrderView(state, w).completed, due_date: w.due_date, bom_rev: w.bom_rev,
+        }))
+      : [],
+    events,
+    hidden,
+    unlinked_purchase_lines: vProc
+      ? state.pr_lines.filter((l) => prl.includes(l.id) && !l.source_wo_no).length
+      : null,
+  });
+}
+
+/** `ops_prod.item_trail` (D313): one item's life — catalogue, the BOMs that
+ *  call for it, the lines that bought it (merged duplicates included), what
+ *  arrived, every stock move, and the Job Orders it served. */
+function itemTrail(code: string, see: { vProc: boolean; vInv: boolean; vProd: boolean }): Result<JobTrail> {
+  const state = getState();
+  let item = state.items.find((i) => i.code === code)!;
+  if (item.merged_into) item = state.items.find((i) => i.id === item.merged_into) ?? item;
+  const ids = state.items.filter((i) => i.id === item.id || i.merged_into === item.id).map((i) => i.id);
+  const prl = state.pr_lines.filter((l) => l.item_id && ids.includes(l.item_id) && !l.removed_at);
+  const prlIds = prl.map((l) => l.id);
+  const pol = state.po_lines.filter((l) => !l.superseded_by
+    && ((l.item_id && ids.includes(l.item_id)) || (l.pr_line_id && prlIds.includes(l.pr_line_id))));
+  const polIds = pol.map((l) => l.id);
+  const receipts = state.receipts.filter((r) => (r.line_id && prlIds.includes(r.line_id)) || (r.po_line_id && polIds.includes(r.po_line_id)));
+  const moves = state.stock_moves.filter((m) => m.item_code === item.code);
+  const wos = [...new Set([
+    ...prl.map((l) => l.source_wo_no).filter((x): x is string => !!x),
+    ...moves.filter((m) => (m.kind === "issue" || m.kind === "return") && m.ref_no
+      && state.work_orders.some((w) => w.wo_no === m.ref_no)).map((m) => m.ref_no!),
+  ])];
+
+  const events: TrailEvent[] = [];
+  const hidden: TrailStage[] = [];
+  for (const c of state.bom_components.filter((x) => x.kind === "material" && x.ref_code === item.code)) {
+    const p = state.products.find((x) => x.id === c.product_id);
+    const r = state.bom_revisions.find((x) => x.product_id === c.product_id && x.rev === c.rev);
+    events.push({ at: r?.released_at ?? r?.created_at ?? "", stage: "bom", no: `${p?.product_code} rev ${c.rev}`,
+      doc_no: p?.product_code ?? null, wo_no: null, item_code: item.code, text: p?.name ?? null,
+      qty: c.qty, uom: c.uom, status: r?.released_at ? "dirilis" : "draft" });
+  }
+  if (see.vProc) {
+    for (const l of prl) {
+      const d = state.pr_documents.find((x) => x.id === l.doc_id);
+      events.push({ at: d?.submitted_at ?? d?.created_at ?? "", stage: "purchase_request", no: l.line_no_full,
+        doc_no: d?.doc_no ?? null, wo_no: l.source_wo_no, item_code: item.code, text: l.description,
+        qty: l.qty, uom: l.uom, amount: l.item_total, paid: lineCoverage(state, l).covered, status: d?.status ?? null });
+    }
+    for (const l of pol) {
+      const o = state.purchase_orders.find((x) => x.id === l.po_id);
+      const v = state.vendors.find((x) => x.id === o?.vendor_id);
+      const src = state.pr_lines.find((x) => x.id === l.pr_line_id);
+      events.push({ at: o?.issued_at ?? o?.created_at ?? "", stage: "purchase_order", no: `${o?.po_no}/${l.line_no}`,
+        doc_no: o?.po_no ?? null, wo_no: src?.source_wo_no ?? null, item_code: item.code,
+        text: `${l.description} — ${v?.name ?? "?"}`, qty: l.qty, uom: l.uom, amount: l.line_total, status: o?.status ?? null });
+    }
+    for (const r of receipts) {
+      const src = state.pr_lines.find((x) => x.id === r.line_id);
+      const pl = state.po_lines.find((x) => x.id === r.po_line_id);
+      const psrc = state.pr_lines.find((x) => x.id === pl?.pr_line_id);
+      events.push({ at: r.received_at, stage: "receipt", no: r.receipt_no, doc_no: r.receipt_no,
+        wo_no: src?.source_wo_no ?? psrc?.source_wo_no ?? null, item_code: item.code,
+        text: src?.description ?? pl?.description ?? null, qty: r.qty_received, uom: pl?.uom ?? src?.uom ?? null,
+        status: `${r.status} · ${r.condition}` });
+    }
+  } else hidden.push("purchase_request", "purchase_order", "receipt");
+  if (see.vInv) {
+    for (const m of moves) {
+      events.push({ at: m.moved_at,
+        stage: m.kind === "receipt" ? "stock_in" : m.kind === "issue" ? "issue" : m.kind === "return" ? "return" : "stock_move",
+        no: m.move_no, doc_no: m.ref_no, wo_no: m.kind === "issue" || m.kind === "return" ? m.ref_no : null,
+        item_code: m.item_code, text: `${m.kind} · ${m.location}${m.reason ? ` · ${m.reason}` : ""}`,
+        qty: m.qty, uom: m.uom, status: null });
+    }
+  } else hidden.push("stock_in", "issue", "stock_move");
+  const woRows = state.work_orders.filter((w) => wos.includes(w.wo_no));
+  if (see.vProd) {
+    for (const w of woRows) {
+      events.push({ at: w.created_at, stage: "job_order", no: w.wo_no, wo_no: w.wo_no, item_code: w.product_code,
+        text: `${w.item_name}${w.project_code ? ` · ${w.project_code}` : ""}`, qty: w.qty, uom: w.uom, status: w.status });
+    }
+  } else hidden.push("job_order");
+
+  /* The sandbox's catalogue carries no creation date; the entry is placed
+     before everything that happened to the item, which is where it belongs. */
+  const at = (x: string) => new Date(x).getTime();
+  const first = events.map((e) => e.at).filter(Boolean).sort((a, b) => at(a) - at(b))[0] ?? new Date().toISOString();
+  const createdAt = (item as { created_at?: string }).created_at ?? first;
+  events.push({ at: createdAt, stage: "catalogued", no: item.code, wo_no: null, item_code: item.code,
+    text: `${item.name}${item.name_local ? ` · ${item.name_local}` : ""}`, qty: null, uom: item.base_uom,
+    status: item.category_code });
+  const order: Record<string, number> = { catalogued: 0 };
+  events.sort((a, b) => at(a.at) - at(b.at) || (order[a.stage] ?? 1) - (order[b.stage] ?? 1)
+    || a.stage.localeCompare(b.stage) || a.no.localeCompare(b.no));
+
+  return ok(SERVICE, {
+    no: code, resolved_as: "item", project: null,
+    item: { code: item.code, name: item.name, name_local: item.name_local ?? null, category_code: item.category_code,
+            uom: item.base_uom, created_at: createdAt },
+    job_orders: see.vProd
+      ? woRows.sort((a, b) => a.created_at.localeCompare(b.created_at)).map((w) => ({
+          wo_no: w.wo_no, product_code: w.product_code, item_name: w.item_name, qty: w.qty, uom: w.uom,
+          status: w.status, completed: workOrderView(state, w).completed, due_date: w.due_date, bom_rev: w.bom_rev,
+        }))
+      : [],
+    events, hidden,
+    unlinked_purchase_lines: see.vProc ? prl.filter((l) => !l.source_wo_no).length : null,
+  });
 }

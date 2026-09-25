@@ -8,6 +8,7 @@ import { ok, invalid, notFound, type Result } from "@/services/_shared/envelope"
 import type {
   Attachment, AttachmentLink, AttachmentView, DocKind, LinkEntity,
 } from "@/services/documents/contracts";
+import { ITEM_PHOTO_MAX, ITEM_PHOTO_MIN } from "@/services/documents/contracts";
 import { getState, apply, newId, writeAudit, writeOutbox } from "../store";
 import { latency, actingUser, conflict, replayed, remember } from "./_kit";
 import { settingNumber } from "../settings";
@@ -46,7 +47,9 @@ function view(att: Attachment): AttachmentView {
  *  reads the three fields off it rather than being told them.
  */
 export async function upload(
-  input: { file: File; kind: DocKind; sha256?: string },
+  /** `entity` picks the task folder under OPS in the live system (0172); the
+   *  sandbox files nothing to Drive, so it is accepted and unused. */
+  input: { file: File; kind: DocKind; sha256?: string; entity?: LinkEntity },
   idempotencyKey?: string,
 ): Promise<Result<AttachmentView>> {
   await latency();
@@ -184,6 +187,14 @@ export async function link(
   if (already) {
     return conflict(SERVICE, "already_linked", "This document is already linked there — nothing changed.");
   }
+  /* The item photo cap (`0168`'s trigger). The live client gets it as
+     SQLSTATE 23514, which `fail()` turns into `invalid`/`constraint` with the
+     trigger's own sentence — so the demo answers with the same code and words. */
+  if (input.entity === "item" && input.kind === "Foto"
+      && itemPhotoCount(input.entity_no) >= ITEM_PHOTO_MAX) {
+    return invalid(SERVICE, "constraint",
+      `Barang ${input.entity_no} sudah punya ${ITEM_PHOTO_MAX} foto. Hapus satu dulu sebelum menambah.`);
+  }
 
   const user = actingUser();
   const row: AttachmentLink = {
@@ -206,10 +217,22 @@ export async function link(
 /** Removing a link is not deleting a file. The file stays, both actions are in
  *  the audit log, and a wrong link is corrected by removing and adding rather
  *  than by moving. */
+function itemPhotoCount(itemCode: string): number {
+  return getState().attachment_links.filter(
+    (l) => l.entity === "item" && l.entity_no === itemCode && l.kind === "Foto",
+  ).length;
+}
+
 export async function unlink(linkId: string): Promise<Result<{ removed: string }>> {
   await latency();
   const existing = getState().attachment_links.find((l) => l.id === linkId);
   if (!existing) return notFound(SERVICE, "link_not_found", "Link not found.");
+  /* The floor: an item keeps at least one photo (`0168`). Replace, not remove. */
+  if (existing.entity === "item" && existing.kind === "Foto"
+      && itemPhotoCount(existing.entity_no) <= ITEM_PHOTO_MIN) {
+    return invalid(SERVICE, "constraint",
+      `Barang ${existing.entity_no} harus punya minimal satu foto. Tambahkan foto penggantinya dulu, baru hapus yang ini.`);
+  }
   apply((draft) => {
     draft.attachment_links = draft.attachment_links.filter((l) => l.id !== linkId);
     writeAudit(draft, {

@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { supabaseServer } from "@/lib/supabase/server";
-import { uploadToDrive, findOrCreateOpsFolder, driveConfigured } from "@/lib/drive";
+import { uploadToDrive, findOrCreateOpsFolder, findOrCreatePath, driveConfigured } from "@/lib/drive";
 
 /** `POST /api/documents/upload` — the one server route this application has.
  *
@@ -97,6 +97,10 @@ export async function POST(request: Request): Promise<Response> {
 
   const file = form.get("file");
   const kind = String(form.get("kind") ?? "").trim();
+  /* The record the file will be filed against, where the screen knows it: it
+     picks the task folder under OPS (a photo of an item is not a photo of a
+     finished product). Optional — without it the kind's own folder is used. */
+  const entity = String(form.get("entity") ?? "").trim() || null;
   if (!(file instanceof File)) {
     return refuse(400, "file_required", "No file was sent.", { field: "file" });
   }
@@ -114,7 +118,7 @@ export async function POST(request: Request): Promise<Response> {
      obeys. The refusal is relayed whole, because it names the thing to do —
      *the HRD shared drive has no `ops` folder recorded yet*. */
   const { data: where, error: whereErr } = await sb
-    .schema("ops_core").rpc("drive_folder_for", { p_kind: kind });
+    .schema("ops_core").rpc("drive_folder_for", { p_kind: kind, p_entity: entity });
   if (whereErr) {
     return refuse(500, "database_error", whereErr.message);
   }
@@ -131,18 +135,17 @@ export async function POST(request: Request): Promise<Response> {
     parent_folder_id: string | null;
     label: string;
     slug: string;
+    /** The task folder under OPS (0172), e.g. `INVENTORY/ITEMS`. */
+    path: string;
   };
 
-  /* **The `ops` folder, located once per drive.**
+  /* **The `OPS` folder, located once per drive.**
    *
-   * The owner gave the module folders — what a person can read off a Drive URL
-   * — and `ops` is the subfolder everything this application writes goes into,
-   * so that people and the system can read the same drive side by side without
-   * mixing what each of them filed.
-   *
-   * Resolved by name and then written down, rather than asked for as eight
-   * more ids: a name is checkable, an id pasted into a column that redirects
-   * every future upload is not.
+   * The id recorded for each drive is the owner's `OPS` folder itself (D313 —
+   * `0036` had read it as a parent and would have filed into `OPS/ops`).
+   * `findOrCreateOpsFolder` checks the name: a folder named OPS is the target;
+   * anything else gets an `OPS` found or made inside it. Written down after,
+   * so the next upload does not ask again.
    */
   let folderId = folder.folder_id;
   if (!folderId) {
@@ -166,6 +169,16 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
+  /* Never loose in OPS: every file goes in the folder for its task (D313). */
+  let targetId: string;
+  try {
+    targetId = await findOrCreatePath(folderId, folder.path);
+  } catch (e) {
+    return refuse(502, "drive_folder_failed",
+      `Could not find or create OPS/${folder.path} in ${folder.label}. ` + String((e as Error).message),
+      { slug: folder.slug, path: folder.path });
+  }
+
   const bytes = await file.arrayBuffer();
 
   /* Hashed here rather than in the browser: it is what makes *we have seen
@@ -180,7 +193,7 @@ export async function POST(request: Request): Promise<Response> {
   let uploaded;
   try {
     uploaded = await uploadToDrive(
-      { name: file.name, type: file.type, bytes }, folderId,
+      { name: file.name, type: file.type, bytes }, targetId,
     );
   } catch (e) {
     /* Nothing has been written to the database, so there is nothing to undo.

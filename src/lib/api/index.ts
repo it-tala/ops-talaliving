@@ -41,7 +41,8 @@ export * as assistant from "./assistant";
 
 /* Material stock (`0071`) only — `listStock`, `getStockItem`,
    `listStockLocations`, `listStockMoves`, `issueStock`, `returnStock`,
-   `adjustStock`, `transferStock`, `setStockMinimum`, `stockFromReceipt`.
+   `adjustStock`, `transferStock`, `setStockMinimum` (stock from a receipt is
+   `0169`'s trigger, not a client call).
    Timber (`0070`) and the board rack (no migration yet) are not written here
    yet; a screen that calls one of those names still gets the same 501 as a
    function that does not exist at all (this file's own header), so exporting

@@ -178,7 +178,7 @@ function DrawingPanel({ p, mayEdit, busy, run, settle }: PartProps) {
 
   async function attachFile(f: File) {
     await run(async () => {
-      const up = await documents.upload({ file: f, kind });
+      const up = await documents.upload({ file: f, kind, entity: "product" });
       if (up.error) { settle(up, ""); return; }
       const res = await production.attachProductDrawing({
         product_code: p.product_code, attachment_id: up.data.id, kind,

@@ -204,27 +204,53 @@ export async function uploadToDrive(
   return { id: out.id, name: out.name, webViewLink: out.webViewLink ?? null };
 }
 
-/** The `ops` folder inside a module folder — found, or made.
+/** The `OPS` folder of a module — the recorded folder itself, or one inside it.
  *
- *  The owner gave the module folders (PROCUREMENT, ACCOUNTING, HRD and five
- *  more), which is what a person can read off a Drive URL. The `ops` folder
- *  inside each is what this application writes to, and asking for eight more
- *  ids would have been eight more chances to paste the wrong one into a column
- *  that silently redirects everything afterwards.
+ *  `0036` read the ids the owner handed over (2026-09-21) as the **module
+ *  folders** and made this function create an `ops` folder inside each. The
+ *  ids are the `OPS` folders themselves: DRAFTING's is a folder named `OPS`,
+ *  and the owner confirmed it for procurement (2026-09-25, *harusnya di folder
+ *  OPS shared drive Procurement*). Nesting would have filed everything in
+ *  `OPS/ops`. Nothing was uploaded before this was caught — every
+ *  `drive_folders.folder_id` was still null in production.
  *
- *  So it is resolved by **name**, once, and the id is written back to
- *  `ops_core.drive_folders`. A name is checkable; an id is not.
+ *  So the recorded folder is asked its own name first: **named OPS (any case)
+ *  → it is the target**. Only a folder named anything else gets an `OPS`
+ *  folder found or made inside it, the case `0036` was written for. Resolved
+ *  by name, once, and written back to `ops_core.drive_folders` — a name is
+ *  checkable; an id is not.
  *
  *  `trashed = false` matters: a folder somebody deleted last month still
- *  answers a search, and uploading into the bin loses the file quietly. If the
- *  `ops` folder has been trashed this makes a new one, which is the right
- *  answer — the old files are still in the bin where somebody put them.
+ *  answers a search, and uploading into the bin loses the file quietly.
  */
 export async function findOrCreateOpsFolder(parentFolderId: string): Promise<string> {
   const token = await accessToken();
 
+  const self = await fetch(
+    `${FILES_URL}/${encodeURIComponent(parentFolderId)}?supportsAllDrives=true&fields=id,name,trashed`,
+    { headers: { authorization: `Bearer ${token}` } },
+  );
+  if (!self.ok) {
+    throw new Error(`Drive refused to read the recorded folder: ${self.status} ${await self.text()}`);
+  }
+  const me = (await self.json()) as { id: string; name: string; trashed?: boolean };
+  if (me.trashed) {
+    throw new Error(`The recorded folder "${me.name}" is in the bin. IT records the right one in ops_core.drive_folders.`);
+  }
+  if (isOpsName(me.name)) return me.id;
+  return findOrCreateFolder(parentFolderId, "OPS", token);
+}
+
+/** A folder by name inside another — found (ignoring case, because people
+ *  make these by hand), or made. */
+export async function findOrCreateFolder(parentFolderId: string, name: string, token?: string): Promise<string> {
+  const bearer = token ?? await accessToken();
+  const wanted = name.trim();
   const q = [
-    "name = 'ops'",
+    /* `contains` on a name is a case-insensitive prefix match; the exact
+       comparison is done below, so `Inventory` made by hand is reused rather
+       than duplicated as `INVENTORY`. */
+    `name contains '${wanted.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`,
     "mimeType = 'application/vnd.google-apps.folder'",
     `'${parentFolderId}' in parents`,
     "trashed = false",
@@ -240,26 +266,45 @@ export async function findOrCreateOpsFolder(parentFolderId: string): Promise<str
      upload, one call earlier. */
   search.searchParams.set("corpora", "allDrives");
 
-  const found = await fetch(search, { headers: { authorization: `Bearer ${token}` } });
+  const found = await fetch(search, { headers: { authorization: `Bearer ${bearer}` } });
   if (!found.ok) {
     throw new Error(`Drive refused the folder search: ${found.status} ${await found.text()}`);
   }
-  const hits = ((await found.json()) as { files?: { id: string }[] }).files ?? [];
-  if (hits.length > 0) return hits[0]!.id;
+  const hits = ((await found.json()) as { files?: { id: string; name: string }[] }).files ?? [];
+  const hit = hits.find((f) => f.name.trim().toLowerCase() === wanted.toLowerCase());
+  if (hit) return hit.id;
 
   const made = await fetch(`${FILES_URL}?supportsAllDrives=true&fields=id`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers: { authorization: `Bearer ${bearer}`, "content-type": "application/json" },
     body: JSON.stringify({
-      name: "ops",
+      name: wanted,
       mimeType: "application/vnd.google-apps.folder",
       parents: [parentFolderId],
     }),
   });
   if (!made.ok) {
-    throw new Error(`Drive refused to create the ops folder: ${made.status} ${await made.text()}`);
+    throw new Error(`Drive refused to create the folder "${wanted}": ${made.status} ${await made.text()}`);
   }
   return ((await made.json()) as { id: string }).id;
+}
+
+/** The task folder under OPS (`ops_core.drive_paths`, 0172): each segment of
+ *  `INVENTORY/FINISHED GOODS` found or made in turn. Two uploads racing on a
+ *  brand-new folder can each make one; the next upload reuses the first found,
+ *  and IT merges the pair by hand — rare, visible, and harmless to the files. */
+export async function findOrCreatePath(opsFolderId: string, path: string): Promise<string> {
+  const token = await accessToken();
+  let at = opsFolderId;
+  for (const segment of path.split("/").map((x) => x.trim()).filter(Boolean)) {
+    at = await findOrCreateFolder(at, segment, token);
+  }
+  return at;
+}
+
+/** `OPS`, `ops`, ` Ops ` — the owner's folders are typed by hand. */
+export function isOpsName(name: string): boolean {
+  return name.trim().toLowerCase() === "ops";
 }
 
 /** Is this deployment able to reach Drive at all?

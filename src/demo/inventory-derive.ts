@@ -9,8 +9,9 @@
  */
 import type { DemoState } from "./state";
 import type {
-  LogPurchase, LogPurchaseView, LogPieceView, SawnBoardView, LogMeasure,
-  TimberVendorSummary, BoardStockView, BoardMoveView,
+  LogPurchase, LogPurchaseView, LogPieceView, SawnBoardView, LogMeasure, LogCost,
+  TimberVendorSummary, TimberMonthSummary, BoardStockView, BoardMoveView,
+  ProductLedgerRow, ProductStockRow,
 } from "@/services/inventory/contracts";
 
 const round4 = (n: number) => Math.round(n * 10_000) / 10_000;
@@ -76,11 +77,24 @@ export function logPurchaseView(state: DemoState, p: LogPurchase): LogPurchaseVi
     : null;
 
   /* The invoice covers every log. Only the share belonging to the logs that
-     were sawn may be divided by the boards that came out of them. */
-  const sawnCost = basis > 0 && log_m3 > 0 ? p.total_cost * (basis / log_m3) : 0;
+     were sawn may be divided by the boards that came out of them — and a load
+     bought as boards, with no logs at all, is all boards (`0156`). */
+  const share = log_m3 > 0 ? basis / log_m3 : 1;
+  const sawnCost = sawn_m3 > 0 ? p.total_cost * share : 0;
+
+  /* The truck and the sawmill, each from its own nota. Summed beside the
+     invoice, never into it: paper price and landed price both stay visible. */
+  const costs: LogCost[] = state.log_costs
+    .filter((c) => c.purchase_id === p.id)
+    .map(({ purchase_id: _purchase, ...c }) => ({ ...c, purchase_no: p.purchase_no }))
+    .sort((a, b) => a.incurred_on.localeCompare(b.incurred_on));
+  const extra_cost = costs.reduce((a, c) => a + c.amount, 0);
+  const landed_cost = p.total_cost + extra_cost;
+  /* Board face, width × length — every thickness together (owner, 2026-09-24). */
+  const sawn_m2 = round4(boards.reduce((a, b) => a + (b.width_mm / 1000) * (b.length_mm / 1000) * b.qty, 0));
 
   const warnings: string[] = [];
-  if (logs.length === 0) {
+  if (logs.length === 0 && boards.length === 0) {
     warnings.push("Belum ada batang yang diukur — kubikasi dan harga per m³ belum bisa dihitung.");
   }
   if (log_m3 > 0 && sawn_m3 === 0) {
@@ -122,6 +136,13 @@ export function logPurchaseView(state: DemoState, p: LogPurchase): LogPurchaseVi
     unsawn_m3,
     measure_gap_m3,
     warnings,
+    costs,
+    extra_cost,
+    landed_cost,
+    sawn_m2,
+    landed_cost_per_log_m3: log_m3 > 0 ? Math.round(landed_cost / log_m3) : null,
+    landed_cost_per_sawn_m3: sawn_m3 > 0 ? Math.round((landed_cost * share) / sawn_m3) : null,
+    landed_cost_per_sawn_m2: sawn_m2 > 0 ? Math.round((landed_cost * share) / sawn_m2) : null,
   };
 }
 
@@ -163,6 +184,19 @@ export function timberVendorSummaries(state: DemoState): TimberVendorSummary[] {
       const allocatedCost = rows.reduce(
         (a, r) => a + (r.cost_per_sawn_m3 != null ? r.cost_per_sawn_m3 * r.sawn_m3 : 0), 0,
       );
+      const allocatedLanded = rows.reduce(
+        (a, r) => a + (r.landed_cost_per_sawn_m3 != null ? r.landed_cost_per_sawn_m3 * r.sawn_m3 : 0), 0,
+      );
+      const allocatedLandedM2 = rows.reduce(
+        (a, r) => a + (r.landed_cost_per_sawn_m2 != null ? r.landed_cost_per_sawn_m2 * r.sawn_m2 : 0), 0,
+      );
+      const sawn_m2 = round4(rows.reduce((a, r) => a + r.sawn_m2, 0));
+      const byKind = (k: LogCost["kind"]) =>
+        rows.reduce((a, r) => a + r.costs.filter((c) => c.kind === k).reduce((x, c) => x + c.amount, 0), 0);
+      const landed_cost = rows.reduce((a, r) => a + r.landed_cost, 0);
+      /* Per log m³ only over loads that had logs — a load bought as boards has
+         no log volume to divide by. */
+      const withLogs = rows.filter((r) => r.log_m3 > 0);
 
       return {
         vendor_id,
@@ -172,18 +206,58 @@ export function timberVendorSummaries(state: DemoState): TimberVendorSummary[] {
         log_m3,
         sawn_m3,
         total_cost,
+        /* A load bought as boards has no logs to yield from, so its boards
+           stay out of the ratio (`0156`). */
         yield_percent: sawnBasis > 0 && sawn_m3 > 0
-          ? Math.round((sawn_m3 / sawnBasis) * 1000) / 10
+          ? Math.round((withLogs.reduce((a, r) => a + r.sawn_m3, 0) / sawnBasis) * 1000) / 10
           : null,
-        cost_per_log_m3: log_m3 > 0 ? Math.round(total_cost / log_m3) : null,
+        cost_per_log_m3: log_m3 > 0 ? Math.round(withLogs.reduce((a, r) => a + r.total_cost, 0) / log_m3) : null,
         cost_per_sawn_m3: sawn_m3 > 0 ? Math.round(allocatedCost / sawn_m3) : null,
         unsawn_m3: round4(rows.reduce((a, r) => a + r.unsawn_m3, 0)),
+        sawn_m2,
+        cost_angkut: byKind("angkut"),
+        cost_potong: byKind("potong"),
+        cost_bongkar: byKind("bongkar"),
+        cost_lain: byKind("lain"),
+        extra_cost: rows.reduce((a, r) => a + r.extra_cost, 0),
+        landed_cost,
+        landed_cost_per_log_m3: log_m3 > 0 ? Math.round(withLogs.reduce((a, r) => a + r.landed_cost, 0) / log_m3) : null,
+        landed_cost_per_sawn_m3: sawn_m3 > 0 ? Math.round(allocatedLanded / sawn_m3) : null,
+        landed_cost_per_sawn_m2: sawn_m2 > 0 ? Math.round(allocatedLandedM2 / sawn_m2) : null,
       };
     })
     /* Grouped by species, dearest usable wood first inside each — the row a
        buyer should look at before ringing anybody. */
     .sort((a, b) => a.species.localeCompare(b.species)
-      || (b.cost_per_sawn_m3 ?? 0) - (a.cost_per_sawn_m3 ?? 0));
+      || (b.landed_cost_per_sawn_m3 ?? 0) - (a.landed_cost_per_sawn_m3 ?? 0));
+}
+
+/** Timber purchases by month, for reporting rather than comparing vendors
+ *  (`0157`). **No per-cubic-metre rate is computed here** — that number only
+ *  means anything within one species (D153), and a month usually spans more
+ *  than one, so a blended rate would look precise and mean nothing. Totals
+ *  only: what came in, what it cost before and after landing it. */
+export function timberMonthSummaries(state: DemoState): TimberMonthSummary[] {
+  const views = logPurchaseViews(state);
+  const byMonth = new Map<string, LogPurchaseView[]>();
+  for (const v of views) {
+    const month = `${v.received_on.slice(0, 7)}-01`;
+    byMonth.set(month, [...(byMonth.get(month) ?? []), v]);
+  }
+  return [...byMonth.entries()]
+    .map(([month, rows]) => ({
+      month,
+      loads: rows.length,
+      vendors: new Set(rows.map((r) => r.vendor_id)).size,
+      species_count: new Set(rows.map((r) => r.species)).size,
+      wood_cost: rows.reduce((a, r) => a + r.total_cost, 0),
+      extra_cost: rows.reduce((a, r) => a + r.extra_cost, 0),
+      landed_cost: rows.reduce((a, r) => a + r.landed_cost, 0),
+      log_m3: round4(rows.reduce((a, r) => a + r.log_m3, 0)),
+      sawn_m3: round4(rows.reduce((a, r) => a + r.sawn_m3, 0)),
+      sawn_m2: round4(rows.reduce((a, r) => a + r.sawn_m2, 0)),
+    }))
+    .sort((a, b) => b.month.localeCompare(a.month));
 }
 
 /* ── Stock ──────────────────────────────────────────────────────────────── */
@@ -243,6 +317,14 @@ function moveView(state: DemoState, m: StockMove): StockMoveView {
  *  identical on a screen that hides the second one, and they lead to opposite
  *  actions.
  */
+/** An item's live photos (`0168`) — the demo's links carry no unlink stamp;
+ *  a removed link is gone from the array, so every row here is live. */
+export function itemPhotoLinks(state: DemoState, itemCode: string) {
+  return state.attachment_links.filter(
+    (l) => l.entity === "item" && l.entity_no === itemCode && l.kind === "Foto",
+  );
+}
+
 export function stockItems(state: DemoState): StockItemView[] {
   const byItem = new Map<string, StockMove[]>();
   for (const m of state.stock_moves) {
@@ -298,6 +380,8 @@ export function stockItems(state: DemoState): StockItemView[] {
       below_min: setting?.min_qty != null && on_hand < setting.min_qty,
       last_move_at: moves.length > 0 ? moves[moves.length - 1].moved_at : null,
       moves_count: moves.length,
+      item_name_local: item.name_local ?? null,
+      photo_count: itemPhotoLinks(state, item.code).length,
     });
   }
 
@@ -559,4 +643,95 @@ export function boardMoveViews(
     .filter((m) => (!filter.board_key || m.board_key === filter.board_key)
       && (!filter.ref_no || m.ref_no === filter.ref_no))
     .sort((a, b) => b.at.localeCompare(a.at));
+}
+
+/* ── finished goods (0170) ─────────────────────────────────────────────── */
+
+/** Stored moves plus shipments read off the delivery notes — the same rule as
+ *  `ops_inv.product_ledger`: a delivery line counts only for an order line
+ *  that already has finished goods recorded, only from on or after the first
+ *  one, and never when the delivery was cancelled. It leaves from the
+ *  product's home location. */
+export function productLedgerRows(state: DemoState, productCode?: string): ProductLedgerRow[] {
+  const stored: ProductLedgerRow[] = state.product_moves
+    .filter((m) => !productCode || m.product_code === productCode)
+    .map((m) => ({ ...m }));
+  const since = new Map<string, string>();
+  for (const m of state.product_moves) {
+    if (!m.project_line_id) continue;
+    const at = since.get(m.project_line_id);
+    if (!at || m.moved_at < at) since.set(m.project_line_id, m.moved_at);
+  }
+  const shipped: ProductLedgerRow[] = [];
+  for (const dl of state.delivery_lines) {
+    const first = since.get(dl.project_line_id);
+    if (!first) continue;
+    const d = state.deliveries.find((x) => x.id === dl.delivery_id);
+    if (!d || d.status === "CANCELLED" || d.created_at < first) continue;
+    const pl = state.project_lines.find((l) => l.id === dl.project_line_id);
+    if (!pl?.product_code || (productCode && pl.product_code !== productCode)) continue;
+    const home = state.product_settings.find((s) => s.product_code === pl.product_code)?.home_location;
+    shipped.push({
+      move_no: d.delivery_no, product_code: pl.product_code, location: home ?? "GUDANG",
+      kind: "shipped", qty: -dl.qty, wo_no: null, project_line_id: dl.project_line_id,
+      ref_no: d.delivery_no, reason: null, moved_by: d.created_by ?? null, moved_at: d.created_at,
+    });
+  }
+  return [...stored, ...shipped].sort((a, b) => b.moved_at.localeCompare(a.moved_at));
+}
+
+/** On hand for one batch (product × order line) at one location. */
+export function productOnHand(state: DemoState, productCode: string, lineId: string | null, location: string): number {
+  return productLedgerRows(state, productCode)
+    .filter((r) => r.location === location && (r.project_line_id ?? null) === lineId)
+    .reduce((s, r) => s + r.qty, 0);
+}
+
+/** `ops_inv.product_stock`, row for row. */
+export function productStockRows(state: DemoState, productCode?: string): ProductStockRow[] {
+  const groups = new Map<string, ProductLedgerRow[]>();
+  for (const r of productLedgerRows(state, productCode)) {
+    const k = `${r.product_code}|${r.project_line_id ?? ""}`;
+    (groups.get(k) ?? groups.set(k, []).get(k)!).push(r);
+  }
+  const rows: ProductStockRow[] = [];
+  for (const moves of groups.values()) {
+    const { product_code, project_line_id } = moves[0];
+    const product = state.products.find((p) => p.product_code === product_code);
+    const line = project_line_id ? state.project_lines.find((l) => l.id === project_line_id) : undefined;
+    const project = line ? state.projects.find((p) => p.id === line.project_id) : undefined;
+    const sum = (f: (r: ProductLedgerRow) => boolean) => moves.filter(f).reduce((s, r) => s + r.qty, 0);
+    const produced = sum((r) => r.kind === "produced");
+    const shipped = 0 - sum((r) => r.kind === "shipped");
+    const onHand = sum(() => true);
+    const byLocation: Record<string, number> = {};
+    for (const r of moves) byLocation[r.location] = (byLocation[r.location] ?? 0) + r.qty;
+    for (const k of Object.keys(byLocation)) if (byLocation[k] === 0) delete byLocation[k];
+    const stillOwed = line ? Math.max(line.qty - shipped, 0) : 0;
+    rows.push({
+      product_code,
+      product_name: product?.name ?? null,
+      uom: product?.uom ?? null,
+      project_line_id: project_line_id ?? null,
+      project_code: project?.code ?? null,
+      line_no: line?.line_no ?? null,
+      line_description: line?.description ?? null,
+      ordered: line ? line.qty : null,
+      produced,
+      shipped,
+      other: sum((r) => r.kind !== "produced" && r.kind !== "shipped" && r.kind !== "allocated"),
+      allocated: sum((r) => r.kind === "allocated"),
+      on_hand: onHand,
+      overrun: line ? Math.max(produced - line.qty, 0) : 0,
+      still_owed: stillOwed,
+      surplus: Math.max(onHand - stillOwed, 0),
+      by_location: Object.fromEntries(Object.entries(byLocation).sort(([a], [b]) => a.localeCompare(b))),
+      wo_nos: [...new Set(moves.map((r) => r.wo_no).filter((w): w is string => !!w))].sort(),
+      home_location: state.product_settings.find((s) => s.product_code === product_code)?.home_location ?? null,
+      last_move_at: moves.reduce<string | null>((m, r) => (!m || r.moved_at > m ? r.moved_at : m), null),
+    });
+  }
+  return rows.sort((a, b) => a.product_code.localeCompare(b.product_code)
+    || (a.project_code ?? "").localeCompare(b.project_code ?? "")
+    || (a.line_no ?? 0) - (b.line_no ?? 0));
 }

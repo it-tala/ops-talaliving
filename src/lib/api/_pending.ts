@@ -77,18 +77,16 @@
  *  finishing B2/B3, and the removal has to come with the fix that earns it.
  */
 export const PENDING_PARITY: readonly string[] = [
-  "inventory.stockFromReceipt",
 ];
 
-/* `inventory.stockFromReceipt`: the demo's is synchronous — `draft` is
-   already in memory, so resolving receipt → po_line/pr_line → item is a plain
-   lookup. The real client has no `draft`; the same resolution is a handful of
-   database reads, so the function is necessarily `Promise`-wrapped where the
-   demo's is not. Nothing to fix — a synchronous function cannot read a
-   database, and the caller (procurement's receipt-confirm flow) already
-   awaits it. Named here rather than silently answering a different shape.
+/* Empty since `0169`. `inventory.stockFromReceipt` was the last name here —
+   the demo's is synchronous over `draft`, the real one could not be. It closed
+   by leaving the client altogether: stock from a signed delivery is now a
+   trigger on `ops_procure.receipts`, in the signature's own transaction, and
+   the real function (never called by anything) was deleted. The demo keeps its
+   helper as the in-memory twin of that trigger.
 
-   Empty otherwise as of `0091`. `getCashPlan` was the last name here — the twelve-month
+   Before that, empty as of `0091`. `getCashPlan` was the last name here — the twelve-month
    cash projection, ported to `ops_acct.cash_plan()` as its own migration with
    its own smoke file (`86_acct_cash_plan.sql`) proving the occurrence dates,
    the weekly-override spread (D114), the settlement link beating a category

@@ -18,8 +18,9 @@ import type {
   Market, Property, PropertyAgent, SalesRep, Referral, ScrapeRow,
 } from "@/services/marketing/contracts";
 import type {
-  LogPurchase, LogPiece, SawnBoard, BoardMove,
+  LogPurchase, LogPiece, SawnBoard, BoardMove, LogCost,
   StockLocation, StockMove, StockSetting, Asset, AssetService, AssetCategory,
+  ProductMove, ProductSetting,
 } from "@/services/inventory/contracts";
 import type {
   Employee, AttendanceScan, DayMark, OvertimeSheet, OvertimeLine, PayrollRun,
@@ -227,6 +228,10 @@ export interface DemoState {
   assistant_turns: AssistantTurn[];
   /** Append-only. A mistake is another move with a reason (A5, D171). */
   stock_moves: StockMove[];
+  /** Finished goods (0170): what the workshop made, on a rack until it
+   *  ships. Shipments are not here — they are read off `delivery_lines`. */
+  product_moves: ProductMove[];
+  product_settings: ProductSetting[];
 
   /* --- inventory: assets (0107) ------------------------------------ */
   /** What the company owns and uses rather than sells: CCTV, PCs, vehicles. */
@@ -240,6 +245,9 @@ export interface DemoState {
    *  saw between them (D153). */
   log_purchases: LogPurchase[];
   log_pieces: LogPiece[];
+  /** Transport, sawing and the rest, each from its own nota — never folded
+   *  into the timber invoice (`0156`). */
+  log_costs: DemoLogCost[];
   /* The last leg: what left the yard, what was fitted, what was found wrong,
      and the one record that says a job is finished (D209). */
   deliveries: Delivery[];
@@ -290,3 +298,7 @@ export interface DemoState {
 }
 
 export type SessionView = Session;
+
+/** A load's cost as stored: keyed to the load by row id, as `0156` does; the
+ *  view's `purchase_no` is derived on read. */
+export type DemoLogCost = Omit<LogCost, "purchase_no"> & { purchase_id: string };

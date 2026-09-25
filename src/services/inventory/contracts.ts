@@ -93,6 +93,64 @@ export interface NotaScan {
   /** Rows the reader could not make sense of. Never dropped silently: a nota
    *  with four unread rows is a nota somebody has to look at. */
   unread: string[];
+  /** Where the reading came from: pasted text read by rules, or a photo/PDF
+   *  read by a language model. The screen says which, because a model's
+   *  reading is a proposal in exactly the same way and deserves the same
+   *  checking — more, not less. */
+  source: "text" | "image";
+  /** Who issued it and when, as printed. Guesses that prefill the form, never
+   *  values filed without somebody seeing them. */
+  vendor_guess: string | null;
+  /** `YYYY-MM-DD`. */
+  date_guess: string | null;
+  /** Charges on the paper that are not wood — *ongkos angkut*, *ongkos
+   *  potong*. Filed as the load's costs, never added to the timber invoice. */
+  costs: NotaCostLine[];
+}
+
+/* ── What the wood cost beyond its invoice ────────────────────────────────
+ *
+ *  The owner's question (2026-09-24): per vendor, what does a cubic metre and
+ *  a square metre of board **really** cost — with the truck, the sawing and
+ *  everything else. Those charges arrive on **separate notas** from other
+ *  people, often after the load, so each is a row of its own against the load.
+ *  The timber invoice (`total_cost`) is never rewritten: *paper price* and
+ *  *landed price* both stay on the screen, and the gap between them is the
+ *  point.
+ */
+export type LogCostKind = "angkut" | "potong" | "bongkar" | "lain";
+
+export const LOG_COST_LABEL: Record<LogCostKind, string> = {
+  angkut: "Angkut",
+  potong: "Potong / gergaji",
+  bongkar: "Bongkar muat",
+  lain: "Lain-lain",
+};
+
+/** A charge read off a nota — a proposal until somebody files it. */
+export interface NotaCostLine {
+  raw: string;
+  kind: LogCostKind;
+  amount: number;
+}
+
+/** One charge paid to get a load onto the rack. */
+export interface LogCost {
+  id: string;
+  cost_no: string;
+  purchase_no: string;
+  kind: LogCostKind;
+  amount: number;
+  incurred_on: string;
+  /** Who was paid — a trucker is often nobody in the vendor list. */
+  payee: string | null;
+  /** Public vendor id, when they are. */
+  vendor_id: string | null;
+  trx_no: string | null;
+  /** The cost's own nota, on the evidence road under its own number. */
+  nota_attachment_id: string | null;
+  note: string | null;
+  created_at: string;
 }
 
 /** One delivery of logs from one vendor: the thing that has a price on it. */
@@ -203,6 +261,18 @@ export interface LogPurchaseView extends LogPurchase {
   /** Our measurement against the seller's, in m³. */
   measure_gap_m3: number | null;
   warnings: string[];
+  /** Transport, sawing and the rest, each from its own nota. */
+  costs: LogCost[];
+  extra_cost: number;
+  /** Invoice plus every cost — what the wood actually cost. */
+  landed_cost: number;
+  /** Board face, width × length × qty, every thickness together. */
+  sawn_m2: number;
+  landed_cost_per_log_m3: number | null;
+  /** The figure that belongs in a quotation: landed cost of the sawn share ÷
+   *  board m³ (D153, 2026-09-24). */
+  landed_cost_per_sawn_m3: number | null;
+  landed_cost_per_sawn_m2: number | null;
 }
 
 /* ── The rack: boards as stock, and what leaves it ────────────────────────
@@ -340,6 +410,37 @@ export interface TimberVendorSummary {
   /** How much of the bought volume has not been through the saw yet — a
    *  vendor's real figure is not final until it has. */
   unsawn_m3: number;
+  sawn_m2: number;
+  /** Costs beyond the timber invoices, by kind, summed over the loads. */
+  cost_angkut: number;
+  cost_potong: number;
+  cost_bongkar: number;
+  cost_lain: number;
+  extra_cost: number;
+  landed_cost: number;
+  landed_cost_per_log_m3: number | null;
+  landed_cost_per_sawn_m3: number | null;
+  landed_cost_per_sawn_m2: number | null;
+}
+
+/** Timber purchases by month, for reporting rather than comparing vendors
+ *  (`0157`). **No rupiah-per-cubic-metre figure lives here** — that number
+ *  only means anything within one species (D153), and a month usually holds
+ *  more than one. This is totals only: what came in, what it cost before and
+ *  after landing it. The per-m³/m² rates stay on `TimberVendorSummary`, where
+ *  a species is never mixed with another. */
+export interface TimberMonthSummary {
+  /** First day of the month, e.g. `2026-09-01`. */
+  month: string;
+  loads: number;
+  vendors: number;
+  species_count: number;
+  wood_cost: number;
+  extra_cost: number;
+  landed_cost: number;
+  log_m3: number;
+  sawn_m3: number;
+  sawn_m2: number;
 }
 
 /* ── Stock: what is on the rack, and how it got there ──────────────────────
@@ -466,6 +567,12 @@ export interface StockItemView {
   below_min: boolean;
   last_move_at: string | null;
   moves_count: number;
+  /** The name the floor uses (*amplas 240*) beside the catalogue's English
+   *  one. Null until somebody says it (`0168`). */
+  item_name_local: string | null;
+  /** Live photos on the item. Zero is a gap for the 800-odd items catalogued
+   *  before photos existed; anything registered at the rack has one to four. */
+  photo_count: number;
 }
 
 export interface StockItemDetail extends StockItemView {
@@ -475,6 +582,136 @@ export interface StockItemDetail extends StockItemView {
   used_in: { product_code: string; product_name: string; qty_per_unit: number }[];
   /** Requests raised for it that have not been received yet. */
   on_order: { pr_line_no: string; qty: number; need_by: string | null }[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Finished goods (0170) — what the workshop made, on a rack until it  */
+/* ships. A second ledger beside the material rack, same rule: signed  */
+/* moves, on-hand computed on read (A3).                               */
+/* ------------------------------------------------------------------ */
+
+/** What moved a finished product. `shipped` is never written: it is read off
+ *  the delivery notes, so a surat jalan is one entry, not two (D53). */
+export type ProductMoveKind = "produced" | "adjust" | "transfer" | "scrap" | "sold" | "return" | "allocated" | "shipped";
+
+/** What the form may write — `adjust` goes through the count, `shipped`
+ *  through a delivery. */
+export type ProductMoveInputKind = "produced" | "transfer" | "scrap" | "sold" | "return";
+
+export const PRODUCT_MOVE_LABEL: Record<ProductMoveKind, string> = {
+  produced: "Hasil produksi",
+  adjust: "Penyesuaian opname",
+  transfer: "Pindah lokasi",
+  scrap: "Rusak / afkir",
+  sold: "Dijual lepas",
+  return: "Retur dari klien",
+  allocated: "Dipakai untuk pesanan lain",
+  shipped: "Dikirim (surat jalan)",
+};
+
+export interface ProductLedgerRow {
+  move_no: string;
+  product_code: string;
+  location: string;
+  kind: ProductMoveKind;
+  /** Signed. */
+  qty: number;
+  wo_no: string | null;
+  project_line_id: string | null;
+  ref_no: string | null;
+  reason: string | null;
+  moved_by: string | null;
+  moved_at: string;
+}
+
+/** A stored move — everything the ledger shows except the shipments, which
+ *  are read off the delivery notes. Append-only (A5). */
+export interface ProductMove extends Omit<ProductLedgerRow, "kind" | "moved_by"> {
+  id: string;
+  kind: Exclude<ProductMoveKind, "shipped">;
+  moved_by: string;
+}
+
+export interface ProductSetting {
+  product_code: string;
+  /** Where the product's finished goods stand, and where a delivery note
+   *  takes them from. Null = GUDANG. */
+  home_location: string | null;
+}
+
+/** One product × one customer order line (null line = made for stock). */
+export interface ProductStockRow {
+  product_code: string;
+  product_name: string | null;
+  uom: string | null;
+  project_line_id: string | null;
+  project_code: string | null;
+  line_no: number | null;
+  line_description: string | null;
+  /** What the customer ordered on this line; null for stock made for nobody. */
+  ordered: number | null;
+  produced: number;
+  shipped: number;
+  /** Everything else, signed: transfers net to zero, so this is opname
+   *  differences, scrap, sales and returns. */
+  other: number;
+  /** Net surplus moved in from (+) or out to (−) other orders (D313). */
+  allocated: number;
+  on_hand: number;
+  /** Made beyond what was ordered — *kelebihan produksi*. */
+  overrun: number;
+  /** What the customer is still owed out of this line. */
+  still_owed: number;
+  /** On the rack beyond anything owed — free to sell or reuse. */
+  surplus: number;
+  by_location: Record<string, number>;
+  wo_nos: string[];
+  home_location: string | null;
+  last_move_at: string | null;
+}
+
+export interface ProductMoveInput {
+  product_code: string;
+  kind: ProductMoveInputKind;
+  /** Always positive; the kind gives the sign. */
+  qty: number;
+  location: string;
+  to_location?: string | null;
+  /** Required for `produced`; the order line is taken from the JO. */
+  wo_no?: string | null;
+  project_line_id?: string | null;
+  ref_no?: string | null;
+  reason?: string | null;
+}
+
+/** Surplus used for another order (D313): out of the batch it was made for
+ *  (null = stock made for nobody), into another order line for the same
+ *  product. Only the surplus may move. */
+export interface ProductAllocateInput {
+  product_code: string;
+  from_line_id: string | null;
+  to_line_id: string;
+  location: string;
+  qty: number;
+  reason: string;
+}
+
+/** An order line a finished product can be allocated to. */
+export interface ProductOrderLine {
+  id: string;
+  product_code: string;
+  project_code: string;
+  line_no: number;
+  description: string;
+  qty: number;
+}
+
+export interface ProductCountInput {
+  product_code: string;
+  location: string;
+  counted: number;
+  reason?: string | null;
+  project_line_id?: string | null;
 }
 
 /* ------------------------------------------------------------------ */

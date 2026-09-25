@@ -170,6 +170,8 @@ export interface Item {
   last_purchased_at: string | null;
   /** Out of every picker, kept in every record (`0104`). Reversible. */
   archived_at?: string | null;
+  /** The floor's own name for it, beside the catalogue's (`0168`). */
+  name_local?: string | null;
 }
 
 /** One ledger line an item was bought on — the item's purchase history,

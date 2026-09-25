@@ -1,15 +1,19 @@
 "use client";
 
-import { useState } from "react";
-import { AlertTriangle, Layers, Plus, TreePine } from "lucide-react";
+import { useRef, useState } from "react";
+import { AlertTriangle, Camera, Layers, Plus, TreePine, Truck } from "lucide-react";
 import { Drawer } from "@/components/ui/drawer";
 import { Badge, Button } from "@/components/ui/primitives";
 import { Loaded, useLoad } from "@/components/ui/loaded";
 import { NumberInput } from "@/components/ui/number-input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
-import { inventory } from "@/demo/api";
-import { LOG_MEASURE_LABEL, type LogPurchaseView } from "@/services/inventory/contracts";
+import { documents, inventory } from "@/demo/api";
+import {
+  LOG_COST_LABEL, LOG_MEASURE_LABEL, type LogCostKind, type LogPurchaseView,
+} from "@/services/inventory/contracts";
+import { shrinkImage } from "./notaFile";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { officeToday } from "@/lib/office";
@@ -39,6 +43,49 @@ export function LogPurchaseDrawer({
     tag: "", t: 30, w: 200, len: 3000, qty: 1,
     date: officeToday(),
   });
+
+  const costFileRef = useRef<HTMLInputElement>(null);
+  const [cost, setCost] = useState<{ kind: LogCostKind; amount: number; payee: string; date: string; file: File | null }>({
+    kind: "angkut", amount: 0, payee: "", date: officeToday(), file: null,
+  });
+
+  /** A cost nota's photo: read for its figures when a model is there, filed as
+   *  evidence either way. A reading that fails leaves the form as typed. */
+  async function pickCostNota(file: File | null) {
+    setCost((c) => ({ ...c, file }));
+    if (!file) return;
+    const res = await inventory.readNotaImage(await shrinkImage(file));
+    if (res.error) return;
+    const s = res.data;
+    const first = s.costs[0];
+    setCost((c) => ({
+      ...c,
+      kind: first?.kind ?? c.kind,
+      amount: s.costs.reduce((a, x) => a + x.amount, 0) || s.total_guess || c.amount,
+      payee: s.vendor_guess ?? c.payee,
+      date: s.date_guess ?? c.date,
+    }));
+  }
+
+  async function addCost(p: LogPurchaseView) {
+    setBusy(true);
+    let notaId: string | null = null;
+    if (cost.file) {
+      const up = await documents.upload({ file: cost.file, kind: "Receipt / Invoice / Nota" });
+      if (up.error) toast("warning", "Foto nota tidak tersimpan", `${up.error.message} Biayanya tetap dicatat.`);
+      else notaId = up.data.id;
+    }
+    const res = await inventory.addLogCost({
+      purchase_no: p.purchase_no, kind: cost.kind, amount: cost.amount,
+      incurred_on: cost.date, payee: cost.payee || null, nota_attachment_id: notaId,
+    });
+    setBusy(false);
+    if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", "Tidak tercatat", res.error.message); return; }
+    toast("success", `Biaya ${LOG_COST_LABEL[cost.kind].toLowerCase()} tercatat`, formatIDR(cost.amount));
+    setCost({ kind: "angkut", amount: 0, payee: "", date: officeToday(), file: null });
+    if (costFileRef.current) costFileRef.current.value = "";
+    reload(); onChanged();
+  }
 
   async function addLog(p: LogPurchaseView) {
     setBusy(true);
@@ -86,8 +133,8 @@ export function LogPurchaseDrawer({
                   p.unsawn_m3 > 0 ? `${formatNumber(p.unsawn_m3)} m³ belum digergaji` : "seluruhnya sudah digergaji"],
                 ["Rendemen", p.yield_percent == null ? "—" : `${p.yield_percent}%`,
                   "papan ÷ log yang sudah digergaji"],
-                ["Rp / m³ papan", p.cost_per_sawn_m3 == null ? "—" : formatIDR(p.cost_per_sawn_m3),
-                  p.cost_per_log_m3 == null ? "" : `log: ${formatIDR(p.cost_per_log_m3)}`],
+                ["Rp / m³ papan", p.landed_cost_per_sawn_m3 == null ? "—" : formatIDR(p.landed_cost_per_sawn_m3),
+                  p.landed_cost_per_sawn_m2 == null ? "sampai rak" : `${formatIDR(p.landed_cost_per_sawn_m2)} / m² · sampai rak`],
               ] as [string, string, string][]).map(([k, v, note]) => (
                 <div key={k} className={cn(
                   "rounded-xl border px-3 py-2.5",
@@ -100,9 +147,85 @@ export function LogPurchaseDrawer({
               ))}
             </dl>
             <p className="text-[12px] text-slate-500">
-              Nilai tagihan {formatIDR(p.total_cost)}.
+              Nilai kayu {formatIDR(p.total_cost)}
+              {p.extra_cost > 0 && <> + biaya {formatIDR(p.extra_cost)} = <strong className="font-medium text-slate-700">{formatIDR(p.landed_cost)}</strong></>}.
+              {p.cost_per_sawn_m3 != null && p.extra_cost > 0 && ` Kayu saja ${formatIDR(p.cost_per_sawn_m3)} / m³ papan.`}
+              {p.cost_per_log_m3 != null && ` Per m³ log ${formatIDR(p.cost_per_log_m3)} (nota).`}
               {p.note && ` ${p.note}`}
             </p>
+
+            {/* What the invoice leaves out — each from its own nota. */}
+            <div>
+              <p className="mb-1.5 flex items-center gap-2 text-[11px] uppercase tracking-wide text-slate-400">
+                <Truck className="h-3.5 w-3.5" /> Biaya di luar kayu ({p.costs.length})
+              </p>
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <table className="w-full border-collapse text-[12px]">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50/70 text-[10px] uppercase tracking-wide text-slate-500">
+                      <th className="px-3 py-1.5 text-left">Jenis</th>
+                      <th className="px-3 py-1.5 text-left">Dibayar ke</th>
+                      <th className="px-3 py-1.5 text-left">Tanggal</th>
+                      <th className="px-3 py-1.5 text-right">Jumlah</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {p.costs.map((c) => (
+                      <tr key={c.id} className="border-b border-slate-100 last:border-0">
+                        <td className="px-3 py-1.5 text-slate-800">
+                          {LOG_COST_LABEL[c.kind]}
+                          {c.nota_attachment_id && <Badge tone="slate" className="ml-2">nota</Badge>}
+                          {c.note && <span className="block text-[10px] text-slate-400">{c.note}</span>}
+                        </td>
+                        <td className="px-3 py-1.5 text-slate-600">{c.payee ?? "—"}</td>
+                        <td className="px-3 py-1.5 text-slate-500">{c.incurred_on}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-slate-800">{formatIDR(c.amount)}</td>
+                      </tr>
+                    ))}
+                    {p.costs.length === 0 && (
+                      <tr><td colSpan={4} className="px-3 py-4 text-center text-slate-500">
+                        Belum ada biaya angkut atau potong — angka di atas masih harga kayu saja.
+                      </td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {mayEdit && (
+                <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                  <select
+                    value={cost.kind} onChange={(e) => setCost({ ...cost, kind: e.target.value as LogCostKind })}
+                    aria-label="Jenis biaya"
+                    className="h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                  >
+                    {(Object.keys(LOG_COST_LABEL) as LogCostKind[]).map((k) => (
+                      <option key={k} value={k}>{LOG_COST_LABEL[k]}</option>
+                    ))}
+                  </select>
+                  <input
+                    value={cost.payee} onChange={(e) => setCost({ ...cost, payee: e.target.value })}
+                    placeholder="Dibayar ke" aria-label="Dibayar ke"
+                    className="h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                  />
+                  <input
+                    type="date" value={cost.date} onChange={(e) => setCost({ ...cost, date: e.target.value })}
+                    aria-label="Tanggal biaya"
+                    className="h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                  />
+                  <MoneyInput value={cost.amount} onChange={(v) => setCost({ ...cost, amount: v })} />
+                  <input
+                    ref={costFileRef} type="file" accept="image/*,application/pdf" className="hidden"
+                    onChange={(e) => pickCostNota(e.target.files?.[0] ?? null)}
+                  />
+                  <Button size="sm" variant={cost.file ? "primary" : "outline"} icon={Camera}
+                    onClick={() => costFileRef.current?.click()}>
+                    {cost.file ? "Nota ✓" : "Nota"}
+                  </Button>
+                  <Button size="sm" icon={Plus} disabled={busy || cost.amount <= 0} onClick={() => addCost(p)}>
+                    Biaya
+                  </Button>
+                </div>
+              )}
+            </div>
 
             {p.warnings.length > 0 && (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">

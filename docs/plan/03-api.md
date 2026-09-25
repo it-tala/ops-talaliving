@@ -446,10 +446,11 @@ somebody outside the module needs to know about.
 | POST | `/work-orders/{wo_no}/subcon/send` | `{vendor_id, expected_back?, note?}` — the goods go out to the vendor who builds them. 422 on an `IN_HOUSE` order (change the route, do not bolt a send date onto an order that says it is built here); 409 if it is already there. `expected_back` is the vendor's **promise** and prints with a `±` |
 | POST | `/work-orders/{wo_no}/subcon/receive` | `{returned_on?, note?}` — the goods are back, and the stages on the route open up. 409 if it was never sent; `noop` if it is already back; 422 if the return date precedes the send date |
 | POST | `/work-orders` | `{item_name, qty, uom, due_date, project_code?, route?}`. **422 with no due date**: an order that cannot be late is one nobody can tell is late. `route` is `IN_HOUSE` (default) or `SUBCON` — chosen, never inferred (D254) |
-| GET | `/work-orders/{wo_no}/materials` | what the whole run needs, waste included — the list a PR gets built from (D151) |
+| GET | `/work-orders/{wo_no}/materials` | what the whole run needs, waste included — the list a PR gets built from (D151). Carries `material_status` — `no_plan`, `waiting`, `ready` (*material ready*: everything still to be issued is on the rack) or `issued` — and per line `short`, computed on read from the shared rack; nothing reserves stock for one order yet (D312) |
 | GET | `/work-orders/{wo_no}/progress` | every entry, newest first — including the ones a signed lembur sheet posted |
 | POST | `/work-orders/{wo_no}/progress` | `{stage, qty, work_date, worked_by?, note?, source?, source_ref?}`. Append-only; a correction is a **negative qty with a note**. 422 over the ordered quantity; a stage ahead of the previous one is accepted and **warned about** (A6). **422 `stage_not_on_route`** for a stage this order's route does not contain, and **409 `still_at_vendor` / `not_sent_yet`** when the goods are not in the building — the one place production refuses rather than warns, because that refusal is about a place rather than a number (D255). Idempotent on `(source_ref, wo, stage)` |
 | POST | `/work-orders/{wo_no}/close` | 422 with no reason when the quantity is not finished |
+| GET | `/trail/{no}` | `jobTrail` (`0171`, D312). **Any number** — project code, JO, PR, PO, receiving report, surat jalan, **or an item code** (D313: that item's own life — catalogue, the BOM revisions that call for it, PR/PO lines incl. merged duplicates, receipts, every stock move, the JOs it served) — opens the whole project, in time order: request → order → receipt → stock in → issue to the JO → progress → finished goods → surat jalan → BAST. Follows the keys already on the rows (`po_lines.pr_line_id`, `pr_lines.source_wo_no`, `receipts.*_line_id`, `stock_moves.ref_no`, `product_moves.wo_no`); each part only for a reader of its module, the rest named in `hidden`. `unlinked_purchase_lines` counts the project's purchase lines that name no JO. 404 on a number that is none of those |
 
 Writes need `production.update` — **except** an entry whose `source` is
 `overtime_sheet`, which the `approve_overtime` authority may write, because
@@ -471,11 +472,28 @@ Stock, added M27:
 | POST | `/stock/adjust` | takes the **counted** quantity and a location; stores the difference. 422 without a reason; `outcome: noop` when the count matches (D171) |
 | POST | `/stock/transfer` | writes two moves, one per location |
 | PUT | `/stock/{item_code}/minimum` | null clears it — *belum ditetapkan* is not zero |
+| GET | `/locations` | `?all=1` includes retired ones; the ordinary call is active-only, the same list a count is taken against |
+| POST | `/locations` | `{code, name}`. `inventory.update` — the same authority `stock_settings` already answers to (`0157`). **409** on a duplicate code |
+| PATCH | `/locations/{code}` | `{name?, is_active?}`. No delete anywhere: a rack once counted against stays addressable in `stock_moves` for ever (A5); `is_active: false` is how it stops being offered |
+| POST | `/items` | `registerItem` (`0168`, D309): `{name, name_local?, category_code, base_uom, photo_ids[1..4], location?, counted?, reason?}` — an item registered at the rack, with the floor's own name and **one to four photos** (uploaded first through `documents.upload`, held by the database: a fifth photo link and removing the last one are both refused). An optional count lands as an opname adjustment (D171, needs `inventory.adjust`). **409 `already_catalogued`** on an exact name or floor-name match — count it there |
+| PUT | `/items/{code}/local-name` | the floor's name for an item already catalogued; blank clears it |
+| GET | `/items/{code}/purchases` | the ledger lines that bought it, merged duplicates included (`item_purchases`, readable with `inventory.read` since `0168`) |
+| GET | `/products` | `listProductStock` (`0170`, D311): finished goods, one row per product × customer order line — `ordered`, `produced`, `shipped` (read off the surat jalan, never entered twice), `on_hand`, `overrun` (made beyond the order), `still_owed`, `surplus` (on the rack beyond anything owed), `by_location`, the JOs that made it |
+| GET | `/products/{product_code}/ledger` | every move, stored and derived from delivery notes, newest first |
+| POST | `/products/moves` | `{product_code, kind: produced\|transfer\|sold\|scrap\|return, qty>0, location, to_location?, wo_no?, project_line_id?, reason?}`. `produced` needs a live JO making that product and takes the order line **from the JO**; `sold`/`scrap`/`return` need a reason; `transfer`/`sold`/`scrap` are refused past the batch's balance at that location (**409 `insufficient`**); `scrap` needs `inventory.adjust` |
+| POST | `/products/allocate` | `allocateProduct` (D313): `{product_code, from_line_id (null = stock for nobody), to_line_id, location, qty, reason}` — surplus used for another order line of the same product. **Only the surplus** of the source batch at that location moves (**409 `insufficient`** otherwise); reason required. Two `allocated` moves, out and in |
+| POST | `/products/count` | opname on the finished-goods rack: the difference stored with its reason; a matching count writes nothing (D171) |
+| PUT | `/products/{product_code}/home` | where its finished goods stand — and where a surat jalan takes them from |
 
-`procurement.receipt.confirmed` is consumed here: a confirmed delivery becomes
-a `receipt` move at the item's home location, priced from the line where the
-line carries a price and `null` where it does not (D172). A receipt whose line
-names no catalogue item stocks nothing and says so.
+A confirmed receipt becomes a `receipt` move at the item's home location —
+**in the signature's own transaction**, by the `0169` trigger on
+`ops_procure.receipts`, not a client call (D310; before it the live system
+never stocked anything). Priced from the line where it carries a price and
+`null` where it does not (D172); converted into the item's base unit through
+`uom_conversions`. A line naming no catalogue item, an uncounted category, a
+`WRONG ITEM`/`RETURN TO SENDER` delivery or a unit with no conversion stocks
+nothing and says why in `inventory.receipt.not_stocked`. A stock issue whose
+`ref_no` reads like a JO must name one that exists (`0171`).
 
 ## `inventory` — timber
 
@@ -483,9 +501,12 @@ names no catalogue item stocks nothing and says so.
 |---|---|---|
 | GET | `/timber/purchases` | every load, newest first, with volumes, yield and both prices per m³ |
 | GET | `/timber/purchases/{purchase_no}` | one load: each log measured, each board reported |
-| GET | `/timber/by-vendor` | **per vendor and species**: log m³, board m³, yield, rupiah per log m³ and **per board m³** — the last column is the one that decides (D153) |
+| GET | `/timber/by-vendor` | **per vendor and species**: log m³, board m³ and m², yield, rupiah per log m³, the transport / sawing / other costs summed, and the **landed** rupiah per board m³ and per board m² (width × length, all thicknesses) — the last two decide (D153, `0156`) |
+| GET | `/timber/by-month` | totals only, one row per month — loads, vendors, species touched, wood cost, extra cost, landed cost, log/board m³, board m². **No rupiah-per-m³ column**: that figure only means anything within one species (D153), and a month usually mixes several. For reporting; `by-vendor` above is where a rate belongs (`0157`) |
 | POST | `/timber/nota/read` | **a read that writes nothing.** Returns `is_timber`, the signals for and against **in words**, the species and total it found, the rows it made sense of, and the rows it could not. Nothing is filed from this — the routing decision is a proposal a person accepts (D200) |
-| POST | `/timber/purchases` | a load arriving, **from its nota** (D201). Board and log rows read off the paper are filed here as timber and **never as transaction lines** — the nota contributes exactly one figure to accounting, its total. **422 with no invoice value**: without it there is no price per m³, which is the only reason the record exists. The seller's claimed m³ is stored beside our own measurement, never instead of it |
+| POST | `/timber/purchases` | a load arriving, **usually from its nota** (D201) — `nota_attachment_id` is optional, and a load whose paper is lost or was never photographed still files here with rows entered by hand (D308). Board and log rows are filed here as timber and **never as transaction lines** — the nota, where there is one, contributes exactly one figure to accounting, its total. **422 with no invoice value**: without it there is no price per m³, which is the only reason the record exists. The seller's claimed m³ is stored beside our own measurement, never instead of it |
+| POST | `/timber/nota/read-image` | the same read, **from a photo or PDF**, by a language model behind the Worker's key (`/api/inventory/nota/read`). Answers the same `NotaScan`, `source: image`; every board is checked against plausible sizes and a row that is not wood goes to `unread`. Writes nothing. 501 when no model is configured |
+| POST | `/timber/purchases/{no}/costs` | a charge against the load — `angkut`, `potong`, `bongkar`, `lain` — **from its own nota**, usually from somebody else (a trucker, a sawmill). Beside the invoice, never into it: `total_cost` stays what the timber seller billed and the landed figures are summed on read (`0156`). The cost's nota is linked under its own number (`log_cost`, `0155`) and never counts as the load's |
 | POST | `/timber/purchases/{no}/logs` | one log: tag, Ø in cm, length in cm. 409 on a duplicate tag |
 | POST | `/timber/purchases/{no}/boards` | boards off the saw: t × w × l in mm, and how many. Naming the log is optional — a day's sawing is usually one pile — and reporting boards off a log also marks that log sawn |
 | POST | `/timber/purchases/{no}/logs/{tag}/sawn` | for the log that split and yielded nothing. It still counts against the yield, which is the point |

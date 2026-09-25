@@ -6889,3 +6889,120 @@ to carry an exception list. Which of those this repository wants is a convention
 decision, and it does not belong inside a task about applying four files.
 
 Left as a separate piece of work, with the two true positives already named.
+
+## F163 · 2026-09-25 · an UPDATE hidden by RLS does not error — it just touches nothing
+
+Building `updateStockLocation` (`0157`) for the location-management panel, the
+first smoke check for "a read-level user cannot rename a rack" was written the
+same way `70_inv_timber_costs.sql` writes every other refusal check: wrap the
+statement, expect `insufficient_privilege`. It failed — not because the RLS
+policy was wrong, but because the assumption was.
+
+An `INSERT` whose `WITH CHECK` fails **does** raise (`42501`,
+`new row violates row-level security policy`). An `UPDATE` whose `USING`
+clause hides the target row does not: Postgres filters the row out before the
+`SET` ever runs, the statement matches zero rows, and returns normally —
+`UPDATE 0`, no exception, nothing to catch. The two policies are symmetric;
+the failure modes they produce are not.
+
+This is not just a smoke-test wrinkle. `updateStockLocation` in
+`src/lib/api/inventory.ts` would have had the identical bug one layer up: a
+plain `.update(...).eq("code", code).select("*").maybeSingle()` returns `null`
+both when the code does not exist and when RLS refused the write, and the
+obvious code (`if (!data) return notFound(...)`) reports *"no such location"*
+to somebody who typed the right code and simply lacks `inventory.update` — the
+wrong refusal, pointing whoever reads it at the wrong fix. The function now
+checks existence first, under the READ policy (visible to anyone with
+`inventory.read`), and only then attempts the write and asks which of the two
+zero-row outcomes it is.
+
+**The fix, as a rule for the next table gated by "RLS alone, no seam":** any
+write path built on bare `.update()`/`.upsert()` — not a `security definer`
+function — needs to reason separately about *not found* and *not permitted*
+before it can tell them apart, because the database will not tell them apart
+for it. An `INSERT` doesn't have this problem; only `UPDATE`/`DELETE` do,
+because only they have a row to hide instead of a row to refuse creating.
+
+## F164 · 2026-09-25 · two screens said "done" while their own numbers hadn't heard
+
+Walking `/inventory/penyesuaian` and `/inventory/log` in a browser rather than
+trusting `tsc` — the thing 07-ways-of-working.md's whole loop is built
+around — found two live bugs neither type-check nor lint could see, because
+both are about which `useLoad` call a component reads, not about a type.
+
+**Locations.** Adding "AREA-A" through the new panel worked — the row landed,
+`stock_locations` had it — and the panel's own toast said *"Area A opname bisa
+dipilih mulai sekarang"*. The opname form two cards below still offered only
+the original three. `StockCountPage` and `LocationManager` each call
+`inventory.listStockLocations()` through their own `useLoad`, and nothing told
+one that the other had written. The toast was not lying about the database;
+it was lying about the screen.
+
+**The month recap.** Filing a manual load (no nota) posted correctly —
+`kyu-26-09-25_01` appeared in "kiriman log", the per-vendor table picked it up
+— and `TimberMonthRecap`, sitting between them on the same tab, kept showing
+September's number from before the load existed. `NotaImport`'s `onCreated`
+already reloads `purchases` and `vendors` and bumps the counter `BoardUsage`
+depends on; nobody had told the recap card about that counter, because it was
+added after the counter was.
+
+**Same root, twice.** A component that fetches its own data independently is
+correct in isolation and wrong the moment two of them are meant to agree after
+one of them writes. Both fixes are the pattern this file already uses
+elsewhere in the same screen — a callback prop (`onChanged`) or a shared
+reload key (`reloadKey`), not a new mechanism — which is exactly why neither
+bug should have shipped: the second data-fetching sibling on a page is the
+one to ask *what tells this to refresh when its neighbour writes*, and it
+wasn't asked until a browser asked it first.
+
+## F165 · 2026-09-25 · the chain had every key and nothing following them
+
+Asked to give the purchase→production chain *one number*, the evaluation
+expected to find missing links. It found the links present and unwalked:
+`po_lines.pr_line_id`, `pr_lines.source_wo_no`, `receipts.po_line_id`,
+`stock_moves.ref_no` and `work_orders.project_line_id` already thread an item
+from its request to the Job Order that used it and the project that paid for
+it. What was missing was the two things that make a key a key:
+
+- **Nothing checked them.** `source_wo_no` and an issue's `ref_no` are text.
+  F86 found nine issues pointing at JOs that never existed and settled for an
+  amber flag where the reference was displayed. `0171` refuses them at the
+  write, for new rows — after F86 the only open question was whether to.
+- **Nothing followed them end to end.** Each screen dereferenced one hop
+  (`v_wo_materials` counts a JO's requests; `v_po_line_journey` follows a PO
+  line), so no screen could answer *what happened on this project*, and the
+  one gap that matters most, **project spending that names no JO**, was
+  invisible. The first run of the trail against the demo data counted six such
+  lines on project 25007.
+
+Two older smoke files (71, 89) issued stock against invented JO numbers as
+fixtures and failed under the new check. They were given real JOs rather than
+the check being loosened: a fixture that only passes because nothing checks
+its keys is F86 again, in the test suite.
+
+Same lesson as F84 and F86, one level up: a key nothing follows is a key
+nothing checks, and a chain nothing walks is a chain nobody knows is broken.
+
+## F166 · 2026-09-25 · a folder id read as the folder's parent, caught before the first file
+
+`0036` was told the ids the owner pasted were *module folders* and wrote the
+upload route to make an `ops` folder inside each. The owner's own question —
+*dimana foto disimpan? harusnya di folder OPS* — sent us to look, and the one
+id our Drive connection can open (DRAFTING, `1KfLid…`) is a folder **named
+`OPS`**, created the same morning the ids were sent. Every file this app
+would have written would have gone to `OPS/ops`. Production had not filed a
+single one: every `drive_folders.folder_id` was still null.
+
+The ids were never checked against their names because the design had
+already decided what they were. The fix makes the route ask: a recorded
+folder named OPS **is** the target. The rule that follows is the one this
+project keeps relearning — check the thing, not the description of it — and
+it now has a home in `CLAUDE.md`, so the next session starts from the owner's
+folder layout instead of rediscovering it.
+
+Found on the way: the update policies on `ops_core.drive_folders` and
+`ops_core.doc_kind_drive` (`0035`) test `has_permission('it.admin')`, which is
+not in `permission_catalog` — so nobody, IT included, can correct a drive
+folder from the app. Left for its own change; `0172`'s new table uses
+`it.update`, which exists.
+

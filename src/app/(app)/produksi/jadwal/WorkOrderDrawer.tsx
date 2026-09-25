@@ -11,7 +11,7 @@ import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { procurement, production, hr, inventory } from "@/demo/api";
 import { Combobox } from "@/components/ui/combobox";
-import { STAGE_NAME, attributionOf, ATTRIBUTION_LABEL, VENDOR_PROCESSES, VENDOR_PROCESS_NAME, type WorkOrderView } from "@/services/production/contracts";
+import { STAGE_NAME, attributionOf, ATTRIBUTION_LABEL, VENDOR_PROCESSES, VENDOR_PROCESS_NAME, MATERIAL_STATUS_LABEL, type WorkOrderView } from "@/services/production/contracts";
 import { useUnits } from "@/components/ui/uom-options";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
@@ -807,6 +807,15 @@ function MaterialPanel({ woNo, onChanged }: { woNo: string; onChanged: () => voi
             {p.variance_readable
               ? <Badge tone="green">selesai — selisih bisa dibaca</Badge>
               : <Badge tone="slate">{p.completed}/{p.ordered} jadi</Badge>}
+            {/* Computed from the rack now, never stored — and the rack is
+                shared, so two orders can both read ready (D312). */}
+            <Badge tone={p.material_status === "ready" ? "green" : p.material_status === "waiting" ? "amber" : "slate"}>
+              {MATERIAL_STATUS_LABEL[p.material_status]}
+            </Badge>
+            <Link href={`/produksi/jejak?no=${encodeURIComponent(woNo)}`}
+              className="normal-case tracking-normal text-brand-700 hover:underline">
+              Jejak lengkap →
+            </Link>
           </p>
 
           {p.no_plan_reason ? (
@@ -844,6 +853,7 @@ function MaterialPanel({ woNo, onChanged }: { woNo: string; onChanged: () => voi
                     {l.remaining === null ? "—" : formatNumber(l.remaining)}
                   </span>
                   {l.off_bom && <Badge tone="amber">di luar BOM</Badge>}
+                  {l.short > 0 && <Badge tone="amber">rak kurang {formatNumber(l.short)}</Badge>}
                   {mayIssue && open && (
                     <NumberInput
                       value={qty[l.item_code] ?? 0} min={0} max={99_999}
