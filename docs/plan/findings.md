@@ -6423,3 +6423,35 @@ function — needs to reason separately about *not found* and *not permitted*
 before it can tell them apart, because the database will not tell them apart
 for it. An `INSERT` doesn't have this problem; only `UPDATE`/`DELETE` do,
 because only they have a row to hide instead of a row to refuse creating.
+
+## F157 · 2026-09-25 · two screens said "done" while their own numbers hadn't heard
+
+Walking `/inventory/penyesuaian` and `/inventory/log` in a browser rather than
+trusting `tsc` — the thing 07-ways-of-working.md's whole loop is built
+around — found two live bugs neither type-check nor lint could see, because
+both are about which `useLoad` call a component reads, not about a type.
+
+**Locations.** Adding "AREA-A" through the new panel worked — the row landed,
+`stock_locations` had it — and the panel's own toast said *"Area A opname bisa
+dipilih mulai sekarang"*. The opname form two cards below still offered only
+the original three. `StockCountPage` and `LocationManager` each call
+`inventory.listStockLocations()` through their own `useLoad`, and nothing told
+one that the other had written. The toast was not lying about the database;
+it was lying about the screen.
+
+**The month recap.** Filing a manual load (no nota) posted correctly —
+`kyu-26-09-25_01` appeared in "kiriman log", the per-vendor table picked it up
+— and `TimberMonthRecap`, sitting between them on the same tab, kept showing
+September's number from before the load existed. `NotaImport`'s `onCreated`
+already reloads `purchases` and `vendors` and bumps the counter `BoardUsage`
+depends on; nobody had told the recap card about that counter, because it was
+added after the counter was.
+
+**Same root, twice.** A component that fetches its own data independently is
+correct in isolation and wrong the moment two of them are meant to agree after
+one of them writes. Both fixes are the pattern this file already uses
+elsewhere in the same screen — a callback prop (`onChanged`) or a shared
+reload key (`reloadKey`), not a new mechanism — which is exactly why neither
+bug should have shipped: the second data-fetching sibling on a page is the
+one to ask *what tells this to refresh when its neighbour writes*, and it
+wasn't asked until a browser asked it first.
