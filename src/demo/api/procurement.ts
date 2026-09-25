@@ -10,7 +10,7 @@ import type {
   ProjectView, ProjectLineView, ProjectStatus, ProjectStatusChange, Client, ClientView,
 } from "@/services/procurement/contracts";
 import type { DemoState } from "../state";
-import { productView, workOrderView } from "../production-derive";
+import { productView, workOrderView, joReferenceProblem } from "../production-derive";
 import type { PrLine as PrLineRow } from "@/services/procurement/contracts";
 import { PROBLEM_CONDITIONS, COUNTING_CONDITIONS, VARIANCE_REASON_LABEL } from "@/services/procurement/contracts";
 import type { DocKind } from "@/services/documents/contracts";
@@ -795,6 +795,11 @@ export async function createPr(
     : null;
   if (input.project_code && !byCode) {
     return notFound(SERVICE, "project_not_found", `No project ${input.project_code}.`);
+  }
+
+  for (const l of input.lines) {
+    const bad = joReferenceProblem(getState(), l.source_wo_no, "purchase");
+    if (bad) return invalid(SERVICE, "wo_not_found", bad, { field: "source_wo_no" });
   }
 
   const user = actingUser();
@@ -2840,6 +2845,8 @@ export async function addDraftLine(docNo: string, input: NewLineInput): Promise<
   if (!input.description?.trim()) {
     return invalid(SERVICE, "description_required", "A line needs a description.", { field: "description" });
   }
+  const badWo = joReferenceProblem(state, input.source_wo_no, "purchase");
+  if (badWo) return invalid(SERVICE, "wo_not_found", badWo, { field: "source_wo_no" });
 
   let newId_ = "";
   apply((draft) => {

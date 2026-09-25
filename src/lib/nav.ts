@@ -177,6 +177,7 @@ export const NAV: NavSection[] = [
       { label: "Goods at vendors", labelKey: "vendorWork", href: "/produksi/vendor", icon: Factory, permission: "production.read", badge: "new" },
       { label: "Products & BOM", labelKey: "bom", href: "/produksi/bom", icon: ListTree, permission: "production.read", badge: "core" },
       { label: "Job Orders", labelKey: "schedule", href: "/produksi/jadwal", icon: CalendarClock, permission: "production.read", badge: "new" },
+      { label: "Job trail", href: "/produksi/jejak", icon: Route, permission: "production.read", badge: "new" },
     ],
   },
   {

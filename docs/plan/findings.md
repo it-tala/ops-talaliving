@@ -6954,3 +6954,32 @@ reload key (`reloadKey`), not a new mechanism — which is exactly why neither
 bug should have shipped: the second data-fetching sibling on a page is the
 one to ask *what tells this to refresh when its neighbour writes*, and it
 wasn't asked until a browser asked it first.
+
+## F165 · 2026-09-25 · the chain had every key and nothing following them
+
+Asked to give the purchase→production chain *one number*, the evaluation
+expected to find missing links. It found the links present and unwalked:
+`po_lines.pr_line_id`, `pr_lines.source_wo_no`, `receipts.po_line_id`,
+`stock_moves.ref_no` and `work_orders.project_line_id` already thread an item
+from its request to the Job Order that used it and the project that paid for
+it. What was missing was the two things that make a key a key:
+
+- **Nothing checked them.** `source_wo_no` and an issue's `ref_no` are text.
+  F86 found nine issues pointing at JOs that never existed and settled for an
+  amber flag where the reference was displayed. `0171` refuses them at the
+  write, for new rows — after F86 the only open question was whether to.
+- **Nothing followed them end to end.** Each screen dereferenced one hop
+  (`v_wo_materials` counts a JO's requests; `v_po_line_journey` follows a PO
+  line), so no screen could answer *what happened on this project*, and the
+  one gap that matters most, **project spending that names no JO**, was
+  invisible. The first run of the trail against the demo data counted six such
+  lines on project 25007.
+
+Two older smoke files (71, 89) issued stock against invented JO numbers as
+fixtures and failed under the new check. They were given real JOs rather than
+the check being loosened: a fixture that only passes because nothing checks
+its keys is F86 again, in the test suite.
+
+Same lesson as F84 and F86, one level up: a key nothing follows is a key
+nothing checks, and a chain nothing walks is a chain nobody knows is broken.
+

@@ -27,7 +27,7 @@ import {
   itemUsedIn as usedIn,
   productStockRows, productLedgerRows, productOnHand,
 } from "../inventory-derive";
-import { materialPlan } from "../production-derive";
+import { materialPlan, joReferenceProblem } from "../production-derive";
 import type { MaterialPlan } from "@/services/production/contracts";
 import { scanNota } from "../nota-kayu";
 import { STOCKED_CATEGORIES } from "../fixtures/reference";
@@ -866,6 +866,8 @@ export async function issueStock(
   const state = getState();
   const check = stockable(state, input.item_code);
   if (!check.ok) return invalid(SERVICE, "not_stocked", check.why, { field: "item_code" });
+  const badWo = joReferenceProblem(state, input.wo_no, "issue");
+  if (badWo) return invalid(SERVICE, "wo_not_found", badWo, { field: "wo_no" });
 
   const before = stockItems(state).find((r) => r.item_code === input.item_code)?.on_hand ?? 0;
   const after = Math.round((before - input.qty) * 1000) / 1000;

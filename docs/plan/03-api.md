@@ -446,10 +446,11 @@ somebody outside the module needs to know about.
 | POST | `/work-orders/{wo_no}/subcon/send` | `{vendor_id, expected_back?, note?}` — the goods go out to the vendor who builds them. 422 on an `IN_HOUSE` order (change the route, do not bolt a send date onto an order that says it is built here); 409 if it is already there. `expected_back` is the vendor's **promise** and prints with a `±` |
 | POST | `/work-orders/{wo_no}/subcon/receive` | `{returned_on?, note?}` — the goods are back, and the stages on the route open up. 409 if it was never sent; `noop` if it is already back; 422 if the return date precedes the send date |
 | POST | `/work-orders` | `{item_name, qty, uom, due_date, project_code?, route?}`. **422 with no due date**: an order that cannot be late is one nobody can tell is late. `route` is `IN_HOUSE` (default) or `SUBCON` — chosen, never inferred (D254) |
-| GET | `/work-orders/{wo_no}/materials` | what the whole run needs, waste included — the list a PR gets built from (D151) |
+| GET | `/work-orders/{wo_no}/materials` | what the whole run needs, waste included — the list a PR gets built from (D151). Carries `material_status` — `no_plan`, `waiting`, `ready` (*material ready*: everything still to be issued is on the rack) or `issued` — and per line `short`, computed on read from the shared rack; nothing reserves stock for one order yet (D312) |
 | GET | `/work-orders/{wo_no}/progress` | every entry, newest first — including the ones a signed lembur sheet posted |
 | POST | `/work-orders/{wo_no}/progress` | `{stage, qty, work_date, worked_by?, note?, source?, source_ref?}`. Append-only; a correction is a **negative qty with a note**. 422 over the ordered quantity; a stage ahead of the previous one is accepted and **warned about** (A6). **422 `stage_not_on_route`** for a stage this order's route does not contain, and **409 `still_at_vendor` / `not_sent_yet`** when the goods are not in the building — the one place production refuses rather than warns, because that refusal is about a place rather than a number (D255). Idempotent on `(source_ref, wo, stage)` |
 | POST | `/work-orders/{wo_no}/close` | 422 with no reason when the quantity is not finished |
+| GET | `/trail/{no}` | `jobTrail` (`0171`, D312). **Any number** — project code, JO, PR, PO, receiving report, surat jalan — opens the whole project, in time order: request → order → receipt → stock in → issue to the JO → progress → finished goods → surat jalan → BAST. Follows the keys already on the rows (`po_lines.pr_line_id`, `pr_lines.source_wo_no`, `receipts.*_line_id`, `stock_moves.ref_no`, `product_moves.wo_no`); each part only for a reader of its module, the rest named in `hidden`. `unlinked_purchase_lines` counts the project's purchase lines that name no JO. 404 on a number that is none of those |
 
 Writes need `production.update` — **except** an entry whose `source` is
 `overtime_sheet`, which the `approve_overtime` authority may write, because
@@ -474,11 +475,24 @@ Stock, added M27:
 | GET | `/locations` | `?all=1` includes retired ones; the ordinary call is active-only, the same list a count is taken against |
 | POST | `/locations` | `{code, name}`. `inventory.update` — the same authority `stock_settings` already answers to (`0157`). **409** on a duplicate code |
 | PATCH | `/locations/{code}` | `{name?, is_active?}`. No delete anywhere: a rack once counted against stays addressable in `stock_moves` for ever (A5); `is_active: false` is how it stops being offered |
+| POST | `/items` | `registerItem` (`0168`, D309): `{name, name_local?, category_code, base_uom, photo_ids[1..4], location?, counted?, reason?}` — an item registered at the rack, with the floor's own name and **one to four photos** (uploaded first through `documents.upload`, held by the database: a fifth photo link and removing the last one are both refused). An optional count lands as an opname adjustment (D171, needs `inventory.adjust`). **409 `already_catalogued`** on an exact name or floor-name match — count it there |
+| PUT | `/items/{code}/local-name` | the floor's name for an item already catalogued; blank clears it |
+| GET | `/items/{code}/purchases` | the ledger lines that bought it, merged duplicates included (`item_purchases`, readable with `inventory.read` since `0168`) |
+| GET | `/products` | `listProductStock` (`0170`, D311): finished goods, one row per product × customer order line — `ordered`, `produced`, `shipped` (read off the surat jalan, never entered twice), `on_hand`, `overrun` (made beyond the order), `still_owed`, `surplus` (on the rack beyond anything owed), `by_location`, the JOs that made it |
+| GET | `/products/{product_code}/ledger` | every move, stored and derived from delivery notes, newest first |
+| POST | `/products/moves` | `{product_code, kind: produced\|transfer\|sold\|scrap\|return, qty>0, location, to_location?, wo_no?, project_line_id?, reason?}`. `produced` needs a live JO making that product and takes the order line **from the JO**; `sold`/`scrap`/`return` need a reason; `transfer`/`sold`/`scrap` are refused past the batch's balance at that location (**409 `insufficient`**); `scrap` needs `inventory.adjust` |
+| POST | `/products/count` | opname on the finished-goods rack: the difference stored with its reason; a matching count writes nothing (D171) |
+| PUT | `/products/{product_code}/home` | where its finished goods stand — and where a surat jalan takes them from |
 
-`procurement.receipt.confirmed` is consumed here: a confirmed delivery becomes
-a `receipt` move at the item's home location, priced from the line where the
-line carries a price and `null` where it does not (D172). A receipt whose line
-names no catalogue item stocks nothing and says so.
+A confirmed receipt becomes a `receipt` move at the item's home location —
+**in the signature's own transaction**, by the `0169` trigger on
+`ops_procure.receipts`, not a client call (D310; before it the live system
+never stocked anything). Priced from the line where it carries a price and
+`null` where it does not (D172); converted into the item's base unit through
+`uom_conversions`. A line naming no catalogue item, an uncounted category, a
+`WRONG ITEM`/`RETURN TO SENDER` delivery or a unit with no conversion stocks
+nothing and says why in `inventory.receipt.not_stocked`. A stock issue whose
+`ref_no` reads like a JO must name one that exists (`0171`).
 
 ## `inventory` — timber
 

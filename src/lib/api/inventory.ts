@@ -27,6 +27,7 @@ import type {
   AssetView, AssetCategory, AssetStatus, AssetInput, AssetService, AssetServiceInput,
 } from "@/services/inventory/contracts";
 import type { MaterialPlan } from "@/services/production/contracts";
+import { materialShort, materialStatus } from "@/services/production/contracts";
 import type { ItemPurchase } from "@/services/procurement/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fail, fromRows, fromSeam, invalid, noop, notFound, ok, conflict, refused, type Result } from "./_kit";
@@ -1618,6 +1619,7 @@ export async function materialForWorkOrder(woNo: string): Promise<Result<Materia
       remaining: exp ? r3(exp.qty - issued) : null,
       on_hand: onHand.get(code) ?? 0,
       off_bom: !exp,
+      short: materialShort(exp ? r3(exp.qty - issued) : null, onHand.get(code) ?? 0),
     };
   }).sort((a, b) =>
     Number(a.off_bom) - Number(b.off_bom)
@@ -1630,6 +1632,7 @@ export async function materialForWorkOrder(woNo: string): Promise<Result<Materia
     rev: no_plan_reason ? null : rev,
     no_plan_reason,
     lines,
+    material_status: materialStatus(no_plan_reason, lines),
     variance_readable: completed >= qty || w.status === "DONE",
     completed,
     ordered: qty,

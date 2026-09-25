@@ -26,7 +26,7 @@ import type {
   BomDiff, BomDiffLine, BomDiffShape, BomKind, BomLineView, BomRevisionView,
   ProductDrawing, ProductDrawingEntry, ProductView, RateSource, WorkOrderRef,
   BomExplodedLine, BomExplosion, ProgressEntry, RouteCode, VendorLegView,
-  WorkOrder, WorkOrderStatus, WorkOrderView,
+  WorkOrder, WorkOrderStatus, WorkOrderView, JobTrail,
 } from "@/services/production/contracts";
 import { boardOrder, deriveWorkOrderView } from "@/services/production/work-order-view";
 import { officeDay } from "@/lib/office";
@@ -793,5 +793,25 @@ export async function materialsFor(
     labour_cost: num(s.labour_cost),
     labour_total: num(s.labour_total),
     labour_note: null,
+  });
+}
+
+/* ── the trail (0171) ──────────────────────────────────────────────────── */
+
+/** Any number in — project, Job Order, PR, PO, receiving report, surat jalan
+ *  — and the project's whole purchase→production story out, in time order.
+ *  The database follows the keys and decides what this reader may see
+ *  (`ops_prod.job_trail`); the stages it withheld come back in `hidden`. */
+export async function jobTrail(no: string): Promise<Result<JobTrail>> {
+  const { data, error } = await db().rpc("job_trail", { p_no: no });
+  const res = fromSeam<JobTrail>(SERVICE, data, error);
+  if (res.error) return res;
+  const n = (v: unknown) => (v == null ? null : Number(v));
+  return ok(SERVICE, {
+    ...res.data,
+    job_orders: res.data.job_orders.map((j) => ({ ...j, qty: Number(j.qty), completed: Number(j.completed ?? 0) })),
+    events: res.data.events.map((e) => ({
+      ...e, qty: n(e.qty), amount: n(e.amount), paid: n(e.paid),
+    })),
   });
 }

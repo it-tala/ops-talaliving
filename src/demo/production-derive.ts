@@ -20,7 +20,7 @@ import {
   type WorkAttribution, type MaterialPlan, type MaterialLine,
   type VendorLeg, type VendorLegView, type VendorRecord,
 } from "@/services/production/contracts";
-import { attributionOf } from "@/services/production/contracts";
+import { attributionOf, materialShort, materialStatus } from "@/services/production/contracts";
 import { stockItems } from "./inventory-derive";
 import { deriveWorkOrderView, boardOrder } from "@/services/production/work-order-view";
 
@@ -1059,6 +1059,7 @@ export function materialPlan(state: DemoState, wo: WorkOrder): MaterialPlan {
       remaining: exp ? Math.round((exp.qty - issued) * 1000) / 1000 : null,
       on_hand: onHand.get(code) ?? 0,
       off_bom: !exp,
+      short: materialShort(exp ? Math.round((exp.qty - issued) * 1000) / 1000 : null, onHand.get(code) ?? 0),
     };
   }).sort((a, b) =>
     Number(a.off_bom) - Number(b.off_bom)
@@ -1070,10 +1071,24 @@ export function materialPlan(state: DemoState, wo: WorkOrder): MaterialPlan {
     rev: no_plan_reason ? null : (wo.bom_rev ?? (product ? currentBomRev(state, product) : null)),
     no_plan_reason,
     lines,
+    material_status: materialStatus(no_plan_reason, lines),
     /* Only once the run is finished. Half a run has taken half its material,
        and calling that a 50% underrun teaches people to ignore the figure. */
     variance_readable: view.completed >= wo.qty || wo.status === "DONE",
     completed: view.completed,
     ordered: wo.qty,
   };
+}
+
+/** `ops_prod.check_jo_reference` (0171): a JO number written onto a purchase
+ *  line, or onto a stock issue whose ref reads like one, must name a JO that
+ *  exists — and a purchase must not be for a cancelled one. A key nothing
+ *  checks is a key nothing follows (F86). Null when the reference is fine. */
+export function joReferenceProblem(state: DemoState, ref: string | null | undefined, purpose: "purchase" | "issue"): string | null {
+  if (!ref) return null;
+  if (purpose === "issue" && !/^(spk|jo)-/i.test(ref)) return null;
+  const wo = state.work_orders.find((w) => w.wo_no === ref);
+  if (!wo) return `Job Order ${ref} tidak ada. Periksa nomornya — rantai pembelian-produksi putus di sini.`;
+  if (purpose === "purchase" && wo.status === "CANCELLED") return `Job Order ${ref} sudah dibatalkan — jangan belanja untuknya.`;
+  return null;
 }

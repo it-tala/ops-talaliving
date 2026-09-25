@@ -804,6 +804,104 @@ export interface MaterialLine {
   /** True where this item was issued against the order and the BOM never
    *  named it. The screen says so rather than folding it into a variance. */
   off_bom: boolean;
+  /** What the rack cannot cover of what is still to be issued:
+   *  `max(remaining − on_hand, 0)`. Zero where nothing remains. */
+  short: number;
+}
+
+/** Whether the order can start drawing its material — computed on read,
+ *  never stored (A3, 0171). The rack is **shared**: two orders can both read
+ *  `ready` against the same plywood, because nothing reserves stock for one
+ *  order yet (owner's decision, D312). */
+export type MaterialStatus =
+  /** No BOM to compare with, so no answer — not "ready". */
+  | "no_plan"
+  /** Something still to be issued is not on the rack in full. */
+  | "waiting"
+  /** Everything still to be issued is on the rack. *Material ready.* */
+  | "ready"
+  /** Every BOM line has been issued to the floor. */
+  | "issued";
+
+export const MATERIAL_STATUS_LABEL: Record<MaterialStatus, string> = {
+  no_plan: "Belum ada BOM",
+  waiting: "Menunggu bahan",
+  ready: "Material ready",
+  issued: "Bahan sudah keluar",
+};
+
+/** The rule, once, for both layers. */
+export function materialStatus(noPlanReason: string | null, lines: MaterialLine[]): MaterialStatus {
+  if (noPlanReason) return "no_plan";
+  const planned = lines.filter((l) => l.expected != null);
+  if (planned.length === 0) return "no_plan";
+  if (planned.every((l) => (l.remaining ?? 0) <= 0)) return "issued";
+  return planned.some((l) => l.short > 0) ? "waiting" : "ready";
+}
+
+/** `max(remaining − on_hand, 0)` — see `MaterialLine.short`. */
+export function materialShort(remaining: number | null, onHand: number): number {
+  if (remaining == null || remaining <= 0) return 0;
+  return Math.max(Math.round((remaining - Math.max(onHand, 0)) * 1000) / 1000, 0);
+}
+
+/* ------------------------------------------------------------------ */
+/* The trail (0171): one number in, the purchase→production story out. */
+/* ------------------------------------------------------------------ */
+
+export type TrailStage =
+  | "job_order" | "purchase_request" | "purchase_order" | "receipt" | "stock_in"
+  | "issue" | "return" | "progress" | "finished" | "delivery" | "handover";
+
+export const TRAIL_STAGE_LABEL: Record<TrailStage, string> = {
+  job_order: "Job Order dibuat",
+  purchase_request: "Purchase Request",
+  purchase_order: "Purchase Order",
+  receipt: "Receiving report",
+  stock_in: "Stok masuk",
+  issue: "Bahan keluar ke JO",
+  return: "Bahan kembali",
+  progress: "Progres produksi",
+  finished: "Barang jadi",
+  delivery: "Surat jalan",
+  handover: "BAST",
+};
+
+export interface TrailEvent {
+  at: string;
+  stage: TrailStage;
+  /** This event's own number (PR line, PO/line, RR, move, surat jalan). */
+  no: string;
+  /** The document it belongs to, where that differs. */
+  doc_no?: string | null;
+  /** The Job Order it is for — the thread (null = not tied to one). */
+  wo_no: string | null;
+  /** The item or product code — *what*. */
+  item_code: string | null;
+  text: string | null;
+  qty: number | null;
+  uom: string | null;
+  /** Procurement readers only. */
+  amount?: number | null;
+  paid?: number | null;
+  status: string | null;
+}
+
+export interface JobTrail {
+  no: string;
+  resolved_as: "project" | "job_order" | "purchase_request" | "purchase_order" | "receipt" | "delivery";
+  project: { code: string; name: string; status: string | null; client_name: string | null; target_date: string | null } | null;
+  job_orders: {
+    wo_no: string; product_code: string | null; item_name: string; qty: number; uom: string;
+    status: WorkOrderStatus; completed: number; due_date: string; bom_rev: number | null;
+  }[];
+  events: TrailEvent[];
+  /** Stages withheld from this reader — *you may not see it*, not *it did
+   *  not happen* (F104). */
+  hidden: TrailStage[];
+  /** Purchase lines in the story that name no JO; null when purchases are
+   *  hidden. */
+  unlinked_purchase_lines: number | null;
 }
 
 export interface MaterialPlan {
@@ -815,6 +913,8 @@ export interface MaterialPlan {
   /** Why there is no expectation, where there is none. */
   no_plan_reason: string | null;
   lines: MaterialLine[];
+  /** *Material ready* and its neighbours — `materialStatus()` over `lines`. */
+  material_status: MaterialStatus;
   /** Set once the order is finished. A variance read mid-run is not a
    *  variance — it is a run that has not finished drawing its material yet,
    *  and calling it an overrun teaches people to ignore the figure. */
