@@ -23,6 +23,7 @@ import type {
   LogMeasure, LogPiece, LogPieceView, SawnBoard, SawnBoardView, LogPurchaseView,
   TimberVendorSummary, TimberMonthSummary, BoardStockView, BoardMoveView, BoardMoveKind, NotaScan,
   LogCost, LogCostKind,
+  ProductStockRow, ProductLedgerRow, ProductMoveInput, ProductCountInput,
   AssetView, AssetCategory, AssetStatus, AssetInput, AssetService, AssetServiceInput,
 } from "@/services/inventory/contracts";
 import type { MaterialPlan } from "@/services/production/contracts";
@@ -193,6 +194,122 @@ export async function stockItemPurchases(itemCode: string): Promise<Result<ItemP
     unit_price: r.unit_price == null ? null : Number(r.unit_price),
     amount: Number(r.amount),
   })));
+}
+
+/* ── finished goods (0170) ─────────────────────────────────────────────── */
+
+const num = (v: unknown) => (v == null ? 0 : Number(v));
+
+function toProductStockRow(r: Record<string, unknown>): ProductStockRow {
+  const byLoc = (r.by_location ?? {}) as Record<string, unknown>;
+  return {
+    product_code: r.product_code as string,
+    product_name: (r.product_name as string | null) ?? null,
+    uom: (r.uom as string | null) ?? null,
+    project_line_id: (r.project_line_id as string | null) ?? null,
+    project_code: (r.project_code as string | null) ?? null,
+    line_no: r.line_no == null ? null : Number(r.line_no),
+    line_description: (r.line_description as string | null) ?? null,
+    ordered: r.ordered == null ? null : Number(r.ordered),
+    produced: num(r.produced),
+    shipped: num(r.shipped),
+    other: num(r.other),
+    on_hand: num(r.on_hand),
+    overrun: num(r.overrun),
+    still_owed: num(r.still_owed),
+    surplus: num(r.surplus),
+    by_location: Object.fromEntries(Object.entries(byLoc).map(([k, v]) => [k, Number(v)])),
+    wo_nos: (r.wo_nos as string[] | null) ?? [],
+    home_location: (r.home_location as string | null) ?? null,
+    last_move_at: (r.last_move_at as string | null) ?? null,
+  };
+}
+
+/** The finished-goods rack (`ops_inv.product_stock`): one row per product ×
+ *  customer order line, with the overrun and the surplus computed by the
+ *  database — shipments read off the delivery notes, never entered twice. */
+export async function listProductStock(productCode?: string): Promise<Result<ProductStockRow[]>> {
+  const { data, error } = await db().rpc("product_stock", { p_product_code: productCode ?? null });
+  const res = fromSeam<Record<string, unknown>[]>(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, res.data.map(toProductStockRow));
+}
+
+/** Every move of one product, newest first — stored moves and the shipments
+ *  derived from delivery notes, in one list. */
+export async function productLedger(productCode: string): Promise<Result<ProductLedgerRow[]>> {
+  const { data, error } = await db().rpc("product_ledger", { p_product_code: productCode });
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, ((data ?? []) as Record<string, unknown>[])
+    .map((r) => ({ ...(r as unknown as ProductLedgerRow), qty: Number(r.qty) }))
+    .sort((a, b) => b.moved_at.localeCompare(a.moved_at)));
+}
+
+/** What the finished-goods forms choose from: catalogued products, and the
+ *  job orders that make them (a `produced` move names its JO). */
+export async function productMoveOptions(): Promise<Result<{
+  products: { product_code: string; name: string; uom: string }[];
+  work_orders: { wo_no: string; product_code: string; item_name: string; qty: number; status: string; project_code: string | null }[];
+}>> {
+  const [{ data: products, error: pErr }, { data: wos, error: wErr }] = await Promise.all([
+    prod().from("products").select("product_code, name, uom").eq("active", true).order("product_code"),
+    prod().from("work_orders").select("wo_no, product_code, item_name, qty, status, project_code")
+      .not("product_code", "is", null).neq("status", "CANCELLED").order("created_at", { ascending: false }),
+  ]);
+  if (pErr) return fail(SERVICE, pErr);
+  if (wErr) return fail(SERVICE, wErr);
+  return ok(SERVICE, {
+    products: (products ?? []) as { product_code: string; name: string; uom: string }[],
+    work_orders: (wos ?? []).map((w) => ({ ...w, qty: Number(w.qty) })) as {
+      wo_no: string; product_code: string; item_name: string; qty: number; status: string; project_code: string | null;
+    }[],
+  });
+}
+
+export async function moveProduct(input: ProductMoveInput, idempotencyKey?: string): Promise<Result<ProductStockRow[]>> {
+  const { data, error } = await db().rpc("move_product", {
+    p_product_code: input.product_code,
+    p_kind: input.kind,
+    p_qty: input.qty,
+    p_location: input.location,
+    p_to_location: input.to_location ?? null,
+    p_wo_no: input.wo_no ?? null,
+    p_project_line_id: input.project_line_id ?? null,
+    p_ref_no: input.ref_no ?? null,
+    p_reason: input.reason ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return listProductStock(input.product_code);
+}
+
+/** Opname on the finished-goods rack: the difference is stored with its
+ *  reason (D171); a count that matches writes nothing. */
+export async function countProduct(input: ProductCountInput, idempotencyKey?: string): Promise<Result<ProductStockRow[]>> {
+  const { data, error } = await db().rpc("count_product", {
+    p_product_code: input.product_code,
+    p_location: input.location,
+    p_counted: input.counted,
+    p_reason: input.reason ?? null,
+    p_project_line_id: input.project_line_id ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return listProductStock(input.product_code);
+}
+
+/** Where a product's finished goods normally stand — and where a delivery
+ *  note takes them from. */
+export async function setProductHome(productCode: string, location: string | null): Promise<Result<ProductStockRow[]>> {
+  const { data, error } = await db().rpc("set_product_home", {
+    p_product_code: productCode,
+    p_location: location,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return listProductStock(productCode);
 }
 
 /** Joins `v_stock_item` rows to `v_stock_by_location` (one query for every row

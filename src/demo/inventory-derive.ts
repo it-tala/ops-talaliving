@@ -11,6 +11,7 @@ import type { DemoState } from "./state";
 import type {
   LogPurchase, LogPurchaseView, LogPieceView, SawnBoardView, LogMeasure, LogCost,
   TimberVendorSummary, TimberMonthSummary, BoardStockView, BoardMoveView,
+  ProductLedgerRow, ProductStockRow,
 } from "@/services/inventory/contracts";
 
 const round4 = (n: number) => Math.round(n * 10_000) / 10_000;
@@ -642,4 +643,94 @@ export function boardMoveViews(
     .filter((m) => (!filter.board_key || m.board_key === filter.board_key)
       && (!filter.ref_no || m.ref_no === filter.ref_no))
     .sort((a, b) => b.at.localeCompare(a.at));
+}
+
+/* ── finished goods (0170) ─────────────────────────────────────────────── */
+
+/** Stored moves plus shipments read off the delivery notes — the same rule as
+ *  `ops_inv.product_ledger`: a delivery line counts only for an order line
+ *  that already has finished goods recorded, only from on or after the first
+ *  one, and never when the delivery was cancelled. It leaves from the
+ *  product's home location. */
+export function productLedgerRows(state: DemoState, productCode?: string): ProductLedgerRow[] {
+  const stored: ProductLedgerRow[] = state.product_moves
+    .filter((m) => !productCode || m.product_code === productCode)
+    .map((m) => ({ ...m }));
+  const since = new Map<string, string>();
+  for (const m of state.product_moves) {
+    if (!m.project_line_id) continue;
+    const at = since.get(m.project_line_id);
+    if (!at || m.moved_at < at) since.set(m.project_line_id, m.moved_at);
+  }
+  const shipped: ProductLedgerRow[] = [];
+  for (const dl of state.delivery_lines) {
+    const first = since.get(dl.project_line_id);
+    if (!first) continue;
+    const d = state.deliveries.find((x) => x.id === dl.delivery_id);
+    if (!d || d.status === "CANCELLED" || d.created_at < first) continue;
+    const pl = state.project_lines.find((l) => l.id === dl.project_line_id);
+    if (!pl?.product_code || (productCode && pl.product_code !== productCode)) continue;
+    const home = state.product_settings.find((s) => s.product_code === pl.product_code)?.home_location;
+    shipped.push({
+      move_no: d.delivery_no, product_code: pl.product_code, location: home ?? "GUDANG",
+      kind: "shipped", qty: -dl.qty, wo_no: null, project_line_id: dl.project_line_id,
+      ref_no: d.delivery_no, reason: null, moved_by: d.created_by ?? null, moved_at: d.created_at,
+    });
+  }
+  return [...stored, ...shipped].sort((a, b) => b.moved_at.localeCompare(a.moved_at));
+}
+
+/** On hand for one batch (product × order line) at one location. */
+export function productOnHand(state: DemoState, productCode: string, lineId: string | null, location: string): number {
+  return productLedgerRows(state, productCode)
+    .filter((r) => r.location === location && (r.project_line_id ?? null) === lineId)
+    .reduce((s, r) => s + r.qty, 0);
+}
+
+/** `ops_inv.product_stock`, row for row. */
+export function productStockRows(state: DemoState, productCode?: string): ProductStockRow[] {
+  const groups = new Map<string, ProductLedgerRow[]>();
+  for (const r of productLedgerRows(state, productCode)) {
+    const k = `${r.product_code}|${r.project_line_id ?? ""}`;
+    (groups.get(k) ?? groups.set(k, []).get(k)!).push(r);
+  }
+  const rows: ProductStockRow[] = [];
+  for (const moves of groups.values()) {
+    const { product_code, project_line_id } = moves[0];
+    const product = state.products.find((p) => p.product_code === product_code);
+    const line = project_line_id ? state.project_lines.find((l) => l.id === project_line_id) : undefined;
+    const project = line ? state.projects.find((p) => p.id === line.project_id) : undefined;
+    const sum = (f: (r: ProductLedgerRow) => boolean) => moves.filter(f).reduce((s, r) => s + r.qty, 0);
+    const produced = sum((r) => r.kind === "produced");
+    const shipped = 0 - sum((r) => r.kind === "shipped");
+    const onHand = sum(() => true);
+    const byLocation: Record<string, number> = {};
+    for (const r of moves) byLocation[r.location] = (byLocation[r.location] ?? 0) + r.qty;
+    for (const k of Object.keys(byLocation)) if (byLocation[k] === 0) delete byLocation[k];
+    const stillOwed = line ? Math.max(line.qty - shipped, 0) : 0;
+    rows.push({
+      product_code,
+      product_name: product?.name ?? null,
+      uom: product?.uom ?? null,
+      project_line_id: project_line_id ?? null,
+      project_code: project?.code ?? null,
+      line_no: line?.line_no ?? null,
+      line_description: line?.description ?? null,
+      ordered: line ? line.qty : null,
+      produced,
+      shipped,
+      other: sum((r) => r.kind !== "produced" && r.kind !== "shipped"),
+      on_hand: onHand,
+      overrun: line ? Math.max(produced - line.qty, 0) : 0,
+      still_owed: stillOwed,
+      surplus: Math.max(onHand - stillOwed, 0),
+      by_location: Object.fromEntries(Object.entries(byLocation).sort(([a], [b]) => a.localeCompare(b))),
+      wo_nos: [...new Set(moves.map((r) => r.wo_no).filter((w): w is string => !!w))].sort(),
+      home_location: state.product_settings.find((s) => s.product_code === product_code)?.home_location ?? null,
+      last_move_at: moves.reduce<string | null>((m, r) => (!m || r.moved_at > m ? r.moved_at : m), null),
+    });
+  }
+  return rows.sort((a, b) => a.product_code.localeCompare(b.product_code)
+    || (a.project_code ?? "").localeCompare(b.project_code ?? "")
+    || (a.line_no ?? 0) - (b.line_no ?? 0));
 }

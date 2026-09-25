@@ -171,6 +171,8 @@ export function initialState(): DemoState {
     app_settings: APP_SETTINGS,
     assistant_turns: [],
     stock_moves: STOCK_MOVES,
+    product_moves: [],
+    product_settings: [],
 
     log_purchases: LOG_PURCHASES,
     log_pieces: LOG_PIECES,

@@ -20,6 +20,7 @@ import type {
 import type {
   LogPurchase, LogPiece, SawnBoard, BoardMove, LogCost,
   StockLocation, StockMove, StockSetting, Asset, AssetService, AssetCategory,
+  ProductMove, ProductSetting,
 } from "@/services/inventory/contracts";
 import type {
   Employee, AttendanceScan, DayMark, OvertimeSheet, OvertimeLine, PayrollRun,
@@ -227,6 +228,10 @@ export interface DemoState {
   assistant_turns: AssistantTurn[];
   /** Append-only. A mistake is another move with a reason (A5, D171). */
   stock_moves: StockMove[];
+  /** Finished goods (0170): what the workshop made, on a rack until it
+   *  ships. Shipments are not here — they are read off `delivery_lines`. */
+  product_moves: ProductMove[];
+  product_settings: ProductSetting[];
 
   /* --- inventory: assets (0107) ------------------------------------ */
   /** What the company owns and uses rather than sells: CCTV, PCs, vehicles. */

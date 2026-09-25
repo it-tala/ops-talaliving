@@ -104,6 +104,7 @@ export const NAV: NavSection[] = [
        * recorded (D202, D203). */
       { label: "Timber", labelKey: "timber", href: "/inventory/log", icon: TreePine, permission: "inventory.read", badge: "core" },
       { label: "Materials & Hardware", labelKey: "materials", href: "/inventory/material", icon: Boxes, permission: "inventory.read", badge: "new" },
+      { label: "Finished Goods", href: "/inventory/produk", icon: PackageCheck, permission: "inventory.read", badge: "new" },
       { label: "Stock Adjustments", labelKey: "adjustments", href: "/inventory/penyesuaian", icon: Wrench, permission: "inventory.adjust", badge: "new" },
       { label: "Assets", href: "/inventory/assets", icon: MonitorSmartphone, permission: "inventory.read", badge: "new" },
     ],

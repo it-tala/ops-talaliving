@@ -11,6 +11,7 @@ import type {
   StockItemView, StockItemDetail, StockLocation, StockMove, StockMoveView,
   BoardStockView, BoardMoveView, BoardMoveKind, NotaScan, LogCostKind,
   Asset, AssetView, AssetCategory, AssetStatus, AssetInput, AssetService, AssetServiceInput,
+  ProductStockRow, ProductLedgerRow, ProductMove, ProductMoveInput, ProductCountInput,
 } from "@/services/inventory/contracts";
 import { ASSET_GONE, ASSET_OWNERSHIP_LABEL } from "@/services/inventory/contracts";
 import type { ItemPurchase } from "@/services/procurement/contracts";
@@ -24,12 +25,13 @@ import {
   stockItems, stockItemDetail, stockMoveViews,
   boardStock, boardMoveViews,
   itemUsedIn as usedIn,
+  productStockRows, productLedgerRows, productOnHand,
 } from "../inventory-derive";
 import { materialPlan } from "../production-derive";
 import type { MaterialPlan } from "@/services/production/contracts";
 import { scanNota } from "../nota-kayu";
 import { STOCKED_CATEGORIES } from "../fixtures/reference";
-import { latency, actingUser, requireModule, conflict, replayed, remember } from "./_kit";
+import { latency, actingUser, requireModule, requireLevel, conflict, refused, replayed, remember } from "./_kit";
 
 const SERVICE = "inventory" as const;
 
@@ -511,6 +513,207 @@ export async function stockItemPurchases(itemCode: string): Promise<Result<ItemP
     return notFound(SERVICE, "item_not_found", "No such item.");
   }
   return itemPurchases(item.id);
+}
+
+/* ── finished goods (0170) ─────────────────────────────────────────────── */
+
+export async function listProductStock(productCode?: string): Promise<Result<ProductStockRow[]>> {
+  await latency();
+  const denied = requireModule(SERVICE, "inventory");
+  if (denied) return denied;
+  return ok(SERVICE, productStockRows(getState(), productCode));
+}
+
+export async function productLedger(productCode: string): Promise<Result<ProductLedgerRow[]>> {
+  await latency();
+  if (requireModule(SERVICE, "inventory")) return ok(SERVICE, []);
+  return ok(SERVICE, productLedgerRows(getState(), productCode));
+}
+
+export async function productMoveOptions(): Promise<Result<{
+  products: { product_code: string; name: string; uom: string }[];
+  work_orders: { wo_no: string; product_code: string; item_name: string; qty: number; status: string; project_code: string | null }[];
+}>> {
+  await latency();
+  const state = getState();
+  return ok(SERVICE, {
+    products: state.products.filter((p) => p.active)
+      .map((p) => ({ product_code: p.product_code, name: p.name, uom: p.uom }))
+      .sort((a, b) => a.product_code.localeCompare(b.product_code)),
+    work_orders: state.work_orders
+      .filter((w) => w.product_code && w.status !== "CANCELLED")
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .map((w) => ({
+        wo_no: w.wo_no, product_code: w.product_code!, item_name: w.item_name, qty: w.qty,
+        status: w.status, project_code: w.project_code,
+      })),
+  });
+}
+
+function writeProductMove(
+  draft: DemoState,
+  input: Omit<ProductMove, "id" | "move_no" | "moved_by" | "moved_at">,
+  userId: string,
+): ProductMove {
+  const move: ProductMove = {
+    ...input,
+    id: newId("fgm"),
+    move_no: nextDocNumber(draft, "fgm"),
+    moved_by: userId,
+    moved_at: new Date().toISOString(),
+  };
+  draft.product_moves.push(move);
+  return move;
+}
+
+/** `ops_inv.move_product`: `qty` positive, the kind gives the sign. A
+ *  `produced` move takes its order line from the JO, never the form. */
+export async function moveProduct(input: ProductMoveInput, idempotencyKey?: string): Promise<Result<ProductStockRow[]>> {
+  await latency();
+  const cached = replayed<ProductStockRow[]>(SERVICE, "moveProduct", idempotencyKey);
+  if (cached) return cached;
+  const denied = requireLevel(SERVICE, "inventory", "write");
+  if (denied) return denied;
+
+  const state = getState();
+  const kind = input.kind;
+  const reason = input.reason?.trim() || null;
+  if (!["produced", "transfer", "scrap", "sold", "return"].includes(kind)) {
+    return invalid(SERVICE, "no_such_kind", `Jenis gerak ${kind} tidak dikenal.`, { field: "kind" });
+  }
+  if (!state.products.some((p) => p.product_code === input.product_code)) {
+    return notFound(SERVICE, "not_found", "Produk tidak ditemukan.");
+  }
+  if (!(input.qty > 0)) return invalid(SERVICE, "qty_invalid", "Jumlah harus lebih dari nol.", { field: "qty" });
+  const active = (code: string | null | undefined) => state.stock_locations.some((l) => l.code === code && l.is_active);
+  if (!active(input.location)) {
+    return invalid(SERVICE, "no_such_location", "Lokasi tidak ada atau tidak aktif.", { field: "location" });
+  }
+  if (["scrap", "sold", "return"].includes(kind) && !reason) {
+    return invalid(SERVICE, "reason_required",
+      "Tulis alasannya — siapa pembelinya, kenapa rusak, dari mana kembalinya.", { field: "reason" });
+  }
+
+  let lineId = input.project_line_id ?? null;
+  let woNo = input.wo_no?.trim() || null;
+  if (kind === "produced") {
+    const wo = state.work_orders.find((w) => w.wo_no === woNo);
+    if (!wo) {
+      return invalid(SERVICE, "wo_required", "Hasil produksi harus menyebut Job Order yang membuatnya.", { field: "wo_no" });
+    }
+    if (wo.status === "CANCELLED") return refused(SERVICE, "wo_cancelled", `${wo.wo_no} sudah dibatalkan.`);
+    if (wo.product_code !== input.product_code) {
+      return invalid(SERVICE, "wo_other_product",
+        `${wo.wo_no} membuat ${wo.product_code ?? "barang di luar katalog"}, bukan ${input.product_code}.`, { field: "wo_no" });
+    }
+    lineId = wo.project_line_id ?? null;
+    woNo = wo.wo_no;
+  } else if (lineId) {
+    const line = state.project_lines.find((l) => l.id === lineId);
+    if (!line || line.product_code !== input.product_code) {
+      return invalid(SERVICE, "line_other_product", "Baris pesanan itu bukan untuk produk ini.", { field: "project_line_id" });
+    }
+  }
+  if (kind === "transfer" && (!input.to_location || input.to_location === input.location || !active(input.to_location))) {
+    return invalid(SERVICE, "no_such_location", "Lokasi tujuan harus lokasi aktif yang lain.", { field: "to_location" });
+  }
+  if (["transfer", "scrap", "sold"].includes(kind)) {
+    const have = productOnHand(state, input.product_code, lineId, input.location);
+    if (have < input.qty) {
+      return conflict(SERVICE, "insufficient", `Di ${input.location} hanya ada ${have}.`, { on_hand: have });
+    }
+  }
+
+  const user = actingUser();
+  apply((draft) => {
+    const out = writeProductMove(draft, {
+      product_code: input.product_code, location: input.location, kind,
+      qty: kind === "produced" || kind === "return" ? input.qty : -input.qty,
+      wo_no: woNo, project_line_id: lineId, ref_no: input.ref_no?.trim() || null, reason,
+    }, user.id);
+    if (kind === "transfer") {
+      writeProductMove(draft, {
+        product_code: input.product_code, location: input.to_location!, kind: "transfer", qty: input.qty,
+        wo_no: woNo, project_line_id: lineId, ref_no: out.move_no, reason,
+      }, user.id);
+    }
+    writeOutbox(draft, {
+      service: SERVICE, event_type: "inventory.product.moved",
+      payload: { product_code: input.product_code, kind, qty: input.qty, location: input.location,
+                 to_location: input.to_location ?? null, wo_no: woNo, project_line_id: lineId },
+    });
+  });
+  const rows = productStockRows(getState(), input.product_code);
+  remember(SERVICE, "moveProduct", idempotencyKey, rows);
+  return ok(SERVICE, rows);
+}
+
+/** Opname on the finished-goods rack (`ops_inv.count_product`). */
+export async function countProduct(input: ProductCountInput, idempotencyKey?: string): Promise<Result<ProductStockRow[]>> {
+  await latency();
+  const cached = replayed<ProductStockRow[]>(SERVICE, "countProduct", idempotencyKey);
+  if (cached) return cached;
+  const denied = requireLevel(SERVICE, "inventory", "write");
+  if (denied) return denied;
+  const state = getState();
+  if (!state.products.some((p) => p.product_code === input.product_code)) {
+    return notFound(SERVICE, "not_found", "Produk tidak ditemukan.");
+  }
+  if (input.counted == null || !(input.counted >= 0)) {
+    return invalid(SERVICE, "counted_invalid", "Hasil hitung tidak boleh kosong atau minus.", { field: "counted" });
+  }
+  if (!state.stock_locations.some((l) => l.code === input.location && l.is_active)) {
+    return invalid(SERVICE, "no_such_location", "Lokasi tidak ada atau tidak aktif.", { field: "location" });
+  }
+  const lineId = input.project_line_id ?? null;
+  if (lineId) {
+    const line = state.project_lines.find((l) => l.id === lineId);
+    if (!line || line.product_code !== input.product_code) {
+      return invalid(SERVICE, "line_other_product", "Baris pesanan itu bukan untuk produk ini.", { field: "project_line_id" });
+    }
+  }
+  const have = productOnHand(state, input.product_code, lineId, input.location);
+  const diff = input.counted - have;
+  if (diff === 0) return ok(SERVICE, productStockRows(state, input.product_code));
+  const reason = input.reason?.trim();
+  if (!reason) {
+    return invalid(SERVICE, "reason_required",
+      `Sistem mencatat ${have}, dihitung ${input.counted}. Tulis kenapa berbeda.`, { field: "reason", on_hand: have });
+  }
+  const user = actingUser();
+  apply((draft) => {
+    const m = writeProductMove(draft, {
+      product_code: input.product_code, location: input.location, kind: "adjust", qty: diff,
+      wo_no: null, project_line_id: lineId, ref_no: null, reason,
+    }, user.id);
+    writeOutbox(draft, {
+      service: SERVICE, event_type: "inventory.product.counted",
+      payload: { move_no: m.move_no, product_code: input.product_code, location: input.location,
+                 was: have, counted: input.counted, diff },
+    });
+  });
+  const rows = productStockRows(getState(), input.product_code);
+  remember(SERVICE, "countProduct", idempotencyKey, rows);
+  return ok(SERVICE, rows);
+}
+
+export async function setProductHome(productCode: string, location: string | null): Promise<Result<ProductStockRow[]>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "inventory", "write");
+  if (denied) return denied;
+  const state = getState();
+  if (!state.products.some((p) => p.product_code === productCode)) {
+    return notFound(SERVICE, "not_found", "Produk tidak ditemukan.");
+  }
+  if (location && !state.stock_locations.some((l) => l.code === location && l.is_active)) {
+    return invalid(SERVICE, "no_such_location", "Lokasi tidak ada atau tidak aktif.", { field: "location" });
+  }
+  apply((draft) => {
+    const s = draft.product_settings.find((x) => x.product_code === productCode);
+    if (s) s.home_location = location;
+    else draft.product_settings.push({ product_code: productCode, home_location: location });
+  });
+  return ok(SERVICE, productStockRows(getState(), productCode));
 }
 
 /** Which products' BOMs call for this item, latest revision only. */

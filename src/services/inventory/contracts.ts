@@ -585,6 +585,111 @@ export interface StockItemDetail extends StockItemView {
 }
 
 /* ------------------------------------------------------------------ */
+/* Finished goods (0170) — what the workshop made, on a rack until it  */
+/* ships. A second ledger beside the material rack, same rule: signed  */
+/* moves, on-hand computed on read (A3).                               */
+/* ------------------------------------------------------------------ */
+
+/** What moved a finished product. `shipped` is never written: it is read off
+ *  the delivery notes, so a surat jalan is one entry, not two (D53). */
+export type ProductMoveKind = "produced" | "adjust" | "transfer" | "scrap" | "sold" | "return" | "shipped";
+
+/** What the form may write — `adjust` goes through the count, `shipped`
+ *  through a delivery. */
+export type ProductMoveInputKind = "produced" | "transfer" | "scrap" | "sold" | "return";
+
+export const PRODUCT_MOVE_LABEL: Record<ProductMoveKind, string> = {
+  produced: "Hasil produksi",
+  adjust: "Penyesuaian opname",
+  transfer: "Pindah lokasi",
+  scrap: "Rusak / afkir",
+  sold: "Dijual lepas",
+  return: "Retur dari klien",
+  shipped: "Dikirim (surat jalan)",
+};
+
+export interface ProductLedgerRow {
+  move_no: string;
+  product_code: string;
+  location: string;
+  kind: ProductMoveKind;
+  /** Signed. */
+  qty: number;
+  wo_no: string | null;
+  project_line_id: string | null;
+  ref_no: string | null;
+  reason: string | null;
+  moved_by: string | null;
+  moved_at: string;
+}
+
+/** A stored move — everything the ledger shows except the shipments, which
+ *  are read off the delivery notes. Append-only (A5). */
+export interface ProductMove extends Omit<ProductLedgerRow, "kind" | "moved_by"> {
+  id: string;
+  kind: Exclude<ProductMoveKind, "shipped">;
+  moved_by: string;
+}
+
+export interface ProductSetting {
+  product_code: string;
+  /** Where the product's finished goods stand, and where a delivery note
+   *  takes them from. Null = GUDANG. */
+  home_location: string | null;
+}
+
+/** One product × one customer order line (null line = made for stock). */
+export interface ProductStockRow {
+  product_code: string;
+  product_name: string | null;
+  uom: string | null;
+  project_line_id: string | null;
+  project_code: string | null;
+  line_no: number | null;
+  line_description: string | null;
+  /** What the customer ordered on this line; null for stock made for nobody. */
+  ordered: number | null;
+  produced: number;
+  shipped: number;
+  /** Everything else, signed: transfers net to zero, so this is opname
+   *  differences, scrap, sales and returns. */
+  other: number;
+  on_hand: number;
+  /** Made beyond what was ordered — *kelebihan produksi*. */
+  overrun: number;
+  /** What the customer is still owed out of this line. */
+  still_owed: number;
+  /** On the rack beyond anything owed — free to sell or reuse. */
+  surplus: number;
+  by_location: Record<string, number>;
+  wo_nos: string[];
+  home_location: string | null;
+  last_move_at: string | null;
+}
+
+export interface ProductMoveInput {
+  product_code: string;
+  kind: ProductMoveInputKind;
+  /** Always positive; the kind gives the sign. */
+  qty: number;
+  location: string;
+  to_location?: string | null;
+  /** Required for `produced`; the order line is taken from the JO. */
+  wo_no?: string | null;
+  project_line_id?: string | null;
+  ref_no?: string | null;
+  reason?: string | null;
+}
+
+export interface ProductCountInput {
+  product_code: string;
+  location: string;
+  counted: number;
+  reason?: string | null;
+  project_line_id?: string | null;
+}
+
+/* ------------------------------------------------------------------ */
 /* The asset register (0107) — what the company owns and uses rather   */
 /* than sells or builds from: CCTV, PCs, vehicles, tools.              */
 /* ------------------------------------------------------------------ */
