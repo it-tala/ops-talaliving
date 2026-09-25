@@ -25,7 +25,8 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "recharts": "3.10.1",
-    "swr": "^2.4.2"
+    "swr": "^2.4.2",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@opennextjs/cloudflare": "^1.20.6",

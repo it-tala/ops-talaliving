@@ -5,7 +5,7 @@ import { Upload, FileSpreadsheet, AlertTriangle } from "lucide-react";
 import { Modal } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/primitives";
 import { hr } from "@/demo/api";
-import { parseCsv } from "@/lib/csv";
+import { readBiometricFile, type ParsedRow } from "@/lib/biometricFile";
 import { useToast } from "@/store/toast";
 
 /** Taking the fingerprint machine's own export.
@@ -22,59 +22,11 @@ import { useToast } from "@/store/toast";
  *  - **The time is read as WITA.** The device writes local time with no zone.
  *    Parsing it as the browser's zone would move every stamp by the distance
  *    between the reader and whoever opened the screen (F17).
+ *
+ *  The device's own export is `.xlsx`, not CSV — reading and parsing lives in
+ *  `@/lib/biometricFile`, which handles both, because a CSV-only reader
+ *  rejects every real file HRD is handed.
  */
-
-type ParsedRow = { employee_ref: string; name: string; at: string; verify: string; location: string | null };
-
-/** `DD/MM/YYYY H:MM:SS` → an ISO stamp in WITA. The machine writes the hour
- *  without a leading zero after midnight-ish rows, so it is padded here. */
-function parseStamp(raw: string): string | null {
-  const m = raw.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
-  if (!m) return null;
-  const [, d, mo, y, h, mi, s] = m;
-  const p = (v: string) => v.padStart(2, "0");
-  return `${y}-${p(mo)}-${p(d)}T${p(h)}:${p(mi)}:${p(s ?? "00")}+08:00`;
-}
-
-/** The reader's export: a header row, then one row per tap, with a trailing run
- *  of empty columns. */
-function parseFile(text: string): { rows: ParsedRow[]; skipped: number } {
-  /* Quote-aware for the same reason the overtime form needs it: a name or a
-     location with a comma in it would otherwise shift every later column
-     (F47). */
-  const lines = parseCsv(text);
-  if (lines.length === 0) return { rows: [], skipped: 0 };
-
-  const header = lines[0].map((h) => h.trim().toLowerCase());
-  const col = (...names: string[]) => {
-    for (const n of names) {
-      const i = header.indexOf(n);
-      if (i !== -1) return i;
-    }
-    return -1;
-  };
-  const iName = col("name", "nama");
-  const iNo = col("no.", "no", "id", "employee no");
-  const iAt = col("date/time", "datetime", "date time", "waktu");
-  const iVerify = col("verifycode", "verify", "verify code");
-  const iLoc = col("location id", "location");
-
-  const rows: ParsedRow[] = [];
-  let skipped = 0;
-  for (const c of lines.slice(1)) {
-    const at = iAt >= 0 ? parseStamp(c[iAt] ?? "") : null;
-    const ref = (iNo >= 0 ? c[iNo] : "")?.trim() ?? "";
-    if (!at || !ref) { skipped += 1; continue; }
-    rows.push({
-      employee_ref: ref,
-      name: (iName >= 0 ? c[iName] : "")?.trim() ?? "",
-      at,
-      verify: (iVerify >= 0 ? c[iVerify] : "")?.trim() || "—",
-      location: (iLoc >= 0 ? c[iLoc] : "")?.trim() || null,
-    });
-  }
-  return { rows, skipped };
-}
 
 export function ImportScans({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const { toast } = useToast();
@@ -85,8 +37,7 @@ export function ImportScans({ onClose, onDone }: { onClose: () => void; onDone: 
   } | null>(null);
 
   async function read(f: File) {
-    const text = await f.text();
-    const { rows, skipped } = parseFile(text);
+    const { rows, skipped } = await readBiometricFile(f);
     setResult(null);
     setFile({ name: f.name, rows, skipped });
     if (rows.length === 0) {
@@ -153,12 +104,12 @@ export function ImportScans({ onClose, onDone }: { onClose: () => void; onDone: 
       <div className="space-y-4">
         <div>
           <label htmlFor="scan-file" className="block text-xs text-slate-500">
-            The device&rsquo;s export — <code className="text-[11px]">Department, Name, No., Date/Time, …</code>
+            The device&rsquo;s export (.xlsx or .csv) — <code className="text-[11px]">Department, Name, No., Date/Time, …</code>
           </label>
           <input
             id="scan-file"
             type="file"
-            accept=".csv,text/csv,text/plain"
+            accept=".csv,.xlsx,.xls,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) void read(f); }}
             className="mt-1 block w-full rounded-lg border border-dashed border-slate-300 px-3 py-4 text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-50 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-brand-700 hover:border-brand-300"
           />
