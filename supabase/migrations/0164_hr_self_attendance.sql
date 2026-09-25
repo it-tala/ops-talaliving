@@ -38,8 +38,23 @@
 
 alter type ops_hr.scan_source_t add value 'self';
 
+-- `source::text`, not `source`, and the cast is load-bearing rather than
+-- stylistic. Postgres refuses to **resolve** a new enum label in the same
+-- transaction that added it — `55P04 unsafe use of new value "self"`, hint
+-- *New enum values must be committed before they can be used* — so a check
+-- constraint naming the label directly makes this file un-appliable by any
+-- applier that wraps a migration in one transaction. `supabase/local/rebuild.sh`
+-- is not one of those (each file is its own psql invocation, and the ALTER TYPE
+-- commits on its own), which is exactly why the ladder and CI were green while
+-- the real thing refused: applied to production through the Supabase migration
+-- API, this file failed at this line and rolled the whole migration back.
+--
+-- Casting to text sidesteps the resolution without changing what is enforced:
+-- a self tap still has to name the session that made it. Proved both halves —
+-- the DDL applies inside an explicit transaction, and an insert of
+-- `('self', null)` afterwards is still refused by this constraint.
 alter table ops_hr.attendance_scans
-  add constraint self_is_the_caller check (source <> 'self' or recorded_by is not null);
+  add constraint self_is_the_caller check (source::text <> 'self' or recorded_by is not null);
 
 /* Own taps, own marks — the same shape as `tasks_read_own`/`employees_read_own`
    in `0152`: the account-to-employee link and nothing else. An employee with
