@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Menu, RotateCcw, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/primitives";
 import { GrantPicker, GrantPickerButton } from "./grant-picker";
@@ -103,12 +104,20 @@ export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
             </Button>
           )}
 
-          <div
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-100 text-sm font-semibold text-brand-700"
-            title={session?.user.email}
+          {/* Every account owns this page (W7) — self reset, self history,
+              self presensi/lembur/cuti, own tasks and own payslip. The avatar
+              is the one thing on this bar that already belongs to "you"
+              rather than to a module, which is why the link lives here and
+              not in the sidebar: the sidebar is menu-as-data filtered by
+              module grant (`src/lib/nav.ts`), and a profile is not a module
+              anybody may be granted or refused. */}
+          <Link
+            href="/profil"
+            title={session ? `${session.user.full_name} — profil saya` : "Profil saya"}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-100 text-sm font-semibold text-brand-700 transition-colors hover:bg-brand-200"
           >
             {session?.user.full_name.charAt(0) ?? "?"}
-          </div>
+          </Link>
         </div>
 
       </header>

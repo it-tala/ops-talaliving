@@ -2,20 +2,22 @@
 
 import { useState } from "react";
 import {
-  Send, Circle, Clock, AlertTriangle, ExternalLink, Check,
+  Send, Circle, Clock, AlertTriangle, ExternalLink, Check, ShieldCheck,
 } from "lucide-react";
 import Link from "next/link";
 import { Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
+import { stripRefs } from "@/lib/refs";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Link2 as LinkIcon } from "lucide-react";
 import { MoneyInput } from "@/components/ui/money-input";
 import { NumberInput } from "@/components/ui/number-input";
 import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
-import { procurement } from "@/demo/api";
+import { identity, procurement } from "@/demo/api";
 import type { PrLineView } from "@/services/procurement/contracts";
+import type { Approver } from "@/services/identity/contracts";
 import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
 import { LineDrawer } from "../pr/LineDrawer";
@@ -41,6 +43,12 @@ export default function MeetingBoardPage() {
   const { can, hasAuthority } = useSession();
   const { toast } = useToast();
   const [lines, reload] = useLoad(() => procurement.listOpenLines(), []);
+  /* Who may be asked. Not a table read: `ops_core.user_authorities` is readable
+     only for your own row unless you hold `it.manage_roles`, so until 0159 this
+     screen could not name the approver at all — it sent the question and told
+     you afterwards who had received it. */
+  const [approvers] = useLoad(() => identity.listApprovers(), []);
+  const [askTo, setAskTo] = useState<string | null>(null);
   const [selected, setSelected] = useState<PrLineView | null>(null);
   const [qtyDraft, setQtyDraft] = useState<Record<string, number>>({});
   const [amountDraft, setAmountDraft] = useState<Record<string, number>>({});
@@ -53,6 +61,15 @@ export default function MeetingBoardPage() {
 
   const mayDecide = hasAuthority("approve_goods");
   const mayAsk = can("procurement.create");
+
+  const goodsApprovers: Approver[] = approvers.status === "ready"
+    ? approvers.data.filter((a) => a.authority === "approve_goods")
+    : [];
+  /* The seam picks the first holder by name when nobody is named, and this
+     screen always names somebody instead — an implicit choice presented as a
+     fact is the thing the owner objected to. Until the list has loaded there is
+     nobody to name, and the send button says so rather than guessing. */
+  const askingWho = goodsApprovers.find((a) => a.email === askTo) ?? goodsApprovers[0];
 
   const qtyOf = (l: PrLineView) => qtyDraft[l.id] ?? l.qty ?? 0;
   const amountOf = (l: PrLineView) => amountDraft[l.id] ?? l.item_total;
@@ -129,9 +146,15 @@ export default function MeetingBoardPage() {
       toast("warning", "Nothing to send", "Every item you picked is already waiting for an answer.");
       return;
     }
+    if (!askingWho) {
+      toast("warning", "Nobody to ask",
+        "No active account holds the authority to approve goods. IT grants it in Settings → People.");
+      return;
+    }
     setBusy(true);
     const res = await procurement.requestApproval({
       line_nos: askable.map((l) => l.line_no_full),
+      to_email: askingWho.email,
       notes: Object.fromEntries(askable.map((l) => [l.line_no_full, noteOf(l).trim() || null])),
     });
     setBusy(false);
@@ -433,6 +456,61 @@ export default function MeetingBoardPage() {
             <>
               <MoneyPanel lines={all} />
 
+              {/* **Who decides, stated once and always visible.**
+                  `ops_core.approvers()` is the only way a member of staff can
+                  read this: `authorities_read` shows them their own row and
+                  nothing else, so before 0159 the answer to *ke siapa?* did not
+                  exist anywhere in the application. Both authorities are here
+                  because both are asked for in this room — goods on this board,
+                  funds on the payroll run and the funding round. */}
+              {/* Not wrapped in `Loaded`: a five-row skeleton and a full-width
+                  failure panel are the wrong weight for one line of context, and
+                  the board is still usable without it. Absent while loading,
+                  honest when it cannot be read — a board that silently stops
+                  saying who decides is how this screen got here. */}
+              {approvers.status === "failed" ? (
+                <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-[12px] text-amber-800">
+                  Could not read who holds the approval authorities, so this board cannot say who
+                  to ask. {stripRefs(approvers.error.message)}
+                </p>
+              ) : approvers.status === "ready" ? (
+                (() => {
+                  const goods = approvers.data.filter((a) => a.authority === "approve_goods");
+                  const funds = approvers.data.filter((a) => a.authority === "approve_funds");
+                  return (
+                    <div className="mb-4 flex flex-wrap items-start gap-x-6 gap-y-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-[12px] shadow-card">
+                      <span className="flex items-center gap-1.5 font-medium text-slate-700">
+                        <ShieldCheck className="h-3.5 w-3.5 text-brand-600" />
+                        Who decides
+                      </span>
+                      <span className="text-slate-600">
+                        <span className="text-slate-400">goods · </span>
+                        {goods.length > 0
+                          ? goods.map((a) => a.full_name).join(", ")
+                          : <span className="text-amber-700">nobody — nothing can be approved</span>}
+                      </span>
+                      <span className="text-slate-600">
+                        <span className="text-slate-400">funds · </span>
+                        {funds.length > 0
+                          ? funds.map((a) => a.full_name).join(", ")
+                          : <span className="text-amber-700">nobody</span>}
+                      </span>
+                      {/* An authority is granted in one place and read
+                          everywhere; saying where it is granted stops this
+                          becoming a list people ask IT to change by hand. */}
+                      {can("it.read") && (
+                        <Link
+                          href="/it/pengguna"
+                          className="ml-auto text-brand-700 underline-offset-2 hover:underline"
+                        >
+                          Change who holds it
+                        </Link>
+                      )}
+                    </div>
+                  );
+                })()
+              ) : null}
+
               {/* The confirm sits ABOVE the lists, with the total on it: a
                   meeting ticks its way down the page and then looks up to see
                   what it just committed to. Ticking writes nothing (D77). */}
@@ -471,16 +549,65 @@ export default function MeetingBoardPage() {
                         {busy ? "Recording…" : `Approve ${chosen.length} · ${formatIDR(chosenApproved)}`}
                       </Button>
                     ) : (
-                      <Button size="sm" icon={Send} disabled={busy || !mayAsk} onClick={() => sendSelected(chosen)}>
-                        {busy ? "Sending…" : `Send ${chosen.length} to the approver on Chat`}
+                      <Button
+                        size="sm"
+                        icon={Send}
+                        disabled={busy || !mayAsk || !askingWho}
+                        onClick={() => sendSelected(chosen)}
+                      >
+                        {busy
+                          ? "Sending…"
+                          : askingWho
+                            ? `Ask ${askingWho.full_name} on Chat · ${formatIDR(chosenTotal)}`
+                            : "Nobody holds approve_goods"}
                       </Button>
                     )}
                   </div>
                   {!mayDecide && (
-                    <p className="w-full text-[12px] text-brand-800">
-                      You are not the approver, so this does not record a yes — it puts the
-                      list in their chat, and their answer is recorded as theirs.
-                    </p>
+                    <div className="w-full space-y-1.5">
+                      {/* **Who, before it is sent.** The board used to name the
+                          recipient only in the toast afterwards, which is the
+                          wrong moment: the question a person has as they reach
+                          for the button is *who is this going to*. */}
+                      {goodsApprovers.length > 1 ? (
+                        <label
+                          htmlFor="ask-to"
+                          className="flex flex-wrap items-center gap-2 text-[12px] text-brand-900"
+                        >
+                          Ask
+                          <select
+                            id="ask-to"
+                            value={askingWho?.email ?? ""}
+                            onChange={(e) => setAskTo(e.target.value)}
+                            className="rounded-lg border border-brand-300 bg-white px-2 py-1 text-[12px] text-slate-800 focus:border-brand-500 focus:outline-none"
+                          >
+                            {goodsApprovers.map((a) => (
+                              <option key={a.email} value={a.email}>
+                                {a.full_name} ({a.email})
+                              </option>
+                            ))}
+                          </select>
+                          — more than one person holds approve_goods, so the board does not
+                          pick for you.
+                        </label>
+                      ) : askingWho ? (
+                        <p className="text-[12px] text-brand-900">
+                          Going to <strong>{askingWho.full_name}</strong>{" "}
+                          <span className="text-brand-700">({askingWho.email})</span> — the only
+                          account holding approve_goods.
+                        </p>
+                      ) : (
+                        <p className="text-[12px] text-amber-800">
+                          No active account holds approve_goods, so there is nobody this can be
+                          sent to. IT grants it in Settings → People.
+                        </p>
+                      )}
+                      <p className="text-[12px] text-brand-800">
+                        You are not the approver, so this does not record a yes — it puts the
+                        list in their chat with the amounts and what BCA 271 can cover, and
+                        their answer is recorded as theirs.
+                      </p>
+                    </div>
                   )}
                 </div>
               )}

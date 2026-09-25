@@ -130,6 +130,9 @@ const VIEW_CONTRACTS = {
   v_activity_event:  null,
   v_activity_recap:  null,
   v_audit:           null,
+  /* The profile screen's own activity feed (0163/W7) — five columns, cast
+     straight into `MyActivityEvent` with no reshaping in between. */
+  v_my_activity:     "MyActivityEvent",
 
   /* ── accounting ──────────────────────────────────────────────────────── */
   v_transaction:        "TransactionView",

@@ -1172,32 +1172,32 @@ export const OVERTIME_LINES: OvertimeLine[] = [
   {
     id: "lbl_01", sheet_id: "lbr_01", employee_id: "emp_w009", hours: 2,
     task: "Finishing meja set ke-3, coating kedua.",
-    wo_no: "spk-26-08-24_01", stage: "FINISHING", qty_done: 1, form_amount: 70_000,
+    wo_no: "spk-26-08-24_01", stage: "FINISHING", qty_done: 1, form_amount: 70_000, result_note: null,
   },
   {
     id: "lbl_02", sheet_id: "lbr_01", employee_id: "emp_w012", hours: 2,
     task: "Bantu finishing dan siapkan bahan packing.",
-    wo_no: "spk-26-08-24_01", stage: "FINISHING", qty_done: 0, form_amount: 70_000,
+    wo_no: "spk-26-08-24_01", stage: "FINISHING", qty_done: 0, form_amount: 70_000, result_note: null,
   },
   {
     id: "lbl_03", sheet_id: "lbr_01", employee_id: "emp_w016", hours: 2.5,
     task: "Packing meja set ke-3.",
-    wo_no: "spk-26-08-24_01", stage: "PACKING", qty_done: 1, form_amount: 100_000,
+    wo_no: "spk-26-08-24_01", stage: "PACKING", qty_done: 1, form_amount: 100_000, result_note: null,
   },
   {
     id: "lbl_04", sheet_id: "lbr_01", employee_id: "emp_w015", hours: 1.5,
     task: "Rakit daun pintu VILLA SANUR.",
-    wo_no: "spk-26-08-30_01", stage: "RAKIT", qty_done: 2, form_amount: 60_000,
+    wo_no: "spk-26-08-30_01", stage: "RAKIT", qty_done: 2, form_amount: 60_000, result_note: null,
   },
   {
     id: "lbl_05", sheet_id: "lbr_02", employee_id: "emp_04", hours: 2,
     task: "Rekap 6 penawaran vendor ke papan rapat, lengkap dengan tautan.",
-    wo_no: null, stage: null, qty_done: null, form_amount: null,
+    wo_no: null, stage: null, qty_done: null, form_amount: null, result_note: null,
   },
   {
     id: "lbl_06", sheet_id: "lbr_03", employee_id: "emp_04", hours: 2,
     task: "Menunggu file desain untuk BOM lemari.",
-    wo_no: null, stage: null, qty_done: null, form_amount: null,
+    wo_no: null, stage: null, qty_done: null, form_amount: null, result_note: null,
   },
 ];
 

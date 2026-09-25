@@ -145,3 +145,44 @@ Two things it also settled:
    the function is idempotent on `ref_id` — a row the bridge already carried is
    answered `already_filed`.
 
+### Where it stands after 2026-09-24
+
+Both of the two remaining items above moved, and one of them moved backwards
+first, which is the part worth writing down.
+
+**The screen is live.** `/accounting/verifikasi` is in `LIVE_ROUTES`, the five
+functions are written, and confirmation is now per *document* — one nota, one
+act, several lines — through `ops_acct.book_evidence` (`0124`).
+
+**The worker was repointed, merged, and never deployed.** `john-lau`'s
+`modules/accounting/ops_inbox.py` mirrors every queued row into
+`ops_acct.evidence_inbox`. It merged 2026-09-21 11:01 and the Cloud Run job
+still runs the revision from before it. The database could see this exactly:
+the legacy queue's newest row was 2026-09-24 00:02 and the inbox's newest was
+2026-09-21 04:04, so ingestion was alive and only the last hop was dead.
+
+That is how **35 documents came to be waiting for a decision that nobody could
+see** — every one of them dated on or after 2026-09-22, the day after the
+mirror stopped. `supabase/import/09_queue_reconciliation.sql` is the check that
+names it, and it now reads `BERSIH`:
+
+| | before | after |
+|---|---|---|
+| PENDING in the legacy queue, absent from the inbox | 35 · Rp 149.082.398 | **0** |
+| PENDING in `evidence_inbox` | 0 | **35** · Rp 149.082.398 |
+
+Closed by a second run of `03_bridge_review_queue.sql`, dry-run first: 35
+filed, 0 refused, 35 rows in `ops_core.legacy_map`. Three faults in that script
+were fixed to make the second run possible and legible — see its header.
+
+**Read back through the screen's own path**, not the owner's: as `authenticated`
+under each of the four active people's claims, `ops_acct.evidence_inbox` returns
+all 35 PENDING rows, `ops_core.users` resolves both reporters' names, and
+`v_inbox_health` answers `unresolved 35 · chat 65 · web 0`. The rows are not
+merely present in the database — they render.
+
+**Still outstanding, and it is a deploy not a repair.** Until the Cloud Run job
+carries the merged mirror, every document photographed from now on lands in the
+legacy queue and nowhere else, and this gap reopens at the rate people work. The
+bridge is the mop, not the fix — the same thing this file said on 2026-09-21.
+

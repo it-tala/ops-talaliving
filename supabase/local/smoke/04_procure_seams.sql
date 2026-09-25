@@ -358,10 +358,18 @@ insert into ops_procure.approval_requests (line_id, batch_id, token, sent_to, se
    'Rapat: pakai supplier Denpasar kalau bisa.');
 set local role authenticated;
 
+-- `answer_request` is the chat worker's, not a browser's (0157). It trusts its
+-- caller for the answerer's address, so the caller has to be one that verified
+-- it. These assertions are about the ARGUMENT — whose name is on the card — so
+-- they are made as the worker, which is who makes the call in production.
+set local role service_role;
+
 do $$
 declare r jsonb;
 begin
-  -- Andi holds procurement.admin here. It does not make him the approver.
+  -- Andi holds procurement.admin here. It does not make him the approver, and
+  -- since 0157 it does not even let him ask — the address is an argument the
+  -- worker supplies, and the worker is the only caller.
   r := ops_procure.answer_request('tok-line-1', true, 'andi@talaliving.com');
   assert r ->> 'outcome' = 'refused',
          format('somebody else''s answer on somebody else''s card is not an approval, got %s', r);
@@ -379,6 +387,8 @@ begin
   r := ops_procure.answer_request('tok-line-1', false, 'evin@talaliving.com');
   assert r ->> 'outcome' = 'duplicate', format('a second answer is 409, got %s', r);
 end $$;
+
+set local role authenticated;
 
 do $$
 declare who text; ch text; instr text;

@@ -60,6 +60,11 @@ create policy log_costs_edit on ops_inv.log_costs for update to authenticated
 
 grant select, insert, update on ops_inv.log_costs to authenticated;
 
+-- A small lookup table autovacuum will never reach on its own (A4_core_planner_stats):
+-- fewer than fifty edits a year never crosses the autoanalyze threshold, and this
+-- table predates 0156_core_analyze's one-time sweep, so nothing has ever counted it.
+analyze ops_inv.log_costs;
+
 -- ── per load ──────────────────────────────────────────────────────────────
 --
 -- Every column `0070` returned, in its order, then the new ones after — the

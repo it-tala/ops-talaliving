@@ -6391,7 +6391,506 @@ those run as the caller and are already bounded by that caller's RLS.
 Proved by deleting one revoke and watching it name that function, which is the
 only way to know a check checks. The rule is now the class, not the case.
 
-## F156 · 2026-09-25 · an UPDATE hidden by RLS does not error — it just touches nothing
+## F156 · 2026-09-24 · the review queue was clean and the web app was empty, because "merged" is not "deployed"
+
+35 documents were waiting for somebody to decide about them and nobody could
+see them. Not lost — safe in Drive, safe in `public.ledger_review_queue`, and
+invisible in the only screen anybody is going to open.
+
+The owner's cutover rule is one sentence: *every row still waiting in the old
+queue has to appear in the web app's queue.* Nothing measured that, so the
+answer to "is it clean?" was an opinion. `supabase/import/09_queue_reconciliation
+.sql` now measures it, and the first run said 35.
+
+### The dates were the finding, not the count
+
+| | |
+|---|---|
+| newest row in `public.ledger_review_queue` | 2026-09-24 00:02 |
+| newest row in `ops_acct.evidence_inbox` | 2026-09-21 04:04 |
+| the 35 invisible rows | every one dated **on or after 2026-09-22** |
+
+A count says how much is missing. Those three lines say *why*: ingestion is
+alive, the last hop is dead, and it died on 2026-09-21. `john-lau`'s
+`modules/accounting/ops_inbox.py` — the mirror — merged at 11:01 that day, and
+the Cloud Run job still runs the revision from before it. A gap that starts the
+day after a merge is a deploy that never happened.
+
+Confirmed from the other side too. In 24 hours of `edge_logs` the bot made
+~19,000 REST calls and **not one** to `rpc/file_evidence`. Every RPC in the log
+came from a browser. The database's own timestamps and the HTTP log agree, which
+is what makes the conclusion a measurement rather than a theory.
+
+### Two gaps that count the same and need opposite things
+
+Counting "PENDING in the old queue, not PENDING in the new one" gives 42, and 42
+is the wrong number to tell anybody:
+
+- **35 never mirrored.** Real work, invisible. Fix: deploy.
+- **7 already decided in the web app.** The *old* queue is the stale one.
+  Nothing is waiting; the old screen is showing work that is done.
+
+One figure overstates the loss and understates the cutover progress, which is
+how a reconciliation stops being believed. They are reported separately.
+
+### A pattern that looks like a contradiction and is agreement
+
+20 rows are `CONFIRMED` in the old queue and `REJECTED` in the new one. On first
+reading that is two systems disagreeing about real money, and it was reported
+that way. It is not: every one of the 20 is rejected `duplicate upload`. The
+document was booked once, in the old system, and the copy the bridge carried
+across was rejected — which is what stops it being booked twice.
+
+The lesson is worth more than the correction. **Two systems holding different
+statuses for one document is not automatically a disagreement, and the reason
+column is what tells you which it is.** A check that flagged this would cry wolf
+twenty times and be switched off, taking the real findings with it.
+
+### Three faults in the mop, found by using it twice
+
+`supabase/legacy/03_bridge_review_queue.sql` already existed for exactly this.
+Running it a second time exposed what a single run had hidden:
+
+1. `create temp table … on commit drop`, with the two reports at the foot of the
+   file reading that table *after* the commit. The first run ended on
+   `relation "_bridged" does not exist` with the bridge already committed — a
+   script that did its job and reported a failure, which is the one failure mode
+   that makes people stop trusting a correct run.
+2. No skip for what the inbox already held. The seam is idempotent so a second
+   run was safe, but it answered `already_filed` 38 times and buried whatever
+   was new. The printed count has to be the work actually done or nobody reads it.
+3. `p_reported_at` left to default to `now()` — which is why
+   `04_backfill_reported_at.sql` had to exist at all. Migration `0096` added the
+   parameter; passing `captured_at` means the backfill does not have to exist
+   twice.
+
+Dry run first, then for real: 35 filed, 0 refused. GAP 1 reads BERSIH.
+
+### Present in the database and present on the screen are different claims
+
+Only the second one was asked for, so only the second one was checked. As
+`authenticated`, under each of the four active people's JWT claims:
+`ops_acct.evidence_inbox` returns all 35 PENDING rows, `ops_core.users` resolves
+both reporters' names, `v_inbox_health` answers `unresolved 35 · chat 65 · web 0`.
+Reading a table as its owner proves nothing about a screen: `postgres` has
+`bypassrls`, and the row a policy hides is exactly the row that will be missing.
+
+**The bridge is the mop, not the fix.** Until the job carries the merged mirror,
+this gap reopens at the rate people photograph notas. A third run of the bridge
+would be a symptom, not a task.
+
+## F157 · 2026-09-24 · the right diagnosis, abandoned for a wrong one, because the fix had already shipped
+
+A live money screen answered **HTTP 500** fourteen times: `rpc/cash_plan`,
+`57014` statement timeout, `origin_time` 8,235 ms against the 8-second limit,
+two of them 3 ms apart in one browser session. Found by reading `edge_logs`
+while verifying something else — nothing watches the error rate, which is its own
+finding.
+
+The first explanation written down was **RLS: `has_permission` evaluated per row
+rather than once per statement.** That was correct. It was then retracted on the
+strength of a second measurement, and replaced with "the ratio was an artifact of
+comparing a cold call to a warm one; RLS costs about a quarter."
+
+The retraction was wrong, and the reason is worth the whole finding.
+
+### What actually happened, in order
+
+| time (UTC) | |
+|---|---|
+| 02:36 | 14 × HTTP 500 on `rpc/cash_plan`, `57014` |
+| ~03:00 | RLS named as the cause — correctly |
+| **04:43** | **`0154_rls_initplan.sql` applied to production, from another branch** |
+| ~06:20 | re-measured: `authenticated` now 256–298 ms. Concluded the first diagnosis was wrong |
+
+`0154` rewrote every `ops_*` policy from `using (ops_core.has_permission('x'))`
+to `using ((select ops_core.has_permission('x')))`, which Postgres plans as an
+InitPlan — once per statement instead of once per row. Its own header says it
+plainly: *`cash_plan()` needs about 0.3 s as the table owner; as a signed-in
+accountant it needed 3.9 s. The difference was entirely row-level security.*
+
+The production numbers, split at the minute `0154` was applied:
+
+| | calls | mean | max | HTTP 500 |
+|---|---|---|---|---|
+| before `0154` | 121 | 4,290 ms | 8,517 ms | **14** |
+| after `0154` | 13 | **552 ms** | 886 ms | **0** |
+
+So the "correction" was measuring a system somebody else had already fixed, two
+hours earlier, on a branch not yet merged here — and attributing the improvement
+to an error in the original measurement.
+
+### Why this was easy to get wrong twice
+
+Both stories fit. A cold-versus-warm comparison is a real way to manufacture a
+fake ratio, and it is exactly the mistake a careful reader would suspect. The
+number even survived: the planner finding next door (F158) produces a 19× cost
+change of its own, so there was a second plausible culprit standing right there.
+
+What was missing was one question: **did anything change between the two
+measurements?** `list_migrations` answers it in one call, and would have shown
+`rls_initplan` sitting at 04:43 with a name that says what it did.
+
+### The rule worth keeping
+
+**A measurement taken two hours later is a measurement of a different system.**
+Before concluding that an earlier result was wrong, establish that the thing being
+measured did not change — and on a production database shared with other
+branches, that means reading the migration history, not reasoning about
+methodology.
+
+The cost of getting this wrong was not the 500s, which were already fixed. It was
+that a correct diagnosis, written down in a commit and a findings entry, was
+publicly retracted in favour of a false one. The retraction is now itself
+retracted, which is two entries of noise where there should have been one.
+
+### What stands from the episode
+
+- `getMonthlyBills` runs one projection instead of two fired in parallel. Still
+  correct: it halves the work and removes the contention. The anchor-independence
+  property it relies on is asserted in `smoke/86_acct_cash_plan.sql` rather than
+  assumed.
+- F158 is real and unrelated to the incident: 94 of 115 `ops_*` tables had never
+  been analysed.
+- Nothing watches the 500 rate. That is still true and is the reason this was
+  found by accident.
+
+## F158 · 2026-09-24 · ninety-four tables the planner had never looked at
+
+`pg_class.reltuples = -1` does not mean "no rows". It means **nobody has ever
+looked**, and the planner then works from a default guess. On production, 94 of
+115 `ops_*` tables were in that state — never analysed, not once, since the
+ladder created them — and 34 of them held rows.
+
+The guesses were not close:
+
+| | planner thought | actually |
+|---|---|---|
+| `ops_acct.cash_settlements` | 550 | 3 |
+| `ops_acct.cash_components` | 190 | 8 |
+
+### The same join, before and after `analyze`
+
+```
+BEFORE  Hash Right Join  (cost=36.93..121.59 rows=550)
+          Hash Cond: (s.component_id = c.id)
+          -> Index Only Scan on transactions  (rows=3221)     ← all of it
+          -> Seq Scan on cash_settlements     (rows=550)
+
+AFTER   Hash Right Join  (cost=1.46..6.41 rows=8)
+          -> Nested Loop Left Join  (rows=3)
+               -> Seq Scan on cash_settlements  (rows=3)
+               -> Index Only Scan on transactions (rows=1)    ← three probes
+```
+
+Believing a three-row table holds 550 makes a hash join over **every one of
+3,221 transactions** look cheaper than three index probes. Cost 121.59 → 6.41,
+about nineteen times, on one join out of the several `cash_plan()` performs.
+
+This is a real cost and it is worth removing. It is **not** what caused the 500s
+on `/accounting/tagihan` — that was RLS, and `0154` on main had already fixed it
+before this was measured. See F157, which is the whole embarrassing sequence.
+
+### Autovacuum was never going to reach them
+
+Autoanalyze fires at `autovacuum_analyze_threshold +
+autovacuum_analyze_scale_factor × reltuples` — 50 modifications plus 10% by
+default. An eight-row table of cash components that somebody edits twice a year
+will not accumulate fifty modifications this decade.
+
+**So the small tables are precisely the ones autovacuum cannot help**, and they
+are also the ones whose misestimates flip a plan from a nested loop to a hash of
+the largest table in the schema. `ops_acct.transactions` had statistics because
+3,274 arriving rows got it past the threshold unaided; every lookup table beside
+it had none. The bug hides in exactly the tables nobody worries about.
+
+### What was done, and one thing that went wrong doing it
+
+`0156_core_analyze.sql` analyses every `ops_*` table, and
+`smoke/A4_core_planner_stats.sql` asserts that the ladder leaves none with
+`reltuples = -1` — because `0156` can only fix the tables that existed when it
+ran, and the rule that matters is *a migration creating a table ends by
+analysing it*. The guard names the table if that is forgotten.
+
+**The experiment that proved this was not as reversible as it was described.**
+The before/after `explain` was run inside a transaction deliberately aborted with
+`raise exception`, on the understanding that this would leave production
+untouched. It did not: `ANALYZE` writes `reltuples` and `relpages` in place,
+outside transaction semantics, so those survived the rollback while the
+`pg_statistic` column distributions did not — leaving four `ops_acct` tables
+half-analysed on a live database.
+
+The effect was benign and in the direction of the intended fix, which is luck
+rather than method. The rule worth keeping: **`begin … rollback` is not a
+sandbox for anything that touches the catalogue.** VACUUM, ANALYZE, sequence
+advances and `reltuples` are all outside it, and "I will roll it back" is a claim
+about ordinary DML only.
+
+## F159 · 2026-09-24 · a fingerprint that only looks inside `$$…$$` cannot see what was dropped outside it
+
+**Nineteen migrations went to production in one sitting** — `0136`–`0153`, then
+`0158` — through `apply_migration`, which takes the migration as a *text
+argument*. There is no file transfer: the text is retyped into the call. So the
+question after every one is not "did it run" but "is what ran the file".
+
+The method used for the first few was to fingerprint the deployed function:
+`md5(prosrc)` on production against the same function on the local ladder built
+from the real files. It is a good check and it caught a real fault earlier in the
+week (`create_pr` in `0158`, which lost its `lines_required` refusal when it was
+re-created from a partial read).
+
+**It cannot see anything outside a function body.** `prosrc` is what lies between
+`$$` and `$$`. Every top-level comment, every `alter table`, every `grant`, the
+`comment on` statements — all of it is invisible to that check.
+
+### The check that does see it
+
+`supabase_migrations.schema_migrations.statements[1]` holds the text that was
+applied, verbatim. So:
+
+```sql
+select name,
+       length(regexp_replace(statements[1], '\s+$', '')) as chars,
+       md5(convert_to(regexp_replace(statements[1], '\s+$', ''), 'UTF8')) as fp
+  from supabase_migrations.schema_migrations where name = '…';
+```
+
+against the file, trimmed the same way. Count characters, not bytes — the files
+are full of `—` and `·`, and `wc -c` and `length()` disagree by exactly the
+number of multi-byte characters, which looks like corruption and is not.
+
+Run over the sixteen migrations this session had applied, **fourteen were
+byte-identical and two were not**:
+
+| | file | production | missing |
+|---|---|---|---|
+| `0139_procure_po_from_pr_line` | 40,239 | 37,138 | 3,101 chars · 51 comment lines |
+| `0143_procure_po_confirm_roads` | 21,347 | 19,779 | 1,568 chars · 26 comment lines |
+
+Both had been declared verified, on the strength of six function fingerprints
+that were genuinely identical. Stripping blank lines and comments from both
+sides gives **589 code lines and `bdc029b2…` for `0139`, 308 and `2885ab28…` for
+`0143`, on production and locally alike**. Not one statement was lost. What was
+lost is the header narrative — the part that says *why* — abridged while
+retyping, in the two longest files of the nineteen.
+
+### Why that is worth an entry rather than a shrug
+
+The behaviour is right, and the repo file still carries the reasoning, so nothing
+is unrecoverable. Two things still follow.
+
+**The record no longer matches the file.** Anyone who later diffs what production
+was told against what the repo says will find two files that do not reconcile,
+and will have to re-derive whether the difference is a comment or a missing
+constraint. That is the expensive question, and it was cheap to avoid.
+
+**The temptation afterwards is worse than the fault.** `schema_migrations` is
+writable. Pasting the full text in would make the record look right, and would
+make it a record of something that never ran. It was left as it is.
+
+### It is not one person's slip
+
+Production already carried `hr_task_monitoring` and `hr_wlkp_identity`, applied
+from another branch three hours earlier — `0152` and `0153` under un-numbered
+names. Immediately after them sits a migration called
+**`hr_task_wlkp_restore_comments`**, 26,707 characters. Somebody else hit exactly
+this, noticed, and re-emitted the two files to put the prose back.
+
+So the failure is not carelessness, it is the shape of the tool: a 50 KB
+migration passed as a text argument gets abridged, and every check anyone
+reached for first — does it run, do the objects exist, do the functions match —
+returns green. **The only check that fails is the one against the stored text.**
+
+`0152` and `0153` needed no work as a result: eleven functions, two views, eleven
+policies, fifteen constraints and nine indexes on production all carry the same
+fingerprints as the local ladder, and so do `0153`'s five functions, five enums
+and eleven columns. They were verified rather than applied.
+
+### And one thing the run measured on the way past
+
+`0158` rewrote `v_line_evidence` to start from `pr_lines` instead of
+`attachment_links`, so that a line supported only by the order it is against has
+a row at all. Before: 55 rows, 26 supported, 32 with payment proof, 12 documents
+filed on lines. After: **290 rows — every line — and still 26, 32 and 12.** The
+view got wider without inventing a single piece of evidence, which is the only
+way that change is allowed to look.
+
+## F160 · 2026-09-24 · a route with no module at all read as permanently dark
+
+Building `/profil` (W7, D305), every `hr.*`/`identity.*` call it makes was
+already exported by `src/lib/api`, and `node scripts/check-live-routes.mjs
+--write` still would not add it — silently, with the same route count before
+and after. `check-live-routes.mjs`'s verdict is two gates: every
+`service.function` a route reaches has to be implemented, **and** the route's
+module (its first path segment, looked up in `MODULE_OF`) has to be in
+`LIVE_MODULES`. `/profil` is the one screen in this system that belongs to no
+permission-catalogue module by design — every account owns it regardless of
+any grant, so there is nothing for `can()` to gate and nothing in
+`src/lib/nav.ts` to hide it behind either — and `MODULE_OF["profil"]` was
+simply absent. `mod = MODULE_OF[...] ?? "unknown"`, `LIVE_MODULES.includes
+("unknown")` is `false`, and the route fails the second gate whatever the
+first one says. The failure is exactly the shape the whole file exists to
+catch on everybody else's behalf — a route that looks correct by the only
+measure somebody remembered to check — except this time the guard's own
+blind spot was the module list itself never having a "no module" entry.
+
+Fixed by giving `/profil` its own pseudo-module, mapped in `MODULE_OF` and
+listed in `LIVE_MODULES`, whose only job is to be exactly as open as the
+services it actually calls (`identity`, `hr`) — never on a schedule of its
+own, because there is no `ops_profil` schema to wait on. Worth remembering
+for the next module-less route: this gate assumes every route belongs to
+*some* catalogue module, and a route that correctly has none needs that
+assumption named rather than left to resolve to `"unknown"` and fail quietly.
+
+## F161 · 2026-09-25 · green in CI, refused by production: a new enum value used in the transaction that added it
+
+`0164_hr_self_attendance` adds `'self'` to `ops_hr.scan_source_t` and, four lines
+later, names it in a check constraint:
+
+```sql
+alter type ops_hr.scan_source_t add value 'self';
+
+alter table ops_hr.attendance_scans
+  add constraint self_is_the_caller check (source <> 'self' or recorded_by is not null);
+```
+
+It passed the ladder, passed 93 smoke files and passed CI. Applied to production
+it failed:
+
+```
+ERROR: 55P04: unsafe use of new value "self" of enum type ops_hr.scan_source_t
+HINT:  New enum values must be committed before they can be used.
+```
+
+### Why both are true at once
+
+Postgres lets `ALTER TYPE … ADD VALUE` run inside a transaction but will not
+**resolve** the new label until that transaction commits. So whether this file
+works depends entirely on how many transactions the applier uses:
+
+* `supabase/local/rebuild.sh` runs each migration as its own `psql` invocation
+  with no explicit `BEGIN`, so every statement autocommits — the `ALTER TYPE`
+  lands, and the constraint that follows resolves `'self'` without trouble;
+* Supabase's migration API wraps the whole file in one transaction, which is the
+  right thing for a migration tool to do and is what makes the file fail.
+
+**CI was not wrong about the SQL. It was testing a different applier.** That is
+the part worth keeping: the ladder proves what the statements *do*, and it cannot
+prove they can be *applied* by anything other than itself. A migration touching
+an enum is the one shape where those two diverge.
+
+### The fix, and why not the other one
+
+```sql
+alter table ops_hr.attendance_scans
+  add constraint self_is_the_caller check (source::text <> 'self' or recorded_by is not null);
+```
+
+Casting sidesteps the resolution and enforces exactly the same rule. Proved both
+halves rather than one: the DDL applies inside an explicit `BEGIN`, **and** an
+insert of `('self', null)` afterwards is still refused by the constraint — a fix
+that made the migration apply by quietly enforcing nothing would look identical
+from the outside.
+
+Rejected: splitting the file into two migrations. It would work, and it would
+mean production's record no longer matches one file in the repository, which is
+the thing F159 is about.
+
+### The refusal cost nothing, and that is worth knowing
+
+Because the API wraps the file in a transaction, the failure rolled everything
+back: the enum was still `import,manual`, no constraint, no function, no policy,
+no migration row. Checked all five before doing anything else. **A transactional
+applier turns this class of mistake into a no-op**, which is the argument for
+applying migrations through one rather than through a loop of psql calls.
+
+## F162 · 2026-09-25 · the self-service screen is live and inert, because no account is linked to a person
+
+`0163`–`0166` are applied and their policies are proved (below). `/profil` still
+does nothing for anybody, and will keep doing nothing until somebody in HRD
+links accounts to employees:
+
+```
+employees                12
+linked_to_an_account      0
+```
+
+`ops_hr.employees.user_id` is the column `0152` added for exactly this, and it
+has never been filled. Every self policy in this build is
+`employee_id = ops_hr.my_employee_id()`, and `my_employee_id()` answers null for
+an unlinked account, so `= null` is never true and each screen shows its own
+honest "akun ini belum tertaut" sentence rather than an empty table pretending to
+be a normal one. That is the design working, not a fault — but *shipped* and
+*usable* are two different states and the backlog said DONE.
+
+### What the policies actually do, proved on production
+
+Read policies are the one thing a fingerprint cannot check: a policy can exist,
+match the file, and still be wrong about who sees what. So they were exercised
+against the real database inside a transaction that was rolled back — two real
+accounts holding no `hrd` or `payroll` grant, linked to two real employees, each
+tapping through `ops_hr.tap_self`:
+
+| read as alika@ (no HR access) | saw |
+|---|---|
+| her own tap | 1 |
+| SANDI's tap | **0** |
+| employees | **1** — herself, not the other 11 |
+| leave requests · payroll runs · overtime lines | 0 (none exist) |
+
+And `activity_events`, the one table here with real rows in it — all 432 of them
+`kind = 'view'`, the IT telemetry D190 closed:
+
+| read as alika@ | saw |
+|---|---|
+| her own `sign_in` (written through `record_activity_event`) | 1 |
+| geryle@'s identical `sign_in` | **0** |
+| any of the 432 `view` rows | **0** |
+
+So the allowlist grants and denies in the right directions, and D190's
+surveillance-grade detail stays exactly as closed as it was. Nothing persisted:
+0 scans, 0 links, 0 sheets, 0 idempotency rows afterwards, and every activity row
+still `view`.
+
+### One thing to know rather than fix
+
+`runs_read_own` (0166) is `status in ('APPROVED','PAID') and my_employee_id() is
+not null` — it does **not** narrow to runs the caller appears in, so any linked
+account can read every approved run *header*. The header carries the period and
+status, never anybody's pay: the figures come from `run_lines`, which is
+invoker-rights over `employees` and so already narrows to one row. Scoping the
+header properly would need a subquery over payroll lines, and payroll lines are
+not stored — they are computed from attendance on every read (0150). Documented
+in the migration, defensible, and worth re-reading the day payroll lines ever
+become a table.
+
+### A guard was written for this and then deleted, deliberately
+
+The obvious next move is a static check refusing any migration that uses a label
+in the transaction that added it. One was written, and it worked: it caught
+`0164`'s original form immediately. It also caught **`0031_uom_english_and_optional`**,
+whose own comment, written months ago, says the thing this entry claims to have
+discovered:
+
+```sql
+-- Separate statement, because these three use the enum value added above and
+-- Postgres refuses a new enum label inside the transaction that created it.
+```
+
+So the hazard was known here before, handled by splitting the statement — which
+does not actually help inside one transaction, and survived because
+`add value if not exists` is a no-op once the label exists and because the ladder
+autocommits each statement anyway.
+
+That is what made the guard the wrong thing to ship in the same change. Turning it
+on makes CI red on a migration that has been applied to production for months, and
+the only ways out are to edit an applied migration — the thing F159 is about — or
+to carry an exception list. Which of those this repository wants is a convention
+decision, and it does not belong inside a task about applying four files.
+
+Left as a separate piece of work, with the two true positives already named.
+
+## F163 · 2026-09-25 · an UPDATE hidden by RLS does not error — it just touches nothing
 
 Building `updateStockLocation` (`0157`) for the location-management panel, the
 first smoke check for "a read-level user cannot rename a rack" was written the
@@ -6424,7 +6923,7 @@ before it can tell them apart, because the database will not tell them apart
 for it. An `INSERT` doesn't have this problem; only `UPDATE`/`DELETE` do,
 because only they have a row to hide instead of a row to refuse creating.
 
-## F157 · 2026-09-25 · two screens said "done" while their own numbers hadn't heard
+## F164 · 2026-09-25 · two screens said "done" while their own numbers hadn't heard
 
 Walking `/inventory/penyesuaian` and `/inventory/log` in a browser rather than
 trusting `tsc` — the thing 07-ways-of-working.md's whole loop is built

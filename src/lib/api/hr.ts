@@ -203,12 +203,41 @@ export async function listLeaveBalances(): Promise<Result<LeaveBalance[]>> {
   return fromRows<LeaveBalance[]>(SERVICE, data as never, error);
 }
 
+/** My own quota — a separate name from `listLeaveBalances` rather than that
+ *  one made conditional, the same reasoning as `myOvertimeSheets`: the admin
+ *  screen's query already assumes it may see the roster. `leave_balances()`
+ *  itself needs no change — RLS (`employees_read_own`, `marks_read_own`,
+ *  `leave_read_own`, 0165) already narrows it to one row for a caller with
+ *  no `hrd.read`/`payroll.read`, so this differs from the admin call only in
+ *  what it promises the caller. */
+export async function myLeaveBalance(): Promise<Result<LeaveBalance | null>> {
+  const { data, error } = await db().rpc("leave_balances", { p_year: null });
+  if (error) return fromRows<LeaveBalance | null>(SERVICE, null, error);
+  const row = ((data ?? []) as LeaveBalance[])[0] ?? null;
+  return ok(SERVICE, row);
+}
+
+/** My own requests — `v_leave_request` under the same self-scoping RLS. */
+export async function myLeaveRequests(): Promise<Result<LeaveRequestView[]>> {
+  const { data, error } = await db()
+    .from("v_leave_request").select("*")
+    .order("status", { ascending: true })
+    .order("from_date", { ascending: false });
+  return fromRows<LeaveRequestView[]>(SERVICE, data as never, error);
+}
+
 export async function requestLeave(
-  input: { employee_no: string; kind: LeaveKind; from_date: string; to_date: string; reason: string },
+  input: {
+    /** Omitted from the profile screen — the seam resolves the caller's own
+       linked employee instead (0165). Given explicitly, this is HRD filing on
+       somebody else's behalf, gated the same as it always was. */
+    employee_no?: string | null;
+    kind: LeaveKind; from_date: string; to_date: string; reason: string;
+  },
   idempotencyKey?: string,
 ): Promise<Result<LeaveRequestView>> {
   const { data, error } = await db().rpc("request_leave", {
-    p_employee_no: input.employee_no, p_kind: input.kind,
+    p_employee_no: input.employee_no ?? null, p_kind: input.kind,
     p_from: input.from_date, p_to: input.to_date,
     p_reason: input.reason, p_key: idempotencyKey ?? null,
   });
@@ -347,6 +376,36 @@ export async function getPayroll(runNo: string): Promise<Result<PayrollView>> {
   const run = await runByNo(runNo);
   if (!run) return notFound(SERVICE, "run_not_found", `Tidak ada run gaji ${runNo}.`);
   return periodView(run, true);
+}
+
+/** Runs this account may see a payslip from — `runs_read_own` (0166) already
+ *  keeps a `DRAFT` run off this list, because a run still being checked is
+ *  not yet a fact anybody should read a figure from. */
+export async function myPayslips(): Promise<Result<
+  { run_no: string; period_start: string; period_end: string; status: PayrollRun["status"] }[]
+>> {
+  const { data, error } = await db()
+    .from("payroll_runs")
+    .select("run_no, period_start, period_end, status")
+    .order("period_start", { ascending: false });
+  return fromRows<
+    { run_no: string; period_start: string; period_end: string; status: PayrollRun["status"] }[]
+  >(SERVICE, data as never, error);
+}
+
+/** One person's own line out of a run — the same `run_lines` the admin
+ *  screen calls (0057), reading only the row `employees_read_own` lets this
+ *  account see (0166). Not a second computation of anybody's pay: the same
+ *  view, restricted to one row by the same account-to-employee link every
+ *  self seam in this build uses. */
+export async function myPayslip(runNo: string): Promise<Result<PayrollLine>> {
+  const { data, error } = await db().rpc("run_lines", { p_run_no: runNo });
+  if (error) return fromRows<PayrollLine>(SERVICE, null as never, error);
+  const row = ((data ?? []) as Record<string, unknown>[])[0];
+  if (!row) {
+    return notFound(SERVICE, "payslip_not_found", `Tidak ada slip gaji untuk run ${runNo}.`);
+  }
+  return ok(SERVICE, toPayrollLine(row));
 }
 
 /** Any week, run or no run.
@@ -1003,6 +1062,39 @@ export async function getDay(
 }
 
 /* ------------------------------------------------------------------ */
+/* Profil — layanan mandiri (W7)                                       */
+/* ------------------------------------------------------------------ */
+//
+// `ops_hr.my_employee_id()` answers about `auth.uid()` and nothing else
+// (0152) — there is no parameter to pass somebody else's id into. Every
+// function below asks it first and reads null as "not an employee", never as
+// a refusal: an account with no linked employee still has a profile, it
+// simply has no HR history to show — the same shape `employees_read_own`
+// already treats as ordinary rather than broken.
+
+/** Who I am, as an employee — or `null` when this account has no linked
+ *  row (most accounts do not; 0152). The profile screen's one lookup, so
+ *  every other tab knows its own `employee_no` without guessing. */
+export async function myProfile(): Promise<Result<Employee | null>> {
+  const { data: myId, error: idErr } = await db().rpc("my_employee_id");
+  if (idErr) return fromRows<Employee | null>(SERVICE, null, idErr);
+  if (!myId) return ok(SERVICE, null);
+  const { data, error } = await db().from("employees").select("*").eq("id", myId).maybeSingle();
+  return fromRows<Employee | null>(SERVICE, (data as Employee) ?? null, error);
+}
+
+/** Presensi dari akun sendiri — a tap with a different machine behind it
+ *  (0164). Not "clock in" or "clock out": a tap is a tap, and which slot it
+ *  fills is a reading of the whole day, computed the same way whether the
+ *  door's own reader produced it or a phone did (D141). */
+export async function tapSelf(
+  idempotencyKey?: string,
+): Promise<Result<{ id: string; at: string; work_date: string }>> {
+  const { data, error } = await db().rpc("tap_self", { p_key: idempotencyKey ?? null });
+  return fromSeam<{ id: string; at: string; work_date: string }>(SERVICE, data, error);
+}
+
+/* ------------------------------------------------------------------ */
 /* Overtime, as the attendance screen lists it                         */
 /* ------------------------------------------------------------------ */
 
@@ -1068,6 +1160,87 @@ export async function listOvertimeSheets(): Promise<Result<OvertimeSheetView[]>>
             filename: link.attachments?.filename ?? "",
             kind: link.kind,
           }
+        : null,
+    } as OvertimeSheetView;
+  });
+  return ok(SERVICE, rows);
+}
+
+/** Reporting the person's own night — duration, and the result the hours
+ *  produced (0165). The evidence itself (a screenshot, a photo of the work)
+ *  is not a field here: it travels the same road every document does,
+ *  attached from the sheet this returns via `documents.link` with kind
+ *  `"Laporan Lembur"` and entity `"overtime"` (ADR-010). */
+export async function reportOvertimeSelf(
+  input: { work_date: string; hours: number; result_note: string; task?: string | null },
+  idempotencyKey?: string,
+): Promise<Result<{ sheet_no: string; work_date: string; hours: number }>> {
+  const { data, error } = await db().rpc("report_overtime_self", {
+    p_work_date: input.work_date, p_hours: input.hours,
+    p_result_note: input.result_note, p_task: input.task ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<{ sheet_no: string; work_date: string; hours: number }>(SERVICE, data, error);
+}
+
+/** My own overtime, whether HRD has looked at it yet or not.
+ *
+ *  A separate function from `listOvertimeSheets` rather than that one made
+ *  conditional: the admin screen's query already assumes it may see
+ *  everybody, and composing two audiences into one query is how a filter
+ *  meant for a rare case ends up in the common one's critical path. RLS
+ *  restricts the rows either way (`ot_sheets_read_own`/`ot_lines_read_own`,
+ *  0165) — this is the shape a person with no HRD grant at all can still
+ *  read. */
+export async function myOvertimeSheets(): Promise<Result<OvertimeSheetView[]>> {
+  const { data: myId, error: idErr } = await db().rpc("my_employee_id");
+  if (idErr) return fromRows<OvertimeSheetView[]>(SERVICE, null, idErr);
+  if (!myId) return ok(SERVICE, []);
+
+  const { data: myLines, error: e1 } = await db()
+    .from("overtime_lines").select("*").eq("employee_id", myId);
+  if (e1) return fromRows<OvertimeSheetView[]>(SERVICE, null, e1);
+  const lines = (myLines ?? []) as unknown as (OvertimeLineView & { sheet_id: string })[];
+  const sheetIds = [...new Set(lines.map((l) => l.sheet_id))];
+  if (sheetIds.length === 0) return ok(SERVICE, []);
+
+  const [
+    { data: sheets, error: e2 },
+    { data: claims, error: e3 },
+    { data: links, error: e4 },
+  ] = await Promise.all([
+    db().from("overtime_sheets").select("*").in("id", sheetIds).order("work_date", { ascending: false }),
+    db().from("v_overtime_claim").select("sheet_no,stage,payable,hours"),
+    core()
+      .from("attachment_links")
+      .select("entity_no,kind,attachment_id,attachments(filename)")
+      .eq("entity", "overtime_sheet").is("unlinked_at", null),
+  ]);
+  if (e2) return fromRows<OvertimeSheetView[]>(SERVICE, null, e2);
+  if (e3) return fromRows<OvertimeSheetView[]>(SERVICE, null, e3);
+  if (e4) return fromRows<OvertimeSheetView[]>(SERVICE, null, e4);
+
+  const claimOf = new Map(
+    ((claims ?? []) as { sheet_no: string; stage: string; payable: boolean; hours: number }[])
+      .map((c) => [c.sheet_no, c]));
+  const linkOf = new Map(
+    ((links ?? []) as unknown as {
+      entity_no: string; kind: string; attachment_id: string;
+      attachments: { filename: string } | null;
+    }[]).map((l) => [l.entity_no, l]));
+
+  const rows = ((sheets ?? []) as unknown as (OvertimeSheetView & { id: string })[]).map((s) => {
+    const claim = claimOf.get(s.sheet_no);
+    const link = linkOf.get(s.sheet_no);
+    const mine = lines.filter((l) => l.sheet_id === s.id);
+    return {
+      ...s,
+      lines: mine,
+      stage: claim?.stage as OvertimeSheetView["stage"],
+      payable: claim?.payable ?? false,
+      total_hours: claim?.hours ?? 0,
+      evidence: link
+        ? { attachment_id: link.attachment_id, filename: link.attachments?.filename ?? "", kind: link.kind }
         : null,
     } as OvertimeSheetView;
   });

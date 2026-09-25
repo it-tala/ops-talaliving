@@ -393,6 +393,11 @@ export interface PrLine {
   line_no: number;
   /** `pr-26-09-10_01-L03` — generated, and what URLs and other systems use. */
   line_no_full: string;
+  /** The open order this line is raised against, when it is (`0158`). Optional
+   *  rather than nullable: the live read surface does not carry it yet, and a
+   *  field the screens must treat as "missing" is more honest than one that
+   *  claims null means "against nothing". */
+  against_po_no?: string | null;
   item_id: string | null;
   description: string;
   qty: number | null;

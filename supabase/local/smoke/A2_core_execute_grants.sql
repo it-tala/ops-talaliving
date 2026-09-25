@@ -119,7 +119,12 @@ begin
           'ops_inv.asset_rent_invalid','ops_hr.schedules_in_use_lost',
           'ops_procure.restamp_line_money',
           -- the chat worker's, below (§4)
-          'ops_procure.answer_po_approval','ops_procure.po_approval_card')
+          'ops_procure.answer_po_approval','ops_procure.po_approval_card',
+          'ops_procure.answer_request','ops_procure.answer_batch',
+          'ops_procure.approval_card',
+          -- the notification worker's, below (§4). Not seams: a person never
+          -- "delivers an event", a machine does.
+          'ops_core.outbox_due','ops_core.outbox_delivered','ops_core.outbox_failed')
      and not has_function_privilege('authenticated', p.oid, 'EXECUTE');
 
   assert n = 0,
@@ -131,12 +136,41 @@ end $$;
 
 -- ── 4. the workers' reach is exactly what was decided ────────────────────
 --
--- `file_evidence` is the capture worker's one verb (0038). The other two
--- belong to the chat worker that carries a PO approval card to leadership
--- and brings the answer back (D299, 0143): it reads one order's card and
--- answers it, and nothing else. Both are shut to `authenticated` — a card
--- is answered from Chat by its addressee, never from a browser session — so
--- they are excluded from §3, and asserted shut to signed-in people here.
+-- `file_evidence` is the capture worker's one verb (0038). Two more belong to
+-- the chat worker that carries a PO approval card to leadership and brings the
+-- answer back (D299, 0143): it reads one order's card and answers it, and
+-- nothing else. Three more carry `ops_core.outbox` events out to Chat and
+-- record what happened (0155) — claim, delivered, failed. One more is
+-- `answer_request` (0157): the same road as `answer_po_approval`, for a request
+-- line rather than an order, and it was reachable from a browser until then —
+-- which let any signed-in reader record an approval against leadership, because
+-- the seam takes the answerer's address as an argument and the token is on the
+-- wire in `v_approval_request`.
+--
+-- The last two are `0159`'s, and they are the meeting's list rather than one
+-- line: `approval_card` reads everything the approver's card shows — the lines,
+-- the total, and BCA 271 against what approving them would owe — and
+-- `answer_batch` answers the whole list in one press. Both carry or accept live
+-- tokens, and a token in a browser is an approval anybody who can read it may
+-- give. `answer_batch` writes nothing itself: it calls `answer_request` per
+-- line, so the addressee check and the `approve_goods` check happen exactly
+-- once in the codebase.
+--
+-- All of the non-`file_evidence` verbs are shut to `authenticated`, for the
+-- same reason in two shapes: a card is answered from Chat by its addressee,
+-- never from a browser session, and a signed-in person calling
+-- `outbox_delivered` would write "this went out" about something that never
+-- did. The outbox's whole value is that its record is true.
+--
+-- The outbox verbs take no authority and ask for none, because the caller is not
+-- a person — the worker has no `auth.uid()` to check. That is `idem_remember`'s
+-- shape: plumbing, not a decision. What keeps the widening safe is that
+-- `outbox_due` cannot choose what it carries: it reads
+-- `ops_core.delivery_rules`, so a row that is absent or not live is never
+-- returned, and the worker's *reach* grew without what it can *say* growing.
+--
+-- The list is spelled out rather than counted, because a count passes when one
+-- verb is swapped for another — which is exactly the change that would matter.
 do $$
 declare
   reach text;
@@ -151,22 +185,47 @@ begin
      and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
      and has_function_privilege('service_role', p.oid, 'EXECUTE');
 
-  assert n = 3 and reach = 'answer_po_approval, file_evidence, po_approval_card',
+  assert reach = 'answer_batch, answer_po_approval, answer_request, approval_card, '
+               || 'file_evidence, outbox_delivered, outbox_due, outbox_failed, po_approval_card',
     'The service_role key can execute ' || n || ' seam(s): ' || coalesce(reach, '(none)')
-    || '. 0038 (capture) and D299 (PO approval by Chat) name exactly three, and that is the reason a '
-    || 'service_role key is allowed to exist here at all. Widening it is a decision to '
-    || 'write down, not a grant to add in passing.';
+    || '. 0038 (capture), D299 (PO approval by Chat), 0155 (outbox to Chat), 0157 (a request '
+    || 'line answered from Chat) and 0159 (the meeting''s whole list, and the card that carries '
+    || 'its money) name exactly these nine, and that sentence is the reason a service_role key '
+    || 'is allowed to exist here at all. Widening it is a decision to write down — in the '
+    || 'migration and in this list — not a grant to add in passing.';
 
   select count(*), string_agg(p.proname, ', ' order by p.proname)
     into n, reach
     from pg_proc p
     join pg_namespace ns on ns.oid = p.pronamespace
-   where p.oid::regproc::text in ('ops_procure.answer_po_approval','ops_procure.po_approval_card')
+   where p.oid::regproc::text in ('ops_procure.answer_po_approval','ops_procure.po_approval_card',
+                                  'ops_procure.answer_request','ops_procure.answer_batch',
+                                  'ops_procure.approval_card',
+                                  'ops_core.outbox_due','ops_core.outbox_delivered',
+                                  'ops_core.outbox_failed')
      and (has_function_privilege('authenticated', p.oid, 'EXECUTE')
        or has_function_privilege('anon', p.oid, 'EXECUTE'));
   assert n = 0,
-    'The chat worker''s seams are reachable from a browser session: ' || reach
-    || '. A PO approval card is answered from Chat by its addressee (D299).';
+    'The workers'' seams are reachable from a browser session: ' || reach
+    || '. A PO approval card is answered from Chat by its addressee (D299), a request line the '
+    || 'same way (0157), and a delivery that never happened must not be writable from a '
+    || 'browser (0155). `answer_request` is the one that bit: it trusts its caller for the '
+    || 'answerer''s address, so a browser caller could approve as anybody the card was sent to. '
+    || '`answer_batch` and `approval_card` (0159) are the same trust over a whole meeting''s '
+    || 'list, and the card hands out the tokens as well.';
+
+  -- The other half: shut to people is only half the rule, and on its own it is
+  -- satisfied by a deliverer nobody granted anything to.
+  select count(*), string_agg(p.oid::regproc::text, ', ' order by p.oid::regproc::text)
+    into n, reach
+    from pg_proc p
+   where p.oid::regproc::text in ('ops_core.outbox_due','ops_core.outbox_delivered',
+                                  'ops_core.outbox_failed')
+     and not has_function_privilege('service_role', p.oid, 'EXECUTE');
+  assert n = 0,
+    'The notification worker cannot execute: ' || reach
+    || '. Nothing would carry the outbox, and nothing would say so — the events would simply '
+    || 'sit there, which is the state 0155 exists to end.';
 end $$;
 
 -- ── 5. and the tables stay shut ──────────────────────────────────────────

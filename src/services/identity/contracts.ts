@@ -107,6 +107,22 @@ export interface Session extends UserAccess {
   permissions: string[];
 }
 
+/** Somebody a question can be addressed to, and the authority that makes them
+ *  the right person for it.
+ *
+ *  **Not a `User`, on purpose.** It carries a name and an address and nothing
+ *  else — no id, no modules, no other authority — because that is the whole of
+ *  what `ops_core.approvers()` answers, and the shape is the contract: a screen
+ *  that wanted more would have to widen the seam, where widening it is an
+ *  argument about who may read the authority map rather than a field added in
+ *  passing (0159).
+ */
+export interface Approver {
+  email: string;
+  full_name: string;
+  authority: Authority;
+}
+
 /* Permission expansion lives in `src/lib/roles.ts`, which owns the catalogue
  * of what each module actually offers. Keeping it there means the list a human
  * reviews and the list the code expands are the same list. */
@@ -152,6 +168,25 @@ export interface ActivityEvent {
   /** The screen or object: `/hrd/payroll/pyr-26-09-06_01`. */
   target: string;
   /** A short human label, so a recap reads as sentences rather than paths. */
+  label: string;
+}
+
+/** One of the reader's own rows in the profile screen's activity feed (W7).
+ *
+ *  Deliberately a narrower object than `ActivityEvent`, not the same one
+ *  filtered: D190 refused a person their own row in the IT-grade trail —
+ *  granular `view`/`export`/`print` telemetry stays closed, because seeing
+ *  exactly what is logged is a way to learn exactly what is not. This is a
+ *  different, safer object — the account's own security-relevant actions
+ *  (signed in, changed a password, clocked in, asked for leave) — so there is
+ *  no actor to name here; the actor is always the reader. */
+export interface MyActivityEvent {
+  id: string;
+  at: string;
+  /** `sign_in` · `sign_out` · `update` · `attendance_tap` ·
+   *  `leave_requested` · `overtime_requested` · `task_acknowledged`. */
+  kind: string;
+  target: string;
   label: string;
 }
 

@@ -231,6 +231,7 @@ a commit message cannot be corrected, so the record lives here.
 | `07_corrections.sql` | **2026-09-23** | 1 line re-filed, 59 transactions given their vendor |
 | `09_close_recap_lines.sql` | **2026-09-23** | after migration `0122`: 277 lines COMPLETED (75 settled first), 10 approvals removed → WAITING FOR APPROVAL, 11 audit rows |
 | `08_purchase_requests.sql` | **2026-09-23** | 35 documents, 288 lines, 288 approvals, 268 allocations to 264 transactions; 12 lines paid on the sheet with no ledger row |
+| `09_queue_reconciliation.sql` | **2026-09-24** | read-only: GAP 1 = 35 rows waiting and invisible (Rp 149.082.398, all dated ≥ 2026-09-22), GAP 2 = 7 already decided in the web app. GAP 1 closed the same day by a second run of `supabase/legacy/03_bridge_review_queue.sql`; re-reads BERSIH |
 
 `03_ledger.sql` was run as a **dry run first** — the whole file inside a
 transaction that was rolled back — and the numbers it printed were the numbers
