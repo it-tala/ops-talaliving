@@ -6741,3 +6741,151 @@ own, because there is no `ops_profil` schema to wait on. Worth remembering
 for the next module-less route: this gate assumes every route belongs to
 *some* catalogue module, and a route that correctly has none needs that
 assumption named rather than left to resolve to `"unknown"` and fail quietly.
+
+## F161 · 2026-09-25 · green in CI, refused by production: a new enum value used in the transaction that added it
+
+`0164_hr_self_attendance` adds `'self'` to `ops_hr.scan_source_t` and, four lines
+later, names it in a check constraint:
+
+```sql
+alter type ops_hr.scan_source_t add value 'self';
+
+alter table ops_hr.attendance_scans
+  add constraint self_is_the_caller check (source <> 'self' or recorded_by is not null);
+```
+
+It passed the ladder, passed 93 smoke files and passed CI. Applied to production
+it failed:
+
+```
+ERROR: 55P04: unsafe use of new value "self" of enum type ops_hr.scan_source_t
+HINT:  New enum values must be committed before they can be used.
+```
+
+### Why both are true at once
+
+Postgres lets `ALTER TYPE … ADD VALUE` run inside a transaction but will not
+**resolve** the new label until that transaction commits. So whether this file
+works depends entirely on how many transactions the applier uses:
+
+* `supabase/local/rebuild.sh` runs each migration as its own `psql` invocation
+  with no explicit `BEGIN`, so every statement autocommits — the `ALTER TYPE`
+  lands, and the constraint that follows resolves `'self'` without trouble;
+* Supabase's migration API wraps the whole file in one transaction, which is the
+  right thing for a migration tool to do and is what makes the file fail.
+
+**CI was not wrong about the SQL. It was testing a different applier.** That is
+the part worth keeping: the ladder proves what the statements *do*, and it cannot
+prove they can be *applied* by anything other than itself. A migration touching
+an enum is the one shape where those two diverge.
+
+### The fix, and why not the other one
+
+```sql
+alter table ops_hr.attendance_scans
+  add constraint self_is_the_caller check (source::text <> 'self' or recorded_by is not null);
+```
+
+Casting sidesteps the resolution and enforces exactly the same rule. Proved both
+halves rather than one: the DDL applies inside an explicit `BEGIN`, **and** an
+insert of `('self', null)` afterwards is still refused by the constraint — a fix
+that made the migration apply by quietly enforcing nothing would look identical
+from the outside.
+
+Rejected: splitting the file into two migrations. It would work, and it would
+mean production's record no longer matches one file in the repository, which is
+the thing F159 is about.
+
+### The refusal cost nothing, and that is worth knowing
+
+Because the API wraps the file in a transaction, the failure rolled everything
+back: the enum was still `import,manual`, no constraint, no function, no policy,
+no migration row. Checked all five before doing anything else. **A transactional
+applier turns this class of mistake into a no-op**, which is the argument for
+applying migrations through one rather than through a loop of psql calls.
+
+## F162 · 2026-09-25 · the self-service screen is live and inert, because no account is linked to a person
+
+`0163`–`0166` are applied and their policies are proved (below). `/profil` still
+does nothing for anybody, and will keep doing nothing until somebody in HRD
+links accounts to employees:
+
+```
+employees                12
+linked_to_an_account      0
+```
+
+`ops_hr.employees.user_id` is the column `0152` added for exactly this, and it
+has never been filled. Every self policy in this build is
+`employee_id = ops_hr.my_employee_id()`, and `my_employee_id()` answers null for
+an unlinked account, so `= null` is never true and each screen shows its own
+honest "akun ini belum tertaut" sentence rather than an empty table pretending to
+be a normal one. That is the design working, not a fault — but *shipped* and
+*usable* are two different states and the backlog said DONE.
+
+### What the policies actually do, proved on production
+
+Read policies are the one thing a fingerprint cannot check: a policy can exist,
+match the file, and still be wrong about who sees what. So they were exercised
+against the real database inside a transaction that was rolled back — two real
+accounts holding no `hrd` or `payroll` grant, linked to two real employees, each
+tapping through `ops_hr.tap_self`:
+
+| read as alika@ (no HR access) | saw |
+|---|---|
+| her own tap | 1 |
+| SANDI's tap | **0** |
+| employees | **1** — herself, not the other 11 |
+| leave requests · payroll runs · overtime lines | 0 (none exist) |
+
+And `activity_events`, the one table here with real rows in it — all 432 of them
+`kind = 'view'`, the IT telemetry D190 closed:
+
+| read as alika@ | saw |
+|---|---|
+| her own `sign_in` (written through `record_activity_event`) | 1 |
+| geryle@'s identical `sign_in` | **0** |
+| any of the 432 `view` rows | **0** |
+
+So the allowlist grants and denies in the right directions, and D190's
+surveillance-grade detail stays exactly as closed as it was. Nothing persisted:
+0 scans, 0 links, 0 sheets, 0 idempotency rows afterwards, and every activity row
+still `view`.
+
+### One thing to know rather than fix
+
+`runs_read_own` (0166) is `status in ('APPROVED','PAID') and my_employee_id() is
+not null` — it does **not** narrow to runs the caller appears in, so any linked
+account can read every approved run *header*. The header carries the period and
+status, never anybody's pay: the figures come from `run_lines`, which is
+invoker-rights over `employees` and so already narrows to one row. Scoping the
+header properly would need a subquery over payroll lines, and payroll lines are
+not stored — they are computed from attendance on every read (0150). Documented
+in the migration, defensible, and worth re-reading the day payroll lines ever
+become a table.
+
+### A guard was written for this and then deleted, deliberately
+
+The obvious next move is a static check refusing any migration that uses a label
+in the transaction that added it. One was written, and it worked: it caught
+`0164`'s original form immediately. It also caught **`0031_uom_english_and_optional`**,
+whose own comment, written months ago, says the thing this entry claims to have
+discovered:
+
+```sql
+-- Separate statement, because these three use the enum value added above and
+-- Postgres refuses a new enum label inside the transaction that created it.
+```
+
+So the hazard was known here before, handled by splitting the statement — which
+does not actually help inside one transaction, and survived because
+`add value if not exists` is a no-op once the label exists and because the ladder
+autocommits each statement anyway.
+
+That is what made the guard the wrong thing to ship in the same change. Turning it
+on makes CI red on a migration that has been applied to production for months, and
+the only ways out are to edit an applied migration — the thing F159 is about — or
+to carry an exception list. Which of those this repository wants is a convention
+decision, and it does not belong inside a task about applying four files.
+
+Left as a separate piece of work, with the two true positives already named.
