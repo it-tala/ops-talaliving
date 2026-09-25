@@ -567,6 +567,12 @@ export interface StockItemView {
   below_min: boolean;
   last_move_at: string | null;
   moves_count: number;
+  /** The name the floor uses (*amplas 240*) beside the catalogue's English
+   *  one. Null until somebody says it (`0168`). */
+  item_name_local: string | null;
+  /** Live photos on the item. Zero is a gap for the 800-odd items catalogued
+   *  before photos existed; anything registered at the rack has one to four. */
+  photo_count: number;
 }
 
 export interface StockItemDetail extends StockItemView {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Boxes, AlertTriangle, Search, ArrowRightLeft, PackageMinus, Undo2 } from "lucide-react";
+import { Boxes, AlertTriangle, Search, PackageMinus, PackagePlus, Camera } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { Paged } from "@/components/ui/pager";
@@ -10,6 +10,7 @@ import { cn } from "@/lib/cn";
 import { inventory } from "@/demo/api";
 import type { StockItemView } from "@/services/inventory/contracts";
 import { StockDrawer } from "./StockDrawer";
+import { RegisterItem } from "./RegisterItem";
 import { useSession } from "@/store/session";
 
 /** The rack.
@@ -38,7 +39,9 @@ export default function StockPage() {
   const [group, setGroup] = useState("");
   const [lowOnly, setLowOnly] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
+  const [registering, setRegistering] = useState(false);
   const mayMove = can("inventory.update");
+  const mayRegister = can("inventory.create");
 
   return (
     <div>
@@ -46,15 +49,30 @@ export default function StockPage() {
         breadcrumb="Inventory"
         title="Bahan & hardware"
         description="Dihitung dari setiap pergerakan barang, bukan dari angka yang disimpan. Barang masuk begitu penerimaan dikonfirmasi; keluar saat dipakai produksi."
-        actions={<SourceBadge state={rows} />}
+        actions={
+          <div className="flex items-center gap-2">
+            {mayRegister && !registering && (
+              <Button size="sm" icon={PackagePlus} onClick={() => setRegistering(true)}>Daftarkan barang</Button>
+            )}
+            <SourceBadge state={rows} />
+          </div>
+        }
       />
+
+      {registering && (
+        <RegisterItem
+          mayCount={can("inventory.adjust")}
+          onCancel={() => setRegistering(false)}
+          onCreated={(code) => { setRegistering(false); reload(); setOpen(code); }}
+        />
+      )}
 
       <Loaded state={rows} onRetry={reload}>
         {(all) => {
           const shown = all
             .filter((r) => !group || r.group_code === group)
             .filter((r) => !lowOnly || r.below_min)
-            .filter((r) => !q || `${r.item_code} ${r.item_name} ${r.category_name}`.toLowerCase().includes(q.toLowerCase()));
+            .filter((r) => !q || `${r.item_code} ${r.item_name} ${r.item_name_local ?? ""} ${r.category_name}`.toLowerCase().includes(q.toLowerCase()));
 
           const groups = [...new Map(all.map((r) => [r.group_code, r.group_name])).entries()]
             .sort((a, b) => a[1].localeCompare(b[1]));
@@ -64,6 +82,7 @@ export default function StockPage() {
           const low = all.filter((r) => r.below_min);
           const noMin = all.filter((r) => r.min_qty == null);
           const never = all.filter((r) => r.moves_count === 0);
+          const noPhoto = all.filter((r) => r.photo_count === 0);
 
           return (
             <>
@@ -74,7 +93,8 @@ export default function StockPage() {
                       unpriced.length > 0
                         ? `${unpriced.length} barang belum lengkap harganya`
                         : "seluruh stok punya harga"],
-                    ["Jenis barang", String(all.length), `${never.length} belum pernah bergerak`],
+                    ["Jenis barang", String(all.length),
+                      `${never.length} belum pernah bergerak · ${noPhoto.length} belum ada foto`],
                     ["Di bawah minimum", String(low.length),
                       low.length > 0 ? "perlu dibelikan" : "tidak ada yang menipis"],
                     ["Minimum belum ditetapkan", String(noMin.length),
@@ -199,7 +219,15 @@ function Row({ row: r, onOpen }: { row: StockItemView; onOpen: () => void }) {
     <tr onClick={onOpen} className="cursor-pointer border-b border-slate-100 hover:bg-slate-50">
       <td className="px-4 py-2">
         <span className="block font-medium text-slate-800">{r.item_name}</span>
-        <span className="block font-mono text-[10px] text-slate-400">{r.item_code} · per {r.uom}</span>
+        {r.item_name_local && <span className="block text-[12px] text-slate-600">{r.item_name_local}</span>}
+        <span className="flex items-center gap-1.5 font-mono text-[10px] text-slate-400">
+          {r.item_code} · per {r.uom}
+          {r.photo_count === 0 ? (
+            <span className="font-sans text-amber-700">· belum ada foto</span>
+          ) : (
+            <span className="flex items-center gap-0.5 font-sans"><Camera className="h-3 w-3" />{r.photo_count}</span>
+          )}
+        </span>
       </td>
       <td className="px-4 py-2 text-slate-600">
         {r.category_name}

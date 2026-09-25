@@ -13,6 +13,9 @@ import type {
   Asset, AssetView, AssetCategory, AssetStatus, AssetInput, AssetService, AssetServiceInput,
 } from "@/services/inventory/contracts";
 import { ASSET_GONE, ASSET_OWNERSHIP_LABEL } from "@/services/inventory/contracts";
+import type { ItemPurchase } from "@/services/procurement/contracts";
+import { ITEM_PHOTO_MAX, ITEM_PHOTO_MIN } from "@/services/documents/contracts";
+import { itemPurchases } from "./procurement";
 import type { DemoState, AuditRow } from "../state";
 import { officeToday } from "@/lib/office";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
@@ -372,9 +375,142 @@ export async function listStock(
   if (opts.low_only) rows = rows.filter((r) => r.below_min);
   if (opts.q) {
     const q = opts.q.toLowerCase();
-    rows = rows.filter((r) => `${r.item_code} ${r.item_name} ${r.category_name}`.toLowerCase().includes(q));
+    rows = rows.filter((r) =>
+      `${r.item_code} ${r.item_name} ${r.item_name_local ?? ""} ${r.category_name}`.toLowerCase().includes(q));
   }
   return ok(SERVICE, rows);
+}
+
+export async function listStockedCategories(): Promise<Result<{ code: string; name: string }[]>> {
+  await latency();
+  const state = getState();
+  return ok(SERVICE, [...STOCKED_CATEGORIES]
+    .map((code) => ({ code, name: state.item_categories.find((c) => c.code === code)?.name ?? code }))
+    .sort((a, b) => a.name.localeCompare(b.name)));
+}
+
+/** An item registered at the rack (`0168`). The same refusals as
+ *  `ops_inv.register_item`, in the same order, so a counter meets the same
+ *  sentence in both modes. */
+export async function registerItem(
+  input: {
+    name: string;
+    name_local?: string | null;
+    category_code: string;
+    base_uom: string;
+    photo_ids: string[];
+    location?: string | null;
+    counted?: number | null;
+    reason?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<StockItemDetail>> {
+  await latency();
+  const cached = replayed<StockItemDetail>(SERVICE, "registerItem", idempotencyKey);
+  if (cached) return cached;
+  const denied = requireModule(SERVICE, "inventory");
+  if (denied) return denied;
+
+  const state = getState();
+  const name = input.name.trim();
+  const nameLocal = input.name_local?.trim() || null;
+  const photos = input.photo_ids;
+  if (!name) return invalid(SERVICE, "name_required", "Barang butuh nama katalog.", { field: "name" });
+  if (photos.length < ITEM_PHOTO_MIN) {
+    return invalid(SERVICE, "photo_required", "Barang butuh minimal satu foto.", { field: "photos" });
+  }
+  if (photos.length > ITEM_PHOTO_MAX) {
+    return invalid(SERVICE, "too_many_photos", "Paling banyak empat foto per barang.", { field: "photos", given: photos.length });
+  }
+  if (new Set(photos).size !== photos.length) {
+    return invalid(SERVICE, "duplicate_photo", "Foto yang sama dikirim dua kali.", { field: "photos" });
+  }
+  if (photos.some((id) => !state.attachments.some((a) => a.id === id))) {
+    return notFound(SERVICE, "not_found", "Salah satu foto tidak ditemukan.");
+  }
+  if (!state.item_categories.some((c) => c.code === input.category_code)) {
+    return invalid(SERVICE, "no_such_category", `Tidak ada kategori ${input.category_code}.`, { field: "category_code" });
+  }
+  if (!STOCKED_CATEGORIES.has(input.category_code)) {
+    return invalid(SERVICE, "not_stocked", `Kategori ${input.category_code} tidak dihitung di gudang.`, { field: "category_code" });
+  }
+  if (input.counted != null) {
+    if (input.counted <= 0) {
+      return invalid(SERVICE, "counted_invalid",
+        "Jumlah hasil hitung harus lebih dari nol — kosongkan kalau belum dihitung.", { field: "counted" });
+    }
+    if (!state.stock_locations.some((l) => l.code === input.location && l.is_active)) {
+      return invalid(SERVICE, "location_required", "Hasil hitung butuh lokasi rak yang aktif.", { field: "location" });
+    }
+  }
+  const existing = state.items.find((i) => !i.merged_into && !i.archived_at && (
+    i.name.trim().toLowerCase() === name.toLowerCase()
+    || (nameLocal != null && (i.name_local ?? "").trim().toLowerCase() === nameLocal.toLowerCase())));
+  if (existing) {
+    return conflict(SERVICE, "already_catalogued", `Barang ini sudah ada sebagai ${existing.code} — hitung di sana.`,
+      { existing_code: existing.code });
+  }
+
+  const code = `ITM-${String(state.items.length + 1).padStart(4, "0")}`;
+  const user = actingUser();
+  apply((draft) => {
+    draft.items.push({
+      id: newId("itm"), code, name, name_local: nameLocal, aka: [],
+      category_code: input.category_code, base_uom: input.base_uom, kind: "goods",
+      is_curated: false, standard_price: null, last_price: null,
+      last_vendor_id: null, last_purchased_at: null, merged_into: null,
+    });
+    for (const attachment_id of photos) {
+      draft.attachment_links.push({
+        id: newId("lnk"), attachment_id, entity: "item", entity_no: code, kind: "Foto",
+        linked_by: user.id, linked_at: new Date().toISOString(),
+      });
+    }
+    if (input.counted != null) {
+      writeMove(draft, {
+        item_code: code, location: input.location!, kind: "adjust", qty: input.counted,
+        uom: input.base_uom,
+        reason: input.reason?.trim() || "Opname: barang baru didaftarkan, dihitung saat didaftarkan",
+      }, user.id, user.email);
+    }
+    writeOutbox(draft, {
+      service: SERVICE, event_type: "inventory.item.registered",
+      payload: { code, photos: photos.length, counted: input.counted ?? null, location: input.location ?? null },
+    });
+  });
+  const detail = stockItemDetail(getState(), code)!;
+  remember(SERVICE, "registerItem", idempotencyKey, detail);
+  return ok(SERVICE, detail);
+}
+
+export async function setItemLocalName(itemCode: string, nameLocal: string | null): Promise<Result<StockItemDetail>> {
+  await latency();
+  const denied = requireModule(SERVICE, "inventory");
+  if (denied) return denied;
+  if (!getState().items.some((i) => i.code === itemCode)) {
+    return notFound(SERVICE, "not_found", "Barang tidak ditemukan.");
+  }
+  apply((draft) => {
+    const item = draft.items.find((i) => i.code === itemCode)!;
+    const before = item.name_local ?? null;
+    item.name_local = nameLocal?.trim() || null;
+    writeAudit(draft, {
+      service: SERVICE, entity: "item", entity_no: itemCode, action: "set_local_name", outcome: "ok", reason: null,
+      detail: { before, after: item.name_local },
+    });
+  });
+  return getStockItem(itemCode);
+}
+
+/** The ledger lines that bought this item — the catalogue's own answer
+ *  (`procurement.itemPurchases`), asked by code from the rack. */
+export async function stockItemPurchases(itemCode: string): Promise<Result<ItemPurchase[]>> {
+  const item = getState().items.find((i) => i.code === itemCode);
+  if (!item) {
+    await latency();
+    return notFound(SERVICE, "item_not_found", "No such item.");
+  }
+  return itemPurchases(item.id);
 }
 
 /** Which products' BOMs call for this item, latest revision only. */

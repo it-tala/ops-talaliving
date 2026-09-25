@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowRightLeft, Boxes, PackageMinus, Undo2, Hammer, Truck } from "lucide-react";
+import { ArrowRightLeft, Boxes, PackageMinus, Undo2, Hammer, Truck, Receipt, Pencil } from "lucide-react";
 import { Drawer } from "@/components/ui/drawer";
 import { Badge, Button } from "@/components/ui/primitives";
 import { Loaded, useLoad } from "@/components/ui/loaded";
@@ -11,6 +11,8 @@ import { cn } from "@/lib/cn";
 import { inventory } from "@/demo/api";
 import { MOVE_LABEL, type StockItemDetail } from "@/services/inventory/contracts";
 import { useToast } from "@/store/toast";
+import { EvidenceStrip } from "@/components/ui/evidence-strip";
+import { ITEM_PHOTO_MAX, ITEM_PHOTO_MIN } from "@/services/documents/contracts";
 
 /** One item: what is on the rack, where it came from, and what needs it.
  *
@@ -31,7 +33,9 @@ export function StockDrawer({
   const { toast } = useToast();
   const [detail, reload] = useLoad(() => inventory.getStockItem(itemCode), [itemCode]);
   const [locations] = useLoad(() => inventory.listStockLocations(), []);
+  const [purchases] = useLoad(() => inventory.stockItemPurchases(itemCode), [itemCode]);
   const [busy, setBusy] = useState(false);
+  const [localName, setLocalName] = useState<string | null>(null);
   const [form, setForm] = useState<{ kind: "issue" | "return" | "transfer"; qty: number; location: string; to: string; ref: string; reason: string }>({
     kind: "issue", qty: 1, location: "", to: "", ref: "", reason: "",
   });
@@ -79,6 +83,16 @@ export function StockDrawer({
     after();
   }
 
+  async function saveLocalName(value: string) {
+    setBusy(true);
+    const res = await inventory.setItemLocalName(itemCode, value.trim() || null);
+    setBusy(false);
+    if (res.error) { toast("warning", "Tidak tersimpan", res.error.message); return; }
+    setLocalName(null);
+    reload();
+    onChanged();
+  }
+
   function after() {
     setForm((f) => ({ ...f, qty: 1, ref: "", reason: "" }));
     reload();
@@ -93,7 +107,12 @@ export function StockDrawer({
           onClose={onClose}
           width="max-w-2xl"
           title={d.item_name}
-          subtitle={<span className="font-mono text-[11px]">{d.item_code} · {d.category_name} · per {d.uom}</span>}
+          subtitle={
+            <span className="text-[11px]">
+              {d.item_name_local && <span className="mr-1 text-slate-700">{d.item_name_local} ·</span>}
+              <span className="font-mono">{d.item_code} · {d.category_name} · per {d.uom}</span>
+            </span>
+          }
         >
           <div className="space-y-4">
             <dl className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 sm:grid-cols-4">
@@ -120,6 +139,42 @@ export function StockDrawer({
                 ))}
               </div>
             )}
+
+            {/* The floor's name: what the counter reads on the shelf, beside the
+                catalogue's English one (0168). */}
+            {mayMove && (
+              <div className="flex flex-wrap items-center gap-2 text-[12px]">
+                <span className="text-slate-500">Nama lapangan</span>
+                {localName == null ? (
+                  <>
+                    <span className="font-medium text-slate-800">{d.item_name_local ?? <span className="text-amber-700">belum diisi</span>}</span>
+                    <Button size="sm" variant="ghost" icon={Pencil} onClick={() => setLocalName(d.item_name_local ?? "")}>Ubah</Button>
+                  </>
+                ) : (
+                  <>
+                    <input
+                      value={localName} onChange={(e) => setLocalName(e.target.value)} autoFocus
+                      placeholder="mis. amplas 240"
+                      className="h-8 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                    />
+                    <Button size="sm" disabled={busy} onClick={() => saveLocalName(localName)}>Simpan</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setLocalName(null)}>Batal</Button>
+                  </>
+                )}
+              </div>
+            )}
+
+            <EvidenceStrip
+              entity="item"
+              entityNo={d.item_code}
+              canEdit={mayMove}
+              defaultKind="Foto"
+              slots={[{ kind: "Foto", label: `Foto barang (${ITEM_PHOTO_MIN}–${ITEM_PHOTO_MAX})` }]}
+              onChanged={() => { reload(); onChanged(); }}
+              note={d.photo_count === 0
+                ? "Barang ini belum punya foto — didaftarkan sebelum foto diwajibkan. Tambahkan minimal satu."
+                : `${d.photo_count} dari ${ITEM_PHOTO_MAX} foto. Foto terakhir tidak bisa dihapus — tambah penggantinya dulu.`}
+            />
 
             {mayMove && (
               <div className="rounded-xl border border-slate-200 px-4 py-3">
@@ -224,6 +279,43 @@ export function StockDrawer({
                 </div>
               </div>
             )}
+
+            {/* Which ledger lines bought it — read through the line's own
+                item link, never guessed from a description (0104, 0168). */}
+            <div>
+              <p className="mb-1 flex items-center gap-1.5 text-[12px] font-semibold text-slate-700">
+                <Receipt className="h-3.5 w-3.5 text-slate-400" /> Transaksi pembelian
+              </p>
+              <Loaded state={purchases} skeletonRows={2}>
+                {(rows) => rows.length === 0 ? (
+                  <p className="rounded-xl border border-slate-200 px-4 py-3 text-[12px] text-slate-500">
+                    Belum ada baris buku besar yang menyebut barang ini. Pembelian yang dicatat tanpa memilih
+                    barangnya tidak akan muncul di sini — bukan berarti belum pernah dibeli.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+                    {rows.slice(0, 10).map((p, i) => (
+                      <li key={`${p.trx_no}-${i}`} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-4 py-2 text-[12px]">
+                        <span className="font-mono text-[11px] text-slate-500">{p.trx_no}</span>
+                        <span className="text-slate-400">{p.trx_date}</span>
+                        <span className="min-w-[120px] flex-1 text-slate-700">{p.vendor_name ?? "—"}</span>
+                        <span className="tabular-nums text-slate-600">
+                          {p.qty != null ? `${formatNumber(p.qty)} ${p.uom ?? ""}` : ""}
+                          {p.unit_price != null ? ` × ${formatIDR(p.unit_price)}` : ""}
+                        </span>
+                        <span className="w-28 text-right font-semibold tabular-nums text-slate-800">{formatIDR(p.amount)}</span>
+                        {p.item_code !== d.item_code && (
+                          <span className="w-full text-[11px] text-slate-400">dicatat sebagai {p.item_name} ({p.item_code}), sudah digabung</span>
+                        )}
+                      </li>
+                    ))}
+                    {rows.length > 10 && (
+                      <li className="px-4 py-2 text-[11px] text-slate-500">+{rows.length - 10} transaksi lebih lama</li>
+                    )}
+                  </ul>
+                )}
+              </Loaded>
+            </div>
 
             <div>
               <p className="mb-1 flex items-center gap-1.5 text-[12px] font-semibold text-slate-700">

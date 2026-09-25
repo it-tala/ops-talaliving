@@ -26,6 +26,7 @@ import type {
   AssetView, AssetCategory, AssetStatus, AssetInput, AssetService, AssetServiceInput,
 } from "@/services/inventory/contracts";
 import type { MaterialPlan } from "@/services/production/contracts";
+import type { ItemPurchase } from "@/services/procurement/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fail, fromRows, fromSeam, invalid, noop, notFound, ok, conflict, refused, type Result } from "./_kit";
 import { scanNota } from "./_nota_kayu";
@@ -110,9 +111,88 @@ export async function listStock(
   if (opts.low_only) filtered = filtered.filter((r) => r.below_min);
   if (opts.q) {
     const q = opts.q.toLowerCase();
-    filtered = filtered.filter((r) => `${r.item_code} ${r.item_name} ${r.category_name}`.toLowerCase().includes(q));
+    filtered = filtered.filter((r) =>
+      `${r.item_code} ${r.item_name} ${r.item_name_local ?? ""} ${r.category_name}`.toLowerCase().includes(q));
   }
   return ok(SERVICE, filtered);
+}
+
+/** The categories counted on a rack — the only ones an item registered at the
+ *  rack may go into (`register_item` refuses the rest as `not_stocked`). */
+export async function listStockedCategories(): Promise<Result<{ code: string; name: string }[]>> {
+  const [{ data: stocked, error: sErr }, { data: cats, error: cErr }] = await Promise.all([
+    db().from("stocked_categories").select("category_code"),
+    procure().from("item_categories").select("code, name"),
+  ]);
+  if (sErr) return fail(SERVICE, sErr);
+  if (cErr) return fail(SERVICE, cErr);
+  const names = new Map((cats ?? []).map((c) => [c.code as string, c.name as string]));
+  return ok(SERVICE, (stocked ?? [])
+    .map((s) => ({ code: s.category_code as string, name: names.get(s.category_code as string) ?? (s.category_code as string) }))
+    .sort((a, b) => a.name.localeCompare(b.name)));
+}
+
+/** An item registered at the rack (`0168`, `ops_inv.register_item`): the
+ *  catalogue entry, its 1–4 photos and — when the counter has the number —
+ *  what is on the rack right now, as an opname adjustment against a location
+ *  (D171). One seam, so a refused count never leaves an item with no count and
+ *  a refused item never leaves orphan links. The photos are uploaded first
+ *  (`documents.upload`) and arrive here as attachment ids. */
+export async function registerItem(
+  input: {
+    name: string;
+    name_local?: string | null;
+    category_code: string;
+    base_uom: string;
+    photo_ids: string[];
+    location?: string | null;
+    counted?: number | null;
+    reason?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<StockItemDetail>> {
+  const { data, error } = await db().rpc("register_item", {
+    p_name: input.name,
+    p_name_local: input.name_local ?? null,
+    p_category_code: input.category_code,
+    p_base_uom: input.base_uom,
+    p_photo_ids: input.photo_ids,
+    p_location: input.location ?? null,
+    p_counted: input.counted ?? null,
+    p_reason: input.reason ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const res = fromSeam<{ code: string }>(SERVICE, data, error);
+  if (res.error) return res;
+  return getStockItem(res.data.code);
+}
+
+/** The floor's name for an item already in the catalogue — most of the rack
+ *  predates `0168`. Blank clears it. */
+export async function setItemLocalName(itemCode: string, nameLocal: string | null): Promise<Result<StockItemDetail>> {
+  const { data, error } = await db().rpc("set_item_local_name", {
+    p_code: itemCode,
+    p_name_local: nameLocal,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return getStockItem(itemCode);
+}
+
+/** The ledger lines that bought this item (`0104`'s `item_purchases`, opened
+ *  to `inventory.read` by `0168`) — merged duplicates included. The link is
+ *  `transaction_lines.item_id`, set when the purchase was booked; this reads
+ *  it, it never guesses one. */
+export async function stockItemPurchases(itemCode: string): Promise<Result<ItemPurchase[]>> {
+  const { data, error } = await procure().rpc("item_purchases", { p_code: itemCode });
+  const res = fromSeam<ItemPurchase[]>(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, res.data.map((r) => ({
+    ...r,
+    qty: r.qty == null ? null : Number(r.qty),
+    unit_price: r.unit_price == null ? null : Number(r.unit_price),
+    amount: Number(r.amount),
+  })));
 }
 
 /** Joins `v_stock_item` rows to `v_stock_by_location` (one query for every row

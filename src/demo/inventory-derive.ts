@@ -316,6 +316,14 @@ function moveView(state: DemoState, m: StockMove): StockMoveView {
  *  identical on a screen that hides the second one, and they lead to opposite
  *  actions.
  */
+/** An item's live photos (`0168`) — the demo's links carry no unlink stamp;
+ *  a removed link is gone from the array, so every row here is live. */
+export function itemPhotoLinks(state: DemoState, itemCode: string) {
+  return state.attachment_links.filter(
+    (l) => l.entity === "item" && l.entity_no === itemCode && l.kind === "Foto",
+  );
+}
+
 export function stockItems(state: DemoState): StockItemView[] {
   const byItem = new Map<string, StockMove[]>();
   for (const m of state.stock_moves) {
@@ -371,6 +379,8 @@ export function stockItems(state: DemoState): StockItemView[] {
       below_min: setting?.min_qty != null && on_hand < setting.min_qty,
       last_move_at: moves.length > 0 ? moves[moves.length - 1].moved_at : null,
       moves_count: moves.length,
+      item_name_local: item.name_local ?? null,
+      photo_count: itemPhotoLinks(state, item.code).length,
     });
   }
 

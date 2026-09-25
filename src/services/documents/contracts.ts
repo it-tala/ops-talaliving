@@ -142,7 +142,11 @@ export type LinkEntity =
   /** Somebody's own file: KTP, ijazah, the contract they signed (D177). */
   | "employee"
   /** A photo of the thing, its purchase nota, its warranty card (`0106`). */
-  | "asset";
+  | "asset"
+  /** A catalogue item, by its code — the 1–4 photos that show the floor what
+   *  it is. Four is a cap the database holds; the last one cannot come off
+   *  (`0168`). */
+  | "item";
 
 /** Which kinds make sense where. The full list is thirty kinds across HR,
  *  production and money, and a ledger row offered "Ijazah" or "KTP" is a
@@ -170,7 +174,14 @@ export const DOC_KINDS_FOR: Partial<Record<LinkEntity, readonly DocKind[]>> = {
     "Foto", "Receipt / Invoice / Nota", "Invoice", "Sertifikat",
     "Delivery Note", "Others",
   ],
+  /* A catalogue item: what it looks like. Its purchases are ledger lines,
+     reached through the item rather than filed on it. */
+  item: ["Foto", "Others"],
 };
+
+/** The photos an item carries (`0168`): at least one, at most four. */
+export const ITEM_PHOTO_MIN = 1;
+export const ITEM_PHOTO_MAX = 4;
 
 /** A piece of evidence — a **file or a link**, never both.
  *
