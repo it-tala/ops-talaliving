@@ -62,7 +62,17 @@ barang jadi → surat jalan → BAST. Dari drawer Job Order ada tautan *Jejak le
    BOM · Menunggu bahan · Material ready · Bahan sudah keluar*.
 5. **Barang jadi tidak tercatat sama sekali.** Sekarang ada (D311).
 
-## Keputusan yang masih milik pemilik
+## Riwayat satu barang (D313)
+
+Tidak ada tabel khusus — riwayat dibaca dari baris yang sudah ada, supaya tidak
+ada salinan kedua yang bisa berbeda. Ketik **kode barang** (mis. `I-00042`) di
+Job trail, atau klik *Riwayat lengkap barang* di drawer stok: masuk katalog →
+BOM yang memakainya → PR → PO → receiving → stok → Job Order yang dilayani.
+
+## Keputusan pemilik (2026-09-25)
+
+Surplus barang jadi **boleh dipakai untuk pesanan lain** — dibangun (D313).
+Tiga hal di bawah **tidak perlu** (*sisanya tidak perlu*) dan tidak dibangun:
 
 - **Reservasi stok per JO.** *Material ready* membaca rak bersama: dua JO bisa
   sama-sama *ready* atas plywood yang sama. Mengunci stok untuk satu JO adalah

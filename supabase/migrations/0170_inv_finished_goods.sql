@@ -43,7 +43,7 @@
 -- definer function that decides inside, not an invoker view.
 
 create type ops_inv.product_move_kind_t as enum
-  ('produced','adjust','transfer','scrap','sold','return');
+  ('produced','adjust','transfer','scrap','sold','return','allocated');
 
 insert into ops_core.doc_prefixes (prefix, what) values ('fgm', 'finished goods move')
   on conflict (prefix) do nothing;
@@ -75,7 +75,7 @@ create table ops_inv.product_moves (
   constraint fg_sold_removes   check (kind <> 'sold' or qty < 0),
   -- The sentence is the record (D171).
   constraint fg_says_why check (
-    kind not in ('adjust','scrap','sold','return')
+    kind not in ('adjust','scrap','sold','return','allocated')
     or (reason is not null and length(btrim(reason)) > 0))
 );
 
@@ -163,7 +163,8 @@ begin
     select l.product_code, l.project_line_id,
            sum(l.qty) filter (where l.kind = 'produced')  as produced,
            -sum(l.qty) filter (where l.kind = 'shipped')  as shipped,
-           sum(l.qty) filter (where l.kind not in ('produced','shipped')) as other,
+           sum(l.qty) filter (where l.kind = 'allocated')  as allocated,
+           sum(l.qty) filter (where l.kind not in ('produced','shipped','allocated')) as other,
            sum(l.qty)                                      as on_hand,
            max(l.moved_at)                                 as last_move_at,
            array_remove(array_agg(distinct l.wo_no), null) as wo_nos
@@ -184,6 +185,8 @@ begin
              coalesce(b.produced, 0) as produced,
              coalesce(b.shipped, 0)  as shipped,
              coalesce(b.other, 0)    as other,
+             -- Net surplus moved in from (+) or out to (−) other orders (D313).
+             coalesce(b.allocated, 0) as allocated,
              coalesce(b.on_hand, 0)  as on_hand,
              case when pl.id is not null
                then greatest(coalesce(b.produced, 0) - pl.qty, 0) else 0 end as overrun,
@@ -433,18 +436,118 @@ begin
     jsonb_build_object('home_location', v_before), jsonb_build_object('home_location', p_location));
 end $$;
 
+-- ── surplus used for another order (D313) ───────────────────────────────────
+-- The owner (2026-09-25): *surplus finished goods bisa dipakai untuk order
+-- lain.* Two rows, like a transfer, but between order lines at one location:
+-- out of the batch it was made for, into the order it now serves. Only the
+-- **surplus** may move — what the source order is still owed stays with it —
+-- and stock made for nobody (null line) is all surplus. The target must be an
+-- order line for the same product. Produced and overrun stay on the source
+-- line: they are what happened; the move is what was decided afterwards.
+create or replace function ops_inv.allocate_product(
+  p_product_code    text,
+  p_from_line_id    uuid,
+  p_to_line_id      uuid,
+  p_location        text,
+  p_qty             numeric,
+  p_reason          text,
+  p_key             text default null)
+returns jsonb
+language plpgsql security definer
+set search_path = ops_inv, ops_prod, ops_procure, ops_core, pg_temp as $$
+declare
+  v_to_pc     text;
+  v_from_pc   text;
+  v_ordered   numeric;
+  v_shipped   numeric;
+  v_on_hand   numeric;
+  v_here      numeric;
+  v_surplus   numeric;
+  v_no        text;
+  v_no2       text;
+  res         jsonb;
+  replayed    jsonb;
+begin
+  replayed := ops_core.idem_replay('inventory', 'allocate_product', p_key);
+  if replayed is not null then return replayed; end if;
+
+  if not ops_core.has_permission('inventory.create') then
+    return ops_core.refused('inventory','product', p_product_code,'allocate',
+      'not_permitted','Memindahkan surplus ke pesanan lain butuh akses tulis inventory.');
+  end if;
+  if coalesce(p_qty, 0) <= 0 then
+    return ops_core.invalid('inventory','product', p_product_code,'allocate',
+      'qty_invalid','Jumlah harus lebih dari nol.', jsonb_build_object('field','qty'));
+  end if;
+  if coalesce(btrim(p_reason), '') = '' then
+    return ops_core.invalid('inventory','product', p_product_code,'allocate',
+      'reason_required','Tulis alasannya — kenapa surplus ini dipakai untuk pesanan itu.',
+      jsonb_build_object('field','reason'));
+  end if;
+  select pl.product_code into v_to_pc from ops_procure.project_lines pl where pl.id = p_to_line_id;
+  if not found or v_to_pc is distinct from p_product_code then
+    return ops_core.invalid('inventory','product', p_product_code,'allocate',
+      'line_other_product','Pesanan tujuan bukan untuk produk ini.', jsonb_build_object('field','to_line_id'));
+  end if;
+  if p_to_line_id is not distinct from p_from_line_id then
+    return ops_core.invalid('inventory','product', p_product_code,'allocate',
+      'same_line','Pesanan asal dan tujuan sama.', jsonb_build_object('field','to_line_id'));
+  end if;
+  if p_from_line_id is not null then
+    select pl.product_code, pl.qty into v_from_pc, v_ordered from ops_procure.project_lines pl where pl.id = p_from_line_id;
+    if not found or v_from_pc is distinct from p_product_code then
+      return ops_core.invalid('inventory','product', p_product_code,'allocate',
+        'line_other_product','Batch asal bukan untuk produk ini.', jsonb_build_object('field','from_line_id'));
+    end if;
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext('fg:' || p_product_code));
+  select coalesce(sum(l.qty), 0),
+         coalesce(-sum(l.qty) filter (where l.kind = 'shipped'), 0),
+         coalesce(sum(l.qty) filter (where l.location = p_location), 0)
+    into v_on_hand, v_shipped, v_here
+    from ops_inv.product_ledger(p_product_code) l
+   where l.project_line_id is not distinct from p_from_line_id;
+  v_surplus := greatest(v_on_hand - case when p_from_line_id is null then 0
+                                         else greatest(v_ordered - v_shipped, 0) end, 0);
+  if p_qty > least(v_surplus, v_here) then
+    return ops_core.conflict('inventory','product', p_product_code,'allocate',
+      'insufficient',
+      format('Yang bisa dipindah dari batch ini di %s hanya %s (surplus %s, di lokasi ini %s).',
+             p_location, greatest(least(v_surplus, v_here), 0), v_surplus, v_here),
+      jsonb_build_object('surplus', v_surplus, 'at_location', v_here));
+  end if;
+
+  insert into ops_inv.product_moves (product_code, location, kind, qty, project_line_id, reason, moved_by)
+  values (p_product_code, p_location, 'allocated', -p_qty, p_from_line_id, btrim(p_reason), auth.uid())
+  returning move_no into v_no;
+  insert into ops_inv.product_moves (product_code, location, kind, qty, project_line_id, ref_no, reason, moved_by)
+  values (p_product_code, p_location, 'allocated', p_qty, p_to_line_id, v_no, btrim(p_reason), auth.uid())
+  returning move_no into v_no2;
+
+  perform ops_core.emit('inventory','inventory.product.allocated', v_no,
+    jsonb_build_object('product_code', p_product_code, 'qty', p_qty, 'location', p_location,
+                       'from_line_id', p_from_line_id, 'to_line_id', p_to_line_id));
+
+  res := ops_core.ok('inventory','product', p_product_code,'allocate',
+    jsonb_build_object('move_no', v_no, 'in_move_no', v_no2));
+  return ops_core.idem_remember('inventory','allocate_product', p_key, res);
+end $$;
+
 revoke all on function ops_inv.product_ledger(text) from public;
 revoke all on function ops_inv.product_on_hand(text, uuid, text) from public;
 revoke all on function ops_inv.product_stock(text) from public;
 revoke all on function ops_inv.move_product(text, text, numeric, text, text, text, uuid, text, text, text) from public;
 revoke all on function ops_inv.count_product(text, text, numeric, text, uuid, text) from public;
 revoke all on function ops_inv.set_product_home(text, text) from public;
+revoke all on function ops_inv.allocate_product(text, uuid, uuid, text, numeric, text, text) from public;
 grant execute on function ops_inv.product_ledger(text) to authenticated;
 grant execute on function ops_inv.product_on_hand(text, uuid, text) to authenticated;
 grant execute on function ops_inv.product_stock(text) to authenticated;
 grant execute on function ops_inv.move_product(text, text, numeric, text, text, text, uuid, text, text, text) to authenticated;
 grant execute on function ops_inv.count_product(text, text, numeric, text, uuid, text) to authenticated;
 grant execute on function ops_inv.set_product_home(text, text) to authenticated;
+grant execute on function ops_inv.allocate_product(text, uuid, uuid, text, numeric, text, text) to authenticated;
 
 analyze ops_inv.product_moves;
 analyze ops_inv.product_settings;

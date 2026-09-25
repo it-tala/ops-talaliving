@@ -30,7 +30,9 @@ insert into ops_procure.projects (id, code, name, is_active) values
   ('17000000-0000-0000-0000-0000000000b1','FG-P1','Villa Barang Jadi', true);
 insert into ops_procure.project_lines (id, project_id, line_no, product_code, description, qty, uom) values
   ('17000000-0000-0000-0000-0000000000c1','17000000-0000-0000-0000-0000000000b1', 1, 'FG-CHR', 'Kursi makan', 10, 'pcs'),
-  ('17000000-0000-0000-0000-0000000000c2','17000000-0000-0000-0000-0000000000b1', 2, 'FG-TBL', 'Meja makan', 2, 'pcs');
+  ('17000000-0000-0000-0000-0000000000c2','17000000-0000-0000-0000-0000000000b1', 2, 'FG-TBL', 'Meja makan', 2, 'pcs'),
+  -- a later order for the same chair, to be served from the surplus (D313)
+  ('17000000-0000-0000-0000-0000000000c3','17000000-0000-0000-0000-0000000000b1', 3, 'FG-CHR', 'Kursi teras', 3, 'pcs');
 
 insert into ops_prod.work_orders (wo_no, product_code, item_name, qty, uom, route, due_date, project_code, project_line_id, created_by) values
   ('spk-fg-1','FG-CHR','Kursi makan', 10,'pcs','IN_HOUSE', current_date + 5, 'FG-P1',
@@ -148,6 +150,50 @@ begin
   select x into v from jsonb_array_elements(r->'data') x;
   assert (v->>'shipped')::numeric = 0 and (v->>'on_hand')::numeric = 2,
     'the old delivery predates the rack ' || v::text;
+end $$;
+
+reset role;
+
+/* ── surplus used for another order (D313) ──
+   c1 now: 6 on the rack, 4 still owed → 2 surplus. Stock batch: 1, all surplus. */
+set local role authenticated;
+set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-000000170001';
+
+do $$
+declare r jsonb; v jsonb;
+begin
+  r := ops_inv.allocate_product('FG-CHR','17000000-0000-0000-0000-0000000000c1',
+                                '17000000-0000-0000-0000-0000000000c3','GUDANG', 3, 'untuk teras');
+  assert r->'error'->>'code' = 'insufficient', 'only the surplus moves, not what c1 is still owed, got ' || r::text;
+  r := ops_inv.allocate_product('FG-CHR','17000000-0000-0000-0000-0000000000c1',
+                                '17000000-0000-0000-0000-0000000000c2','GUDANG', 1, 'x');
+  assert r->'error'->>'code' = 'line_other_product', 'a table order takes no chairs, got ' || r::text;
+  r := ops_inv.allocate_product('FG-CHR','17000000-0000-0000-0000-0000000000c1',
+                                '17000000-0000-0000-0000-0000000000c1','GUDANG', 1, 'x');
+  assert r->'error'->>'code' = 'same_line', 'to itself, got ' || r::text;
+  r := ops_inv.allocate_product('FG-CHR','17000000-0000-0000-0000-0000000000c1',
+                                '17000000-0000-0000-0000-0000000000c3','GUDANG', 2, ' ');
+  assert r->'error'->>'code' = 'reason_required', 'says why, got ' || r::text;
+
+  r := ops_inv.allocate_product('FG-CHR','17000000-0000-0000-0000-0000000000c1',
+                                '17000000-0000-0000-0000-0000000000c3','GUDANG', 2, 'Kelebihan Villa dipakai untuk teras', 'al-1');
+  assert r->>'outcome' = 'ok', 'two surplus chairs to c3, got ' || r::text;
+  r := ops_inv.allocate_product('FG-CHR', null, '17000000-0000-0000-0000-0000000000c3','GUDANG', 1, 'Stok bebas', 'al-2');
+  assert r->>'outcome' = 'ok', 'the stock chair too, got ' || r::text;
+  r := ops_inv.allocate_product('FG-CHR','17000000-0000-0000-0000-0000000000c1',
+                                '17000000-0000-0000-0000-0000000000c3','GUDANG', 2, 'Kelebihan Villa dipakai untuk teras', 'al-1');
+  assert (select count(*) from ops_inv.product_moves where kind = 'allocated') = 4, 'replayed, not doubled';
+
+  r := ops_inv.product_stock('FG-CHR');
+  select x into v from jsonb_array_elements(r->'data') x where x->>'project_line_id' = '17000000-0000-0000-0000-0000000000c1';
+  assert (v->>'on_hand')::numeric = 4 and (v->>'surplus')::numeric = 0 and (v->>'allocated')::numeric = -2,
+    'c1 keeps what it is owed ' || v::text;
+  assert (v->>'produced')::numeric = 12 and (v->>'overrun')::numeric = 2, 'what happened stays on c1 ' || v::text;
+  select x into v from jsonb_array_elements(r->'data') x where x->>'project_line_id' = '17000000-0000-0000-0000-0000000000c3';
+  assert (v->>'on_hand')::numeric = 3 and (v->>'allocated')::numeric = 3 and (v->>'still_owed')::numeric = 3
+     and (v->>'surplus')::numeric = 0, 'c3 served entirely from surplus ' || v::text;
+  select x into v from jsonb_array_elements(r->'data') x where x->>'project_line_id' is null;
+  assert (v->>'on_hand')::numeric = 0, 'the stock batch is empty ' || v::text;
 end $$;
 
 reset role;

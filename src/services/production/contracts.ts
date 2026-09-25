@@ -850,10 +850,14 @@ export function materialShort(remaining: number | null, onHand: number): number 
 /* ------------------------------------------------------------------ */
 
 export type TrailStage =
+  | "catalogued" | "bom"
   | "job_order" | "purchase_request" | "purchase_order" | "receipt" | "stock_in"
-  | "issue" | "return" | "progress" | "finished" | "delivery" | "handover";
+  | "issue" | "return" | "stock_move" | "progress" | "finished" | "delivery" | "handover";
 
 export const TRAIL_STAGE_LABEL: Record<TrailStage, string> = {
+  catalogued: "Masuk katalog",
+  bom: "Dipakai di BOM",
+  stock_move: "Gerak stok lain",
   job_order: "Job Order dibuat",
   purchase_request: "Purchase Request",
   purchase_order: "Purchase Order",
@@ -889,7 +893,10 @@ export interface TrailEvent {
 
 export interface JobTrail {
   no: string;
-  resolved_as: "project" | "job_order" | "purchase_request" | "purchase_order" | "receipt" | "delivery";
+  resolved_as: "project" | "job_order" | "purchase_request" | "purchase_order" | "receipt" | "delivery" | "item";
+  /** Set when the number was an item code: the trail is that item's own life
+   *  — catalogue, BOMs, purchases, receipts, stock, the JOs it served (D313). */
+  item?: { code: string; name: string; name_local: string | null; category_code: string; uom: string; created_at: string } | null;
   project: { code: string; name: string; status: string | null; client_name: string | null; target_date: string | null } | null;
   job_orders: {
     wo_no: string; product_code: string | null; item_name: string; qty: number; uom: string;

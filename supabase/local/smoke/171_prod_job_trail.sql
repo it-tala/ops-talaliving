@@ -31,9 +31,15 @@ insert into ops_core.attachments (id, storage_path, filename, uploaded_by) value
 
 insert into ops_procure.vendors (id, code, name) values
   ('17100000-0000-0000-0000-0000000000a1','V-8171','Toko Kayu Jejak');
-insert into ops_procure.items (id, code, name, category_code, base_uom, kind) values
-  ('17100000-0000-0000-0000-0000000000e1','I-8171','Plywood 18mm','production','pcs','goods');
-insert into ops_prod.products (product_code, name, category, uom) values ('TR-LMR','Lemari jejak','Lemari','unit');
+insert into ops_procure.items (id, code, name, category_code, base_uom, kind, created_at) values
+  ('17100000-0000-0000-0000-0000000000e1','I-8171','Plywood 18mm','production','pcs','goods', now() - interval '30 days');
+insert into ops_prod.products (id, product_code, name, category, uom) values
+  ('17100000-0000-0000-0000-0000000000e9','TR-LMR','Lemari jejak','Lemari','unit');
+insert into ops_prod.bom_revisions (product_id, rev, released_at, released_by, note, created_at) values
+  ('17100000-0000-0000-0000-0000000000e9', 1, now() - interval '10 days',
+   'ffffffff-0000-0000-0000-000000171001', 'rev pertama', now() - interval '11 days');
+insert into ops_prod.bom_components (product_id, rev, kind, ref_code, qty, uom) values
+  ('17100000-0000-0000-0000-0000000000e9', 1, 'material', 'I-8171', 2, 'pcs');
 insert into ops_procure.projects (id, code, name, is_active) values
   ('17100000-0000-0000-0000-0000000000b1','TR-P1','Villa Jejak', true);
 insert into ops_procure.project_lines (id, project_id, line_no, product_code, description, qty, uom) values
@@ -95,6 +101,8 @@ insert into ops_procure.receipts (receipt_no, po_line_id, qty_received, conditio
   ('rcv-tr-1','17100000-0000-0000-0000-000000000012', 4,'GOOD','ffffffff-0000-0000-0000-000000171002', now() - interval '3 days');
 update ops_procure.receipts set status = 'CONFIRMED', confirmed_by = 'ffffffff-0000-0000-0000-000000171002', confirmed_at = now()
  where receipt_no = 'rcv-tr-1';
+-- Stocked on the day it was signed for, three days ago — before the issue.
+update ops_inv.stock_moves set moved_at = now() - interval '3 days' where ref_no = 'rcv-tr-1';
 
 insert into ops_inv.stock_moves (item_code, location, kind, qty, uom, ref_no, moved_by, moved_at)
 values ('I-8171','GUDANG','issue', -4,'pcs','spk-tr-1','ffffffff-0000-0000-0000-000000171001', now() - interval '2 days');
@@ -141,6 +149,19 @@ begin
   assert exists (select 1 from jsonb_array_elements(r->'data'->'events') e
                   where e->>'stage' = 'issue' and e->>'wo_no' = 'spk-tr-1' and e->>'item_code' = 'I-8171'),
     'stock → JO, by item code';
+
+  /* one item's life, by its code (D313) */
+  r := ops_prod.job_trail('I-8171');
+  assert r->>'outcome' = 'ok' and r->'data'->>'resolved_as' = 'item', 'an item code opens its history, got ' || r::text;
+  assert r->'data'->'item'->>'name' = 'Plywood 18mm', 'names the item';
+  select jsonb_agg(e->>'stage') into ev from jsonb_array_elements(r->'data'->'events') e
+   where e->>'stage' in ('catalogued','bom','purchase_request','purchase_order','receipt','stock_in','issue');
+  assert ev = '["catalogued","bom","purchase_request","purchase_order","receipt","stock_in","issue"]'::jsonb,
+    'catalogue → BOM → PR → PO → RR → stock → JO, got ' || ev::text;
+  assert (r->'data'->'job_orders') @> '[{"wo_no":"spk-tr-1"}]', 'and the JO it served';
+  assert exists (select 1 from jsonb_array_elements(r->'data'->'events') e
+                  where e->>'stage' = 'bom' and e->>'no' = 'TR-LMR rev 1' and (e->>'qty')::numeric = 2),
+    'which BOM calls for it, how many per unit';
 
   r := ops_prod.job_trail('nope-123');
   assert r->'error'->>'code' = 'not_found', 'unknown number, got ' || r::text;

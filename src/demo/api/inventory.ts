@@ -11,7 +11,7 @@ import type {
   StockItemView, StockItemDetail, StockLocation, StockMove, StockMoveView,
   BoardStockView, BoardMoveView, BoardMoveKind, NotaScan, LogCostKind,
   Asset, AssetView, AssetCategory, AssetStatus, AssetInput, AssetService, AssetServiceInput,
-  ProductStockRow, ProductLedgerRow, ProductMove, ProductMoveInput, ProductCountInput,
+  ProductStockRow, ProductLedgerRow, ProductMove, ProductMoveInput, ProductCountInput, ProductAllocateInput, ProductOrderLine,
 } from "@/services/inventory/contracts";
 import { ASSET_GONE, ASSET_OWNERSHIP_LABEL } from "@/services/inventory/contracts";
 import type { ItemPurchase } from "@/services/procurement/contracts";
@@ -533,10 +533,18 @@ export async function productLedger(productCode: string): Promise<Result<Product
 export async function productMoveOptions(): Promise<Result<{
   products: { product_code: string; name: string; uom: string }[];
   work_orders: { wo_no: string; product_code: string; item_name: string; qty: number; status: string; project_code: string | null }[];
+  order_lines: ProductOrderLine[];
 }>> {
   await latency();
   const state = getState();
   return ok(SERVICE, {
+    order_lines: state.project_lines
+      .filter((l) => l.product_code && state.projects.find((p) => p.id === l.project_id)?.is_active)
+      .map((l) => ({
+        id: l.id, product_code: l.product_code!, line_no: l.line_no, description: l.description, qty: l.qty,
+        project_code: state.projects.find((p) => p.id === l.project_id)?.code ?? "",
+      }))
+      .sort((a, b) => a.project_code.localeCompare(b.project_code) || a.line_no - b.line_no),
     products: state.products.filter((p) => p.active)
       .map((p) => ({ product_code: p.product_code, name: p.name, uom: p.uom }))
       .sort((a, b) => a.product_code.localeCompare(b.product_code)),
@@ -645,6 +653,60 @@ export async function moveProduct(input: ProductMoveInput, idempotencyKey?: stri
   });
   const rows = productStockRows(getState(), input.product_code);
   remember(SERVICE, "moveProduct", idempotencyKey, rows);
+  return ok(SERVICE, rows);
+}
+
+/** Surplus used for another order (`ops_inv.allocate_product`, D313). */
+export async function allocateProduct(input: ProductAllocateInput, idempotencyKey?: string): Promise<Result<ProductStockRow[]>> {
+  await latency();
+  const cached = replayed<ProductStockRow[]>(SERVICE, "allocateProduct", idempotencyKey);
+  if (cached) return cached;
+  const denied = requireLevel(SERVICE, "inventory", "write");
+  if (denied) return denied;
+  const state = getState();
+  const reason = input.reason?.trim();
+  if (!(input.qty > 0)) return invalid(SERVICE, "qty_invalid", "Jumlah harus lebih dari nol.", { field: "qty" });
+  if (!reason) {
+    return invalid(SERVICE, "reason_required", "Tulis alasannya — kenapa surplus ini dipakai untuk pesanan itu.", { field: "reason" });
+  }
+  const to = state.project_lines.find((l) => l.id === input.to_line_id);
+  if (!to || to.product_code !== input.product_code) {
+    return invalid(SERVICE, "line_other_product", "Pesanan tujuan bukan untuk produk ini.", { field: "to_line_id" });
+  }
+  if (input.to_line_id === input.from_line_id) {
+    return invalid(SERVICE, "same_line", "Pesanan asal dan tujuan sama.", { field: "to_line_id" });
+  }
+  const from = input.from_line_id ? state.project_lines.find((l) => l.id === input.from_line_id) : null;
+  if (input.from_line_id && (!from || from.product_code !== input.product_code)) {
+    return invalid(SERVICE, "line_other_product", "Batch asal bukan untuk produk ini.", { field: "from_line_id" });
+  }
+  const batch = productStockRows(state, input.product_code)
+    .find((r) => (r.project_line_id ?? null) === (input.from_line_id ?? null));
+  const surplus = batch?.surplus ?? 0;
+  const here = productOnHand(state, input.product_code, input.from_line_id ?? null, input.location);
+  if (input.qty > Math.min(surplus, here)) {
+    return conflict(SERVICE, "insufficient",
+      `Yang bisa dipindah dari batch ini di ${input.location} hanya ${Math.max(Math.min(surplus, here), 0)} (surplus ${surplus}, di lokasi ini ${here}).`,
+      { surplus, at_location: here });
+  }
+  const user = actingUser();
+  apply((draft) => {
+    const out = writeProductMove(draft, {
+      product_code: input.product_code, location: input.location, kind: "allocated", qty: -input.qty,
+      wo_no: null, project_line_id: input.from_line_id ?? null, ref_no: null, reason,
+    }, user.id);
+    writeProductMove(draft, {
+      product_code: input.product_code, location: input.location, kind: "allocated", qty: input.qty,
+      wo_no: null, project_line_id: input.to_line_id, ref_no: out.move_no, reason,
+    }, user.id);
+    writeOutbox(draft, {
+      service: SERVICE, event_type: "inventory.product.allocated",
+      payload: { product_code: input.product_code, qty: input.qty, location: input.location,
+                 from_line_id: input.from_line_id ?? null, to_line_id: input.to_line_id },
+    });
+  });
+  const rows = productStockRows(getState(), input.product_code);
+  remember(SERVICE, "allocateProduct", idempotencyKey, rows);
   return ok(SERVICE, rows);
 }
 

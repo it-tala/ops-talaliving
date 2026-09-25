@@ -592,7 +592,7 @@ export interface StockItemDetail extends StockItemView {
 
 /** What moved a finished product. `shipped` is never written: it is read off
  *  the delivery notes, so a surat jalan is one entry, not two (D53). */
-export type ProductMoveKind = "produced" | "adjust" | "transfer" | "scrap" | "sold" | "return" | "shipped";
+export type ProductMoveKind = "produced" | "adjust" | "transfer" | "scrap" | "sold" | "return" | "allocated" | "shipped";
 
 /** What the form may write — `adjust` goes through the count, `shipped`
  *  through a delivery. */
@@ -605,6 +605,7 @@ export const PRODUCT_MOVE_LABEL: Record<ProductMoveKind, string> = {
   scrap: "Rusak / afkir",
   sold: "Dijual lepas",
   return: "Retur dari klien",
+  allocated: "Dipakai untuk pesanan lain",
   shipped: "Dikirim (surat jalan)",
 };
 
@@ -654,6 +655,8 @@ export interface ProductStockRow {
   /** Everything else, signed: transfers net to zero, so this is opname
    *  differences, scrap, sales and returns. */
   other: number;
+  /** Net surplus moved in from (+) or out to (−) other orders (D313). */
+  allocated: number;
   on_hand: number;
   /** Made beyond what was ordered — *kelebihan produksi*. */
   overrun: number;
@@ -679,6 +682,28 @@ export interface ProductMoveInput {
   project_line_id?: string | null;
   ref_no?: string | null;
   reason?: string | null;
+}
+
+/** Surplus used for another order (D313): out of the batch it was made for
+ *  (null = stock made for nobody), into another order line for the same
+ *  product. Only the surplus may move. */
+export interface ProductAllocateInput {
+  product_code: string;
+  from_line_id: string | null;
+  to_line_id: string;
+  location: string;
+  qty: number;
+  reason: string;
+}
+
+/** An order line a finished product can be allocated to. */
+export interface ProductOrderLine {
+  id: string;
+  product_code: string;
+  project_code: string;
+  line_no: number;
+  description: string;
+  qty: number;
 }
 
 export interface ProductCountInput {

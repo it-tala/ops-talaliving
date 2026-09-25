@@ -6983,3 +6983,26 @@ its keys is F86 again, in the test suite.
 Same lesson as F84 and F86, one level up: a key nothing follows is a key
 nothing checks, and a chain nothing walks is a chain nobody knows is broken.
 
+## F166 · 2026-09-25 · a folder id read as the folder's parent, caught before the first file
+
+`0036` was told the ids the owner pasted were *module folders* and wrote the
+upload route to make an `ops` folder inside each. The owner's own question —
+*dimana foto disimpan? harusnya di folder OPS* — sent us to look, and the one
+id our Drive connection can open (DRAFTING, `1KfLid…`) is a folder **named
+`OPS`**, created the same morning the ids were sent. Every file this app
+would have written would have gone to `OPS/ops`. Production had not filed a
+single one: every `drive_folders.folder_id` was still null.
+
+The ids were never checked against their names because the design had
+already decided what they were. The fix makes the route ask: a recorded
+folder named OPS **is** the target. The rule that follows is the one this
+project keeps relearning — check the thing, not the description of it — and
+it now has a home in `CLAUDE.md`, so the next session starts from the owner's
+folder layout instead of rediscovering it.
+
+Found on the way: the update policies on `ops_core.drive_folders` and
+`ops_core.doc_kind_drive` (`0035`) test `has_permission('it.admin')`, which is
+not in `permission_catalog` — so nobody, IT included, can correct a drive
+folder from the app. Left for its own change; `0172`'s new table uses
+`it.update`, which exists.
+

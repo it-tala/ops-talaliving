@@ -47,7 +47,9 @@ function view(att: Attachment): AttachmentView {
  *  reads the three fields off it rather than being told them.
  */
 export async function upload(
-  input: { file: File; kind: DocKind; sha256?: string },
+  /** `entity` picks the task folder under OPS in the live system (0172); the
+   *  sandbox files nothing to Drive, so it is accepted and unused. */
+  input: { file: File; kind: DocKind; sha256?: string; entity?: LinkEntity },
   idempotencyKey?: string,
 ): Promise<Result<AttachmentView>> {
   await latency();

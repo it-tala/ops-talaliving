@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ArrowRightLeft, Boxes, PackageMinus, Undo2, Hammer, Truck, Receipt, Pencil } from "lucide-react";
+import Link from "next/link";
 import { Drawer } from "@/components/ui/drawer";
 import { Badge, Button } from "@/components/ui/primitives";
 import { Loaded, useLoad } from "@/components/ui/loaded";
@@ -285,6 +286,12 @@ export function StockDrawer({
             <div>
               <p className="mb-1 flex items-center gap-1.5 text-[12px] font-semibold text-slate-700">
                 <Receipt className="h-3.5 w-3.5 text-slate-400" /> Transaksi pembelian
+                {/* The whole life — catalogue, BOM, PR, PO, receiving, stock,
+                    Job Order — is the trail opened by this item's code (D313). */}
+                <Link href={`/produksi/jejak?no=${encodeURIComponent(d.item_code)}`}
+                  className="ml-auto text-[11px] font-normal text-brand-700 hover:underline">
+                  Riwayat lengkap barang →
+                </Link>
               </p>
               <Loaded state={purchases} skeletonRows={2}>
                 {(rows) => rows.length === 0 ? (

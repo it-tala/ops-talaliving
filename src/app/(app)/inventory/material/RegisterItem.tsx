@@ -61,7 +61,7 @@ export function RegisterItem({ mayCount, onCreated, onCancel }: {
     setBusy("Mengunggah foto…");
     const ids: string[] = [];
     for (const [i, p] of photos.entries()) {
-      const up = await documents.upload({ file: await shrinkImage(p.file), kind: "Foto" });
+      const up = await documents.upload({ file: await shrinkImage(p.file), kind: "Foto", entity: "item" });
       if (up.error) {
         setBusy(null);
         toast("warning", `Foto ${i + 1} tidak terunggah`, `${up.error.message} Barang belum didaftarkan — coba lagi.`);

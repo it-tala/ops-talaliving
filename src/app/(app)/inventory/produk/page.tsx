@@ -188,6 +188,11 @@ function BatchRow({ row: r, open, onToggle }: { row: ProductStockRow; open: bool
         <td className={cn("px-4 py-2 text-right font-semibold tabular-nums", r.on_hand < 0 ? "text-rose-700" : "text-slate-800")}>
           {formatNumber(r.on_hand)} <span className="font-normal text-slate-400">{r.uom}</span>
           {r.surplus > 0 && <div><Badge tone="violet">{formatNumber(r.surplus)} surplus</Badge></div>}
+          {r.allocated !== 0 && (
+            <div className="text-[11px] font-normal text-slate-500">
+              {r.allocated > 0 ? `+${formatNumber(r.allocated)} dari pesanan lain` : `${formatNumber(r.allocated)} ke pesanan lain`}
+            </div>
+          )}
         </td>
         <td className="px-4 py-2 text-[12px] text-slate-600">
           {Object.entries(r.by_location).map(([loc, qty]) => `${loc} ${formatNumber(qty)}`).join(" · ") || "—"}

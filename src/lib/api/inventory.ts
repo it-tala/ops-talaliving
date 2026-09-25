@@ -23,7 +23,7 @@ import type {
   LogMeasure, LogPiece, LogPieceView, SawnBoard, SawnBoardView, LogPurchaseView,
   TimberVendorSummary, TimberMonthSummary, BoardStockView, BoardMoveView, BoardMoveKind, NotaScan,
   LogCost, LogCostKind,
-  ProductStockRow, ProductLedgerRow, ProductMoveInput, ProductCountInput,
+  ProductStockRow, ProductLedgerRow, ProductMoveInput, ProductCountInput, ProductAllocateInput, ProductOrderLine,
   AssetView, AssetCategory, AssetStatus, AssetInput, AssetService, AssetServiceInput,
 } from "@/services/inventory/contracts";
 import type { MaterialPlan } from "@/services/production/contracts";
@@ -215,6 +215,7 @@ function toProductStockRow(r: Record<string, unknown>): ProductStockRow {
     produced: num(r.produced),
     shipped: num(r.shipped),
     other: num(r.other),
+    allocated: num(r.allocated),
     on_hand: num(r.on_hand),
     overrun: num(r.overrun),
     still_owed: num(r.still_owed),
@@ -251,20 +252,47 @@ export async function productLedger(productCode: string): Promise<Result<Product
 export async function productMoveOptions(): Promise<Result<{
   products: { product_code: string; name: string; uom: string }[];
   work_orders: { wo_no: string; product_code: string; item_name: string; qty: number; status: string; project_code: string | null }[];
+  order_lines: ProductOrderLine[];
 }>> {
-  const [{ data: products, error: pErr }, { data: wos, error: wErr }] = await Promise.all([
+  const [{ data: products, error: pErr }, { data: wos, error: wErr }, { data: lines, error: lErr }] = await Promise.all([
     prod().from("products").select("product_code, name, uom").eq("active", true).order("product_code"),
     prod().from("work_orders").select("wo_no, product_code, item_name, qty, status, project_code")
       .not("product_code", "is", null).neq("status", "CANCELLED").order("created_at", { ascending: false }),
+    procure().from("project_lines").select("id, product_code, line_no, description, qty, projects!inner(code, is_active)")
+      .not("product_code", "is", null).eq("projects.is_active", true),
   ]);
   if (pErr) return fail(SERVICE, pErr);
   if (wErr) return fail(SERVICE, wErr);
+  if (lErr) return fail(SERVICE, lErr);
   return ok(SERVICE, {
     products: (products ?? []) as { product_code: string; name: string; uom: string }[],
     work_orders: (wos ?? []).map((w) => ({ ...w, qty: Number(w.qty) })) as {
       wo_no: string; product_code: string; item_name: string; qty: number; status: string; project_code: string | null;
     }[],
+    order_lines: ((lines ?? []) as unknown as {
+      id: string; product_code: string; line_no: number; description: string; qty: number | string;
+      projects: { code: string } | { code: string }[];
+    }[]).map((l) => ({
+      id: l.id, product_code: l.product_code, line_no: l.line_no, description: l.description, qty: Number(l.qty),
+      project_code: (Array.isArray(l.projects) ? l.projects[0]?.code : l.projects?.code) ?? "",
+    })).sort((a, b) => a.project_code.localeCompare(b.project_code) || a.line_no - b.line_no),
   });
+}
+
+/** Surplus used for another order (`ops_inv.allocate_product`, D313). */
+export async function allocateProduct(input: ProductAllocateInput, idempotencyKey?: string): Promise<Result<ProductStockRow[]>> {
+  const { data, error } = await db().rpc("allocate_product", {
+    p_product_code: input.product_code,
+    p_from_line_id: input.from_line_id,
+    p_to_line_id: input.to_line_id,
+    p_location: input.location,
+    p_qty: input.qty,
+    p_reason: input.reason,
+    p_key: idempotencyKey ?? null,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return listProductStock(input.product_code);
 }
 
 export async function moveProduct(input: ProductMoveInput, idempotencyKey?: string): Promise<Result<ProductStockRow[]>> {

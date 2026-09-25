@@ -43,7 +43,7 @@ export default function JobTrailPage() {
       <PageHeader
         breadcrumb="Produksi"
         title="Jejak pembelian–produksi"
-        description="Ketik satu nomor — proyek, Job Order, PR, PO, receiving report, atau surat jalan — untuk melihat seluruh kejadiannya dari permintaan barang sampai BAST."
+        description="Ketik satu nomor — proyek, Job Order, PR, PO, receiving report, surat jalan, atau kode barang — untuk melihat seluruh kejadiannya: dari barang masuk katalog, BOM, pembelian, gudang, sampai Job Order dan BAST."
       />
       <form
         className="mb-4 flex flex-wrap items-center gap-2"
@@ -52,7 +52,7 @@ export default function JobTrailPage() {
         <label className="flex h-9 flex-1 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 sm:max-w-md">
           <Search className="h-4 w-4 text-slate-400" />
           <input value={input} onChange={(e) => setInput(e.target.value)} aria-label="Nomor"
-            placeholder="25007, spk-26-08-24_01, pr-…, po-…, rcv-…, krm-…"
+            placeholder="25007, spk-26-08-24_01, pr-…, po-…, rcv-…, krm-…, kode barang"
             className="h-8 w-full text-sm focus:outline-none" />
         </label>
         <Button size="sm" icon={Route} disabled={!input.trim()}>Buka jejak</Button>
@@ -71,6 +71,7 @@ export default function JobTrailPage() {
 }
 
 const STAGE_TONE: Record<TrailStage, Tone> = {
+  catalogued: "slate", bom: "brand", stock_move: "slate",
   job_order: "brand", purchase_request: "violet", purchase_order: "violet", receipt: "green",
   stock_in: "green", issue: "amber", return: "amber", progress: "slate", finished: "brand",
   delivery: "slate", handover: "green",
@@ -96,8 +97,8 @@ function Trail({ no, onOpen }: { no: string; onOpen: (n: string) => void }) {
             {(t.unlinked_purchase_lines ?? 0) > 0 && (
               <p className="mb-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-2.5 text-[12px] text-amber-900">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                {t.unlinked_purchase_lines} baris pembelian di proyek ini tidak menyebut Job Order — biayanya
-                masuk proyek, tapi tidak bisa ditelusuri ke produksi mana.
+                {t.unlinked_purchase_lines} baris pembelian {t.item ? "barang ini" : "di proyek ini"} tidak menyebut
+                Job Order — biayanya tercatat, tapi tidak bisa ditelusuri ke produksi mana.
               </p>
             )}
             <Card>
@@ -166,7 +167,14 @@ function Summary({ trail: t, jo, onJo }: { trail: JobTrail; jo: string | null; o
   return (
     <div className="mb-4 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-card">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        {t.project ? (
+        {t.item ? (
+          <>
+            <span className="font-mono text-[12px] text-slate-500">{t.item.code}</span>
+            <span className="text-base font-semibold text-slate-800">{t.item.name}</span>
+            {t.item.name_local && <span className="text-[12px] text-slate-500">{t.item.name_local}</span>}
+            <Badge tone="slate">riwayat barang</Badge>
+          </>
+        ) : t.project ? (
           <>
             <span className="font-mono text-[12px] text-slate-500">{t.project.code}</span>
             <span className="text-base font-semibold text-slate-800">{t.project.name}</span>
