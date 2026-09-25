@@ -471,6 +471,9 @@ Stock, added M27:
 | POST | `/stock/adjust` | takes the **counted** quantity and a location; stores the difference. 422 without a reason; `outcome: noop` when the count matches (D171) |
 | POST | `/stock/transfer` | writes two moves, one per location |
 | PUT | `/stock/{item_code}/minimum` | null clears it — *belum ditetapkan* is not zero |
+| GET | `/locations` | `?all=1` includes retired ones; the ordinary call is active-only, the same list a count is taken against |
+| POST | `/locations` | `{code, name}`. `inventory.update` — the same authority `stock_settings` already answers to (`0157`). **409** on a duplicate code |
+| PATCH | `/locations/{code}` | `{name?, is_active?}`. No delete anywhere: a rack once counted against stays addressable in `stock_moves` for ever (A5); `is_active: false` is how it stops being offered |
 
 `procurement.receipt.confirmed` is consumed here: a confirmed delivery becomes
 a `receipt` move at the item's home location, priced from the line where the
@@ -484,8 +487,9 @@ names no catalogue item stocks nothing and says so.
 | GET | `/timber/purchases` | every load, newest first, with volumes, yield and both prices per m³ |
 | GET | `/timber/purchases/{purchase_no}` | one load: each log measured, each board reported |
 | GET | `/timber/by-vendor` | **per vendor and species**: log m³, board m³ and m², yield, rupiah per log m³, the transport / sawing / other costs summed, and the **landed** rupiah per board m³ and per board m² (width × length, all thicknesses) — the last two decide (D153, `0156`) |
+| GET | `/timber/by-month` | totals only, one row per month — loads, vendors, species touched, wood cost, extra cost, landed cost, log/board m³, board m². **No rupiah-per-m³ column**: that figure only means anything within one species (D153), and a month usually mixes several. For reporting; `by-vendor` above is where a rate belongs (`0157`) |
 | POST | `/timber/nota/read` | **a read that writes nothing.** Returns `is_timber`, the signals for and against **in words**, the species and total it found, the rows it made sense of, and the rows it could not. Nothing is filed from this — the routing decision is a proposal a person accepts (D200) |
-| POST | `/timber/purchases` | a load arriving, **from its nota** (D201). Board and log rows read off the paper are filed here as timber and **never as transaction lines** — the nota contributes exactly one figure to accounting, its total. **422 with no invoice value**: without it there is no price per m³, which is the only reason the record exists. The seller's claimed m³ is stored beside our own measurement, never instead of it |
+| POST | `/timber/purchases` | a load arriving, **usually from its nota** (D201) — `nota_attachment_id` is optional, and a load whose paper is lost or was never photographed still files here with rows entered by hand (D305). Board and log rows are filed here as timber and **never as transaction lines** — the nota, where there is one, contributes exactly one figure to accounting, its total. **422 with no invoice value**: without it there is no price per m³, which is the only reason the record exists. The seller's claimed m³ is stored beside our own measurement, never instead of it |
 | POST | `/timber/nota/read-image` | the same read, **from a photo or PDF**, by a language model behind the Worker's key (`/api/inventory/nota/read`). Answers the same `NotaScan`, `source: image`; every board is checked against plausible sizes and a row that is not wood goes to `unread`. Writes nothing. 501 when no model is configured |
 | POST | `/timber/purchases/{no}/costs` | a charge against the load — `angkut`, `potong`, `bongkar`, `lain` — **from its own nota**, usually from somebody else (a trucker, a sawmill). Beside the invoice, never into it: `total_cost` stays what the timber seller billed and the landed figures are summed on read (`0156`). The cost's nota is linked under its own number (`log_cost`, `0155`) and never counts as the load's |
 | POST | `/timber/purchases/{no}/logs` | one log: tag, Ø in cm, length in cm. 409 on a duplicate tag |

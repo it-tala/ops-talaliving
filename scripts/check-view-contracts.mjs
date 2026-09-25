@@ -184,6 +184,12 @@ const VIEW_CONTRACTS = {
      `TimberVendorSummary`, `unsawn_m3` computed from this row's own
      `log_m3`/`sawn_logs_m3` rather than cast from a column of that name. */
   v_timber_by_vendor: null,
+  /* Totals only, by month (`0157`) — every column matches `TimberMonthSummary`
+     field for field, the same shape as `v_board_stock` above. No per-m³ rate
+     lives on this view at all (D153: it only means anything within one
+     species, and a month usually mixes several), so there is nothing here a
+     blended cast could get wrong the way `v_timber_by_vendor` would. */
+  v_timber_by_month: "TimberMonthSummary",
 
   /* ── marketing ───────────────────────────────────────────────────────── */
   v_market:          "MarketView",

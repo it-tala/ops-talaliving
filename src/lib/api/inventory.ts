@@ -21,13 +21,13 @@
 import type {
   StockLocation, StockMove, StockMoveView, StockItemView, StockItemDetail,
   LogMeasure, LogPiece, LogPieceView, SawnBoard, SawnBoardView, LogPurchaseView,
-  TimberVendorSummary, BoardStockView, BoardMoveView, BoardMoveKind, NotaScan,
+  TimberVendorSummary, TimberMonthSummary, BoardStockView, BoardMoveView, BoardMoveKind, NotaScan,
   LogCost, LogCostKind,
   AssetView, AssetCategory, AssetStatus, AssetInput, AssetService, AssetServiceInput,
 } from "@/services/inventory/contracts";
 import type { MaterialPlan } from "@/services/production/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { fail, fromRows, fromSeam, invalid, noop, notFound, ok, conflict, type Result } from "./_kit";
+import { fail, fromRows, fromSeam, invalid, noop, notFound, ok, conflict, refused, type Result } from "./_kit";
 import { scanNota } from "./_nota_kayu";
 
 const SERVICE = "inventory" as const;
@@ -227,9 +227,63 @@ async function onOrderFor(itemCode: string): Promise<{ pr_line_no: string; qty: 
     .map((l) => ({ pr_line_no: l.line_no_full as string, qty: l.qty as number, need_by: l.need_by as string | null }));
 }
 
-export async function listStockLocations(): Promise<Result<StockLocation[]>> {
-  const { data, error } = await db().from("stock_locations").select("*").eq("is_active", true).order("name");
+export async function listStockLocations(
+  opts: { all?: boolean } = {},
+): Promise<Result<StockLocation[]>> {
+  let q = db().from("stock_locations").select("*");
+  if (!opts.all) q = q.eq("is_active", true);
+  const { data, error } = await q.order("name");
   return fromRows<StockLocation[]>(SERVICE, data as StockLocation[], error);
+}
+
+/** Adding a rack to count (`0157`). RLS alone gates it (`loc_new`,
+ *  `inventory.update` — the same authority `stock_settings` already answers
+ *  to), so a duplicate code lands here as `23505` and `fail()` turns it into
+ *  `conflict` on its own; nothing here needs to pre-check for one. */
+export async function createStockLocation(
+  input: { code: string; name: string },
+): Promise<Result<StockLocation>> {
+  const code = input.code.trim().toUpperCase();
+  const name = input.name.trim();
+  if (!code) return invalid(SERVICE, "code_required", "Kode lokasi wajib diisi.", { field: "code" });
+  if (!name) return invalid(SERVICE, "name_required", "Nama lokasi wajib diisi.", { field: "name" });
+  const { data, error } = await db().from("stock_locations")
+    .insert({ code, name }).select("*").single();
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, data as StockLocation);
+}
+
+/** Renaming a rack, or retiring/reviving it. Never a delete — a rack once
+ *  counted against stays addressable in `stock_moves` for ever (A5); `false`
+ *  is how it stops being offered on new counts. */
+export async function updateStockLocation(
+  code: string,
+  patch: { name?: string; is_active?: boolean },
+): Promise<Result<StockLocation>> {
+  const update: Record<string, unknown> = {};
+  if (patch.name !== undefined) {
+    const name = patch.name.trim();
+    if (!name) return invalid(SERVICE, "name_required", "Nama lokasi wajib diisi.", { field: "name" });
+    update.name = name;
+  }
+  if (patch.is_active !== undefined) update.is_active = patch.is_active;
+  if (Object.keys(update).length === 0) return invalid(SERVICE, "nothing_to_change", "Tidak ada yang diubah.");
+
+  /* Existence first, under the READ policy: a plain `.update()` under RLS
+     matches zero rows both when the code does not exist and when the UPDATE
+     policy hides it, and those are different answers (not_found vs refused).
+     Checking existence separately is the only way to tell them apart without
+     a security-definer seam, which this table deliberately has none of. */
+  const { data: existing, error: findErr } = await db().from("stock_locations")
+    .select("code").eq("code", code).maybeSingle();
+  if (findErr) return fail(SERVICE, findErr);
+  if (!existing) return notFound(SERVICE, "location_not_found", `No location ${code}.`);
+
+  const { data, error } = await db().from("stock_locations")
+    .update(update).eq("code", code).select("*").maybeSingle();
+  if (error) return fail(SERVICE, error);
+  if (!data) return refused(SERVICE, "not_permitted", "Tidak diizinkan mengubah lokasi ini.");
+  return ok(SERVICE, data as StockLocation);
 }
 
 export async function listStockMoves(
@@ -713,6 +767,27 @@ export async function timberByVendor(): Promise<Result<TimberVendorSummary[]>> {
     landed_cost_per_log_m3: r.landed_cost_per_log_m3 as number | null,
     landed_cost_per_sawn_m3: r.landed_cost_per_sawn_m3 as number | null,
     landed_cost_per_sawn_m2: r.landed_cost_per_sawn_m2 as number | null,
+  })));
+}
+
+/** Timber purchases recapped by month, for reporting rather than comparing
+ *  vendors (`0157`). `v_timber_by_month` carries no per-cubic-metre rate —
+ *  that figure only means anything within one species (D153) and a month
+ *  usually spans several — so this is totals only. */
+export async function timberByMonth(): Promise<Result<TimberMonthSummary[]>> {
+  const { data, error } = await db().from("v_timber_by_month").select("*").order("month", { ascending: false });
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, (data ?? []).map((r) => ({
+    month: r.month as string,
+    loads: r.loads as number,
+    vendors: r.vendors as number,
+    species_count: r.species_count as number,
+    wood_cost: r.wood_cost as number,
+    extra_cost: r.extra_cost as number,
+    landed_cost: r.landed_cost as number,
+    log_m3: r.log_m3 as number,
+    sawn_m3: r.sawn_m3 as number,
+    sawn_m2: r.sawn_m2 as number,
   })));
 }
 

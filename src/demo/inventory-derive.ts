@@ -10,7 +10,7 @@
 import type { DemoState } from "./state";
 import type {
   LogPurchase, LogPurchaseView, LogPieceView, SawnBoardView, LogMeasure, LogCost,
-  TimberVendorSummary, BoardStockView, BoardMoveView,
+  TimberVendorSummary, TimberMonthSummary, BoardStockView, BoardMoveView,
 } from "@/services/inventory/contracts";
 
 const round4 = (n: number) => Math.round(n * 10_000) / 10_000;
@@ -229,6 +229,34 @@ export function timberVendorSummaries(state: DemoState): TimberVendorSummary[] {
        buyer should look at before ringing anybody. */
     .sort((a, b) => a.species.localeCompare(b.species)
       || (b.landed_cost_per_sawn_m3 ?? 0) - (a.landed_cost_per_sawn_m3 ?? 0));
+}
+
+/** Timber purchases by month, for reporting rather than comparing vendors
+ *  (`0157`). **No per-cubic-metre rate is computed here** — that number only
+ *  means anything within one species (D153), and a month usually spans more
+ *  than one, so a blended rate would look precise and mean nothing. Totals
+ *  only: what came in, what it cost before and after landing it. */
+export function timberMonthSummaries(state: DemoState): TimberMonthSummary[] {
+  const views = logPurchaseViews(state);
+  const byMonth = new Map<string, LogPurchaseView[]>();
+  for (const v of views) {
+    const month = `${v.received_on.slice(0, 7)}-01`;
+    byMonth.set(month, [...(byMonth.get(month) ?? []), v]);
+  }
+  return [...byMonth.entries()]
+    .map(([month, rows]) => ({
+      month,
+      loads: rows.length,
+      vendors: new Set(rows.map((r) => r.vendor_id)).size,
+      species_count: new Set(rows.map((r) => r.species)).size,
+      wood_cost: rows.reduce((a, r) => a + r.total_cost, 0),
+      extra_cost: rows.reduce((a, r) => a + r.extra_cost, 0),
+      landed_cost: rows.reduce((a, r) => a + r.landed_cost, 0),
+      log_m3: round4(rows.reduce((a, r) => a + r.log_m3, 0)),
+      sawn_m3: round4(rows.reduce((a, r) => a + r.sawn_m3, 0)),
+      sawn_m2: round4(rows.reduce((a, r) => a + r.sawn_m2, 0)),
+    }))
+    .sort((a, b) => b.month.localeCompare(a.month));
 }
 
 /* ── Stock ──────────────────────────────────────────────────────────────── */

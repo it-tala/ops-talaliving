@@ -423,6 +423,26 @@ export interface TimberVendorSummary {
   landed_cost_per_sawn_m2: number | null;
 }
 
+/** Timber purchases by month, for reporting rather than comparing vendors
+ *  (`0157`). **No rupiah-per-cubic-metre figure lives here** — that number
+ *  only means anything within one species (D153), and a month usually holds
+ *  more than one. This is totals only: what came in, what it cost before and
+ *  after landing it. The per-m³/m² rates stay on `TimberVendorSummary`, where
+ *  a species is never mixed with another. */
+export interface TimberMonthSummary {
+  /** First day of the month, e.g. `2026-09-01`. */
+  month: string;
+  loads: number;
+  vendors: number;
+  species_count: number;
+  wood_cost: number;
+  extra_cost: number;
+  landed_cost: number;
+  log_m3: number;
+  sawn_m3: number;
+  sawn_m2: number;
+}
+
 /* ── Stock: what is on the rack, and how it got there ──────────────────────
  *
  *  Timber above is a special case with a saw in the middle of it. This is the

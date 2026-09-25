@@ -13,6 +13,7 @@ import { LogPurchaseDrawer } from "./LogPurchaseDrawer";
 import { BoardStock } from "./BoardStock";
 import { BoardUsage } from "./BoardUsage";
 import { NotaImport } from "./NotaImport";
+import { TimberMonthRecap } from "./TimberMonthRecap";
 
 /** Timber: what came in as logs, what came out as boards, and what the wood
  *  actually costs.
@@ -96,6 +97,8 @@ export default function TimberPage() {
 
       {tab === "beli" && (
       <>
+
+      <TimberMonthRecap />
 
       <Loaded state={vendors} onRetry={reloadVendors}>
         {(rows) => {

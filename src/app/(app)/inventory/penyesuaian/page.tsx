@@ -11,6 +11,7 @@ import { cn } from "@/lib/cn";
 import { inventory } from "@/demo/api";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
+import { LocationManager } from "./LocationManager";
 
 /** Opname: what the rack actually held.
  *
@@ -34,6 +35,7 @@ export default function StockCountPage() {
   const [draft, setDraft] = useState({ item_code: "", location: "", counted: 0, reason: "" });
   const [busy, setBusy] = useState(false);
   const mayAdjust = can("inventory.adjust");
+  const mayManageLocations = can("inventory.update");
 
   const chosen = items.status === "ready"
     ? items.data.find((i) => i.item_code === draft.item_code)
@@ -82,6 +84,8 @@ export default function StockCountPage() {
         description="Masukkan jumlah hasil hitung fisik. Selisihnya yang dicatat, bukan angka barunya — dan setiap selisih wajib punya alasan."
         actions={<SourceBadge state={moves} />}
       />
+
+      {mayManageLocations && <LocationManager />}
 
       {mayAdjust && (
         <Card className="mb-4">

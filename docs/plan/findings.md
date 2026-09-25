@@ -6390,3 +6390,36 @@ those run as the caller and are already bounded by that caller's RLS.
 
 Proved by deleting one revoke and watching it name that function, which is the
 only way to know a check checks. The rule is now the class, not the case.
+
+## F156 · 2026-09-25 · an UPDATE hidden by RLS does not error — it just touches nothing
+
+Building `updateStockLocation` (`0157`) for the location-management panel, the
+first smoke check for "a read-level user cannot rename a rack" was written the
+same way `70_inv_timber_costs.sql` writes every other refusal check: wrap the
+statement, expect `insufficient_privilege`. It failed — not because the RLS
+policy was wrong, but because the assumption was.
+
+An `INSERT` whose `WITH CHECK` fails **does** raise (`42501`,
+`new row violates row-level security policy`). An `UPDATE` whose `USING`
+clause hides the target row does not: Postgres filters the row out before the
+`SET` ever runs, the statement matches zero rows, and returns normally —
+`UPDATE 0`, no exception, nothing to catch. The two policies are symmetric;
+the failure modes they produce are not.
+
+This is not just a smoke-test wrinkle. `updateStockLocation` in
+`src/lib/api/inventory.ts` would have had the identical bug one layer up: a
+plain `.update(...).eq("code", code).select("*").maybeSingle()` returns `null`
+both when the code does not exist and when RLS refused the write, and the
+obvious code (`if (!data) return notFound(...)`) reports *"no such location"*
+to somebody who typed the right code and simply lacks `inventory.update` — the
+wrong refusal, pointing whoever reads it at the wrong fix. The function now
+checks existence first, under the READ policy (visible to anyone with
+`inventory.read`), and only then attempts the write and asks which of the two
+zero-row outcomes it is.
+
+**The fix, as a rule for the next table gated by "RLS alone, no seam":** any
+write path built on bare `.update()`/`.upsert()` — not a `security definer`
+function — needs to reason separately about *not found* and *not permitted*
+before it can tell them apart, because the database will not tell them apart
+for it. An `INSERT` doesn't have this problem; only `UPDATE`/`DELETE` do,
+because only they have a row to hide instead of a row to refuse creating.

@@ -31,8 +31,15 @@ import { matchVendor, shrinkImage } from "./notaFile";
  *  truck and the sawmill send **their own notas**, so the second mode files a
  *  cost against a load that is already here, beside its invoice and never
  *  into it.
+ *
+ *  A third mode (2026-09-25): **no nota at all.** Opname week and any load
+ *  whose paper is lost or was never photographed still need a way in, and
+ *  routing them through a fake reading would say the screen recognised
+ *  something it never saw. So `manual` skips reading entirely — rows start
+ *  empty, added by hand — and files through the same `receiveLogs` the read
+ *  path uses, because the load is exactly as real either way.
  */
-type Mode = "kayu" | "biaya";
+type Mode = "kayu" | "biaya" | "manual";
 
 type Row = NotaTimberLine & { key: number };
 type CostRow = NotaCostLine & { key: number };
@@ -148,7 +155,7 @@ export function NotaImport({ vendors, loads, onCreated }: {
     }
     setBusy(false);
     toast("success", `Kiriman ${res.data.purchase_no}`,
-      `${rows.length} baris nota masuk sebagai kayu, bukan sebagai transaksi`
+      `${rows.length} baris ${mode === "manual" ? "diisi manual" : "nota"} masuk sebagai kayu, bukan sebagai transaksi`
       + (filedCosts > 0 ? `, dan ${filedCosts} biaya di luar kayu.` : "."));
     reset();
     onCreated();
@@ -180,23 +187,30 @@ export function NotaImport({ vendors, loads, onCreated }: {
   const boardM3 = boards.reduce((a, l) =>
     a + (l.thickness_mm! / 1000) * (l.width_mm! / 1000) * (l.length_mm! / 1000) * l.qty, 0);
   const boardM2 = boards.reduce((a, l) => a + (l.width_mm! / 1000) * (l.length_mm! / 1000) * l.qty, 0);
-  const agreed = scan != null && (scan.is_timber || confirmed);
+  const agreed = mode === "manual" || (scan != null && (scan.is_timber || confirmed));
   const mayFileTimber = agreed && rows.length > 0 && !!vendorId && total > 0 && species.trim().length > 0;
   const mayFileCosts = !!purchaseNo && costs.some((c) => c.amount > 0);
 
   const patch = (k: number, p: Partial<Row>) => setRows(rows.map((r) => (r.key === k ? { ...r, ...p } : r)));
   const patchCost = (k: number, p: Partial<CostRow>) => setCosts(costs.map((c) => (c.key === k ? { ...c, ...p } : c)));
+  const addRow = (kind: Row["kind"]) => setRows([...rows, kind === "board"
+    ? { raw: "Ditambahkan manual", kind, species: null, thickness_mm: 30, width_mm: 200, length_mm: 3000, diameter_cm: null, length_cm: null, qty: 1, amount: null, key: key() }
+    : { raw: "Ditambahkan manual", kind, species: null, thickness_mm: null, width_mm: null, length_mm: null, diameter_cm: 30, length_cm: 300, qty: 1, amount: null, key: key() }]);
 
   return (
     <Card>
       <CardHeader
         title="Masukkan dari nota"
-        subtitle="Foto atau PDF nota dibaca dulu, lalu diperiksa baris per baris sebelum disimpan. Nota kayu dan nota biaya (angkut, potong) dicatat terpisah."
+        subtitle="Foto atau PDF nota dibaca dulu, lalu diperiksa baris per baris sebelum disimpan. Nota kayu dan nota biaya (angkut, potong) dicatat terpisah — atau isi langsung kalau notanya tidak ada."
         icon={FileSearch}
       />
       <div className="space-y-3 px-5 py-4">
         <div className="flex flex-wrap gap-1.5">
-          {([["kayu", "Nota kayu", TreePine], ["biaya", "Nota biaya (angkut, potong, …)", Truck]] as const).map(([m, label, icon]) => (
+          {([
+            ["kayu", "Nota kayu", TreePine],
+            ["biaya", "Nota biaya (angkut, potong, …)", Truck],
+            ["manual", "Tanpa nota", Plus],
+          ] as const).map(([m, label, icon]) => (
             <Button key={m} size="sm" icon={icon} variant={mode === m ? "primary" : "outline"}
               onClick={() => { setMode(m); reset(); }}>
               {label}
@@ -204,86 +218,110 @@ export function NotaImport({ vendors, loads, onCreated }: {
           ))}
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-[220px_1fr]">
-          <div>
-            <input
-              ref={fileRef} type="file" accept="image/*,application/pdf" capture="environment" className="hidden"
-              onChange={(e) => { setFile(e.target.files?.[0] ?? null); setScan(null); }}
-            />
-            <button
-              type="button" onClick={() => fileRef.current?.click()}
-              className={cn(
-                "flex h-full min-h-[120px] w-full flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed px-3 py-4 text-center text-[12px]",
-                file ? "border-brand-300 bg-brand-50/50 text-brand-800" : "border-slate-300 text-slate-500 hover:bg-slate-50",
-              )}
-            >
-              <Camera className="h-5 w-5" />
-              {file ? (
-                <>
-                  <span className="max-w-full truncate font-medium">{file.name}</span>
-                  <span className="text-[11px] text-slate-500">ketuk untuk ganti</span>
-                </>
-              ) : (
-                <>
-                  <span className="font-medium">Foto / PDF nota</span>
-                  <span className="text-[11px]">dibaca oleh model bahasa</span>
-                </>
-              )}
-            </button>
-          </div>
-          <label className="block text-[12px] text-slate-500">
-            …atau tempel isi nota
-            <textarea
-              value={text} onChange={(e) => { setText(e.target.value); setScan(null); }}
-              rows={6} disabled={!!file}
-              placeholder={mode === "kayu"
-                ? "CV SUMBER KAYU JATI\nNota 2209 — 12/09/2026\nKayu jati\n3 x 20 x 300  8 lbr\n3 x 22 x 280  9 lbr\n4 x 25 x 320  7 lbr\nOngkos angkut 1.500.000\nTotal 56.200.000"
-                : "EKSPEDISI BORNEO TRANS\n05/08/2026\nOngkos angkut kayu Kotabaru–Banjarmasin 2.400.000"}
-              className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 font-mono text-[12px] focus:border-brand-400 focus:outline-none disabled:bg-slate-50"
-            />
-          </label>
-        </div>
-
-        <div className="flex gap-2">
-          <Button size="sm" icon={FileSearch} disabled={busy || (!file && !text.trim())} onClick={read}>
-            {busy && !scan ? "Membaca…" : "Baca notanya"}
-          </Button>
-          {(scan || file) && <Button size="sm" variant="ghost" onClick={reset}>Ulangi</Button>}
-        </div>
-
-        {scan && (
-          <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
-            <div className="flex flex-wrap items-center gap-2">
-              {mode === "kayu" && (scan.is_timber ? (
-                <Badge tone="green"><Check className="mr-1 inline h-3 w-3" />Terbaca sebagai nota kayu</Badge>
-              ) : (
-                <Badge tone="slate"><X className="mr-1 inline h-3 w-3" />Belum yakin ini nota kayu</Badge>
-              ))}
-              <Badge tone="slate">{scan.source === "image" ? "dibaca dari foto" : "dibaca dari teks"}</Badge>
-              {scan.species_guess && <Badge tone="brand">{scan.species_guess}</Badge>}
-              {scan.vendor_guess && <span className="text-[11px] text-slate-500">{scan.vendor_guess}</span>}
+        {mode !== "manual" && (
+          <>
+            <div className="grid gap-3 sm:grid-cols-[220px_1fr]">
+              <div>
+                <input
+                  ref={fileRef} type="file" accept="image/*,application/pdf" capture="environment" className="hidden"
+                  onChange={(e) => { setFile(e.target.files?.[0] ?? null); setScan(null); }}
+                />
+                <button
+                  type="button" onClick={() => fileRef.current?.click()}
+                  className={cn(
+                    "flex h-full min-h-[120px] w-full flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed px-3 py-4 text-center text-[12px]",
+                    file ? "border-brand-300 bg-brand-50/50 text-brand-800" : "border-slate-300 text-slate-500 hover:bg-slate-50",
+                  )}
+                >
+                  <Camera className="h-5 w-5" />
+                  {file ? (
+                    <>
+                      <span className="max-w-full truncate font-medium">{file.name}</span>
+                      <span className="text-[11px] text-slate-500">ketuk untuk ganti</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-medium">Foto / PDF nota</span>
+                      <span className="text-[11px]">dibaca oleh model bahasa</span>
+                    </>
+                  )}
+                </button>
+              </div>
+              <label className="block text-[12px] text-slate-500">
+                …atau tempel isi nota
+                <textarea
+                  value={text} onChange={(e) => { setText(e.target.value); setScan(null); }}
+                  rows={6} disabled={!!file}
+                  placeholder={mode === "kayu"
+                    ? "CV SUMBER KAYU JATI\nNota 2209 — 12/09/2026\nKayu jati\n3 x 20 x 300  8 lbr\n3 x 22 x 280  9 lbr\n4 x 25 x 320  7 lbr\nOngkos angkut 1.500.000\nTotal 56.200.000"
+                    : "EKSPEDISI BORNEO TRANS\n05/08/2026\nOngkos angkut kayu Kotabaru–Banjarmasin 2.400.000"}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 font-mono text-[12px] focus:border-brand-400 focus:outline-none disabled:bg-slate-50"
+                />
+              </label>
             </div>
 
+            <div className="flex gap-2">
+              <Button size="sm" icon={FileSearch} disabled={busy || (!file && !text.trim())} onClick={read}>
+                {busy && !scan ? "Membaca…" : "Baca notanya"}
+              </Button>
+              {(scan || file) && <Button size="sm" variant="ghost" onClick={reset}>Ulangi</Button>}
+            </div>
+          </>
+        )}
+
+        {mode === "manual" && (
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+            Tanpa nota berarti tidak ada kertas untuk dicocokkan nanti — pastikan jumlah dan ukurannya
+            benar-benar dari yang diukur di lapangan, bukan tebakan.
+          </p>
+        )}
+
+        {(scan || mode === "manual") && (
+          <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
+            {mode !== "manual" && scan && (
+              <div className="flex flex-wrap items-center gap-2">
+                {mode === "kayu" && (scan.is_timber ? (
+                  <Badge tone="green"><Check className="mr-1 inline h-3 w-3" />Terbaca sebagai nota kayu</Badge>
+                ) : (
+                  <Badge tone="slate"><X className="mr-1 inline h-3 w-3" />Belum yakin ini nota kayu</Badge>
+                ))}
+                <Badge tone="slate">{scan.source === "image" ? "dibaca dari foto" : "dibaca dari teks"}</Badge>
+                {scan.species_guess && <Badge tone="brand">{scan.species_guess}</Badge>}
+                {scan.vendor_guess && <span className="text-[11px] text-slate-500">{scan.vendor_guess}</span>}
+              </div>
+            )}
+
+            {mode === "manual" && (
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" icon={Plus} onClick={() => addRow("log")}>Baris log</Button>
+                <Button size="sm" variant="outline" icon={Plus} onClick={() => addRow("board")}>Baris papan</Button>
+              </div>
+            )}
+
+            {/* `scan!` below: this whole card only renders for "kayu" without
+                `scan` when the outer condition's other arm (`mode === "manual"`)
+                is what let it through, and none of these branches are reachable
+                in that case — the runtime guard TypeScript cannot see from here. */}
             {mode === "kayu" && (
               <div className="grid gap-2 text-[12px] sm:grid-cols-2">
                 <div>
                   <p className="mb-0.5 text-[11px] uppercase tracking-wide text-slate-400">Alasannya</p>
                   <ul className="space-y-0.5 text-emerald-800">
-                    {scan.signals.map((s) => <li key={s}>· {s}</li>)}
-                    {scan.signals.length === 0 && <li className="text-slate-400">tidak ada</li>}
+                    {scan!.signals.map((s) => <li key={s}>· {s}</li>)}
+                    {scan!.signals.length === 0 && <li className="text-slate-400">tidak ada</li>}
                   </ul>
                 </div>
                 <div>
                   <p className="mb-0.5 text-[11px] uppercase tracking-wide text-slate-400">Yang melemahkan</p>
                   <ul className="space-y-0.5 text-slate-600">
-                    {scan.against.map((s) => <li key={s}>· {s}</li>)}
-                    {scan.against.length === 0 && <li className="text-slate-400">tidak ada</li>}
+                    {scan!.against.map((s) => <li key={s}>· {s}</li>)}
+                    {scan!.against.length === 0 && <li className="text-slate-400">tidak ada</li>}
                   </ul>
                 </div>
               </div>
             )}
 
-            {mode === "kayu" && !scan.is_timber && rows.length === 0 && scan.costs.length > 0 && (
+            {mode === "kayu" && !scan!.is_timber && rows.length === 0 && scan!.costs.length > 0 && (
               <p className="flex flex-wrap items-center gap-2 rounded-lg bg-white px-3 py-2 text-[12px] text-slate-700">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
                 Ini terbaca seperti nota biaya, bukan nota kayu.
@@ -293,7 +331,7 @@ export function NotaImport({ vendors, loads, onCreated }: {
               </p>
             )}
 
-            {mode === "kayu" && !scan.is_timber && rows.length > 0 && (
+            {mode === "kayu" && !scan!.is_timber && rows.length > 0 && (
               <label className="flex items-start gap-2 rounded-lg bg-white px-3 py-2 text-[12px] text-slate-700">
                 <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} className="mt-0.5" />
                 <span>
@@ -303,7 +341,7 @@ export function NotaImport({ vendors, loads, onCreated }: {
               </label>
             )}
 
-            {scan.unread.length > 0 && (
+            {scan && scan.unread.length > 0 && (
               <p className="rounded-lg bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
                 {scan.unread.length} baris tidak terbaca dan tidak dibuang — periksa di notanya:{" "}
                 <span className="font-mono text-[11px]">{scan.unread.slice(0, 4).join(" · ")}</span>
@@ -311,12 +349,12 @@ export function NotaImport({ vendors, loads, onCreated }: {
               </p>
             )}
 
-            {mode === "kayu" && rows.length > 0 && (
+            {(mode === "kayu" || mode === "manual") && rows.length > 0 && (
               <div className="max-h-72 overflow-auto rounded-lg border border-slate-200 bg-white">
                 <table className="w-full min-w-[560px] border-collapse text-[12px]">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/70 text-[10px] uppercase tracking-wide text-slate-500">
-                      <th className="px-3 py-1.5 text-left">Baris di nota</th>
+                      <th className="px-3 py-1.5 text-left">{mode === "manual" ? "Ditambahkan" : "Baris di nota"}</th>
                       <th className="px-2 py-1.5 text-left">Dibaca sebagai</th>
                       <th className="px-2 py-1.5 text-right">Jml</th>
                       <th className="w-8" />
@@ -364,10 +402,10 @@ export function NotaImport({ vendors, loads, onCreated }: {
             )}
 
             {/* The charges — on the same timber nota, or the whole of a cost nota. */}
-            {(mode === "biaya" || costs.length > 0) && (
+            {(mode === "biaya" || mode === "manual" || costs.length > 0) && (
               <div className="rounded-lg border border-slate-200 bg-white">
                 <p className="border-b border-slate-100 px-3 py-1.5 text-[11px] uppercase tracking-wide text-slate-400">
-                  {mode === "kayu" ? "Biaya di luar kayu pada nota ini" : "Biaya pada nota ini"}
+                  {mode === "biaya" ? "Biaya pada nota ini" : "Biaya di luar kayu (angkut, potong, …)"}
                 </p>
                 <ul className="divide-y divide-slate-100">
                   {costs.map((c) => (
@@ -400,7 +438,7 @@ export function NotaImport({ vendors, loads, onCreated }: {
               </div>
             )}
 
-            {mode === "kayu" && agreed && (
+            {(mode === "kayu" || mode === "manual") && agreed && (
               <>
                 <div className="grid gap-2 sm:grid-cols-4">
                   <label className="text-[11px] text-slate-500">
@@ -432,13 +470,13 @@ export function NotaImport({ vendors, loads, onCreated }: {
                     <MoneyInput value={total} onChange={setTotal} />
                   </label>
                 </div>
-                {scan.total_guess != null && costTotal > 0 && (
+                {scan?.total_guess != null && costTotal > 0 && (
                   <p className="text-[11px] text-slate-500">
                     Total tercetak {formatIDR(scan.total_guess)}; biaya di luar kayu {formatIDR(costTotal)} dicatat
                     terpisah. Kalau biaya itu tidak termasuk dalam total nota, betulkan nilai kayunya.
                   </p>
                 )}
-                {!vendorId && scan.vendor_guess && (
+                {!vendorId && scan?.vendor_guess && (
                   <p className="text-[11px] text-amber-800">
                     “{scan.vendor_guess}” tidak cocok dengan vendor mana pun — pilih manual, atau daftarkan dulu di master vendor.
                   </p>

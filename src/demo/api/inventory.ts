@@ -7,7 +7,7 @@
  */
 import { ok, noop, invalid, notFound, type Result } from "@/services/_shared/envelope";
 import type {
-  LogPurchaseView, LogMeasure, TimberVendorSummary,
+  LogPurchaseView, LogMeasure, TimberVendorSummary, TimberMonthSummary,
   StockItemView, StockItemDetail, StockLocation, StockMove, StockMoveView,
   BoardStockView, BoardMoveView, BoardMoveKind, NotaScan, LogCostKind,
   Asset, AssetView, AssetCategory, AssetStatus, AssetInput, AssetService, AssetServiceInput,
@@ -17,7 +17,7 @@ import type { DemoState, AuditRow } from "../state";
 import { officeToday } from "@/lib/office";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
 import {
-  logPurchaseView, logPurchaseViews, timberVendorSummaries,
+  logPurchaseView, logPurchaseViews, timberVendorSummaries, timberMonthSummaries,
   stockItems, stockItemDetail, stockMoveViews,
   boardStock, boardMoveViews,
   itemUsedIn as usedIn,
@@ -48,6 +48,11 @@ export async function getLogPurchase(purchaseNo: string): Promise<Result<LogPurc
 export async function timberByVendor(): Promise<Result<TimberVendorSummary[]>> {
   await latency();
   return ok(SERVICE, timberVendorSummaries(getState()));
+}
+
+export async function timberByMonth(): Promise<Result<TimberMonthSummary[]>> {
+  await latency();
+  return ok(SERVICE, timberMonthSummaries(getState()));
 }
 
 /** A load of logs arriving.
@@ -390,9 +395,58 @@ export async function getStockItem(itemCode: string): Promise<Result<StockItemDe
   return ok(SERVICE, detail);
 }
 
-export async function listStockLocations(): Promise<Result<StockLocation[]>> {
+export async function listStockLocations(
+  opts: { all?: boolean } = {},
+): Promise<Result<StockLocation[]>> {
   await latency();
-  return ok(SERVICE, getState().stock_locations.filter((l) => l.is_active));
+  const locs = getState().stock_locations;
+  return ok(SERVICE, opts.all ? locs : locs.filter((l) => l.is_active));
+}
+
+/** Adding a rack to count (`0157`). The live table gates this on
+ *  `inventory.update` under RLS; the demo has no per-action permission of its
+ *  own to check (only the module gate every write here already asks), so a
+ *  duplicate code is the one refusal this layer can still prove. */
+export async function createStockLocation(
+  input: { code: string; name: string },
+): Promise<Result<StockLocation>> {
+  await latency();
+  const denied = requireModule(SERVICE, "inventory");
+  if (denied) return denied;
+  const code = input.code.trim().toUpperCase();
+  const name = input.name.trim();
+  if (!code) return invalid(SERVICE, "code_required", "Kode lokasi wajib diisi.", { field: "code" });
+  if (!name) return invalid(SERVICE, "name_required", "Nama lokasi wajib diisi.", { field: "name" });
+  if (getState().stock_locations.some((l) => l.code === code)) {
+    return conflict(SERVICE, "already_exists", `Lokasi ${code} sudah ada.`);
+  }
+  const loc: StockLocation = { code, name, is_active: true };
+  apply((draft) => { draft.stock_locations.push(loc); });
+  return ok(SERVICE, loc);
+}
+
+/** Renaming a rack, or retiring/reviving it. Never a delete — a rack once
+ *  counted against stays addressable in `stock_moves` for ever (A5). */
+export async function updateStockLocation(
+  code: string,
+  patch: { name?: string; is_active?: boolean },
+): Promise<Result<StockLocation>> {
+  await latency();
+  const denied = requireModule(SERVICE, "inventory");
+  if (denied) return denied;
+  const existing = getState().stock_locations.find((l) => l.code === code);
+  if (!existing) return notFound(SERVICE, "location_not_found", `No location ${code}.`);
+  if (patch.name !== undefined && !patch.name.trim()) {
+    return invalid(SERVICE, "name_required", "Nama lokasi wajib diisi.", { field: "name" });
+  }
+  let updated: StockLocation = existing;
+  apply((draft) => {
+    const loc = draft.stock_locations.find((l) => l.code === code)!;
+    if (patch.name !== undefined) loc.name = patch.name.trim();
+    if (patch.is_active !== undefined) loc.is_active = patch.is_active;
+    updated = { ...loc };
+  });
+  return ok(SERVICE, updated);
 }
 
 export async function listStockMoves(
