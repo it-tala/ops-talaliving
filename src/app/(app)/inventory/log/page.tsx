@@ -98,7 +98,7 @@ export default function TimberPage() {
       {tab === "beli" && (
       <>
 
-      <TimberMonthRecap />
+      <TimberMonthRecap reloadKey={bump} />
 
       <Loaded state={vendors} onRetry={reloadVendors}>
         {(rows) => {

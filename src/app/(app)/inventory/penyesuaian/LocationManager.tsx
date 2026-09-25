@@ -15,13 +15,20 @@ import { useToast } from "@/store/toast";
  *  `inventory.update` for that reason — it is a curated list, not a free-text
  *  field every counter can grow on their own. There is no delete, only
  *  active/inactive: a rack once counted against stays in `stock_moves`'
- *  history whether or not it is still offered on the next count. */
-export function LocationManager() {
+ *  history whether or not it is still offered on the next count.
+ *
+ *  `onChanged` tells the page holding the opname form to reload **its own**
+ *  location list — a separate `useLoad` call there, because that picker only
+ *  wants active racks while this panel shows retired ones too. Without it, a
+ *  location added here would say "selectable starting now" and not actually
+ *  be, until somebody reloaded the page by hand. */
+export function LocationManager({ onChanged }: { onChanged?: () => void }) {
   const { toast } = useToast();
   const [locs, reload] = useLoad(() => inventory.listStockLocations({ all: true }), []);
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const refresh = () => { reload(); onChanged?.(); };
 
   async function add() {
     setBusy("new");
@@ -33,7 +40,7 @@ export function LocationManager() {
     }
     toast("success", `Lokasi ${res.data.code}`, `${res.data.name} bisa dipilih mulai sekarang.`);
     setCode(""); setName("");
-    reload();
+    refresh();
   }
 
   async function toggle(loc: { code: string; is_active: boolean }) {
@@ -41,7 +48,7 @@ export function LocationManager() {
     const res = await inventory.updateStockLocation(loc.code, { is_active: !loc.is_active });
     setBusy(null);
     if (res.error) { toast("critical", "Tidak tersimpan", res.error.message); return; }
-    reload();
+    refresh();
   }
 
   return (

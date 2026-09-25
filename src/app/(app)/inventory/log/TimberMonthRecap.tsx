@@ -15,9 +15,13 @@ import { inventory } from "@/demo/api";
  *  whatever else came in, so a blended rate here would look precise and
  *  compare nothing real. This table answers a different question: how much
  *  did the yard spend, and on how much wood, this month against last.
- */
-export function TimberMonthRecap() {
-  const [months] = useLoad(() => inventory.timberByMonth(), []);
+ *
+ *  `reloadKey` is `TimberPage`'s `bump` — the same counter `BoardUsage`
+ *  depends on — so a fresh nota or a manual entry updates this table without
+ *  a page reload; a plain `useLoad(..., [])` would go stale the moment a load
+ *  was filed and stay stale until somebody navigated away and back. */
+export function TimberMonthRecap({ reloadKey }: { reloadKey: number }) {
+  const [months] = useLoad(() => inventory.timberByMonth(), [reloadKey]);
 
   return (
     <Card className="mb-4">

@@ -31,7 +31,7 @@ export default function StockCountPage() {
   const { toast } = useToast();
   const [items, reloadItems] = useLoad(() => inventory.listStock(), []);
   const [moves, reloadMoves] = useLoad(() => inventory.listStockMoves(), []);
-  const [locations] = useLoad(() => inventory.listStockLocations(), []);
+  const [locations, reloadLocations] = useLoad(() => inventory.listStockLocations(), []);
   const [draft, setDraft] = useState({ item_code: "", location: "", counted: 0, reason: "" });
   const [busy, setBusy] = useState(false);
   const mayAdjust = can("inventory.adjust");
@@ -85,7 +85,7 @@ export default function StockCountPage() {
         actions={<SourceBadge state={moves} />}
       />
 
-      {mayManageLocations && <LocationManager />}
+      {mayManageLocations && <LocationManager onChanged={reloadLocations} />}
 
       {mayAdjust && (
         <Card className="mb-4">
