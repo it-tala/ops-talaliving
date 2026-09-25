@@ -860,20 +860,41 @@ export function stockFromReceipt(
   const itemId = poLine?.item_id ?? prLine?.item_id ?? null;
   if (!itemId) return { stocked: false, why: "the line names no catalogue item" };
 
-  const item = draft.items.find((i) => i.id === itemId);
+  let item = draft.items.find((i) => i.id === itemId);
   if (!item) return { stocked: false, why: "catalogue item missing" };
+  /* A merged item is counted under the one it was merged into (0169). */
+  if (item.merged_into) item = draft.items.find((i) => i.id === item!.merged_into) ?? item;
   if (!STOCKED_CATEGORIES.has(item.category_code)) {
     return { stocked: false, why: `${item.category_code} is not a counted category` };
   }
+  /* Something that arrived and is going back is not stock (0169). */
+  if (receipt.condition === "WRONG ITEM" || receipt.condition === "RETURN TO SENDER") {
+    return { stocked: false, why: `marked ${receipt.condition} — not kept` };
+  }
 
-  const setting = draft.stock_settings.find((s) => s.item_code === item.code);
+  /* A line bought per box and an item counted per piece cannot be added
+     together: convert, or stock nothing and say why (0169). */
+  const lineUom = poLine?.uom ?? prLine?.uom ?? item.base_uom;
+  let factor: number | null = lineUom === item.base_uom ? 1 : null;
+  if (factor == null) {
+    const direct = draft.uom_conversions.find((c) => c.from_uom === lineUom && c.to_uom === item!.base_uom);
+    const reverse = draft.uom_conversions.find((c) => c.from_uom === item!.base_uom && c.to_uom === lineUom);
+    factor = direct ? direct.factor : reverse ? 1 / reverse.factor : null;
+  }
+  if (factor == null) {
+    return { stocked: false, why: `bought per ${lineUom}, counted per ${item.base_uom}, and no conversion between them` };
+  }
+  const price = poLine?.unit_price ?? prLine?.unit_price ?? null;
+
+  const setting = draft.stock_settings.find((s) => s.item_code === item!.code);
   writeMove(draft, {
     item_code: item.code,
     location: setting?.home_location ?? "GUDANG",
     kind: "receipt",
-    qty: Math.abs(receipt.qty_received),
-    uom: poLine?.uom ?? prLine?.uom ?? item.base_uom,
-    unit_cost: poLine?.unit_price ?? prLine?.unit_price ?? null,
+    qty: Math.abs(receipt.qty_received) * factor,
+    uom: item.base_uom,
+    /* Never zero (D172): an unpriced line leaves the move unpriced. */
+    unit_cost: price != null && price > 0 ? price / factor : null,
     ref_no: receiptNo,
     reason: null,
   }, userId, userEmail);

@@ -543,73 +543,10 @@ export async function setStockMinimum(
   return ok(SERVICE, { item_code: input.item_code, min_qty: input.min_qty });
 }
 
-/** Stock from a confirmed receipt — the one move the system makes by itself.
- *  Called by `procurement.confirmReceipt`'s caller, not a screen — same three
- *  arguments as the demo's `stockFromReceipt(draft, receiptNo, userId,
- *  userEmail)`, minus `draft`: there is no in-memory state to pass, so the
- *  receipt → po_line/pr_line → item chain the demo walks over `draft` is
- *  walked here over the database instead (D172's resolution belongs to this
- *  module, not to whoever calls it — the demo puts it here for the same
- *  reason).
- *
- *  `userEmail` is accepted and unused: the demo's `writeMove` puts it in an
- *  audit-row detail column, and `ops_inv` (`0071`) has no audit trail at all
- *  to put it in — every other write-seam in this codebase is `security
- *  definer` specifically to write one, and `stock_moves` was never given
- *  that seam. Not this pass's call to add one.
- *
- *  Necessarily `Promise`-wrapped where the demo is not: resolving the chain
- *  is a database read here, which the demo already has in `draft`. Listed on
- *  `PENDING_PARITY` for that reason — `check-api-parity.mjs` cannot see past
- *  a return type this different, and it should not: a screen awaiting this
- *  needs to know it can. */
-export async function stockFromReceipt(
-  receiptNo: string, userId: string, _userEmail: string,
-): Promise<{ stocked: boolean; why?: string }> {
-  const { data: receipt } = await procure().from("receipts")
-    .select("receipt_no, po_line_id, line_id, qty_received").eq("receipt_no", receiptNo).maybeSingle();
-  if (!receipt) return { stocked: false, why: "receipt not found" };
-
-  const { data: existing } = await db().from("stock_moves").select("id")
-    .eq("ref_no", receiptNo).eq("kind", "receipt").maybeSingle();
-  if (existing) return { stocked: false, why: "already stocked" };
-
-  const [poLine, prLine] = await Promise.all([
-    receipt.po_line_id
-      ? procure().from("po_lines").select("item_id, uom, unit_price").eq("id", receipt.po_line_id).maybeSingle()
-      : Promise.resolve({ data: null }),
-    receipt.line_id
-      ? procure().from("pr_lines").select("item_id, uom, unit_price").eq("id", receipt.line_id).maybeSingle()
-      : Promise.resolve({ data: null }),
-  ]);
-  const line = poLine.data ?? prLine.data;
-  const itemId = line?.item_id;
-  if (!itemId) return { stocked: false, why: "the line names no catalogue item" };
-
-  const { data: item } = await procure().from("items").select("code, base_uom, category_code").eq("id", itemId).maybeSingle();
-  if (!item) return { stocked: false, why: "catalogue item missing" };
-  const { data: cat } = await db().from("stocked_categories").select("category_code")
-    .eq("category_code", item.category_code).maybeSingle();
-  if (!cat) return { stocked: false, why: `${item.category_code} is not a counted category` };
-
-  const { data: setting } = await db().from("stock_settings").select("home_location").eq("item_code", item.code).maybeSingle();
-
-  const { error } = await db().from("stock_moves").insert({
-    item_code: item.code,
-    location: setting?.home_location ?? "GUDANG",
-    kind: "receipt",
-    qty: Math.abs(receipt.qty_received),
-    uom: line?.uom ?? item.base_uom,
-    unit_cost: line?.unit_price ?? null,
-    ref_no: receiptNo,
-    moved_by: userId,
-  });
-  if (error) {
-    if (error.code === "23505") return { stocked: false, why: "already stocked" };
-    return { stocked: false, why: error.message };
-  }
-  return { stocked: true };
-}
+/* Stock from a confirmed receipt is not a client call. It is `0169`'s
+   trigger on `ops_procure.receipts`, in the same transaction as the signature,
+   so a dropped connection cannot leave a signed delivery with nothing on the
+   rack. The client function that stood here was never called by anything. */
 
 /* ------------------------------------------------------------------ */
 /* Timber                                                               */
