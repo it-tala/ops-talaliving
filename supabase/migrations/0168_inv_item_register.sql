@@ -45,6 +45,51 @@ comment on column ops_procure.items.name_local is
 create index if not exists items_name_local_search_idx on ops_procure.items
   using gin (to_tsvector('simple'::regconfig, coalesce(name_local, '')));
 
+-- `v_item_view` (0104) was written as `select i.*`, which Postgres expands to
+-- the columns that existed on the day — so the new column does not reach the
+-- catalogue screen until the view is rebuilt. 0104's body, unchanged. Nothing
+-- depends on this view, so drop-and-create is safe.
+drop view if exists ops_procure.v_item_view;
+create view ops_procure.v_item_view as
+  select i.*,
+         c.name as category_name,
+         lv.name as last_vendor_name,
+         coalesce(i.standard_price, i.last_price) as suggested_price,
+         coalesce(pf.purchase_count, 0)           as purchase_count,
+         coalesce((
+           select jsonb_agg(jsonb_build_object(
+                    'vendor_id',   s.vendor_id,
+                    'vendor_name', s.vendor_name,
+                    'is_curated',  s.is_curated,
+                    'pic_name',    s.pic_name,
+                    'pic_phone',   s.pic_phone,
+                    'last_price',  s.last_price,
+                    'uom',         s.uom,
+                    'last_date',   s.last_date,
+                    'times',       s.times) order by s.last_date desc)
+             from ops_procure.v_item_sources s
+            where s.item_id = i.id
+         ), '[]'::jsonb) as sourced_from,
+         -- The tree, spelled out: the top-level category and the path a
+         -- person reads ("Packing › Foam Sheet").
+         coalesce(c.parent_code, c.code)                        as top_category_code,
+         case when p.code is null then c.name
+              else p.name || ' › ' || c.name end                 as category_path
+    from ops_procure.items i
+    join ops_procure.item_categories c on c.code = i.category_code
+    left join ops_procure.item_categories p on p.code = c.parent_code
+    left join ops_procure.vendors lv on lv.id = i.last_vendor_id
+    left join (
+      select item_id, count(*) as purchase_count
+        from ops_procure.v_purchase_facts group by item_id
+    ) pf on pf.item_id = i.id;
+
+alter view ops_procure.v_item_view set (security_invoker = on);
+grant select on ops_procure.v_item_view to authenticated;
+comment on view ops_procure.v_item_view is
+  'An item with where it has been bought and where it sits in the category tree. '
+  'Merged items fold into their survivor through v_purchase_facts. (0032, 0104)';
+
 -- ── 2. photo rules ──────────────────────────────────────────────────────────
 --
 -- Invoker, not definer: `links_read` lets every signed-in user count links, so
