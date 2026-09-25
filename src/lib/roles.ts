@@ -40,7 +40,7 @@ export const PERMISSION_CATALOG: Record<ModuleName, readonly string[]> = {
   project: ["read", "create", "update", "handover"],
   production: ["read", "create", "update", "schedule"],
   delivery: ["read", "create", "update"],
-  it: ["read", "update", "manage_users", "manage_roles", "purge_activity"],
+  it: ["read", "update", "manage_users", "manage_roles", "purge_activity", "manage_drives"],
   settings: ["read", "update"],
 } as const;
 
@@ -50,8 +50,12 @@ export const PERMISSION_CATALOG: Record<ModuleName, readonly string[]> = {
  *  cash calendar belong to leadership alone. Accounting keeps `write`, which is
  *  every other thing accounting does — reading the plan included, and booking
  *  the real payments that land against it. Moving the *estimate* is the one
- *  verb it does not carry. */
-const ADMIN_ONLY = new Set(["manage_users", "manage_roles", "purge_activity", "plan_cash"]);
+ *  verb it does not carry.
+ *
+ *  `manage_drives` (D314, F166) repoints a shared drive's folder or moves a
+ *  kind of document to another drive — `doc_kind_drive` is the personal-data
+ *  boundary, so it sits with `manage_roles`, not with `update`. */
+const ADMIN_ONLY = new Set(["manage_users", "manage_roles", "purge_activity", "plan_cash", "manage_drives"]);
 
 export const LEVELS: ModuleLevel[] = ["read", "write", "admin"];
 
@@ -124,6 +128,7 @@ const VERB_LABEL: Record<string, string> = {
   manage_roles: "manage roles",
   purge_activity: "purge the activity log",
   plan_cash: "set the cash estimates",
+  manage_drives: "choose the shared drive folders",
 };
 
 export function describeGrant(module: ModuleName, level: ModuleLevel): string {

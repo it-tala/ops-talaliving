@@ -69,7 +69,7 @@ something there, and writes the id back through
 `ops_core.record_ops_folder`. That function fills a blank only — a caller who
 could change a folder already set could redirect every future upload for that
 drive, HRD's included, just by being the next person to upload anything.
-Changing one afterwards stays `it.admin`.
+Changing one afterwards stays `it.manage_drives` (IT admin — `0173`, D314; `0035` had named `it.admin`, which did not exist, F166).
 
 Asking for eight more ids would have worked, and would have been eight more
 chances to paste the wrong one into a column that silently redirects

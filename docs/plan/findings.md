@@ -7004,5 +7004,9 @@ Found on the way: the update policies on `ops_core.drive_folders` and
 `ops_core.doc_kind_drive` (`0035`) test `has_permission('it.admin')`, which is
 not in `permission_catalog` — so nobody, IT included, can correct a drive
 folder from the app. Left for its own change; `0172`'s new table uses
-`it.update`, which exists.
+`it.update`, which exists. **Fixed in `0173` (D314):** both policies now test
+`it.manage_drives`, a new admin-only IT action; `drive_paths` stays on
+`it.update`. The lesson is `check-permissions.mjs`'s own: a permission string
+that names nothing is not a refusal, it is a wall — nothing checks that the
+code a policy passes to `has_permission` exists.
 

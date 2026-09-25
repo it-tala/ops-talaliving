@@ -105,7 +105,7 @@ end $$;
 /* ── once IT fills it in ───────────────────────────────────────────────── */
 
 -- The route's write-back, after it has found or created `ops` in Drive. Run as
--- an ordinary uploader on purpose: `drive_folders` is `it.admin` to write, and
+-- an ordinary uploader on purpose: `drive_folders` is `it.manage_drives` to write (0173), and
 -- this narrow `security definer` fill is the exception.
 do $$
 declare r jsonb;
@@ -181,7 +181,7 @@ set local request.jwt.claim.sub = 'aaaa0000-0000-0000-0000-000000000d1d';
 do $$
 declare n int;
 begin
-  -- Procurement holds `procurement.write` and no `it.admin`. Repointing a
+  -- Procurement holds `procurement.write` and no `it.manage_drives`. Repointing a
   -- folder silently redirects every future upload, including HRD's.
   update ops_core.drive_folders set parent_folder_id = '1somewhere_else' where slug = 'hrd';
   get diagnostics n = row_count;
