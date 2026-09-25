@@ -7010,3 +7010,45 @@ folder from the app. Left for its own change; `0172`'s new table uses
 that names nothing is not a refusal, it is a wall — nothing checks that the
 code a policy passes to `has_permission` exists.
 
+
+## F167 · 2026-09-25 · production had a schema no file described, and a view had quietly absorbed it
+
+**What was found.** Comparing the live project with a fresh ladder turned up
+tables and columns created **straight on production** during the item-master
+and estimating work: `items.evidence_url/evidence_ref`, the import's
+`item_master_staging`, `item_vendor_prices` (with two more columns,
+`evidence_url` and `source_ref`, added after the table and absent from the
+table's own recorded SQL), its staging twin, `bom_norms` and
+`finishing_recipes`. None had RLS, none had a grant. The recorded SQL in
+`schema_migrations` was not the schema either: it was the first draft, and
+the table had moved on since.
+
+**The part nothing would have caught.** `0168` rebuilt `v_item_view` as
+`select i.*`. On production that expanded to include the two evidence
+columns, **between `archived_by` and `name_local`**, because production had
+added them to `items` first. A fresh ladder added `name_local` first and has
+no evidence columns at all. So the same migration produced two different views,
+and `check-view-contracts.mjs` passed on both, because the contract names
+neither column. `0174` names the view's columns in production's order. The
+check is that its definition hash came out **unchanged** on production
+(`26ebcad7…`) and matches the rebuilt local one. `items` itself cannot be
+made to agree without rewriting the table: the columns sit at 18/19 there and
+19/20 locally. Nothing reads `items` by position, and this note says so.
+
+**Two instruments worth keeping.**
+
+- *Is a schema exposed?* could not be asked over HTTP from here: the proxy
+  refuses the project host (F131). **PostgREST's own log answers it.** Every
+  reload logs `Schema cache loaded N Relations … M Functions`. `0064` moved
+  that from 380 to 381 relations and 343 to 345 functions. Six Marketing
+  migrations moved it by **zero**, so `ops_mkt` is not in the exposed list.
+  That is a measurement, not a guess about a Dashboard setting.
+- *Sweeps re-run late must be scoped.* `0125`/`0154`/`0156` loop over every
+  `ops_*` object. Re-running them whole on production would also have
+  touched functions created **after** `0125`, which in the local ladder
+  keep whatever their own migration granted. That would have made production
+  diverge in the act of catching up. They were re-run over exactly the new
+  objects, and the 400-object fingerprint came out identical.
+
+Same lesson as F166, from the other side: the description (a migration's
+recorded SQL, a view's `i.*`) is not the thing. Compare the thing.
