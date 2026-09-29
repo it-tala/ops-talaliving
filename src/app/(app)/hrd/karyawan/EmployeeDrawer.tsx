@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Save } from "lucide-react";
+import { Save, UserMinus, UserCheck } from "lucide-react";
 import { Drawer } from "@/components/ui/drawer";
+import { officeToday } from "@/lib/office";
 import { Button } from "@/components/ui/primitives";
 import { MoneyInput } from "@/components/ui/money-input";
 import { NumberInput } from "@/components/ui/number-input";
@@ -46,6 +47,12 @@ export function EmployeeDrawer({
      person means today, which is what the seam does with no date. */
   const [joined, setJoined] = useState(employee?.joined_on ?? "");
   const [busy, setBusy] = useState(false);
+  /* Leaving is a date and a sentence (D337); coming back is a sentence. Both
+     live under the form, apart from Save, because neither is a change of
+     terms. */
+  const [leaving, setLeaving] = useState(false);
+  const [leftOn, setLeftOn] = useState(officeToday());
+  const [why, setWhy] = useState("");
 
   const [sched] = useLoad(() => hr.listSchedules(), []);
   const schedules = sched.status === "ready" ? sched.data.schedules : [];
@@ -76,6 +83,41 @@ export function EmployeeDrawer({
       return;
     }
     toast("success", employee ? tr("Updated", "Diperbarui") : tr("Added", "Ditambahkan"), `${name} · ${formatIDR(rate)} ${basis === "monthly" ? tr("per month", "per bulan") : basis === "daily" ? tr("per day", "per hari") : tr("per hour", "per jam")}`);
+    onSaved();
+  }
+
+  async function offboard() {
+    if (!employee) return;
+    setBusy(true);
+    const res = await hr.offboardEmployee({ employee_no: employee.employee_no, left_on: leftOn, reason: why });
+    setBusy(false);
+    if (res.error) {
+      toast(res.error.status === 403 ? "critical" : "warning", tr("Not offboarded", "Tidak dikeluarkan"), res.error.message);
+      return;
+    }
+    toast(
+      "success",
+      tr(`${employee.full_name} has left`, `${employee.full_name} dikeluarkan`),
+      res.data.taps_after > 0
+        ? tr(
+          `As of ${leftOn}. ${res.data.taps_after} tap(s) after that date stay on file — check the date if that is wrong.`,
+          `Per ${leftOn}. ${res.data.taps_after} tap setelah tanggal itu tetap tersimpan — periksa tanggalnya kalau itu keliru.`,
+        )
+        : tr(`As of ${leftOn}. Every record stays.`, `Per ${leftOn}. Semua catatannya tetap disimpan.`),
+    );
+    onSaved();
+  }
+
+  async function reinstate() {
+    if (!employee) return;
+    setBusy(true);
+    const res = await hr.reinstateEmployee({ employee_no: employee.employee_no, reason: why });
+    setBusy(false);
+    if (res.error) {
+      toast(res.error.status === 403 ? "critical" : "warning", tr("Not reinstated", "Tidak diaktifkan"), res.error.message);
+      return;
+    }
+    toast("success", tr(`${employee.full_name} is active again`, `${employee.full_name} aktif kembali`), why.trim());
     onSaved();
   }
 
@@ -252,6 +294,79 @@ export function EmployeeDrawer({
             </p>
           </div>
         </div>
+
+        {employee && (
+          <div className={employee.active
+            ? "rounded-lg border border-rose-100 bg-rose-50/40 px-3 py-3"
+            : "rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-3"}
+          >
+            {employee.active ? (
+              <>
+                <p className="text-[13px] font-medium text-slate-800">{tr("Offboard", "Offboard / keluar")}</p>
+                <p className="mt-0.5 text-[11px] text-slate-500">
+                  {tr(
+                    "Nothing is deleted: every payslip and tap stays. From the day after, the machine's taps for this number are set aside at upload rather than filed.",
+                    "Tidak ada yang dihapus: slip gaji dan tap tetap disimpan. Mulai hari berikutnya, tap mesin untuk nomor ini disisihkan saat unggah, tidak dicatat.",
+                  )}
+                </p>
+                {!leaving ? (
+                  <Button className="mt-2" size="sm" variant="outline" icon={UserMinus} onClick={() => setLeaving(true)} disabled={busy}>
+                    {tr("This person has left…", "Orang ini sudah keluar…")}
+                  </Button>
+                ) : (
+                  <div className="mt-2 grid gap-2 sm:grid-cols-[150px_1fr]">
+                    <div>
+                      <label htmlFor="e-left" className="block text-xs text-slate-500">{tr("Last working day", "Hari kerja terakhir")}</label>
+                      <input
+                        id="e-left" type="date" value={leftOn} onChange={(e) => setLeftOn(e.target.value)}
+                        className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="e-why" className="block text-xs text-slate-500">{tr("Why", "Alasan")}</label>
+                      <input
+                        id="e-why" value={why} onChange={(e) => setWhy(e.target.value)}
+                        placeholder={tr("Resigned, contract ended, did not come back…", "Resign, kontrak selesai, tidak kembali…")}
+                        className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex gap-2 sm:col-span-2">
+                      <Button size="sm" variant="ghost" onClick={() => { setLeaving(false); setWhy(""); }} disabled={busy}>{tr("Cancel", "Batal")}</Button>
+                      <Button size="sm" icon={UserMinus} onClick={offboard} disabled={busy || !leftOn || !why.trim()}>
+                        {tr("Offboard", "Keluarkan")}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <p className="text-[13px] font-medium text-slate-800">
+                  {tr(`Left on ${employee.left_on ?? "—"}`, `Keluar per ${employee.left_on ?? "—"}`)}
+                </p>
+                <p className="mt-0.5 text-[11px] text-slate-500">
+                  {tr(
+                    "Reinstate if this was the wrong person or date, or they came back. Taps set aside earlier come in when the file is uploaded again.",
+                    "Aktifkan kembali kalau salah orang atau tanggal, atau orangnya kembali bekerja. Tap yang tadinya disisihkan masuk saat file diunggah lagi.",
+                  )}
+                </p>
+                <div className="mt-2 flex flex-wrap items-end gap-2">
+                  <div className="min-w-[200px] flex-1">
+                    <label htmlFor="e-why-back" className="block text-xs text-slate-500">{tr("Why", "Alasan")}</label>
+                    <input
+                      id="e-why-back" value={why} onChange={(e) => setWhy(e.target.value)}
+                      placeholder={tr("Wrong date, came back…", "Salah tanggal, kembali bekerja…")}
+                      className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none"
+                    />
+                  </div>
+                  <Button size="sm" variant="outline" icon={UserCheck} onClick={reinstate} disabled={busy || !why.trim()}>
+                    {tr("Reinstate", "Aktifkan kembali")}
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </Drawer>
   );
