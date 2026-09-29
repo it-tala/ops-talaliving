@@ -31,10 +31,19 @@ import { useTr, type Tr } from "@/lib/i18n";
  *  arithmetic is done in UTC, because the office day is not the browser's day
  *  (F17). */
 function mondayOf(key: string): string {
+  return weekStartOf(key, 1);
+}
+
+/** The first day of the pay week a date falls in, for a week that starts on
+ *  ISO weekday `isodow` (1 Senin … 7 Minggu). The workshop's week runs
+ *  Sabtu–Jumat (6), the way the payroll sheet pays it — read from the rule
+ *  book's `pay_week_starts_isodow` (D340), never assumed here. */
+function weekStartOf(key: string, isodow: number): string {
   const [y, m, d] = key.split("-").map(Number);
   const t = Date.UTC(y, m - 1, d);
   const js = new Date(t).getUTCDay();
-  return iso(t - ((js === 0 ? 7 : js) - 1) * 86_400_000);
+  const dow = js === 0 ? 7 : js;
+  return iso(t - ((dow - isodow + 7) % 7) * 86_400_000);
 }
 
 function shift(key: string, days: number): string {
@@ -76,6 +85,21 @@ export default function PayrollWeekPage() {
       : new Date().toISOString().slice(0, 10));
   });
   const weekEnd = shift(weekStart, 6);
+
+  /* Which weekday a pay week starts on is the rule book's to say (D340). */
+  const [books] = useLoad(() => hr.listPayRules(), []);
+  const startDow = (() => {
+    if (books.status !== "ready") return 1;
+    const today = new Date().toISOString().slice(0, 10);
+    const inForce = [...books.data]
+      .filter((b) => b.effective_from <= today)
+      .sort((a, b) => a.effective_from.localeCompare(b.effective_from) || a.version - b.version)
+      .pop();
+    return inForce?.rules.pay_week_starts_isodow ?? 1;
+  })();
+  useEffect(() => {
+    setWeekStart((w) => weekStartOf(w, startDow));
+  }, [startDow]);
 
   /* Walking a week changes the address too, so a reload or a shared link lands
      on the week somebody was actually looking at. */
@@ -165,8 +189,8 @@ export default function PayrollWeekPage() {
         breadcrumb={tr("HRD · Payroll", "HRD · Penggajian")}
         title={tr("Weekly payroll", "Gajian mingguan")}
         description={tr(
-          "Monday to Sunday. The figures are computed from attendance and approved overtime each time this screen opens — a week with no run yet can still be seen.",
-          "Senin sampai Minggu. Angkanya dihitung dari absensi dan lembur yang disetujui setiap kali layar ini dibuka — minggu yang belum dibuatkan run pun tetap bisa dilihat.",
+          "One pay week, starting on the weekday the rule book sets. The figures are computed from attendance and approved overtime each time this screen opens — a week with no run yet can still be seen.",
+          "Satu minggu gaji, mulai hari yang ditetapkan buku aturan. Angkanya dihitung dari absensi dan lembur yang disetujui setiap kali layar ini dibuka — minggu yang belum dibuatkan run pun tetap bisa dilihat.",
         )}
         actions={<SourceBadge state={view} />}
       />
@@ -191,7 +215,7 @@ export default function PayrollWeekPage() {
         </div>
         <Button
           variant="ghost" size="sm"
-          onClick={() => setWeekStart(mondayOf(new Date().toISOString().slice(0, 10)))}
+          onClick={() => setWeekStart(weekStartOf(new Date().toISOString().slice(0, 10), startDow))}
         >
           {tr("This week", "Minggu ini")}
         </Button>

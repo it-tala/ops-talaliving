@@ -21,7 +21,7 @@ import type {
 import {
   SENSITIVE_DOC_KINDS, SCHEME_LABELS, maskDocNo, clauseValueOk, scheduleProblem, OFF_SITE_VERDICTS,
 } from "@/services/hr/contracts";
-import { instantInDay, isOvernight, dayBoundaryMinutes } from "@/services/hr/schedule-rules";
+import { instantInDay, isOvernight, dayBoundaryMinutes, type ScheduleDay, type ScheduleWeekDay, scheduleWeek } from "@/services/hr/schedule-rules";
 import type { DocKind } from "@/services/documents/contracts";
 import type { DemoState } from "../state";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
@@ -4189,6 +4189,8 @@ export async function listSchedules(): Promise<Result<{
     overnight: boolean;
     /** Where this pattern's next working day begins, minutes after midnight. */
     day_boundary_minutes: number;
+    /** The seven days as the reading sees them (D340). */
+    week: ScheduleWeekDay[];
   })[];
   /** Nobody has linked these, and their unit has no default either. */
   unlinked: { employee_no: string; full_name: string; unit: string }[];
@@ -4212,6 +4214,7 @@ export async function listSchedules(): Promise<Result<{
     hours_unconfirmed: sc.hours_unconfirmed ?? false,
     overnight: isOvernight(sc),
     day_boundary_minutes: dayBoundaryMinutes(sc),
+    week: scheduleWeek(sc),
   }));
 
   return ok(SERVICE, {
@@ -4445,6 +4448,102 @@ export async function setScheduleHours(
   });
   const answer = { code: input.code, version, effective_from: from };
   remember(SERVICE, "setScheduleHours", idempotencyKey, answer);
+  return ok(SERVICE, answer);
+}
+
+/** HRD sets one pattern's weekdays (D340) — `ops_hr.set_schedule_days`.
+ *  The whole `days` object is replaced; `{}` removes it. */
+export async function setScheduleDays(
+  input: {
+    code: string;
+    days: Record<string, ScheduleDay>;
+    effective_from: string;
+    note: string;
+  },
+  idempotencyKey?: string,
+): Promise<Result<{ code: string; version: number; effective_from: string }>> {
+  await latency();
+  const cached = replayed<{ code: string; version: number; effective_from: string }>(
+    SERVICE, "setScheduleDays", idempotencyKey);
+  if (cached) return cached;
+
+  const denied = requireLevel(SERVICE, "hrd", "write");
+  if (denied) return denied;
+  if (!input.note?.trim()) {
+    return invalid(
+      SERVICE, "note_required",
+      "Tulis alasannya. Jam kerja yang berubah tanpa keterangan tidak bisa dijelaskan ke orang yang jamnya berubah.",
+      { field: "note" },
+    );
+  }
+
+  const state = getState();
+  const from = input.effective_from || sharedOfficeToday();
+  const sorted = [...state.pay_rule_sets].sort(
+    (a, b) => a.effective_from.localeCompare(b.effective_from) || a.version - b.version);
+  const base = sorted.filter((r) => r.effective_from <= from).pop();
+  if (!base) {
+    return conflict(SERVICE, "no_rule_book",
+      `Belum ada buku aturan gaji yang berlaku pada ${from}. IT menerbitkannya dulu.`);
+  }
+  const later = sorted.find((r) => r.effective_from > from);
+  if (later) {
+    return conflict(SERVICE, "later_version_exists",
+      `Versi ${later.version} berlaku mulai ${later.effective_from}, sesudah tanggal ini, dan tidak memuat perubahan ini — jamnya akan kembali pada tanggal itu. Pilih tanggal mulai ${later.effective_from} atau sesudahnya.`);
+  }
+  const old = (base.rules.schedules ?? []).find((sc) => sc.code === input.code);
+  if (!old) {
+    return notFound(SERVICE, "not_found",
+      `Tidak ada jadwal kerja bernama ${input.code} di buku aturan yang berlaku.`);
+  }
+
+  const { days: _oldDays, ...kept } = old;
+  void _oldDays;
+  const changed = Object.keys(input.days ?? {}).length === 0 ? kept : { ...kept, days: input.days };
+  const rules: PayRules = {
+    ...base.rules,
+    schedules: (base.rules.schedules ?? []).map((sc) => (sc.code === input.code ? changed : sc)),
+  };
+  if (JSON.stringify(changed) === JSON.stringify(old)) {
+    return noop(SERVICE, { code: input.code, version: base.version, effective_from: base.effective_from });
+  }
+
+  const problem = scheduleProblem(rules.schedules ?? [], rules.schedule_by_unit ?? {});
+  if (problem) return invalid(SERVICE, problem.code, problem.message, { field: "schedules" });
+
+  const spent = state.payroll_runs
+    .filter((r) => r.status !== "DRAFT" && r.period_end >= from)
+    .sort((a, b) => a.period_start.localeCompare(b.period_start))[0];
+  if (spent) {
+    return conflict(SERVICE, "already_paid",
+      `${spent.run_no} sudah ditandatangani untuk periode yang berakhir ${from} atau sesudahnya. Aturan tidak bisa mundur melewati uang yang sudah dibayarkan — terbitkan yang baru berlaku setelahnya.`);
+  }
+  const clash = state.payroll_runs.find((r) => from > r.period_start && from <= r.period_end);
+  if (clash) {
+    return conflict(SERVICE, "inside_existing_run",
+      `${clash.run_no} mencakup tanggal itu, dan periode itu dihitung dengan aturan yang berlaku saat dibuka. Pilih tanggal di luar periode yang sudah ada.`);
+  }
+
+  const user = actingUser();
+  let version = 0;
+  apply((draft) => {
+    version = Math.max(0, ...draft.pay_rule_sets.map((r) => r.version)) + 1;
+    draft.pay_rule_sets.push({
+      id: newId("prs"), version, effective_from: from, note: input.note.trim(), rules,
+      created_by: user.id, created_at: new Date().toISOString(),
+    });
+    writeAudit(draft, {
+      service: SERVICE, entity: "schedule", entity_no: input.code,
+      action: "set_days", outcome: "ok", reason: input.note.trim(),
+      detail: {
+        before: { days: old.days ?? {} },
+        after: { days: input.days ?? {}, version, effective_from: from },
+        by: user.email,
+      },
+    });
+  });
+  const answer = { code: input.code, version, effective_from: from };
+  remember(SERVICE, "setScheduleDays", idempotencyKey, answer);
   return ok(SERVICE, answer);
 }
 

@@ -56,7 +56,7 @@ import {
   EMPLOYEE_DOC_CHECKLIST, EMPLOYEE_DOC_LABEL, SENSITIVE_DOC_KINDS,
   ADJUSTMENT_LABEL, SCHEME_LABEL,
 } from "@/services/hr/contracts";
-import { instantInDay, nextOfficeDay } from "@/services/hr/schedule-rules";
+import { instantInDay, nextOfficeDay, type ScheduleDay, type ScheduleWeekDay } from "@/services/hr/schedule-rules";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fromSeam, fromRows, notFound, invalid, ok, type Result } from "./_kit";
 import { link as linkDocument } from "./documents";
@@ -237,6 +237,8 @@ export async function listSchedules(): Promise<Result<{
     overnight: boolean;
     /** Where this pattern's next working day begins, minutes after midnight. */
     day_boundary_minutes: number;
+    /** The seven days as the reading sees them (D340). */
+    week: ScheduleWeekDay[];
   })[];
   unlinked: { employee_no: string; full_name: string; unit: string }[];
   inherited: { employee_no: string; full_name: string; unit: string; schedule_code: string }[];
@@ -305,6 +307,29 @@ export async function setScheduleHours(
     p_start_minutes: input.start_minutes,
     p_end_minutes: input.end_minutes,
     p_break_minutes: input.break_minutes,
+    p_effective_from: input.effective_from,
+    p_note: input.note,
+    p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<{ code: string; version: number; effective_from: string }>(SERVICE, data, error);
+}
+
+/** HRD sets one pattern's weekdays — hours, break and what a day is worth
+ *  (D340). The whole `days` object is replaced; `{}` sends every weekday back
+ *  to the pattern's own hours. Same dated-version rules as
+ *  `setScheduleHours`. */
+export async function setScheduleDays(
+  input: {
+    code: string;
+    days: Record<string, ScheduleDay>;
+    effective_from: string;
+    note: string;
+  },
+  idempotencyKey?: string,
+): Promise<Result<{ code: string; version: number; effective_from: string }>> {
+  const { data, error } = await db().rpc("set_schedule_days", {
+    p_code: input.code,
+    p_days: input.days,
     p_effective_from: input.effective_from,
     p_note: input.note,
     p_key: idempotencyKey ?? null,
@@ -1050,6 +1075,9 @@ interface DayRow {
   window_from: string;
   window_to: string;
   overnight: boolean;
+  /** 0195 (D340). */
+  pay_multiplier: number | null;
+  scheduled_hours: number | null;
 }
 
 interface ScanRow {
@@ -1118,6 +1146,8 @@ function buildDay(row: DayRow, scans: ScanRow[], marks: DayMark[]): TimesheetDay
     window_from: row.window_from,
     window_to: row.window_to,
     overnight: row.overnight,
+    pay_multiplier: row.pay_multiplier == null ? 1 : Number(row.pay_multiplier),
+    scheduled_hours: row.scheduled_hours == null ? null : Number(row.scheduled_hours),
   };
 }
 
