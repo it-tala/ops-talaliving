@@ -187,8 +187,8 @@ export default function EmployeesPage() {
                 <CardHeader
                   title={tr(`${active.length} working here`, `${active.length} bekerja di sini`)}
                   subtitle={tr(
-                    "Click somebody to change what they are paid — the figure before and after goes on the audit row.",
-                    "Klik seseorang untuk mengubah bayarannya — angka sebelum dan sesudahnya dicatat di baris audit.",
+                    "Click somebody to change what they are paid, or to offboard them — the figure before and after goes on the audit row.",
+                    "Klik seseorang untuk mengubah bayarannya atau mengeluarkannya — angka sebelum dan sesudahnya dicatat di baris audit.",
                   )}
                   icon={Users}
                   action={<SourceBadge state={rows} />}
@@ -205,6 +205,7 @@ export default function EmployeesPage() {
                   <CardHeader title={tr(`${left.length} who have left`, `${left.length} yang sudah keluar`)} icon={Wallet} />
                   <DataTable
                     dense columns={columns} rows={left} rowKey={(e) => e.employee_no}
+                    onRowClick={(e) => mayEdit && setEditing(e)}
                     empty={tr("Nobody has left.", "Belum ada yang keluar.")}
                   />
                 </Card>

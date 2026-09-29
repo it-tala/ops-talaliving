@@ -15,7 +15,7 @@ import type {
   Task, TaskView, TaskRefKind, KpiView,
   ContractKind, ClauseKind, ClauseChecklistItem, EmploymentContract,
   ContractView, ContractDetail, ContractClause, ClauseConflict, TimesheetTotal, DayState,
-  EffectiveDaysCalendar, EmployeeAccount,
+  EffectiveDaysCalendar, EmployeeAccount, ScanImportResult,
   TapReading, TapSelfResult, LocationJudgement, LocationVerdict, WorkSite, LocatedTapView,
 } from "@/services/hr/contracts";
 import {
@@ -299,6 +299,109 @@ export async function saveEmployee(
   const view = saved as Employee | null;
   if (!view) return invalid(SERVICE, "not_saved", "The record could not be written.", { field: "employee_no" });
   remember(SERVICE, "saveEmployee", idempotencyKey, view);
+  return ok(SERVICE, view);
+}
+
+/** The bare number the machine prints: `B-0012`, `012` and `12` are the same
+ *  finger — `ops_hr.machine_no` (0192), stated the same way here. */
+function machineNo(no: string): string {
+  const s = no.trim().replace(/^[A-Za-z]+-/, "");
+  if (!s) return "";
+  return /^\d+$/.test(s) ? s.replace(/^0+/, "") || "0" : s;
+}
+
+/** Somebody leaving: a date and a sentence (D337). Nothing is deleted — every
+ *  period they worked still resolves them (A5) — and the answer counts the
+ *  taps already after the date, so a date set too early shows now. */
+export async function offboardEmployee(
+  input: { employee_no: string; left_on: string; reason: string },
+  idempotencyKey?: string,
+): Promise<Result<Employee & { taps_after: number }>> {
+  await latency();
+  const cached = replayed<Employee & { taps_after: number }>(SERVICE, "offboardEmployee", idempotencyKey);
+  if (cached) return cached;
+
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+  if (!input.reason.trim()) {
+    return invalid(
+      SERVICE, "reason_required",
+      "Tulis alasannya — resign, kontrak selesai, tidak kembali. Yang keluar tanpa kalimat tidak bisa dijelaskan saat slip gajinya ditanyakan.",
+      { field: "reason" },
+    );
+  }
+  const state = getState();
+  const emp = state.employees.find((e) => e.employee_no === input.employee_no.trim());
+  if (!emp) return notFound(SERVICE, "not_found", `Tidak ada karyawan ${input.employee_no}.`);
+  if (!emp.active) {
+    return conflict(SERVICE, "already_left", `${emp.full_name} sudah keluar per ${emp.left_on ?? "—"}.`);
+  }
+  const leftOn = input.left_on || sharedOfficeToday();
+  if (emp.joined_on && leftOn < emp.joined_on) {
+    return invalid(
+      SERVICE, "left_before_joined",
+      `Tanggal keluar ${leftOn} sebelum tanggal masuknya (${emp.joined_on}). Kalau tanggal masuknya yang salah, betulkan dulu di data karyawan.`,
+      { field: "left_on" },
+    );
+  }
+  const tapsAfter = state.attendance_scans.filter((s) => s.employee_id === emp.id && s.work_date > leftOn).length;
+  const user = actingUser();
+  let saved: Employee | null = null;
+  apply((draft) => {
+    const row = draft.employees.find((e) => e.id === emp.id);
+    if (!row) return;
+    row.active = false;
+    row.left_on = leftOn;
+    saved = row;
+    writeAudit(draft, {
+      service: SERVICE, entity: "employee", entity_no: row.employee_no,
+      action: "offboard", outcome: "ok", reason: input.reason.trim(),
+      detail: { left_on: leftOn, taps_after: tapsAfter, by: user.email },
+    });
+  });
+  const view = saved as Employee | null;
+  if (!view) return notFound(SERVICE, "not_found", `Tidak ada karyawan ${input.employee_no}.`);
+  const result = { ...view, taps_after: tapsAfter };
+  remember(SERVICE, "offboardEmployee", idempotencyKey, result);
+  return ok(SERVICE, result);
+}
+
+/** The undo — the wrong person, the wrong date, or the worker who came back. */
+export async function reinstateEmployee(
+  input: { employee_no: string; reason: string },
+  idempotencyKey?: string,
+): Promise<Result<Employee>> {
+  await latency();
+  const cached = replayed<Employee>(SERVICE, "reinstateEmployee", idempotencyKey);
+  if (cached) return cached;
+
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+  if (!input.reason.trim()) {
+    return invalid(SERVICE, "reason_required", "Tulis alasannya — salah orang, salah tanggal, atau kembali bekerja.", { field: "reason" });
+  }
+  const emp = getState().employees.find((e) => e.employee_no === input.employee_no.trim());
+  if (!emp) return notFound(SERVICE, "not_found", `Tidak ada karyawan ${input.employee_no}.`);
+  if (emp.active) return conflict(SERVICE, "already_active", `${emp.full_name} masih aktif.`);
+
+  const user = actingUser();
+  let saved: Employee | null = null;
+  apply((draft) => {
+    const row = draft.employees.find((e) => e.id === emp.id);
+    if (!row) return;
+    const before = row.left_on;
+    row.active = true;
+    row.left_on = null;
+    saved = row;
+    writeAudit(draft, {
+      service: SERVICE, entity: "employee", entity_no: row.employee_no,
+      action: "reinstate", outcome: "ok", reason: input.reason.trim(),
+      detail: { left_on_before: before, by: user.email },
+    });
+  });
+  const view = saved as Employee | null;
+  if (!view) return notFound(SERVICE, "not_found", `Tidak ada karyawan ${input.employee_no}.`);
+  remember(SERVICE, "reinstateEmployee", idempotencyKey, view);
   return ok(SERVICE, view);
 }
 
@@ -651,11 +754,9 @@ export async function listLocatedTaps(
 export async function importScans(
   input: { filename: string; rows: { employee_ref: string; at: string; verify: string; location?: string | null }[] },
   idempotencyKey?: string,
-): Promise<Result<{ import_id: string; added: number; duplicates: number; unknown: { ref: string; count: number }[] }>> {
+): Promise<Result<ScanImportResult>> {
   await latency();
-  const cached = replayed<{ import_id: string; added: number; duplicates: number; unknown: { ref: string; count: number }[] }>(
-    SERVICE, "importScans", idempotencyKey,
-  );
+  const cached = replayed<ScanImportResult>(SERVICE, "importScans", idempotencyKey);
   if (cached) return cached;
 
   const denied = requireModule(SERVICE, "hrd");
@@ -665,7 +766,7 @@ export async function importScans(
   }
 
   const state = getState();
-  const byRef = new Map(state.employees.map((e) => [e.employee_no.replace(/^B-0*/, ""), e]));
+  const byRef = new Map(state.employees.map((e) => [machineNo(e.employee_no), e]));
   const seen = new Set(state.attendance_scans.map((s) => `${s.employee_id}|${s.at}`));
 
   const user = actingUser();
@@ -673,12 +774,22 @@ export async function importScans(
   let added = 0;
   let duplicates = 0;
   const unknown = new Map<string, number>();
+  /* A tap after somebody's last day is set aside and named, never filed and
+     never a reason to refuse the file (D337). */
+  const afterLeft = new Map<string, { ref: string; name: string; left_on: string; count: number }>();
 
   apply((draft) => {
     for (const row of input.rows) {
-      const emp = byRef.get(row.employee_ref.replace(/^0+/, ""));
+      const emp = byRef.get(machineNo(row.employee_ref));
       if (!emp) {
         unknown.set(row.employee_ref, (unknown.get(row.employee_ref) ?? 0) + 1);
+        continue;
+      }
+      if (emp.left_on && row.at.slice(0, 10) > emp.left_on) {
+        const seenLeft = afterLeft.get(row.employee_ref)
+          ?? { ref: row.employee_ref, name: emp.full_name, left_on: emp.left_on, count: 0 };
+        seenLeft.count += 1;
+        afterLeft.set(row.employee_ref, seenLeft);
         continue;
       }
       const key = `${emp.id}|${row.at}`;
@@ -704,14 +815,15 @@ export async function importScans(
       action: "import", outcome: "ok", reason: input.filename,
       detail: {
         rows: input.rows.length, added, duplicates,
-        unknown: [...unknown.keys()], by: user.email,
+        unknown: [...unknown.keys()], after_left: [...afterLeft.keys()], by: user.email,
       },
     });
   });
 
-  const result = {
+  const result: ScanImportResult = {
     import_id: importId, added, duplicates,
     unknown: [...unknown.entries()].map(([ref, count]) => ({ ref, count })),
+    after_left: [...afterLeft.values()],
   };
   remember(SERVICE, "importScans", idempotencyKey, result);
   return ok(SERVICE, result);

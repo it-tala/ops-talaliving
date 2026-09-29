@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Upload, FileSpreadsheet, AlertTriangle } from "lucide-react";
+import { Upload, FileSpreadsheet, AlertTriangle, UserMinus } from "lucide-react";
 import { Modal } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/primitives";
 import { hr } from "@/demo/api";
@@ -9,6 +9,7 @@ import { readBiometricFile, type ParsedRow } from "@/lib/biometricFile";
 import { OFFICE_TZ } from "@/lib/office";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
+import type { ScanImportResult } from "@/services/hr/contracts";
 
 /** Taking the fingerprint machine's own export.
  *
@@ -19,6 +20,10 @@ import { useTr } from "@/lib/i18n";
  *    reported back as a question, not created as a person. Somebody the payroll
  *    does not know about is a conversation with HRD, and creating them silently
  *    is how a ghost ends up on a payslip (D143).
+ *  - **The file is never refused for the people it does not know** (D337).
+ *    Every tap of a registered person is filed; a number nobody is registered
+ *    under, and a tap after somebody's last working day, are set aside and
+ *    named — the rest of the week still goes in.
  *  - **Re-uploading is safe.** A tap is who and when, to the second; the second
  *    upload of the same week adds nothing.
  *  - **The time is read on the office clock** (`src/lib/office.ts`, WIB since
@@ -36,9 +41,7 @@ export function ImportScans({ onClose, onDone }: { onClose: () => void; onDone: 
   const { toast } = useToast();
   const [file, setFile] = useState<{ name: string; rows: ParsedRow[]; skipped: number } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{
-    added: number; duplicates: number; unknown: { ref: string; count: number }[];
-  } | null>(null);
+  const [result, setResult] = useState<ScanImportResult | null>(null);
 
   async function read(f: File) {
     const { rows, skipped } = await readBiometricFile(f);
@@ -66,8 +69,8 @@ export function ImportScans({ onClose, onDone }: { onClose: () => void; onDone: 
       res.data.added > 0 ? "success" : "info",
       tr(`${res.data.added} tap(s) added`, `${res.data.added} tap ditambahkan`),
       tr(
-        `${res.data.duplicates} already on file${res.data.unknown.length > 0 ? ` · ${res.data.unknown.length} unknown number(s)` : ""}`,
-        `${res.data.duplicates} sudah tercatat${res.data.unknown.length > 0 ? ` · ${res.data.unknown.length} nomor tidak dikenal` : ""}`,
+        `${res.data.duplicates} already on file${res.data.unknown.length > 0 ? ` · ${res.data.unknown.length} unknown number(s)` : ""}${res.data.after_left.length > 0 ? ` · ${res.data.after_left.length} already left` : ""}`,
+        `${res.data.duplicates} sudah tercatat${res.data.unknown.length > 0 ? ` · ${res.data.unknown.length} nomor tidak dikenal` : ""}${res.data.after_left.length > 0 ? ` · ${res.data.after_left.length} sudah keluar` : ""}`,
       ),
     );
   }
@@ -185,8 +188,8 @@ export function ImportScans({ onClose, onDone }: { onClose: () => void; onDone: 
                 </p>
                 <p className="mt-1 text-[12px] text-amber-900">
                   {tr(
-                    "These taps were left out. Nobody was created for them — add the person under",
-                    "Tap ini dilewati. Tidak ada orang yang dibuat untuknya — tambahkan orangnya di",
+                    "Everybody registered was imported; only these taps were left out. Nobody was created for them — add the person under",
+                    "Semua karyawan terdaftar sudah masuk; hanya tap ini yang dilewati. Tidak ada orang yang dibuat untuknya — tambahkan orangnya di",
                   )}
                   <span className="font-medium"> {tr("HRD → Employees", "HRD → Karyawan")}</span>{" "}
                   {tr(
@@ -198,6 +201,28 @@ export function ImportScans({ onClose, onDone }: { onClose: () => void; onDone: 
                   {result.unknown.map((u) => (
                     <li key={u.ref} className="rounded-lg border border-amber-300 bg-white px-2 py-0.5 font-mono text-[11px] text-amber-900">
                       {u.ref} · {u.count} tap
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {result.after_left.length > 0 && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="flex items-center gap-2 text-[13px] font-semibold text-slate-800">
+                  <UserMinus className="h-4 w-4 text-slate-500" />
+                  {tr("Taps after somebody left", "Tap setelah orangnya keluar")}
+                </p>
+                <p className="mt-1 text-[12px] text-slate-600">
+                  {tr(
+                    "Set aside, not filed. If the number was given to somebody new, register them under a new number on the machine; if the person came back, reinstate them under HRD → Employees and upload again.",
+                    "Disisihkan, tidak dicatat. Kalau nomornya dipakai orang baru, daftarkan orang itu dengan nomor baru di mesin; kalau orangnya kembali bekerja, aktifkan kembali di HRD → Karyawan lalu unggah lagi.",
+                  )}
+                </p>
+                <ul className="mt-2 flex flex-wrap gap-2">
+                  {result.after_left.map((u) => (
+                    <li key={u.ref} className="rounded-lg border border-slate-300 bg-white px-2 py-0.5 text-[11px] text-slate-700">
+                      <span className="font-mono">{u.ref}</span> · {u.name} · {tr("left", "keluar")} {u.left_on} · {u.count} tap
                     </li>
                   ))}
                 </ul>

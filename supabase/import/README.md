@@ -39,6 +39,7 @@ Each file ends by printing what it did. Read that, not the exit code.
 | 9 | `products` → `ops_prod.products` (+ drawing links) | 27 | `06_products.sql` — needs `0060`–`0066`, `0108`–`0110` — **applied 2026-09-23: 27 products, 27 drawing links** |
 | 10 | corrections to what the import carried faithfully | 2 | `07_corrections.sql` — **applied 2026-09-23** |
 | 11 | the PR recap tabs of the `2026 PURCHASE-PAYMENT TRACKER` sheet → `ops_procure.pr_*`, cross-referenced to the ledger through `ops_acct.payment_allocations` | 354 rows → 288 lines | `08_purchase_requests.sql` — **applied 2026-09-23** |
+| 12 | the payroll's daily-worker list (`ops_hr_employees_daily_workers.xlsx`, 30 weekly sheets) → `ops_hr.employees` | 37 (+15 `joined_on`) | `10_hr_daily_workers.sql` — needs `0192`. Not a legacy read; here because it is data, not schema (D337) |
 
 ### Step 1 is not an `insert … select`
 

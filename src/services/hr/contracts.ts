@@ -126,6 +126,22 @@ import that brought it in, so a re-upload is a no-op rather than a
   recorded_at: string;
 }
 
+/** What one upload of the machine's file did (D143, D337).
+ *
+ *  The file is **never refused for the people it does not know**: every tap
+ *  of a registered person is filed, and the rest are named rather than
+ *  dropped — `unknown` for a number nobody is registered under, `after_left`
+ *  for taps after somebody's last working day. Neither creates anybody. */
+export interface ScanImportResult {
+  import_id: string;
+  added: number;
+  duplicates: number;
+  unknown: { ref: string; count: number }[];
+  /** A leaver's finger still on the machine, or a number handed to somebody
+   *  new. Set aside, not filed; `left_on` is there so HRD can tell which. */
+  after_left: { ref: string; name: string; left_on: string; count: number }[];
+}
+
 /** The six things a full day is made of, in the order they happen. */
 export const SCAN_SLOTS = ["in", "break_out", "break_in", "out", "ot_start", "ot_end"] as const;
 export type ScanSlot = (typeof SCAN_SLOTS)[number];
