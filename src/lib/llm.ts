@@ -68,11 +68,46 @@ const DEFAULT_MODEL: Record<LlmProvider, string> = {
   openai: "gpt-4.1-mini",
 };
 
+/** Which provider a key belongs to, when the key says so itself.
+ *
+ *  Anthropic keys begin `sk-ant-` and Google AI Studio keys `AIza`. A key sent
+ *  to the other company can only ever answer *API key not valid*, which is
+ *  what the first BOM reading in production answered (D336): the Claude key
+ *  was set, the provider was not, and the default sent it to Gemini. */
+function providerOfKey(key: string): LlmProvider | null {
+  if (key.startsWith("sk-ant-")) return "anthropic";
+  if (key.startsWith("AIza")) return "gemini";
+  return null;
+}
+
+/** What people actually type into the setting. */
+const PROVIDER_ALIAS: Record<string, LlmProvider> = {
+  gemini: "gemini", google: "gemini",
+  anthropic: "anthropic", claude: "anthropic",
+  openai: "openai", chatgpt: "openai", gpt: "openai",
+};
+
+/** A model name only one provider serves. A Gemini model left in
+ *  `ASSISTANT_LLM_MODEL` after switching to Claude would otherwise answer
+ *  *model not found*. `openai` is exempt: its endpoint may be any compatible
+ *  gateway, serving any name. */
+function modelFits(provider: LlmProvider, model: string): boolean {
+  if (provider === "anthropic") return model.startsWith("claude");
+  if (provider === "gemini") return model.startsWith("gemini");
+  return true;
+}
+
 /** The configuration, or null when this deployment has no model.
  *
  *  Null is an ordinary state and not an error: John Lau worked on keywords
  *  before a model existed and still does without one. The caller says *not
- *  configured* in a sentence rather than failing. */
+ *  configured* in a sentence rather than failing.
+ *
+ *  **The key decides where it goes** when it can (D336): an `sk-ant-` key is
+ *  Anthropic's whatever `ASSISTANT_LLM_PROVIDER` says, because sending it
+ *  anywhere else cannot succeed. The setting still decides for a key that
+ *  names no company (an OpenAI-compatible gateway's), and `gemini` stays the
+ *  default for those, so no other deployment changes. */
 export function llmConfig(): LlmConfig | null {
   if (typeof window !== "undefined") {
     throw new Error("The model key is server-only and was read in a browser.");
@@ -85,16 +120,20 @@ export function llmConfig(): LlmConfig | null {
       );
     }
   }
-  const raw = (process.env.ASSISTANT_LLM_PROVIDER ?? "gemini").trim().toLowerCase();
-  if (raw !== "gemini" && raw !== "anthropic" && raw !== "openai") {
-    throw new Error(`ASSISTANT_LLM_PROVIDER=${raw} is not one of gemini, anthropic, openai.`);
-  }
-  const provider = raw as LlmProvider;
   const apiKey = process.env.ASSISTANT_LLM_API_KEY?.trim();
   if (!apiKey) return null;
+
+  const raw = (process.env.ASSISTANT_LLM_PROVIDER ?? "").trim().toLowerCase();
+  const named = raw ? PROVIDER_ALIAS[raw] : undefined;
+  if (raw && !named) {
+    throw new Error(`ASSISTANT_LLM_PROVIDER=${raw} is not one of gemini, anthropic, openai.`);
+  }
+  const provider: LlmProvider = providerOfKey(apiKey) ?? named ?? "gemini";
+
+  const asked = process.env.ASSISTANT_LLM_MODEL?.trim();
   return {
     provider,
-    model: process.env.ASSISTANT_LLM_MODEL?.trim() || DEFAULT_MODEL[provider],
+    model: asked && modelFits(provider, asked) ? asked : DEFAULT_MODEL[provider],
     apiKey,
     baseUrl: process.env.ASSISTANT_LLM_BASE_URL?.trim() || null,
   };
