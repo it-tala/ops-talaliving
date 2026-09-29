@@ -8253,3 +8253,33 @@ model's 20 % became the owner's 15 % and the yield's 25 %, a cited
 *Kontingensi* was not taken as waste, and an unbacked 12 % stayed with a
 warning. **Not verified here:** a real model reading a real drawing, as in
 D324. The stub was reverted before commit.
+
+## F195 · 2026-09-29 · `(f(x)).*` runs `f` once per column, and the payslip kept adding columns
+
+`/hrd/payroll/minggu` stopped loading with *canceling statement due to
+statement timeout* (57014). In production one call of
+`ops_hr.period_lines('2026-09-21','2026-09-27')` took 24.8 s for 45 people,
+and the page makes two (`period_lines` for the rows, `payroll_totals` for
+the header, which reads `period_lines` again). `authenticated` stops a
+statement at 8 s.
+
+`payroll_line_for` was not the slow part: called directly, per person, the
+slowest took 38 ms and the whole week about half a second. The cause was the
+shape `period_lines` has had since `0057`:
+
+    cross join lateral (select (ops_hr.payroll_line_for(...)).*) l
+
+Postgres rewrites `(f(x)).*` as one `(f(x)).col` per column and evaluates
+`f` for each. `payroll_figures` now has 47 columns, so each person's
+timesheet, overtime rungs, allowance and BPJS were worked out 47 times. No
+single migration made it slow; every column the payslip gained (most of
+them in `0119`) multiplied the cost, until it crossed the timeout.
+
+`0194` puts the function in `FROM` (`cross join lateral f(...) l`), where it
+runs once per row: 24.8 s → 0.54 s on the same production week, and the 45
+rows are identical to the old form's (`to_jsonb` of each, `except`, 0
+different).
+
+**Rule:** never `select (f(...)).*` for a function that does work. Call it in
+`FROM`. The only other live instance is `ops_hr.v_kpi_run` (`0064`,
+`(ops_hr.kpi(...)).*`), left for its own change.
