@@ -121,6 +121,13 @@ jobs:
       - name: the clause form matches the constraint behind it
         run: node scripts/check-clause-fields.mjs
 
+      # The AI's BOM proposal takes each line's waste from the business's norm,
+      # the way it takes the price from the rate list (0193, D338). No screen
+      # shows the difference between *the norm gives 25 %* and *the model wrote
+      # 20 % and cited the norm*, so the validator is run on fixed answers.
+      - name: the BOM proposal is held to the business's norms
+        run: node scripts/check-bom-norms.mjs
+
       # No Supabase variables here, deliberately. The build has to succeed with
       # none set, because that is how the deployed app runs today — demo mode,
       # browser-held fixtures, no database. `useRealApi()` requires both the

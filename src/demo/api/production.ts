@@ -9,8 +9,9 @@ import {
   type WorkAttribution, type BomKind,
   type JobTrail, type TrailEvent, type TrailStage,
   BOM_RATE_GROUPS, type BomRate, type BomRateGroup, type BomRateView,
-  type BomSuggestion, type BomSuggestionLine,
+  type BomSuggestion, type BomSuggestionLine, type BomNorm, type FinishingStep, type FinishingSystem,
 } from "@/services/production/contracts";
+import { normLabel, wasteFromNorm } from "@/lib/bom-norms";
 import type { ProjectStatus } from "@/services/procurement/contracts";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
 import {
@@ -1467,6 +1468,68 @@ export async function saveBomRate(
   return ok(SERVICE, rateView(getState(), saved));
 }
 
+/* ------------------------------------------------------------------ */
+/* The business's estimating rules (0193, D338)                          */
+/* ------------------------------------------------------------------ */
+
+/** Production reads them; anyone else reads nothing — RLS's answer, an empty
+ *  list rather than a refusal. */
+const readsProduction = () => actingUser().modules.some((m) => m.module === "production");
+
+/** The same test `v_bom_norm` makes: in force once its date has arrived. */
+const inForce = (d: string | null) => d == null || d <= officeToday();
+
+/** The norms in force (`v_bom_norm`). Read-only, like the table. */
+export async function listBomNorms(): Promise<Result<BomNorm[]>> {
+  await latency();
+  if (!readsProduction()) return ok(SERVICE, []);
+  const rows = (getState().bom_norms ?? [])
+    .filter((n) => inForce(n.effective_on))
+    .sort((a, b) => a.category.localeCompare(b.category) || a.norm.localeCompare(b.norm));
+  return ok(SERVICE, rows);
+}
+
+/** Each finishing system, totalled per m², as the rate it could become
+ *  (`v_finishing_system`). Offered, never written: adding one is
+ *  `saveBomRate`, pressed by a person (D324 default 2). */
+export async function listFinishingSystems(): Promise<Result<FinishingSystem[]>> {
+  await latency();
+  if (!readsProduction()) return ok(SERVICE, []);
+  const state = getState();
+  const systems = new Map<string, FinishingStep[]>();
+  const dates = new Map<string, string | null>();
+  for (const r of state.finishing_recipes ?? []) {
+    if (!inForce(r.effective_on)) continue;
+    const optional = /\b(optional|opsional)\b/i.test(r.step);
+    systems.set(r.system, [...(systems.get(r.system) ?? []), {
+      step: r.step, product: r.product, unit_price: r.unit_price, uom: r.uom,
+      coverage_m2_per_unit: r.coverage_m2_per_unit, coats: r.coats,
+      cost_per_m2: r.cost_per_m2, optional, remarks: r.remarks,
+    }]);
+    const d = dates.get(r.system) ?? null;
+    dates.set(r.system, d && r.effective_on && d > r.effective_on ? d : r.effective_on ?? d);
+  }
+  const rows: FinishingSystem[] = [...systems.entries()].map(([system, steps]) => {
+    const breakdown = [...steps].sort((a, b) => Number(a.optional) - Number(b.optional) || a.step.localeCompare(b.step));
+    const rate_name = `Finishing ${system}`;
+    const listed = (state.bom_rates ?? []).find((r) => r.active
+      && r.name.trim().toLowerCase() === rate_name.toLowerCase());
+    return {
+      system,
+      steps: steps.length,
+      unpriced_steps: steps.filter((x) => x.cost_per_m2 == null).length,
+      cost_per_m2: Math.round(steps.reduce((a, x) => a + (x.cost_per_m2 ?? 0), 0)),
+      optional_cost_per_m2: Math.round(steps.filter((x) => x.optional).reduce((a, x) => a + (x.cost_per_m2 ?? 0), 0)),
+      effective_on: dates.get(system) ?? null,
+      breakdown,
+      rate_name,
+      rate_code: listed?.code ?? null,
+      listed_rate: listed?.rate ?? null,
+    };
+  }).sort((a, b) => a.system.localeCompare(b.system));
+  return ok(SERVICE, rows);
+}
+
 /** A BOM proposed from the working drawing (D324).
  *
  *  The live build sends the drawing to a language model through
@@ -1495,6 +1558,9 @@ export async function suggestBom(
       { field: "size" });
   }
   const rates = (state.bom_rates ?? []).filter((r) => r.active);
+  const norms = (state.bom_norms ?? []).filter((n) => inForce(n.effective_on));
+  const lines = sandboxEstimate(product.category, L, W, H, rates, norms);
+  const timberNorm = lines.find((l) => l.rate_code && rates.find((r) => r.code === l.rate_code)?.rate_group === "kayu")?.waste_norm;
   return ok(SERVICE, {
     product_code: product.product_code,
     drawing: { attachment_id: drawing.attachment_id, filename: drawing.filename },
@@ -1503,20 +1569,38 @@ export async function suggestBom(
       `Sandbox estimate for ${product.name}, worked out from its size (${L} × ${W} × ${H} mm) — not read from the drawing. Check every quantity.`,
       `Estimasi sandbox untuk ${product.name}, dihitung dari ukurannya (${L} × ${W} × ${H} mm) — bukan dibaca dari gambar. Periksa setiap jumlah.`,
     ),
-    lines: sandboxEstimate(product.category, L, W, H, rates),
+    lines,
     assumptions: [
       trNow("Solid timber parts 25 mm thick for panels, 50 × 50 mm for legs.", "Bagian kayu solid tebal 25 mm untuk panel, 50 × 50 mm untuk kaki."),
-      trNow("Finishing on every visible face; 12% waste on timber.", "Finishing di semua sisi yang terlihat; susut kayu 12%."),
+      timberNorm
+        ? trNow(`Finishing on every visible face; timber waste from the norm ${timberNorm}.`,
+          `Finishing di semua sisi yang terlihat; susut kayu dari norma ${timberNorm}.`)
+        : trNow("Finishing on every visible face; 12% waste on timber (no business norm).", "Finishing di semua sisi yang terlihat; susut kayu 12% (tidak ada norma bisnis)."),
     ],
     unread: [],
+    norms: norms.length,
   });
 }
 
 /** The sandbox's stand-in for reading a drawing: a table, a chair or a
- *  cabinet, cut from its three dimensions and priced from the rate list. */
+ *  cabinet, cut from its three dimensions and priced from the rate list. Its
+ *  timber and plywood waste and the plywood sheet come from the business's
+ *  norms when it has them (0193), the way the live model is told to take
+ *  them; without norms it falls back to the figures it always used. */
 function sandboxEstimate(
-  category: string, L: number, W: number, H: number, rates: BomRate[],
+  category: string, L: number, W: number, H: number, rates: BomRate[], norms: BomNorm[] = [],
 ): BomSuggestionLine[] {
+  /* decision, then empirical, then industry — the precedence the model is given. */
+  const SOURCES = ["decision", "empirical", "industry"];
+  const rank = (n: BomNorm) => (SOURCES.includes(n.source_kind ?? "") ? SOURCES.indexOf(n.source_kind!) : SOURCES.length);
+  const wasteNorm = (category: RegExp, name: RegExp = /./) => norms
+    .filter((n) => category.test(n.category) && name.test(n.norm) && wasteFromNorm(n) != null)
+    .sort((a, b) => rank(a) - rank(b))[0] ?? null;
+  const woodNorm = wasteNorm(/^(wood|kayu)$/i);
+  const plyNorm = wasteNorm(/^panel$/i, /plywood|panel/i);
+  const sheetNorm = norms.find((n) => /^panel$/i.test(n.category) && /standard sheet|lembar standar/i.test(n.norm) && n.value);
+  const timberWaste = woodNorm ? wasteFromNorm(woodNorm)! : 12;
+  const plyWaste = plyNorm ? wasteFromNorm(plyNorm)! : 10;
   const pick = (group: BomRateGroup, prefer: RegExp[] = []) => {
     const inGroup = rates.filter((r) => r.rate_group === group);
     for (const re of prefer) {
@@ -1531,12 +1615,13 @@ function sandboxEstimate(
   const timber = pick("kayu", [/mindi/i]);
   const add = (
     part: string, kind: "material" | "labour", r: BomRate | null, material: string,
-    qty: number, uom: string, working: string, waste = 0,
+    qty: number, uom: string, working: string, waste = 0, wasteNormUsed: BomNorm | null = null,
   ) => {
     if (qty <= 0) return;
     lines.push({
       part, kind, rate_code: r?.code ?? null, material: r?.name ?? material,
-      qty, uom: r?.uom ?? uom, waste_percent: waste, rate: r?.rate ?? null,
+      qty, uom: r?.uom ?? uom, waste_percent: waste,
+      waste_norm: wasteNormUsed && waste > 0 ? normLabel(wasteNormUsed) : null, rate: r?.rate ?? null,
       working, confidence: "medium",
       warnings: r ? [] : [trNow(`No rate on the list for ${material} — pick one or add it.`, `Belum ada rate untuk ${material} di daftar — pilih atau tambahkan.`)],
     });
@@ -1547,7 +1632,7 @@ function sandboxEstimate(
   const timberPart = (part: string, n: number, a: number, b: number, c: number) => {
     const v = m3(n, a, b, c);
     volume = Math.round((volume + v) * 1e4) / 1e4;
-    add(part, "material", timber, wood, v, "m3", `${n} × ${a}×${b}×${c} mm = ${fmt(v)} m³`, 12);
+    add(part, "material", timber, wood, v, "m3", `${n} × ${a}×${b}×${c} mm = ${fmt(v)} m³`, timberWaste, woodNorm);
   };
   if (/kursi|chair|stool/.test(cat)) {
     const seat = Math.round(H * 0.5);
@@ -1560,8 +1645,11 @@ function sandboxEstimate(
     timberPart("Samping", 2, H, W, 25);
     timberPart("Pintu / depan", 1, L, H, 20);
     const ply = pick("material", [/plywood/i]);
-    const sheets = Math.ceil((L * H) / (1220 * 2440) * 10) / 10;
-    add("Panel belakang", "material", ply, "Plywood", sheets, "lembar", `${L}×${H} mm ÷ 1220×2440 = ${fmt(sheets)} lembar`, 10);
+    const sheetM2 = sheetNorm?.value ?? 2.9768;
+    const sheets = Math.ceil((L * H) / 1e6 / sheetM2 * 10) / 10;
+    add("Panel belakang", "material", ply, "Plywood", sheets, "lembar",
+      `${L}×${H} mm ÷ ${fmt(sheetM2)} m²/lembar${sheetNorm ? ` (${normLabel(sheetNorm)})` : ""} = ${fmt(sheets)} lembar`,
+      plyWaste, plyNorm);
   } else {
     const top = 25;
     timberPart("Top", 1, L, W, top);

@@ -37,6 +37,10 @@ export interface NavItem {
    *  is a normal account, and it must still be able to reach the rules it is
    *  the only one allowed to change. */
   orPermission?: string;
+  /** An authority that also opens the item. Leadership decides overtime by
+   *  the `approve_overtime` authority and usually holds no HR module, so the
+   *  one screen where overtime is decided has to be reachable by it (D333). */
+  orAuthority?: import("@/services/identity/contracts").Authority;
   badge?: "core" | "new";
 }
 
@@ -65,7 +69,7 @@ export const NAV: NavSection[] = [
       { label: "Work schedules", labelKey: "workSchedules", href: "/hrd/jadwal", icon: CalendarClock, permission: "hrd.read", badge: "new" },
       { label: "Attendance", labelKey: "attendance", href: "/hrd/absensi", icon: CalendarCheck, permission: "hrd.read" },
       { label: "Attendance by location", labelKey: "locatedTaps", href: "/hrd/absensi/lokasi", icon: MapPin, permission: "hrd.read", badge: "new" },
-      { label: "Overtime", labelKey: "overtime", href: "/hrd/lembur", icon: Clock, permission: "hrd.read", badge: "new" },
+      { label: "Overtime", labelKey: "overtime", href: "/hrd/lembur", icon: Clock, permission: "hrd.read", orAuthority: "approve_overtime", badge: "new" },
       { label: "Employee Files", labelKey: "employeeFiles", href: "/hrd/berkas-201", icon: FileBadge, permission: "hrd.read", badge: "new" },
       { label: "Employment contracts", labelKey: "contracts", href: "/hrd/kontrak", icon: ScrollText, permission: "hrd.read", badge: "new" },
       { label: "Leave & Permits", labelKey: "leave", href: "/hrd/cuti", icon: CalendarClock, permission: "hrd.read", badge: "new" },

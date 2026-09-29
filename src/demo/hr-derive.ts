@@ -394,6 +394,10 @@ export function timesheetDay(
 export function overtimeStage(state: DemoState, sheet: OvertimeSheet): OvertimeStage {
   if (sheet.declined_reason) return "declined";
 
+  /* An ask from the phone is not paid by default: it waits for HRD or
+     leadership, and one decision settles it (D333, 0189). */
+  if (sheet.via === "self") return sheet.decided_at ? "approved" : "waiting_hrd";
+
   if (sheet.kind === "staff") {
     if (!sheet.paid) return "unpaid";
     return sheet.hrd_checked_at ? "paid_checked" : "paid_default";
@@ -401,15 +405,19 @@ export function overtimeStage(state: DemoState, sheet: OvertimeSheet): OvertimeS
 
   if (!sheet.hrd_checked_at) return "waiting_hrd";
   if (sheet.leader_approved_at) return "approved";
-  return sheetEvidence(state, sheet.id, "Surat Lembur") ? "waiting_leader" : "waiting_surat";
+  return sheetEvidence(state, sheet, "Surat Lembur") ? "waiting_leader" : "waiting_surat";
 }
 
 /** The paper behind a sheet: the signed form for production, the screenshot
  *  report for a staff session. Both arrive as attachments on the same road as
  *  every other document here (ADR-010). */
-export function sheetEvidence(state: DemoState, sheetId: string, kind?: string) {
+export function sheetEvidence(
+  state: DemoState, sheet: Pick<OvertimeSheet, "id" | "sheet_no">, kind?: string,
+) {
+  /* HRD's drawer files against the sheet's id, the phone form (and the
+     database, `attachment_links.entity_no`) against its number — both count. */
   return state.attachment_links.find(
-    (l) => l.entity === "overtime" && l.entity_no === sheetId
+    (l) => l.entity === "overtime" && (l.entity_no === sheet.id || l.entity_no === sheet.sheet_no)
       && (kind ? l.kind === kind : l.kind === "Surat Lembur" || l.kind === "Laporan Lembur"),
   ) ?? null;
 }

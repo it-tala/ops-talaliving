@@ -18,7 +18,7 @@ import {
   PAYROLL_RUNS, PAYROLL_ADJUSTMENTS, ALLOWANCE_WITHHOLDINGS,
 } from "./hr";
 import { WORK_ORDERS, PRODUCTION_PROGRESS, VENDOR_LEGS } from "./production";
-import { PRODUCTS, BOM_COMPONENTS, BOM_REVISIONS, BOM_RATES } from "./products";
+import { PRODUCTS, BOM_COMPONENTS, BOM_REVISIONS, BOM_RATES, BOM_NORMS, FINISHING_RECIPES } from "./products";
 import { APP_SETTINGS } from "./settings";
 import { LOG_PURCHASES, LOG_PIECES, LOG_COSTS, SAWN_BOARDS, BOARD_MOVES } from "./timber";
 import {
@@ -185,6 +185,8 @@ export function initialState(): DemoState {
     bom_components: BOM_COMPONENTS,
     bom_revisions: BOM_REVISIONS,
     bom_rates: BOM_RATES,
+    bom_norms: BOM_NORMS,
+    finishing_recipes: FINISHING_RECIPES,
 
     stock_locations: STOCK_LOCATIONS,
     stock_settings: STOCK_SETTINGS,

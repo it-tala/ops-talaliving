@@ -1,4 +1,5 @@
-import type { Product, BomComponent, BomRate, BomRevision } from "@/services/production/contracts";
+import type { Product, BomComponent, BomNorm, BomRate, BomRevision } from "@/services/production/contracts";
+import type { FinishingRecipeRow } from "../state";
 
 /** What the business sells and makes, and what each one is made of.
  *
@@ -252,4 +253,53 @@ export const BOM_RATES: BomRate[] = [
   rate(9, "Tukang finishing", "labour", "hari", 150_000),
   rate(10, "Karton 5 lapis", "packing", "m2", 12_000),
   rate(11, "Packing (bubble wrap + karton + label)", "packing", "unit", 45_000),
+];
+
+/** The business's estimating norms (`ops_prod.bom_norms`, read since 0193,
+ *  D338). **Sample rules for the sandbox**: common industry figures, not the
+ *  business's own list, which lives in production and is not copied here. The
+ *  sandbox's AI stand-in takes timber and plywood waste and the sheet size
+ *  from these, as the live model is told to. */
+const norm = (
+  n: number, category: string, name: string, value: number | null, unit: string,
+  source_kind: BomNorm["source_kind"], basis: string, remarks: string | null = null,
+): BomNorm => ({
+  id: `bn_${String(n).padStart(3, "0")}`, category, norm: name, value, unit, basis, remarks, source_kind,
+  effective_on: "2026-09-25",
+});
+
+export const BOM_NORMS: BomNorm[] = [
+  norm(1, "Wood", "Square to finished component yield", 80, "%", "industry",
+    "Norma industri (sampel sandbox)", "Susut potong, cacat dan sisa dari kayu square ke komponen jadi."),
+  norm(2, "Panel", "Plywood cutting waste", 12, "%", "industry", "Norma industri 10–15% (nesting)",
+    "Naikkan ke 20% untuk komponen kecil."),
+  norm(3, "Panel", "Standard sheet", 2.976, "m²/sheet", "decision", "1220 × 2440 mm"),
+  norm(4, "Finishing", "NC sanding sealer coverage", 9, "m²/L/coat", "industry", "TDS pabrikan 8–12 m²/L", "2 lapis."),
+  norm(5, "Upholstery", "Fabric cutting waste", 15, "%", "industry", "Norma industri 10–20%", "Kain bermotif bisa 25%."),
+  norm(6, "Factor", "Kontingensi / miskalkulasi", 5, "%", "decision", "Sampel sandbox", "Untuk seluruh BOM, bukan per baris."),
+  norm(7, "Packing", "Packing material per m³ product", null, "", "empirical", "Hitung per item dari packing list",
+    "Belum ada norma umum."),
+];
+
+/** Finishing systems step by step (`ops_prod.finishing_recipes`, 0193).
+ *  **Sample figures**, rounded — the business's recipes live in production. */
+const step = (
+  n: number, system: string, name: string, product: string, unit_price: number, uom: string,
+  coverage: number, coats: number, remarks: string | null = null,
+): FinishingRecipeRow => ({
+  id: `fr_${String(n).padStart(3, "0")}`, system, step: name, product, unit_price, uom,
+  coverage_m2_per_unit: coverage, coats,
+  cost_per_m2: Math.round(unit_price / coverage * coats), remarks, effective_on: "2026-09-25",
+});
+
+export const FINISHING_RECIPES: FinishingRecipeRow[] = [
+  step(1, "NC natural", "Abrasives", "Amplas (per m²)", 9_000, "m2", 1, 1),
+  step(2, "NC natural", "Sanding sealer", "NC sanding sealer", 58_500, "kg", 9, 2, "2 lapis @9 m²/L"),
+  step(3, "NC natural", "Thinner", "Thinner NC", 22_500, "ltr", 9, 2, "Pengenceran 1:1"),
+  step(4, "NC natural", "Topcoat", "NC top coat matt", 69_000, "kg", 6, 2, "2 lapis @6 m²/L"),
+  step(5, "NC natural", "Bleach (optional)", "Bleaching agent", 1_700_000, "pail", 170, 1, "Hanya untuk warna terang"),
+  step(6, "PU duco", "Abrasives", "Amplas (per m²)", 12_000, "m2", 1, 1),
+  step(7, "PU duco", "Primer", "PU clear primer", 56_000, "kg", 8, 3),
+  step(8, "PU duco", "Colour / topcoat", "Cat duco", 132_000, "ltr", 8, 2),
+  step(9, "PU duco", "Hardener", "PU hardener", 64_000, "kg", 16, 3, "Rasio 2:1"),
 ];

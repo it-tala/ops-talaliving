@@ -16,6 +16,7 @@ import {
 import { useSession } from "@/store/session";
 import { useTr } from "@/lib/i18n";
 import { RateForm } from "./RateForm";
+import { FinishingCandidates } from "./FinishingCandidates";
 
 /** The estimator's price list a BOM is costed from (0182, D324).
  *
@@ -28,6 +29,10 @@ import { RateForm } from "./RateForm";
  *  the figure it was released with once released — the same rule a catalogue
  *  price follows. `Used in` says how many products' current BOMs a change here
  *  would move.
+ *
+ *  Below the list, each finishing system in the business's recipes is offered
+ *  as a candidate `finishing` rate (0193, D338) — added only when somebody
+ *  presses the button.
  */
 export default function BomRatesPage() {
   const tr = useTr();
@@ -38,6 +43,10 @@ export default function BomRatesPage() {
   const [group, setGroup] = useState<BomRateGroup | "all">("all");
   const [q, setQ] = useState("");
   const [editing, setEditing] = useState<BomRateView | "new" | null>(null);
+  /* Bumped whenever the list changes, so the finishing candidates re-read
+     which of them are already on it. */
+  const [version, setVersion] = useState(0);
+  const changed = () => { reload(); setVersion((v) => v + 1); };
 
   return (
     <div>
@@ -176,6 +185,13 @@ export default function BomRatesPage() {
         }}
       </Loaded>
 
+      {(group === "all" || group === "finishing") && (
+        <FinishingCandidates
+          rates={rates.status === "ready" ? rates.data : []}
+          mayEdit={mayEdit} version={version} onChanged={changed}
+        />
+      )}
+
       {editing && (
         <Drawer
           open onClose={() => setEditing(null)} width="max-w-lg"
@@ -186,7 +202,7 @@ export default function BomRatesPage() {
         >
           <RateForm
             initial={editing === "new" ? undefined : editing}
-            onSaved={() => { setEditing(null); reload(); }}
+            onSaved={() => { setEditing(null); changed(); }}
             onCancel={() => setEditing(null)}
           />
         </Drawer>

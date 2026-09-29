@@ -16,6 +16,8 @@ import { useSession } from "@/store/session";
 import { useTr } from "@/lib/i18n";
 import { NewSheet } from "./NewSheet";
 import { SheetDrawer } from "./SheetDrawer";
+import { SelfQueue } from "./SelfQueue";
+import { useOvertimeStatus } from "../../saya/overtime-ask";
 
 /** Lembur, as two different pieces of paper.
  *
@@ -46,8 +48,9 @@ const STAGE_TONE: Record<OvertimeStage, "amber" | "violet" | "brand" | "green" |
 };
 
 export default function OvertimePage() {
-  const { can } = useSession();
+  const { can, hasAuthority } = useSession();
   const tr = useTr();
+  const otStatus = useOvertimeStatus();
   const [sheets, reload] = useLoad(() => hr.listOvertimeSheets(), []);
   const [creating, setCreating] = useState<OvertimeKind | null>(null);
   const [open, setOpen] = useState<string | null>(null);
@@ -55,6 +58,10 @@ export default function OvertimePage() {
      dirender seluruhnya (D157). */
   const { shown: rows, pager } = usePaged(sheets.status === "ready" ? sheets.data : [], 15);
   const mayEdit = can("hrd.update");
+  /* Leadership reaches this screen by the `approve_overtime` authority alone
+     (D333): the asks are theirs to decide too, the sheets are HRD's. */
+  const maySheets = can("hrd.read") || can("payroll.read");
+  const mayAsks = can("hrd.read") || hasAuthority("approve_overtime");
 
   return (
     <div>
@@ -62,8 +69,8 @@ export default function OvertimePage() {
         breadcrumb="HRD"
         title={tr("Overtime", "Lembur")}
         description={tr(
-          "Two kinds of sheet. Production: one night, many names, signed by leadership. Staff: one session, one report, HRD decides — and it is paid unless said otherwise.",
-          "Dua jenis lembar. Produksi: satu malam, banyak nama, ditandatangani pimpinan. Staff: satu sesi, satu laporan, HRD yang memutuskan — dan dibayar kecuali dikatakan lain.",
+          "Asked for by employees: approved by HRD or leadership. Production sheets: one night, many names, signed by leadership. Staff sessions keyed by HRD: paid unless said otherwise.",
+          "Diajukan karyawan: disetujui HRD atau pimpinan. Lembar produksi: satu malam, banyak nama, ditandatangani pimpinan. Sesi staff yang dicatat HRD: dibayar kecuali dikatakan lain.",
         )}
         actions={mayEdit ? (
           <div className="flex flex-wrap gap-2">
@@ -73,7 +80,9 @@ export default function OvertimePage() {
         ) : undefined}
       />
 
-      <Loaded state={sheets} onRetry={reload}>
+      {mayAsks && <SelfQueue onChanged={reload} />}
+
+      {maySheets && <Loaded state={sheets} onRetry={reload}>
         {(all) => {
           const waiting = all.filter((s) =>
             s.stage === "waiting_hrd" || s.stage === "waiting_surat" || s.stage === "waiting_leader");
@@ -141,7 +150,9 @@ export default function OvertimePage() {
                             {new Set(s.lines.filter((l) => l.wo_no).map((l) => l.wo_no)).size} Job Order
                           </Badge>
                         )}
-                        <Badge tone={STAGE_TONE[s.stage]} dot>{OVERTIME_STAGE_LABEL[s.stage]}</Badge>
+                        <Badge tone={STAGE_TONE[s.stage]} dot>
+                          {s.via === "self" ? otStatus(s).label : OVERTIME_STAGE_LABEL[s.stage]}
+                        </Badge>
                       </button>
                     </li>
                   ))}
@@ -160,7 +171,7 @@ export default function OvertimePage() {
             </>
           );
         }}
-      </Loaded>
+      </Loaded>}
 
       {creating && (
         <NewSheet

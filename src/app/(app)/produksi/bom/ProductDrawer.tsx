@@ -1196,7 +1196,9 @@ function SuggestionPanel({
         const res = await production.saveBomComponent({
           product_code: p.product_code, kind: r.kind, rate_code: r.rate_code, part: r.part.trim(),
           qty: r.qty, uom: r.uom, waste_percent: r.waste_percent,
-          note: r.working ? `AI: ${r.working}`.slice(0, 200) : "AI",
+          /* The norm the waste came from stays on the line (0193, D338). */
+          note: [r.working ? `AI: ${r.working}` : "AI", r.waste_norm && r.waste_percent > 0 ? `susut: ${r.waste_norm}` : null]
+            .filter(Boolean).join(" · ").slice(0, 200),
         });
         if (res.error) { failed.push(`${r.part}: ${res.error.message}`); patch(r.key, { error: res.error.message }); }
         else { ok += 1; done.add(r.key); patch(r.key, { added: true, include: false, error: null }); }
@@ -1260,6 +1262,21 @@ function SuggestionPanel({
               "Periksa tiap baris: komponen, material, kebutuhan dan satuan. Rate diambil dari daftar rate. Tidak ada yang tersimpan sampai barisnya ditambahkan.",
             )}
           </p>
+          {s.norms > 0 ? (
+            <p className="mt-0.5 text-[11px] text-slate-600">
+              {tr(
+                `Waste comes from the business's estimating norms (${s.norms} in force); the norm is named under each line's waste.`,
+                `Susut diambil dari norma estimasi bisnis (${s.norms} berlaku); normanya tertulis di bawah susut tiap baris.`,
+              )}
+            </p>
+          ) : (
+            <p className="mt-0.5 text-[11px] text-amber-700">
+              {tr(
+                "No business norms could be read, so waste is the AI's own estimate. Check it.",
+                "Tidak ada norma bisnis yang terbaca, jadi susut adalah perkiraan AI sendiri. Periksa.",
+              )}
+            </p>
+          )}
           {s.source === "sandbox" && (
             <p className="mt-1 rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
               {tr(
@@ -1374,6 +1391,11 @@ function SuggestionPanel({
                       <NumberInput size="sm" value={r.waste_percent} min={0} max={90} step={1} disabled={r.added}
                         onChange={(v) => patch(r.key, { waste_percent: v })} className="!w-14" />%
                     </label>
+                    {r.waste_norm && (
+                      <span className="mt-0.5 block max-w-[160px] text-right text-[10px] leading-tight text-slate-400" title={r.waste_norm}>
+                        {tr("norm", "norma")}: {r.waste_norm}
+                      </span>
+                    )}
                   </td>
                   <td className="px-2 py-2">
                     <input value={r.uom} onChange={(e) => patch(r.key, { uom: e.target.value })} disabled={r.added} list="bom-uoms"

@@ -4,7 +4,7 @@ import { llmConfig, generate, parseJsonObject } from "@/lib/llm";
 import { driveConfigured, fetchDriveFile, fetchThumbnail } from "@/lib/drive";
 import { driveFileId } from "@/lib/drive-links";
 import { BOM_SYSTEM, bomPrompt, toBomSuggestion } from "@/lib/bom-vision";
-import type { BomRate } from "@/services/production/contracts";
+import type { BomNorm, BomRate } from "@/services/production/contracts";
 
 /** `POST /api/production/bom/suggest` — a product's gambar kerja, read by a
  *  model into a proposed BOM (D324).
@@ -17,8 +17,9 @@ import type { BomRate } from "@/services/production/contracts";
  *
  *  Who may ask is the database's answer, read as the person: `production.update`
  *  (every call is a paid request to a model, and its only use is writing a
- *  BOM), the product and its drawing link through RLS, and the rate list the
- *  same way. Only then does the service account fetch the drawing from Drive.
+ *  BOM), the product and its drawing link through RLS, and the rate list and
+ *  the business's estimating norms (0193, D338) the same way. Only then does
+ *  the service account fetch the drawing from Drive.
  *
  *  Not `runtime = "edge"` — see the upload route for the deploy it cost.
  */
@@ -129,13 +130,22 @@ export async function POST(request: Request): Promise<Response> {
   const rates: BomRate[] = ((rateRows ?? []) as (Omit<BomRate, "rate"> & { unit_rate: number | string })[])
     .map(({ unit_rate, ...r }) => ({ ...r, rate: Number(unit_rate) }));
 
+  /* The norms in force, as the person reads them (`production.read`, 0193).
+     The model is told to take waste, yield and coverage from these, and
+     `toBomSuggestion` holds each line's waste to the norm it names. */
+  const { data: normRows, error: nErr } = await sb.schema("ops_prod").from("v_bom_norm")
+    .select("*").order("category").order("norm");
+  if (nErr) return refuse(500, "database_error", nErr.message);
+  const norms: BomNorm[] = ((normRows ?? []) as (Omit<BomNorm, "value"> & { value: number | string | null })[])
+    .map((n) => ({ ...n, value: n.value == null ? null : Number(n.value) }));
+
   let text: string;
   try {
     text = await generate(cfg, {
       system: BOM_SYSTEM,
       messages: [{
         role: "user",
-        text: bomPrompt(product, rates),
+        text: bomPrompt(product, rates, norms),
         files: [{ mime, base64: Buffer.from(bytes).toString("base64") }],
       }],
       json: true,
@@ -155,7 +165,7 @@ export async function POST(request: Request): Promise<Response> {
     data: toBomSuggestion(out, rates, {
       product_code: code,
       drawing: { attachment_id: att.id as string, filename: att.filename as string },
-    }),
+    }, norms),
     meta: { request_id: "", service: "production", version: "1", outcome: "ok" },
   });
 }

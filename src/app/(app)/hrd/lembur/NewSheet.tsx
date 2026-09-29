@@ -28,12 +28,14 @@ type Draft = {
   employee_no: string;
   hours: number;
   task: string;
+  /** Staff: what the session was for (D333). */
+  deliverable: string;
   wo_no: string;
   stage: string;
   qty_done: number;
 };
 
-const blank = (): Draft => ({ employee_no: "", hours: 2, task: "", wo_no: "", stage: "", qty_done: 0 });
+const blank = (): Draft => ({ employee_no: "", hours: 2, task: "", deliverable: "", wo_no: "", stage: "", qty_done: 0 });
 
 export function NewSheet({
   kind, onClose, onDone,
@@ -74,6 +76,7 @@ export function NewSheet({
         wo_no: isProduction ? r.wo_no || null : null,
         stage: isProduction ? r.stage || null : null,
         qty_done: isProduction && r.qty_done > 0 ? r.qty_done : null,
+        deliverable: isProduction ? null : r.deliverable.trim() || null,
       });
       if (res.error) failed.push(`${r.employee_no}: ${res.error.message}`);
     }
@@ -166,6 +169,14 @@ export function NewSheet({
                           : tr("What was worked on and how far it got.", "Apa yang dikerjakan dan sampai mana.")}
                         className="mt-2 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
                       />
+                      {!isProduction && (
+                        <input
+                          value={r.deliverable} onChange={(e) => set(i, { deliverable: e.target.value })}
+                          aria-label={tr("Deliverable", "Deliverable")}
+                          placeholder={tr("Deliverable — what the session was for (optional)", "Deliverable — lembur ini untuk menghasilkan apa (opsional)")}
+                          className="mt-2 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                        />
+                      )}
                       {isProduction && (
                         <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_140px_100px]">
                           <select

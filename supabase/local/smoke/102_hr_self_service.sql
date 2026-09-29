@@ -5,7 +5,7 @@
 --     akun yang tidak tertaut ke karyawan;
 --   • taps, marks, overtime dan leave milik seseorang tidak terbaca oleh
 --     orang lain yang bukan HRD — RLS, bukan filter di klien;
---   • `report_overtime_self` menolak jam di luar rentang, hasil kerja kosong,
+--   • `report_overtime_self` menolak jam di luar rentang, deliverable kosong,
 --     tanggal di masa depan, dan pengajuan dua kali untuk malam yang sama;
 --   • `request_leave` tanpa nomor karyawan mengajukan untuk diri sendiri, dan
 --     jalur HRD (dengan nomor karyawan) menolak persis seperti sebelumnya —
@@ -97,22 +97,24 @@ set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-000000020002';
 do $$
 declare a jsonb; v_no text; v_n int;
 begin
-  a := ops_hr.report_overtime_self(ops_core.office_day(), 15, 'Rekap stok');
+  a := ops_hr.report_overtime_self(ops_core.office_day(), 15, 'Rekap stok', p_deliverable => 'Rekap stok');
   assert a -> 'error' ->> 'code' = 'hours_out_of_range', a::text;
 
-  a := ops_hr.report_overtime_self(ops_core.office_day() + 1, 2, 'Rekap stok');
+  a := ops_hr.report_overtime_self(ops_core.office_day() + 1, 2, 'Rekap stok', p_deliverable => 'Rekap stok');
   assert a -> 'error' ->> 'code' = 'date_in_future', a::text;
 
-  a := ops_hr.report_overtime_self(ops_core.office_day(), 2, '   ');
-  assert a -> 'error' ->> 'code' = 'result_required', a::text;
+  -- Hasil kerja boleh menyusul sejak D333; yang wajib saat mengajukan adalah
+  -- deliverable-nya (0189, smoke 189).
+  a := ops_hr.report_overtime_self(ops_core.office_day(), 2, 'Rekap stok', p_deliverable => '   ');
+  assert a -> 'error' ->> 'code' = 'deliverable_required', a::text;
 
-  a := ops_hr.report_overtime_self(ops_core.office_day(), 2, 'Rekap stok gudang selesai');
+  a := ops_hr.report_overtime_self(ops_core.office_day(), 2, 'Rekap stok gudang selesai', p_deliverable => 'Rekap stok');
   assert a ->> 'outcome' = 'ok', a::text;
   v_no := a -> 'data' ->> 'sheet_no';
   assert a -> 'data' ->> 'via' = 'self', a::text;
 
   -- Dua kali untuk malam yang sama: koreksi, bukan klaim baru.
-  a := ops_hr.report_overtime_self(ops_core.office_day(), 3, 'Lanjut lagi');
+  a := ops_hr.report_overtime_self(ops_core.office_day(), 3, 'Lanjut lagi', p_deliverable => 'Rekap stok');
   assert a -> 'error' ->> 'code' = 'already_reported', a::text;
 
   select count(*) into v_n from ops_hr.v_overtime_stage where sheet_no = v_no;
@@ -132,7 +134,7 @@ set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-000000020004';
 do $$
 declare a jsonb;
 begin
-  a := ops_hr.report_overtime_self(ops_core.office_day(), 2, 'x');
+  a := ops_hr.report_overtime_self(ops_core.office_day(), 2, 'x', p_deliverable => 'Rekap stok');
   assert a -> 'error' ->> 'code' = 'no_employee_link', a::text;
 end $$;
 
@@ -235,7 +237,7 @@ do $$
 begin
   assert not has_function_privilege('public','ops_hr.tap_self(double precision,double precision,double precision,text,uuid,text)','execute'),
     'tap_self() terbuka untuk PUBLIC';
-  assert not has_function_privilege('public','ops_hr.report_overtime_self(date,numeric,text,text,text)','execute'),
+  assert not has_function_privilege('public','ops_hr.report_overtime_self(date,numeric,text,text,text,text)','execute'),
     'report_overtime_self() terbuka untuk PUBLIC';
   assert has_function_privilege('authenticated','ops_hr.tap_self(double precision,double precision,double precision,text,uuid,text)','execute'),
     'authenticated tidak bisa memanggil tap_self()';

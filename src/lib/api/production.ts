@@ -26,7 +26,7 @@ import { trNow } from "@/lib/i18n";
 import { BOM_RATE_GROUPS } from "@/services/production/contracts";
 import type {
   BomDiff, BomDiffLine, BomDiffShape, BomKind, BomLineView, BomRevisionView,
-  BomRateGroup, BomRateView, BomSuggestion,
+  BomNorm, BomRateGroup, BomRateView, BomSuggestion, FinishingStep, FinishingSystem,
   ProductDrawing, ProductDrawingEntry, ProductView, RateSource, WorkOrderRef,
   BomExplodedLine, BomExplosion, ProgressEntry, RouteCode, VendorLegView,
   WorkOrder, WorkOrderStatus, WorkOrderView, JobTrail,
@@ -170,6 +170,35 @@ function toLine(r: BomLineRow): BomLineView {
 function toRate({ unit_rate, ...r }: BomRateRow): BomRateView {
   return { ...r, rate: Number(unit_rate) };
 }
+
+/* `v_bom_norm` and `v_finishing_system` (0193): numerics arrive as strings,
+   and the breakdown as jsonb whose numbers are numbers already. */
+interface BomNormRow {
+  id: string;
+  category: string;
+  norm: string;
+  value: number | string | null;
+  unit: string | null;
+  basis: string | null;
+  remarks: string | null;
+  source_kind: BomNorm["source_kind"];
+  effective_on: string | null;
+}
+
+interface FinishingSystemRow {
+  system: string;
+  steps: number;
+  unpriced_steps: number;
+  cost_per_m2: number | string;
+  optional_cost_per_m2: number | string;
+  effective_on: string | null;
+  breakdown: FinishingStep[] | null;
+  rate_name: string;
+  rate_code: string | null;
+  listed_rate: number | string | null;
+}
+
+const numOrNull = (v: number | string | null): number | null => (v == null ? null : Number(v));
 
 function dimensionText(p: ProductSummaryRow): string | null {
   const axes = [p.length_mm, p.width_mm, p.height_mm].filter((n) => n != null);
@@ -589,6 +618,35 @@ export async function saveBomRate(
   if (rErr) return fail(SERVICE, rErr);
   if (!row) return notFound(SERVICE, "rate_not_found", `No rate ${res.data.code}.`);
   return ok(SERVICE, toRate(row as BomRateRow));
+}
+
+/** The business's estimating norms in force (0193, D338) — what the AI's
+ *  proposal is held to. Read-only: the rules are changed where they were
+ *  written. Production readers only; anyone else reads an empty list.
+ *
+ *  No screen lists them yet; the suggest route reads the same view with its
+ *  own server client. Reading it here as well puts `v_bom_norm` under
+ *  `check-view-contracts.mjs`, which is what holds the view to the `BomNorm`
+ *  shape the route casts its rows into. */
+export async function listBomNorms(): Promise<Result<BomNorm[]>> {
+  const { data, error } = await db().from("v_bom_norm").select("*").order("category").order("norm");
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, ((data ?? []) as BomNormRow[]).map((n) => ({ ...n, value: numOrNull(n.value) })));
+}
+
+/** Each finishing system from `finishing_recipes`, totalled per m², as the
+ *  `finishing` rate it could become (0193, D338). Offered on the rate screen;
+ *  adding one is `saveBomRate`, pressed by a person. */
+export async function listFinishingSystems(): Promise<Result<FinishingSystem[]>> {
+  const { data, error } = await db().from("v_finishing_system").select("*").order("system");
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, ((data ?? []) as FinishingSystemRow[]).map((f) => ({
+    ...f,
+    cost_per_m2: Number(f.cost_per_m2),
+    optional_cost_per_m2: Number(f.optional_cost_per_m2),
+    listed_rate: numOrNull(f.listed_rate),
+    breakdown: f.breakdown ?? [],
+  })));
 }
 
 /** A BOM proposed from the working drawing, by a language model (D324).

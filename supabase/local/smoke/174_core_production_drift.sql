@@ -1,8 +1,10 @@
 -- core — what production had alone, now in the ladder (0174, D315, F167).
 --
 --   * the five import/estimating tables exist, with RLS on and no policy
---   * `authenticated` holds no grant on them, and reading as a signed-in user
---     with every procurement right still sees nothing — the API cannot reach them
+--   * `authenticated` holds no grant on the three procurement import tables,
+--     and reading as a signed-in user with every procurement right still sees
+--     nothing — the API cannot reach them. `bom_norms` and `finishing_recipes`
+--     were opened to production reading by `0193` (D338); smoke `193` holds them
 --   * `v_item_view` carries the evidence columns in production's order,
 --     before `name_local`, and names its columns rather than `i.*`
 
@@ -11,9 +13,11 @@ begin;
 do $$
 declare t text; ord text;
 begin
+  foreach t in array array['ops_prod.bom_norms','ops_prod.finishing_recipes'] loop
+    assert (select relrowsecurity from pg_class where oid = t::regclass), format('%s has RLS on', t);
+  end loop;
   foreach t in array array['ops_procure.item_master_staging','ops_procure.item_vendor_prices',
-                           'ops_procure.item_vendor_prices_staging','ops_prod.bom_norms',
-                           'ops_prod.finishing_recipes'] loop
+                           'ops_procure.item_vendor_prices_staging'] loop
     assert (select relrowsecurity from pg_class where oid = t::regclass), format('%s has RLS on', t);
     assert not exists (select 1 from pg_policies p
                         where format('%I.%I', p.schemaname, p.tablename) = t),
@@ -32,10 +36,8 @@ begin
     'v_item_view names its columns';
 end $$;
 
--- A row as the importer left it, then a signed-in reader with procurement
--- rights: RLS on and no policy is nothing, not an error.
-insert into ops_prod.bom_norms (category, norm, value, unit, source_kind)
-values ('smoke', 'plywood waste', 12, '%', 'empirical');
+-- A signed-in reader with procurement rights: no grant on the vendor-price
+-- import is a refusal, whatever the rights.
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('aaaa0000-0000-0000-0000-000000001741','proc-admin@talaliving.com','{"full_name":"Procurement admin"}');
@@ -48,8 +50,8 @@ set local request.jwt.claim.sub = 'aaaa0000-0000-0000-0000-000000001741';
 do $$
 begin
   begin
-    perform 1 from ops_prod.bom_norms;
-    assert false, 'a signed-in user cannot read bom_norms at all';
+    perform 1 from ops_procure.item_vendor_prices;
+    assert false, 'a signed-in user cannot read item_vendor_prices at all';
   exception when insufficient_privilege then null;
   end;
   -- The view the catalogue reads still answers, evidence columns and all.

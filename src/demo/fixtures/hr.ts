@@ -1160,6 +1160,7 @@ export const OVERTIME_SHEETS: OvertimeSheet[] = [
     leader_approved_by: "usr_evin", leader_approved_at: "2026-09-01T17:05:00+07:00",
     paid: true, unpaid_reason: null,
     declined_by: null, declined_reason: null,
+    via: "hrd", decided_by: null, decided_at: null, decided_as: null, decision_note: null,
   },
   {
     id: "lbr_02", sheet_no: "lbr-26-09-01_01", kind: "staff",
@@ -1170,6 +1171,7 @@ export const OVERTIME_SHEETS: OvertimeSheet[] = [
     leader_approved_by: null, leader_approved_at: null,
     paid: true, unpaid_reason: null,
     declined_by: null, declined_reason: null,
+    via: "hrd", decided_by: null, decided_at: null, decided_as: null, decision_note: null,
   },
   {
     id: "lbr_03", sheet_no: "lbr-26-09-02_01", kind: "staff",
@@ -1180,6 +1182,45 @@ export const OVERTIME_SHEETS: OvertimeSheet[] = [
     leader_approved_by: null, leader_approved_at: null,
     paid: false, unpaid_reason: "Laporan tidak menunjukkan pekerjaan yang selesai — menunggu file bukan lembur.",
     declined_by: null, declined_reason: null,
+    via: "hrd", decided_by: null, decided_at: null, decided_as: null, decision_note: null,
+  },
+  /* Three asks from the phone (D333): `via: "self"`, paid only once HRD or
+     leadership approves. Karjo's and Andi's are waiting — Andi's result is
+     still to come, so it cannot be approved yet — and Putri's was approved by
+     the Direktur as leadership. */
+  {
+    id: "lbr_04", sheet_no: "lbr-26-09-26_01", kind: "staff",
+    work_date: "2026-09-26",
+    purpose: "Diajukan sendiri lewat profil",
+    created_by: "usr_karjo", created_at: "2026-09-26T16:40:00+08:00",
+    hrd_checked_by: null, hrd_checked_at: null,
+    leader_approved_by: null, leader_approved_at: null,
+    paid: true, unpaid_reason: null,
+    declined_by: null, declined_reason: null,
+    via: "self", decided_by: null, decided_at: null, decided_as: null, decision_note: null,
+  },
+  {
+    id: "lbr_05", sheet_no: "lbr-26-09-28_01", kind: "staff",
+    work_date: "2026-09-28",
+    purpose: "Diajukan sendiri lewat profil",
+    created_by: "usr_andi", created_at: "2026-09-28T17:05:00+08:00",
+    hrd_checked_by: null, hrd_checked_at: null,
+    leader_approved_by: null, leader_approved_at: null,
+    paid: true, unpaid_reason: null,
+    declined_by: null, declined_reason: null,
+    via: "self", decided_by: null, decided_at: null, decided_as: null, decision_note: null,
+  },
+  {
+    id: "lbr_06", sheet_no: "lbr-26-09-24_01", kind: "staff",
+    work_date: "2026-09-24",
+    purpose: "Diajukan sendiri lewat profil",
+    created_by: "usr_putri", created_at: "2026-09-24T18:30:00+08:00",
+    hrd_checked_by: null, hrd_checked_at: null,
+    leader_approved_by: null, leader_approved_at: null,
+    paid: true, unpaid_reason: null,
+    declined_by: null, declined_reason: null,
+    via: "self", decided_by: "usr_evin", decided_at: "2026-09-25T08:10:00+08:00",
+    decided_as: "leader", decision_note: "Perlu untuk tutup buku — disetujui.",
   },
 ];
 
@@ -1190,32 +1231,53 @@ export const OVERTIME_LINES: OvertimeLine[] = [
   {
     id: "lbl_01", sheet_id: "lbr_01", employee_id: "emp_w009", hours: 2,
     task: "Finishing meja set ke-3, coating kedua.",
-    wo_no: "spk-26-08-24_01", stage: "FINISHING", qty_done: 1, form_amount: 70_000, result_note: null,
+    wo_no: "spk-26-08-24_01", stage: "FINISHING", qty_done: 1, form_amount: 70_000, result_note: null, deliverable: null,
   },
   {
     id: "lbl_02", sheet_id: "lbr_01", employee_id: "emp_w012", hours: 2,
     task: "Bantu finishing dan siapkan bahan packing.",
-    wo_no: "spk-26-08-24_01", stage: "FINISHING", qty_done: 0, form_amount: 70_000, result_note: null,
+    wo_no: "spk-26-08-24_01", stage: "FINISHING", qty_done: 0, form_amount: 70_000, result_note: null, deliverable: null,
   },
   {
     id: "lbl_03", sheet_id: "lbr_01", employee_id: "emp_w016", hours: 2.5,
     task: "Packing meja set ke-3.",
-    wo_no: "spk-26-08-24_01", stage: "PACKING", qty_done: 1, form_amount: 100_000, result_note: null,
+    wo_no: "spk-26-08-24_01", stage: "PACKING", qty_done: 1, form_amount: 100_000, result_note: null, deliverable: null,
   },
   {
     id: "lbl_04", sheet_id: "lbr_01", employee_id: "emp_w015", hours: 1.5,
     task: "Rakit daun pintu VILLA SANUR.",
-    wo_no: "spk-26-08-30_01", stage: "RAKIT", qty_done: 2, form_amount: 60_000, result_note: null,
+    wo_no: "spk-26-08-30_01", stage: "RAKIT", qty_done: 2, form_amount: 60_000, result_note: null, deliverable: null,
   },
   {
     id: "lbl_05", sheet_id: "lbr_02", employee_id: "emp_04", hours: 2,
     task: "Rekap 6 penawaran vendor ke papan rapat, lengkap dengan tautan.",
-    wo_no: null, stage: null, qty_done: null, form_amount: null, result_note: null,
+    wo_no: null, stage: null, qty_done: null, form_amount: null, result_note: null, deliverable: null,
   },
   {
     id: "lbl_06", sheet_id: "lbr_03", employee_id: "emp_04", hours: 2,
     task: "Menunggu file desain untuk BOM lemari.",
-    wo_no: null, stage: null, qty_done: null, form_amount: null, result_note: null,
+    wo_no: null, stage: null, qty_done: null, form_amount: null, result_note: null, deliverable: null,
+  },
+  {
+    id: "lbl_07", sheet_id: "lbr_04", employee_id: "emp_w009", hours: 2,
+    task: "",
+    wo_no: null, stage: null, qty_done: null, form_amount: null,
+    deliverable: "Empat daun pintu VILLA SANUR siap coating besok pagi.",
+    result_note: "Empat daun pintu selesai diamplas dan didempul.",
+  },
+  {
+    id: "lbl_08", sheet_id: "lbr_05", employee_id: "emp_04", hours: 3,
+    task: "Rekap PO",
+    wo_no: null, stage: null, qty_done: null, form_amount: null,
+    deliverable: "Rekap PO vendor kuartal III untuk rapat Rabu.",
+    result_note: null,
+  },
+  {
+    id: "lbl_09", sheet_id: "lbr_06", employee_id: "emp_02", hours: 2.5,
+    task: "Tutup buku",
+    wo_no: null, stage: null, qty_done: null, form_amount: null,
+    deliverable: "Rekonsiliasi bank BCA September.",
+    result_note: "Selisih Rp 1,2 jt ketemu — biaya admin belum dicatat.",
   },
 ];
 

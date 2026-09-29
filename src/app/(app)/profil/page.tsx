@@ -21,6 +21,9 @@ import {
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
+import { OvertimeForm } from "../saya/overtime-form";
+import { OvertimeAskDetails, useOvertimeStatus } from "../saya/overtime-ask";
+import { useDayLabel } from "../saya/shared";
 
 /** The profile every account owns (W7) — a different object from every other
  *  screen in this system, because it is the one screen where "which rows may
@@ -235,97 +238,32 @@ function AttendanceTab({ me }: { me: ReturnType<typeof useLoad<Awaited<ReturnTyp
 /* ── Lembur ───────────────────────────────────────────────────────────── */
 
 function OvertimeTab({ me }: { me: ReturnType<typeof useLoad<Awaited<ReturnType<typeof hr.myProfile>>["data"]>>[0] }) {
-  const { toast } = useToast();
   const tr = useTr();
   const [sheets, reload] = useLoad(() => hr.myOvertimeSheets(), []);
-  const [draft, setDraft] = useState({ work_date: officeToday(), hours: "", result_note: "", task: "" });
-  const [busy, setBusy] = useState(false);
-  const [justCreated, setJustCreated] = useState<string | null>(null);
+  const status = useOvertimeStatus();
+  const day = useDayLabel();
   const linked = me.status === "ready" ? me.data : null;
-
-  async function submit() {
-    setBusy(true);
-    const res = await hr.reportOvertimeSelf({
-      work_date: draft.work_date, hours: Number(draft.hours),
-      result_note: draft.result_note, task: draft.task || null,
-    });
-    setBusy(false);
-    if (res.error) {
-      toast(res.error.status === 409 ? "warning" : "warning", tr("Not recorded", "Tidak tercatat"), res.error.message);
-      return;
-    }
-    toast(
-      "success",
-      tr(`${res.data.sheet_no} recorded`, `${res.data.sheet_no} tercatat`),
-      tr("Attach the screenshot evidence below, then wait for HRD.", "Lampirkan bukti tangkapan layar di bawah, lalu tunggu HRD."),
-    );
-    setJustCreated(res.data.sheet_no);
-    setDraft({ work_date: officeToday(), hours: "", result_note: "", task: "" });
-    reload();
-  }
 
   if (me.status === "loading") return null;
   if (!linked) return <NoEmployeeLink />;
 
+  /* The same form and the same history row as `/saya` (D331, D333): one ask,
+     wherever the person happens to be standing. */
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader
           title={tr("Request overtime", "Ajukan lembur")}
           subtitle={tr(
-            "The duration, and the work achieved — HRD decides from this sentence, not from the hours alone. Staff overtime is paid by default (HRD can change that).",
-            "Durasi, dan hasil kerja yang dicapai — HRD memutuskan dari kalimat ini, bukan dari jam saja. Lembur staf dibayar secara bawaan (HRD bisa mengubahnya).",
+            "What the overtime is for, and — now or later — what was finished. HRD or leadership approves it; only approved hours reach the payslip.",
+            "Untuk apa lemburnya, dan — sekarang atau menyusul — apa yang selesai. HRD atau pimpinan yang menyetujui; hanya jam yang disetujui masuk slip gaji.",
           )}
           icon={CalendarClock}
         />
-        <div className="px-5 py-4">
-          <div className="grid gap-2 sm:grid-cols-[140px_100px_1fr]">
-            <input
-              type="date" value={draft.work_date} max={officeToday()}
-              onChange={(e) => setDraft({ ...draft, work_date: e.target.value })}
-              aria-label={tr("Date", "Tanggal")}
-              className="h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
-            />
-            <input
-              type="number" min={0.5} max={12} step={0.5} value={draft.hours}
-              onChange={(e) => setDraft({ ...draft, hours: e.target.value })}
-              placeholder={tr("Hours", "Jam")} aria-label={tr("Hours", "Jam")}
-              className="h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
-            />
-            <input
-              value={draft.task} onChange={(e) => setDraft({ ...draft, task: e.target.value })}
-              placeholder={tr("Task (optional)", "Tugas (opsional)")}
-              className="h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
-            />
-          </div>
-          <textarea
-            value={draft.result_note} onChange={(e) => setDraft({ ...draft, result_note: e.target.value })}
-            placeholder={tr("Work result — what was finished during this overtime", "Hasil kerja — apa yang selesai selama lembur ini")}
-            rows={2}
-            className="mt-2 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-brand-400 focus:outline-none"
-          />
-          <Button
-            className="mt-2" size="sm" icon={Plus} disabled={busy || !draft.hours || !draft.result_note.trim()}
-            onClick={submit}
-          >
-            {busy ? tr("Saving…", "Menyimpan…") : tr("Submit", "Ajukan")}
-          </Button>
+        <div className="max-w-xl px-5 py-4">
+          <OvertimeForm onDone={reload} />
         </div>
       </Card>
-
-      {justCreated && (
-        <Card>
-          <CardHeader title={tr("Screenshot evidence", "Bukti tangkapan layar")} subtitle={justCreated} icon={Plus} />
-          <EvidenceStrip
-            entity="overtime"
-            entityNo={justCreated}
-            canEdit
-            defaultKind="Laporan Lembur"
-            slots={[{ kind: "Laporan Lembur", label: tr("Screenshot evidence / work result", "Bukti tangkapan layar / hasil kerja") }]}
-            onChanged={reload}
-          />
-        </Card>
-      )}
 
       <Card>
         <CardHeader title={tr("My overtime history", "Riwayat lembur saya")} icon={Clock} />
@@ -337,22 +275,16 @@ function OvertimeTab({ me }: { me: ReturnType<typeof useLoad<Awaited<ReturnType<
               )}
               {list.map((s) => {
                 const mine = s.lines[0];
+                const st = status(s);
                 return (
                   <li key={s.sheet_no} className="px-5 py-3">
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
-                      <span className="font-medium text-slate-800">{s.work_date}</span>
+                      <span className="font-medium text-slate-800">{day(s.work_date)}</span>
                       <span className="text-slate-600">{tr(`${formatNumber(mine?.hours ?? 0)} hours`, `${formatNumber(mine?.hours ?? 0)} jam`)}</span>
-                      <Badge tone={s.payable ? "green" : s.stage === "declined" ? "red" : "slate"}>
-                        {OVERTIME_STAGE_LABEL[s.stage]}
-                      </Badge>
+                      <Badge tone={st.tone}>{st.label}</Badge>
                       <span className="font-mono text-[10px] text-slate-400">{s.sheet_no}</span>
                     </div>
-                    {mine?.result_note && <p className="mt-1 text-[12px] text-slate-600">{mine.result_note}</p>}
-                    {!s.evidence && (
-                      <p className="mt-1 flex items-center gap-1 text-[11px] text-amber-700">
-                        <AlertTriangle className="h-3 w-3" /> {tr("No evidence attached yet.", "Belum ada bukti dilampirkan.")}
-                      </p>
-                    )}
+                    <OvertimeAskDetails sheet={s} onChanged={reload} />
                   </li>
                 );
               })}

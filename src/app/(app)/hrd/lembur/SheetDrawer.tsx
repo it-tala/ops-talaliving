@@ -13,6 +13,8 @@ import {
 } from "@/services/hr/contracts";
 import { STAGE_NAME } from "@/services/production/contracts";
 import { ImportForm } from "./ImportForm";
+import { DecideAsk } from "./SelfQueue";
+import { useDecisionLine } from "../../saya/overtime-ask";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
@@ -36,7 +38,8 @@ export function SheetDrawer({
   onClose: () => void;
   onChanged: () => void;
 }) {
-  const { can, hasAuthority } = useSession();
+  const { can, hasAuthority, session } = useSession();
+  const decisionLine = useDecisionLine();
   const { toast } = useToast();
   const tr = useTr();
   const [sheet, reload] = useLoad(() => hr.getOvertimeSheet(sheetNo), [sheetNo]);
@@ -187,7 +190,15 @@ export function SheetDrawer({
                           ? <span className="text-slate-300" title={tr("No figure on the form — paid at the normal hourly rate", "Tidak ada angka di form — dibayar tarif jam biasa")}>—</span>
                           : formatIDR(l.form_amount)}
                       </td>
-                      <td className="px-3 py-2 text-slate-600">{l.task}</td>
+                      <td className="px-3 py-2 text-slate-600">
+                        {l.task}
+                        {l.deliverable && (
+                          <span className="block text-[12px] text-slate-500">{tr("Deliverable", "Deliverable")}: <span className="text-slate-700">{l.deliverable}</span></span>
+                        )}
+                        {l.result_note && (
+                          <span className="block text-[12px] text-slate-500">{tr("Result", "Hasil")}: <span className="text-slate-700">{l.result_note}</span></span>
+                        )}
+                      </td>
                       {s.kind === "production" && (
                         <td className="px-3 py-2">
                           {l.wo_no ? (
@@ -288,7 +299,24 @@ export function SheetDrawer({
                 )}
               </div>
 
-              {(mayHrd || mayLeader) && s.stage !== "declined" && (
+              {/* An ask from the phone gets one decision, HRD's or
+                  leadership's (D333) — the queue's buttons, not the two
+                  signatures below. */}
+              {s.via === "self" && (
+                s.decided_at ? (
+                  <p className="text-[12px] text-slate-600">
+                    {decisionLine(s)}{s.decision_note ? ` — ${s.decision_note}` : ""}
+                  </p>
+                ) : (
+                  <DecideAsk
+                    sheetNo={s.sheet_no}
+                    hasResult={!!s.lines[0]?.result_note}
+                    mine={s.created_by === session?.user.id}
+                    onDone={() => { reload(); onChanged(); }}
+                  />
+                )
+              )}
+              {s.via !== "self" && (mayHrd || mayLeader) && s.stage !== "declined" && (
                 <div className="rounded-xl border border-slate-200 px-4 py-3">
                   <input
                     value={reason} onChange={(e) => setReason(e.target.value)}

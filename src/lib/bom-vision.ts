@@ -2,7 +2,8 @@ import "server-only";
 
 /* Types only. The contracts module also carries the screens' bilingual labels,
    and those import a React hook a server route cannot compile. */
-import type { BomRate, BomSuggestion, BomSuggestionLine } from "@/services/production/contracts";
+import type { BomNorm, BomRate, BomSuggestion, BomSuggestionLine } from "@/services/production/contracts";
+import { findNorm, normLabel, normPromptLine, wasteFromNorm } from "@/lib/bom-norms";
 
 /** Reading a gambar kerja with a language model, into a BOM somebody checks
  *  (D324).
@@ -21,6 +22,10 @@ import type { BomRate, BomSuggestion, BomSuggestionLine } from "@/services/produ
  *  - **The price is never the model's.** It is shown the rate list without
  *    figures and asked which entry fits; the figure is read from the list here.
  *    A code it invents is dropped to *unmatched*, not trusted.
+ *  - **The waste is the business's, not the model's** (0193, D338). It is
+ *    shown the norms in force and asked which one a line's waste comes from;
+ *    the figure is then read from that norm here, exactly as the price is read
+ *    from the rate list. A waste no norm backs stays, with a warning.
  *  - **A doubt is shown, not smoothed over.** A unit that differs from the
  *    rate's, a quantity no product could need, text it could not read — each
  *    stays on the line as a warning for the person checking it.
@@ -40,6 +45,7 @@ Jawab HANYA dengan satu objek JSON, tanpa teks lain, dengan bentuk:
       "qty": number,
       "uom": string,
       "waste_percent": number,
+      "waste_norm": string | null,
       "working": string,
       "confidence": "high" | "medium" | "low"
     }
@@ -58,7 +64,7 @@ Aturan:
   Kayu solid dalam m3: jumlah potong × panjang × lebar × tebal (mm) ÷ 1.000.000.000.
   Plywood/panel: lembar (1220 × 2440 mm) atau m2, sesuai satuan rate.
   Finishing: m2 luas permukaan yang difinishing. Tenaga kerja: hari (atau satuan rate). Packing: sesuai satuan rate.
-- "waste_percent": susut yang wajar — kayu solid 10–20, panel 5–15, selain itu 0.
+- "waste_percent" dan "waste_norm": ikuti ATURAN SUSUT di pesan.
 - "working": cara menghitung, singkat, mis. "4 × 50×50×720 mm = 0,0072 m3".
 - Ukuran dibaca dari gambar. Yang tidak tertulis: pakai ukuran produk yang diberikan dan tulis asumsinya di "assumptions".
 - Angka atau tulisan yang tidak yakin terbaca masuk "unread". Jangan ditebak diam-diam.
@@ -72,6 +78,7 @@ export function bomPrompt(
     description: string | null;
   },
   rates: BomRate[],
+  norms: BomNorm[] = [],
 ): string {
   const size = [product.length_mm, product.width_mm, product.height_mm].every((n) => n != null)
     ? `${product.length_mm} × ${product.width_mm} × ${product.height_mm} mm (P × L × T)`
@@ -87,6 +94,22 @@ export function bomPrompt(
     "DAFTAR RATE (kode | nama | kelompok | satuan):",
     list,
     "",
+    ...(norms.length ? [
+      "NORMA ESTIMASI BISNIS (kategori | norma | nilai | sumber | dasar — catatan):",
+      ...norms.map(normPromptLine),
+      "",
+      "ATURAN SUSUT dan norma:",
+      "- Susut, rendemen, cakupan finishing, ukuran lembar standar, lebar kain dan sejenisnya DIAMBIL DARI NORMA di atas, bukan dari perkiraanmu sendiri. Sebut norma yang dipakai untuk menghitung qty di \"working\".",
+      "- \"waste_norm\": norma yang menjadi dasar susut baris itu, ditulis persis \"kategori | norma\". Norma susut (%) → waste_percent = nilainya. Norma rendemen/yield (%) → waste_percent = (100 ÷ yield − 1) × 100.",
+      "- Tidak ada norma yang berlaku untuk susut baris itu: \"waste_norm\" null dan \"waste_percent\" 0.",
+      "- Overhead, kontingensi/miskalkulasi dan MISC berlaku untuk seluruh BOM, bukan untuk satu baris: jangan dijadikan baris dan jangan dijadikan susut. Norma susut di kategori Factor (mis. waste kayu, waste material lain) tetap susut baris.",
+      "- Ikuti catatan tiap norma tentang cara memakainya (mis. norma yang hanya untuk mengubah harga, bukan kebutuhan).",
+      "- Dua norma bertentangan: pakai yang sumbernya decision, lalu empirical, lalu industry.",
+      "",
+    ] : [
+      "ATURAN SUSUT: bisnis belum punya norma tertulis. \"waste_norm\" null; \"waste_percent\" susut yang wajar — kayu solid 10–20, panel 5–15, selain itu 0.",
+      "",
+    ]),
     "Baca gambar kerja ini dan susun BOM untuk satu unit.",
   ].filter((x) => x !== null).join("\n");
 }
@@ -114,6 +137,7 @@ export function toBomSuggestion(
   out: Record<string, unknown>,
   rates: BomRate[],
   base: { product_code: string; drawing: BomSuggestion["drawing"] },
+  norms: BomNorm[] = [],
 ): BomSuggestion {
   const byCode = new Map(rates.map((r) => [r.code.toUpperCase(), r]));
   const unread = (Array.isArray(out.unread) ? out.unread : [])
@@ -154,7 +178,21 @@ export function toBomSuggestion(
       confidence = "low";
     }
 
-    const waste = num(l.waste_percent);
+    /* The waste the named norm gives, not the one the model wrote beside it. */
+    let waste = num(l.waste_percent);
+    if (waste != null && (waste < 0 || waste > 90)) waste = null;
+    const askedNorm = str(l.waste_norm, 160);
+    const norm = findNorm(norms, askedNorm);
+    const normWaste = norm ? wasteFromNorm(norm) : null;
+    let wasteNorm: string | null = null;
+    if (norm && normWaste != null) {
+      waste = normWaste;
+      wasteNorm = normLabel(norm);
+    } else if (norms.length > 0 && (waste ?? 0) > 0) {
+      warnings.push(askedNorm && !norm
+        ? `Model menyebut norma "${askedNorm}", yang tidak ada — susut ${waste}% perlu diperiksa.`
+        : `Susut ${waste}% adalah perkiraan model, bukan dari norma bisnis — periksa.`);
+    }
     lines.push({
       part,
       /* A labour rate is a labour line, whatever the model called it
@@ -164,7 +202,8 @@ export function toBomSuggestion(
       material: material ?? rate?.name ?? "—",
       qty: Math.round(qty * 10_000) / 10_000,
       uom,
-      waste_percent: waste != null && waste >= 0 && waste <= 90 ? Math.round(waste * 10) / 10 : 0,
+      waste_percent: waste != null ? Math.round(waste * 10) / 10 : 0,
+      waste_norm: wasteNorm,
       rate: rate?.rate ?? null,
       working: str(l.working, 240),
       confidence,
@@ -197,5 +236,6 @@ export function toBomSuggestion(
     lines: merged,
     assumptions,
     unread,
+    norms: norms.length,
   };
 }

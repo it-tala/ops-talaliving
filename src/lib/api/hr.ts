@@ -39,7 +39,8 @@ import type {
   Employee, PayBasis, EmployeeFileView, EmployeeDocKind, EmployeeDocumentView,
   EmployeeDocSlot, DocNoSource, AttendanceScan, DayMark, DayMarkKind,
   AllowanceWithholdingView, TimesheetDay, ScanSlot, ScanSource, DayState,
-  OvertimeSheetView, OvertimeLineView, WorkSchedule, ScheduleHours,
+  OvertimeSheetView, OvertimeLineView, OvertimeKind, OvertimeDecider, SelfOvertimeView,
+  WorkSchedule, ScheduleHours,
   ContractKind, ContractStatus, ClauseKind, ClauseChecklistItem,
   ContractView, ContractDetail, ContractClause, ClauseCoverage, ClauseConflict,
   PayRules, PayRuleSetView, TimesheetTotal, EffectiveDaysCalendar,
@@ -58,6 +59,7 @@ import {
 import { instantInDay, nextOfficeDay } from "@/services/hr/schedule-rules";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fromSeam, fromRows, notFound, invalid, ok, type Result } from "./_kit";
+import { link as linkDocument } from "./documents";
 import { officeStamp } from "@/lib/office";
 
 const SERVICE = "hr" as const;
@@ -1311,92 +1313,277 @@ export async function listLocatedTaps(
 /* Overtime, as the attendance screen lists it                         */
 /* ------------------------------------------------------------------ */
 
-export async function listOvertimeSheets(): Promise<Result<OvertimeSheetView[]>> {
+type SheetRow = OvertimeSheetView & { id: string };
+type LineRow = OvertimeLineView & { sheet_id: string; employee_id: string };
+type LinkRowOt = {
+  entity_no: string; kind: string; attachment_id: string;
+  attachments: { filename: string } | null;
+};
+
+/** The view every overtime screen wants, from the rows it is built of: stage
+ *  and payability from `v_overtime_claim` (never recomputed here, A3), the
+ *  paper from the evidence road, and the name of whoever decided an ask
+ *  (D333) from the directory every account may read. */
+async function sheetViews(
+  sheets: SheetRow[], lines: LineRow[],
+  people: Map<string, { employee_no: string; full_name: string }>,
+): Promise<Result<OvertimeSheetView[]>> {
+  const nos = sheets.map((s) => s.sheet_no);
+  /* A handful of sheets is asked for by number; the whole list is read whole,
+     so the request never grows with the number of sheets. */
+  const few = nos.length <= 50;
+  const deciders = [...new Set(sheets.map((s) => s.decided_by).filter((x): x is string => !!x))];
   const [
-    { data: sheets, error },
-    { data: claims, error: e2 },
-    { data: lines, error: e3 },
-    { data: people, error: e4 },
-    { data: links, error: e5 },
+    { data: claims, error: e1 },
+    { data: links, error: e2 },
+    { data: users, error: e3 },
   ] = await Promise.all([
-    db()
-      .from("overtime_sheets").select("*").order("work_date", { ascending: false }),
-    db()
-      .from("v_overtime_claim").select("sheet_no,stage,payable,hours"),
-    db()
-      .from("overtime_lines").select("*"),
-    db()
-      .from("employees").select("id,employee_no,full_name"),
-    /* The signed form, on the evidence road. One read for every sheet rather
-       than one per sheet. */
-    core()
-      .from("attachment_links")
-      .select("entity_no,kind,attachment_id,attachments(filename)")
-      .eq("entity", "overtime_sheet").is("unlinked_at", null),
+    few
+      ? db().from("v_overtime_claim").select("sheet_no,stage,payable,hours").in("sheet_no", nos)
+      : db().from("v_overtime_claim").select("sheet_no,stage,payable,hours"),
+    /* The signed form or the work report, on the evidence road. One read for
+       every sheet rather than one per sheet. */
+    few
+      ? core()
+        .from("attachment_links")
+        .select("entity_no,kind,attachment_id,attachments(filename)")
+        .eq("entity", "overtime_sheet").in("entity_no", nos).is("unlinked_at", null)
+      : core()
+        .from("attachment_links")
+        .select("entity_no,kind,attachment_id,attachments(filename)")
+        .eq("entity", "overtime_sheet").is("unlinked_at", null),
+    deciders.length
+      ? core().from("users").select("id,full_name").in("id", deciders)
+      : Promise.resolve({ data: [], error: null }),
   ]);
-  if (error) return fromRows<OvertimeSheetView[]>(SERVICE, null, error);
+  if (e1) return fromRows<OvertimeSheetView[]>(SERVICE, null, e1);
   if (e2) return fromRows<OvertimeSheetView[]>(SERVICE, null, e2);
   if (e3) return fromRows<OvertimeSheetView[]>(SERVICE, null, e3);
-  if (e4) return fromRows<OvertimeSheetView[]>(SERVICE, null, e4);
-  if (e5) return fromRows<OvertimeSheetView[]>(SERVICE, null, e5);
 
-  const byId = new Map(
-    ((people ?? []) as { id: string; employee_no: string; full_name: string }[])
-      .map((p) => [p.id, p]));
   const claimOf = new Map(
     ((claims ?? []) as { sheet_no: string; stage: string; payable: boolean; hours: number }[])
       .map((c) => [c.sheet_no, c]));
-  const linkOf = new Map(
-    ((links ?? []) as unknown as {
-      entity_no: string; kind: string; attachment_id: string;
-      attachments: { filename: string } | null;
-    }[]).map((l) => [l.entity_no, l]));
+  const linkOf = new Map(((links ?? []) as unknown as LinkRowOt[]).map((l) => [l.entity_no, l]));
+  const nameOf = new Map(((users ?? []) as { id: string; full_name: string }[]).map((u) => [u.id, u.full_name]));
 
-  const rows = ((sheets ?? []) as unknown as (OvertimeSheetView & { id: string })[]).map((s) => {
+  return ok(SERVICE, sheets.map((s) => {
     const claim = claimOf.get(s.sheet_no);
     const link = linkOf.get(s.sheet_no);
     return {
       ...s,
-      lines: ((lines ?? []) as unknown as (OvertimeLineView & { sheet_id: string })[])
+      lines: lines
         .filter((l) => l.sheet_id === s.id)
         .map((l): OvertimeLineView => ({
           ...l,
-          employee_no: byId.get((l as unknown as { employee_id: string }).employee_id)?.employee_no ?? "",
-          full_name: byId.get((l as unknown as { employee_id: string }).employee_id)?.full_name ?? "",
+          employee_no: people.get(l.employee_id)?.employee_no ?? l.employee_no ?? "",
+          full_name: people.get(l.employee_id)?.full_name ?? l.full_name ?? "",
         })),
       stage: claim?.stage as OvertimeSheetView["stage"],
       payable: claim?.payable ?? false,
-      total_hours: claim?.hours ?? 0,
+      total_hours: Number(claim?.hours ?? 0),
       evidence: link
-        ? {
-            attachment_id: link.attachment_id,
-            filename: link.attachments?.filename ?? "",
-            kind: link.kind,
-          }
+        ? { attachment_id: link.attachment_id, filename: link.attachments?.filename ?? "", kind: link.kind }
         : null,
+      decided_by_name: s.decided_by ? nameOf.get(s.decided_by) ?? null : null,
     } as OvertimeSheetView;
-  });
-  return ok(SERVICE, rows);
+  }));
 }
 
-/** Reporting the person's own night — duration, and the result the hours
- *  produced (0165). The evidence itself (a screenshot, a photo of the work)
- *  is not a field here: it travels the same road every document does,
- *  attached from the sheet this returns via `documents.link` with kind
- *  `"Laporan Lembur"` and entity `"overtime"` (ADR-010). */
+export async function listOvertimeSheets(): Promise<Result<OvertimeSheetView[]>> {
+  const [
+    { data: sheets, error },
+    { data: lines, error: e2 },
+    { data: people, error: e3 },
+  ] = await Promise.all([
+    db().from("overtime_sheets").select("*").order("work_date", { ascending: false }),
+    db().from("overtime_lines").select("*"),
+    db().from("employees").select("id,employee_no,full_name"),
+  ]);
+  if (error) return fromRows<OvertimeSheetView[]>(SERVICE, null, error);
+  if (e2) return fromRows<OvertimeSheetView[]>(SERVICE, null, e2);
+  if (e3) return fromRows<OvertimeSheetView[]>(SERVICE, null, e3);
+  const byId = new Map(
+    ((people ?? []) as { id: string; employee_no: string; full_name: string }[]).map((p) => [p.id, p]));
+  return sheetViews((sheets ?? []) as unknown as SheetRow[], (lines ?? []) as unknown as LineRow[], byId);
+}
+
+/** One sheet, read the same way as the list. */
+export async function getOvertimeSheet(sheetNo: string): Promise<Result<OvertimeSheetView>> {
+  const { data: sheet, error } = await db()
+    .from("overtime_sheets").select("*").eq("sheet_no", sheetNo).maybeSingle();
+  if (error) return fromRows<OvertimeSheetView>(SERVICE, null, error);
+  if (!sheet) return notFound(SERVICE, "sheet_not_found", `No sheet ${sheetNo}.`);
+  const { data: lines, error: e2 } = await db()
+    .from("overtime_lines").select("*").eq("sheet_id", (sheet as { id: string }).id);
+  if (e2) return fromRows<OvertimeSheetView>(SERVICE, null, e2);
+  const ids = [...new Set(((lines ?? []) as { employee_id: string }[]).map((l) => l.employee_id))];
+  const { data: people, error: e3 } = ids.length
+    ? await db().from("employees").select("id,employee_no,full_name").in("id", ids)
+    : { data: [], error: null };
+  if (e3) return fromRows<OvertimeSheetView>(SERVICE, null, e3);
+  const byId = new Map(
+    ((people ?? []) as { id: string; employee_no: string; full_name: string }[]).map((p) => [p.id, p]));
+  const res = await sheetViews([sheet as unknown as SheetRow], (lines ?? []) as unknown as LineRow[], byId);
+  if (res.error) return res as unknown as Result<OvertimeSheetView>;
+  return ok(SERVICE, res.data[0]);
+}
+
+/** Opening a sheet — HRD's road (0054). A production night or a staff
+ *  session; the kind decides who signs (D146). */
+export async function createOvertimeSheet(
+  input: { kind: OvertimeKind; work_date: string; purpose: string },
+  idempotencyKey?: string,
+): Promise<Result<OvertimeSheetView>> {
+  const { data, error } = await db().rpc("create_overtime_sheet", {
+    p_kind: input.kind, p_work_date: input.work_date, p_purpose: input.purpose,
+    p_key: idempotencyKey ?? null,
+  });
+  const res = fromSeam<{ sheet_no: string }>(SERVICE, data, error);
+  if (res.error) return res as unknown as Result<OvertimeSheetView>;
+  return getOvertimeSheet(res.data.sheet_no);
+}
+
+/** A name on a sheet, with what was made (D147) and, since D333, what the
+ *  overtime was for. */
+export async function addOvertimeLine(
+  input: {
+    sheet_no: string;
+    employee_no: string;
+    hours: number;
+    task: string;
+    wo_no?: string | null;
+    stage?: string | null;
+    qty_done?: number | null;
+    form_amount?: number | null;
+    deliverable?: string | null;
+  },
+): Promise<Result<OvertimeSheetView>> {
+  const { data, error } = await db().rpc("add_overtime_line", {
+    p_sheet_no: input.sheet_no, p_employee_no: input.employee_no,
+    p_hours: input.hours, p_task: input.task,
+    p_wo_no: input.wo_no ?? null, p_stage: input.stage ?? null,
+    p_qty_done: input.qty_done ?? null, p_form_amount: input.form_amount ?? null,
+    p_key: null, p_deliverable: input.deliverable ?? null,
+  });
+  const res = fromSeam<{ sheet_no: string }>(SERVICE, data, error);
+  if (res.error) return res as unknown as Result<OvertimeSheetView>;
+  return getOvertimeSheet(input.sheet_no);
+}
+
+/** The paper on a sheet: the signed form for production, the work report for
+ *  a staff session (D146). One road for every document — `documents.link`
+ *  (ADR-010); this only knows which kind the sheet's paper is. */
+export async function attachOvertimeDoc(
+  input: { sheet_no: string; attachment_id: string },
+): Promise<Result<OvertimeSheetView>> {
+  const { data: sheet, error } = await db()
+    .from("overtime_sheets").select("kind").eq("sheet_no", input.sheet_no).maybeSingle();
+  if (error) return fromRows<OvertimeSheetView>(SERVICE, null, error);
+  if (!sheet) return notFound(SERVICE, "sheet_not_found", `No sheet ${input.sheet_no}.`);
+  const res = await linkDocument({
+    attachment_id: input.attachment_id, entity: "overtime", entity_no: input.sheet_no,
+    kind: (sheet as { kind: OvertimeKind }).kind === "production" ? "Surat Lembur" : "Laporan Lembur",
+  });
+  if (res.error) return res as unknown as Result<OvertimeSheetView>;
+  return getOvertimeSheet(input.sheet_no);
+}
+
+/** HRD's check and leadership's signature (0054). An ask the employee sent
+ *  is handed by the seam to `decide_overtime_self` in the capacity the step
+ *  names (0189), so this drawer and the queue cannot decide it two ways. */
+export async function decideOvertimeSheet(
+  input: { sheet_no: string; step: "hrd" | "leader"; approved: boolean; reason?: string | null },
+): Promise<Result<OvertimeSheetView>> {
+  const { data, error } = await db().rpc("decide_overtime_sheet", {
+    p_sheet_no: input.sheet_no, p_step: input.step, p_approved: input.approved,
+    p_reason: input.reason ?? null, p_key: null,
+  });
+  const res = fromSeam<{ sheet_no: string }>(SERVICE, data, error);
+  if (res.error) return res as unknown as Result<OvertimeSheetView>;
+  return getOvertimeSheet(input.sheet_no);
+}
+
+/** The company's own paper form, read rather than retyped (D154). */
+export async function importOvertimeForm(
+  input: {
+    sheet_no: string;
+    filename: string;
+    rows: { no: string; name: string; description: string; gaji: number | null; jam: number | null }[];
+  },
+  idempotencyKey?: string,
+): Promise<Result<{ added: number; skipped: number; unknown: string[]; sheet: OvertimeSheetView }>> {
+  const { data, error } = await db().rpc("import_overtime_form", {
+    p_sheet_no: input.sheet_no, p_filename: input.filename,
+    p_rows: input.rows, p_key: idempotencyKey ?? null,
+  });
+  const res = fromSeam<{ added: number; skipped: number; unknown: string[] }>(SERVICE, data, error);
+  if (res.error) return res as unknown as Result<{ added: number; skipped: number; unknown: string[]; sheet: OvertimeSheetView }>;
+  const sheet = await getOvertimeSheet(input.sheet_no);
+  if (sheet.error) return sheet as unknown as Result<{ added: number; skipped: number; unknown: string[]; sheet: OvertimeSheetView }>;
+  return ok(SERVICE, { added: res.data.added, skipped: res.data.skipped, unknown: res.data.unknown ?? [], sheet: sheet.data });
+}
+
+/** Asking for the person's own overtime (0165, 0189). The deliverable — what
+ *  it is for — is asked for up front; the result may follow through
+ *  `addOvertimeResultSelf`. The sheet waits for HRD or leadership (D333). The
+ *  evidence itself travels the document road from the sheet this returns
+ *  (`documents.link`, kind `"Laporan Lembur"`, entity `"overtime"`, ADR-010). */
 export async function reportOvertimeSelf(
-  input: { work_date: string; hours: number; result_note: string; task?: string | null },
+  input: {
+    work_date: string; hours: number; deliverable: string;
+    result_note?: string | null; task?: string | null;
+  },
   idempotencyKey?: string,
 ): Promise<Result<{ sheet_no: string; work_date: string; hours: number }>> {
   const { data, error } = await db().rpc("report_overtime_self", {
     p_work_date: input.work_date, p_hours: input.hours,
-    p_result_note: input.result_note, p_task: input.task ?? null,
+    p_deliverable: input.deliverable,
+    p_result_note: input.result_note ?? null, p_task: input.task ?? null,
     p_key: idempotencyKey ?? null,
   });
   return fromSeam<{ sheet_no: string; work_date: string; hours: number }>(SERVICE, data, error);
 }
 
-/** My own overtime, whether HRD has looked at it yet or not.
+/** The result of an ask, written after the work, while nobody has decided it
+ *  yet (0189). */
+export async function addOvertimeResultSelf(
+  input: { sheet_no: string; result_note: string },
+): Promise<Result<{ sheet_no: string; result_note: string }>> {
+  const { data, error } = await db().rpc("add_overtime_result_self", {
+    p_sheet_no: input.sheet_no, p_result_note: input.result_note, p_key: null,
+  });
+  return fromSeam<{ sheet_no: string; result_note: string }>(SERVICE, data, error);
+}
+
+/** The asks, as HRD and leadership decide them — `self_overtime_queue()`
+ *  (0189), a definer read because leadership holds an authority and usually
+ *  no HR module. Waiting ones first; empty for anybody who could decide none. */
+export async function listSelfOvertime(): Promise<Result<SelfOvertimeView[]>> {
+  const { data, error } = await db().rpc("self_overtime_queue");
+  if (error) return fromRows<SelfOvertimeView[]>(SERVICE, null, error);
+  return ok(SERVICE, ((data ?? []) as SelfOvertimeView[]).map((r) => ({ ...r, hours: Number(r.hours) })));
+}
+
+/** Deciding an ask — HRD or leadership, whichever looks first; `as` names
+ *  the capacity (D333). The seam refuses one's own. */
+export async function decideSelfOvertime(
+  input: { sheet_no: string; approved: boolean; note?: string | null; as?: OvertimeDecider | null },
+  idempotencyKey?: string,
+): Promise<Result<SelfOvertimeView>> {
+  const { data, error } = await db().rpc("decide_overtime_self", {
+    p_sheet_no: input.sheet_no, p_approved: input.approved,
+    p_note: input.note ?? null, p_as: input.as ?? null, p_key: idempotencyKey ?? null,
+  });
+  const res = fromSeam<{ sheet_no: string }>(SERVICE, data, error);
+  if (res.error) return res as unknown as Result<SelfOvertimeView>;
+  const all = await listSelfOvertime();
+  if (all.error) return all as unknown as Result<SelfOvertimeView>;
+  const row = all.data.find((r) => r.sheet_no === input.sheet_no);
+  if (!row) return notFound(SERVICE, "sheet_not_found", `No sheet ${input.sheet_no}.`);
+  return ok(SERVICE, row);
+}
+
+/** My own overtime, whether anybody has decided it yet or not.
  *
  *  A separate function from `listOvertimeSheets` rather than that one made
  *  conditional: the admin screen's query already assumes it may see
@@ -1413,51 +1600,14 @@ export async function myOvertimeSheets(): Promise<Result<OvertimeSheetView[]>> {
   const { data: myLines, error: e1 } = await db()
     .from("overtime_lines").select("*").eq("employee_id", myId);
   if (e1) return fromRows<OvertimeSheetView[]>(SERVICE, null, e1);
-  const lines = (myLines ?? []) as unknown as (OvertimeLineView & { sheet_id: string })[];
+  const lines = (myLines ?? []) as unknown as LineRow[];
   const sheetIds = [...new Set(lines.map((l) => l.sheet_id))];
   if (sheetIds.length === 0) return ok(SERVICE, []);
 
-  const [
-    { data: sheets, error: e2 },
-    { data: claims, error: e3 },
-    { data: links, error: e4 },
-  ] = await Promise.all([
-    db().from("overtime_sheets").select("*").in("id", sheetIds).order("work_date", { ascending: false }),
-    db().from("v_overtime_claim").select("sheet_no,stage,payable,hours"),
-    core()
-      .from("attachment_links")
-      .select("entity_no,kind,attachment_id,attachments(filename)")
-      .eq("entity", "overtime_sheet").is("unlinked_at", null),
-  ]);
+  const { data: sheets, error: e2 } = await db()
+    .from("overtime_sheets").select("*").in("id", sheetIds).order("work_date", { ascending: false });
   if (e2) return fromRows<OvertimeSheetView[]>(SERVICE, null, e2);
-  if (e3) return fromRows<OvertimeSheetView[]>(SERVICE, null, e3);
-  if (e4) return fromRows<OvertimeSheetView[]>(SERVICE, null, e4);
-
-  const claimOf = new Map(
-    ((claims ?? []) as { sheet_no: string; stage: string; payable: boolean; hours: number }[])
-      .map((c) => [c.sheet_no, c]));
-  const linkOf = new Map(
-    ((links ?? []) as unknown as {
-      entity_no: string; kind: string; attachment_id: string;
-      attachments: { filename: string } | null;
-    }[]).map((l) => [l.entity_no, l]));
-
-  const rows = ((sheets ?? []) as unknown as (OvertimeSheetView & { id: string })[]).map((s) => {
-    const claim = claimOf.get(s.sheet_no);
-    const link = linkOf.get(s.sheet_no);
-    const mine = lines.filter((l) => l.sheet_id === s.id);
-    return {
-      ...s,
-      lines: mine,
-      stage: claim?.stage as OvertimeSheetView["stage"],
-      payable: claim?.payable ?? false,
-      total_hours: claim?.hours ?? 0,
-      evidence: link
-        ? { attachment_id: link.attachment_id, filename: link.attachments?.filename ?? "", kind: link.kind }
-        : null,
-    } as OvertimeSheetView;
-  });
-  return ok(SERVICE, rows);
+  return sheetViews((sheets ?? []) as unknown as SheetRow[], lines, new Map());
 }
 
 /* ------------------------------------------------------------------ */

@@ -328,7 +328,29 @@ export interface OvertimeSheet {
   unpaid_reason: string | null;
   declined_by: string | null;
   declined_reason: string | null;
+  /** Which road opened the sheet (D333). `hrd`: HRD keyed it — a staff
+   *  session is paid unless turned off (D146). `self`: the employee asked for
+   *  it from `/saya` or `/profil` — an **ask**, paid only once HRD or
+   *  leadership approves it. */
+  via: OvertimeVia;
+  /** The one decision an ask gets: who, when, in which capacity, and the note
+   *  they left. Null on every `hrd` sheet, whose signatures are above. */
+  decided_by: string | null;
+  decided_at: string | null;
+  decided_as: OvertimeDecider | null;
+  decision_note: string | null;
 }
+
+export type OvertimeVia = "hrd" | "self";
+/** The capacity an ask was decided in: HRD (`hrd.update`) or leadership
+ *  (the `approve_overtime` authority). Either one decides — not both (D333). */
+export type OvertimeDecider = "hrd" | "leader";
+
+export const OVERTIME_DECIDER_LABELS: Record<OvertimeDecider, Message> = {
+  hrd: { en: "HRD", id: "HRD" },
+  leader: { en: "Leadership", id: "Pimpinan" },
+};
+export const OVERTIME_DECIDER_LABEL = bilingual(OVERTIME_DECIDER_LABELS);
 
 /** One person's line on a sheet.
  *
@@ -362,6 +384,10 @@ export interface OvertimeLine {
    *  on every line HRD keyed from the paper form, where the task column
    *  already says it. */
   result_note: string | null;
+  /** What the overtime is **for** — what will exist afterwards (D333). Asked
+   *  for up front on the self road, where it is what the approver weighs;
+   *  optional on HRD's own sheet. `result_note` is what was actually done. */
+  deliverable: string | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1044,6 +1070,34 @@ export interface OvertimeSheetView extends OvertimeSheet {
   total_hours: number;
   /** The signed sheet (production) or the work report (staff). */
   evidence: { attachment_id: string; filename: string; kind: string } | null;
+  /** Who decided an ask, by name (D333). Null until somebody has. */
+  decided_by_name: string | null;
+}
+
+/** An ask as the people who decide it read it — `self_overtime_queue()`
+ *  (0189). One row per ask, since an ask is one person's. Leadership usually
+ *  holds no HR module, so this carries the name rather than leaving the
+ *  screen to join tables it cannot read. The photos are read from the sheet
+ *  on the evidence road (`documents.byEntity("overtime", sheet_no)`), which
+ *  every account may read (ADR-010). */
+export interface SelfOvertimeView {
+  sheet_no: string;
+  work_date: string;
+  created_at: string;
+  employee_no: string;
+  full_name: string;
+  hours: number;
+  task: string | null;
+  deliverable: string | null;
+  result_note: string | null;
+  stage: OvertimeStage;
+  payable: boolean;
+  decided_by_name: string | null;
+  decided_as: OvertimeDecider | null;
+  decided_at: string | null;
+  decision_note: string | null;
+  /** The caller's own ask — shown, never decidable by them. */
+  mine: boolean;
 }
 
 export type PayrollStatus = "DRAFT" | "APPROVED" | "PAID";

@@ -5,13 +5,14 @@ import { AlertTriangle, Check } from "lucide-react";
 import { Badge, Button, Card } from "@/components/ui/primitives";
 import { Loaded, useLoad } from "@/components/ui/loaded";
 import { hr } from "@/demo/api";
-import { OVERTIME_STAGE_LABEL, type LeaveKind, type LeaveRequestView, type OvertimeSheetView } from "@/services/hr/contracts";
+import { type LeaveKind, type LeaveRequestView, type OvertimeSheetView } from "@/services/hr/contracts";
 import { formatNumber } from "@/lib/format";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { attachPhoto, CameraButton, FIELD, useDayLabel } from "./shared";
 import { OvertimeForm } from "./overtime-form";
+import { OvertimeAskDetails, useOvertimeStatus } from "./overtime-ask";
 
 type Kind = LeaveKind | "lembur";
 
@@ -180,6 +181,7 @@ function History({
   onChanged: () => void;
 }) {
   const tr = useTr();
+  const otStatus = useOvertimeStatus();
   const KIND = { izin: tr("Permit", "Izin"), sakit: tr("Sick", "Sakit"), cuti: tr("Leave", "Cuti") };
   const STATUS = {
     PENDING: tr("Waiting", "Menunggu"), APPROVED: tr("Approved", "Disetujui"),
@@ -218,20 +220,14 @@ function History({
         </li>
       ) : s ? (
         <li key={key} className="px-5 py-3 text-[14px]">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="font-medium text-slate-800">{tr("Overtime", "Lembur")}</span>
-            <span className="whitespace-nowrap text-slate-600">{day(s.work_date)}</span>
-            <Badge className="ml-auto shrink-0" tone={s.payable ? "green" : s.stage === "declined" ? "red" : "slate"}>
-              {OVERTIME_STAGE_LABEL[s.stage]}
-            </Badge>
+            <span className="whitespace-nowrap text-slate-600">
+              {day(s.work_date)} · {formatNumber(s.lines[0]?.hours ?? 0)} {tr("h", "jam")}
+            </span>
+            <Badge className="ml-auto shrink-0" tone={otStatus(s).tone}>{otStatus(s).label}</Badge>
           </div>
-          <p className="mt-0.5 text-slate-600">{formatNumber(s.lines[0]?.hours ?? 0)} {tr("hours", "jam")}</p>
-          {s.lines[0]?.result_note && <p className="mt-0.5 text-slate-600">{s.lines[0].result_note}</p>}
-          {!s.evidence && (
-            <p className="mt-1 flex items-center gap-1 text-[12px] text-amber-700">
-              <AlertTriangle className="h-3.5 w-3.5" /> {tr("No photo attached.", "Belum ada foto.")}
-            </p>
-          )}
+          <OvertimeAskDetails sheet={s} onChanged={onChanged} />
         </li>
       ) : null)}
     </ul>

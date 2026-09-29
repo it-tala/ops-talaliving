@@ -1163,6 +1163,10 @@ export interface BomSuggestionLine {
   qty: number;
   uom: string;
   waste_percent: number;
+  /** The business norm the waste was taken from, `Panel · Plywood cutting
+   *  waste` (0193, D338). Null when no norm applied — the waste is then the
+   *  model's own, and a warning says so whenever the business has norms. */
+  waste_norm: string | null;
   /** From the rate list at the time of the proposal. Null when unmatched. */
   rate: number | null;
   /** How the quantity was worked out: `4 × 50×50×720 mm = 0,0072 m³`. */
@@ -1187,6 +1191,75 @@ export interface BomSuggestion {
   assumptions: string[];
   /** Text on the drawing it could not read with confidence. */
   unread: string[];
+  /** How many of the business's norms in force the reading was held to (0193,
+   *  D338). Zero means none were readable, and waste is the model's estimate. */
+  norms: number;
+}
+
+/* ── The business's estimating rules (0193, D338) ──────────────────────────
+ *
+ *  Imported 2026-09-25 into `ops_prod.bom_norms` and `ops_prod.finishing_recipes`
+ *  and unread until 0193: waste, yield and coverage the business has written
+ *  down, and its finishing systems step by step. The AI's proposal is held to
+ *  the norms; each finishing system's total is offered on the rate screen as a
+ *  candidate rate the owner may add — never added for them (D324 default 2).
+ *  Read-only here: the rules are changed where they were written.
+ */
+
+export type BomNormSource = "empirical" | "industry" | "decision";
+
+export const BOM_NORM_SOURCE_LABELS: Record<BomNormSource, Message> = {
+  empirical: { en: "measured here", id: "aktual pabrik" },
+  industry: { en: "industry norm", id: "norma industri" },
+  decision: { en: "decided", id: "keputusan" },
+};
+
+export interface BomNorm {
+  id: string;
+  /** `Wood`, `Panel`, `Finishing`, `Factor`… — the business's own words. */
+  category: string;
+  norm: string;
+  /** Null where the rule is a way of working it out, not a figure
+   *  (*Foam volume: hitung dari ukuran cushion*). */
+  value: number | null;
+  unit: string | null;
+  basis: string | null;
+  remarks: string | null;
+  source_kind: BomNormSource | null;
+  effective_on: string | null;
+}
+
+export interface FinishingStep {
+  step: string;
+  product: string | null;
+  unit_price: number | null;
+  uom: string | null;
+  coverage_m2_per_unit: number | null;
+  coats: number | null;
+  /** As the recipe states it: unit price ÷ coverage × coats. */
+  cost_per_m2: number | null;
+  /** The recipe calls the step *(optional)*. */
+  optional: boolean;
+  remarks: string | null;
+}
+
+/** One finishing system, as the `finishing` rate it could become. */
+export interface FinishingSystem {
+  system: string;
+  steps: number;
+  /** Steps with no `cost_per_m2` — the total leaves them out. */
+  unpriced_steps: number;
+  /** Rupiah per m², every priced step. */
+  cost_per_m2: number;
+  /** The part of `cost_per_m2` that optional steps make up. */
+  optional_cost_per_m2: number;
+  effective_on: string | null;
+  breakdown: FinishingStep[];
+  /** The name it takes on the rate list: `Finishing NC natural (Zhanchen)`. */
+  rate_name: string;
+  /** The active rate that already has that name, and its figure. */
+  rate_code: string | null;
+  listed_rate: number | null;
 }
 
 /* ── Desain: the drafters' queue ───────────────────────────────────────────

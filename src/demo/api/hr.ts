@@ -2,7 +2,7 @@
 import { ok, invalid, notFound, noop, refused, type Result } from "@/services/_shared/envelope";
 import type {
   Employee, AttendanceScan, TimesheetDay, DayMark, DayMarkKind,
-  OvertimeSheet, OvertimeLine, OvertimeSheetView, OvertimeKind,
+  OvertimeSheet, OvertimeLine, OvertimeSheetView, OvertimeKind, OvertimeDecider, SelfOvertimeView,
   PayrollRun, PayrollView, PayrollLine, PayBasis,
   AdjustmentKind, PayrollAdjustmentView,
   PayRules, PayRuleSet, PayRuleSetView, WorkSchedule, ScheduleHours,
@@ -49,7 +49,7 @@ function sheetView(state: ReturnType<typeof getState>, sheet: OvertimeSheet): Ov
       const emp = state.employees.find((e) => e.id === l.employee_id);
       return { ...l, employee_no: emp?.employee_no ?? "—", full_name: emp?.full_name ?? "—" };
     });
-  const link = sheetEvidence(state, sheet.id);
+  const link = sheetEvidence(state, sheet);
   const att = link ? state.attachments.find((a) => a.id === link.attachment_id) : null;
   return {
     ...sheet,
@@ -59,6 +59,9 @@ function sheetView(state: ReturnType<typeof getState>, sheet: OvertimeSheet): Ov
     total_hours: Math.round(lines.reduce((a, l) => a + l.hours, 0) * 100) / 100,
     evidence: att && link
       ? { attachment_id: att.id, filename: att.filename, kind: link.kind }
+      : null,
+    decided_by_name: sheet.decided_by
+      ? state.users.find((u) => u.id === sheet.decided_by)?.full_name ?? sheet.decided_by
       : null,
   };
 }
@@ -1193,6 +1196,7 @@ export async function createOvertimeSheet(
          leadership signature, and this flag is not what decides them. */
       paid: true, unpaid_reason: null,
       declined_by: null, declined_reason: null,
+      via: "hrd", decided_by: null, decided_at: null, decided_as: null, decision_note: null,
     });
     writeAudit(draft, {
       service: SERVICE, entity: "overtime_sheet", entity_no: sheetNo,
@@ -1224,6 +1228,8 @@ export async function addOvertimeLine(
     qty_done?: number | null;
     /** The GAJI column of the paper form, when the sheet carries one (D154). */
     form_amount?: number | null;
+    /** What the overtime is for (D333). Optional on HRD's own sheet. */
+    deliverable?: string | null;
   },
 ): Promise<Result<OvertimeSheetView>> {
   await latency();
@@ -1238,6 +1244,10 @@ export async function addOvertimeLine(
       SERVICE, "sheet_closed",
       `${sheet.sheet_no} sudah diperiksa. Nama baru masuk lembar baru — menambah nama ke lembar yang sudah ditandatangani berarti tanda tangannya tidak lagi menunjuk apa yang ditandatangani.`,
     );
+  }
+  if (sheet.via === "self") {
+    return conflict(SERVICE, "self_submitted",
+      `${sheet.sheet_no} diajukan sendiri oleh karyawannya — satu nama, miliknya.`);
   }
   const emp = state.employees.find((e) => e.employee_no === input.employee_no);
   if (!emp) return notFound(SERVICE, "employee_not_found", `No employee ${input.employee_no}.`);
@@ -1261,6 +1271,7 @@ export async function addOvertimeLine(
       qty_done: input.qty_done ?? null,
       form_amount: input.form_amount ?? null,
       result_note: null,
+      deliverable: input.deliverable?.trim() || null,
     };
     draft.overtime_lines.push(row);
     writeAudit(draft, {
@@ -1334,6 +1345,16 @@ export async function decideOvertimeSheet(
     : requireAuthority(SERVICE, "approve_overtime");
   if (denied) return denied;
 
+  /* An ask from the phone is decided once, by HRD or leadership (D333) — the
+     same seam the queue uses, in the capacity this step names. */
+  if (sheet0.via === "self") {
+    const res = await decideSelfOvertime({
+      sheet_no: input.sheet_no, approved: input.approved, note: input.reason ?? null, as: input.step,
+    });
+    if (res.error) return res as unknown as Result<OvertimeSheetView>;
+    return getOvertimeSheet(input.sheet_no);
+  }
+
   if (input.step === "leader" && sheet0.kind === "staff") {
     return invalid(
       SERVICE, "no_leader_needed",
@@ -1365,7 +1386,7 @@ export async function decideOvertimeSheet(
     if (sheet0.leader_approved_at) {
       return conflict(SERVICE, "already_decided", "Pimpinan sudah menandatangani lembar ini.");
     }
-    if (input.approved && !sheetEvidence(state0, sheet0.id, "Surat Lembur")) {
+    if (input.approved && !sheetEvidence(state0, sheet0, "Surat Lembur")) {
       return invalid(
         SERVICE, "surat_required",
         "Surat lembur belum dilampirkan. Pimpinan menandatangani suratnya — tanpa itu yang disetujui hanya angka.",
@@ -1485,7 +1506,7 @@ export async function importOvertimeForm(
         hours: row.jam ?? 0,
         task: row.description.trim() || "—",
         wo_no: null, stage: null, qty_done: null,
-        form_amount: row.gaji ?? null, result_note: null,
+        form_amount: row.gaji ?? null, result_note: null, deliverable: null,
       });
     }
     writeAudit(draft, {
@@ -1637,31 +1658,39 @@ export async function getOvertimeSheet(sheetNo: string): Promise<Result<Overtime
   return ok(SERVICE, sheetView(state, sheet));
 }
 
-/** Reporting the person's own night — one staff sheet, ships paid by default
- *  (D146), no HRD grant needed. Evidence — the screenshot, the work itself —
- *  travels the same road every document does, attached from the sheet this
- *  returns (ADR-010); `result_note` is the sentence the evidence backs up,
- *  not the evidence itself (0165). */
+/** Asking for the person's own overtime — one staff sheet, `via: "self"`,
+ *  **waiting** until HRD or leadership decides it (D333; 0189). The
+ *  deliverable — what the overtime is for — is asked for up front, because it
+ *  is what the approver weighs; the result may follow through
+ *  `addOvertimeResultSelf`, and approval waits for it. Evidence travels the
+ *  document road from the sheet this returns (ADR-010). */
 export async function reportOvertimeSelf(
-  input: { work_date: string; hours: number; result_note: string; task?: string | null },
+  input: {
+    work_date: string; hours: number; deliverable: string;
+    result_note?: string | null; task?: string | null;
+  },
+  idempotencyKey?: string,
 ): Promise<Result<{ sheet_no: string; work_date: string; hours: number }>> {
   await latency();
+  const cached = replayed<{ sheet_no: string; work_date: string; hours: number }>(
+    SERVICE, "reportOvertimeSelf", idempotencyKey);
+  if (cached) return cached;
   const state = getState();
   const emp = myEmployee(state);
   if (!emp) return noEmployeeLink();
 
   if (input.work_date > officeToday()) {
     return invalid(SERVICE, "date_in_future",
-      "Lembur diajukan untuk malam yang sudah dijalani, bukan yang akan datang.", { field: "work_date" });
+      "Lembur diajukan untuk hari ini atau malam yang sudah dijalani, bukan yang akan datang.", { field: "work_date" });
   }
   if (!(input.hours > 0) || input.hours > 12) {
     return invalid(SERVICE, "hours_out_of_range",
       "Durasi lembur ditulis dalam jam, lebih dari nol dan sampai 12.", { field: "hours" });
   }
-  if (!input.result_note.trim()) {
-    return invalid(SERVICE, "result_required",
-      "Apa yang dikerjakan selama lembur ini? HRD memutuskan dari kalimat ini, bukan dari jam saja.",
-      { field: "result_note" });
+  if (!input.deliverable?.trim()) {
+    return invalid(SERVICE, "deliverable_required",
+      "Lembur ini untuk menghasilkan apa? HRD atau pimpinan menyetujui dari kalimat ini.",
+      { field: "deliverable" });
   }
   const already = state.overtime_sheets.find((s) => s.kind === "staff" && s.work_date === input.work_date
     && !s.declined_reason
@@ -1671,6 +1700,7 @@ export async function reportOvertimeSelf(
   }
 
   const user = actingUser();
+  const result = input.result_note?.trim() || null;
   let sheetNo = "";
   apply((draft) => {
     sheetNo = nextDocNumber(draft, "lbr");
@@ -1682,22 +1712,184 @@ export async function reportOvertimeSelf(
       hrd_checked_by: null, hrd_checked_at: null,
       leader_approved_by: null, leader_approved_at: null,
       paid: true, unpaid_reason: null, declined_by: null, declined_reason: null,
+      via: "self", decided_by: null, decided_at: null, decided_as: null, decision_note: null,
     });
     draft.overtime_lines.push({
       id: newId("lbl"), sheet_id: sheetId, employee_id: emp.id,
       hours: input.hours, task: input.task?.trim() || "",
       wo_no: null, stage: null, qty_done: null, form_amount: null,
-      result_note: input.result_note.trim(),
+      result_note: result, deliverable: input.deliverable.trim(),
     });
     writeAudit(draft, {
       service: SERVICE, entity: "overtime_sheet", entity_no: sheetNo,
       action: "report_self", outcome: "ok", reason: null,
-      detail: { via: "self", hours: input.hours, result_note: input.result_note.trim(), by: user.email },
+      detail: { via: "self", hours: input.hours, deliverable: input.deliverable.trim(), result_note: result, by: user.email },
     });
     recordSelfActivity(draft, "overtime_requested", "overtime_sheet",
       `Mengajukan lembur ${input.hours} jam pada ${input.work_date}`);
   });
-  return ok(SERVICE, { sheet_no: sheetNo, work_date: input.work_date, hours: input.hours });
+  const out = { sheet_no: sheetNo, work_date: input.work_date, hours: input.hours };
+  remember(SERVICE, "reportOvertimeSelf", idempotencyKey, out);
+  return ok(SERVICE, out);
+}
+
+/** The result of an ask, written after the work (D333). Only the person's own,
+ *  only while nobody has decided it — after that it would be read by nobody. */
+export async function addOvertimeResultSelf(
+  input: { sheet_no: string; result_note: string },
+): Promise<Result<{ sheet_no: string; result_note: string }>> {
+  await latency();
+  const state = getState();
+  const emp = myEmployee(state);
+  if (!emp) return noEmployeeLink();
+  const sheet = state.overtime_sheets.find((s) => s.sheet_no === input.sheet_no && s.via === "self"
+    && state.overtime_lines.some((l) => l.sheet_id === s.id && l.employee_id === emp.id));
+  if (!sheet) return notFound(SERVICE, "sheet_not_found", `Tidak ada pengajuan lembur ${input.sheet_no} milik Anda.`);
+  if (sheet.decided_at || sheet.declined_reason) {
+    return conflict(SERVICE, "already_decided",
+      "Lembur ini sudah diputuskan. Hasil yang ditulis sekarang tidak lagi dibaca orang yang memutuskan.");
+  }
+  if (!input.result_note?.trim()) {
+    return invalid(SERVICE, "result_required", "Apa yang selesai?", { field: "result_note" });
+  }
+  apply((draft) => {
+    const line = draft.overtime_lines.find((l) => l.sheet_id === sheet.id && l.employee_id === emp.id);
+    if (line) line.result_note = input.result_note.trim();
+    writeAudit(draft, {
+      service: SERVICE, entity: "overtime_sheet", entity_no: sheet.sheet_no,
+      action: "result_self", outcome: "ok", reason: null,
+      detail: { result_note: input.result_note.trim(), by: actingUser().email },
+    });
+  });
+  return ok(SERVICE, { sheet_no: sheet.sheet_no, result_note: input.result_note.trim() });
+}
+
+function selfOvertimeView(state: DemoState, sheet: OvertimeSheet): SelfOvertimeView {
+  const line = state.overtime_lines.find((l) => l.sheet_id === sheet.id);
+  const emp = line ? state.employees.find((e) => e.id === line.employee_id) : undefined;
+  const me = actingUser(state);
+  const myEmp = myEmployee(state);
+  return {
+    sheet_no: sheet.sheet_no,
+    work_date: sheet.work_date,
+    created_at: sheet.created_at,
+    employee_no: emp?.employee_no ?? "—",
+    full_name: emp?.full_name ?? "—",
+    hours: line?.hours ?? 0,
+    task: line?.task || null,
+    deliverable: line?.deliverable ?? null,
+    result_note: line?.result_note ?? null,
+    stage: overtimeStage(state, sheet),
+    payable: overtimePayable(state, sheet),
+    decided_by_name: sheet.decided_by
+      ? state.users.find((u) => u.id === sheet.decided_by)?.full_name ?? sheet.decided_by
+      : null,
+    decided_as: sheet.decided_as,
+    decided_at: sheet.decided_at,
+    decision_note: sheet.decision_note,
+    mine: sheet.created_by === me.id || (!!myEmp && line?.employee_id === myEmp.id),
+  };
+}
+
+/** The asks, as HRD and leadership decide them — `self_overtime_queue()`
+ *  (0189). Waiting ones first. Empty for anybody who could decide none. */
+export async function listSelfOvertime(): Promise<Result<SelfOvertimeView[]>> {
+  await latency();
+  const state = getState();
+  const user = actingUser(state);
+  const may = user.modules.some((m) => m.module === "hrd") || user.authorities.includes("approve_overtime");
+  if (!may) return ok(SERVICE, []);
+  const rows = state.overtime_sheets
+    .filter((s) => s.via === "self")
+    .map((s) => selfOvertimeView(state, s))
+    .sort((a, b) => {
+      const w = (v: SelfOvertimeView) => (v.stage === "waiting_hrd" ? 0 : 1);
+      if (w(a) !== w(b)) return w(a) - w(b);
+      return b.work_date.localeCompare(a.work_date) || b.created_at.localeCompare(a.created_at);
+    });
+  return ok(SERVICE, rows);
+}
+
+/** Deciding an ask — by HRD (`hrd.update`) **or** leadership
+ *  (`approve_overtime`), whichever looks first (D333). `as` names the
+ *  capacity; left out, HRD's is taken when held. Nobody decides their own. */
+export async function decideSelfOvertime(
+  input: { sheet_no: string; approved: boolean; note?: string | null; as?: OvertimeDecider | null },
+  idempotencyKey?: string,
+): Promise<Result<SelfOvertimeView>> {
+  await latency();
+  const cached = replayed<SelfOvertimeView>(SERVICE, "decideSelfOvertime", idempotencyKey);
+  if (cached) return cached;
+  const state0 = getState();
+  const user = actingUser(state0);
+  const mayHrd = requireLevel(SERVICE, "hrd", "write") === null;
+  const mayLeader = user.authorities.includes("approve_overtime");
+  const as: OvertimeDecider | null =
+    input.as === "hrd" ? (mayHrd ? "hrd" : null)
+    : input.as === "leader" ? (mayLeader ? "leader" : null)
+    : mayHrd ? "hrd" : mayLeader ? "leader" : null;
+  if (!as) {
+    return refused(SERVICE, "not_permitted",
+      "Menyetujui lembur yang diajukan sendiri butuh akses HRD atau wewenang approve_overtime (pimpinan).");
+  }
+  const sheet0 = state0.overtime_sheets.find((x) => x.sheet_no === input.sheet_no);
+  if (!sheet0) return notFound(SERVICE, "sheet_not_found", `No sheet ${input.sheet_no}.`);
+  if (sheet0.via !== "self") {
+    return invalid(SERVICE, "not_self_submitted",
+      `${sheet0.sheet_no} dibuat HRD, bukan diajukan sendiri — diputuskan lewat lembarnya (D146).`,
+      { field: "sheet_no" });
+  }
+  const line = state0.overtime_lines.find((l) => l.sheet_id === sheet0.id);
+  const myEmp = myEmployee(state0);
+  if (sheet0.created_by === user.id || (myEmp && line?.employee_id === myEmp.id)) {
+    return refused(SERVICE, "own_overtime",
+      "Lembur sendiri tidak bisa disetujui sendiri. HRD atau pimpinan yang lain yang memutuskan.");
+  }
+  if (sheet0.decided_at || sheet0.declined_reason) {
+    return conflict(SERVICE, "already_decided", `${sheet0.sheet_no} sudah diputuskan.`);
+  }
+  const note = input.note?.trim() || null;
+  if (!input.approved && !note) {
+    return invalid(SERVICE, "reason_required",
+      "Menolak lembur butuh satu kalimat — orangnya membaca alasan ini.", { field: "note" });
+  }
+  if (input.approved && !line?.result_note?.trim()) {
+    return invalid(SERVICE, "result_required",
+      "Hasil kerjanya belum ditulis. Yang disetujui adalah hasilnya, bukan jamnya saja.",
+      { field: "result_note" });
+  }
+
+  const now = new Date().toISOString();
+  apply((draft) => {
+    const row = draft.overtime_sheets.find((x) => x.sheet_no === input.sheet_no);
+    if (!row) return;
+    row.decided_by = user.id;
+    row.decided_at = now;
+    row.decided_as = as;
+    row.decision_note = note;
+    if (input.approved) {
+      row.paid = true;
+      row.unpaid_reason = null;
+    } else {
+      row.declined_by = user.id;
+      row.declined_reason = note;
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "overtime_sheet", entity_no: row.sheet_no,
+      action: "decide_self", outcome: "ok", reason: note,
+      detail: { approved: input.approved, decided_as: as, by: user.email },
+    });
+    if (input.approved) {
+      writeOutbox(draft, {
+        service: SERVICE, event_type: "hr.overtime.approved",
+        payload: { sheet_no: row.sheet_no, kind: row.kind, work_date: row.work_date, via: "self", decided_as: as, production: [] },
+      });
+    }
+  });
+  const state = getState();
+  const view = selfOvertimeView(state, state.overtime_sheets.find((x) => x.sheet_no === input.sheet_no)!);
+  remember(SERVICE, "decideSelfOvertime", idempotencyKey, view);
+  return ok(SERVICE, view);
 }
 
 /** My own overtime, whether HRD has looked at it yet or not — the same
