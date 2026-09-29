@@ -6,6 +6,27 @@ this file is the part a person reads first — which run, why, and what still
 needs a decision.
 
 
+## 2026-09-29 — the monthly staff, by machine number (D337)
+
+The owner's list, *nomornya adalah nomor biometrik*: Ramlan 2, Muslikhin 4,
+Putri 38, Dewi 44, Zaky 84, Rafi 85, Dila 104, Anggun 105, Rian 121,
+Danish 134. Run by hand with `execute_sql`, not as a file, because the list
+came in the conversation and was not a spreadsheet.
+
+- **Ramlan, Muslikhin, Dewi** were already there, monthly, on KANTOR, so
+  nothing was changed.
+- **Putri (38)** was `daily` at Rp 3.000.000. She is on the owner's monthly
+  list, so `pay_basis` is now `monthly`. The rate is unchanged.
+- **Zaky, Rafi, Dila, Anggun, Rian, Danish** were inserted: `monthly`, KANTOR,
+  unit Workshop like the other staff, **`base_rate` 0** and no position or
+  start date. The list gave neither, and the rate is not guessed. `note` says
+  so. The form refuses a zero rate on a *new* record, not on an edit, so HRD
+  completes each one on HRD → Karyawan. **Until then their payslip is Rp 0.**
+
+After this, every machine number that any earlier upload reported as
+unknown resolves to somebody. That covers the August staff file (104, 105,
+121, 134, 84, 85) and the September daily file.
+
 ## 2026-09-29 — step 12, the daily workers (D337)
 
 `0192_hr_offboard` first (applied as `20260929083335`), then
