@@ -8283,3 +8283,18 @@ different).
 **Rule:** never `select (f(...)).*` for a function that does work. Call it in
 `FROM`. The only other live instance is `ops_hr.v_kpi_run` (`0064`,
 `(ops_hr.kpi(...)).*`), left for its own change.
+
+## F196 · 2026-09-29 · A paged list with no search makes paging the search
+
+The owner's HRD evaluation opened with the employee list: to find one person
+among 41 you paged through 25 at a time (D157 made every table page, and
+`/hrd/karyawan` never got the search `/hrd/berkas-201` and `/it/pengguna`
+already had). `DataTable` resets to page 1 when the row count changes, so a
+filter in front of it needs nothing from the table. The box searches name,
+number, position, unit and the linked account's email, and filters the *left*
+list too, because a leaver is looked up for the same reasons (a payslip, a
+reference) as anybody else.
+
+**Rule:** any list that pages people or documents gets a search in front of
+it; paging is for reading, not for finding.
+
