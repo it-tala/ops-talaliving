@@ -50,7 +50,7 @@ import type {
   TaskStatus, TaskRefKind, TaskView, TaskCadence, TaskRoutineView,
   Sex, Education, Citizenship, MaritalStatus, EmployeeIdentityView, WlkpRecap,
   TapReading, TapSelfResult, LocationJudgement, WorkSite, LocatedTapView,
-  EmployeeAccount,
+  EmployeeAccount, ScanImportResult,
 } from "@/services/hr/contracts";
 import {
   EMPLOYEE_DOC_CHECKLIST, EMPLOYEE_DOC_LABEL, SENSITIVE_DOC_KINDS,
@@ -165,6 +165,42 @@ export async function saveEmployee(
     p_paid_leave_days: input.paid_leave_days ?? null,
     p_joined_on: input.joined_on ?? null,
     p_note: input.note ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const said = fromSeam<{ employee_no: string }>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<Employee>;
+  return readEmployee(said.data.employee_no);
+}
+
+/** Somebody leaving: a date and a sentence (D337). The row stays — every
+ *  period they worked still resolves them (A5) — and the seam answers how many
+ *  taps already sit after the date, so a date set too early shows now. */
+export async function offboardEmployee(
+  input: { employee_no: string; left_on: string; reason: string },
+  idempotencyKey?: string,
+): Promise<Result<Employee & { taps_after: number }>> {
+  const { data, error } = await db().rpc("offboard_employee", {
+    p_employee_no: input.employee_no,
+    p_left_on: input.left_on,
+    p_reason: input.reason,
+    p_key: idempotencyKey ?? null,
+  });
+  const said = fromSeam<{ employee_no: string; taps_after: number }>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<Employee & { taps_after: number }>;
+  const back = await readEmployee(said.data.employee_no);
+  if (back.error) return back as unknown as Result<Employee & { taps_after: number }>;
+  return ok(SERVICE, { ...back.data, taps_after: said.data.taps_after });
+}
+
+/** The undo of `offboardEmployee` — the wrong person, the wrong date, or the
+ *  worker who came back. Says why, like the offboarding did. */
+export async function reinstateEmployee(
+  input: { employee_no: string; reason: string },
+  idempotencyKey?: string,
+): Promise<Result<Employee>> {
+  const { data, error } = await db().rpc("reinstate_employee", {
+    p_employee_no: input.employee_no,
+    p_reason: input.reason,
     p_key: idempotencyKey ?? null,
   });
   const said = fromSeam<{ employee_no: string }>(SERVICE, data, error);
@@ -820,10 +856,7 @@ export async function importScans(
     rows: { employee_ref: string; at: string; verify: string; location?: string | null }[];
   },
   idempotencyKey?: string,
-): Promise<Result<{
-  import_id: string; added: number; duplicates: number;
-  unknown: { ref: string; count: number }[];
-}>> {
+): Promise<Result<ScanImportResult>> {
   const { data, error } = await db().rpc("import_scans", {
     p_filename: input.filename,
     p_rows: input.rows,

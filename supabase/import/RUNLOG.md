@@ -5,6 +5,53 @@ One row per run of the scripts beside this file. The database's own record is
 this file is the part a person reads first — which run, why, and what still
 needs a decision.
 
+
+## 2026-09-29 — the monthly staff, by machine number (D337)
+
+The owner's list, *nomornya adalah nomor biometrik*: Ramlan 2, Muslikhin 4,
+Putri 38, Dewi 44, Zaky 84, Rafi 85, Dila 104, Anggun 105, Rian 121,
+Danish 134. Run by hand with `execute_sql`, not as a file, because the list
+came in the conversation and was not a spreadsheet.
+
+- **Ramlan, Muslikhin, Dewi** were already there, monthly, on KANTOR, so
+  nothing was changed.
+- **Putri (38)** was `daily` at Rp 3.000.000. She is on the owner's monthly
+  list, so `pay_basis` is now `monthly`. The rate is unchanged.
+- **Zaky, Rafi, Dila, Anggun, Rian, Danish** were inserted: `monthly`, KANTOR,
+  unit Workshop like the other staff, **`base_rate` 0** and no position or
+  start date. The list gave neither, and the rate is not guessed. `note` says
+  so. The form refuses a zero rate on a *new* record, not on an edit, so HRD
+  completes each one on HRD → Karyawan. **Until then their payslip is Rp 0.**
+
+After this, every machine number that any earlier upload reported as
+unknown resolves to somebody. That covers the August staff file (104, 105,
+121, 134, 84, 85) and the September daily file.
+
+## 2026-09-29 — step 12, the daily workers (D337)
+
+`0192_hr_offboard` first (applied as `20260929083335`), then
+`10_hr_daily_workers.sql`, on the owner's *jalankan*. Production held the same
+19 rows the local rehearsal was run against.
+
+| | rows |
+|---|---:|
+| inserted, active | 20 |
+| inserted, already left (`active = false`, `left_on` set) | 17 |
+| `joined_on` moved back to the first payroll week | 15 |
+| employees after the run | 56 (39 active, 17 left) |
+
+Every machine number the 21–25 September file could not place is now
+registered. Re-uploading that file files the workshop's taps; 113 (MIFTAH) and
+72 (SENIPAH) come back under *after_left*, because the payroll ended them in
+July and the machine still has their fingers — HRD decides whether those
+numbers were handed to somebody new.
+
+**Not written, and why** (see the file's header): 12 people with no machine
+number, AGUS (finishing) and NUR (helper) among them, still working; and the
+position and pending-rate differences the sheet flags for five of the 15 HRD
+entered. One oddity seen in passing and left alone: `38` PUTRI is `daily` at
+Rp 3.000.000, which reads like a monthly salary.
+
 ## 2026-09-23 — step 10, and the map repair that preceded it
 
 Applied through the Supabase MCP `execute_sql`, as every run since 2026-09-21

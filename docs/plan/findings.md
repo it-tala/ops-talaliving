@@ -8153,6 +8153,36 @@ taps directly with `source = 'import'` and hit `import_scan_has_import`. An
 import tap must name its import. The file uses `add_scan` instead, the seam
 HRD actually uses, which is the better test anyway.
 
+## F193 · 2026-09-29 · a column every reader honoured and nothing wrote
+
+`employees.active` and `left_on` came with the table in `0043`, and payroll,
+the timesheet and the KPI all read `e.active or e.left_on >= period_start`
+from the start. No seam ever wrote either one. `save_employee` leaves them
+alone, and so does the drawer. So *offboarding* existed as a rule in every
+reader and as nothing at all in the writer. HRD's list only ever grew. The
+readers were tested, so the gap looked closed.
+
+The biometric upload showed the other half. The September week named 17
+machine numbers nobody was registered under. Two of them, 113 and 72, belong
+to people the payroll ended in July, yet they still tap. Either the finger
+was never deleted from the machine or the number was handed to somebody new,
+and the file cannot say which. Filing those taps would put a leaver back on a
+timesheet. Refusing the file would lose everybody else's week. So they are
+**set aside and named with the date the person left** (`after_left`), the
+same treatment D143 gives an unknown number. The person who knows which case
+it is gets the question.
+
+Two small things came up on the way.
+
+- The match stripped `B-00` from the stored number and zeros from the file's
+  number, but not zeros from a stored number typed by hand. So `019` never
+  matched the machine's `19`. `ops_hr.machine_no` now reduces both sides the
+  same way, and the demo does the same.
+- "Left" is compared against the **working** day (`shift_day`, 0186), not the
+  calendar day. A guard's night that starts on his last day ends the next
+  morning, and that morning's tap still belongs to the shift.
+
+
 ## F194 · 2026-09-29 · the business had written its waste down, and the model was still asked to guess it
 
 D324 gave the AI a working drawing and the rate list's names, and asked it
