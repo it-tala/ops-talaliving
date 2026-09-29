@@ -35,7 +35,8 @@
 --    `day_value × multiplier`. `holiday_pay_multiplier` does the same for a
 --    tanggal merah somebody came in on. The monthly salary is untouched.
 -- 4. **`allowance_on_premium_days: false`** keeps tunjangan off days paid at
---    more than one.
+--    more than one; **`allowance_by_day_value: true`** pays half of it on a
+--    half day.
 -- 5. **Overtime past 22.00** (`overtime_night_after_minutes`,
 --    `overtime_night_multiplier`) for lines that say when they finished
 --    (`overtime_lines.until_minutes`), and **`overtime_exact_hourly`**, which
@@ -843,6 +844,8 @@ declare
   prem_extra numeric := 0;
   allow_prem boolean;
   v_dstart   int;
+  allow_units numeric := 0;
+  allow_byval boolean;
 begin
   select * into emp from ops_hr.employees where id = p_employee;
   if not found then return null; end if;
@@ -858,6 +861,9 @@ begin
   -- 0195: whether a day paid at more than one day's rate also earns the
   -- allowance. The sheet pays insentif and tunjangan Senin–Jumat only.
   allow_prem := coalesce((v_rules->>'allowance_on_premium_days')::boolean, true);
+  -- 0195: a half day earns half the allowance, as the sheet pays it
+  -- (`insentif × SUM(Senin..Jumat)`), rather than a whole one (D272).
+  allow_byval := coalesce((v_rules->>'allowance_by_day_value')::boolean, false);
 
   out_row.run_no := coalesce(p_run_no, '');
   out_row.employee_id := emp.id;
@@ -957,7 +963,11 @@ begin
          where aw.employee_id = emp.id and aw.work_date = d.work_date
            and aw.restored_by is null
       ) into withheld;
-      if withheld then n_withheld := n_withheld + 1; else n_present := n_present + 1; end if;
+      if withheld then n_withheld := n_withheld + 1;
+      else
+        n_present := n_present + 1;
+        allow_units := allow_units + case when d.day_value > 0 then d.day_value else 1 end;
+      end if;
     end if;
 
     /* Minutes late past the grace the owner set (Q41, D251). Nobody has said
@@ -1014,7 +1024,9 @@ begin
 
   out_row.allowance_days := n_present;
   out_row.allowance_withheld_days := n_withheld;
-  out_row.allowance_pay := (n_present::bigint * emp.allowance_rate);
+  out_row.allowance_pay := case when allow_byval
+    then round(allow_units * emp.allowance_rate)::bigint
+    else (n_present::bigint * emp.allowance_rate) end;
   -- What the withheld days would have paid, and **who decided each one**. A
   -- deduction with no name against it is the kind a payslip cannot defend.
   out_row.allowance_withheld_amount := (n_withheld::bigint * emp.allowance_rate);

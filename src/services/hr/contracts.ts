@@ -1884,6 +1884,9 @@ export interface PayRules {
   /** Whether a day paid above one day also earns the tunjangan. The payroll
    *  sheet pays insentif and tunjangan Senin–Jumat only. Default true. */
   allowance_on_premium_days?: boolean;
+  /** A half day earns half the tunjangan, as the sheet pays it. Default false
+   *  (D272: a half day is presence and earns all of it). */
+  allowance_by_day_value?: boolean;
   /** Overtime past this minute of the day (1320 = 22.00) is paid at
    *  `overtime_night_multiplier`, for lines that say when they finished. */
   overtime_night_after_minutes?: number | null;

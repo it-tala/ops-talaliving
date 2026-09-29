@@ -40,7 +40,7 @@ insert into ops_hr.pay_rule_sets (version, effective_from, note, rules, created_
    "week_pattern":"5day","day_starts_minutes":480,
    "late_grace_minutes":15,"late_mode":"manual","undertime_mode":"off",
    "day_reading":"schedule","hours_rounding_minutes":15,"out_window_minutes":30,
-   "holiday_pay_multiplier":2,"allowance_on_premium_days":false,
+   "holiday_pay_multiplier":2,"allowance_on_premium_days":false,"allowance_by_day_value":true,
    "overtime_mode":"tiered","workday_tiers":[{"after_hours":0,"multiplier":1.5}],
    "restday_tiers":[{"after_hours":0,"multiplier":2}],
    "overtime_night_after_minutes":1320,"overtime_night_multiplier":2,
@@ -189,6 +189,7 @@ begin
   assert p.worked_days = 5, 'lima hari hadir, got ' || p.worked_days;
   -- Tunjangan hanya Sen, Rab, Jum (hari x1).
   assert p.allowance_days = 3, 'tunjangan 3 hari, got ' || p.allowance_days;
+  assert p.allowance_pay = 30000, 'tunjangan 3 x 10.000, got ' || p.allowance_pay;
   assert p.overtime_pay = 111891 + 175828 + 21313, 'lembur, got ' || p.overtime_pay;
   -- Jumat 07.50: 20 menit, toleransi 15 → 5. Sabtu 07.34 terhadap 08.00: tidak telat.
   assert p.late_minutes = 5, 'telat dari jam masuk hari itu, got ' || p.late_minutes;
@@ -197,6 +198,21 @@ begin
                   where x ->> 'work_date' = '2026-08-29' and (x ->> 'multiplier')::numeric = 2),
     'slip menyebut pengali Sabtu';
 end $$;
+
+/* ── setengah hari: upahnya setengah, tunjangannya setengah ────────────── */
+do $$
+declare p ops_hr.payroll_figures;
+begin
+  reset role;
+  insert into ops_hr.day_marks (employee_id, work_date, kind, reason, marked_by)
+  values ('aaaa1950-0000-0000-0000-000000000001','2026-09-02','half_day','uji','ffffffff-0000-0000-0000-000000019501');
+  select * into p from ops_hr.payroll_line_for('aaaa1950-0000-0000-0000-000000000001','2026-08-29','2026-09-04');
+  assert p.base_pay = round(6.5 * 170500), 'Rabu setengah: 6,5 hari upah, got ' || p.base_pay;
+  assert p.allowance_pay = 25000, 'tunjangan 2,5 x 10.000, got ' || p.allowance_pay;
+end $$;
+
+set local role authenticated;
+set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-000000019501';
 
 /* ── set_schedule_days ─────────────────────────────────────────────────── */
 do $$

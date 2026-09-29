@@ -8298,3 +8298,44 @@ reference) as anybody else.
 **Rule:** any list that pages people or documents gets a search in front of
 it; paging is for reading, not for finding.
 
+## F197 · 2026-09-29 · The payroll sheet and ops disagreed by Rp 17,6 jt on one week, and every rupiah had a reason
+
+Week 29 Agu – 4 Sep: sheet Rp 32.117.570 for 39 daily workers, ops Rp 14.523.500.
+Taken apart per person (the decomposition leaves Rp 0 unexplained except a
+Rp 20.000 half day):
+
+| Cause | Rp |
+|---|---|
+| Sabtu/Minggu paid 2× by the sheet, 1× by ops | 4.124.000 |
+| People ops had no taps for — machine numbers wrong in ops (SUMI 112 vs 113, IRFAN 75 vs 74) or not on the machine (IRWAN, KIDO, JAMI, NUR) | 3.692.541 |
+| Weekdays the sheet paid and ops held at 0 in `review` (a tap too many or too few) | 3.275.500 |
+| Overtime: the sheet pays the forms, ops had no overtime sheet at all | 2.975.398 |
+| Weekend days the sheet paid and ops held in `review` | 2.360.000 |
+| Insentif, tunjangan, saldo, potongan — typed into the sheet, absent in ops | 892.106 |
+| DENI: ops filed machine 74 (IRFAN's) under him; his own 72 is SENIPAH's, who left | 274.525 |
+
+Three things this taught:
+
+- **The biggest single cause was a rule, not data.** `read_day` (D137/D141)
+  refuses a day it cannot fit into six slots; the sheet reads any day with a
+  tap as present and its hours against that weekday's schedule. The owner
+  chose the sheet's reading (D340). `0195` makes it a rule-book choice
+  (`day_reading`), not a replacement, so the old reading is still one key away.
+- **`employee_no` is the machine number, and it was copied from the payroll
+  sheet's FP column — which is wrong for three people.** The machine's own
+  export names them (`Deni 72`, `Irfan 74`, `Sumi 113`). Rule: machine numbers
+  come from the machine's export, never from a payroll column.
+- **The machine itself duplicates KARJO (9) and RONI (11)** — identical taps
+  to the second from 31 Agu. It is in the device's own export, so it is the
+  enrolment (one finger on two numbers), not the import.
+
+What the sheet itself gets wrong, for HRD: the payroll tab's days and
+overtime are typed, not linked to the BIOMETRIC tab; its Senin–Kamis hours
+formula caps at 16.00 (7,75 instead of 8,25); rows 219–228 have no overtime
+formula; Nur Aisah is paid 13 h against the form's 9,5; the recap block is
+Rp 61.005,89 short of the total.
+
+**Rule:** a pay rule the business actually uses belongs in the rule book with
+a key, even when it contradicts an earlier decision — the earlier reading
+stays available and the book says which one a date was paid under.
+
