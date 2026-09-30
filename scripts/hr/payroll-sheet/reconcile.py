@@ -53,9 +53,9 @@ if not (HOST.startswith("/") or HOST in ("localhost", "127.0.0.1", "::1")):
 HRD = "ffffffff-0000-0000-0000-00000000d340"
 LEAD = "ffffffff-0000-0000-0000-00000000d341"
 
-# What a guard's Sunday is worth. The sheets pay a guard who works a Sunday
-# 2 weekend units at 2× (F198) — 4× a day — so `SATPAM_SUNDAY=4` checks that
-# reading; the default is the 2× every other weekend day has.
+# What a guard's Sunday is worth: 2×, the owner's ruling (D341) for any
+# Monday–Saturday pattern. The September sheets paid three guards' Sundays as
+# 2 units at 2× (F198); `SATPAM_SUNDAY=4` reproduces those sheets exactly.
 SATPAM_SUNDAY = float(os.environ.get("SATPAM_SUNDAY", "2"))
 
 # The rule book being checked: production's v5 patterns with D340's keys.

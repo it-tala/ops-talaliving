@@ -8367,7 +8367,10 @@ rest are two things ops cannot express yet, both needing the owner:
 - **A guard who works a Sunday is paid 2 weekend units at 2×** — four days'
   pay for one Sunday, three times in four weeks (JAMI weeks 1 and 3, KIDO
   week 4: −104.163 each at ×2). `SATPAM_SUNDAY=4` makes all three match;
-  whether that is the rule or two shifts is the owner's to say.
+  whether that is the rule or two shifts is the owner's to say. **The owner
+  ruled 2× (D341)**: a Sunday is one day at 2× for a Monday–Saturday
+  pattern, so those three Sundays pay one day less in ops unless the second
+  shift is recorded as approved overtime.
 - **The guards' rate is Rp 52.083,5**, and `base_rate` is whole rupiah: six
   days are Rp 3 off either way.
 
