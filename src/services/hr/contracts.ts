@@ -1909,7 +1909,8 @@ export interface PayRules {
   /** Price an overtime hour before rounding it to the rupiah, as the sheet
    *  does (170.500 / 8 = 21.312,5). */
   overtime_exact_hourly?: boolean;
-  /** The weekday a weekly pay period starts on, ISO (6 = Sabtu). Default 1. */
+  /** The weekday a weekly pay period starts on, ISO (6 = Sabtu). Absent
+   *  means `PAY_WEEK_STARTS_DEFAULT`. */
   pay_week_starts_isodow?: number;
 }
 
@@ -2245,3 +2246,10 @@ export interface LocatedTapView {
   photo_link: string | null;
   photo_filename: string | null;
 }
+
+/** The weekday a week starts on when the rule book does not say: **Sabtu**
+ *  (D349). Owner: *awal minggu mulai dari Sabtu, Minggu, Senin, Selasa, Rabu,
+ *  Kamis, Jumat* — the week the payroll sheet pays. The rule book's
+ *  `pay_week_starts_isodow` still overrides it; the weekly payroll, the
+ *  attendance week and the rule-book form all read this one constant. */
+export const PAY_WEEK_STARTS_DEFAULT = 6;
