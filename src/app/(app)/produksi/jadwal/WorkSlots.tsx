@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Ban, Clock, Gauge, ListChecks, Plus, Timer, X } from "lucide-react";
 import { Badge, Button, Card, CardHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
@@ -12,6 +12,7 @@ import { hr, production } from "@/demo/api";
 import {
   STAGE_NAME, type ProgressEntry, type WorkOrderView, type WorkSlotView, type WorkSlotWorker,
 } from "@/services/production/contracts";
+import type { RosterEntry } from "@/services/hr/contracts";
 import {
   durationLabel, jobLabour, labourRows, productivityByPerson, stagePosition, type LabourRow,
 } from "@/services/production/work-slots-view";
@@ -64,17 +65,21 @@ export function nextDay(day: string): string {
 /** *07.30–09.30 · rakit pintu · Karjo, Toha* — and, only if pieces finished a
  *  stage in it, which stage and how many (D352). */
 export function SlotForm({
-  wo, activities, onDone,
+  wo, activities, onDone, initialDate,
 }: {
   wo: WorkOrderView;
   /** What this order has been worked on before, offered as suggestions. */
   activities: string[];
   onDone: () => void;
+  /** The day the form opens on — the floor card passes the day it shows. */
+  initialDate?: string;
 }) {
   const tr = useTr();
   const { toast } = useToast();
-  const [people] = useLoad(() => hr.listEmployees(), []);
-  const [date, setDate] = useState(officeToday());
+  /* The roster, not the employee record: a production admin can read the one
+     and not the other, and the picker was empty for exactly them (D355). */
+  const [people] = useLoad(() => hr.listWorkRoster(), []);
+  const [date, setDate] = useState(initialDate ?? officeToday());
   const [span, setSpan] = useState(lastFullHour);
   const [hours, setHours] = useState(1);
   const [activity, setActivity] = useState("");
@@ -84,6 +89,10 @@ export function SlotForm({
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const timed = !!(span.from || span.until);
+  /* On the floor card the order is picked in the form and can change under
+     it. The people and the hours carry over — the likeliest next slot is the
+     same crew on another order — but a stage belongs to one order's list. */
+  useEffect(() => { setStage(""); setQty(0); }, [wo.wo_no]);
 
   async function save() {
     setBusy(true);
@@ -280,14 +289,28 @@ export function SlotList({ slots, onChanged }: { slots: WorkSlotView[]; onChange
 
 /* ── productivity ─────────────────────────────────────────────────────── */
 
-function PeopleTable({ rows, present, stageOrder }: {
+function PeopleTable({ rows, present, stageOrder, roster }: {
   rows: LabourRow[];
   /** Hours present per employee id, where the viewer may read attendance. */
   present?: Map<string, number> | null;
   stageOrder?: string[];
+  /** Everybody active, so a person nobody wrote down is a row and not an
+   *  absence from the table (D355). */
+  roster?: RosterEntry[];
 }) {
   const tr = useTr();
-  const people = useMemo(() => productivityByPerson(rows), [rows]);
+  const people = useMemo(() => {
+    const unitOf = new Map((roster ?? []).map((r) => [r.id, r.unit]));
+    const worked = productivityByPerson(rows).map((p) => ({ ...p, unit: (p.employee_id && unitOf.get(p.employee_id)) || null }));
+    if (!roster) return worked;
+    const seen = new Set(worked.map((p) => p.employee_id).filter(Boolean));
+    const idle = roster.filter((r) => !seen.has(r.id)).map((r) => ({
+      key: r.id, name: r.full_name, employee_id: r.id, team: false, minutes: 0, untimed: 0, slots: 0,
+      jobs: [] as string[], activities: [] as string[],
+      pieces: {} as Record<string, number>, per_hour: {} as Record<string, number>, unit: r.unit as string | null,
+    }));
+    return [...worked, ...idle.sort((a, b) => a.name.localeCompare(b.name))];
+  }, [rows, roster]);
   const h = tr("h", "j"), m = tr("min", "mnt");
   const stageSeq = (s: string) => { const i = stageOrder?.indexOf(s) ?? -1; return i < 0 ? 99 : i; };
   if (people.length === 0) return <p className="px-3 py-3 text-[13px] text-slate-500">{tr("Nobody has recorded work here yet.", "Belum ada yang mencatat pekerjaan di sini.")}</p>;
@@ -316,7 +339,11 @@ function PeopleTable({ rows, present, stageOrder }: {
                   {p.team
                     ? <span className="ml-1 text-[10px] text-slate-400">({tr("team / vendor", "tim / vendor")})</span>
                     : !p.employee_id && <span className="ml-1 text-[10px] text-amber-600">({tr("not linked", "belum tertaut")})</span>}
-                  <span className="block text-[10px] text-slate-400">{p.slots} {tr("slots", "timeslot")} · {p.jobs.length} Job Order</span>
+                  <span className="block text-[10px] text-slate-400">
+                    {p.slots > 0
+                      ? `${p.slots} ${tr("slots", "timeslot")} · ${p.jobs.length} Job Order`
+                      : p.unit || tr("active employee", "karyawan aktif")}
+                  </span>
                 </td>
                 <td className="px-2 py-1.5 text-right tabular-nums text-slate-700">
                   {p.minutes > 0 ? durationLabel(p.minutes, h, m) : "—"}
@@ -339,7 +366,11 @@ function PeopleTable({ rows, present, stageOrder }: {
                     )}
                   </td>
                 )}
-                <td className="px-2 py-1.5 text-slate-600">{p.activities.slice(0, 4).join(", ")}{p.activities.length > 4 && ` +${p.activities.length - 4}`}</td>
+                <td className="px-2 py-1.5 text-slate-600">
+                  {p.slots === 0
+                    ? <span className="text-amber-700">{tr("no timeslot recorded", "belum ada timeslot")}</span>
+                    : <>{p.activities.slice(0, 4).join(", ")}{p.activities.length > 4 && ` +${p.activities.length - 4}`}</>}
+                </td>
                 <td className="px-2 py-1.5 text-slate-700">
                   {stages.length === 0 ? <span className="text-slate-400">—</span>
                     : stages.map((s) => <span key={s} className="block">{STAGE_NAME(s)} {formatNumber(p.pieces[s])}</span>)}
@@ -409,16 +440,64 @@ function addDays(day: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Recording a timeslot from the floor card, the Job Order picked in the form
+ *  (D355). Walking the floor every two hours is twenty people across several
+ *  orders; opening each order's drawer in turn was the slow part. The crew and
+ *  the hours stay when the order changes, because the next slot is most often
+ *  the same people on another order. */
+function FloorRecorder({ day, activities, onDone }: { day: string; activities: string[]; onDone: () => void }) {
+  const tr = useTr();
+  const [orders] = useLoad(() => production.listWorkOrders(), []);
+  const [woNo, setWoNo] = useState("");
+  /* The same predicate the API refuses on (F75): open, and goods in the
+     building. An order whose pieces are all at the vendor is not offered. */
+  const open = orders.status === "ready" ? orders.data.filter((w) => w.status === "OPEN" && w.goods_on_site) : [];
+  const wo = open.find((w) => w.wo_no === woNo);
+  return (
+    <div className="space-y-2 border-b border-slate-100 bg-slate-50/60 px-4 py-3">
+      <Combobox
+        value={woNo}
+        onChange={setWoNo}
+        options={open.map((w) => {
+          const p = stagePosition(w);
+          return {
+            value: w.wo_no,
+            label: `${w.wo_no} · ${w.item_name}`,
+            sublabel: `${formatNumber(p.complete)}/${formatNumber(p.qty)} ${tr("complete", "selesai")}${w.project_code ? ` · ${w.project_code}` : ""}`,
+          };
+        })}
+        placeholder={orders.status === "loading" ? tr("Loading Job Orders…", "Memuat Job Order…") : tr("Which Job Order", "Job Order yang mana")}
+      />
+      {wo ? (
+        <SlotForm wo={wo} activities={activities} onDone={onDone} initialDate={day} />
+      ) : (
+        <p className="text-[12px] text-slate-500">
+          {tr(
+            "Pick the Job Order first; the people and the hours stay when you switch to the next one.",
+            "Pilih Job Order dulu; orang dan jamnya tetap saat pindah ke Job Order berikutnya.",
+          )}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** The whole floor over one day or a week: the timeslots as the floor wrote
  *  them, productivity per person (against their attendance, where the viewer
  *  may read it), and the pieces hour by hour (D351, D352). */
 export function FloorPanel() {
   const tr = useTr();
+  const { can } = useSession();
   const [day, setDay] = useState(officeToday());
   const [span, setSpan] = useState<1 | 7>(1);
   const [tab, setTab] = useState<"slots" | "people" | "hours">("slots");
+  const [recording, setRecording] = useState(false);
+  const [unit, setUnit] = useState<string | null>(null);
   const from = span === 1 ? day : addDays(day, -6);
   const [slots, reload] = useLoad(() => production.listWorkSlots({ from, to: day }), [from, day]);
+  /* Everybody active, so the per-person tab also shows who nobody wrote down —
+     the owner's rule where attendance cannot be read (D355). */
+  const [roster] = useLoad(() => hr.listWorkRoster(), []);
   /* Attendance is HR's (ADR-004) and not everybody reading production may
      read it. Refused is fine: the column says so rather than the page failing. */
   const [sheet] = useLoad(() => hr.getTimesheet({ from, to: day }), [from, day]);
@@ -458,8 +537,23 @@ export function FloorPanel() {
             className={cn("rounded-full px-2.5 py-1 text-[12px] font-medium",
               tab === k ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-100")}>{label}</button>
         ))}
-        {span === 7 && <span className="ml-auto self-center text-[11px] text-slate-500">{from} – {day}</span>}
+        <span className="ml-auto flex items-center gap-3 self-center">
+          {span === 7 && <span className="text-[11px] text-slate-500">{from} – {day}</span>}
+          {can("production.update") && (
+            <Button size="sm" variant={recording ? "ghost" : "outline"} icon={recording ? X : Timer}
+              onClick={() => setRecording(!recording)}>
+              {recording ? tr("Close", "Tutup") : tr("Record a timeslot", "Catat timeslot")}
+            </Button>
+          )}
+        </span>
       </div>
+      {recording && (
+        <FloorRecorder
+          day={day}
+          activities={slots.status === "ready" ? [...new Set(slots.data.map((x) => x.activity))] : []}
+          onDone={reload}
+        />
+      )}
       {tab === "hours" ? (
         span === 1
           ? <FloorHourly day={day} />
@@ -468,16 +562,35 @@ export function FloorPanel() {
         <Loaded state={slots} onRetry={reload} skeletonRows={3}>
           {(all) => {
             const live = all.filter((s) => !s.voided_at);
-            if (live.length === 0) {
-              return <p className="px-5 py-4 text-[13px] text-slate-500">{tr("No timeslot recorded in this period.", "Belum ada timeslot pada periode ini.")}</p>;
-            }
             if (tab === "people") {
+              const everyone = roster.status === "ready" ? roster.data : [];
+              /* The unit the floor's own people are in, read off who was on a
+                 slot; everyone else is one tap away. */
+              const onSlots = new Set(live.flatMap((x) => x.workers.map((w) => w.employee_id)).filter(Boolean));
+              const counts = new Map<string, number>();
+              for (const r of everyone) if (r.unit && onSlots.has(r.id)) counts.set(r.unit, (counts.get(r.unit) ?? 0) + 1);
+              const usual = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+              const shown = unit === null ? usual : unit === "" ? null : unit;
+              const units = [...new Set(everyone.map((r) => r.unit).filter((u): u is string => !!u))].sort();
               return (
                 <>
-                  <PeopleTable rows={labourRows(live)} present={present} />
+                  {units.length > 1 && (
+                    <div className="flex flex-wrap gap-1 border-b border-slate-100 px-4 py-2 text-[11px]">
+                      {[["", tr("All units", "Semua unit")] as const, ...units.map((u) => [u, u] as const)].map(([k, label]) => (
+                        <button key={k || "all"} onClick={() => setUnit(k)}
+                          className={cn("rounded-full px-2 py-0.5 font-medium",
+                            (shown ?? "") === k ? "bg-slate-700 text-white" : "text-slate-600 hover:bg-slate-100")}>{label}</button>
+                      ))}
+                    </div>
+                  )}
+                  <PeopleTable rows={labourRows(live)} present={present}
+                    roster={everyone.filter((r) => !shown || r.unit === shown)} />
                   <p className="border-t border-slate-100 px-5 py-2 text-[11px] text-slate-500">
                     {present === null
-                      ? tr("Attendance cannot be read with this access, so hours present are not shown.", "Absensi tidak bisa dibaca dengan akses ini, jadi jam hadir tidak ditampilkan.")
+                      ? tr(
+                        "Attendance cannot be read with this access, so the list is every active employee instead: a row with no timeslot is somebody nobody wrote down.",
+                        "Absensi tidak bisa dibaca dengan akses ini, jadi yang ditampilkan adalah semua karyawan aktif: baris tanpa timeslot berarti orang yang belum dicatat siapa pun.",
+                      )
                       : tr(
                         "Present is the attendance reading (in the building, break subtracted). Recorded is the share of it written into timeslots — a low share is hours nobody wrote down, not necessarily idle hours.",
                         "Hadir adalah bacaan absensi (di dalam gedung, dikurangi istirahat). Tercatat adalah bagian yang ditulis ke timeslot — bagian yang rendah berarti jam yang tidak dicatat siapa pun, belum tentu jam menganggur.",
@@ -485,6 +598,9 @@ export function FloorPanel() {
                   </p>
                 </>
               );
+            }
+            if (live.length === 0) {
+              return <p className="px-5 py-4 text-[13px] text-slate-500">{tr("No timeslot recorded in this period.", "Belum ada timeslot pada periode ini.")}</p>;
             }
             return (
               <ul className="divide-y divide-slate-100 text-[12px]">

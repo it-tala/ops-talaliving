@@ -36,7 +36,7 @@
  *  C19, and the demo grew the same parameter and stopped splicing.
  */
 import type {
-  Employee, PayBasis, EmployeeFileView, EmployeeDocKind, EmployeeDocumentView,
+  Employee, RosterEntry, PayBasis, EmployeeFileView, EmployeeDocKind, EmployeeDocumentView,
   EmployeeDocSlot, DocNoSource, AttendanceScan, DayMark, DayMarkKind,
   AllowanceWithholdingView, TimesheetDay, ScanSlot, ScanSource, DayState,
   OvertimeSheetView, OvertimeLineView, OvertimeKind, OvertimeDecider, SelfOvertimeView,
@@ -89,6 +89,15 @@ export async function listEmployees(
   if (!opts.include_left) q = q.eq("active", true);
   const { data, error } = await q;
   return fromRows<Employee[]>(SERVICE, data as unknown as Employee[], error);
+}
+
+/** The active people, number, name, unit and position — the roster a
+ *  timeslot names its workers from (D355). A function, not the table: a
+ *  production admin cannot read `employees`, and the picker was empty for
+ *  exactly the person it was built for (F205). */
+export async function listWorkRoster(): Promise<Result<RosterEntry[]>> {
+  const { data, error } = await db().rpc("work_roster");
+  return fromRows<RosterEntry[]>(SERVICE, (data ?? []) as RosterEntry[], error);
 }
 
 async function readEmployee(employeeNo: string): Promise<Result<Employee>> {

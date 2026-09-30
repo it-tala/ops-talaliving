@@ -244,6 +244,17 @@ export interface DayPay {
  */
 export type DayState = "complete" | "review" | "marked" | "off";
 
+/** Who can be named on a timeslot: the active people, as the floor names them,
+ *  and nothing about pay (D355, `ops_hr.work_roster()`). Readable with
+ *  production access, which the employee record itself is not. */
+export interface RosterEntry {
+  id: string;
+  employee_no: string;
+  full_name: string;
+  unit: string | null;
+  position: string | null;
+}
+
 export interface TimesheetDay {
   employee_id: string;
   employee_no: string;

@@ -9,7 +9,7 @@ import { Combobox } from "@/components/ui/combobox";
 import { formatNumber } from "@/lib/format";
 import { production, hr } from "@/demo/api";
 import type { UnresolvedName } from "@/demo/production-derive";
-import type { Employee } from "@/services/hr/contracts";
+import type { RosterEntry } from "@/services/hr/contracts";
 import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
 import { officeToday } from "@/lib/office";
@@ -52,7 +52,7 @@ export default function WorkAttributionPage() {
   });
 
   const [rows, reload] = useLoad(() => production.listUnresolvedNames({ from, to }), [from, to]);
-  const [people] = useLoad(() => hr.listEmployees(), []);
+  const [people] = useLoad(() => hr.listWorkRoster(), []);
 
   return (
     <div>
@@ -153,7 +153,9 @@ export default function WorkAttributionPage() {
 
 type NameRowProps = {
   row: UnresolvedName;
-  employees: Employee[];
+  /* The roster, not the employee record: production can read the one and not
+     the other (D355). Everyone on it is active. */
+  employees: RosterEntry[];
   mayEdit: boolean;
   from: string;
   to: string;
@@ -167,10 +169,10 @@ function NameRow({ row, employees, mayEdit, from, to, onDone }: NameRowProps) {
   const [busy, setBusy] = useState(false);
 
   const options = useMemo(
-    () => employees.filter((e) => e.active).map((e) => ({
+    () => employees.map((e) => ({
       value: e.id,
       label: `${e.employee_no} · ${e.full_name}`,
-      sublabel: e.unit,
+      sublabel: e.unit ?? undefined,
     })),
     [employees],
   );

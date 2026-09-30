@@ -71,7 +71,7 @@ export function WorkOrderDrawer({
      list fills both; typing a name fills only the name and leaves the link for
      somebody to make on purpose (D264). */
   const [who, setWho] = useState<{ id: string | null; name: string }>({ id: null, name: "" });
-  const [people] = useLoad(() => hr.listEmployees(), []);
+  const [people] = useLoad(() => hr.listWorkRoster(), []);
   const [note, setNote] = useState("");
   const [date, setDate] = useState(officeToday());
   /* When it was worked, on the office clock (D351). Prefilled with the last
