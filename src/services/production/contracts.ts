@@ -432,7 +432,7 @@ export interface ProgressEntry {
   source: "manual" | "overtime_sheet";
   source_ref: string | null;
   note: string | null;
-  /** When the work was done, to the hour — **both or neither** (D348).
+  /** When the work was done, to the hour — **both or neither** (D349).
    *
    *  ISO moments, typed on the office clock (`officeStamp`). Null on both is
    *  every entry written before 0197 and everything a signed lembur sheet
@@ -440,7 +440,7 @@ export interface ProgressEntry {
    *  `recorded_at`, which is when somebody typed it, not when it was sanded. */
   started_at: string | null;
   finished_at: string | null;
-  /** The timeslot this count came from (D349), or null for a count reported
+  /** The timeslot this count came from (D350), or null for a count reported
    *  on its own — every entry before 0198, and every correction typed by hand. */
   slot_id: string | null;
   recorded_by: string;
@@ -455,7 +455,7 @@ export interface WorkSlotWorker {
 }
 
 /** A timeslot: one span of work on one Job Order, in the floor's own words,
- *  with everybody who was on it (D349).
+ *  with everybody who was on it (D350).
  *
  *  *07.30–09.30 AA-02 rakit pintu — Karjo, Toha.* Not a count: most of a day
  *  moves no piece past a stage and is still somebody's hours on this order. A
@@ -496,7 +496,7 @@ export interface WorkSlotView extends WorkSlot {
 }
 
 /** An entry with the Job Order it belongs to, for a read across the floor —
- *  *what did the workshop finish today, hour by hour* (D348). */
+ *  *what did the workshop finish today, hour by hour* (D349). */
 export interface ProgressEntryOnOrder extends ProgressEntry {
   wo_no: string;
   item_name: string;

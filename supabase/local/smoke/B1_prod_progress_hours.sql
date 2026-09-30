@@ -1,4 +1,4 @@
--- prod — a piece of work says when, to the hour (0197, D348).
+-- prod — a piece of work says when, to the hour (0197, D349).
 --
 --   REFUSALS     half a span; a span that runs backwards; more than sixteen
 --                hours; a start on another day than the work date; a finish

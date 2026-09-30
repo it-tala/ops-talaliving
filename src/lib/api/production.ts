@@ -875,7 +875,7 @@ export async function listProgress(woNo: string): Promise<Result<ProgressEntry[]
 }
 
 /** Every entry on one office day, across every Job Order — the floor, hour by
- *  hour (D348). Oldest first, the order a day is read in. */
+ *  hour (D349). Oldest first, the order a day is read in. */
 export async function listProgressForDay(day: string): Promise<Result<ProgressEntryOnOrder[]>> {
   const { data, error } = await db().from("progress_entries").select("*").eq("work_date", day)
     .order("finished_at", { ascending: true, nullsFirst: false }).order("recorded_at", { ascending: true });
@@ -932,7 +932,7 @@ export async function recordProgress(
   return thenWorkOrder(data, error);
 }
 
-/* ── timeslots (D349) ─────────────────────────────────────────────── */
+/* ── timeslots (D350) ─────────────────────────────────────────────── */
 
 const SLOT_SELECT = "*, work_slot_workers(seq, worked_by, worked_by_employee_id), work_orders(wo_no, item_name, uom, product_code)";
 
@@ -990,7 +990,7 @@ async function thenSlot(data: unknown, error: Parameters<typeof fromSeam>[2]): P
   return ok(SERVICE, toSlot(row as SlotRow));
 }
 
-/** *07.30–09.30 AA-02 rakit pintu — Karjo, Toha* (D349). Pieces are optional
+/** *07.30–09.30 AA-02 rakit pintu — Karjo, Toha* (D350). Pieces are optional
  *  and, when given, post to the board in the same transaction. */
 export async function recordWorkSlot(
   input: {

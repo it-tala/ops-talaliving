@@ -193,7 +193,7 @@ function Row({ wo, onOpen }: { wo: WorkOrderView; onOpen: () => void }) {
               {wo.project_code && ` · ${wo.project_code}`}
             </span>
           </span>
-          {/* The project manager's line (D349): *10/100 selesai · Amplas 1 ·
+          {/* The project manager's line (D350): *10/100 selesai · Amplas 1 ·
               Finishing 2 · belum mulai 87*. */}
           <PositionLine wo={wo} />
           {wo.route === "SUBCON" && (
