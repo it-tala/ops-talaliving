@@ -13,6 +13,7 @@ import { useSession } from "@/store/session";
 import { useTr } from "@/lib/i18n";
 import { NewWorkOrder } from "./NewWorkOrder";
 import { WorkOrderDrawer } from "./WorkOrderDrawer";
+import { FloorByHour } from "./ProgressPanels";
 
 /** The workshop floor: what is being made, how far it got, and when it is due.
  *
@@ -95,6 +96,8 @@ export default function ProductionSchedulePage() {
                   ))}
                 </dl>
               </div>
+
+              <FloorByHour />
 
               <Card>
                 <CardHeader

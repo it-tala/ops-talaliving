@@ -1,4 +1,5 @@
 import type { WorkOrder, ProgressEntry, VendorLeg } from "@/services/production/contracts";
+import { officeStamp } from "@/lib/office";
 
 /** The workshop floor, as it would look on a Friday.
  *
@@ -127,7 +128,19 @@ const e = (
   worked_by_employee_id: link && link !== "team" ? link : null,
   worked_by_not_a_person: link === "team",
   source: "manual", source_ref: null, note,
+  started_at: null, finished_at: null,
   recorded_by: "usr_made", recorded_at: `${work_date}T17:00:00+07:00`,
+});
+
+/** An entry with its hours (D346): `from`/`to` on the office clock. Typed
+ *  within minutes of the hour it describes, the way the floor reports hourly. */
+const t = (
+  id: string, wo_id: string, stage: string, qty: number, work_date: string,
+  worked_by: string, from: string, to: string, link: string | null = null,
+): ProgressEntry => ({
+  ...e(id, wo_id, stage, qty, work_date, worked_by, null, link),
+  started_at: officeStamp(work_date, from), finished_at: officeStamp(work_date, to),
+  recorded_at: officeStamp(work_date, to),
 });
 
 export const PRODUCTION_PROGRESS: ProgressEntry[] = [
@@ -192,6 +205,21 @@ PRODUCTION_PROGRESS.push(
   e("prg_29", "wo_04", "FINISHING", 4, "2026-09-10", "Sakirin", null, "emp_w016"),
   e("prg_30", "wo_04", "MACHINERY", 2, "2026-09-12", "Thohari", "Pasang lampu strip dan kabel.", "emp_w027"),
   e("prg_27", "wo_07", "QC", 3, "2026-09-11", "Made Suparta", null, "emp_05"),
+);
+
+/* wo_02 — kursi, one day reported **hour by hour** (D346). Three people on
+   the amplas, one of them not linked yet; the finishing starts after the
+   break; 11.00–13.00 is empty and the screen shows it empty rather than
+   skipping it — an hour with nothing finished is what a supervisor looks
+   for. */
+PRODUCTION_PROGRESS.push(
+  t("prg_31", "wo_02", "AMPLAS", 3, "2026-09-09", "Sumiati", "07:30", "08:30", "emp_w006"),
+  t("prg_32", "wo_02", "AMPLAS", 4, "2026-09-09", "Sumiati", "08:30", "09:30", "emp_w006"),
+  t("prg_33", "wo_02", "AMPLAS", 5, "2026-09-09", "Karjo", "07:30", "09:30", "emp_w009"),
+  t("prg_34", "wo_02", "AMPLAS", 3, "2026-09-09", "Sumiati", "09:30", "10:30", "emp_w006"),
+  t("prg_35", "wo_02", "AMPLAS", 2, "2026-09-09", "Pranowo", "10:00", "11:00"),
+  t("prg_36", "wo_02", "FINISHING", 4, "2026-09-09", "Sakirin", "13:00", "15:00", "emp_w016"),
+  t("prg_37", "wo_02", "FINISHING", 2, "2026-09-09", "Sakirin", "15:00", "16:00", "emp_w016"),
 );
 
 /** Where things actually are, vendor by vendor (W6, D280).

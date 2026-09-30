@@ -8409,3 +8409,37 @@ it is read back by.
 `ops_core.ok(...)` payload, not from what the row would have — and a demo
 that returns the row directly hides the difference.
 
+## F200 · 2026-09-30 · The Job Order knew who and how many, and only the day
+
+Asked to evaluate the Job Order against *who worked each item, how many, and
+progress by time / every hour*, the table answered two of the three and had
+been doing so since `0062`: `worked_by` (with the link beside it, D264) and
+`qty`, append-only. The third was not there at all. `work_date` is a day, and
+the only moment an entry carried was `recorded_at` — **when the mandor typed
+it**, which for a sheet filled in after the shift is 17.00 for every piece of
+the afternoon. An hourly chart built on it would have been a spike at five
+o'clock and nothing else, and it would have looked like data.
+
+So the hours are a separate fact, written by the person who reports the work
+(D346, `0197`), and an entry without them stays without them. Three things
+the build settled:
+
+- **An hour is where the pieces finished, not an average.** A span
+  08.00–10.00 with six pieces sits in 09.00–10.00 and prints its span. Spread
+  evenly it would claim three pieces were done by nine, which nobody counted.
+- **Empty hours are shown.** 11.00–13.00 with nothing finished is the row a
+  supervisor is looking for; skipping it made the day read as continuous.
+- **A rate needs one stage of one Job Order.** *Per jam* is computed only
+  there, so it compares the same piece and the same work between people —
+  D264's objection (a wardrobe and a nakas do not add up) does not arise.
+
+What the evaluation found and did **not** change, because each is a decision
+rather than a bug: *who* stays optional (Q-D346a), and a signed lembur sheet
+still posts one entry per order and stage with the names joined — *Sakirin,
+Karjo* reads as one name in the per-person table (Q-D346b).
+
+**Rule:** a timestamp answers the question of the moment it records. The
+moment a row was written is not the moment the thing it describes happened,
+and a field that is right for one question should not be borrowed for the
+other just because it is the only one with a clock in it.
+

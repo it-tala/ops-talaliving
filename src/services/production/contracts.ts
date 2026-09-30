@@ -432,8 +432,24 @@ export interface ProgressEntry {
   source: "manual" | "overtime_sheet";
   source_ref: string | null;
   note: string | null;
+  /** When the work was done, to the hour — **both or neither** (D346).
+   *
+   *  ISO moments, typed on the office clock (`officeStamp`). Null on both is
+   *  every entry written before 0197 and everything a signed lembur sheet
+   *  posts, and it reads *jam tidak dicatat*: never an hour guessed from
+   *  `recorded_at`, which is when somebody typed it, not when it was sanded. */
+  started_at: string | null;
+  finished_at: string | null;
   recorded_by: string;
   recorded_at: string;
+}
+
+/** An entry with the Job Order it belongs to, for a read across the floor —
+ *  *what did the workshop finish today, hour by hour* (D346). */
+export interface ProgressEntryOnOrder extends ProgressEntry {
+  wo_no: string;
+  item_name: string;
+  uom: string;
 }
 
 /** How a name on a piece of work resolves to a person — **derived from the

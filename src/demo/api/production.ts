@@ -3,7 +3,7 @@ import { refused, ok, invalid, notFound, noop, isOk, type Result } from "@/servi
 import { trNow } from "@/lib/i18n";
 import {
   PROCESS_STAGES, RETIRED_STAGES, VENDOR_PROCESSES, VENDOR_PROCESS_NAME, DESIGN_KIND_LABEL, ROUTE, STAGE_NAME, goodsOnSite,
-  type WorkOrder, type WorkOrderView, type WorkOrderRef, type ProgressEntry, type ProductView,
+  type WorkOrder, type WorkOrderView, type WorkOrderRef, type ProgressEntry, type ProgressEntryOnOrder, type ProductView,
   type DesignKind, type DesignTaskView, type RouteCode, type BomExplosion,
   type VendorLegView, type VendorRecord,
   type WorkAttribution, type BomKind,
@@ -25,7 +25,7 @@ import {
 } from "./_kit";
 import { settingNumber } from "../settings";
 import { lineCoverage } from "../derive";
-import { officeStamp } from "@/lib/office";
+import { officeDay, officeStamp } from "@/lib/office";
 
 const SERVICE = "production" as const;
 
@@ -387,6 +387,10 @@ export async function recordProgress(
     note?: string | null;
     source?: "manual" | "overtime_sheet";
     source_ref?: string | null;
+    /** When it was worked, both ends or neither (D346): ISO moments on the
+     *  office clock. An entry without them is filed under its day only. */
+    started_at?: string | null;
+    finished_at?: string | null;
   },
 ): Promise<Result<WorkOrderView>> {
   await latency();
@@ -493,6 +497,46 @@ export async function recordProgress(
       { field: "note" },
     );
   }
+  /* The span (D346), asked in the seam's order: before the order's state, so a
+     span that cannot be true is named as the span. */
+  const started = input.started_at || null;
+  const finished = input.finished_at || null;
+  if (!started !== !finished) {
+    return invalid(
+      SERVICE, "span_half",
+      "Jam mulai dan jam selesai diisi berdua, atau dikosongkan berdua. Separuh rentang tidak menyebut jam berapa pekerjaannya.",
+      { field: started ? "finished_at" : "started_at" },
+    );
+  }
+  const workDate = input.work_date || (started ? officeDay(new Date(started)) : officeDay());
+  if (started && finished) {
+    const from = Date.parse(started), to = Date.parse(finished);
+    if (!(to > from)) {
+      return invalid(SERVICE, "span_backwards", "Jam selesai harus sesudah jam mulai.", { field: "finished_at" });
+    }
+    if (to - from > 16 * 3_600_000) {
+      return invalid(
+        SERVICE, "span_too_long",
+        "Lebih dari 16 jam untuk satu laporan — tanggal atau jamnya kemungkinan salah ketik. Laporkan per jam atau per sesi kerja.",
+        { field: "finished_at" },
+      );
+    }
+    /* Filed under the day it started, like the overnight shift (0186). */
+    if (officeDay(new Date(started)) !== workDate) {
+      return invalid(
+        SERVICE, "span_other_day",
+        `Jam mulainya jatuh pada ${officeDay(new Date(started))}, sedangkan tanggal kerjanya ${workDate}.`,
+        { field: "started_at" },
+      );
+    }
+    if (to > Date.now() + 10 * 60_000) {
+      return invalid(
+        SERVICE, "span_in_future",
+        "Jam selesainya belum terjadi. Laporkan pekerjaan sesudah selesai.",
+        { field: "finished_at" },
+      );
+    }
+  }
   if (wo.status !== "OPEN") {
     return conflict(SERVICE, "wo_not_open", `${wo.wo_no} is ${wo.status}.`);
   }
@@ -531,13 +575,14 @@ export async function recordProgress(
   apply((draft) => {
     const row: ProgressEntry = {
       id: newId("prg"), wo_id: wo.id, stage: input.stage, qty: input.qty,
-      work_date: input.work_date,
+      work_date: workDate,
       worked_by: input.worked_by?.trim() || null,
       worked_by_employee_id: input.worked_by_employee_id || null,
       worked_by_not_a_person: false,
       source: input.source ?? "manual",
       source_ref: input.source_ref ?? null,
       note: input.note?.trim() || null,
+      started_at: started, finished_at: finished,
       recorded_by: user.id, recorded_at: new Date().toISOString(),
     };
     draft.production_progress.push(row);
@@ -603,6 +648,21 @@ export async function listProgress(woNo: string): Promise<Result<ProgressEntry[]
   const rows = state.production_progress
     .filter((p) => p.wo_id === wo.id)
     .sort((a, b) => b.work_date.localeCompare(a.work_date) || b.recorded_at.localeCompare(a.recorded_at));
+  return ok(SERVICE, rows);
+}
+
+/** Every entry on one office day, across every Job Order — the floor, hour by
+ *  hour (D346). Oldest first, the order a day is read in. */
+export async function listProgressForDay(day: string): Promise<Result<ProgressEntryOnOrder[]>> {
+  await latency();
+  const state = getState();
+  const rows = state.production_progress
+    .filter((p) => p.work_date === day)
+    .sort((a, b) => (a.finished_at ?? "~").localeCompare(b.finished_at ?? "~") || a.recorded_at.localeCompare(b.recorded_at))
+    .map((p) => {
+      const w = state.work_orders.find((x) => x.id === p.wo_id);
+      return { ...p, wo_no: w?.wo_no ?? "", item_name: w?.item_name ?? "", uom: w?.uom ?? "" };
+    });
   return ok(SERVICE, rows);
 }
 

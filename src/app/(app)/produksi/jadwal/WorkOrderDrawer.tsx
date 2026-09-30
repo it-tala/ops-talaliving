@@ -15,7 +15,9 @@ import { STAGE_NAME, attributionOf, ATTRIBUTION_LABEL, VENDOR_PROCESSES, VENDOR_
 import { useUnits } from "@/components/ui/uom-options";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
-import { officeToday } from "@/lib/office";
+import { officeClock, officeStamp, officeToday, OFFICE_TZ } from "@/lib/office";
+import { spanLabel } from "@/services/production/progress-view";
+import { ProgressOverTime, WorkerTable } from "./ProgressPanels";
 import { useTr } from "@/lib/i18n";
 
 /** One work order: every stage, every entry behind it, and the deadline.
@@ -66,6 +68,11 @@ export function WorkOrderDrawer({
   const [people] = useLoad(() => hr.listEmployees(), []);
   const [note, setNote] = useState("");
   const [date, setDate] = useState(officeToday());
+  /* When it was worked, on the office clock (D346). Prefilled with the last
+     full hour, because the floor reports hour by hour; cleared, the entry is
+     filed under its day only — which is honest for a correction or a sheet
+     typed at the end of the week. */
+  const [span, setSpan] = useState(lastFullHour);
   const [busy, setBusy] = useState(false);
   const [closing, setClosing] = useState(false);
   const [prBusy, setPrBusy] = useState(false);
@@ -142,14 +149,23 @@ export function WorkOrderDrawer({
       worked_by: who.name || null,
       worked_by_employee_id: who.id,
       note: note || null,
+      /* Half a span is passed as half, so the API names it rather than the
+         screen quietly dropping the end somebody typed. A finish at or before
+         the start is the overnight shift, and belongs to the next morning. */
+      started_at: span.from ? officeStamp(date, span.from) : null,
+      finished_at: span.until
+        ? officeStamp(span.from && span.until <= span.from ? nextDay(date) : date, span.until)
+        : null,
     });
     setBusy(false);
     if (res.error) {
       toast(res.error.status === 403 ? "critical" : "warning", tr("Not recorded", "Tidak tercatat"), res.error.message);
       return;
     }
-    toast("success", tr("Recorded", "Tercatat"), `${formatNumber(qty)} unit · ${STAGE_NAME(stage)}`);
+    toast("success", tr("Recorded", "Tercatat"), `${formatNumber(qty)} unit · ${STAGE_NAME(stage)}${span.from && span.until ? ` · ${span.from}–${span.until}` : ""}`);
     setQty(1); setNote("");
+    /* The next hour is the likeliest next report. */
+    if (span.from && span.until && span.until > span.from) setSpan({ from: span.until, until: addHour(span.until) });
     reload(); reloadEntries(); onChanged();
   }
 
@@ -460,6 +476,31 @@ export function WorkOrderDrawer({
                     className="h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
                   />
                 </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-slate-600">
+                  <span>{tr(`Worked from (${OFFICE_TZ.short})`, `Dikerjakan jam (${OFFICE_TZ.short})`)}</span>
+                  <input
+                    type="time" value={span.from} onChange={(e) => setSpan({ ...span, from: e.target.value })}
+                    aria-label={tr("Start time", "Jam mulai")}
+                    className="h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                  />
+                  <span>{tr("to", "sampai")}</span>
+                  <input
+                    type="time" value={span.until} onChange={(e) => setSpan({ ...span, until: e.target.value })}
+                    aria-label={tr("Finish time", "Jam selesai")}
+                    className="h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                  />
+                  {span.from || span.until ? (
+                    <button type="button" onClick={() => setSpan({ from: "", until: "" })}
+                      className="text-[11px] text-slate-500 underline hover:text-slate-700">
+                      {tr("no hours", "tanpa jam")}
+                    </button>
+                  ) : (
+                    <button type="button" onClick={() => setSpan(lastFullHour())}
+                      className="text-[11px] text-brand-700 underline">
+                      {tr("fill in the hours", "isi jamnya")}
+                    </button>
+                  )}
+                </div>
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   {/* A picker that still accepts a name it does not know:
                       *Tim potong* and a subcontractor's crew are real answers,
@@ -504,8 +545,8 @@ export function WorkOrderDrawer({
                 </div>
                 <p className="mt-1 text-[11px] text-slate-500">
                   {tr(
-                    "A correction is written as a negative number with a reason — an old entry is never edited.",
-                    "Koreksi ditulis sebagai angka negatif dengan alasan — catatan lama tidak pernah diubah.",
+                    "A correction is written as a negative number with a reason — an old entry is never edited. The hours are when the pieces were worked; they are what the hourly view files them under.",
+                    "Koreksi ditulis sebagai angka negatif dengan alasan — catatan lama tidak pernah diubah. Jamnya adalah kapan barang itu dikerjakan; itulah yang dipakai tampilan per jam.",
                   )}
                 </p>
               </div>
@@ -751,6 +792,11 @@ export function WorkOrderDrawer({
                 sheet posted. */}
             <Loaded state={entries} onRetry={reloadEntries} skeletonRows={3}>
               {(rows) => (
+                <div className="space-y-5">
+                {/* Who, how many, and when — the three the owner asked the
+                    Job Order to answer (D346). */}
+                <WorkerTable entries={rows} stageOrder={w.stages.map((s) => s.stage)} uom={w.uom} />
+                <ProgressOverTime entries={rows} stageOrder={w.stages.map((s) => s.stage)} qty={w.qty} />
                 <div>
                   <p className="mb-1.5 text-[11px] uppercase tracking-wide text-slate-400">
                     {tr(`History (${rows.length})`, `Riwayat (${rows.length})`)}
@@ -761,7 +807,10 @@ export function WorkOrderDrawer({
                     )}
                     {rows.map((p) => (
                       <li key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-3 py-2 text-[12px]">
-                        <span className="w-20 tabular-nums text-slate-500">{p.work_date}</span>
+                        <span className="w-20 tabular-nums text-slate-500">
+                          {p.work_date}
+                          {spanLabel(p) && <span className="block text-[10px] text-slate-400">{spanLabel(p)}</span>}
+                        </span>
                         <span className="w-24 text-slate-700">{STAGE_NAME(p.stage)}</span>
                         <span className={cn("w-12 text-right tabular-nums", p.qty < 0 ? "text-rose-700" : "text-slate-800")}>
                           {p.qty > 0 ? "+" : ""}{formatNumber(p.qty)}
@@ -785,6 +834,7 @@ export function WorkOrderDrawer({
                     ))}
                   </ul>
                 </div>
+                </div>
               )}
             </Loaded>
           </div>
@@ -792,6 +842,27 @@ export function WorkOrderDrawer({
       </Loaded>
     </Drawer>
   );
+}
+
+/** The last full hour on the office clock, as the form's default span:
+ *  at 10.20 it is 09.00–10.00. Before the first full hour of the day there is
+ *  none, and the span starts empty. */
+function lastFullHour(): { from: string; until: string } {
+  const h = Number(officeClock().slice(0, 2));
+  if (h < 1) return { from: "", until: "" };
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return { from: `${pad(h - 1)}:00`, until: `${pad(h)}:00` };
+}
+
+function addHour(t: string): string {
+  const [h, m] = t.split(":").map(Number);
+  return `${String((h + 1) % 24).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function nextDay(day: string): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
 }
 
 /* ── Material against the SPK ─────────────────────────────────────────── */

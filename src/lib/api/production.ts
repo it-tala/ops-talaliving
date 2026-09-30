@@ -28,7 +28,7 @@ import type {
   BomDiff, BomDiffLine, BomDiffShape, BomKind, BomLineView, BomRevisionView,
   BomNorm, BomRateGroup, BomRateView, BomSuggestion, FinishingStep, FinishingSystem,
   ProductDrawing, ProductDrawingEntry, ProductView, RateSource, WorkOrderRef,
-  BomExplodedLine, BomExplosion, ProgressEntry, RouteCode, VendorLegView,
+  BomExplodedLine, BomExplosion, ProgressEntry, ProgressEntryOnOrder, RouteCode, VendorLegView,
   WorkOrder, WorkOrderStatus, WorkOrderView, JobTrail,
 } from "@/services/production/contracts";
 import { boardOrder, deriveWorkOrderView } from "@/services/production/work-order-view";
@@ -787,7 +787,9 @@ const toEntry = (r: Record<string, unknown>): ProgressEntry => ({
   worked_by_employee_id: (r.worked_by_employee_id as string | null) ?? null,
   worked_by_not_a_person: !!r.worked_by_not_a_person,
   source: r.source as ProgressEntry["source"], source_ref: (r.source_ref as string | null) ?? null,
-  note: (r.note as string | null) ?? null, recorded_by: (r.recorded_by as string | null) ?? "",
+  note: (r.note as string | null) ?? null,
+  started_at: (r.started_at as string | null) ?? null, finished_at: (r.finished_at as string | null) ?? null,
+  recorded_by: (r.recorded_by as string | null) ?? "",
   recorded_at: r.recorded_at as string,
 });
 
@@ -870,6 +872,23 @@ export async function listProgress(woNo: string): Promise<Result<ProgressEntry[]
   return ok(SERVICE, (data ?? []).map(toEntry));
 }
 
+/** Every entry on one office day, across every Job Order — the floor, hour by
+ *  hour (D346). Oldest first, the order a day is read in. */
+export async function listProgressForDay(day: string): Promise<Result<ProgressEntryOnOrder[]>> {
+  const { data, error } = await db().from("progress_entries").select("*").eq("work_date", day)
+    .order("finished_at", { ascending: true, nullsFirst: false }).order("recorded_at", { ascending: true });
+  if (error) return fail(SERVICE, error);
+  const ids = [...new Set((data ?? []).map((r) => r.wo_id as string))];
+  if (ids.length === 0) return ok(SERVICE, []);
+  const wos = await db().from("work_orders").select("id, wo_no, item_name, uom").in("id", ids);
+  if (wos.error) return fail(SERVICE, wos.error);
+  const byId = new Map((wos.data ?? []).map((w) => [w.id as string, w as { wo_no: string; item_name: string; uom: string }]));
+  return ok(SERVICE, (data ?? []).map((r) => {
+    const w = byId.get(r.wo_id as string);
+    return { ...toEntry(r), wo_no: w?.wo_no ?? "", item_name: w?.item_name ?? "", uom: w?.uom ?? "" };
+  }));
+}
+
 async function thenWorkOrder(data: unknown, error: Parameters<typeof fromSeam>[2]): Promise<Result<WorkOrderView>> {
   const res = fromSeam<{ wo_no: string }>(SERVICE, data, error);
   if (res.error) return res;
@@ -899,12 +918,14 @@ export async function recordProgress(
     wo_no: string; stage: string; qty: number; work_date: string;
     worked_by?: string | null; worked_by_employee_id?: string | null; note?: string | null;
     source?: "manual" | "overtime_sheet"; source_ref?: string | null;
+    started_at?: string | null; finished_at?: string | null;
   },
 ): Promise<Result<WorkOrderView>> {
   const { data, error } = await db().rpc("record_progress", {
     p_wo_no: input.wo_no, p_stage: input.stage, p_qty: input.qty, p_work_date: input.work_date || null,
     p_worked_by: input.worked_by ?? null, p_worked_by_employee_id: input.worked_by_employee_id ?? null,
     p_note: input.note ?? null, p_source: input.source ?? "manual", p_source_ref: input.source_ref ?? null,
+    p_started_at: input.started_at || null, p_finished_at: input.finished_at || null,
   });
   return thenWorkOrder(data, error);
 }
