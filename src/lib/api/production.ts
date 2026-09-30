@@ -28,7 +28,8 @@ import type {
   BomDiff, BomDiffLine, BomDiffShape, BomKind, BomLineView, BomRevisionView,
   BomNorm, BomRateGroup, BomRateView, BomSuggestion, FinishingStep, FinishingSystem,
   ProductDrawing, ProductDrawingEntry, ProductView, RateSource, WorkOrderRef,
-  BomExplodedLine, BomExplosion, ProgressEntry, RouteCode, VendorLegView,
+  BomExplodedLine, BomExplosion, ProgressEntry, ProgressEntryOnOrder, RouteCode, VendorLegView,
+  WorkSlotView, WorkSlotWorker,
   WorkOrder, WorkOrderStatus, WorkOrderView, JobTrail,
 } from "@/services/production/contracts";
 import { boardOrder, deriveWorkOrderView } from "@/services/production/work-order-view";
@@ -787,7 +788,10 @@ const toEntry = (r: Record<string, unknown>): ProgressEntry => ({
   worked_by_employee_id: (r.worked_by_employee_id as string | null) ?? null,
   worked_by_not_a_person: !!r.worked_by_not_a_person,
   source: r.source as ProgressEntry["source"], source_ref: (r.source_ref as string | null) ?? null,
-  note: (r.note as string | null) ?? null, recorded_by: (r.recorded_by as string | null) ?? "",
+  note: (r.note as string | null) ?? null,
+  started_at: (r.started_at as string | null) ?? null, finished_at: (r.finished_at as string | null) ?? null,
+  slot_id: (r.slot_id as string | null) ?? null,
+  recorded_by: (r.recorded_by as string | null) ?? "",
   recorded_at: r.recorded_at as string,
 });
 
@@ -870,6 +874,23 @@ export async function listProgress(woNo: string): Promise<Result<ProgressEntry[]
   return ok(SERVICE, (data ?? []).map(toEntry));
 }
 
+/** Every entry on one office day, across every Job Order — the floor, hour by
+ *  hour (D351). Oldest first, the order a day is read in. */
+export async function listProgressForDay(day: string): Promise<Result<ProgressEntryOnOrder[]>> {
+  const { data, error } = await db().from("progress_entries").select("*").eq("work_date", day)
+    .order("finished_at", { ascending: true, nullsFirst: false }).order("recorded_at", { ascending: true });
+  if (error) return fail(SERVICE, error);
+  const ids = [...new Set((data ?? []).map((r) => r.wo_id as string))];
+  if (ids.length === 0) return ok(SERVICE, []);
+  const wos = await db().from("work_orders").select("id, wo_no, item_name, uom").in("id", ids);
+  if (wos.error) return fail(SERVICE, wos.error);
+  const byId = new Map((wos.data ?? []).map((w) => [w.id as string, w as { wo_no: string; item_name: string; uom: string }]));
+  return ok(SERVICE, (data ?? []).map((r) => {
+    const w = byId.get(r.wo_id as string);
+    return { ...toEntry(r), wo_no: w?.wo_no ?? "", item_name: w?.item_name ?? "", uom: w?.uom ?? "" };
+  }));
+}
+
 async function thenWorkOrder(data: unknown, error: Parameters<typeof fromSeam>[2]): Promise<Result<WorkOrderView>> {
   const res = fromSeam<{ wo_no: string }>(SERVICE, data, error);
   if (res.error) return res;
@@ -899,14 +920,105 @@ export async function recordProgress(
     wo_no: string; stage: string; qty: number; work_date: string;
     worked_by?: string | null; worked_by_employee_id?: string | null; note?: string | null;
     source?: "manual" | "overtime_sheet"; source_ref?: string | null;
+    started_at?: string | null; finished_at?: string | null;
   },
 ): Promise<Result<WorkOrderView>> {
   const { data, error } = await db().rpc("record_progress", {
     p_wo_no: input.wo_no, p_stage: input.stage, p_qty: input.qty, p_work_date: input.work_date || null,
     p_worked_by: input.worked_by ?? null, p_worked_by_employee_id: input.worked_by_employee_id ?? null,
     p_note: input.note ?? null, p_source: input.source ?? "manual", p_source_ref: input.source_ref ?? null,
+    p_started_at: input.started_at || null, p_finished_at: input.finished_at || null,
   });
   return thenWorkOrder(data, error);
+}
+
+/* ── timeslots (D352) ─────────────────────────────────────────────── */
+
+const SLOT_SELECT = "*, work_slot_workers(seq, worked_by, worked_by_employee_id), work_orders(wo_no, item_name, uom, product_code)";
+
+type SlotRow = Record<string, unknown> & {
+  work_slot_workers?: { seq: number; worked_by: string; worked_by_employee_id: string | null }[];
+  work_orders?: { wo_no: string; item_name: string; uom: string; product_code: string | null } | null;
+};
+
+const toSlot = (r: SlotRow): WorkSlotView => ({
+  id: r.id as string, slot_no: r.slot_no as string, wo_id: r.wo_id as string,
+  work_date: r.work_date as string,
+  started_at: (r.started_at as string | null) ?? null, finished_at: (r.finished_at as string | null) ?? null,
+  minutes: Number(r.minutes), activity: r.activity as string,
+  stage: (r.stage as string | null) ?? null, qty: r.qty == null ? null : Number(r.qty),
+  source: r.source as WorkSlotView["source"], source_ref: (r.source_ref as string | null) ?? null,
+  source_line: (r.source_line as string | null) ?? null, note: (r.note as string | null) ?? null,
+  voided_at: (r.voided_at as string | null) ?? null, void_reason: (r.void_reason as string | null) ?? null,
+  workers: [...(r.work_slot_workers ?? [])].sort((a, b) => a.seq - b.seq)
+    .map((x) => ({ name: x.worked_by, employee_id: x.worked_by_employee_id })),
+  recorded_by: (r.recorded_by as string | null) ?? "", recorded_at: r.recorded_at as string,
+  wo_no: r.work_orders?.wo_no ?? "", item_name: r.work_orders?.item_name ?? "",
+  uom: r.work_orders?.uom ?? "", product_code: r.work_orders?.product_code ?? null,
+});
+
+const slotOrder = (a: WorkSlotView, b: WorkSlotView) =>
+  a.work_date.localeCompare(b.work_date)
+  || (a.started_at ?? "~").localeCompare(b.started_at ?? "~")
+  || a.recorded_at.localeCompare(b.recorded_at);
+
+/** Timeslots on one Job Order, or across the floor between two office days —
+ *  oldest first, the order a day is read in. Cancelled ones included, marked. */
+export async function listWorkSlots(
+  opts: { wo_no?: string; from?: string; to?: string },
+): Promise<Result<WorkSlotView[]>> {
+  let q = db().from("work_slots").select(SLOT_SELECT);
+  if (opts.wo_no) {
+    const wo = await db().from("work_orders").select("id").eq("wo_no", opts.wo_no).maybeSingle();
+    if (wo.error) return fail(SERVICE, wo.error);
+    if (!wo.data) return notFound(SERVICE, "wo_not_found", `Tidak ada Job Order ${opts.wo_no}.`);
+    q = q.eq("wo_id", wo.data.id);
+  }
+  if (opts.from) q = q.gte("work_date", opts.from);
+  if (opts.to) q = q.lte("work_date", opts.to);
+  const { data, error } = await q;
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, ((data ?? []) as SlotRow[]).map(toSlot).sort(slotOrder));
+}
+
+async function thenSlot(data: unknown, error: Parameters<typeof fromSeam>[2]): Promise<Result<WorkSlotView>> {
+  const res = fromSeam<{ slot_no: string }>(SERVICE, data, error);
+  if (res.error) return res;
+  const { data: row, error: e } = await db().from("work_slots").select(SLOT_SELECT).eq("slot_no", res.data.slot_no).maybeSingle();
+  if (e) return fail(SERVICE, e);
+  if (!row) return notFound(SERVICE, "slot_not_found", `Tidak ada timeslot ${res.data.slot_no}.`);
+  return ok(SERVICE, toSlot(row as SlotRow));
+}
+
+/** *07.30–09.30 AA-02 rakit pintu — Karjo, Toha* (D352). Pieces are optional
+ *  and, when given, post to the board in the same transaction. */
+export async function recordWorkSlot(
+  input: {
+    wo_no: string; activity: string; workers: WorkSlotWorker[]; work_date: string;
+    started_at?: string | null; finished_at?: string | null; minutes?: number | null;
+    stage?: string | null; qty?: number | null; note?: string | null;
+    source?: "manual" | "overtime_sheet"; source_ref?: string | null; source_line?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<WorkSlotView>> {
+  const { data, error } = await db().rpc("record_work_slot", {
+    p_wo_no: input.wo_no, p_activity: input.activity,
+    p_workers: input.workers.map((w) => ({ name: w.name, employee_id: w.employee_id })),
+    p_work_date: input.work_date || null,
+    p_started_at: input.started_at || null, p_finished_at: input.finished_at || null,
+    p_minutes: input.minutes ?? null, p_stage: input.stage || null, p_qty: input.qty ?? null,
+    p_note: input.note ?? null, p_source: input.source ?? "manual",
+    p_source_ref: input.source_ref ?? null, p_source_line: input.source_line ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  return thenSlot(data, error);
+}
+
+/** Cancelling a slot, with a sentence. Its pieces come back off the board as a
+ *  negative entry carrying the same sentence (A5). */
+export async function voidWorkSlot(input: { slot_no: string; reason: string }): Promise<Result<WorkSlotView>> {
+  const { data, error } = await db().rpc("void_work_slot", { p_slot_no: input.slot_no, p_reason: input.reason });
+  return thenSlot(data, error);
 }
 
 export async function closeWorkOrder(

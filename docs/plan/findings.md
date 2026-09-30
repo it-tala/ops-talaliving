@@ -8518,3 +8518,104 @@ starts. Until then, write them as placeholders. A number is a claim on a
 shared list, and it is only safe once nobody else can write to that list
 first. Never renumber a migration that has already been applied; note the
 mismatch instead.
+## F203 · 2026-09-30 · The Job Order knew who and how many, and only the day
+
+Asked to evaluate the Job Order against *who worked each item, how many, and
+progress by time / every hour*, the table answered two of the three and had
+been doing so since `0062`: `worked_by` (with the link beside it, D264) and
+`qty`, append-only. The third was not there at all. `work_date` is a day, and
+the only moment an entry carried was `recorded_at` — **when the mandor typed
+it**, which for a sheet filled in after the shift is 17.00 for every piece of
+the afternoon. An hourly chart built on it would have been a spike at five
+o'clock and nothing else, and it would have looked like data.
+
+So the hours are a separate fact, written by the person who reports the work
+(D351, `0197`), and an entry without them stays without them. Three things
+the build settled:
+
+- **An hour is where the pieces finished, not an average.** A span
+  08.00–10.00 with six pieces sits in 09.00–10.00 and prints its span. Spread
+  evenly it would claim three pieces were done by nine, which nobody counted.
+- **Empty hours are shown.** 11.00–13.00 with nothing finished is the row a
+  supervisor is looking for; skipping it made the day read as continuous.
+- **A rate needs one stage of one Job Order.** *Per jam* is computed only
+  there, so it compares the same piece and the same work between people —
+  D264's objection (a wardrobe and a nakas do not add up) does not arise.
+
+What the evaluation found and did **not** change, because each is a decision
+rather than a bug: *who* stays optional (Q-D351a), and a signed lembur sheet
+still posts one entry per order and stage with the names joined — *Sakirin,
+Karjo* reads as one name in the per-person table (Q-D351b).
+
+**Rule:** a timestamp answers the question of the moment it records. The
+moment a row was written is not the moment the thing it describes happened,
+and a field that is right for one question should not be borrowed for the
+other just because it is the only one with a clock in it.
+
+## F204 · 2026-09-30 · A count is not a timeslot, and a crew is not a name with a comma in it
+
+The owner's answer to Q-D351a/b was an example, and the example could not be
+stored in the table D351 had just given hours to:
+
+    07.30-09.30 AA-02 rakit pintu karjo, toha
+    09.30-11.30 AA-02 tambah engsel karjo
+
+`progress_entries` is **pieces past a stage**: every row needs a stage and a
+quantity, and has one name. *Tambah engsel* moves no piece past any stage, so
+it had nowhere to go, and *Karjo, Toha* is one name in that table. It is the
+same shape the lembur sheet was already forced into (*Sakirin, Karjo*), for
+the same reason. So the timeslot became its own row (`0198`), with its people
+in a child table, and the two are linked only when a slot really did finish
+pieces. Hours of labour and pieces counted answer different questions: *what
+did Karjo do this morning* and *how many chairs are sanded*.
+
+Four things the build settled:
+
+- **A slot that finishes pieces is refused whole when the order refuses the
+  pieces.** The slot and its count go in one transaction; a count that goes
+  over the order leaves no slot behind to explain.
+- **A crew's count is *not one person*** (`worked_by_not_a_person`), the
+  state 0062 made for a crew. Leaving it *unknown* would have put every crew
+  on `/produksi/penautan` for somebody to link to one employee, which is
+  impossible.
+- **A lembur line is its own claim.** The old `(sheet, order, stage)` claim is
+  what merged two people's night. It still holds for sheets posted before
+  0198, so re-posting an old sheet does not count it twice.
+- **`lpad` truncates.** `next_doc_number` padded to two digits, and Postgres's
+  `lpad('100', 2, '0')` is `'10'`: a day's hundredth number would have
+  collided with its tenth. No kind reached a hundred a day before; timeslots
+  (twenty people, five slots) would have in the first week. Fixed for every
+  prefix (never narrower than the number) and timeslots are three wide.
+
+What productivity reads, and does not claim: a crew's pieces are **shared
+equally** between the people on the slot (pieces per person-hour, the usual
+labour measure); rates are per stage; and *hadir vs tercatat* compares
+attendance with timeslot hours. A low share is **hours nobody wrote down**,
+not proof of idleness, and the screen says so.
+
+Not changed: the HR KPI card (`0064`) still credits pieces only to entries
+linked to one employee, so a crew's pieces are resolved but not on anybody's
+card. Reading the slots there is a separate change to KPI, not to the Job
+Order.
+
+**Rule:** when a table needs a comma inside a name to hold what happened, it
+is the wrong table for it. Add the table that has the right shape.
+
+**Afterwards — two sessions, one number, twice.** A parallel session
+(inventory categories, locations, then stock from zero) took **D346, D347,
+F200 and migration prefix `0197`** the same afternoon and reached `main` first;
+this work was renumbered to D348/D349 and F201/F202. While its CI ran, the same
+session took **D348, F201 and prefix `0198`** as well, and then an HR session
+took **D349, D350, F202 and another `0198`** — so this work ended as **D351,
+D352, F203, F204**, after three merges of `main`. Its migrations keep their file names
+(`0197_prod_progress_hours`, `0198_prod_work_slots`): they were already
+recorded under those names in production, and a shared prefix is harmless
+because files sort by full name and neither pair touches anything in common.
+The comments inside those two migrations, and inside the function bodies in
+production, still say D346/D347 — rewriting an applied file to fix a comment
+would make the file and production disagree, which is the one thing the
+fingerprint check exists to rule out. The decision log says so on D351.
+Numbers are handed out by whoever writes `06-decisions.md` first; a session
+that runs for hours should re-read the tail of that file — and of
+`supabase/migrations/` — right before it merges, not only before it commits.
+

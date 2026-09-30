@@ -15,7 +15,10 @@ import { STAGE_NAME, attributionOf, ATTRIBUTION_LABEL, VENDOR_PROCESSES, VENDOR_
 import { useUnits } from "@/components/ui/uom-options";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
-import { officeToday } from "@/lib/office";
+import { officeStamp, officeToday, OFFICE_TZ } from "@/lib/office";
+import { spanLabel } from "@/services/production/progress-view";
+import { ProgressOverTime } from "./ProgressPanels";
+import { JobProductivity, PositionLine, SlotForm, SlotList, lastFullHour, nextDay } from "./WorkSlots";
 import { useTr } from "@/lib/i18n";
 
 /** One work order: every stage, every entry behind it, and the deadline.
@@ -41,6 +44,11 @@ export function WorkOrderDrawer({
   const { toast } = useToast();
   const [wo, reload] = useLoad(() => production.getWorkOrder(woNo), [woNo]);
   const [entries, reloadEntries] = useLoad(() => production.listProgress(woNo), [woNo]);
+  /* Who worked on what, for how long (D352). */
+  const [slots, reloadSlots] = useLoad(() => production.listWorkSlots({ wo_no: woNo }), [woNo]);
+  /* The count on its own — a correction, or pieces nobody timed — sits behind
+     a toggle: the timeslot is how the floor reports now. */
+  const [showCount, setShowCount] = useState(false);
   /* What this run needs in materials, and what has already been asked for
      against it — the two halves of D151. */
   const [needs] = useLoad(
@@ -66,6 +74,11 @@ export function WorkOrderDrawer({
   const [people] = useLoad(() => hr.listEmployees(), []);
   const [note, setNote] = useState("");
   const [date, setDate] = useState(officeToday());
+  /* When it was worked, on the office clock (D351). Prefilled with the last
+     full hour, because the floor reports hour by hour; cleared, the entry is
+     filed under its day only — which is honest for a correction or a sheet
+     typed at the end of the week. */
+  const [span, setSpan] = useState(lastFullHour);
   const [busy, setBusy] = useState(false);
   const [closing, setClosing] = useState(false);
   const [prBusy, setPrBusy] = useState(false);
@@ -142,14 +155,23 @@ export function WorkOrderDrawer({
       worked_by: who.name || null,
       worked_by_employee_id: who.id,
       note: note || null,
+      /* Half a span is passed as half, so the API names it rather than the
+         screen quietly dropping the end somebody typed. A finish at or before
+         the start is the overnight shift, and belongs to the next morning. */
+      started_at: span.from ? officeStamp(date, span.from) : null,
+      finished_at: span.until
+        ? officeStamp(span.from && span.until <= span.from ? nextDay(date) : date, span.until)
+        : null,
     });
     setBusy(false);
     if (res.error) {
       toast(res.error.status === 403 ? "critical" : "warning", tr("Not recorded", "Tidak tercatat"), res.error.message);
       return;
     }
-    toast("success", tr("Recorded", "Tercatat"), `${formatNumber(qty)} unit · ${STAGE_NAME(stage)}`);
+    toast("success", tr("Recorded", "Tercatat"), `${formatNumber(qty)} unit · ${STAGE_NAME(stage)}${span.from && span.until ? ` · ${span.from}–${span.until}` : ""}`);
     setQty(1); setNote("");
+    /* The next hour is the likeliest next report. */
+    if (span.from && span.until && span.until > span.from) setSpan({ from: span.until, until: addHour(span.until) });
     reload(); reloadEntries(); onChanged();
   }
 
@@ -248,12 +270,11 @@ export function WorkOrderDrawer({
                     : <Badge tone={w.days_left <= 3 ? "amber" : "green"} dot>{tr(`${w.days_left} days left`, `${w.days_left} hari lagi`)}</Badge>}
               <Badge tone={w.route === "SUBCON" ? "violet" : "slate"}>{w.route_name}</Badge>
               <span className="text-[12px] text-slate-600">
-                {tr(
-                  `${formatNumber(w.completed)}/${formatNumber(w.qty)} ${w.uom} done · ${w.percent}% overall · now at ${w.current_stage_name}`,
-                  `${formatNumber(w.completed)}/${formatNumber(w.qty)} ${w.uom} selesai · ${w.percent}% keseluruhan · sekarang di ${w.current_stage_name}`,
-                )}
+                {tr(`${w.percent}% overall · now at ${w.current_stage_name}`, `${w.percent}% keseluruhan · sekarang di ${w.current_stage_name}`)}
               </span>
             </div>
+            {/* The project manager's line (D352): where the pieces are. */}
+            <PositionLine wo={w} className="rounded-lg bg-slate-50 px-3 py-2" />
             {w.description && <p className="text-[13px] text-slate-600">{w.description}</p>}
 
             {w.warnings.length > 0 && (
@@ -436,9 +457,31 @@ export function WorkOrderDrawer({
             {/* Gated on the **same predicate the API refuses on** (F75), not on
                 a lookalike condition that drifts away from it. */}
             {mayEdit && w.status === "OPEN" && w.goods_on_site && (
+              <SlotForm
+                wo={w}
+                activities={slots.status === "ready" ? [...new Set(slots.data.map((x) => x.activity))] : []}
+                onDone={() => { reload(); reloadEntries(); reloadSlots(); onChanged(); }}
+              />
+            )}
+            {mayEdit && w.status === "OPEN" && w.goods_on_site && !showCount && (
+              <div className="-mt-3 flex flex-wrap justify-end gap-3 text-[11px]">
+                <button onClick={() => setShowCount(true)} className="text-slate-500 underline hover:text-slate-700">
+                  {tr("Correct a count / record pieces without a timeslot", "Koreksi jumlah / catat jumlah tanpa timeslot")}
+                </button>
+                {w.completed < w.qty && !closing && (
+                  <button onClick={() => setClosing(true)} className="text-slate-500 underline hover:text-slate-700">
+                    {tr("Close Job Order", "Tutup Job Order")}
+                  </button>
+                )}
+              </div>
+            )}
+            {mayEdit && w.status === "OPEN" && w.goods_on_site && showCount && (
               <div className="rounded-xl border border-slate-200 px-4 py-3">
                 <p className="flex items-center gap-2 text-[13px] font-medium text-slate-800">
-                  <Hammer className="h-4 w-4 text-slate-400" /> {tr("Record work done", "Catat hasil kerja")}
+                  <Hammer className="h-4 w-4 text-slate-400" /> {tr("Correct a count / pieces without a timeslot", "Koreksi jumlah / jumlah tanpa timeslot")}
+                  <button onClick={() => setShowCount(false)} className="ml-auto text-[11px] font-normal text-slate-500 underline">
+                    {tr("hide", "tutup")}
+                  </button>
                 </p>
                 <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_90px_140px]">
                   <select
@@ -459,6 +502,31 @@ export function WorkOrderDrawer({
                     aria-label={tr("Date", "Tanggal")}
                     className="h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
                   />
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-slate-600">
+                  <span>{tr(`Worked from (${OFFICE_TZ.short})`, `Dikerjakan jam (${OFFICE_TZ.short})`)}</span>
+                  <input
+                    type="time" value={span.from} onChange={(e) => setSpan({ ...span, from: e.target.value })}
+                    aria-label={tr("Start time", "Jam mulai")}
+                    className="h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                  />
+                  <span>{tr("to", "sampai")}</span>
+                  <input
+                    type="time" value={span.until} onChange={(e) => setSpan({ ...span, until: e.target.value })}
+                    aria-label={tr("Finish time", "Jam selesai")}
+                    className="h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                  />
+                  {span.from || span.until ? (
+                    <button type="button" onClick={() => setSpan({ from: "", until: "" })}
+                      className="text-[11px] text-slate-500 underline hover:text-slate-700">
+                      {tr("no hours", "tanpa jam")}
+                    </button>
+                  ) : (
+                    <button type="button" onClick={() => setSpan(lastFullHour())}
+                      className="text-[11px] text-brand-700 underline">
+                      {tr("fill in the hours", "isi jamnya")}
+                    </button>
+                  )}
                 </div>
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   {/* A picker that still accepts a name it does not know:
@@ -504,8 +572,8 @@ export function WorkOrderDrawer({
                 </div>
                 <p className="mt-1 text-[11px] text-slate-500">
                   {tr(
-                    "A correction is written as a negative number with a reason — an old entry is never edited.",
-                    "Koreksi ditulis sebagai angka negatif dengan alasan — catatan lama tidak pernah diubah.",
+                    "A correction is written as a negative number with a reason — an old entry is never edited. The hours are when the pieces were worked; they are what the hourly view files them under.",
+                    "Koreksi ditulis sebagai angka negatif dengan alasan — catatan lama tidak pernah diubah. Jamnya adalah kapan barang itu dikerjakan; itulah yang dipakai tampilan per jam.",
                   )}
                 </p>
               </div>
@@ -751,6 +819,16 @@ export function WorkOrderDrawer({
                 sheet posted. */}
             <Loaded state={entries} onRetry={reloadEntries} skeletonRows={3}>
               {(rows) => (
+                <div className="space-y-5">
+                {/* Who, how many, and when — the three the owner asked the
+                    Job Order to answer (D351). */}
+                {slots.status === "ready" && (
+                  <>
+                    <JobProductivity wo={w} slots={slots.data} entries={rows} />
+                    <SlotList slots={slots.data} onChanged={() => { reload(); reloadEntries(); reloadSlots(); onChanged(); }} />
+                  </>
+                )}
+                <ProgressOverTime entries={rows} stageOrder={w.stages.map((s) => s.stage)} qty={w.qty} />
                 <div>
                   <p className="mb-1.5 text-[11px] uppercase tracking-wide text-slate-400">
                     {tr(`History (${rows.length})`, `Riwayat (${rows.length})`)}
@@ -761,7 +839,10 @@ export function WorkOrderDrawer({
                     )}
                     {rows.map((p) => (
                       <li key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-3 py-2 text-[12px]">
-                        <span className="w-20 tabular-nums text-slate-500">{p.work_date}</span>
+                        <span className="w-20 tabular-nums text-slate-500">
+                          {p.work_date}
+                          {spanLabel(p) && <span className="block text-[10px] text-slate-400">{spanLabel(p)}</span>}
+                        </span>
                         <span className="w-24 text-slate-700">{STAGE_NAME(p.stage)}</span>
                         <span className={cn("w-12 text-right tabular-nums", p.qty < 0 ? "text-rose-700" : "text-slate-800")}>
                           {p.qty > 0 ? "+" : ""}{formatNumber(p.qty)}
@@ -785,6 +866,7 @@ export function WorkOrderDrawer({
                     ))}
                   </ul>
                 </div>
+                </div>
               )}
             </Loaded>
           </div>
@@ -792,6 +874,11 @@ export function WorkOrderDrawer({
       </Loaded>
     </Drawer>
   );
+}
+
+function addHour(t: string): string {
+  const [h, m] = t.split(":").map(Number);
+  return `${String((h + 1) % 24).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
 /* ── Material against the SPK ─────────────────────────────────────────── */

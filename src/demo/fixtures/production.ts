@@ -1,4 +1,5 @@
-import type { WorkOrder, ProgressEntry, VendorLeg } from "@/services/production/contracts";
+import type { WorkOrder, ProgressEntry, VendorLeg, WorkSlot, WorkSlotWorker } from "@/services/production/contracts";
+import { officeStamp } from "@/lib/office";
 
 /** The workshop floor, as it would look on a Friday.
  *
@@ -127,6 +128,7 @@ const e = (
   worked_by_employee_id: link && link !== "team" ? link : null,
   worked_by_not_a_person: link === "team",
   source: "manual", source_ref: null, note,
+  started_at: null, finished_at: null, slot_id: null,
   recorded_by: "usr_made", recorded_at: `${work_date}T17:00:00+07:00`,
 });
 
@@ -193,6 +195,58 @@ PRODUCTION_PROGRESS.push(
   e("prg_30", "wo_04", "MACHINERY", 2, "2026-09-12", "Thohari", "Pasang lampu strip dan kabel.", "emp_w027"),
   e("prg_27", "wo_07", "QC", 3, "2026-09-11", "Made Suparta", null, "emp_05"),
 );
+
+/* wo_02 — kursi, one day as the floor reports it: **timeslots** (D352).
+   *07.30–09.30 amplas dudukan — Sumiati, Karjo*: who worked on what, for how
+   long, and — where pieces finished a stage — how many. A slot with pieces
+   posts one count carrying its id; a crew's count is *not one person*. The
+   mid-morning *perkuat sambungan* moves no piece past any stage and is still
+   four person-hours on this order. 11.30–13.00 is empty: the break. */
+const W = {
+  sumiati: { name: "Sumiati", employee_id: "emp_w006" },
+  karjo: { name: "Karjo", employee_id: "emp_w009" },
+  sakirin: { name: "Sakirin", employee_id: "emp_w016" },
+  thohari: { name: "Thohari", employee_id: "emp_w027" },
+  /* Typed, not picked: nobody has linked the name yet (D264). */
+  pranowo: { name: "Pranowo", employee_id: null },
+} satisfies Record<string, WorkSlotWorker>;
+
+const slot = (
+  n: number, wo_id: string, day: string, from: string, to: string, activity: string,
+  workers: WorkSlotWorker[], stage: string | null = null, qty: number | null = null,
+): WorkSlot => ({
+  id: `tsl_${n}`, slot_no: `tsl-${day.slice(2)}_${String(n).padStart(3, "0")}`, wo_id, work_date: day,
+  started_at: officeStamp(day, from), finished_at: officeStamp(day, to),
+  minutes: (Date.parse(officeStamp(day, to)) - Date.parse(officeStamp(day, from))) / 60_000,
+  activity, stage, qty, source: "manual", source_ref: null, source_line: null, note: null,
+  voided_at: null, void_reason: null, workers,
+  recorded_by: "usr_made", recorded_at: officeStamp(day, to),
+});
+
+export const WORK_SLOTS: WorkSlot[] = [
+  slot(1, "wo_02", "2026-09-09", "07:30", "09:30", "amplas dudukan", [W.sumiati, W.karjo], "AMPLAS", 8),
+  slot(2, "wo_02", "2026-09-09", "07:30", "09:30", "rakit sandaran", [W.thohari]),
+  slot(3, "wo_02", "2026-09-09", "09:30", "11:30", "amplas kaki", [W.sumiati], "AMPLAS", 6),
+  slot(4, "wo_02", "2026-09-09", "09:30", "11:30", "perkuat sambungan kaki", [W.karjo, W.thohari]),
+  slot(5, "wo_02", "2026-09-09", "10:00", "11:00", "amplas ulang", [W.pranowo], "AMPLAS", 3),
+  slot(6, "wo_02", "2026-09-09", "13:00", "15:00", "finishing coat 1", [W.sakirin], "FINISHING", 4),
+  slot(7, "wo_02", "2026-09-09", "15:00", "16:00", "finishing coat 1", [W.sakirin], "FINISHING", 2),
+  slot(8, "wo_02", "2026-09-09", "13:00", "16:00", "pasang dudukan jok", [W.karjo, W.thohari]),
+];
+
+/* The count each slot with pieces posted — the same row the seam writes. */
+for (const sl of WORK_SLOTS) {
+  if (!sl.stage || !sl.qty) continue;
+  const crew = sl.workers.length > 1;
+  PRODUCTION_PROGRESS.push({
+    ...e(`prg_${sl.id}`, sl.wo_id, sl.stage, sl.qty, sl.work_date, sl.workers.map((w) => w.name).join(", "),
+      `Timeslot ${sl.slot_no} — ${sl.activity}`),
+    worked_by_employee_id: crew ? null : sl.workers[0].employee_id,
+    worked_by_not_a_person: crew,
+    started_at: sl.started_at, finished_at: sl.finished_at, slot_id: sl.id,
+    recorded_at: sl.recorded_at,
+  });
+}
 
 /** Where things actually are, vendor by vendor (W6, D280).
  *

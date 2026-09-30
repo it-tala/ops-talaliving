@@ -3,7 +3,8 @@ import { refused, ok, invalid, notFound, noop, isOk, type Result } from "@/servi
 import { trNow } from "@/lib/i18n";
 import {
   PROCESS_STAGES, RETIRED_STAGES, VENDOR_PROCESSES, VENDOR_PROCESS_NAME, DESIGN_KIND_LABEL, ROUTE, STAGE_NAME, goodsOnSite,
-  type WorkOrder, type WorkOrderView, type WorkOrderRef, type ProgressEntry, type ProductView,
+  type WorkOrder, type WorkOrderView, type WorkOrderRef, type ProgressEntry, type ProgressEntryOnOrder, type ProductView,
+  type WorkSlot, type WorkSlotView, type WorkSlotWorker,
   type DesignKind, type DesignTaskView, type RouteCode, type BomExplosion,
   type VendorLegView, type VendorRecord,
   type WorkAttribution, type BomKind,
@@ -25,7 +26,7 @@ import {
 } from "./_kit";
 import { settingNumber } from "../settings";
 import { lineCoverage } from "../derive";
-import { officeStamp } from "@/lib/office";
+import { officeDay, officeStamp } from "@/lib/office";
 
 const SERVICE = "production" as const;
 
@@ -372,8 +373,7 @@ export async function listVendorLegs(
  *  usually means a mis-keyed number or work that skipped a step, and refusing
  *  the report would only mean the work goes unrecorded (A6).
  */
-export async function recordProgress(
-  input: {
+type ProgressInput = {
     wo_no: string;
     stage: string;
     qty: number;
@@ -387,9 +387,24 @@ export async function recordProgress(
     note?: string | null;
     source?: "manual" | "overtime_sheet";
     source_ref?: string | null;
-  },
-): Promise<Result<WorkOrderView>> {
+    /** When it was worked, both ends or neither (D351): ISO moments on the
+     *  office clock. An entry without them is filed under its day only. */
+    started_at?: string | null;
+    finished_at?: string | null;
+};
+
+export async function recordProgress(input: ProgressInput): Promise<Result<WorkOrderView>> {
   await latency();
+  return postProgress(input, null);
+}
+
+/** The one road to the count, for a report on its own and for a timeslot's
+ *  pieces (D352). A slot is the authority for who: one person is linked, a
+ *  crew is *not one person* — the state 0062 made for exactly that. */
+async function postProgress(
+  input: ProgressInput,
+  slot: { id: string; workers: WorkSlotWorker[] } | null,
+): Promise<Result<WorkOrderView>> {
   /* Who may report work.
    *
    *  Normally the workshop: `production.update`. But an entry that comes from
@@ -493,17 +508,57 @@ export async function recordProgress(
       { field: "note" },
     );
   }
+  /* The span (D351), asked in the seam's order: before the order's state, so a
+     span that cannot be true is named as the span. */
+  const started = input.started_at || null;
+  const finished = input.finished_at || null;
+  if (!started !== !finished) {
+    return invalid(
+      SERVICE, "span_half",
+      "Jam mulai dan jam selesai diisi berdua, atau dikosongkan berdua. Separuh rentang tidak menyebut jam berapa pekerjaannya.",
+      { field: started ? "finished_at" : "started_at" },
+    );
+  }
+  const workDate = input.work_date || (started ? officeDay(new Date(started)) : officeDay());
+  if (started && finished) {
+    const from = Date.parse(started), to = Date.parse(finished);
+    if (!(to > from)) {
+      return invalid(SERVICE, "span_backwards", "Jam selesai harus sesudah jam mulai.", { field: "finished_at" });
+    }
+    if (to - from > 16 * 3_600_000) {
+      return invalid(
+        SERVICE, "span_too_long",
+        "Lebih dari 16 jam untuk satu laporan — tanggal atau jamnya kemungkinan salah ketik. Laporkan per jam atau per sesi kerja.",
+        { field: "finished_at" },
+      );
+    }
+    /* Filed under the day it started, like the overnight shift (0186). */
+    if (officeDay(new Date(started)) !== workDate) {
+      return invalid(
+        SERVICE, "span_other_day",
+        `Jam mulainya jatuh pada ${officeDay(new Date(started))}, sedangkan tanggal kerjanya ${workDate}.`,
+        { field: "started_at" },
+      );
+    }
+    if (to > Date.now() + 10 * 60_000) {
+      return invalid(
+        SERVICE, "span_in_future",
+        "Jam selesainya belum terjadi. Laporkan pekerjaan sesudah selesai.",
+        { field: "finished_at" },
+      );
+    }
+  }
   if (wo.status !== "OPEN") {
     return conflict(SERVICE, "wo_not_open", `${wo.wo_no} is ${wo.status}.`);
   }
 
   /* A sheet posted twice adds nothing. The claim is the sheet number plus the
      stage and the order — the same shape as `source_ref` on a ledger row. */
-  const claim = input.source_ref
+  const claim = input.source_ref && !slot
     ? `${input.source_ref}|${wo.id}|${input.stage}`
     : null;
   if (claim && state.production_progress.some(
-    (p) => p.source_ref && `${p.source_ref}|${p.wo_id}|${p.stage}` === claim,
+    (p) => p.source_ref && !p.slot_id && `${p.source_ref}|${p.wo_id}|${p.stage}` === claim,
   )) {
     const view = workOrderView(state, wo);
     return ok(SERVICE, view);
@@ -528,16 +583,19 @@ export async function recordProgress(
   }
 
   const user = actingUser();
+  const crew = !!slot && slot.workers.length > 1;
   apply((draft) => {
     const row: ProgressEntry = {
       id: newId("prg"), wo_id: wo.id, stage: input.stage, qty: input.qty,
-      work_date: input.work_date,
-      worked_by: input.worked_by?.trim() || null,
-      worked_by_employee_id: input.worked_by_employee_id || null,
-      worked_by_not_a_person: false,
+      work_date: workDate,
+      worked_by: slot ? slot.workers.map((w) => w.name).join(", ") : input.worked_by?.trim() || null,
+      worked_by_employee_id: slot ? (crew ? null : slot.workers[0]?.employee_id ?? null) : input.worked_by_employee_id || null,
+      worked_by_not_a_person: crew,
+      slot_id: slot?.id ?? null,
       source: input.source ?? "manual",
       source_ref: input.source_ref ?? null,
       note: input.note?.trim() || null,
+      started_at: started, finished_at: finished,
       recorded_by: user.id, recorded_at: new Date().toISOString(),
     };
     draft.production_progress.push(row);
@@ -604,6 +662,226 @@ export async function listProgress(woNo: string): Promise<Result<ProgressEntry[]
     .filter((p) => p.wo_id === wo.id)
     .sort((a, b) => b.work_date.localeCompare(a.work_date) || b.recorded_at.localeCompare(a.recorded_at));
   return ok(SERVICE, rows);
+}
+
+/** Every entry on one office day, across every Job Order — the floor, hour by
+ *  hour (D351). Oldest first, the order a day is read in. */
+export async function listProgressForDay(day: string): Promise<Result<ProgressEntryOnOrder[]>> {
+  await latency();
+  const state = getState();
+  const rows = state.production_progress
+    .filter((p) => p.work_date === day)
+    .sort((a, b) => (a.finished_at ?? "~").localeCompare(b.finished_at ?? "~") || a.recorded_at.localeCompare(b.recorded_at))
+    .map((p) => {
+      const w = state.work_orders.find((x) => x.id === p.wo_id);
+      return { ...p, wo_no: w?.wo_no ?? "", item_name: w?.item_name ?? "", uom: w?.uom ?? "" };
+    });
+  return ok(SERVICE, rows);
+}
+
+/* ------------------------------------------------------------------ */
+/* Timeslots (D352)                                                    */
+/* ------------------------------------------------------------------ */
+
+function slotView(state: ReturnType<typeof getState>, sl: WorkSlot): WorkSlotView {
+  const w = state.work_orders.find((x) => x.id === sl.wo_id);
+  return { ...sl, wo_no: w?.wo_no ?? "", item_name: w?.item_name ?? "", uom: w?.uom ?? "", product_code: w?.product_code ?? null };
+}
+
+/** Timeslots on one Job Order, or across the floor between two office days —
+ *  oldest first. Cancelled ones included, marked. */
+export async function listWorkSlots(
+  opts: { wo_no?: string; from?: string; to?: string },
+): Promise<Result<WorkSlotView[]>> {
+  await latency();
+  const state = getState();
+  let woId: string | null = null;
+  if (opts.wo_no) {
+    const wo = state.work_orders.find((w) => w.wo_no === opts.wo_no);
+    if (!wo) return notFound(SERVICE, "wo_not_found", `No work order ${opts.wo_no}.`);
+    woId = wo.id;
+  }
+  const rows = state.work_slots
+    .filter((sl) => (!woId || sl.wo_id === woId)
+      && (!opts.from || sl.work_date >= opts.from) && (!opts.to || sl.work_date <= opts.to))
+    .map((sl) => slotView(state, sl))
+    .sort((a, b) => a.work_date.localeCompare(b.work_date)
+      || (a.started_at ?? "~").localeCompare(b.started_at ?? "~") || a.recorded_at.localeCompare(b.recorded_at));
+  return ok(SERVICE, rows);
+}
+
+/** *07.30–09.30 AA-02 rakit pintu — Karjo, Toha* (D352). Asked in the seam's
+ *  order; pieces, when given, go through the same road as any count and a
+ *  slot the order refuses is not written at all. */
+export async function recordWorkSlot(
+  input: {
+    wo_no: string; activity: string; workers: WorkSlotWorker[]; work_date: string;
+    started_at?: string | null; finished_at?: string | null; minutes?: number | null;
+    stage?: string | null; qty?: number | null; note?: string | null;
+    source?: "manual" | "overtime_sheet"; source_ref?: string | null; source_line?: string | null;
+  },
+  _idempotencyKey?: string,
+): Promise<Result<WorkSlotView>> {
+  await latency();
+  const source = input.source ?? "manual";
+  const denied = source === "overtime_sheet"
+    ? requireAuthority(SERVICE, "approve_overtime")
+    : requireModule(SERVICE, "production");
+  if (denied) return denied;
+
+  const state = getState();
+  const wo = state.work_orders.find((w) => w.wo_no === input.wo_no);
+  if (!wo) return notFound(SERVICE, "wo_not_found", `Tidak ada Job Order ${input.wo_no}.`);
+
+  /* A lembur line posts once (D147, D352). */
+  const already = input.source_ref
+    ? state.work_slots.find((sl) => sl.source_ref === input.source_ref && sl.source_line === (input.source_line ?? null))
+    : undefined;
+  if (already) return noop(SERVICE, slotView(state, already));
+  if (source === "overtime_sheet" && (!input.source_ref || !input.source_line)) {
+    return invalid(SERVICE, "sheet_line_required", "Timeslot dari lembar lembur menyebut lembar dan barisnya.", { field: "source_line" });
+  }
+  if (!input.activity?.trim()) {
+    return invalid(SERVICE, "activity_required",
+      "Apa yang dikerjakan? Tulis dengan kata-kata bengkel — misalnya *rakit pintu*, *tambah engsel*.", { field: "activity" });
+  }
+
+  if (!input.workers?.length) {
+    return invalid(SERVICE, "workers_required",
+      "Siapa yang mengerjakan? Timeslot tanpa orang tidak menjelaskan siapa mengerjakan apa.", { field: "workers" });
+  }
+  const workers: WorkSlotWorker[] = [];
+  for (const x of input.workers) {
+    let name = x.name?.trim() || null;
+    if (x.employee_id) {
+      const emp = state.employees.find((e) => e.id === x.employee_id);
+      if (!emp) return invalid(SERVICE, "employee_not_found", "Karyawan yang dipilih tidak ada di data kepegawaian.", { field: "workers" });
+      name = name ?? emp.full_name;
+    }
+    if (!name) return invalid(SERVICE, "worker_name_required", "Setiap orang di timeslot punya nama.", { field: "workers" });
+    if (workers.some((w) => w.name.toLowerCase() === name!.toLowerCase() || (x.employee_id && w.employee_id === x.employee_id))) {
+      return invalid(SERVICE, "worker_twice", `${name} tercatat dua kali di timeslot yang sama.`, { field: "workers" });
+    }
+    workers.push({ name, employee_id: x.employee_id || null });
+  }
+
+  const started = input.started_at || null;
+  const finished = input.finished_at || null;
+  if (!started !== !finished) {
+    return invalid(SERVICE, "span_half", "Jam mulai dan jam selesai diisi berdua, atau dikosongkan berdua.",
+      { field: started ? "finished_at" : "started_at" });
+  }
+  const workDate = input.work_date || (started ? officeDay(new Date(started)) : officeDay());
+  let minutes: number;
+  if (started && finished) {
+    const from = Date.parse(started), to = Date.parse(finished);
+    if (!(to > from)) return invalid(SERVICE, "span_backwards", "Jam selesai harus sesudah jam mulai.", { field: "finished_at" });
+    if (to - from > 16 * 3_600_000) {
+      return invalid(SERVICE, "span_too_long", "Lebih dari 16 jam untuk satu timeslot — tanggal atau jamnya kemungkinan salah ketik.", { field: "finished_at" });
+    }
+    if (officeDay(new Date(started)) !== workDate) {
+      return invalid(SERVICE, "span_other_day",
+        `Jam mulainya jatuh pada ${officeDay(new Date(started))}, sedangkan tanggal kerjanya ${workDate}.`, { field: "started_at" });
+    }
+    if (to > Date.now() + 10 * 60_000) {
+      return invalid(SERVICE, "span_in_future", "Jam selesainya belum terjadi. Catat timeslot sesudah selesai.", { field: "finished_at" });
+    }
+    minutes = Math.round((to - from) / 60_000);
+  } else {
+    if (!input.minutes || input.minutes <= 0) {
+      return invalid(SERVICE, "duration_required", "Berapa lama? Isi jam mulai–selesai, atau lamanya dalam jam.", { field: "started_at" });
+    }
+    if (input.minutes > 960) return invalid(SERVICE, "span_too_long", "Lebih dari 16 jam untuk satu timeslot.", { field: "minutes" });
+    minutes = Math.round(input.minutes);
+  }
+
+  const stage = input.stage?.trim() || null;
+  const qty = input.qty ?? null;
+  if (qty !== null && qty <= 0) {
+    return invalid(SERVICE, "qty_positive",
+      "Jumlah selesai diisi kalau ada yang selesai, dan tidak pernah negatif. Koreksi jumlah dicatat lewat koreksi, bukan timeslot.", { field: "qty" });
+  }
+  if (qty !== null && !stage) {
+    return invalid(SERVICE, "stage_required", "Selesai di tahap mana? Jumlah tanpa tahap tidak menggerakkan papan.", { field: "stage" });
+  }
+  if (stage) {
+    const stages = workOrderView(state, wo).stages.map((x) => x.stage);
+    if (!stages.includes(stage)) {
+      return invalid(SERVICE, "stage_not_on_product",
+        `Tahap ${STAGE_NAME(stage)} tidak dilalui ${wo.product_code ?? wo.wo_no}. Tahapnya: ${stages.map(STAGE_NAME).join(" → ")}.`,
+        { field: "stage", stages });
+    }
+  }
+  if (wo.status !== "OPEN") return conflict(SERVICE, "wo_not_open", `${wo.wo_no} sudah ${wo.status}.`);
+
+  const user = actingUser();
+  const slot: WorkSlot = {
+    id: newId("tsl"), slot_no: "", wo_id: wo.id, work_date: workDate,
+    started_at: started, finished_at: finished, minutes,
+    activity: input.activity.trim(), stage, qty, source,
+    source_ref: input.source_ref?.trim() || null, source_line: input.source_line?.trim() || null,
+    note: input.note?.trim() || null, voided_at: null, void_reason: null, workers,
+    recorded_by: user.id, recorded_at: new Date().toISOString(),
+  };
+  /* The pieces first: the order's own refusal (over the quantity, all at the
+     vendor) refuses the slot whole, and nothing has been written yet. */
+  if (qty !== null && stage) {
+    const posted = await postProgress({
+      wo_no: wo.wo_no, stage, qty, work_date: workDate,
+      note: slot.note ?? `Timeslot — ${slot.activity}`, source, source_ref: slot.source_ref,
+      started_at: started, finished_at: finished,
+    }, { id: slot.id, workers });
+    if (posted.error) return posted as unknown as Result<WorkSlotView>;
+  }
+  apply((draft) => {
+    slot.slot_no = nextDocNumber(draft, "tsl");
+    draft.work_slots.push(slot);
+    writeAudit(draft, {
+      service: SERVICE, entity: "work_slot", entity_no: slot.slot_no,
+      action: "record", outcome: "ok", reason: null,
+      detail: { wo_no: wo.wo_no, minutes, workers: workers.map((w) => w.name), stage, qty, by: user.email },
+    });
+  });
+  return ok(SERVICE, slotView(getState(), getState().work_slots.find((x) => x.id === slot.id)!));
+}
+
+/** Cancelling a slot, with a sentence. Its pieces come back off the board as a
+ *  negative entry carrying the same sentence (A5). */
+export async function voidWorkSlot(input: { slot_no: string; reason: string }): Promise<Result<WorkSlotView>> {
+  await latency();
+  const denied = requireModule(SERVICE, "production");
+  if (denied) return denied;
+  const state = getState();
+  const sl = state.work_slots.find((x) => x.slot_no === input.slot_no);
+  if (!sl) return notFound(SERVICE, "slot_not_found", `Tidak ada timeslot ${input.slot_no}.`);
+  if (sl.voided_at) return noop(SERVICE, slotView(state, sl));
+  if (!input.reason?.trim()) {
+    return invalid(SERVICE, "reason_required",
+      "Membatalkan timeslot menyebut alasannya — catatannya tetap ada, dan kalimat itulah yang menjelaskannya.", { field: "reason" });
+  }
+  const wo = state.work_orders.find((w) => w.id === sl.wo_id)!;
+  const posted = state.production_progress.filter((p) => p.slot_id === sl.id).reduce((t, p) => t + p.qty, 0);
+  if (posted > 0 && sl.stage) {
+    const back = await postProgress({
+      wo_no: wo.wo_no, stage: sl.stage, qty: -posted, work_date: sl.work_date,
+      note: `Timeslot ${sl.slot_no} dibatalkan: ${input.reason.trim()}`,
+      source: sl.source, source_ref: sl.source_ref, started_at: sl.started_at, finished_at: sl.finished_at,
+    }, { id: sl.id, workers: sl.workers });
+    if (back.error) return back as unknown as Result<WorkSlotView>;
+  }
+  const user = actingUser();
+  apply((draft) => {
+    const row = draft.work_slots.find((x) => x.id === sl.id);
+    if (!row) return;
+    row.voided_at = new Date().toISOString();
+    row.void_reason = input.reason.trim();
+    writeAudit(draft, {
+      service: SERVICE, entity: "work_slot", entity_no: sl.slot_no,
+      action: "void", outcome: "ok", reason: input.reason.trim(),
+      detail: { wo_no: wo.wo_no, taken_back: posted, by: user.email },
+    });
+  });
+  return ok(SERVICE, slotView(getState(), getState().work_slots.find((x) => x.id === sl.id)!));
 }
 
 /* ------------------------------------------------------------------ */
