@@ -29,7 +29,7 @@ import type {
   BomNorm, BomRateGroup, BomRateView, BomSuggestion, FinishingStep, FinishingSystem,
   ProductDrawing, ProductDrawingEntry, ProductView, RateSource, WorkOrderRef,
   BomExplodedLine, BomExplosion, ProgressEntry, ProgressEntryOnOrder, RouteCode, VendorLegView,
-  WorkSlotView, WorkSlotWorker,
+  WorkSlotView, WorkSlotWorker, DailyTargetView,
   WorkOrder, WorkOrderStatus, WorkOrderView, JobTrail,
 } from "@/services/production/contracts";
 import { boardOrder, deriveWorkOrderView } from "@/services/production/work-order-view";
@@ -1019,6 +1019,47 @@ export async function recordWorkSlot(
 export async function voidWorkSlot(input: { slot_no: string; reason: string }): Promise<Result<WorkSlotView>> {
   const { data, error } = await db().rpc("void_work_slot", { p_slot_no: input.slot_no, p_reason: input.reason });
   return thenSlot(data, error);
+}
+
+/* ── daily targets (D356) ─────────────────────────────────────────── */
+
+const toTarget = (r: Record<string, unknown>): DailyTargetView => ({
+  wo_no: r.wo_no as string, item_name: r.item_name as string, uom: r.uom as string,
+  wo_qty: Number(r.wo_qty), work_date: r.work_date as string, stage: r.stage as string,
+  stage_name: r.stage_name as string, target: Number(r.target), actual: Number(r.actual),
+  reason: (r.reason as string | null) ?? null, set_at: r.set_at as string,
+  set_by_name: (r.set_by_name as string | null) ?? null, revisions: Number(r.revisions),
+  first_set_at: r.first_set_at as string,
+});
+
+/** The targets in force between two office days, with the day's actual count
+ *  beside each. */
+export async function listDailyTargets(
+  opts: { from: string; to: string; wo_no?: string },
+): Promise<Result<DailyTargetView[]>> {
+  let q = db().from("v_daily_target").select("*").gte("work_date", opts.from).lte("work_date", opts.to);
+  if (opts.wo_no) q = q.eq("wo_no", opts.wo_no);
+  const { data, error } = await q.order("work_date").order("wo_no").order("stage");
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, (data ?? []).map(toTarget));
+}
+
+/** Setting, or changing, a day's target. A change says why; a day that has
+ *  ended is not re-targeted. Leadership, HRD or production may set one. */
+export async function setDailyTarget(
+  input: { wo_no: string; work_date: string; stage: string; qty: number; reason?: string | null },
+): Promise<Result<DailyTargetView>> {
+  const { data, error } = await db().rpc("set_daily_target", {
+    p_wo_no: input.wo_no, p_work_date: input.work_date || null, p_stage: input.stage,
+    p_qty: input.qty, p_reason: input.reason ?? null,
+  });
+  const res = fromSeam<{ wo_no: string; work_date: string; stage: string }>(SERVICE, data, error);
+  if (res.error) return res as unknown as Result<DailyTargetView>;
+  const row = await db().from("v_daily_target").select("*")
+    .eq("wo_no", res.data.wo_no).eq("work_date", res.data.work_date).eq("stage", res.data.stage).maybeSingle();
+  if (row.error) return fail(SERVICE, row.error);
+  if (!row.data) return notFound(SERVICE, "target_not_found", "Target itu tidak terbaca kembali.");
+  return ok(SERVICE, toTarget(row.data));
 }
 
 export async function closeWorkOrder(

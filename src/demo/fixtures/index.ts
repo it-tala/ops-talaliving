@@ -17,7 +17,7 @@ import {
   EMPLOYEES, ATTENDANCE_SCANS, DAY_MARKS, OVERTIME_SHEETS, OVERTIME_LINES,
   PAYROLL_RUNS, PAYROLL_ADJUSTMENTS, ALLOWANCE_WITHHOLDINGS,
 } from "./hr";
-import { WORK_ORDERS, PRODUCTION_PROGRESS, VENDOR_LEGS, WORK_SLOTS } from "./production";
+import { WORK_ORDERS, PRODUCTION_PROGRESS, VENDOR_LEGS, WORK_SLOTS, DAILY_TARGETS } from "./production";
 import { PRODUCTS, BOM_COMPONENTS, BOM_REVISIONS, BOM_RATES, BOM_NORMS, FINISHING_RECIPES } from "./products";
 import { APP_SETTINGS } from "./settings";
 import { LOG_PURCHASES, LOG_PIECES, LOG_COSTS, SAWN_BOARDS, BOARD_MOVES } from "./timber";
@@ -181,6 +181,7 @@ export function initialState(): DemoState {
     work_orders: WORK_ORDERS,
     production_progress: PRODUCTION_PROGRESS,
     work_slots: WORK_SLOTS,
+    daily_targets: DAILY_TARGETS,
     vendor_legs: VENDOR_LEGS,
     products: PRODUCTS,
     bom_components: BOM_COMPONENTS,

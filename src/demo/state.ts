@@ -30,7 +30,7 @@ import type {
   EmployeeIdentity,
 } from "@/services/hr/contracts";
 import type {
-  WorkOrder, ProgressEntry, WorkSlot, VendorLeg, Product, BomComponent, BomRevision, BomRate, BomNorm,
+  WorkOrder, ProgressEntry, WorkSlot, DailyTarget, VendorLeg, Product, BomComponent, BomRevision, BomRate, BomNorm,
   DesignTask, DesignRevision, DesignQuestion,
 } from "@/services/production/contracts";
 import type {
@@ -237,6 +237,9 @@ export interface DemoState {
   /** Timeslots: who worked on what, for how long (D352). Cancelled with a
    *  reason, never removed. */
   work_slots: WorkSlot[];
+  /** Daily targets per Job Order, day and stage (D356). Append-only: the one
+   *  in force is the highest `seq`. */
+  daily_targets: DailyTarget[];
   /** One trip to one vendor for one process (W6, D280). Replaces the four
    *  `subcon_*` columns that could only ever describe one. */
   vendor_legs: VendorLeg[];

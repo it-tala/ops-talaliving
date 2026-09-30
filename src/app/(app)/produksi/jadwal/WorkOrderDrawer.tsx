@@ -19,6 +19,7 @@ import { officeStamp, officeToday, OFFICE_TZ } from "@/lib/office";
 import { spanLabel } from "@/services/production/progress-view";
 import { ProgressOverTime } from "./ProgressPanels";
 import { JobProductivity, PositionLine, SlotForm, SlotList, lastFullHour, nextDay } from "./WorkSlots";
+import { TodayTargets } from "./Targets";
 import { useTr } from "@/lib/i18n";
 
 /** One work order: every stage, every entry behind it, and the deadline.
@@ -275,6 +276,8 @@ export function WorkOrderDrawer({
             </div>
             {/* The project manager's line (D352): where the pieces are. */}
             <PositionLine wo={w} className="rounded-lg bg-slate-50 px-3 py-2" />
+            {/* D356: today's target beside today's count, where one is set. */}
+            <TodayTargets woNo={woNo} />
             {w.description && <p className="text-[13px] text-slate-600">{w.description}</p>}
 
             {w.warnings.length > 0 && (

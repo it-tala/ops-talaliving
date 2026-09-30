@@ -8643,3 +8643,21 @@ handed every production login the pay of every employee.
 it is built for, with only that role's grants — not as the demo persona who
 happens to hold everything.
 
+## F206 · 2026-09-30 · `now()` is one instant for a whole transaction, so it cannot say which change came last
+
+The target in force was first read as *the row with the latest `set_at`*,
+and `set_at` defaults to `now()`. The smoke set a target of 15 and changed it
+to 12 inside one transaction, and the view answered 15: in Postgres `now()` is
+the transaction's start time, so both rows carried the same instant and
+`distinct on … order by set_at desc` picked either. Two changes in one
+transaction are rare from a screen, but a seam calling a seam, a batch
+import, or two requests landing in the same microsecond are not impossible,
+and the failure is silent — the wrong target, with nothing to say so.
+
+`daily_targets` now carries `seq` (an identity column) and the target in
+force is the highest `seq`; `set_at` stays as the time a person would quote.
+
+**Rule:** "the latest row" is decided by an ordering that is strictly
+increasing per write — an identity or sequence — never by a timestamp that
+defaults to `now()`.
+

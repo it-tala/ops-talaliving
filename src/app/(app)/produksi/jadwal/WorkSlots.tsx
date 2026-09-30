@@ -22,6 +22,7 @@ import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 import { FloorHourly } from "./ProgressPanels";
+import { TargetsTab } from "./Targets";
 
 /* ── the project manager's line (D352) ────────────────────────────────── */
 
@@ -490,7 +491,7 @@ export function FloorPanel() {
   const { can } = useSession();
   const [day, setDay] = useState(officeToday());
   const [span, setSpan] = useState<1 | 7>(1);
-  const [tab, setTab] = useState<"slots" | "people" | "hours">("slots");
+  const [tab, setTab] = useState<"slots" | "people" | "hours" | "targets">("slots");
   const [recording, setRecording] = useState(false);
   const [unit, setUnit] = useState<string | null>(null);
   const from = span === 1 ? day : addDays(day, -6);
@@ -532,7 +533,7 @@ export function FloorPanel() {
         )}
       />
       <div className="flex flex-wrap gap-1 border-b border-slate-100 px-4 py-2">
-        {([["slots", tr("Timeslots", "Timeslot")], ["people", tr("Per person", "Per orang")], ["hours", tr("Pieces per hour", "Hasil per jam")]] as const).map(([k, label]) => (
+        {([["slots", tr("Timeslots", "Timeslot")], ["people", tr("Per person", "Per orang")], ["hours", tr("Pieces per hour", "Hasil per jam")], ["targets", tr("Targets", "Target")]] as const).map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)}
             className={cn("rounded-full px-2.5 py-1 text-[12px] font-medium",
               tab === k ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-100")}>{label}</button>
@@ -554,7 +555,10 @@ export function FloorPanel() {
           onDone={reload}
         />
       )}
-      {tab === "hours" ? (
+      {tab === "targets" ? (
+        /* D356: target against what was done, per Job Order, day and stage. */
+        <TargetsTab from={from} to={day} day={day} />
+      ) : tab === "hours" ? (
         span === 1
           ? <FloorHourly day={day} />
           : <p className="px-5 py-4 text-[13px] text-slate-500">{tr("Pieces per hour is read one day at a time.", "Hasil per jam dibaca per hari.")}</p>
