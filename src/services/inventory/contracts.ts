@@ -531,12 +531,17 @@ export interface StockMove {
   reason: string | null;
   moved_by: string;
   moved_at: string;
+  /** Set when an entry was corrected in place (`0198`, D348). What it was is
+   *  in `stockEntryHistory`. */
+  edited_at?: string | null;
+  edited_by?: string | null;
 }
 
 export interface StockMoveView extends StockMove {
   item_name: string;
   location_name: string;
   by_name: string;
+  edited_by_name?: string | null;
   /** Set where `ref_no` names an SPK that **does not exist** (F86).
    *
    *  Nothing dereferenced this column until D266, so nine seeded issues
@@ -544,6 +549,44 @@ export interface StockMoveView extends StockMove {
    *  could say so. A reference nothing follows is a reference nothing checks,
    *  and the cheapest guard is to follow it where it is already displayed. */
   ref_missing: boolean;
+}
+
+/** Which entries may be corrected on the inventory screen (`0198`): a receipt
+ *  belongs to procurement's receiving report, and a transfer is a pair that is
+ *  deleted and entered again rather than half-edited. */
+export const EDITABLE_MOVE_KINDS: StockMoveKind[] = ["adjust", "issue", "return"];
+
+/** One correction to a stock entry, read back for the item's drawer
+ *  (`ops_inv.stock_entry_history`). `before`/`after` carry the row's fields;
+ *  a delete's `before.rows` holds every row it removed (a transfer is two). */
+export interface StockEntryChange {
+  at: string;
+  action: "edit" | "delete";
+  move_no: string;
+  by_name: string | null;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  reason: string | null;
+}
+
+/** Correcting an entry: leave a field out to keep it. `qty` is signed for an
+ *  adjustment and the amount for an issue or a return. */
+export interface StockMovePatch {
+  item_code?: string;
+  location?: string;
+  qty?: number;
+  reason?: string;
+  ref_no?: string;
+  clear_ref?: boolean;
+}
+
+/** An item's own details, editable from inventory (`update_item_details`). */
+export interface ItemDetailsPatch {
+  name?: string;
+  name_local?: string;
+  clear_local?: boolean;
+  category_code?: string;
+  base_uom?: string;
 }
 
 /** What a storeman needs on top of the item itself: how low is too low. */

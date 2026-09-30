@@ -22,12 +22,18 @@ import { useTr } from "@/lib/i18n";
  *
  *  The category is picked from the tree — group, then type (`0197`, D346).
  *
- *  Counting is optional here and, when given, lands as an opname adjustment
+ *  Since D348 the rack is entered from zero and lists only what was entered,
+ *  so an item registered here is registered **with** its count and rack —
+ *  otherwise it would vanish from the list it was just added to. A name typed
+ *  into *Input stock* that the catalogue lacks arrives as `initialName`.
+ *
+ *  Counting was optional here and, when given, lands as an opname adjustment
  *  against a location (D171) — the same record the opname screen writes, not
  *  a second kind of number.
  */
-export function RegisterItem({ mayCount, onCreated, onCancel }: {
+export function RegisterItem({ mayCount, initialName, onCreated, onCancel }: {
   mayCount: boolean;
+  initialName?: string;
   onCreated: (itemCode: string) => void;
   onCancel: () => void;
 }) {
@@ -38,7 +44,7 @@ export function RegisterItem({ mayCount, onCreated, onCancel }: {
   const [uoms] = useLoad(() => procurement.listUom(), []);
   const [locations] = useLoad(() => inventory.listStockLocations(), []);
   const [form, setForm] = useState({
-    name: "", name_local: "", category_code: "", base_uom: "pcs", location: "", counted: 0, reason: "",
+    name: initialName ?? "", name_local: "", category_code: "", base_uom: "pcs", location: "", counted: 0, reason: "",
   });
   const [photos, setPhotos] = useState<{ file: File; url: string }[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -94,7 +100,7 @@ export function RegisterItem({ mayCount, onCreated, onCancel }: {
     onCreated(res.data.item_code);
   }
 
-  const countOk = !mayCount || form.counted <= 0 || !!form.location;
+  const countOk = !mayCount || (form.counted > 0 && !!form.location);
   const ready = form.name.trim() && form.category_code && form.base_uom
     && photos.length >= ITEM_PHOTO_MIN && photos.length <= ITEM_PHOTO_MAX && countOk;
   const field = "h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none";
@@ -188,7 +194,7 @@ export function RegisterItem({ mayCount, onCreated, onCancel }: {
         {mayCount && (
           <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
             <p className="text-[11px] text-slate-500">
-              {tr("Already counted? Enter the quantity and the rack — it is recorded as an opname result. Leave it empty if not.", "Sudah dihitung? Isi jumlah dan raknya — tercatat sebagai hasil opname. Kosongkan kalau belum.")}
+              {tr("How many are on the rack, and which rack — the item appears in the list with this first entry.", "Berapa yang ada di rak, dan rak mana — barang muncul di daftar dengan input pertama ini.")}
             </p>
             <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_140px]">
               <Loaded state={locations} skeletonRows={1}>
@@ -202,8 +208,8 @@ export function RegisterItem({ mayCount, onCreated, onCancel }: {
               </Loaded>
               <NumberInput value={form.counted} onChange={(v) => setForm({ ...form, counted: v })} />
             </div>
-            {form.counted > 0 && !form.location && (
-              <p className="mt-1 text-[11px] text-amber-700">{tr("Choose the rack — a count always belongs to one location.", "Pilih raknya — hitungan selalu milik satu lokasi.")}</p>
+            {(form.counted <= 0 || !form.location) && (
+              <p className="mt-1 text-[11px] text-amber-700">{tr("Enter the quantity and choose the rack.", "Isi jumlah dan pilih raknya.")}</p>
             )}
           </div>
         )}
