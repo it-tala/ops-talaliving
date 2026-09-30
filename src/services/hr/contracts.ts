@@ -1898,9 +1898,14 @@ export interface PayRules {
   /** `slots` (default): six taps placed in slots, and a day the rule cannot
    *  fit goes to review (D141). `schedule`: any tap is a day present and its
    *  hours are read against the weekday's pattern — *tap yang lebih/kurang
-   *  tidak perlu dipermasalahkan* (owner). */
-  day_reading?: "slots" | "schedule";
-  /** Hours are rounded to this many minutes under `schedule`. Default 15. */
+   *  tidak perlu dipermasalahkan* (owner). `in_out` (0199, D353): only the
+   *  arrival and departure taps count — *tap wajib hanya di jam datang dan
+   *  pulang, jam otomatis sesuai kuota, merah jika kurang*. Pulang is the last
+   *  tap; one tap is a day with no pulang, waiting for HRD; hours are the
+   *  schedule's at most, and less when late or early. */
+  day_reading?: "slots" | "schedule" | "in_out";
+  /** Hours are rounded to this many minutes under `schedule` and `in_out`.
+   *  Default 15. */
   hours_rounding_minutes?: number;
   /** How far from the scheduled end a tap still counts as pulang. Default 30. */
   out_window_minutes?: number;

@@ -15,6 +15,7 @@ import { DAY_MARK_SHORT, OVERTIME_STAGE_LABEL, PAY_WEEK_STARTS_DEFAULT, type Day
 import Link from "next/link";
 import { useSession } from "@/store/session";
 import { useTr } from "@/lib/i18n";
+import { onSiteHours } from "@/services/hr/on-site";
 import { ImportScans } from "./ImportScans";
 import { DayDrawer } from "./DayDrawer";
 import { MarkDay } from "./MarkDay";
@@ -59,6 +60,9 @@ function defaultFrom(span: Span, weekStartsOn: number): string {
   return span === 5 ? shiftDay(officeToday(), -4) : payWeekStart(officeToday(), weekStartsOn);
 }
 
+/** Present, and short of the schedule (D353). */
+const SHORT_CELL = "bg-rose-50 text-rose-800 border-rose-300 font-semibold";
+
 const CELL: Record<DayState, string> = {
   complete: "bg-emerald-50 text-emerald-800 border-emerald-200",
   review: "bg-amber-50 text-amber-900 border-amber-300 font-semibold",
@@ -87,6 +91,21 @@ export default function TimesheetPage() {
       .pop();
     return inForce?.rules.pay_week_starts_isodow ?? PAY_WEEK_STARTS_DEFAULT;
   })();
+  /* A day short of its schedule is drawn red (D353) — under the reading that
+     makes hours the schedule's (`in_out`), where short means late or early.
+     Judged against the book in force **on that day**, rounded as the hours
+     are, so a day read on time is never red by its own rounding. */
+  const isShort = (day: TimesheetDay): boolean => {
+    if (books.status !== "ready" || day.state !== "complete" || day.scheduled_hours == null) return false;
+    const book = [...books.data]
+      .filter((b) => b.effective_from <= day.work_date)
+      .sort((a, b) => a.effective_from.localeCompare(b.effective_from) || a.version - b.version)
+      .pop();
+    if (book?.rules.day_reading !== "in_out") return false;
+    const step = book.rules.hours_rounding_minutes ?? 15;
+    const quota = step > 0 ? Math.round((day.scheduled_hours * 60) / step) * step / 60 : day.scheduled_hours;
+    return day.work_hours < quota - 0.001;
+  };
   const [from, setFrom] = useState(() => {
     const asked = typeof window === "undefined"
       ? null : new URLSearchParams(window.location.search).get("from");
@@ -227,6 +246,7 @@ export default function TimesheetPage() {
                 mayEdit={mayEdit}
                 onMarkDate={setMarking}
                 onOpen={(employee_no, work_date) => setOpen({ employee_no, work_date })}
+                isShort={isShort}
               />
             ))}
 
@@ -302,14 +322,20 @@ export default function TimesheetPage() {
  *  kaki.** Sebuah periode dengan empat hari yang belum dibaca punya total yang
  *  pasti terlalu kecil, dan sebuah angka yang terlalu kecil tanpa keterangan
  *  adalah angka yang dipercaya orang. */
-function TotalCell({ total }: { total?: TimesheetTotal }) {
+function TotalCell({ total, onSite }: { total?: TimesheetTotal; onSite: number | null }) {
   const tr = useTr();
   if (!total) return <td className="sticky right-0 border-l border-slate-200 bg-white" />;
   return (
     <td className="sticky right-0 z-10 border-l border-slate-200 bg-white px-3 py-1.5 text-right">
       <span className="block text-[13px] font-semibold tabular-nums text-slate-800">
-        {tr(`${formatNumber(total.work_hours)} h`, `${formatNumber(total.work_hours)} jam`)}
+        {tr(`${formatNumber(total.work_hours)} h paid`, `${formatNumber(total.work_hours)} jam dibayar`)}
       </span>
+      {/* Beside the paid hours, the hours at work (D354). */}
+      {onSite != null && (
+        <span className="block text-[10px] tabular-nums text-slate-500">
+          {tr(`${formatNumber(onSite)} h on site`, `${formatNumber(onSite)} jam di lokasi`)}
+        </span>
+      )}
       <span className="block text-[10px] tabular-nums text-slate-400">
         {tr(`${formatNumber(total.days_counted)} days`, `${formatNumber(total.days_counted)} hari`)}
       </span>
@@ -334,7 +360,7 @@ interface Sheet {
 
 /** One group's days, hours and what they are worth (D345). */
 function PeopleGrid({
-  group, title, subtitle, sheet: s, sheetState, pay, payFailed, onRetryPay, mayEdit, onMarkDate, onOpen,
+  group, title, subtitle, sheet: s, sheetState, pay, payFailed, onRetryPay, mayEdit, onMarkDate, onOpen, isShort,
 }: {
   group: "weekly" | "monthly";
   title: string;
@@ -347,6 +373,7 @@ function PeopleGrid({
   mayEdit: boolean;
   onMarkDate: (date: string) => void;
   onOpen: (employeeNo: string, workDate: string) => void;
+  isShort: (day: TimesheetDay) => boolean;
 }) {
   const tr = useTr();
   const members = s.employees.filter((e) => (e.pay_basis === "monthly") === (group === "monthly"));
@@ -361,6 +388,14 @@ function PeopleGrid({
     return n + (l ? l.allowance_pay + l.overtime_pay : 0);
   }, 0);
   const today = officeToday();
+  /* Hours at work, first tap to last, summed over the days shown (D354). */
+  const onSiteOf = (employeeNo: string): number | null => {
+    const spans = s.days
+      .filter((d) => d.employee_no === employeeNo && d.state !== "off")
+      .map((d) => onSiteHours(d.scans))
+      .filter((h): h is number => h != null);
+    return spans.length ? Math.round(spans.reduce((a, b) => a + b, 0) * 100) / 100 : null;
+  };
   const hoursSum = members.reduce((n, e) => n + (s.totals.find((t) => t.employee_no === e.employee_no)?.work_hours ?? 0), 0);
 
   return (
@@ -391,7 +426,7 @@ function PeopleGrid({
                 </th>
               ))}
               <th className="border-l border-slate-200 px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                {tr("Hours", "Jam")}
+                {tr("Hours paid · on site", "Jam dibayar · di lokasi")}
               </th>
               <th className="sticky right-0 z-10 border-l border-slate-200 bg-slate-50/70 px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                 {tr("Estimated pay", "Estimasi gaji")}
@@ -426,9 +461,9 @@ function PeopleGrid({
                         onClick={() => onOpen(e.employee_no, date)}
                         className={cn(
                           "w-full rounded border px-1 py-1 text-[11px] leading-tight transition-colors hover:brightness-95",
-                          CELL[day.state],
+                          isShort(day) ? SHORT_CELL : CELL[day.state],
                         )}
-                        title={day.issues.join(" · ") || day.mark?.reason || ""}
+                        title={day.issues.join(" · ") || day.mark?.reason || day.notes.join(" · ") || ""}
                       >
                         {day.overnight && day.state !== "off" && (
                           <Moon className="mr-0.5 inline h-2.5 w-2.5 align-[-1px]" aria-label={tr("night shift", "shift malam")} />
@@ -440,11 +475,22 @@ function PeopleGrid({
                         {(day.pay_multiplier ?? 1) > 1 && day.day_value > 0 && (
                           <span className="ml-0.5 text-[9px] font-semibold text-amber-700">×{day.pay_multiplier}</span>
                         )}
+                        {day.state === "complete" && onSiteHours(day.scans) != null && (
+                          <span
+                            className="block text-[9px] font-normal tabular-nums opacity-70"
+                            title={tr("hours on site, first tap to last", "jam di lokasi, tap pertama sampai terakhir")}
+                          >
+                            {formatNumber(onSiteHours(day.scans)!)}
+                          </span>
+                        )}
                       </button>
                     </td>
                   );
                 })}
-                <TotalCell total={s.totals.find((t) => t.employee_no === e.employee_no)} />
+                <TotalCell
+                  total={s.totals.find((t) => t.employee_no === e.employee_no)}
+                  onSite={onSiteOf(e.employee_no)}
+                />
                 <PayCell line={lineOf.get(e.employee_no)} monthly={group === "monthly"} loading={pay === null && !payFailed} />
               </tr>
             ))}
@@ -484,6 +530,8 @@ function PeopleGrid({
         <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 text-emerald-800">{tr("hours", "jam")}</span> {tr("read cleanly", "terbaca bersih")}
         <span className="rounded border border-amber-300 bg-amber-50 px-1.5 text-amber-900">{tr("n tap", "n tap")}</span> {tr("needs reading", "perlu dibaca")}
         <span className="rounded border border-violet-200 bg-violet-50 px-1.5 text-violet-800">{tr("marked", "ditandai")}</span> {tr("HRD said what happened", "HRD menyatakan apa yang terjadi")}
+        <span className="rounded border border-rose-300 bg-rose-50 px-1.5 text-rose-800">{tr("hours", "jam")}</span> {tr("short of the schedule — late or left early", "kurang dari jadwal — telat atau pulang cepat")}
+        <span>{tr("big number = hours paid, small = hours on site (first tap to last)", "angka besar = jam dibayar, kecil = jam di lokasi (tap pertama sampai terakhir)")}</span>
         <span className="rounded border border-slate-100 bg-slate-50 px-1.5 text-slate-400">—</span> {tr("no tap at all", "tidak ada tap sama sekali")}
         <span><span className="font-semibold text-amber-700">×2</span> {tr("paid at the schedule's multiplier", "dibayar dengan pengali jadwal")}</span>
         <span className="inline-flex items-center gap-1"><Moon className="h-3 w-3 text-indigo-600" /> {tr("night shift, counted on the day it started", "shift malam, dihitung pada hari mulainya")}</span>
