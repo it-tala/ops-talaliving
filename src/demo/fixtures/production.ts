@@ -196,7 +196,7 @@ PRODUCTION_PROGRESS.push(
   e("prg_27", "wo_07", "QC", 3, "2026-09-11", "Made Suparta", null, "emp_05"),
 );
 
-/* wo_02 — kursi, one day as the floor reports it: **timeslots** (D350).
+/* wo_02 — kursi, one day as the floor reports it: **timeslots** (D352).
    *07.30–09.30 amplas dudukan — Sumiati, Karjo*: who worked on what, for how
    long, and — where pieces finished a stage — how many. A slot with pieces
    posts one count carrying its id; a crew's count is *not one person*. The

@@ -44,7 +44,7 @@ export function WorkOrderDrawer({
   const { toast } = useToast();
   const [wo, reload] = useLoad(() => production.getWorkOrder(woNo), [woNo]);
   const [entries, reloadEntries] = useLoad(() => production.listProgress(woNo), [woNo]);
-  /* Who worked on what, for how long (D350). */
+  /* Who worked on what, for how long (D352). */
   const [slots, reloadSlots] = useLoad(() => production.listWorkSlots({ wo_no: woNo }), [woNo]);
   /* The count on its own — a correction, or pieces nobody timed — sits behind
      a toggle: the timeslot is how the floor reports now. */
@@ -74,7 +74,7 @@ export function WorkOrderDrawer({
   const [people] = useLoad(() => hr.listEmployees(), []);
   const [note, setNote] = useState("");
   const [date, setDate] = useState(officeToday());
-  /* When it was worked, on the office clock (D349). Prefilled with the last
+  /* When it was worked, on the office clock (D351). Prefilled with the last
      full hour, because the floor reports hour by hour; cleared, the entry is
      filed under its day only — which is honest for a correction or a sheet
      typed at the end of the week. */
@@ -273,7 +273,7 @@ export function WorkOrderDrawer({
                 {tr(`${w.percent}% overall · now at ${w.current_stage_name}`, `${w.percent}% keseluruhan · sekarang di ${w.current_stage_name}`)}
               </span>
             </div>
-            {/* The project manager's line (D350): where the pieces are. */}
+            {/* The project manager's line (D352): where the pieces are. */}
             <PositionLine wo={w} className="rounded-lg bg-slate-50 px-3 py-2" />
             {w.description && <p className="text-[13px] text-slate-600">{w.description}</p>}
 
@@ -821,7 +821,7 @@ export function WorkOrderDrawer({
               {(rows) => (
                 <div className="space-y-5">
                 {/* Who, how many, and when — the three the owner asked the
-                    Job Order to answer (D349). */}
+                    Job Order to answer (D351). */}
                 {slots.status === "ready" && (
                   <>
                     <JobProductivity wo={w} slots={slots.data} entries={rows} />

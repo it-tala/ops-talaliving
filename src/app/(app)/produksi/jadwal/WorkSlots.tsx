@@ -22,7 +22,7 @@ import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 import { FloorHourly } from "./ProgressPanels";
 
-/* ── the project manager's line (D350) ────────────────────────────────── */
+/* ── the project manager's line (D352) ────────────────────────────────── */
 
 /** *AA-02 · 10/100 selesai · Amplas 1 · Finishing 2 · belum mulai 87.* Where
  *  the pieces are, read off the stage counts. */
@@ -62,7 +62,7 @@ export function nextDay(day: string): string {
 }
 
 /** *07.30–09.30 · rakit pintu · Karjo, Toha* — and, only if pieces finished a
- *  stage in it, which stage and how many (D350). */
+ *  stage in it, which stage and how many (D352). */
 export function SlotForm({
   wo, activities, onDone,
 }: {
@@ -358,7 +358,7 @@ function PeopleTable({ rows, present, stageOrder }: {
 }
 
 /** Who worked on this Job Order, for how long, and what one piece has cost in
- *  person-hours so far (D350). */
+ *  person-hours so far (D352). */
 export function JobProductivity({ wo, slots, entries }: { wo: WorkOrderView; slots: WorkSlotView[]; entries: ProgressEntry[] }) {
   const tr = useTr();
   const rows = useMemo(() => labourRows(slots, entries, wo), [slots, entries, wo]);
@@ -411,7 +411,7 @@ function addDays(day: string, n: number): string {
 
 /** The whole floor over one day or a week: the timeslots as the floor wrote
  *  them, productivity per person (against their attendance, where the viewer
- *  may read it), and the pieces hour by hour (D349, D350). */
+ *  may read it), and the pieces hour by hour (D351, D352). */
 export function FloorPanel() {
   const tr = useTr();
   const [day, setDay] = useState(officeToday());

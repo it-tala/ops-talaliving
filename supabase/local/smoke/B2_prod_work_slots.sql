@@ -1,4 +1,4 @@
--- prod — the timeslot: who worked on what, for how long (0198, D350).
+-- prod — the timeslot: who worked on what, for how long (0198, D352).
 --
 --   REFUSALS     no activity; nobody on it; one person twice; an employee who
 --                does not exist; half a span; no duration at all; a quantity
