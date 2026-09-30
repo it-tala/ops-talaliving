@@ -13,6 +13,7 @@ import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { hr } from "@/demo/api";
 import type { PayRules, UndertimeMode, OvertimeMode, HourlyBasis, LateMode } from "@/services/hr/contracts";
+import { PAY_WEEK_STARTS_DEFAULT } from "@/services/hr/contracts";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useTr, type Message } from "@/lib/i18n";
@@ -493,7 +494,7 @@ export default function PayRulesPage() {
                         <label className="block">
                           <span className="block text-[12px] text-slate-500">{tr("Weekly pay period starts on", "Minggu gaji mulai hari")}</span>
                           <select
-                            value={rules.pay_week_starts_isodow ?? 1}
+                            value={rules.pay_week_starts_isodow ?? PAY_WEEK_STARTS_DEFAULT}
                             onChange={(e) => set({ pay_week_starts_isodow: Number(e.target.value) })}
                             disabled={!mayEdit}
                             className="mt-1 h-9 w-full max-w-[180px] rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"

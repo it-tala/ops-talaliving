@@ -8488,7 +8488,37 @@ nobody touched; the update trigger fires only when the reference changes.
 of it — *what is on this shelf* — not by the question the table can answer.
 And a no-edit rule is kept by recording the edit, not by forbidding it, once
 the owner says the data has to be editable.
-## F202 · 2026-09-30 · The Job Order knew who and how many, and only the day
+
+## F202 · 2026-09-30 · Two sessions, one day, the same numbers: D348 and migration 0198 were each taken twice
+
+Two sessions worked on main the same afternoon, one on HRD and one on
+inventory. Each read the decision log, saw 347 as the last entry, and
+wrote D348: the inventory one (*stok dimulai dari nol*) and the HRD one
+(employee email and phone, leave after a year). Each also named its migration
+`0198_…`, and three `0198_*` files reached production within a few hours:
+`0198_prod_work_slots`, `0198_inv_stock_input` and
+`0198_hr_employee_contact_leave`. Postgres and the ladder do not mind, because
+files sort by full name and none depends on another. The log does mind:
+two decisions under one number is how *see D348* ends up pointing at the
+wrong argument.
+
+What happened next: inventory merged first and kept D348. The HRD decisions
+became **D349** (email/phone, leave) and **D350** (attendance week
+Sabtu–Jumat) when PR #100 merged main in. Every reference in the code and
+smoke tests was renumbered. **The migration file was left as it is.** Its
+function comments say D348, and `0198_hr_employee_contact_leave` had already
+been applied to production. Editing a comment inside a function body changes
+`prosrc`, and that is exactly what the check *production matches the ladder*
+compares (the md5 of `prosrc`). A file that no longer matches what ran is a
+worse lie than a stale number. `employee-rules.ts` and D349's row say so.
+
+**Rule:** take the next decision number, finding number and migration number
+**when merging main in, just before the PR merges**, not when the work
+starts. Until then, write them as placeholders. A number is a claim on a
+shared list, and it is only safe once nobody else can write to that list
+first. Never renumber a migration that has already been applied; note the
+mismatch instead.
+## F203 · 2026-09-30 · The Job Order knew who and how many, and only the day
 
 Asked to evaluate the Job Order against *who worked each item, how many, and
 progress by time / every hour*, the table answered two of the three and had
@@ -8500,7 +8530,7 @@ the afternoon. An hourly chart built on it would have been a spike at five
 o'clock and nothing else, and it would have looked like data.
 
 So the hours are a separate fact, written by the person who reports the work
-(D349, `0197`), and an entry without them stays without them. Three things
+(D351, `0197`), and an entry without them stays without them. Three things
 the build settled:
 
 - **An hour is where the pieces finished, not an average.** A span
@@ -8513,19 +8543,19 @@ the build settled:
   D264's objection (a wardrobe and a nakas do not add up) does not arise.
 
 What the evaluation found and did **not** change, because each is a decision
-rather than a bug: *who* stays optional (Q-D349a), and a signed lembur sheet
+rather than a bug: *who* stays optional (Q-D351a), and a signed lembur sheet
 still posts one entry per order and stage with the names joined — *Sakirin,
-Karjo* reads as one name in the per-person table (Q-D349b).
+Karjo* reads as one name in the per-person table (Q-D351b).
 
 **Rule:** a timestamp answers the question of the moment it records. The
 moment a row was written is not the moment the thing it describes happened,
 and a field that is right for one question should not be borrowed for the
 other just because it is the only one with a clock in it.
 
-## F203 · 2026-09-30 · A count is not a timeslot, and a crew is not a name with a comma in it
+## F204 · 2026-09-30 · A count is not a timeslot, and a crew is not a name with a comma in it
 
-The owner's answer to Q-D349a/b was an example, and the example could not be
-stored in the table D349 had just given hours to:
+The owner's answer to Q-D351a/b was an example, and the example could not be
+stored in the table D351 had just given hours to:
 
     07.30-09.30 AA-02 rakit pintu karjo, toha
     09.30-11.30 AA-02 tambah engsel karjo
@@ -8575,15 +8605,16 @@ is the wrong table for it. Add the table that has the right shape.
 (inventory categories, locations, then stock from zero) took **D346, D347,
 F200 and migration prefix `0197`** the same afternoon and reached `main` first;
 this work was renumbered to D348/D349 and F201/F202. While its CI ran, the same
-session took **D348, F201 and prefix `0198`** as well, so it was renumbered
-again, to **D349, D350, F202, F203**. Its migrations keep their file names
+session took **D348, F201 and prefix `0198`** as well, and then an HR session
+took **D349, D350, F202 and another `0198`** — so this work ended as **D351,
+D352, F203, F204**, after three merges of `main`. Its migrations keep their file names
 (`0197_prod_progress_hours`, `0198_prod_work_slots`): they were already
 recorded under those names in production, and a shared prefix is harmless
 because files sort by full name and neither pair touches anything in common.
 The comments inside those two migrations, and inside the function bodies in
 production, still say D346/D347 — rewriting an applied file to fix a comment
 would make the file and production disagree, which is the one thing the
-fingerprint check exists to rule out. The decision log says so on D349.
+fingerprint check exists to rule out. The decision log says so on D351.
 Numbers are handed out by whoever writes `06-decisions.md` first; a session
 that runs for hours should re-read the tail of that file — and of
 `supabase/migrations/` — right before it merges, not only before it commits.

@@ -10,6 +10,7 @@ import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { hr } from "@/demo/api";
 import type { PayrollLine } from "@/services/hr/contracts";
+import { PAY_WEEK_STARTS_DEFAULT } from "@/services/hr/contracts";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useTr, type Tr } from "@/lib/i18n";
@@ -89,13 +90,13 @@ export default function PayrollWeekPage() {
   /* Which weekday a pay week starts on is the rule book's to say (D340). */
   const [books] = useLoad(() => hr.listPayRules(), []);
   const startDow = (() => {
-    if (books.status !== "ready") return 1;
+    if (books.status !== "ready") return PAY_WEEK_STARTS_DEFAULT;
     const today = new Date().toISOString().slice(0, 10);
     const inForce = [...books.data]
       .filter((b) => b.effective_from <= today)
       .sort((a, b) => a.effective_from.localeCompare(b.effective_from) || a.version - b.version)
       .pop();
-    return inForce?.rules.pay_week_starts_isodow ?? 1;
+    return inForce?.rules.pay_week_starts_isodow ?? PAY_WEEK_STARTS_DEFAULT;
   })();
   useEffect(() => {
     setWeekStart((w) => weekStartOf(w, startDow));

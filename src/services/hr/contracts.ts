@@ -63,8 +63,17 @@ export interface Employee {
    *  what was agreed when they were hired, and whether they are staff or
    *  workshop all move it, so a company-wide constant would be wrong for
    *  almost everybody. Days beyond it are still taken and still recorded —
-   *  they are simply not paid, and the timesheet says which is which (D144). */
+   *  they are simply not paid, and the timesheet says which is which (D144).
+   *
+   *  **Nought until a year of service** (D349): HRD writes it once
+   *  `joined_on` is a year behind, and the seam refuses it before then
+   *  (`employee-rules.ts`). */
   paid_leave_days: number;
+  /** How to reach them (D349). Optional — most of the floor has no email —
+   *  and not the sign-in account, which IT links separately (D329). The phone
+   *  is digits only, with a leading + when given. */
+  email?: string | null;
+  phone?: string | null;
   active: boolean;
   /** Set when somebody leaves. Their records stay — a payslip from March is
    *  still a fact in June (A5). */
@@ -1900,7 +1909,8 @@ export interface PayRules {
   /** Price an overtime hour before rounding it to the rupiah, as the sheet
    *  does (170.500 / 8 = 21.312,5). */
   overtime_exact_hourly?: boolean;
-  /** The weekday a weekly pay period starts on, ISO (6 = Sabtu). Default 1. */
+  /** The weekday a weekly pay period starts on, ISO (6 = Sabtu). Absent
+   *  means `PAY_WEEK_STARTS_DEFAULT`. */
   pay_week_starts_isodow?: number;
 }
 
@@ -2236,3 +2246,10 @@ export interface LocatedTapView {
   photo_link: string | null;
   photo_filename: string | null;
 }
+
+/** The weekday a week starts on when the rule book does not say: **Sabtu**
+ *  (D350). Owner: *awal minggu mulai dari Sabtu, Minggu, Senin, Selasa, Rabu,
+ *  Kamis, Jumat* — the week the payroll sheet pays. The rule book's
+ *  `pay_week_starts_isodow` still overrides it; the weekly payroll, the
+ *  attendance week and the rule-book form all read this one constant. */
+export const PAY_WEEK_STARTS_DEFAULT = 6;
