@@ -13,12 +13,11 @@
 --
 --   1. **The tree, two levels deep and filled in** (D169's rule unchanged: the
 --      parent is what a report groups by, the child is what a storeman looks
---      for, the item is the third level). Every seeded type sits under a
---      category that is counted, so *Register an item* offers it. The seed is
---      additive and idempotent: a code that already exists keeps its name and
---      parent, and a type whose name already exists under the same parent is
---      not inserted twice — production grew its own types through the screen
---      (`production-metal-stock` is one of them, 0178).
+--      for, the item is the third level). Built on the tree production
+--      already filed through the screen, adding only the types it lacks; every
+--      type under a counted group is counted, so *Register an item* offers
+--      it. Additive and idempotent: an existing code keeps its name and
+--      parent, and a name already under the same parent is not added twice.
 --   2. **One location list** (`ops_inv.stock_locations`) for material stock,
 --      finished goods (0170 already references it) and assets — furniture,
 --      machines, vehicles. `assets.location` was the last free text in
@@ -30,77 +29,112 @@
 --      refused with the way to add it.
 
 -- ── 1. the tree ─────────────────────────────────────────────────────────────
+-- **Production's tree is the base.** By 2026-09-30 procurement had already
+-- filed the catalogue through the screen (0104): 64 categories, among them
+-- `production-safety-ppe`, a `facility` group and `finishing-thinner-solvents`.
+-- A seed written without looking would have added near-twins beside them —
+-- `Thinner & solvent` next to `Thinner & solvents`, a second *Safety & PPE*
+-- group — which the name check below cannot catch because the names differ by
+-- a letter (F200). So the seed lists production's own rows by their own codes
+-- (a no-op there, and the same tree on a rebuilt ladder), then adds only the
+-- types production does not have in any spelling.
 drop table if exists pg_temp.seed_categories;
 create temp table seed_categories (code text, parent_code text, name text, ord int);
 insert into seed_categories (code, parent_code, name, ord) values
-  -- the groups (0006, plus two the floor buys for and nobody counted)
-  ('production',  null, 'Production', 1),
-  ('sanding',     null, 'Sanding', 2),
-  ('finishing',   null, 'Finishing', 3),
-  ('packing',     null, 'Packing', 4),
-  ('machining',   null, 'Machining', 5),
-  ('office',      null, 'Office', 6),
-  ('safety',      null, 'Safety & PPE', 7),
-  ('maintenance', null, 'Building & electrical', 8),
-  ('service',     null, 'Services', 9),
-  ('uncurated',   null, 'Not yet curated', 10),
-  -- Production: what a piece is made from and what holds it together
-  ('raw-wood',                    'production', 'Timber & panels', 11),
-  ('production-veneer-edging',    'production', 'Veneer & edge banding', 12),
-  ('production-metal-stock',      'production', 'Metal stock', 13),
-  ('production-rattan-weaving',   'production', 'Rattan, rope & weaving', 14),
-  ('production-upholstery',       'production', 'Upholstery: foam, fabric & leather', 15),
-  ('production-glass-stone',      'production', 'Glass, mirror & stone', 16),
-  ('production-glue-adhesives',   'production', 'Glue & adhesives', 17),
-  ('production-dowels-joinery',   'production', 'Dowels, biscuits & joinery', 18),
-  ('hardware',                    'production', 'Hardware', 19),
-  ('production-hinges-slides',    'production', 'Hinges, slides & mechanisms', 20),
-  ('production-handles-knobs',    'production', 'Handles & knobs', 21),
-  ('production-fasteners',        'production', 'Screws, bolts & nails', 22),
-  ('production-legs-fittings',    'production', 'Legs, glides & fittings', 23),
+  -- the groups, as production has them
+  ('production', null, 'Production', 1),
+  ('sanding',    null, 'Sanding', 2),
+  ('finishing',  null, 'Finishing', 3),
+  ('packing',    null, 'Packing', 4),
+  ('machining',  null, 'Machining', 5),
+  ('office',     null, 'Office', 6),
+  ('facility',   null, 'Facility', 7),
+  ('service',    null, 'Services', 8),
+  ('uncurated',  null, 'Not yet curated', 9),
+  -- Production — production's types
+  ('raw-wood',                        'production', 'Timber & panels', 101),
+  ('hardware',                        'production', 'Hardware', 102),
+  ('production-bolts-nuts',           'production', 'Bolts & nuts', 103),
+  ('production-dowels',               'production', 'Dowels', 104),
+  ('production-fabric-webbing',       'production', 'Fabric & webbing', 105),
+  ('production-glue',                 'production', 'Glue', 106),
+  ('production-jcbc',                 'production', 'JCBC', 107),
+  ('production-metal-stock',          'production', 'Metal stock', 108),
+  ('production-nails-staples',        'production', 'Nails & staples', 109),
+  ('production-safety-ppe',           'production', 'Safety & PPE', 110),
+  ('production-screws',               'production', 'Screws', 111),
+  --   … and the ones it lacks
+  ('production-veneer-edging',        'production', 'Veneer & edge banding', 120),
+  ('production-rattan-weaving',       'production', 'Rattan, rope & weaving', 121),
+  ('production-upholstery-foam',      'production', 'Upholstery foam', 122),
+  ('production-glass-mirror-stone',   'production', 'Glass, mirror & stone', 123),
+  ('production-hinges-slides',        'production', 'Hinges & drawer slides', 124),
+  ('production-handles-knobs',        'production', 'Handles & knobs', 125),
+  ('production-legs-glides-fittings', 'production', 'Legs, glides & fittings', 126),
   -- Sanding
-  ('sanding-sheets',              'sanding',    'Sandpaper sheets', 31),
-  ('sanding-rolls',               'sanding',    'Sandpaper rolls', 32),
-  ('sanding-discs-belts',         'sanding',    'Sanding discs & belts', 33),
-  ('sanding-pads-sponges',        'sanding',    'Sanding pads, sponges & steel wool', 34),
+  ('sanding-grinding-discs-pads',     'sanding',    'Grinding discs & pads', 201),
+  ('sanding-sandpaper',               'sanding',    'Sandpaper', 202),
+  ('sanding-belts-rolls',             'sanding',    'Sanding belts & rolls', 220),
+  ('sanding-sponges',                 'sanding',    'Sanding sponges', 221),
   -- Finishing
-  ('finishing-stain-colour',      'finishing',  'Stain & colourant', 41),
-  ('finishing-sealer-primer',     'finishing',  'Sealer & primer', 42),
-  ('finishing-top-coat',          'finishing',  'Top coat: lacquer, melamine, PU, duco', 43),
-  ('finishing-oil-wax',           'finishing',  'Oil & wax', 44),
-  ('finishing-thinner-solvent',   'finishing',  'Thinner & solvent', 45),
-  ('finishing-filler-putty',      'finishing',  'Wood filler & putty', 46),
-  ('finishing-spray-supplies',    'finishing',  'Spray & masking supplies', 47),
+  ('finishing-brushes',               'finishing',  'Brushes', 301),
+  ('finishing-filler-dempul',         'finishing',  'Filler (dempul)', 302),
+  ('finishing-glaze-stain-colour',    'finishing',  'Glaze, stain & colour', 303),
+  ('finishing-hardener-binder',       'finishing',  'Hardener & binder', 304),
+  ('finishing-mixing-cups-containers','finishing',  'Mixing cups & containers', 305),
+  ('finishing-rags-steel-wool',       'finishing',  'Rags & steel wool', 306),
+  ('finishing-sealer-primer',         'finishing',  'Sealer & primer', 307),
+  ('finishing-thinner-solvents',      'finishing',  'Thinner & solvents', 308),
+  ('finishing-topcoat-paint',         'finishing',  'Topcoat & paint', 309),
+  ('finishing-touch-up-markers',      'finishing',  'Touch-up markers', 310),
+  ('finishing-wood-treatment',        'finishing',  'Wood treatment', 311),
+  ('finishing-oil-wax',               'finishing',  'Oil & wax', 320),
+  ('finishing-spray-masking',         'finishing',  'Spray gun parts & masking', 321),
   -- Packing
-  ('packing-cartons',             'packing',    'Cartons & boxes', 51),
-  ('packing-wrap-film',           'packing',    'Bubble wrap & stretch film', 52),
-  ('packing-foam-protectors',     'packing',    'Foam, styrofoam & corner guards', 53),
-  ('packing-tape-strapping',      'packing',    'Tape & strapping', 54),
-  ('packing-pallets-crates',      'packing',    'Pallets & crates', 55),
-  ('packing-bags-labels',         'packing',    'Plastic bags, dust covers & labels', 56),
+  ('packing-cartons-corrugated',      'packing',    'Cartons & corrugated', 401),
+  ('packing-foam-cushioning',         'packing',    'Foam & cushioning', 402),
+  ('packing-plastic-wrap-bags',       'packing',    'Plastic wrap & bags', 403),
+  ('packing-rope-straps',             'packing',    'Rope & straps', 404),
+  ('packing-tape',                    'packing',    'Tape', 405),
+  ('packing-pallets-crates',          'packing',    'Pallets & crates', 420),
+  ('packing-labels-dust-covers',      'packing',    'Labels & dust covers', 421),
   -- Machining
-  ('machining-blades-bits',       'machining',  'Saw blades, bits & cutters', 61),
-  ('machining-grinding-discs',    'machining',  'Grinding & cutting discs', 62),
-  ('machining-spare-parts',       'machining',  'Machine spare parts', 63),
-  ('machining-lubricants',        'machining',  'Oil, grease & lubricants', 64),
-  ('machining-hand-tools',        'machining',  'Hand tools & small tools', 65),
-  ('machining-compressed-air',    'machining',  'Compressor & air-tool parts', 66),
+  ('machining-compressor-air-tools',  'machining',  'Compressor & air tools', 501),
+  ('machining-drill-bits',            'machining',  'Drill bits', 502),
+  ('machining-driver-bits',           'machining',  'Driver bits', 503),
+  ('machining-hand-tools',            'machining',  'Hand tools', 504),
+  ('machining-machine-oil',           'machining',  'Machine oil', 505),
+  ('machining-machine-spare-parts',   'machining',  'Machine spare parts', 506),
+  ('machining-power-tools',           'machining',  'Power tools', 507),
+  ('machining-router-bits-blades',    'machining',  'Router bits & blades', 508),
+  ('machining-welding',               'machining',  'Welding supplies', 520),
+  ('machining-measuring-marking',     'machining',  'Measuring & marking tools', 521),
   -- Office
-  ('office-stationery',           'office',     'Stationery', 71),
-  ('office-printing',             'office',     'Paper, ink & toner', 72),
-  ('office-pantry',               'office',     'Pantry & drinking water', 73),
-  ('office-cleaning',             'office',     'Cleaning supplies', 74),
-  -- Safety & PPE
-  ('safety-respiratory',          'safety',     'Masks & respirators', 81),
-  ('safety-gloves',               'safety',     'Gloves', 82),
-  ('safety-eye-ear',              'safety',     'Eye & ear protection', 83),
-  ('safety-workwear-first-aid',   'safety',     'Workwear, boots & first aid', 84),
-  -- Building & electrical
-  ('maintenance-electrical',      'maintenance','Electrical: cables, lamps & sockets', 91),
-  ('maintenance-plumbing',        'maintenance','Plumbing', 92),
-  ('maintenance-building',        'maintenance','Building materials', 93);
+  ('office-batteries',                'office',     'Batteries', 601),
+  ('office-meterai',                  'office',     'Meterai', 602),
+  ('office-paper',                    'office',     'Paper', 603),
+  ('office-phones-accessories',       'office',     'Phones & accessories', 604),
+  ('office-stationery',               'office',     'Stationery', 605),
+  ('office-ink-toner',                'office',     'Ink & toner', 620),
+  -- Facility (bought and used, not counted — as production has it)
+  ('facility-building-materials',     'facility',   'Building materials', 701),
+  ('facility-electrical',             'facility',   'Electrical', 702),
+  ('facility-pantry-cleaning',        'facility',   'Pantry & cleaning', 703),
+  ('facility-plumbing',               'facility',   'Plumbing', 704),
+  -- Services (never on a rack)
+  ('service-jasa-asah',               'service',    'Jasa asah', 801),
+  ('service-jasa-borongan',           'service',    'Jasa borongan', 802),
+  ('service-jasa-cnc-bubut',          'service',    'Jasa CNC & bubut', 803),
+  ('service-jasa-oven-sawmill-kayu',  'service',    'Jasa oven & sawmill kayu', 804),
+  ('service-ongkos-kirim-ekspedisi',  'service',    'Ongkos kirim & ekspedisi', 805),
+  ('service-servis-gedung-ac',        'service',    'Servis gedung & AC', 806),
+  ('service-servis-mesin',            'service',    'Servis mesin', 807),
+  ('service-sewa-kendaraan',          'service',    'Sewa kendaraan', 808),
+  ('service-sewa-peralatan',          'service',    'Sewa peralatan', 809);
 
--- A code that already exists keeps its name and parent. Groups first, then types, so a type's parent is there when it lands.
+-- A code that already exists keeps its name and parent, and a name already
+-- under the same parent is not added twice. Groups first, then types, so a
+-- type's parent is there when it lands.
 insert into ops_procure.item_categories (code, parent_code, name)
 select s.code, s.parent_code, s.name
   from seed_categories s
@@ -120,11 +154,8 @@ select s.code, s.parent_code, s.name
                     where c.parent_code = s.parent_code and lower(c.name) = lower(s.name))
  order by s.ord;
 
--- The two new groups sit on a rack, and so does every type under a group
--- that does (0104's rule for a type made on the screen, applied to the seed).
-insert into ops_inv.stocked_categories (category_code)
-select c.code from ops_procure.item_categories c where c.code in ('safety','maintenance')
-on conflict do nothing;
+-- Every type under a counted group is counted (0104's rule for a type made on
+-- the screen, applied to the seed); `facility` and `service` stay off the rack.
 insert into ops_inv.stocked_categories (category_code)
 select c.code from ops_procure.item_categories c
  where c.parent_code is not null
@@ -136,16 +167,19 @@ drop table seed_categories;
 -- ── 2. an asset's location is a location ────────────────────────────────────
 -- Every place already typed on an asset becomes a location, unless it already
 -- is one by code or by name. The code is the text in capitals and dashes.
+-- Spellings that differ only in case (`OFFICE`, `Office`) are one place:
+-- production has both, and two locations for one room would split its assets.
 do $$
 declare r record; v_code text; v_base text; n int;
 begin
   for r in
-    select distinct btrim(a.location) as place
+    select min(btrim(a.location)) as place
       from ops_inv.assets a
      where nullif(btrim(a.location), '') is not null
        and not exists (select 1 from ops_inv.stock_locations l
                         where l.code = upper(btrim(a.location))
                            or lower(l.name) = lower(btrim(a.location)))
+     group by lower(btrim(a.location))
      order by 1
   loop
     v_base := left(trim(both '-' from regexp_replace(upper(r.place), '[^A-Z0-9]+', '-', 'g')), 24);
@@ -158,11 +192,13 @@ begin
   end loop;
 end $$;
 
-update ops_inv.assets a set location = l.code
-  from ops_inv.stock_locations l
+-- Each asset to its place: the code first, then a name, whichever matches.
+update ops_inv.assets a set location = (
+    select l.code from ops_inv.stock_locations l
+     where l.code = upper(btrim(a.location)) or lower(l.name) = lower(btrim(a.location))
+     order by (l.code = upper(btrim(a.location))) desc, l.code
+     limit 1)
  where nullif(btrim(a.location), '') is not null
-   and a.location is distinct from l.code
-   and (l.code = upper(btrim(a.location)) or lower(l.name) = lower(btrim(a.location)))
    and not exists (select 1 from ops_inv.stock_locations x where x.code = a.location);
 update ops_inv.assets set location = null where location is not null and btrim(location) = '';
 
