@@ -114,7 +114,7 @@ begin
 
   select * into e from ops_hr.employees where employee_no = 'B-0012';
   assert e.full_name = 'Karjo Susanto', 'trimmed, got "' || e.full_name || '"';
-  assert e.paid_leave_days = 12, 'the default entitlement, got ' || e.paid_leave_days;
+  assert e.paid_leave_days = 0, 'no entitlement before a year of service (D348), got ' || e.paid_leave_days;
   assert e.daily_hours = 8, 'got ' || e.daily_hours;
   assert e.joined_on = ops_core.office_day(), 'joined today in WITA, not in UTC (F17)';
   assert e.active, 'and is here';

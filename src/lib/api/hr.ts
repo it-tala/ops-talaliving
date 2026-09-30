@@ -76,7 +76,7 @@ const core = () => supabaseBrowser().schema("ops_core");
  *  below a lie by omission in the other direction. */
 const EMPLOYEE_COLS =
   "id,employee_no,full_name,position,unit,schedule_code,pay_basis,base_rate,"
-  + "allowance_rate,daily_hours,joined_on,paid_leave_days,active,left_on,note";
+  + "allowance_rate,daily_hours,joined_on,paid_leave_days,email,phone,active,left_on,note";
 
 /* ------------------------------------------------------------------ */
 /* People                                                              */
@@ -149,6 +149,9 @@ export async function saveEmployee(
     paid_leave_days?: number;
     joined_on?: string;
     note?: string | null;
+    /** Absent leaves it as it is; an empty string clears it (D348). */
+    email?: string;
+    phone?: string;
   },
   idempotencyKey?: string,
 ): Promise<Result<Employee>> {
@@ -167,6 +170,8 @@ export async function saveEmployee(
     p_joined_on: input.joined_on ?? null,
     p_note: input.note ?? null,
     p_key: idempotencyKey ?? null,
+    p_email: input.email ?? null,
+    p_phone: input.phone ?? null,
   });
   const said = fromSeam<{ employee_no: string }>(SERVICE, data, error);
   if (said.error) return said as unknown as Result<Employee>;

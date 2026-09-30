@@ -11,6 +11,7 @@ import { formatIDR } from "@/lib/format";
 import { hr } from "@/demo/api";
 import { useLoad } from "@/components/ui/loaded";
 import type { Employee, EmployeeAccount, PayBasis } from "@/services/hr/contracts";
+import { contactProblem, leaveFrom } from "@/services/hr/employee-rules";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 
@@ -40,7 +41,11 @@ export function EmployeeDrawer({
   const [rate, setRate] = useState(employee?.base_rate ?? 0);
   const [allowance, setAllowance] = useState(employee?.allowance_rate ?? 0);
   const [hours, setHours] = useState(employee?.daily_hours ?? 8);
-  const [leave, setLeave] = useState(employee?.paid_leave_days ?? 12);
+  /* Nought for a new person: paid leave is HRD's to write after a year of
+     service (D348). */
+  const [leave, setLeave] = useState(employee?.paid_leave_days ?? 0);
+  const [email, setEmail] = useState(employee?.email ?? "");
+  const [phone, setPhone] = useState(employee?.phone ?? "");
   const [schedule, setSchedule] = useState(employee?.schedule_code ?? "");
   /* The day they started, not the day they were typed in. Everybody entered at
      go-live would otherwise have joined that morning (F154). Blank on a new
@@ -62,6 +67,14 @@ export function EmployeeDrawer({
     ? schedules.find((sc) => sc.units.includes(unit)) ?? null
     : null;
 
+  const today = officeToday();
+  /* When leave may be written: a year after the start date as it will be
+     saved (blank on a new person is today). The seam refuses it earlier, with
+     the same date; the field says so first. */
+  const leaveOpensOn = leaveFrom(joined || (employee ? null : today));
+  const leaveOpen = leaveOpensOn !== null && leaveOpensOn <= today;
+  const contact = contactProblem(email, phone);
+
   const changed = employee && rate !== employee.base_rate;
   const allowanceChanged = employee && allowance !== employee.allowance_rate;
 
@@ -72,6 +85,8 @@ export function EmployeeDrawer({
       pay_basis: basis, base_rate: rate, allowance_rate: allowance,
       daily_hours: hours, paid_leave_days: leave,
       ...(joined ? { joined_on: joined } : {}),
+      /* Sent as typed; blank clears it on an existing person (D348). */
+      email, phone,
       /* Empty means *follow the unit*, which is a real answer here and not an
          omission — so it is sent as an explicit null rather than left out
          (absent means unchanged on this endpoint). */
@@ -131,7 +146,7 @@ export function EmployeeDrawer({
       footer={
         <div className="flex items-center justify-end gap-2">
           <Button variant="ghost" onClick={onClose} disabled={busy}>{tr("Cancel", "Batal")}</Button>
-          <Button icon={Save} onClick={save} disabled={busy || !name.trim() || !no.trim() || rate <= 0}>
+          <Button icon={Save} onClick={save} disabled={busy || !name.trim() || !no.trim() || rate <= 0 || contact !== null}>
             {busy ? tr("Saving…", "Menyimpan…") : tr("Save", "Simpan")}
           </Button>
         </div>
@@ -186,6 +201,30 @@ export function EmployeeDrawer({
               id="e-unit" value={unit} onChange={(e) => setUnit(e.target.value)}
               className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
             />
+          </div>
+          {/* How to reach them (D348). Both optional: most of the floor has
+              no email. Not the sign-in account — IT links that. */}
+          <div>
+            <label htmlFor="e-email" className="block text-xs text-slate-500">{tr("Email", "Email")}</label>
+            <input
+              id="e-email" type="email" inputMode="email" autoComplete="off"
+              value={email} onChange={(e) => setEmail(e.target.value)}
+              placeholder="nama@contoh.com"
+              className={"mt-1 h-9 w-full rounded-lg border px-2 text-sm focus:outline-none "
+                + (contact?.field === "email" ? "border-amber-400 focus:border-amber-500" : "border-slate-200 focus:border-brand-400")}
+            />
+            {contact?.field === "email" && <p className="mt-1 text-[11px] text-amber-700">{contact.message}</p>}
+          </div>
+          <div>
+            <label htmlFor="e-phone" className="block text-xs text-slate-500">{tr("Mobile number", "Nomor HP")}</label>
+            <input
+              id="e-phone" type="tel" inputMode="tel" autoComplete="off"
+              value={phone} onChange={(e) => setPhone(e.target.value)}
+              placeholder="0812 3456 7890"
+              className={"mt-1 h-9 w-full rounded-lg border px-2 text-sm focus:outline-none "
+                + (contact?.field === "phone" ? "border-amber-400 focus:border-amber-500" : "border-slate-200 focus:border-brand-400")}
+            />
+            {contact?.field === "phone" && <p className="mt-1 text-[11px] text-amber-700">{contact.message}</p>}
           </div>
         </div>
 
@@ -283,14 +322,27 @@ export function EmployeeDrawer({
           </div>
           <div>
             <label htmlFor="e-leave" className="block text-xs text-slate-500">{tr("Paid leave entitlement, per year", "Hak cuti berbayar, per tahun")}</label>
-            <NumberInput id="e-leave" value={leave} min={0} max={60} onChange={setLeave} className="mt-1" />
             {/* Per person, because the owner said so: length of service and
-                what was agreed at hiring both move it (D144). */}
-            <p className="mt-1 text-[11px] text-slate-500">
-              {tr(
-                "Different for everybody. Leave within this number is paid; days past it are recorded and not paid.",
-                "Berbeda untuk setiap orang. Cuti dalam jumlah ini dibayar; hari yang melebihinya tercatat dan tidak dibayar.",
-              )}
+                what was agreed at hiring both move it (D144) — and **only
+                after a year of service**, written by HRD (D348). */}
+            {leaveOpen || leave > 0 ? (
+              <NumberInput id="e-leave" value={leave} min={0} max={60} onChange={setLeave} className="mt-1" />
+            ) : (
+              <p id="e-leave" className="mt-1 flex h-9 items-center rounded-lg border border-slate-100 bg-slate-50 px-2 text-sm text-slate-500">
+                {tr("0 — not entitled yet", "0 — belum berhak")}
+              </p>
+            )}
+            <p className={"mt-1 text-[11px] " + (leaveOpen && leave === 0 ? "text-amber-700" : "text-slate-500")}>
+              {!leaveOpensOn
+                ? tr("Counted from the start date — fill that in first.", "Dihitung dari tanggal masuk — isi tanggal masuknya dulu.")
+                : !leaveOpen
+                  ? tr(`Filled in by HRD after a year of service — from ${leaveOpensOn}.`, `Diisi HRD setelah 1 tahun bekerja — mulai ${leaveOpensOn}.`)
+                  : leave === 0
+                    ? tr("A year of service is up — fill in the entitlement.", "Sudah 1 tahun bekerja — isi hak cutinya.")
+                    : tr(
+                      "Different for everybody. Leave within this number is paid; days past it are recorded and not paid.",
+                      "Berbeda untuk setiap orang. Cuti dalam jumlah ini dibayar; hari yang melebihinya tercatat dan tidak dibayar.",
+                    )}
             </p>
           </div>
         </div>

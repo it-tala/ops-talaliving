@@ -63,8 +63,17 @@ export interface Employee {
    *  what was agreed when they were hired, and whether they are staff or
    *  workshop all move it, so a company-wide constant would be wrong for
    *  almost everybody. Days beyond it are still taken and still recorded —
-   *  they are simply not paid, and the timesheet says which is which (D144). */
+   *  they are simply not paid, and the timesheet says which is which (D144).
+   *
+   *  **Nought until a year of service** (D348): HRD writes it once
+   *  `joined_on` is a year behind, and the seam refuses it before then
+   *  (`employee-rules.ts`). */
   paid_leave_days: number;
+  /** How to reach them (D348). Optional — most of the floor has no email —
+   *  and not the sign-in account, which IT links separately (D329). The phone
+   *  is digits only, with a leading + when given. */
+  email?: string | null;
+  phone?: string | null;
   active: boolean;
   /** Set when somebody leaves. Their records stay — a payslip from March is
    *  still a fact in June (A5). */
