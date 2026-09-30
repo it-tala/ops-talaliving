@@ -8339,3 +8339,36 @@ Rp 61.005,89 short of the total.
 a key, even when it contradicts an earlier decision — the earlier reading
 stays available and the book says which one a date was paid under.
 
+## F198 · 2026-09-30 · Given the sheet's attendance and overtime hours, ops pays what the signed sheet paid — to the rupiah
+
+`scripts/hr/payroll-sheet/reconcile.py` runs a signed weekly payroll workbook
+through ops on a scratch database: the workbook's own machine export through
+`import_scans`, the sheet's day decisions as marks and typed taps, its
+overtime totals on one approved sheet, its saldo/potongan as adjustments —
+then compares `period_lines` with TOTAL GAJI per person.
+
+| Week | People | Sheet | Ops | Match < Rp 1 |
+|---|---|---|---|---|
+| 29 Agu – 4 Sep | 39 | 32.117.570,08 | 32.013.415 | 37 |
+| 19 – 25 Sep | 37 | 14.214.514,13 (= the transfer receipt) | 14.110.357 | 35 |
+
+The sub-rupiah differences are the sheet keeping fractions of a rupiah. The
+rest are two things ops cannot express yet, both needing the owner:
+
+- **A guard who works a Sunday is paid 2 weekend units at 2×** — four days'
+  pay for one Sunday (JAMI week 1, KIDO week 4: −104.163 each). Either SATPAM's
+  Sunday is ×4, or the guard works two shifts that Sunday; the sheet does not say.
+- **The guards' rate is Rp 52.083,5**, and `base_rate` is whole rupiah: six
+  days are Rp 3 off either way.
+
+Two rules the sheet encodes that ops needs as patterns, not constants: the
+helper (NUR), like the guards, has **Saturday as an ordinary ×1 day** — the
+sheet adds column F into their days — so production needs a HELPER pattern
+beside PRODUKSI (Sabtu ×2) and SATPAM (Sabtu ×1, Minggu ×2). And the machine
+numbers keep moving: IRWAN is on the machine as 8 from week 4, AGUS (new) is
+not on it. `machine_map.csv` is the one place those are written.
+
+**Rule:** a calculation is validated by feeding it the inputs of a result
+somebody signed, not by reading its code. The week-4 sheet's total equals the
+bank transfer, which is the strongest reference available.
+
