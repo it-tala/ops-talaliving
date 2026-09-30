@@ -8434,7 +8434,23 @@ text as its own name; it now joins the location. With that, material stock,
 finished goods (0170) and assets all reference one list — the owner's
 *general* list.
 
+Before applying, the migration was read against production, and that caught
+two more. Procurement had already filed the catalogue through the screen — 64
+categories, with `Thinner & solvents`, `Filler (dempul)`, a *Safety & PPE*
+type and a `facility` group — and a seed written from the migration ladder
+alone would have added `Thinner & solvent`, `Wood filler & putty`, a second
+*Safety & PPE* and a *Building & electrical* group beside `facility`: twins
+that differ by a letter, which an exact-name check lets through. The seed now
+lists production's own rows by their own codes and adds only the 16 types
+missing in any spelling. And the assets said `OFFICE` for six and `Office`
+for three, so the first version would have made two locations for one room
+and matched each asset to either at random; places are now grouped without
+regard to case. Both were rehearsed on a ladder loaded with production's rows
+before the real apply.
+
 **Rule:** a key is meaningless on purpose; anything a person picks at the
 moment of entry belongs in a column that can be corrected, never inside the
-code. And a free-text field becomes a reference by first making each distinct
-value a row, then pointing at it.
+code. A free-text field becomes a reference by first making each distinct
+value a row — distinct regardless of case — then pointing at it. And a seed
+for a table people already edit through a screen is written from what
+production holds, not from what the ladder holds.
