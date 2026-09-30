@@ -1337,6 +1337,18 @@ export async function saveWorkSite(
   return fromSeam<WorkSite>(SERVICE, data, error);
 }
 
+/** Take a site out (D343). Refused, with the count, once any tap was judged
+ *  against it — switch it off instead; the seam decides. */
+export async function removeWorkSite(
+  code: string,
+  idempotencyKey?: string,
+): Promise<Result<{ code: string; name: string }>> {
+  const { data, error } = await db().rpc("remove_work_site", {
+    p_code: code, p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<{ code: string; name: string }>(SERVICE, data, error);
+}
+
 /** Phone taps with their reading, in a period of office days. HRD's review
  *  reads the flagged ones; RLS narrows a self caller to their own. */
 export async function listLocatedTaps(

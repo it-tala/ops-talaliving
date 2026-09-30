@@ -708,6 +708,39 @@ export async function saveWorkSite(
   return ok(SERVICE, saved!);
 }
 
+/** `ops_hr.remove_work_site` (D343) — a site nothing was judged against is
+ *  deleted; one that judged a tap is refused with the count. */
+export async function removeWorkSite(
+  code: string,
+  idempotencyKey?: string,
+): Promise<Result<{ code: string; name: string }>> {
+  await latency();
+  const cached = replayed<{ code: string; name: string }>(SERVICE, "remove_work_site", idempotencyKey);
+  if (cached) return cached;
+  if (requireLevel(SERVICE, "hrd", "write") && requireLevel(SERVICE, "it", "write")) {
+    return refused(SERVICE, "not_permitted", "Lokasi kerja diatur oleh HRD atau IT.");
+  }
+  const c = code.trim().toUpperCase();
+  const state = getState();
+  const site = state.work_sites.find((w) => w.code === c);
+  if (!site) return notFound(SERVICE, "not_found", `Tidak ada lokasi ${c}.`);
+  const used = state.scan_locations.filter((l) => l.site_id === site.id).length;
+  if (used > 0) {
+    return conflict(SERVICE, "site_in_use",
+      `${site.name} sudah dipakai menilai ${used} tap, jadi tidak bisa dihapus — nonaktifkan saja: tap berikutnya tidak dinilai terhadapnya, dan riwayat tap lama tetap bisa dibaca.`);
+  }
+  apply((draft) => {
+    draft.work_sites = draft.work_sites.filter((w) => w.id !== site.id);
+    writeAudit(draft, {
+      service: SERVICE, entity: "work_site", entity_no: c, action: "remove", outcome: "ok", reason: null,
+      detail: { name: site.name, lat: site.lat, lng: site.lng },
+    });
+  });
+  const answer = { code: c, name: site.name };
+  remember(SERVICE, "remove_work_site", idempotencyKey, answer);
+  return ok(SERVICE, answer);
+}
+
 /** `ops_hr.v_located_tap`, in a period of office days. HRD reads every
  *  person's; anybody else reads only their own (the policy on 0188). */
 export async function listLocatedTaps(
