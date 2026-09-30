@@ -1,88 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Clock, Users } from "lucide-react";
-import { Badge, Card, CardHeader } from "@/components/ui/primitives";
-import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
+import { Clock } from "lucide-react";
+import { Badge } from "@/components/ui/primitives";
+import { Loaded, useLoad } from "@/components/ui/loaded";
 import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { production } from "@/demo/api";
 import { STAGE_NAME, type ProgressEntry, type ProgressEntryOnOrder } from "@/services/production/contracts";
 import {
-  progressByDay, progressByHour, progressByWorker, progressDays, spanLabel, spanMinutes,
+  progressByDay, progressByHour, progressDays, spanLabel, spanMinutes,
 } from "@/services/production/progress-view";
 import { officeToday, OFFICE_TZ } from "@/lib/office";
 import { useTr } from "@/lib/i18n";
-
-/** Who worked this Job Order, how many, and — where hours were written — how
- *  fast (D346). One row per person **per stage**: pieces sanded and pieces
- *  finished are different work and are never added together (D264). */
-export function WorkerTable({ entries, stageOrder, uom }: { entries: ProgressEntry[]; stageOrder: string[]; uom: string }) {
-  const tr = useTr();
-  const rows = useMemo(() => progressByWorker(entries, stageOrder), [entries, stageOrder]);
-  if (rows.length === 0) return null;
-  const untimed = rows.filter((r) => r.timed_minutes === 0).length;
-  return (
-    <div>
-      <p className="mb-1.5 flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-slate-400">
-        <Users className="h-3.5 w-3.5" /> {tr("Who worked on it", "Siapa yang mengerjakan")}
-      </p>
-      <div className="overflow-x-auto rounded-xl border border-slate-200">
-        <table className="w-full min-w-[480px] text-[12px]">
-          <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-400">
-            <tr>
-              <th className="px-3 py-1.5 font-medium">{tr("Name", "Nama")}</th>
-              <th className="px-2 py-1.5 font-medium">{tr("Stage", "Tahap")}</th>
-              <th className="px-2 py-1.5 text-right font-medium">{tr("Qty", "Jumlah")}</th>
-              <th className="px-2 py-1.5 text-right font-medium">{tr("Hours logged", "Jam tercatat")}</th>
-              <th className="px-2 py-1.5 text-right font-medium">{tr("Per hour", "Per jam")}</th>
-              <th className="px-3 py-1.5 font-medium">{tr("Days", "Hari")}</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {rows.map((r) => (
-              <tr key={`${r.key}|${r.stage}`}>
-                <td className="px-3 py-1.5 text-slate-700">
-                  {r.name ?? <span className="text-slate-400">{tr("not written down", "tidak dicatat")}</span>}
-                  {r.attribution === "unknown" && (
-                    <span className="ml-1.5 text-[10px] text-amber-600">({tr("not linked yet", "belum ditautkan")})</span>
-                  )}
-                  {r.attribution === "not_a_person" && (
-                    <span className="ml-1.5 text-[10px] text-slate-400">({tr("team / vendor", "tim / vendor")})</span>
-                  )}
-                </td>
-                <td className="px-2 py-1.5 text-slate-600">{STAGE_NAME(r.stage)}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums font-medium text-slate-800">
-                  {formatNumber(r.qty)} <span className="font-normal text-slate-400">{uom}</span>
-                </td>
-                <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">
-                  {r.timed_minutes > 0 ? hours(r.timed_minutes, tr("h", "j"), tr("min", "mnt")) : "—"}
-                </td>
-                <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">
-                  {r.per_hour === null ? "—" : formatNumber(r.per_hour)}
-                </td>
-                <td className="px-3 py-1.5 tabular-nums text-slate-500">
-                  {r.first_day === r.last_day ? r.first_day : `${r.first_day} – ${r.last_day}`}
-                  <span className="text-slate-400"> · {r.entries}×</span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="mt-1 text-[11px] text-slate-500">
-        {tr(
-          "Per hour is counted only from entries with a start and finish time, within one stage of this Job Order. ",
-          "Per jam hanya dihitung dari catatan yang punya jam mulai dan selesai, dalam satu tahap Job Order ini. ",
-        )}
-        {untimed > 0 && tr(
-          `${untimed} rows have no hours written, so they have no rate — not a zero.`,
-          `${untimed} baris tidak punya jam, jadi tidak punya laju — bukan nol.`,
-        )}
-      </p>
-    </div>
-  );
-}
 
 /** How the Job Order moved over time: per day, or hour by hour within a day
  *  (D346). The hourly view starts from where the order stood that morning, and
@@ -255,40 +185,16 @@ function StageCell({ delta, total, qty }: { delta: number | undefined; total: nu
   );
 }
 
-function hours(minutes: number, hUnit: string, mUnit: string): string {
-  const h = Math.floor(minutes / 60), m = minutes % 60;
-  return m === 0 ? `${h} ${hUnit}` : h === 0 ? `${m} ${mUnit}` : `${h} ${hUnit} ${m} ${mUnit}`;
-}
 
-/** The whole floor on one day, hour by hour: which Job Order moved, at which
- *  stage, by whom (D346). Across products the pieces are **listed, not
+/** Every piece reported across the floor on one day, in the hour it finished,
+ *  with who did it (D346). Across products the pieces are **listed, not
  *  summed** — four chairs and two wardrobes are not six of anything (D264). */
-export function FloorByHour() {
-  const tr = useTr();
-  const [day, setDay] = useState(officeToday());
+export function FloorHourly({ day }: { day: string }) {
   const [state, reload] = useLoad(() => production.listProgressForDay(day), [day]);
   return (
-    <Card className="mb-4">
-      <CardHeader
-        title={tr("The floor, hour by hour", "Lantai produksi per jam")}
-        subtitle={tr(
-          "Every piece of work reported on one day, in the hour it finished, with who did it.",
-          "Semua hasil kerja yang dilaporkan pada satu hari, di jam selesainya, dengan siapa yang mengerjakan.",
-        )}
-        icon={Clock}
-        action={(
-          <span className="flex items-center gap-2">
-            <input type="date" value={day} onChange={(e) => setDay(e.target.value || officeToday())}
-              aria-label={tr("Day", "Hari")}
-              className="h-8 rounded-lg border border-slate-200 px-2 text-[12px] focus:border-brand-400 focus:outline-none" />
-            <SourceBadge state={state} />
-          </span>
-        )}
-      />
-      <Loaded state={state} onRetry={reload} skeletonRows={3}>
-        {(rows) => <FloorTable rows={rows} day={day} />}
-      </Loaded>
-    </Card>
+    <Loaded state={state} onRetry={reload} skeletonRows={3}>
+      {(rows) => <FloorTable rows={rows} day={day} />}
+    </Loaded>
   );
 }
 

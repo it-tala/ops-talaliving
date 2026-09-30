@@ -15,9 +15,10 @@ import { STAGE_NAME, attributionOf, ATTRIBUTION_LABEL, VENDOR_PROCESSES, VENDOR_
 import { useUnits } from "@/components/ui/uom-options";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
-import { officeClock, officeStamp, officeToday, OFFICE_TZ } from "@/lib/office";
+import { officeStamp, officeToday, OFFICE_TZ } from "@/lib/office";
 import { spanLabel } from "@/services/production/progress-view";
-import { ProgressOverTime, WorkerTable } from "./ProgressPanels";
+import { ProgressOverTime } from "./ProgressPanels";
+import { JobProductivity, PositionLine, SlotForm, SlotList, lastFullHour, nextDay } from "./WorkSlots";
 import { useTr } from "@/lib/i18n";
 
 /** One work order: every stage, every entry behind it, and the deadline.
@@ -43,6 +44,11 @@ export function WorkOrderDrawer({
   const { toast } = useToast();
   const [wo, reload] = useLoad(() => production.getWorkOrder(woNo), [woNo]);
   const [entries, reloadEntries] = useLoad(() => production.listProgress(woNo), [woNo]);
+  /* Who worked on what, for how long (D347). */
+  const [slots, reloadSlots] = useLoad(() => production.listWorkSlots({ wo_no: woNo }), [woNo]);
+  /* The count on its own — a correction, or pieces nobody timed — sits behind
+     a toggle: the timeslot is how the floor reports now. */
+  const [showCount, setShowCount] = useState(false);
   /* What this run needs in materials, and what has already been asked for
      against it — the two halves of D151. */
   const [needs] = useLoad(
@@ -264,12 +270,11 @@ export function WorkOrderDrawer({
                     : <Badge tone={w.days_left <= 3 ? "amber" : "green"} dot>{tr(`${w.days_left} days left`, `${w.days_left} hari lagi`)}</Badge>}
               <Badge tone={w.route === "SUBCON" ? "violet" : "slate"}>{w.route_name}</Badge>
               <span className="text-[12px] text-slate-600">
-                {tr(
-                  `${formatNumber(w.completed)}/${formatNumber(w.qty)} ${w.uom} done · ${w.percent}% overall · now at ${w.current_stage_name}`,
-                  `${formatNumber(w.completed)}/${formatNumber(w.qty)} ${w.uom} selesai · ${w.percent}% keseluruhan · sekarang di ${w.current_stage_name}`,
-                )}
+                {tr(`${w.percent}% overall · now at ${w.current_stage_name}`, `${w.percent}% keseluruhan · sekarang di ${w.current_stage_name}`)}
               </span>
             </div>
+            {/* The project manager's line (D347): where the pieces are. */}
+            <PositionLine wo={w} className="rounded-lg bg-slate-50 px-3 py-2" />
             {w.description && <p className="text-[13px] text-slate-600">{w.description}</p>}
 
             {w.warnings.length > 0 && (
@@ -452,9 +457,31 @@ export function WorkOrderDrawer({
             {/* Gated on the **same predicate the API refuses on** (F75), not on
                 a lookalike condition that drifts away from it. */}
             {mayEdit && w.status === "OPEN" && w.goods_on_site && (
+              <SlotForm
+                wo={w}
+                activities={slots.status === "ready" ? [...new Set(slots.data.map((x) => x.activity))] : []}
+                onDone={() => { reload(); reloadEntries(); reloadSlots(); onChanged(); }}
+              />
+            )}
+            {mayEdit && w.status === "OPEN" && w.goods_on_site && !showCount && (
+              <div className="-mt-3 flex flex-wrap justify-end gap-3 text-[11px]">
+                <button onClick={() => setShowCount(true)} className="text-slate-500 underline hover:text-slate-700">
+                  {tr("Correct a count / record pieces without a timeslot", "Koreksi jumlah / catat jumlah tanpa timeslot")}
+                </button>
+                {w.completed < w.qty && !closing && (
+                  <button onClick={() => setClosing(true)} className="text-slate-500 underline hover:text-slate-700">
+                    {tr("Close Job Order", "Tutup Job Order")}
+                  </button>
+                )}
+              </div>
+            )}
+            {mayEdit && w.status === "OPEN" && w.goods_on_site && showCount && (
               <div className="rounded-xl border border-slate-200 px-4 py-3">
                 <p className="flex items-center gap-2 text-[13px] font-medium text-slate-800">
-                  <Hammer className="h-4 w-4 text-slate-400" /> {tr("Record work done", "Catat hasil kerja")}
+                  <Hammer className="h-4 w-4 text-slate-400" /> {tr("Correct a count / pieces without a timeslot", "Koreksi jumlah / jumlah tanpa timeslot")}
+                  <button onClick={() => setShowCount(false)} className="ml-auto text-[11px] font-normal text-slate-500 underline">
+                    {tr("hide", "tutup")}
+                  </button>
                 </p>
                 <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_90px_140px]">
                   <select
@@ -795,7 +822,12 @@ export function WorkOrderDrawer({
                 <div className="space-y-5">
                 {/* Who, how many, and when — the three the owner asked the
                     Job Order to answer (D346). */}
-                <WorkerTable entries={rows} stageOrder={w.stages.map((s) => s.stage)} uom={w.uom} />
+                {slots.status === "ready" && (
+                  <>
+                    <JobProductivity wo={w} slots={slots.data} entries={rows} />
+                    <SlotList slots={slots.data} onChanged={() => { reload(); reloadEntries(); reloadSlots(); onChanged(); }} />
+                  </>
+                )}
                 <ProgressOverTime entries={rows} stageOrder={w.stages.map((s) => s.stage)} qty={w.qty} />
                 <div>
                   <p className="mb-1.5 text-[11px] uppercase tracking-wide text-slate-400">
@@ -844,25 +876,9 @@ export function WorkOrderDrawer({
   );
 }
 
-/** The last full hour on the office clock, as the form's default span:
- *  at 10.20 it is 09.00–10.00. Before the first full hour of the day there is
- *  none, and the span starts empty. */
-function lastFullHour(): { from: string; until: string } {
-  const h = Number(officeClock().slice(0, 2));
-  if (h < 1) return { from: "", until: "" };
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return { from: `${pad(h - 1)}:00`, until: `${pad(h)}:00` };
-}
-
 function addHour(t: string): string {
   const [h, m] = t.split(":").map(Number);
   return `${String((h + 1) % 24).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-}
-
-function nextDay(day: string): string {
-  const d = new Date(`${day}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString().slice(0, 10);
 }
 
 /* ── Material against the SPK ─────────────────────────────────────────── */

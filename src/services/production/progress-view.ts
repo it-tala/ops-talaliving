@@ -1,4 +1,4 @@
-/** Reading a Job Order's entries three ways: **by whom, by day, by hour**
+/** Reading a Job Order's entries two ways: **by day, by hour**
  *  (D346).
  *
  *  One implementation for both clients, the same arrangement as
@@ -19,7 +19,7 @@
  *    spreading six over two hours evenly is a number nobody counted.
  */
 import { officeClock, officeStamp } from "@/lib/office";
-import { attributionOf, type ProgressEntry, type WorkAttribution } from "./contracts";
+import type { ProgressEntry } from "./contracts";
 
 const HOUR_MS = 3_600_000;
 
@@ -35,65 +35,6 @@ export function spanLabel(e: Pick<ProgressEntry, "started_at" | "finished_at">):
   if (!e.started_at || !e.finished_at) return null;
   const dot = (iso: string) => officeClock(new Date(iso)).replace(":", ".");
   return `${dot(e.started_at)}–${dot(e.finished_at)}`;
-}
-
-/* ── by whom ──────────────────────────────────────────────────────────── */
-
-export interface WorkerProgress {
-  /** The employee's id where the entry is linked; otherwise the name as
-   *  written, case-folded; `—` where nobody wrote a name. Two spellings of one
-   *  unlinked name stay two rows — matching them is a person's job (D264). */
-  key: string;
-  name: string | null;
-  employee_id: string | null;
-  attribution: WorkAttribution | "none";
-  stage: string;
-  /** Net: corrections included, because a correction is part of what this
-   *  person is recorded as having done. */
-  qty: number;
-  entries: number;
-  first_day: string;
-  last_day: string;
-  /** Across the entries **with hours and a positive quantity** only. */
-  timed_minutes: number;
-  timed_qty: number;
-  /** Pieces per hour at this stage, from the timed entries. Null when nothing
-   *  was timed — not zero, which would read as *worked and made nothing*.
-   *  Comparable between people only because it is one Job Order and one
-   *  stage: the same piece, the same work (D264 forbids it across products). */
-  per_hour: number | null;
-}
-
-function workerKey(e: ProgressEntry): string {
-  if (e.worked_by_employee_id) return e.worked_by_employee_id;
-  return e.worked_by?.trim().toLowerCase() || "—";
-}
-
-export function progressByWorker(entries: ProgressEntry[], stageOrder: string[] = []): WorkerProgress[] {
-  const rows = new Map<string, WorkerProgress>();
-  for (const e of entries) {
-    const key = `${workerKey(e)}|${e.stage}`;
-    let r = rows.get(key);
-    if (!r) {
-      r = {
-        key: workerKey(e), name: e.worked_by, employee_id: e.worked_by_employee_id,
-        attribution: e.worked_by ? attributionOf(e) : "none",
-        stage: e.stage, qty: 0, entries: 0, first_day: e.work_date, last_day: e.work_date,
-        timed_minutes: 0, timed_qty: 0, per_hour: null,
-      };
-      rows.set(key, r);
-    }
-    r.qty += e.qty;
-    r.entries += 1;
-    if (e.work_date < r.first_day) r.first_day = e.work_date;
-    if (e.work_date > r.last_day) r.last_day = e.work_date;
-    const m = spanMinutes(e);
-    if (m !== null && e.qty > 0) { r.timed_minutes += m; r.timed_qty += e.qty; }
-  }
-  const seq = (s: string) => { const i = stageOrder.indexOf(s); return i < 0 ? 99 : i; };
-  return [...rows.values()]
-    .map((r) => ({ ...r, per_hour: r.timed_minutes > 0 ? Math.round((r.timed_qty / (r.timed_minutes / 60)) * 10) / 10 : null }))
-    .sort((a, b) => seq(a.stage) - seq(b.stage) || b.qty - a.qty || (a.name ?? "").localeCompare(b.name ?? ""));
 }
 
 /* ── by day ───────────────────────────────────────────────────────────── */

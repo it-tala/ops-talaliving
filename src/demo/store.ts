@@ -144,7 +144,7 @@ export function officeDay(at: Date = new Date()): string {
  *  is only one candidate now. */
 export function nextDocNumber(
   draft: DemoState,
-  prefix: "pr" | "fund" | "trx" | "pay" | "po" | "ask" | "pyr" | "spk" | "jo" | "lbr" | "kyu" | "stk" | "izn" | "dsn" | "rkk" | "agn" | "lead" | "ppn" | "krm" | "pas" | "tmn" | "bast" | "tgs" | "rtn" | "kol" | "vnl" | "kkj" | "qt" | "kyb" | "fgm",
+  prefix: "pr" | "fund" | "trx" | "pay" | "po" | "ask" | "pyr" | "spk" | "jo" | "lbr" | "kyu" | "stk" | "izn" | "dsn" | "rkk" | "agn" | "lead" | "ppn" | "krm" | "pas" | "tmn" | "bast" | "tgs" | "rtn" | "kol" | "vnl" | "kkj" | "qt" | "kyb" | "fgm" | "tsl",
   at: Date = new Date(),
 ): string {
   const day = officeDay(at);
@@ -152,7 +152,7 @@ export function nextDocNumber(
   const seq = (draft.doc_numbers[key] ?? 0) + 1;
   draft.doc_numbers[key] = seq;
   const short = day.slice(2).replace(/-/g, "-");
-  const width = prefix === "trx" ? 3 : 2;
+  const width = prefix === "trx" || prefix === "tsl" ? 3 : 2;
   return `${prefix}-${short}_${String(seq).padStart(width, "0")}`;
 }
 

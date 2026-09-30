@@ -67,41 +67,35 @@ export function SheetDrawer({
     after(tr(`${kind} attached`, `${kind} terlampir`), f.name);
   }
 
-  /** Signing a production sheet also reports the work.
-   *
-   *  Lines are summed per order and stage first: two people finishing the same
-   *  three doors is one report of three, not two reports that happen to share
-   *  an idempotency key. */
+  /** Signing a production sheet also reports the work — **per person**
+   *  (D347). Each line is one timeslot: that person, their hours, their task,
+   *  and the pieces they finished if the line says so. The claim is the line,
+   *  so a re-post is a no-op and two people on the same stage are two rows,
+   *  never one entry named *Sakirin, Karjo* (Q-D346b). */
   async function postProduction(s: OvertimeSheetView) {
-    const byStage = new Map<string, { wo_no: string; stage: string; qty: number; who: string[] }>();
-    for (const l of s.lines) {
-      if (!l.wo_no || !l.stage || !l.qty_done) continue;
-      const key = `${l.wo_no}|${l.stage}`;
-      const found = byStage.get(key) ?? { wo_no: l.wo_no, stage: l.stage, qty: 0, who: [] };
-      found.qty += l.qty_done;
-      found.who.push(l.full_name);
-      byStage.set(key, found);
-    }
-    if (byStage.size === 0) return;
+    const lines = s.lines.filter((l) => l.wo_no);
+    if (lines.length === 0) return;
 
     const failed: string[] = [];
-    for (const p of byStage.values()) {
-      const res = await production.recordProgress({
-        wo_no: p.wo_no, stage: p.stage, qty: p.qty,
-        work_date: s.work_date,
-        worked_by: p.who.join(", "),
-        source: "overtime_sheet", source_ref: s.sheet_no,
+    for (const l of lines) {
+      const res = await production.recordWorkSlot({
+        wo_no: l.wo_no!, work_date: s.work_date,
+        activity: l.task?.trim() || (l.stage ? `${STAGE_NAME(l.stage)} (lembur)` : "Lembur"),
+        workers: [{ name: l.full_name, employee_id: l.employee_id }],
+        minutes: Math.round(l.hours * 60),
+        stage: l.stage, qty: l.stage && l.qty_done ? l.qty_done : null,
         note: `Lembur ${s.sheet_no}`,
+        source: "overtime_sheet", source_ref: s.sheet_no, source_line: l.id,
       });
-      if (res.error) failed.push(`${p.wo_no} · ${STAGE_NAME(p.stage)}: ${res.error.message}`);
+      if (res.error) failed.push(`${l.full_name} · ${l.wo_no}: ${res.error.message}`);
     }
     if (failed.length > 0) {
       toast("warning", tr("Some did not reach the production board", "Sebagian tidak masuk papan produksi"), failed[0]);
     } else {
       toast(
         "success",
-        tr(`${byStage.size} reports on the production board`, `${byStage.size} laporan masuk papan produksi`),
-        tr("This signature is also the production report.", "Tanda tangan ini sekaligus laporan produksinya."),
+        tr(`${lines.length} timeslots on the production board`, `${lines.length} timeslot masuk papan produksi`),
+        tr("This signature is also the production report, person by person.", "Tanda tangan ini sekaligus laporan produksinya, per orang."),
       );
     }
   }

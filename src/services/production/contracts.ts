@@ -440,8 +440,59 @@ export interface ProgressEntry {
    *  `recorded_at`, which is when somebody typed it, not when it was sanded. */
   started_at: string | null;
   finished_at: string | null;
+  /** The timeslot this count came from (D347), or null for a count reported
+   *  on its own — every entry before 0198, and every correction typed by hand. */
+  slot_id: string | null;
   recorded_by: string;
   recorded_at: string;
+}
+
+/** One person on a timeslot: the name as written, and the link where the name
+ *  was picked from the employee list (D264). */
+export interface WorkSlotWorker {
+  name: string;
+  employee_id: string | null;
+}
+
+/** A timeslot: one span of work on one Job Order, in the floor's own words,
+ *  with everybody who was on it (D347).
+ *
+ *  *07.30–09.30 AA-02 rakit pintu — Karjo, Toha.* Not a count: most of a day
+ *  moves no piece past a stage and is still somebody's hours on this order. A
+ *  slot **may** say pieces finished a stage (`stage` + `qty`), and then it has
+ *  posted one `ProgressEntry` carrying its id. */
+export interface WorkSlot {
+  id: string;
+  slot_no: string;
+  wo_id: string;
+  /** The office day it started. */
+  work_date: string;
+  /** Both or neither. Neither is the lembur sheet: *3 jam*, not from when. */
+  started_at: string | null;
+  finished_at: string | null;
+  /** Always known — from the span, or typed. */
+  minutes: number;
+  activity: string;
+  stage: string | null;
+  qty: number | null;
+  source: "manual" | "overtime_sheet";
+  source_ref: string | null;
+  /** The lembur line it came from — the idempotency claim with `source_ref`. */
+  source_line: string | null;
+  note: string | null;
+  /** Cancelled with a sentence, never deleted (A5). */
+  voided_at: string | null;
+  void_reason: string | null;
+  workers: WorkSlotWorker[];
+  recorded_by: string;
+  recorded_at: string;
+}
+
+export interface WorkSlotView extends WorkSlot {
+  wo_no: string;
+  item_name: string;
+  uom: string;
+  product_code: string | null;
 }
 
 /** An entry with the Job Order it belongs to, for a read across the floor —

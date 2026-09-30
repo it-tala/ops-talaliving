@@ -8443,3 +8443,52 @@ moment a row was written is not the moment the thing it describes happened,
 and a field that is right for one question should not be borrowed for the
 other just because it is the only one with a clock in it.
 
+## F201 · 2026-09-30 · A count is not a timeslot, and a crew is not a name with a comma in it
+
+The owner's answer to Q-D346a/b was an example, and the example could not be
+stored in the table D346 had just given hours to:
+
+    07.30-09.30 AA-02 rakit pintu karjo, toha
+    09.30-11.30 AA-02 tambah engsel karjo
+
+`progress_entries` is **pieces past a stage**: every row needs a stage and a
+quantity, and has one name. *Tambah engsel* moves no piece past any stage, so
+it had nowhere to go, and *Karjo, Toha* is one name in that table. It is the
+same shape the lembur sheet was already forced into (*Sakirin, Karjo*), for
+the same reason. So the timeslot became its own row (`0198`), with its people
+in a child table, and the two are linked only when a slot really did finish
+pieces. Hours of labour and pieces counted answer different questions: *what
+did Karjo do this morning* and *how many chairs are sanded*.
+
+Four things the build settled:
+
+- **A slot that finishes pieces is refused whole when the order refuses the
+  pieces.** The slot and its count go in one transaction; a count that goes
+  over the order leaves no slot behind to explain.
+- **A crew's count is *not one person*** (`worked_by_not_a_person`), the
+  state 0062 made for a crew. Leaving it *unknown* would have put every crew
+  on `/produksi/penautan` for somebody to link to one employee, which is
+  impossible.
+- **A lembur line is its own claim.** The old `(sheet, order, stage)` claim is
+  what merged two people's night. It still holds for sheets posted before
+  0198, so re-posting an old sheet does not count it twice.
+- **`lpad` truncates.** `next_doc_number` padded to two digits, and Postgres's
+  `lpad('100', 2, '0')` is `'10'`: a day's hundredth number would have
+  collided with its tenth. No kind reached a hundred a day before; timeslots
+  (twenty people, five slots) would have in the first week. Fixed for every
+  prefix (never narrower than the number) and timeslots are three wide.
+
+What productivity reads, and does not claim: a crew's pieces are **shared
+equally** between the people on the slot (pieces per person-hour, the usual
+labour measure); rates are per stage; and *hadir vs tercatat* compares
+attendance with timeslot hours. A low share is **hours nobody wrote down**,
+not proof of idleness, and the screen says so.
+
+Not changed: the HR KPI card (`0064`) still credits pieces only to entries
+linked to one employee, so a crew's pieces are resolved but not on anybody's
+card. Reading the slots there is a separate change to KPI, not to the Job
+Order.
+
+**Rule:** when a table needs a comma inside a name to hold what happened, it
+is the wrong table for it. Add the table that has the right shape.
+

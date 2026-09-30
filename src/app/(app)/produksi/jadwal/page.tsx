@@ -13,7 +13,7 @@ import { useSession } from "@/store/session";
 import { useTr } from "@/lib/i18n";
 import { NewWorkOrder } from "./NewWorkOrder";
 import { WorkOrderDrawer } from "./WorkOrderDrawer";
-import { FloorByHour } from "./ProgressPanels";
+import { FloorPanel, PositionLine } from "./WorkSlots";
 
 /** The workshop floor: what is being made, how far it got, and when it is due.
  *
@@ -97,7 +97,7 @@ export default function ProductionSchedulePage() {
                 </dl>
               </div>
 
-              <FloorByHour />
+              <FloorPanel />
 
               <Card>
                 <CardHeader
@@ -193,10 +193,9 @@ function Row({ wo, onOpen }: { wo: WorkOrderView; onOpen: () => void }) {
               {wo.project_code && ` · ${wo.project_code}`}
             </span>
           </span>
-          <span className="whitespace-nowrap text-[12px] text-slate-600">
-            {formatNumber(wo.completed)}/{formatNumber(wo.qty)} {wo.uom}
-          </span>
-          <span className="whitespace-nowrap text-[12px] text-slate-500">{wo.current_stage_name}</span>
+          {/* The project manager's line (D347): *10/100 selesai · Amplas 1 ·
+              Finishing 2 · belum mulai 87*. */}
+          <PositionLine wo={wo} />
           {wo.route === "SUBCON" && (
             <Badge tone={wo.at_vendor ? "violet" : "slate"}>
               <Factory className="mr-1 h-3 w-3" />
