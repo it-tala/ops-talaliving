@@ -8488,3 +8488,33 @@ nobody touched; the update trigger fires only when the reference changes.
 of it — *what is on this shelf* — not by the question the table can answer.
 And a no-edit rule is kept by recording the edit, not by forbidding it, once
 the owner says the data has to be editable.
+
+## F202 · 2026-09-30 · Two sessions, one day, the same numbers: D348 and migration 0198 were each taken twice
+
+Two sessions worked on main the same afternoon, one on HRD and one on
+inventory. Each read the decision log, saw 347 as the last entry, and
+wrote D348: the inventory one (*stok dimulai dari nol*) and the HRD one
+(employee email and phone, leave after a year). Each also named its migration
+`0198_…`, and three `0198_*` files reached production within a few hours:
+`0198_prod_work_slots`, `0198_inv_stock_input` and
+`0198_hr_employee_contact_leave`. Postgres and the ladder do not mind, because
+files sort by full name and none depends on another. The log does mind:
+two decisions under one number is how *see D348* ends up pointing at the
+wrong argument.
+
+What happened next: inventory merged first and kept D348. The HRD decisions
+became **D349** (email/phone, leave) and **D350** (attendance week
+Sabtu–Jumat) when PR #100 merged main in. Every reference in the code and
+smoke tests was renumbered. **The migration file was left as it is.** Its
+function comments say D348, and `0198_hr_employee_contact_leave` had already
+been applied to production. Editing a comment inside a function body changes
+`prosrc`, and that is exactly what the check *production matches the ladder*
+compares (the md5 of `prosrc`). A file that no longer matches what ran is a
+worse lie than a stale number. `employee-rules.ts` and D349's row say so.
+
+**Rule:** take the next decision number, finding number and migration number
+**when merging main in, just before the PR merges**, not when the work
+starts. Until then, write them as placeholders. A number is a claim on a
+shared list, and it is only safe once nobody else can write to that list
+first. Never renumber a migration that has already been applied; note the
+mismatch instead.

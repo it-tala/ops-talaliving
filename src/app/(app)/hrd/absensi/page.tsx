@@ -11,7 +11,7 @@ import { mondayOf, officeToday, shiftDay } from "@/lib/office";
 import { isLiveMode } from "@/lib/live";
 import { hr } from "@/demo/api";
 import type { PayBasis, PayrollLine, TimesheetDay, TimesheetTotal } from "@/services/hr/contracts";
-import { DAY_MARK_SHORT, OVERTIME_STAGE_LABEL, type DayState } from "@/services/hr/contracts";
+import { DAY_MARK_SHORT, OVERTIME_STAGE_LABEL, PAY_WEEK_STARTS_DEFAULT, type DayState } from "@/services/hr/contracts";
 import Link from "next/link";
 import { useSession } from "@/store/session";
 import { useTr } from "@/lib/i18n";
@@ -32,11 +32,15 @@ import { MarkDay } from "./MarkDay";
  *  **which days a person still has to read** — because until they have, a
  *  payroll over this period is arithmetic rather than wages (D141).
  */
-/** Five days at a time, or one pay week (D345). Owner: *cukup menampilkan
- *  absensi per 5 hari, total jam kerja dan estimasi gaji — terpisah untuk
- *  karyawan bulanan dan mingguan.* Fourteen columns was a fortnight nobody
- *  read across; five is a working week on one screen, and the pay week
- *  (Sabtu–Jumat by the rule book) is the one the weekly payroll pays. */
+/** One pay week, or five days at a time (D345, D350). Owner: *cukup
+ *  menampilkan absensi per 5 hari, total jam kerja dan estimasi gaji —
+ *  terpisah untuk karyawan bulanan dan mingguan*, and then: *tampilan absensi
+ *  berdasarkan minggu, awal minggu mulai dari Sabtu … Jumat*. So the grid opens
+ *  on the week — Sabtu–Jumat unless the rule book says otherwise — which is the
+ *  week the weekly payroll pays. *5 hari* is five **calendar** days, not five
+ *  working days: opened fresh it is the five days up to today. Days that have
+ *  not happened yet are drawn as *belum*, so a Thursday missing on a
+ *  Wednesday reads as not yet rather than as nobody came. */
 type Span = 5 | 7;
 
 /** The first day of the pay week `key` falls in, for a week starting on ISO
@@ -47,7 +51,7 @@ function payWeekStart(key: string, isodow: number): string {
   return start > key ? shiftDay(start, -7) : start;
 }
 
-/** Where the grid opens: the last five days, or this pay week, in live mode;
+/** Where the grid opens: this pay week, or the last five days, in live mode;
  *  in the demo, the week its fixtures were recorded in, which is otherwise an
  *  empty grid. */
 function defaultFrom(span: Span, weekStartsOn: number): string {
@@ -70,25 +74,32 @@ export default function TimesheetPage() {
   const [span, setSpan] = useState<Span>(() => {
     const asked = typeof window === "undefined"
       ? null : new URLSearchParams(window.location.search).get("span");
-    return asked === "7" ? 7 : 5;
+    return asked === "5" ? 5 : 7;
   });
   /* Which weekday a pay week starts on is the rule book's (D340). */
   const [books] = useLoad(() => hr.listPayRules(), []);
   const weekStartsOn = (() => {
-    if (books.status !== "ready") return 1;
+    if (books.status !== "ready") return PAY_WEEK_STARTS_DEFAULT;
     const today = officeToday();
     const inForce = [...books.data]
       .filter((b) => b.effective_from <= today)
       .sort((a, b) => a.effective_from.localeCompare(b.effective_from) || a.version - b.version)
       .pop();
-    return inForce?.rules.pay_week_starts_isodow ?? 1;
+    return inForce?.rules.pay_week_starts_isodow ?? PAY_WEEK_STARTS_DEFAULT;
   })();
   const [from, setFrom] = useState(() => {
     const asked = typeof window === "undefined"
       ? null : new URLSearchParams(window.location.search).get("from");
-    return asked && /^\d{4}-\d{2}-\d{2}$/.test(asked) ? asked : defaultFrom(5, 1);
+    return asked && /^\d{4}-\d{2}-\d{2}$/.test(asked) ? asked : defaultFrom(span, PAY_WEEK_STARTS_DEFAULT);
   });
+  /* A rule book that starts the week on another day moves the week shown
+     onto it once the book has loaded. */
+  useEffect(() => {
+    if (span === 7) setFrom((f) => payWeekStart(f, weekStartsOn));
+  }, [weekStartsOn, span]);
   const to = shiftDay(from, span - 1);
+  const today = officeToday();
+  const notYet = datesBetween(from, to).filter((d) => d > today);
   useEffect(() => {
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
@@ -123,7 +134,7 @@ export default function TimesheetPage() {
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <div className="inline-flex overflow-hidden rounded-lg border border-slate-200" role="group" aria-label={tr("Days shown", "Hari yang ditampilkan")}>
-          {([5, 7] as Span[]).map((n) => (
+          {([7, 5] as Span[]).map((n) => (
             <button
               key={n}
               type="button"
@@ -132,7 +143,9 @@ export default function TimesheetPage() {
               className={cn("px-3 py-1.5 text-[12px] font-medium",
                 span === n ? "bg-brand-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50")}
             >
-              {n === 5 ? tr("5 days", "5 hari") : tr("Pay week", "Minggu gaji")}
+              {n === 5 ? tr("5 days", "5 hari")
+                : tr(`Week (${DAY_SHORT[weekStartsOn % 7]}–${DAY_SHORT[(weekStartsOn + 6) % 7]})`,
+                     `Minggu (${DAY_SHORT[weekStartsOn % 7]}–${DAY_SHORT[(weekStartsOn + 6) % 7]})`)}
             </button>
           ))}
         </div>
@@ -144,9 +157,17 @@ export default function TimesheetPage() {
           {span === 5 ? tr("Next 5 days", "5 hari berikutnya") : tr("Next week", "Minggu depan")} <ChevronRight className="ml-1 h-3.5 w-3.5" />
         </Button>
         <Button variant="ghost" size="sm" onClick={() => setFrom(defaultFrom(span, weekStartsOn))}>
-          {span === 5 ? tr("Last 5 days", "5 hari terakhir") : tr("This pay week", "Minggu gaji ini")}
+          {span === 5 ? tr("Last 5 days", "5 hari terakhir") : tr("This week", "Minggu ini")}
         </Button>
       </div>
+      {notYet.length > 0 && (
+        <p className="-mt-2 mb-4 text-[12px] text-slate-500">
+          {tr(
+            `${notYet.map(dayLabel).join(", ")} ${notYet.length === 1 ? "has" : "have"} not happened yet — today is ${dayLabel(today)}.`,
+            `${notYet.map(dayLabel).join(", ")} belum terjadi — hari ini ${dayLabel(today)}.`,
+          )}
+        </p>
+      )}
 
       <Loaded state={sheet} onRetry={reload}>
         {(s) => (
@@ -339,6 +360,7 @@ function PeopleGrid({
     const l = lineOf.get(e.employee_no);
     return n + (l ? l.allowance_pay + l.overtime_pay : 0);
   }, 0);
+  const today = officeToday();
   const hoursSum = members.reduce((n, e) => n + (s.totals.find((t) => t.employee_no === e.employee_no)?.work_hours ?? 0), 0);
 
   return (
@@ -357,14 +379,15 @@ function PeopleGrid({
                 {tr("Employee", "Karyawan")}
               </th>
               {s.dates.map((d) => (
-                <th key={d} className="px-2 py-2.5 text-center text-[11px] font-semibold text-slate-500">
+                <th key={d} className={cn("px-2 py-2.5 text-center text-[11px] font-semibold", d > today ? "text-slate-300" : "text-slate-500")}>
                   <button
                     onClick={() => mayEdit && onMarkDate(d)}
                     className="underline decoration-dotted underline-offset-4 hover:text-brand-700"
                     title={tr("Mark this day for everybody", "Tandai hari ini untuk semua orang")}
                   >
-                    {DAY_SHORT[new Date(`${d}T00:00:00Z`).getUTCDay()]} {d.slice(8)}/{d.slice(5, 7)}
+                    {dayLabel(d)}
                   </button>
+                  {d > today && <span className="block text-[9px] font-normal">{tr("not yet", "belum")}</span>}
                 </th>
               ))}
               <th className="border-l border-slate-200 px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
@@ -385,6 +408,16 @@ function PeopleGrid({
                   </span>
                 </th>
                 {s.dates.map((date) => {
+                  /* A day that has not happened is not a day nobody came. */
+                  if (date > today) {
+                    return (
+                      <td key={date} className="px-1 py-1 text-center">
+                        <span className="block w-full rounded border border-dashed border-slate-200 px-1 py-1 text-[10px] leading-tight text-slate-300">
+                          {tr("not yet", "belum")}
+                        </span>
+                      </td>
+                    );
+                  }
                   const day = s.days.find((d) => d.employee_no === e.employee_no && d.work_date === date);
                   if (!day) return <td key={date} />;
                   return (
@@ -460,6 +493,18 @@ function PeopleGrid({
 }
 
 const DAY_SHORT = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
+
+/** `Sab 26/09`. */
+function dayLabel(d: string): string {
+  return `${DAY_SHORT[new Date(`${d}T00:00:00Z`).getUTCDay()]} ${d.slice(8)}/${d.slice(5, 7)}`;
+}
+
+/** Every day from `from` to `to`, both included. */
+function datesBetween(from: string, to: string): string[] {
+  const out: string[] = [];
+  for (let d = from; d <= to; d = shiftDay(d, 1)) out.push(d);
+  return out;
+}
 
 /** What the days are worth — the payroll line for exactly these days. For a
  *  day rate that is the pay; for a salary it is the month, plus what these
