@@ -488,6 +488,42 @@ export interface WorkSlot {
   recorded_at: string;
 }
 
+/** One row of `ops_prod.daily_targets`: a target as it was set. */
+export interface DailyTarget {
+  id: string;
+  seq: number;
+  wo_id: string;
+  work_date: string;
+  stage: string;
+  qty: number;
+  reason: string | null;
+  set_by: string;
+  set_at: string;
+}
+
+/** How many a Job Order should get through one stage on one office day, and
+ *  how many it did (D356, `ops_prod.v_daily_target`). The target in force is
+ *  the latest one set; every change is kept, with who and why. `actual` is the
+ *  day's net count at that stage from the same entries the board sums. */
+export interface DailyTargetView {
+  wo_no: string;
+  item_name: string;
+  uom: string;
+  wo_qty: number;
+  work_date: string;
+  stage: string;
+  stage_name: string;
+  target: number;
+  actual: number;
+  /** Why it was last changed; null for a target set once and left. */
+  reason: string | null;
+  set_at: string;
+  set_by_name: string | null;
+  /** How many times it has been set for that day and stage. */
+  revisions: number;
+  first_set_at: string;
+}
+
 export interface WorkSlotView extends WorkSlot {
   wo_no: string;
   item_name: string;

@@ -1,4 +1,4 @@
-import type { WorkOrder, ProgressEntry, VendorLeg, WorkSlot, WorkSlotWorker } from "@/services/production/contracts";
+import type { WorkOrder, ProgressEntry, VendorLeg, WorkSlot, WorkSlotWorker, DailyTarget } from "@/services/production/contracts";
 import { officeStamp } from "@/lib/office";
 
 /** The workshop floor, as it would look on a Friday.
@@ -247,6 +247,18 @@ for (const sl of WORK_SLOTS) {
     recorded_at: sl.recorded_at,
   });
 }
+
+/* The same day's targets (D356): amplas was planned at 20 and cut to 18 the
+   same morning when one person was moved to another order — the change and
+   its reason are kept. The day ended at 17 sanded and 6 finished. */
+export const DAILY_TARGETS: DailyTarget[] = [
+  { id: "dtg_1", seq: 1, wo_id: "wo_02", work_date: "2026-09-09", stage: "AMPLAS", qty: 20, reason: null,
+    set_by: "usr_made", set_at: "2026-09-09T07:10:00+07:00" },
+  { id: "dtg_2", seq: 2, wo_id: "wo_02", work_date: "2026-09-09", stage: "AMPLAS", qty: 18,
+    reason: "Thohari dipindah ke rakit sandaran pagi ini.", set_by: "usr_made", set_at: "2026-09-09T07:40:00+07:00" },
+  { id: "dtg_3", seq: 3, wo_id: "wo_02", work_date: "2026-09-09", stage: "FINISHING", qty: 6, reason: null,
+    set_by: "usr_made", set_at: "2026-09-09T07:10:00+07:00" },
+];
 
 /** Where things actually are, vendor by vendor (W6, D280).
  *

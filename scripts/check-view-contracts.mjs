@@ -112,6 +112,9 @@ const VIEW_CONTRACTS = {
      derived view, not the row. */
   v_work_order:      null,
   v_vendor_leg:      null,
+  /* Daily targets (0201): every field of the contract, numerics converted
+     by `toTarget`. */
+  v_daily_target:    "DailyTargetView",
   /* ops_dlv (0132): read as rows and assembled field by field in
      `src/lib/api/delivery.ts`, the board by `buildFulfilment`. */
   v_fulfilment_line:   null,
