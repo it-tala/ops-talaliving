@@ -8454,7 +8454,41 @@ code. A free-text field becomes a reference by first making each distinct
 value a row — distinct regardless of case — then pointing at it. And a seed
 for a table people already edit through a screen is written from what
 production holds, not from what the ladder holds.
-## F201 · 2026-09-30 · The Job Order knew who and how many, and only the day
+
+## F201 · 2026-09-30 · A rack that lists the whole catalogue is a catalogue, and "append-only" was a rule for the system, not for the people entering it
+
+*Materials & hardware* listed every item in a counted category — 883 on
+production, of which 4 had ever moved. The screen had been written to show
+*we have none* and *nobody ever bought this* side by side on purpose (0071),
+which is the right call for a rack that is already recorded. It is the wrong
+one for a rack being recorded for the first time: the storeman scrolls 879
+zeros to find the one shelf they are standing at. The owner's fix is to swap
+the roles — the catalogue becomes the list of names an entry picks from, and
+the rack is only what has been entered (D348). No view changed: the list
+filters on `moves_count > 0` and the entry form offers all of `v_stock_item`.
+
+The second half overturned a standing rule. A5/D171 said a stock row is never
+edited; a mistake is another move with a reason. That keeps the arithmetic
+honest, but for a first count typed by hand on a phone it turns every typo
+into two rows and a sentence nobody wants to read. The owner asked for data
+that can be edited. What A5 protected is kept another way: the edit happens
+in a seam that records the row's before and after, the row says when and by
+whom it was last changed, and the changes are listed under the item. Two
+kinds stay out, for reasons that are not about taste: a receipt's source of
+truth is the signed receiving report (editing its stock row would split the
+two), and a transfer is a pair whose halves only mean something together.
+
+Two smaller things. The audit trail is readable by IT only (0003), so *show
+the before and after* needed its own read (`stock_entry_history`) scoped to
+one item and `inventory.read`. And re-firing the Job Order check on every
+edit would refuse correcting the quantity of an old entry over a reference
+nobody touched; the update trigger fires only when the reference changes.
+
+**Rule:** a list is shaped by the question the person asks standing in front
+of it — *what is on this shelf* — not by the question the table can answer.
+And a no-edit rule is kept by recording the edit, not by forbidding it, once
+the owner says the data has to be editable.
+## F202 · 2026-09-30 · The Job Order knew who and how many, and only the day
 
 Asked to evaluate the Job Order against *who worked each item, how many, and
 progress by time / every hour*, the table answered two of the three and had
@@ -8466,7 +8500,7 @@ the afternoon. An hourly chart built on it would have been a spike at five
 o'clock and nothing else, and it would have looked like data.
 
 So the hours are a separate fact, written by the person who reports the work
-(D348, `0197`), and an entry without them stays without them. Three things
+(D349, `0197`), and an entry without them stays without them. Three things
 the build settled:
 
 - **An hour is where the pieces finished, not an average.** A span
@@ -8479,19 +8513,19 @@ the build settled:
   D264's objection (a wardrobe and a nakas do not add up) does not arise.
 
 What the evaluation found and did **not** change, because each is a decision
-rather than a bug: *who* stays optional (Q-D348a), and a signed lembur sheet
+rather than a bug: *who* stays optional (Q-D349a), and a signed lembur sheet
 still posts one entry per order and stage with the names joined — *Sakirin,
-Karjo* reads as one name in the per-person table (Q-D348b).
+Karjo* reads as one name in the per-person table (Q-D349b).
 
 **Rule:** a timestamp answers the question of the moment it records. The
 moment a row was written is not the moment the thing it describes happened,
 and a field that is right for one question should not be borrowed for the
 other just because it is the only one with a clock in it.
 
-## F202 · 2026-09-30 · A count is not a timeslot, and a crew is not a name with a comma in it
+## F203 · 2026-09-30 · A count is not a timeslot, and a crew is not a name with a comma in it
 
-The owner's answer to Q-D348a/b was an example, and the example could not be
-stored in the table D348 had just given hours to:
+The owner's answer to Q-D349a/b was an example, and the example could not be
+stored in the table D349 had just given hours to:
 
     07.30-09.30 AA-02 rakit pintu karjo, toha
     09.30-11.30 AA-02 tambah engsel karjo
@@ -8537,17 +8571,20 @@ Order.
 **Rule:** when a table needs a comma inside a name to hold what happened, it
 is the wrong table for it. Add the table that has the right shape.
 
-**Afterwards — two sessions, one number.** A parallel session (inventory
-categories and locations) took **D346, D347, F200 and migration `0197`** on
-the same afternoon and reached `main` first. This work was renumbered to
-**D348, D349, F201, F202** when it merged. Its migrations keep their file names
+**Afterwards — two sessions, one number, twice.** A parallel session
+(inventory categories, locations, then stock from zero) took **D346, D347,
+F200 and migration prefix `0197`** the same afternoon and reached `main` first;
+this work was renumbered to D348/D349 and F201/F202. While its CI ran, the same
+session took **D348, F201 and prefix `0198`** as well, so it was renumbered
+again, to **D349, D350, F202, F203**. Its migrations keep their file names
 (`0197_prod_progress_hours`, `0198_prod_work_slots`): they were already
 recorded under those names in production, and a shared prefix is harmless
-because files sort by full name and the two `0197`s touch nothing in common.
+because files sort by full name and neither pair touches anything in common.
 The comments inside those two migrations, and inside the function bodies in
 production, still say D346/D347 — rewriting an applied file to fix a comment
 would make the file and production disagree, which is the one thing the
-fingerprint check exists to rule out. The decision log says so on D348.
+fingerprint check exists to rule out. The decision log says so on D349.
 Numbers are handed out by whoever writes `06-decisions.md` first; a session
-that runs for hours should re-read the tail of that file before it commits.
+that runs for hours should re-read the tail of that file — and of
+`supabase/migrations/` — right before it merges, not only before it commits.
 
