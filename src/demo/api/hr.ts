@@ -1,7 +1,7 @@
 /** Implements `/api/v1/hr` from `03-api.md`. */
 import { ok, invalid, notFound, noop, refused, type Result } from "@/services/_shared/envelope";
 import type {
-  Employee, AttendanceScan, TimesheetDay, DayMark, DayMarkKind,
+  Employee, RosterEntry, AttendanceScan, TimesheetDay, DayMark, DayMarkKind,
   OvertimeSheet, OvertimeLine, OvertimeSheetView, OvertimeKind, OvertimeDecider, SelfOvertimeView,
   PayrollRun, PayrollView, PayrollLine, PayBasis,
   AdjustmentKind, PayrollAdjustmentView,
@@ -889,6 +889,19 @@ export async function importScans(
  *  Always by hand, always with a reason. The reason is what separates a
  *  correction from a favour three months later (D137).
  */
+/** The roster a timeslot names its workers from (D355): active people,
+ *  no pay. Production, HRD or payroll may read it; anybody else gets an empty
+ *  list, as the database answers. */
+export async function listWorkRoster(): Promise<Result<RosterEntry[]>> {
+  await latency();
+  const user = actingUser();
+  if (!user.modules.some((m) => ["production", "hrd", "payroll"].includes(m.module))) return ok(SERVICE, []);
+  return ok(SERVICE, getState().employees
+    .filter((e) => e.active)
+    .sort((a, b) => a.employee_no.localeCompare(b.employee_no))
+    .map((e) => ({ id: e.id, employee_no: e.employee_no, full_name: e.full_name, unit: e.unit ?? null, position: e.position ?? null })));
+}
+
 export async function addScan(
   input: { employee_no: string; work_date: string; time: string; reason: string },
 ): Promise<Result<AttendanceScan>> {
