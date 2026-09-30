@@ -29,7 +29,7 @@ import {
   SCHEME_LABEL, COMPUTED_SCHEMES,
 } from "@/services/hr/contracts";
 import {
-  scheduleHoursOf, isOvernight, dayBoundaryMinutes, shiftMinutes, nextOfficeDay,
+  scheduleHoursOf, isOvernight, dayBoundaryMinutes, shiftMinutes, nextOfficeDay, scheduleDay,
 } from "@/services/hr/schedule-rules";
 import {
   addDays, taskPeriodStart, taskPeriodEnd, taskPeriodLabel, ageOn, ageBand,
@@ -272,7 +272,30 @@ export function timesheetDay(
     return true;
   };
 
-  if (taps.length > 0 && !overnight) {
+  /* 0199 (D353): *tap wajib hanya di jam datang dan pulang*. Under `in_out`
+     the day is its first and last tap, read against this weekday's schedule —
+     the same reading as `ops_hr.read_day`. `schedule` (0195) is not mirrored
+     here; the demo reads it as slots, as before. */
+  const inOut = rules.day_reading === "in_out" && !overnight;
+  const isodow = ((new Date(`${workDate}T00:00:00Z`).getUTCDay() + 6) % 7) + 1;
+  const sd = scheduleDay(sc, isodow);
+  const sMin = sd && !sd.off ? sd.start_minutes : null;
+  const eMin = sd && !sd.off ? sd.end_minutes : null;
+  const bMin = sd?.break_minutes ?? 0;
+  const scheduled_hours = sMin != null && eMin != null
+    ? Math.max((shiftMinutes(sMin, eMin) ?? 0) - bMin, 0) / 60
+    : null;
+
+  if (taps.length > 0 && inOut) {
+    take("in", () => true);
+    /* Pulang is the last tap, whenever it is; one tap has none. The break
+       taps are placed for the screen only. */
+    const last = taps.length > 1 ? taps[taps.length - 1] : null;
+    if (last) take("out", (t) => t.id === last.id);
+    take("break_out", (t) => minutes(t.at) >= 11 * 60 && minutes(t.at) < 13 * 60 + 30);
+    take("break_in", (t) => minutes(t.at) >= 11 * 60 + 30 && minutes(t.at) < 14 * 60 + 30);
+    rest.length = 0;
+  } else if (taps.length > 0 && !overnight) {
     take("in", () => true);
     /* The middle of the day: out to eat, back from eating. */
     take("break_out", (t) => minutes(t.at) >= 11 * 60 && minutes(t.at) < 13 * 60 + 30);
@@ -293,7 +316,7 @@ export function timesheetDay(
     take("break_in", (t) => Date.parse(t.at) < outFrom);
     take("out", (t) => Date.parse(t.at) >= outFrom);
   }
-  if (taps.length > 0) {
+  if (taps.length > 0 && !inOut) {
     take("ot_start", (t) => slots.out !== undefined && Date.parse(t.at) > Date.parse(slots.out!));
     take("ot_end", (t) => slots.ot_start !== undefined && Date.parse(t.at) > Date.parse(slots.ot_start!));
   }
@@ -311,7 +334,30 @@ export function timesheetDay(
   if (rest.length > 0) {
     issues.push(`${rest.length} tap(s) the rule could not place: ${rest.map((t) => hhmm(t.at)).join(", ")}`);
   }
-  if (taps.length > 0) {
+  if (taps.length > 0 && inOut) {
+    const step = rules.hours_rounding_minutes ?? 15;
+    const round = (m: number) => (step > 0 ? Math.round(m / step) * step : m);
+    const at = (m: number) => Date.parse(officeStamp(workDate, clockOf(m).replace(".", ":")));
+    const inAt = Date.parse(slots.in!);
+    const outAt = slots.out ? Date.parse(slots.out) : null;
+    break_hours = bMin / 60;
+    overtime_hours = 0;
+    if (sMin != null && eMin != null && scheduled_hours != null) {
+      const startAt = at(sMin);
+      const endAt = at(eMin);
+      const to = outAt ?? endAt;
+      work_hours = round(Math.max((Math.min(to, endAt) - Math.max(inAt, startAt)) / 60_000 - bMin, 0)) / 60;
+      if (outAt != null && outAt > endAt) overtime_hours = round((outAt - endAt) / 60_000) / 60;
+      const quota = round(scheduled_hours * 60) / 60;
+      if (outAt == null) issues.push("Tidak ada tap pulang — tap datang dan pulang wajib");
+      else if (work_hours < quota - 1e-9) {
+        notes.push(`Kurang ${(scheduled_hours - work_hours).toFixed(2)} jam dari jadwal ${scheduled_hours.toFixed(2)} jam`);
+      }
+    } else {
+      work_hours = round(Math.max(((outAt ?? inAt) - inAt) / 60_000 - bMin, 0)) / 60;
+      if (outAt == null) issues.push("Tidak ada tap pulang — tap datang dan pulang wajib");
+    }
+  } else if (taps.length > 0) {
     if (!slots.out) issues.push("No pulang — the day has no end");
     /* A guard on post does not go out to eat, so a night with no break taps at
        all is a whole night, not an incomplete one. Half a break is still half
@@ -390,6 +436,7 @@ export function timesheetDay(
     window_from,
     window_to,
     overnight,
+    scheduled_hours,
   };
 }
 

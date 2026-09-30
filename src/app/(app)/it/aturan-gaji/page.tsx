@@ -461,12 +461,13 @@ export default function PayRulesPage() {
                         <span className="block text-[12px] text-slate-500">{tr("How a day is read", "Cara membaca satu hari")}</span>
                         <select
                           value={rules.day_reading ?? "slots"}
-                          onChange={(e) => set({ day_reading: e.target.value as "slots" | "schedule" })}
+                          onChange={(e) => set({ day_reading: e.target.value as "slots" | "schedule" | "in_out" })}
                           disabled={!mayEdit}
                           className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
                         >
                           <option value="slots">{tr("Six taps in slots — a day the rule cannot fit waits for HRD", "Enam tap per slot — hari yang tidak cocok menunggu HRD")}</option>
                           <option value="schedule">{tr("By the schedule — any tap is a day present, hours against that weekday's schedule", "Sesuai jadwal — ada tap berarti hadir, jam dibaca terhadap jadwal hari itu")}</option>
+                          <option value="in_out">{tr("Arrival and departure only — hours are the schedule's, less if late or early (red)", "Tap datang & pulang saja — jam sesuai jadwal, kurang jika telat/pulang cepat (merah)")}</option>
                         </select>
                       </label>
                       <div className="grid gap-3 sm:grid-cols-2">
@@ -479,7 +480,7 @@ export default function PayRulesPage() {
                         />
                         <Field
                           label={tr("Clock-out window (minutes)", "Jendela tap pulang (menit)")}
-                          hint={tr("A tap this close to the scheduled end is pulang; none means the scheduled end.", "Tap sedekat ini dengan jam pulang dianggap pulang; tidak ada berarti jam pulang jadwal.")}
+                          hint={tr("By the schedule only: a tap this close to the scheduled end is pulang; none means the scheduled end. Arrival-and-departure uses the last tap.", "Hanya untuk Sesuai jadwal: tap sedekat ini dengan jam pulang dianggap pulang; tidak ada berarti jam pulang jadwal. Tap datang & pulang memakai tap terakhir.")}
                           value={rules.out_window_minutes ?? 30}
                           onChange={(v) => set({ out_window_minutes: v })}
                           disabled={!mayEdit}
