@@ -28,33 +28,29 @@ import { useTr } from "@/lib/i18n";
  *  history is filed under). *Rename* was in D308 and in both API layers but
  *  never on this panel — found by the inventory walk (F178).
  *
- *  Each location carries a short code (`abbr`, `0197`) that item codes
- *  registered there begin with — `GDG` in `GDG-AMS-0001`. Left empty, the
- *  database picks one; like the code, it is not changed from here, because
- *  items already carry it. */
+ *  One list for every place inventory keeps something (`0197`, D347): racks
+ *  for material and finished goods, and where an asset stands — furniture,
+ *  machines, vehicles. The asset form picks from it too. */
 export function LocationManager({ onChanged }: { onChanged?: () => void }) {
   const tr = useTr();
   const { toast } = useToast();
   const [locs, reload] = useLoad(() => inventory.listStockLocations({ all: true }), []);
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
-  const [abbr, setAbbr] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ code: string; name: string } | null>(null);
   const refresh = () => { reload(); onChanged?.(); };
 
   async function add() {
     setBusy("new");
-    const res = await inventory.createStockLocation({ code, name, abbr: abbr || null });
+    const res = await inventory.createStockLocation({ code, name });
     setBusy(null);
     if (res.error) {
       toast(res.error.status === 409 ? "warning" : "critical", tr("Not saved", "Tidak tersimpan"), res.error.message);
       return;
     }
-    toast("success", tr(`Location ${res.data.code}`, `Lokasi ${res.data.code}`),
-      tr(`${res.data.name} can be chosen starting now. Items registered here begin with ${res.data.abbr ?? "—"}.`,
-        `${res.data.name} bisa dipilih mulai sekarang. Kode barang yang didaftarkan di sini diawali ${res.data.abbr ?? "—"}.`));
-    setCode(""); setName(""); setAbbr("");
+    toast("success", tr(`Location ${res.data.code}`, `Lokasi ${res.data.code}`), tr(`${res.data.name} can be chosen starting now.`, `${res.data.name} bisa dipilih mulai sekarang.`));
+    setCode(""); setName("");
     refresh();
   }
 
@@ -81,7 +77,7 @@ export function LocationManager({ onChanged }: { onChanged?: () => void }) {
     <Card className="mb-4">
       <CardHeader
         title={tr("Manage locations", "Kelola lokasi")}
-        subtitle={tr("Areas that can be chosen during an opname. Deactivating a location does not delete its count history.", "Area yang bisa dipilih saat opname. Menonaktifkan sebuah lokasi tidak menghapus riwayat hitungannya.")}
+        subtitle={tr("One list for material stock, finished goods and assets (furniture, machines, vehicles). Deactivating a location does not delete its history.", "Satu daftar untuk stok material, barang jadi dan aset (perabotan, mesin, kendaraan). Menonaktifkan sebuah lokasi tidak menghapus riwayatnya.")}
         icon={MapPin}
       />
       <Loaded state={locs} skeletonRows={2} onRetry={reload}>
@@ -91,8 +87,6 @@ export function LocationManager({ onChanged }: { onChanged?: () => void }) {
               {all.map((l) => (
                 <li key={l.code} className="flex items-center gap-3 px-5 py-2.5">
                   <span className="min-w-[90px] font-mono text-[11px] text-slate-400">{l.code}</span>
-                  <span className="min-w-[40px] font-mono text-[11px] font-semibold text-slate-600"
-                    title={tr("Short code in item codes", "Kode singkat di kode barang")}>{l.abbr ?? "—"}</span>
                   {editing?.code === l.code ? (
                     <>
                       <input
@@ -130,7 +124,7 @@ export function LocationManager({ onChanged }: { onChanged?: () => void }) {
                 <li className="px-5 py-6 text-[13px] text-slate-500">{tr("No locations yet.", "Belum ada lokasi.")}</li>
               )}
             </ul>
-            <div className="grid gap-2 border-t border-slate-100 px-5 py-3 sm:grid-cols-[140px_1fr_110px_auto]">
+            <div className="grid gap-2 border-t border-slate-100 px-5 py-3 sm:grid-cols-[140px_1fr_auto]">
               <input
                 value={code} onChange={(e) => setCode(e.target.value)}
                 placeholder={tr("Code, e.g. AREA-A", "Kode, mis. AREA-A")}
@@ -140,12 +134,6 @@ export function LocationManager({ onChanged }: { onChanged?: () => void }) {
                 value={name} onChange={(e) => setName(e.target.value)}
                 placeholder={tr("Name, e.g. Area A — sanding rack", "Nama, mis. Area A — rak amplas")}
                 className="h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
-              />
-              <input
-                value={abbr} onChange={(e) => setAbbr(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4))}
-                placeholder={tr("Short, e.g. RKA", "Singkat, mis. RKA")}
-                aria-label={tr("Short code for item codes (optional)", "Kode singkat untuk kode barang (opsional)")}
-                className="h-9 rounded-lg border border-slate-200 px-2 font-mono text-sm uppercase focus:border-brand-400 focus:outline-none"
               />
               <Button
                 size="sm" icon={Plus}

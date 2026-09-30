@@ -119,7 +119,7 @@ do $$
 declare r jsonb; code2 text; lnk uuid;
 begin
   r := ops_inv.register_item('Wood glue','Lem kayu','sanding-uji','pcs',
-         array['55550000-0000-0000-0000-000000002506'::uuid], 'GUDANG');
+         array['55550000-0000-0000-0000-000000002506'::uuid]);
   code2 := r->'data'->>'code';
   select id into lnk from ops_core.attachment_links
    where entity = 'item' and entity_no = code2 and kind = 'foto' and unlinked_at is null;

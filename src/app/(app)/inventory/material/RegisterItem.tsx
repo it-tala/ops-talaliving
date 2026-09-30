@@ -8,7 +8,6 @@ import { NumberInput } from "@/components/ui/number-input";
 import { documents, inventory, procurement } from "@/demo/api";
 import { ITEM_PHOTO_MAX, ITEM_PHOTO_MIN } from "@/services/documents/contracts";
 import type { StockedCategory } from "@/services/inventory/contracts";
-import { itemCodePreview } from "@/services/inventory/item-code";
 import { useToast } from "@/store/toast";
 import { shrinkImage } from "../log/notaFile";
 import { useTr } from "@/lib/i18n";
@@ -21,13 +20,11 @@ import { useTr } from "@/lib/i18n";
  *  photo of the thing is recognisable by everybody. The catalogue name stays
  *  English and the floor's own word sits beside it; both are searched.
  *
- *  The rack is required (`0197`, D346): the item code names it —
- *  `LOC-CAT-NNNN`, e.g. `GDG-AMS-0001` — and it becomes the item's home rack.
- *  The category is picked from the tree (group, then type), never typed.
+ *  The category is picked from the tree — group, then type (`0197`, D346).
  *
  *  Counting is optional here and, when given, lands as an opname adjustment
- *  against that location (D171) — the same record the opname screen writes,
- *  not a second kind of number.
+ *  against a location (D171) — the same record the opname screen writes, not
+ *  a second kind of number.
  */
 export function RegisterItem({ mayCount, onCreated, onCancel }: {
   mayCount: boolean;
@@ -82,7 +79,7 @@ export function RegisterItem({ mayCount, onCreated, onCancel }: {
     const res = await inventory.registerItem({
       name: form.name, name_local: form.name_local || null,
       category_code: form.category_code, base_uom: form.base_uom, photo_ids: ids,
-      location: form.location, counted,
+      location: counted != null ? form.location : null, counted,
       reason: form.reason || null,
     }, key);
     setBusy(null);
@@ -97,10 +94,9 @@ export function RegisterItem({ mayCount, onCreated, onCancel }: {
     onCreated(res.data.item_code);
   }
 
-  const ready = form.name.trim() && form.category_code && form.base_uom && form.location
-    && photos.length >= ITEM_PHOTO_MIN && photos.length <= ITEM_PHOTO_MAX;
-  const pickedLoc = locations.status === "ready" ? locations.data.find((l) => l.code === form.location) : undefined;
-  const pickedCat = categories.status === "ready" ? categories.data.find((c) => c.code === form.category_code) : undefined;
+  const countOk = !mayCount || form.counted <= 0 || !!form.location;
+  const ready = form.name.trim() && form.category_code && form.base_uom
+    && photos.length >= ITEM_PHOTO_MIN && photos.length <= ITEM_PHOTO_MAX && countOk;
   const field = "h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none";
 
   return (
@@ -167,7 +163,7 @@ export function RegisterItem({ mayCount, onCreated, onCancel }: {
                     <optgroup key={g.label} label={g.label}>
                       {g.options.map((c) => (
                         <option key={c.code} value={c.code}>
-                          {c.parent_code ? c.name : tr(`${c.name} (general)`, `${c.name} (umum)`)}{c.abbr ? ` · ${c.abbr}` : ""}
+                          {c.parent_code ? c.name : tr(`${c.name} (general)`, `${c.name} (umum)`)}
                         </option>
                       ))}
                     </optgroup>
@@ -187,40 +183,28 @@ export function RegisterItem({ mayCount, onCreated, onCancel }: {
               )}
             </Loaded>
           </label>
-          <label className="text-[11px] text-slate-500">
-            {tr("Location (rack)", "Lokasi (rak)")}
-            <Loaded state={locations} skeletonRows={1}>
-              {(locs) => (
-                <select value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })}
-                  aria-label={tr("Location", "Lokasi")} className={`mt-1 ${field}`}>
-                  <option value="">{tr("Choose a location…", "Pilih lokasi…")}</option>
-                  {locs.map((l) => <option key={l.code} value={l.code}>{l.name}{l.abbr ? ` · ${l.abbr}` : ""}</option>)}
-                </select>
-              )}
-            </Loaded>
-          </label>
-          <div className="text-[11px] text-slate-500">
-            {tr("Item code", "Kode barang")}
-            <p className="mt-1 flex h-9 items-center rounded-lg border border-dashed border-slate-200 bg-slate-50 px-2 font-mono text-sm text-slate-700">
-              {itemCodePreview(pickedLoc?.abbr, pickedCat?.abbr)}
-            </p>
-            <p className="mt-0.5 text-[10px] text-slate-400">
-              {tr("Location · category · number, issued on save.", "Lokasi · kategori · nomor urut, diberikan saat disimpan.")}
-            </p>
-          </div>
         </div>
 
         {mayCount && (
           <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
             <p className="text-[11px] text-slate-500">
-              {tr("Already counted? Enter the quantity on the rack above — it is recorded as an opname result. Leave it empty if not.", "Sudah dihitung? Isi jumlah di rak di atas — tercatat sebagai hasil opname. Kosongkan kalau belum.")}
+              {tr("Already counted? Enter the quantity and the rack — it is recorded as an opname result. Leave it empty if not.", "Sudah dihitung? Isi jumlah dan raknya — tercatat sebagai hasil opname. Kosongkan kalau belum.")}
             </p>
             <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_140px]">
-              <p className="flex h-9 items-center text-[12px] text-slate-600">
-                {pickedLoc ? pickedLoc.name : tr("Choose the location above first.", "Pilih lokasinya di atas dulu.")}
-              </p>
+              <Loaded state={locations} skeletonRows={1}>
+                {(locs) => (
+                  <select value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })}
+                    aria-label={tr("Location", "Lokasi")} className={field}>
+                    <option value="">{tr("Choose a location…", "Pilih lokasi…")}</option>
+                    {locs.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}
+                  </select>
+                )}
+              </Loaded>
               <NumberInput value={form.counted} onChange={(v) => setForm({ ...form, counted: v })} />
             </div>
+            {form.counted > 0 && !form.location && (
+              <p className="mt-1 text-[11px] text-amber-700">{tr("Choose the rack — a count always belongs to one location.", "Pilih raknya — hitungan selalu milik satu lokasi.")}</p>
+            )}
           </div>
         )}
 

@@ -28,7 +28,7 @@ import type {
   AssetView, AssetCategory, AssetStatus, AssetInput, AssetService, AssetServiceInput,
   LabelKind, LabelSource, LabelCard, StockedCategory,
 } from "@/services/inventory/contracts";
-import { ABBR_SHAPE, stockedCategoryTree } from "@/services/inventory/item-code";
+import { stockedCategoryTree } from "@/services/inventory/categories";
 import type { MaterialPlan } from "@/services/production/contracts";
 import { materialShort, materialStatus } from "@/services/production/contracts";
 import type { ItemPurchase } from "@/services/procurement/contracts";
@@ -125,18 +125,17 @@ export async function listStock(
 
 /** The categories counted on a rack — the only ones an item registered at the
  *  rack may go into (`register_item` refuses the rest as `not_stocked`). With
- *  the group each sits under and its short code, so the picker shows the tree
- *  and the code preview (`0197`). Groups first, then their types, by name. */
+ *  the group each sits under, so the picker shows the tree (`0197`). */
 export async function listStockedCategories(): Promise<Result<StockedCategory[]>> {
   const [{ data: stocked, error: sErr }, { data: cats, error: cErr }] = await Promise.all([
     db().from("stocked_categories").select("category_code"),
-    procure().from("item_categories").select("code, name, abbr, parent_code"),
+    procure().from("item_categories").select("code, name, parent_code"),
   ]);
   if (sErr) return fail(SERVICE, sErr);
   if (cErr) return fail(SERVICE, cErr);
   return ok(SERVICE, stockedCategoryTree(
     (stocked ?? []).map((s) => s.category_code as string),
-    (cats ?? []) as { code: string; name: string; abbr: string | null; parent_code: string | null }[],
+    (cats ?? []) as { code: string; name: string; parent_code: string | null }[],
   ));
 }
 
@@ -473,19 +472,14 @@ export async function listStockLocations(
  *  to), so a duplicate code lands here as `23505` and `fail()` turns it into
  *  `conflict` on its own; nothing here needs to pre-check for one. */
 export async function createStockLocation(
-  input: { code: string; name: string; abbr?: string | null },
+  input: { code: string; name: string },
 ): Promise<Result<StockLocation>> {
   const code = input.code.trim().toUpperCase();
   const name = input.name.trim();
-  const abbr = input.abbr?.trim().toUpperCase() || null;
   if (!code) return invalid(SERVICE, "code_required", "Kode lokasi wajib diisi.", { field: "code" });
   if (!name) return invalid(SERVICE, "name_required", "Nama lokasi wajib diisi.", { field: "name" });
-  if (abbr && !ABBR_SHAPE.test(abbr)) {
-    return invalid(SERVICE, "abbr_invalid", "Kode singkat 2–4 huruf besar atau angka.", { field: "abbr" });
-  }
-  /* No abbr: the database picks one (`0197`'s trigger). */
   const { data, error } = await db().from("stock_locations")
-    .insert(abbr ? { code, name, abbr } : { code, name }).select("*").single();
+    .insert({ code, name }).select("*").single();
   if (error) return fail(SERVICE, error);
   return ok(SERVICE, data as StockLocation);
 }

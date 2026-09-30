@@ -152,8 +152,6 @@ export interface ItemCategory {
   code: string;
   parent_code: string | null;
   name: string;
-  /** Short code used in item codes registered at the rack (`0197`). */
-  abbr?: string | null;
 }
 
 export interface Item {
