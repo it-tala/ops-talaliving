@@ -8409,7 +8409,52 @@ it is read back by.
 `ops_core.ok(...)` payload, not from what the row would have — and a demo
 that returns the row directly hides the difference.
 
-## F200 · 2026-09-30 · The Job Order knew who and how many, and only the day
+
+## F200 · 2026-09-30 · A code built from what somebody picks inherits every wrong pick, and a free-text place cannot become a key without first becoming a row
+
+The owner asked for item codes that read `lokasi - kategori - nomor urut`
+(D346). It was built — a short code on every location and category, a
+counter per pair — walked in the demo, and then cancelled (D347): *salah
+input akan membuat salah kode.* The objection is structural, not cosmetic. An
+item code is written on a sticker and referenced by stock moves, BOMs and QR
+tokens; a location and a category are the two fields most likely to be picked
+wrong at the rack and corrected later, and an item moves racks anyway. A code
+that embeds them is either wrong for ever or rewritten everywhere it was
+printed. The catalogue number (`I-00001`) carries no meaning, so it cannot be
+wrong. Where an item is and what it is stay in columns, where they can be
+corrected.
+
+The asset register's location was the last free text in inventory. Turning it
+into a foreign key would have refused every asset whose place was typed
+differently from any rack, so the migration first makes each distinct place a
+location of its own and points the assets at it; afterwards a trigger accepts
+either a code or a location's name and stores the code, which keeps the asset
+seams' signatures and John Lau's drafts unchanged. The asset label joined the
+text as its own name; it now joins the location. With that, material stock,
+finished goods (0170) and assets all reference one list — the owner's
+*general* list.
+
+Before applying, the migration was read against production, and that caught
+two more. Procurement had already filed the catalogue through the screen — 64
+categories, with `Thinner & solvents`, `Filler (dempul)`, a *Safety & PPE*
+type and a `facility` group — and a seed written from the migration ladder
+alone would have added `Thinner & solvent`, `Wood filler & putty`, a second
+*Safety & PPE* and a *Building & electrical* group beside `facility`: twins
+that differ by a letter, which an exact-name check lets through. The seed now
+lists production's own rows by their own codes and adds only the 16 types
+missing in any spelling. And the assets said `OFFICE` for six and `Office`
+for three, so the first version would have made two locations for one room
+and matched each asset to either at random; places are now grouped without
+regard to case. Both were rehearsed on a ladder loaded with production's rows
+before the real apply.
+
+**Rule:** a key is meaningless on purpose; anything a person picks at the
+moment of entry belongs in a column that can be corrected, never inside the
+code. A free-text field becomes a reference by first making each distinct
+value a row — distinct regardless of case — then pointing at it. And a seed
+for a table people already edit through a screen is written from what
+production holds, not from what the ladder holds.
+## F201 · 2026-09-30 · The Job Order knew who and how many, and only the day
 
 Asked to evaluate the Job Order against *who worked each item, how many, and
 progress by time / every hour*, the table answered two of the three and had
@@ -8421,7 +8466,7 @@ the afternoon. An hourly chart built on it would have been a spike at five
 o'clock and nothing else, and it would have looked like data.
 
 So the hours are a separate fact, written by the person who reports the work
-(D346, `0197`), and an entry without them stays without them. Three things
+(D348, `0197`), and an entry without them stays without them. Three things
 the build settled:
 
 - **An hour is where the pieces finished, not an average.** A span
@@ -8434,19 +8479,19 @@ the build settled:
   D264's objection (a wardrobe and a nakas do not add up) does not arise.
 
 What the evaluation found and did **not** change, because each is a decision
-rather than a bug: *who* stays optional (Q-D346a), and a signed lembur sheet
+rather than a bug: *who* stays optional (Q-D348a), and a signed lembur sheet
 still posts one entry per order and stage with the names joined — *Sakirin,
-Karjo* reads as one name in the per-person table (Q-D346b).
+Karjo* reads as one name in the per-person table (Q-D348b).
 
 **Rule:** a timestamp answers the question of the moment it records. The
 moment a row was written is not the moment the thing it describes happened,
 and a field that is right for one question should not be borrowed for the
 other just because it is the only one with a clock in it.
 
-## F201 · 2026-09-30 · A count is not a timeslot, and a crew is not a name with a comma in it
+## F202 · 2026-09-30 · A count is not a timeslot, and a crew is not a name with a comma in it
 
-The owner's answer to Q-D346a/b was an example, and the example could not be
-stored in the table D346 had just given hours to:
+The owner's answer to Q-D348a/b was an example, and the example could not be
+stored in the table D348 had just given hours to:
 
     07.30-09.30 AA-02 rakit pintu karjo, toha
     09.30-11.30 AA-02 tambah engsel karjo
@@ -8491,4 +8536,18 @@ Order.
 
 **Rule:** when a table needs a comma inside a name to hold what happened, it
 is the wrong table for it. Add the table that has the right shape.
+
+**Afterwards — two sessions, one number.** A parallel session (inventory
+categories and locations) took **D346, D347, F200 and migration `0197`** on
+the same afternoon and reached `main` first. This work was renumbered to
+**D348, D349, F201, F202** when it merged. Its migrations keep their file names
+(`0197_prod_progress_hours`, `0198_prod_work_slots`): they were already
+recorded under those names in production, and a shared prefix is harmless
+because files sort by full name and the two `0197`s touch nothing in common.
+The comments inside those two migrations, and inside the function bodies in
+production, still say D346/D347 — rewriting an applied file to fix a comment
+would make the file and production disagree, which is the one thing the
+fingerprint check exists to rule out. The decision log says so on D348.
+Numbers are handed out by whoever writes `06-decisions.md` first; a session
+that runs for hours should re-read the tail of that file before it commits.
 

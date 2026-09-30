@@ -26,31 +26,31 @@ const owned = {
 export const ASSETS: Asset[] = [
   {
     ...base, ...owned, id: "ast_001", asset_no: "AST-0001", name: "Camera — workshop gate", category_code: "cctv",
-    brand: "Hikvision", model: "DS-2CD1023", identifier: "SN-778812", location: "Workshop gate", holder: "Security",
+    brand: "Hikvision", model: "DS-2CD1023", identifier: "SN-778812", location: "POS-SATPAM", holder: "Security",
     status: "in_use", acquired_on: "2026-01-15", purchase_cost: 850_000, vendor_code: null, trx_no: null,
     warranty_until: "2027-01-15", notes: "Night vision", ended_on: null,
   },
   {
     ...base, ...owned, id: "ast_002", asset_no: "AST-0002", name: "NVR 8 channel", category_code: "cctv",
-    brand: "Hikvision", model: "DS-7608NI", identifier: "NVR-55120", location: "Office server rack", holder: null,
+    brand: "Hikvision", model: "DS-7608NI", identifier: "NVR-55120", location: "KANTOR", holder: null,
     status: "in_use", acquired_on: "2025-03-02", purchase_cost: 2_450_000, vendor_code: null, trx_no: null,
     warranty_until: "2026-03-02", notes: null, ended_on: null,
   },
   {
     ...base, ...owned, id: "ast_003", asset_no: "AST-0003", name: "PC — accounting desk", category_code: "computer",
-    brand: "Lenovo", model: "ThinkCentre M70q", identifier: "PF3X9K2A", location: "Office, accounting", holder: "Anggun",
+    brand: "Lenovo", model: "ThinkCentre M70q", identifier: "PF3X9K2A", location: "KANTOR", holder: "Anggun",
     status: "in_use", acquired_on: "2025-08-20", purchase_cost: 9_800_000, vendor_code: null, trx_no: null,
     warranty_until: "2028-08-20", notes: null, ended_on: null,
   },
   {
     ...base, ...owned, id: "ast_004", asset_no: "AST-0004", name: "Pickup — deliveries", category_code: "vehicle",
-    brand: "Suzuki", model: "Carry 1.5", identifier: "DK 8123 ZA", location: "Workshop yard", holder: "Made (driver)",
+    brand: "Suzuki", model: "Carry 1.5", identifier: "DK 8123 ZA", location: "HALAMAN", holder: "Made (driver)",
     status: "in_use", acquired_on: "2024-05-10", purchase_cost: 165_000_000, vendor_code: null, trx_no: null,
     warranty_until: null, notes: "STNK renews every May", ended_on: null,
   },
   {
     ...base, ...owned, id: "ast_005", asset_no: "AST-0005", name: "Laser printer — office", category_code: "printer",
-    brand: "Brother", model: "HL-L2375DW", identifier: null, location: "Service centre", holder: null,
+    brand: "Brother", model: "HL-L2375DW", identifier: null, location: "SERVIS-LUAR", holder: null,
     status: "under_repair", acquired_on: "2023-11-01", purchase_cost: 2_900_000, vendor_code: null, trx_no: null,
     warranty_until: null, notes: "Paper jam, fuser replaced", ended_on: null,
   },
@@ -65,7 +65,7 @@ export const ASSETS: Asset[] = [
      borrowed from a client that has to go back within the fortnight. */
   {
     ...base, id: "ast_007", asset_no: "AST-0007", name: "Generator 20 kVA — workshop", category_code: "tool",
-    brand: "Denyo", model: "DCA-25", identifier: "GEN-2231", location: "Workshop, back yard", holder: null,
+    brand: "Denyo", model: "DCA-25", identifier: "GEN-2231", location: "HALAMAN", holder: null,
     status: "in_use", acquired_on: null, purchase_cost: null, vendor_code: "V-0005", trx_no: null,
     warranty_until: null, notes: "Serviced by the lessor", ended_on: null,
     ownership: "rented", rent_amount: 3_500_000, rent_period: "monthly", rent_due_day: 10,
@@ -73,7 +73,7 @@ export const ASSETS: Asset[] = [
   },
   {
     ...base, id: "ast_008", asset_no: "AST-0008", name: "Car — site visits", category_code: "vehicle",
-    brand: "Toyota", model: "Avanza", identifier: "DK 1450 AB", location: "Office car park", holder: "Anggun",
+    brand: "Toyota", model: "Avanza", identifier: "DK 1450 AB", location: "HALAMAN", holder: "Anggun",
     status: "in_use", acquired_on: null, purchase_cost: null, vendor_code: null, trx_no: null,
     warranty_until: null, notes: null, ended_on: null,
     ownership: "leased", rent_amount: 54_000_000, rent_period: "yearly", rent_due_day: null,
@@ -81,7 +81,7 @@ export const ASSETS: Asset[] = [
   },
   {
     ...base, id: "ast_009", asset_no: "AST-0009", name: "Projector — showroom", category_code: "other",
-    brand: "Epson", model: "EB-X06", identifier: null, location: "Showroom", holder: null,
+    brand: "Epson", model: "EB-X06", identifier: null, location: "SHOWROOM", holder: null,
     status: "in_use", acquired_on: null, purchase_cost: null, vendor_code: null, trx_no: null,
     warranty_until: null, notes: "Lent by the client for the launch", ended_on: null,
     ownership: "borrowed", rent_amount: null, rent_period: null, rent_due_day: null,

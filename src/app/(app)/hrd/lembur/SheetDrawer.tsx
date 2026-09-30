@@ -68,10 +68,10 @@ export function SheetDrawer({
   }
 
   /** Signing a production sheet also reports the work — **per person**
-   *  (D347). Each line is one timeslot: that person, their hours, their task,
+   *  (D349). Each line is one timeslot: that person, their hours, their task,
    *  and the pieces they finished if the line says so. The claim is the line,
    *  so a re-post is a no-op and two people on the same stage are two rows,
-   *  never one entry named *Sakirin, Karjo* (Q-D346b). */
+   *  never one entry named *Sakirin, Karjo* (Q-D348b). */
   async function postProduction(s: OvertimeSheetView) {
     const lines = s.lines.filter((l) => l.wo_no);
     if (lines.length === 0) return;

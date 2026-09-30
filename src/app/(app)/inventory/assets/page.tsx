@@ -85,6 +85,12 @@ export default function AssetsPage() {
     status: status || undefined, include_gone: showGone,
   }), [searched, category, status, showGone], { keepPrevious: true });
   const [cats] = useLoad(() => inventory.listAssetCategories(), []);
+  /* An asset's location is a location (`0197`): picked from the same list the
+     racks use, and shown by its name. Retired ones too, so an asset still
+     standing in one reads by name. */
+  const [locs] = useLoad(() => inventory.listStockLocations({ all: true }), []);
+  const locName = (code: string | null) =>
+    code == null ? null : (locs.status === "ready" ? locs.data.find((l) => l.code === code)?.name : undefined) ?? code;
   const catList = cats.status === "ready" ? cats.data : [];
 
   const [selected, setSelected] = useState<AssetView | null>(null);
@@ -222,7 +228,7 @@ export default function AssetsPage() {
       header: tr("Location / holder", "Lokasi / pemegang"),
       render: (a) => (
         <div className="text-[13px]">
-          <p className="text-slate-700">{a.location ?? "—"}</p>
+          <p className="text-slate-700">{locName(a.location) ?? "—"}</p>
           {a.holder && <p className="text-[11px] text-slate-500">{a.holder}</p>}
         </div>
       ),
@@ -416,7 +422,7 @@ export default function AssetsPage() {
               {([
                 [tr("Brand / model", "Merek / model"), [selected.brand, selected.model].filter(Boolean).join(" ") || "—"],
                 [tr("Serial / plate", "Serial / pelat"), selected.identifier ?? "—"],
-                [tr("Location", "Lokasi"), selected.location ?? "—"],
+                [tr("Location", "Lokasi"), locName(selected.location) ?? "—"],
                 [tr("Held by", "Dipegang oleh"), selected.holder ?? "—"],
                 ...(selected.ownership === "owned" ? [
                   [tr("Acquired", "Diperoleh"), selected.acquired_on ?? "—"],
@@ -544,8 +550,24 @@ export default function AssetsPage() {
               </div>
               <div>
                 <label htmlFor="as-loc" className="block text-sm text-slate-600">{tr("Location", "Lokasi")}</label>
-                <input id="as-loc" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })}
-                  placeholder={tr("e.g. Office, accounting", "mis. Kantor, accounting")} className={inputClass} />
+                <select id="as-loc" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })}
+                  className={inputClass}>
+                  <option value="">{tr("— not set —", "— belum diisi —")}</option>
+                  {(locs.status === "ready" ? locs.data : [])
+                    .filter((l) => l.is_active || l.code === form.location)
+                    .map((l) => <option key={l.code} value={l.code}>{l.name}{l.is_active ? "" : tr(" (inactive)", " (nonaktif)")}</option>)}
+                  {/* A place no longer on the list still shows, rather than
+                      reading as blank and being cleared on save. */}
+                  {form.location && locs.status === "ready" && !locs.data.some((l) => l.code === form.location) && (
+                    <option value={form.location}>{form.location}</option>
+                  )}
+                </select>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {tr("Not on the list? ", "Tidak ada di daftar? ")}
+                  <Link href="/inventory/penyesuaian" className="text-brand-700 hover:underline">
+                    {tr("Add it under Manage locations", "Tambahkan di Kelola lokasi")}
+                  </Link>
+                </p>
               </div>
               <div>
                 <label htmlFor="as-holder" className="block text-sm text-slate-600">{tr("Held by", "Dipegang oleh")}</label>

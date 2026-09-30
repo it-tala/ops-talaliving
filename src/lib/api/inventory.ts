@@ -26,8 +26,9 @@ import type {
   LogCost, LogCostKind,
   ProductStockRow, ProductLedgerRow, ProductMoveInput, ProductCountInput, ProductAllocateInput, ProductOrderLine,
   AssetView, AssetCategory, AssetStatus, AssetInput, AssetService, AssetServiceInput,
-  LabelKind, LabelSource, LabelCard,
+  LabelKind, LabelSource, LabelCard, StockedCategory,
 } from "@/services/inventory/contracts";
+import { stockedCategoryTree } from "@/services/inventory/categories";
 import type { MaterialPlan } from "@/services/production/contracts";
 import { materialShort, materialStatus } from "@/services/production/contracts";
 import type { ItemPurchase } from "@/services/procurement/contracts";
@@ -123,18 +124,19 @@ export async function listStock(
 }
 
 /** The categories counted on a rack — the only ones an item registered at the
- *  rack may go into (`register_item` refuses the rest as `not_stocked`). */
-export async function listStockedCategories(): Promise<Result<{ code: string; name: string }[]>> {
+ *  rack may go into (`register_item` refuses the rest as `not_stocked`). With
+ *  the group each sits under, so the picker shows the tree (`0197`). */
+export async function listStockedCategories(): Promise<Result<StockedCategory[]>> {
   const [{ data: stocked, error: sErr }, { data: cats, error: cErr }] = await Promise.all([
     db().from("stocked_categories").select("category_code"),
-    procure().from("item_categories").select("code, name"),
+    procure().from("item_categories").select("code, name, parent_code"),
   ]);
   if (sErr) return fail(SERVICE, sErr);
   if (cErr) return fail(SERVICE, cErr);
-  const names = new Map((cats ?? []).map((c) => [c.code as string, c.name as string]));
-  return ok(SERVICE, (stocked ?? [])
-    .map((s) => ({ code: s.category_code as string, name: names.get(s.category_code as string) ?? (s.category_code as string) }))
-    .sort((a, b) => a.name.localeCompare(b.name)));
+  return ok(SERVICE, stockedCategoryTree(
+    (stocked ?? []).map((s) => s.category_code as string),
+    (cats ?? []) as { code: string; name: string; parent_code: string | null }[],
+  ));
 }
 
 /** An item registered at the rack (`0168`, `ops_inv.register_item`): the

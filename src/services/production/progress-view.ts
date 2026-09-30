@@ -1,5 +1,5 @@
 /** Reading a Job Order's entries two ways: **by day, by hour**
- *  (D346).
+ *  (D348).
  *
  *  One implementation for both clients, the same arrangement as
  *  `work-order-view.ts`: the rows are `progress_entries` either way, and two

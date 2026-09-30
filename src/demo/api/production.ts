@@ -387,7 +387,7 @@ type ProgressInput = {
     note?: string | null;
     source?: "manual" | "overtime_sheet";
     source_ref?: string | null;
-    /** When it was worked, both ends or neither (D346): ISO moments on the
+    /** When it was worked, both ends or neither (D348): ISO moments on the
      *  office clock. An entry without them is filed under its day only. */
     started_at?: string | null;
     finished_at?: string | null;
@@ -399,7 +399,7 @@ export async function recordProgress(input: ProgressInput): Promise<Result<WorkO
 }
 
 /** The one road to the count, for a report on its own and for a timeslot's
- *  pieces (D347). A slot is the authority for who: one person is linked, a
+ *  pieces (D349). A slot is the authority for who: one person is linked, a
  *  crew is *not one person* — the state 0062 made for exactly that. */
 async function postProgress(
   input: ProgressInput,
@@ -508,7 +508,7 @@ async function postProgress(
       { field: "note" },
     );
   }
-  /* The span (D346), asked in the seam's order: before the order's state, so a
+  /* The span (D348), asked in the seam's order: before the order's state, so a
      span that cannot be true is named as the span. */
   const started = input.started_at || null;
   const finished = input.finished_at || null;
@@ -665,7 +665,7 @@ export async function listProgress(woNo: string): Promise<Result<ProgressEntry[]
 }
 
 /** Every entry on one office day, across every Job Order — the floor, hour by
- *  hour (D346). Oldest first, the order a day is read in. */
+ *  hour (D348). Oldest first, the order a day is read in. */
 export async function listProgressForDay(day: string): Promise<Result<ProgressEntryOnOrder[]>> {
   await latency();
   const state = getState();
@@ -680,7 +680,7 @@ export async function listProgressForDay(day: string): Promise<Result<ProgressEn
 }
 
 /* ------------------------------------------------------------------ */
-/* Timeslots (D347)                                                    */
+/* Timeslots (D349)                                                    */
 /* ------------------------------------------------------------------ */
 
 function slotView(state: ReturnType<typeof getState>, sl: WorkSlot): WorkSlotView {
@@ -710,7 +710,7 @@ export async function listWorkSlots(
   return ok(SERVICE, rows);
 }
 
-/** *07.30–09.30 AA-02 rakit pintu — Karjo, Toha* (D347). Asked in the seam's
+/** *07.30–09.30 AA-02 rakit pintu — Karjo, Toha* (D349). Asked in the seam's
  *  order; pieces, when given, go through the same road as any count and a
  *  slot the order refuses is not written at all. */
 export async function recordWorkSlot(
@@ -733,7 +733,7 @@ export async function recordWorkSlot(
   const wo = state.work_orders.find((w) => w.wo_no === input.wo_no);
   if (!wo) return notFound(SERVICE, "wo_not_found", `Tidak ada Job Order ${input.wo_no}.`);
 
-  /* A lembur line posts once (D147, D347). */
+  /* A lembur line posts once (D147, D349). */
   const already = input.source_ref
     ? state.work_slots.find((sl) => sl.source_ref === input.source_ref && sl.source_line === (input.source_line ?? null))
     : undefined;

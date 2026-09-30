@@ -27,6 +27,8 @@ insert into ops_core.user_modules (user_id, module, level) values
   ('ffffffff-0000-0000-0000-000000009972','accounting','write');
 insert into ops_procure.vendors (id, code, name) values
   ('99710000-0000-0000-0000-000000000001','V-9971','Rental Genset Bali');
+-- An asset's location is a location (0197); the seam is handed its name.
+insert into ops_inv.stock_locations (code, name) values ('WORKSHOP','Workshop') on conflict (code) do nothing;
 
 set local role authenticated;
 set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-000000009971';

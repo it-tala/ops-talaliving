@@ -25,6 +25,9 @@ insert into ops_procure.vendors (id, code, name) values
   ('99510000-0000-0000-0000-000000000001','V-9951','Toko CCTV Jaya');
 insert into ops_core.attachments (id, storage_path, filename, uploaded_by) values
   ('99510000-0000-0000-0000-0000000000f1','a/cam.jpg','cam-gate.jpg','ffffffff-0000-0000-0000-000000009951');
+-- An asset's location is a location (0197): the place is in the list first.
+insert into ops_inv.stock_locations (code, name) values ('OFFICE-FRONT','Office front door'), ('WORKSHOP-GATE','Workshop gate')
+  on conflict (code) do nothing;
 
 set local role authenticated;
 
@@ -70,7 +73,7 @@ begin
   r := ops_inv.update_asset(v_no, p_location => 'Office front door', p_model => '', p_clear => array['warranty_until']);
   assert r ->> 'outcome' = 'ok', 'update, got ' || r::text;
   select * into a from ops_inv.assets where asset_no = v_no;
-  assert a.location = 'Office front door' and a.model is null and a.warranty_until is null
+  assert a.location = 'OFFICE-FRONT' and a.model is null and a.warranty_until is null
      and a.brand = 'Hikvision', 'fields written, got ' || row_to_json(a)::text;
   r := ops_inv.update_asset(v_no, p_location => 'Office front door');
   assert r ->> 'outcome' = 'noop', 'same value is a noop, got ' || r::text;
@@ -125,7 +128,7 @@ begin
   select detail into d from ops_core.audit_log
    where entity = 'asset' and action = 'update' and outcome = 'ok'
    order by at desc, id desc limit 1;
-  assert d ? 'location' and d -> 'location' ->> 'to' = 'Office front door' and d ? 'model',
+  assert d ? 'location' and d -> 'location' ->> 'to' = 'OFFICE-FRONT' and d ? 'model',
     'only the changed fields, from/to, got ' || d::text;
   assert not (d ? 'brand'), 'unchanged fields left out';
 end $$;

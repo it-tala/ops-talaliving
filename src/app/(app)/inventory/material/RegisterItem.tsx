@@ -7,6 +7,7 @@ import { Loaded, useLoad } from "@/components/ui/loaded";
 import { NumberInput } from "@/components/ui/number-input";
 import { documents, inventory, procurement } from "@/demo/api";
 import { ITEM_PHOTO_MAX, ITEM_PHOTO_MIN } from "@/services/documents/contracts";
+import type { StockedCategory } from "@/services/inventory/contracts";
 import { useToast } from "@/store/toast";
 import { shrinkImage } from "../log/notaFile";
 import { useTr } from "@/lib/i18n";
@@ -18,6 +19,8 @@ import { useTr } from "@/lib/i18n";
  *  name typed by one person is a name another person cannot find, while a
  *  photo of the thing is recognisable by everybody. The catalogue name stays
  *  English and the floor's own word sits beside it; both are searched.
+ *
+ *  The category is picked from the tree — group, then type (`0197`, D346).
  *
  *  Counting is optional here and, when given, lands as an opname adjustment
  *  against a location (D171) — the same record the opname screen writes, not
@@ -156,7 +159,15 @@ export function RegisterItem({ mayCount, onCreated, onCancel }: {
                 <select value={form.category_code} onChange={(e) => setForm({ ...form, category_code: e.target.value })}
                   className={`mt-1 ${field}`}>
                   <option value="">{tr("— choose —", "— pilih —")}</option>
-                  {cats.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
+                  {categoryGroups(cats).map((g) => (
+                    <optgroup key={g.label} label={g.label}>
+                      {g.options.map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {c.parent_code ? c.name : tr(`${c.name} (general)`, `${c.name} (umum)`)}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
                 </select>
               )}
             </Loaded>
@@ -206,4 +217,15 @@ export function RegisterItem({ mayCount, onCreated, onCancel }: {
       </div>
     </Card>
   );
+}
+
+/** The picker's tree: one group per parent, the parent itself first when it is
+ *  counted (items may sit on it directly), then its types. */
+function categoryGroups(cats: StockedCategory[]): { label: string; options: StockedCategory[] }[] {
+  const groups = new Map<string, StockedCategory[]>();
+  for (const c of cats) {
+    const label = c.parent_name ?? c.name;
+    groups.set(label, [...(groups.get(label) ?? []), c]);
+  }
+  return [...groups].map(([label, options]) => ({ label, options }));
 }

@@ -19,6 +19,12 @@ export const STOCK_LOCATIONS: StockLocation[] = [
   { code: "GUDANG", name: "Gudang utama", is_active: true },
   { code: "WORKSHOP", name: "Lantai produksi", is_active: true },
   { code: "FINISHING", name: "Ruang finishing", is_active: true },
+  /* One list for racks, finished goods and assets (`0197`, D347). */
+  { code: "KANTOR", name: "Kantor", is_active: true },
+  { code: "POS-SATPAM", name: "Pos satpam / gerbang workshop", is_active: true },
+  { code: "HALAMAN", name: "Halaman workshop", is_active: true },
+  { code: "SHOWROOM", name: "Showroom", is_active: true },
+  { code: "SERVIS-LUAR", name: "Di tempat servis (luar)", is_active: true },
 ];
 
 export const STOCK_SETTINGS: StockSetting[] = [

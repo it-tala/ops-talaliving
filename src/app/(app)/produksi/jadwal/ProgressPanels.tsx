@@ -15,7 +15,7 @@ import { officeToday, OFFICE_TZ } from "@/lib/office";
 import { useTr } from "@/lib/i18n";
 
 /** How the Job Order moved over time: per day, or hour by hour within a day
- *  (D346). The hourly view starts from where the order stood that morning, and
+ *  (D348). The hourly view starts from where the order stood that morning, and
  *  shows empty hours as empty. */
 export function ProgressOverTime({ entries, stageOrder, qty }: { entries: ProgressEntry[]; stageOrder: string[]; qty: number }) {
   const tr = useTr();
@@ -187,7 +187,7 @@ function StageCell({ delta, total, qty }: { delta: number | undefined; total: nu
 
 
 /** Every piece reported across the floor on one day, in the hour it finished,
- *  with who did it (D346). Across products the pieces are **listed, not
+ *  with who did it (D348). Across products the pieces are **listed, not
  *  summed** — four chairs and two wardrobes are not six of anything (D264). */
 export function FloorHourly({ day }: { day: string }) {
   const [state, reload] = useLoad(() => production.listProgressForDay(day), [day]);

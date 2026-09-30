@@ -234,7 +234,7 @@ export interface DemoState {
   work_orders: WorkOrder[];
   /** Work done, append-only — a correction is a negative entry (A5). */
   production_progress: ProgressEntry[];
-  /** Timeslots: who worked on what, for how long (D347). Cancelled with a
+  /** Timeslots: who worked on what, for how long (D349). Cancelled with a
    *  reason, never removed. */
   work_slots: WorkSlot[];
   /** One trip to one vendor for one process (W6, D280). Replaces the four
