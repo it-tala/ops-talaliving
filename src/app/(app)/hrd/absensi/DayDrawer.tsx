@@ -20,6 +20,7 @@ import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 import { instantInDay } from "@/services/hr/schedule-rules";
 import { TapWhereLine } from "@/components/attendance/located-tap";
+import { onSiteHours } from "@/services/hr/on-site";
 
 /** A tap's office calendar day and clock face, from the instant rather than
  *  from the string's own offset, so a night's morning tap can say it is
@@ -169,7 +170,12 @@ export function DayDrawer({
               {d.state === "marked" && <Badge tone="violet" dot>{DAY_MARK_LABEL[d.mark!.kind]}</Badge>}
               {d.state === "off" && <Badge tone="slate" dot>{tr("no tap at all", "tidak ada tap sama sekali")}</Badge>}
               <span className="text-[12px] text-slate-500">
-                {tr(`${formatNumber(d.work_hours)} h worked`, `${formatNumber(d.work_hours)} jam kerja`)}
+                {tr(`${formatNumber(d.work_hours)} h paid`, `${formatNumber(d.work_hours)} jam dibayar`)}
+                {/* Hours at work beside hours paid (D354): first tap to last. */}
+                {onSiteHours(d.scans) != null && tr(
+                  ` · ${formatNumber(onSiteHours(d.scans)!)} h on site (${officeClock(new Date(d.scans[0].at))}–${officeClock(new Date(d.scans[d.scans.length - 1].at))})`,
+                  ` · ${formatNumber(onSiteHours(d.scans)!)} jam di lokasi (${officeClock(new Date(d.scans[0].at))}–${officeClock(new Date(d.scans[d.scans.length - 1].at))})`,
+                )}
                 {d.break_hours > 0 && tr(` · ${formatNumber(d.break_hours)} h break`, ` · ${formatNumber(d.break_hours)} jam istirahat`)}
                 {d.overtime_hours > 0 && tr(` · ${formatNumber(d.overtime_hours)} h overtime`, ` · ${formatNumber(d.overtime_hours)} jam lembur`)}
                 {tr(` · day value ${formatNumber(d.day_value)}`, ` · nilai hari ${formatNumber(d.day_value)}`)}
