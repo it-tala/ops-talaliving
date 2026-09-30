@@ -8283,3 +8283,129 @@ different).
 **Rule:** never `select (f(...)).*` for a function that does work. Call it in
 `FROM`. The only other live instance is `ops_hr.v_kpi_run` (`0064`,
 `(ops_hr.kpi(...)).*`), left for its own change.
+
+## F196 · 2026-09-29 · A paged list with no search makes paging the search
+
+The owner's HRD evaluation opened with the employee list: to find one person
+among 41 you paged through 25 at a time (D157 made every table page, and
+`/hrd/karyawan` never got the search `/hrd/berkas-201` and `/it/pengguna`
+already had). `DataTable` resets to page 1 when the row count changes, so a
+filter in front of it needs nothing from the table. The box searches name,
+number, position, unit and the linked account's email, and filters the *left*
+list too, because a leaver is looked up for the same reasons (a payslip, a
+reference) as anybody else.
+
+**Rule:** any list that pages people or documents gets a search in front of
+it; paging is for reading, not for finding.
+
+## F197 · 2026-09-29 · The payroll sheet and ops disagreed by Rp 17,6 jt on one week, and every rupiah had a reason
+
+Week 29 Agu – 4 Sep: sheet Rp 32.117.570 for 39 daily workers, ops Rp 14.523.500.
+Taken apart per person (the decomposition leaves Rp 0 unexplained except a
+Rp 20.000 half day):
+
+| Cause | Rp |
+|---|---|
+| Sabtu/Minggu paid 2× by the sheet, 1× by ops | 4.124.000 |
+| People ops had no taps for — machine numbers wrong in ops (SUMI 112 vs 113, IRFAN 75 vs 74) or not on the machine (IRWAN, KIDO, JAMI, NUR) | 3.692.541 |
+| Weekdays the sheet paid and ops held at 0 in `review` (a tap too many or too few) | 3.275.500 |
+| Overtime: the sheet pays the forms, ops had no overtime sheet at all | 2.975.398 |
+| Weekend days the sheet paid and ops held in `review` | 2.360.000 |
+| Insentif, tunjangan, saldo, potongan — typed into the sheet, absent in ops | 892.106 |
+| DENI: ops filed machine 74 (IRFAN's) under him; his own 72 is SENIPAH's, who left | 274.525 |
+
+Three things this taught:
+
+- **The biggest single cause was a rule, not data.** `read_day` (D137/D141)
+  refuses a day it cannot fit into six slots; the sheet reads any day with a
+  tap as present and its hours against that weekday's schedule. The owner
+  chose the sheet's reading (D340). `0195` makes it a rule-book choice
+  (`day_reading`), not a replacement, so the old reading is still one key away.
+- **`employee_no` is the machine number, and it was copied from the payroll
+  sheet's FP column — which is wrong for three people.** The machine's own
+  export names them (`Deni 72`, `Irfan 74`, `Sumi 113`). Rule: machine numbers
+  come from the machine's export, never from a payroll column.
+- **The machine itself duplicates KARJO (9) and RONI (11)** — identical taps
+  to the second from 31 Agu. It is in the device's own export, so it is the
+  enrolment (one finger on two numbers), not the import.
+
+What the sheet itself gets wrong, for HRD: the payroll tab's days and
+overtime are typed, not linked to the BIOMETRIC tab; its Senin–Kamis hours
+formula caps at 16.00 (7,75 instead of 8,25); rows 219–228 have no overtime
+formula; Nur Aisah is paid 13 h against the form's 9,5; the recap block is
+Rp 61.005,89 short of the total.
+
+**Rule:** a pay rule the business actually uses belongs in the rule book with
+a key, even when it contradicts an earlier decision — the earlier reading
+stays available and the book says which one a date was paid under.
+
+## F198 · 2026-09-30 · Given the sheet's attendance and overtime hours, ops pays what the signed sheet paid — to the rupiah
+
+`scripts/hr/payroll-sheet/reconcile.py` runs a signed weekly payroll workbook
+through ops on a scratch database: the workbook's own machine export through
+`import_scans`, the sheet's day decisions as marks and typed taps, its
+overtime totals on one approved sheet, its saldo/potongan as adjustments —
+then compares `period_lines` with TOTAL GAJI per person.
+
+| Week | People | Sheet | Ops (Minggu satpam ×2) | Ops (Minggu satpam ×4) |
+|---|---|---|---|---|
+| 29 Agu – 4 Sep | 39 | 32.117.570,08 | 32.013.415 | 32.117.583 |
+| 5 – 11 Sep | 39 | 20.236.077,08 | 20.236.085 | 20.236.085 |
+| 12 – 18 Sep | 37 | 27.614.870,33 | 27.510.713 | 27.614.881 |
+| 19 – 25 Sep | 37 | 14.214.514,13 (= the transfer receipt) | 14.110.357 | 14.214.525 |
+
+With the guard's Sunday at 4× every one of the 152 person-weeks matches:
+144 to under Rp 1 (the sheet keeps fractions of a rupiah) and the guards'
+8 within Rp 5 (their Rp 52.083,5 rate). `audit.py` found every row of all four
+sheets consistent with its own columns; what is typed rather than computed —
+overtime hours, weekend counts, saldo, potongan — is exactly what the
+reconciliation feeds in.
+
+The sub-rupiah differences are the sheet keeping fractions of a rupiah. The
+rest are two things ops cannot express yet, both needing the owner:
+
+- **A guard who works a Sunday is paid 2 weekend units at 2×** — four days'
+  pay for one Sunday, three times in four weeks (JAMI weeks 1 and 3, KIDO
+  week 4: −104.163 each at ×2). `SATPAM_SUNDAY=4` makes all three match;
+  whether that is the rule or two shifts is the owner's to say. **The owner
+  ruled 2× (D341)**: a Sunday is one day at 2× for a Monday–Saturday
+  pattern, so those three Sundays pay one day less in ops unless the second
+  shift is recorded as approved overtime.
+- **The guards' rate is Rp 52.083,5**, and `base_rate` is whole rupiah: six
+  days are Rp 3 off either way. The owner rounds it up to Rp 52.084 (D342), so the Rp 3–5 a week is
+  ops paying the rounded rate, by decision.
+- **Wednesday 16 Sep was a company event** (D342): unpaid, with the few who
+  worked paid ×1. Ops needs no new mark for it — an unmarked day already
+  reads that way — only HRD's marks for the five who tapped in for the event
+  without working, which is what `reconcile.py` derived from the sheet.
+
+Two rules the sheet encodes that ops needs as patterns, not constants: the
+helper (NUR), like the guards, has **Saturday as an ordinary ×1 day** — the
+sheet adds column F into their days — so production needs a HELPER pattern
+beside PRODUKSI (Sabtu ×2) and SATPAM (Sabtu ×1, Minggu ×2). And the machine
+numbers keep moving: IRWAN is on the machine as 8 from week 4, AGUS (new) is
+not on it. `machine_map.csv` is the one place those are written.
+
+**Rule:** a calculation is validated by feeding it the inputs of a result
+somebody signed, not by reading its code. The week-4 sheet's total equals the
+bank transfer, which is the strongest reference available.
+
+## F199 · 2026-09-30 · A tap typed in was saved, and the screen said *undefined*
+
+HRD → Attendance → *Tap yang terlewat mesin* saved the tap and answered with
+an error reading `undefined` (owner, HRD evaluation). `add_scan` (0053)
+answers `{employee_no, work_date, at}`; the real client typed the answer as
+`{scan_id}` and read the row back with `.eq("id", said.data.scan_id)` — an
+`id` of `undefined`, which PostgREST refuses. The demo never read anything
+back, so the sandbox never showed it.
+
+The client now reads the row back by what the seam does return: the person
+and the instant, which the seam itself makes unique (`already_recorded`).
+No migration: the seam was right, the client assumed a field it never had.
+`mark_day`, the other write on the same drawer, does return the `mark_no`
+it is read back by.
+
+**Rule:** a client's read-back after a seam is typed from the seam's
+`ops_core.ok(...)` payload, not from what the row would have — and a demo
+that returns the row directly hides the difference.
+

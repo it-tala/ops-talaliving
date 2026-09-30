@@ -56,7 +56,8 @@ import {
   EMPLOYEE_DOC_CHECKLIST, EMPLOYEE_DOC_LABEL, SENSITIVE_DOC_KINDS,
   ADJUSTMENT_LABEL, SCHEME_LABEL,
 } from "@/services/hr/contracts";
-import { instantInDay, nextOfficeDay } from "@/services/hr/schedule-rules";
+import { instantInDay, nextOfficeDay, type ScheduleDay, type ScheduleWeekDay } from "@/services/hr/schedule-rules";
+import { tapWhere, type TapReadingRow } from "@/services/hr/tap-where";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fromSeam, fromRows, notFound, invalid, ok, type Result } from "./_kit";
 import { link as linkDocument } from "./documents";
@@ -237,6 +238,8 @@ export async function listSchedules(): Promise<Result<{
     overnight: boolean;
     /** Where this pattern's next working day begins, minutes after midnight. */
     day_boundary_minutes: number;
+    /** The seven days as the reading sees them (D340). */
+    week: ScheduleWeekDay[];
   })[];
   unlinked: { employee_no: string; full_name: string; unit: string }[];
   inherited: { employee_no: string; full_name: string; unit: string; schedule_code: string }[];
@@ -305,6 +308,29 @@ export async function setScheduleHours(
     p_start_minutes: input.start_minutes,
     p_end_minutes: input.end_minutes,
     p_break_minutes: input.break_minutes,
+    p_effective_from: input.effective_from,
+    p_note: input.note,
+    p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<{ code: string; version: number; effective_from: string }>(SERVICE, data, error);
+}
+
+/** HRD sets one pattern's weekdays — hours, break and what a day is worth
+ *  (D340). The whole `days` object is replaced; `{}` sends every weekday back
+ *  to the pattern's own hours. Same dated-version rules as
+ *  `setScheduleHours`. */
+export async function setScheduleDays(
+  input: {
+    code: string;
+    days: Record<string, ScheduleDay>;
+    effective_from: string;
+    note: string;
+  },
+  idempotencyKey?: string,
+): Promise<Result<{ code: string; version: number; effective_from: string }>> {
+  const { data, error } = await db().rpc("set_schedule_days", {
+    p_code: input.code,
+    p_days: input.days,
     p_effective_from: input.effective_from,
     p_note: input.note,
     p_key: idempotencyKey ?? null,
@@ -885,12 +911,22 @@ export async function addScan(
     p_reason: input.reason,
     p_key: null,
   });
-  const said = fromSeam<{ scan_id: string }>(SERVICE, data, error);
+  /* The seam answers with the person and the instant it wrote, not the row's
+     id (0053). Reading back `id = scan_id` asked for `id = undefined`: the tap
+     was saved and the screen said *undefined* (owner, HRD evaluation). The
+     row is found by what the seam did return — one person has one tap per
+     instant, which the seam itself enforces (`already_recorded`). */
+  const said = fromSeam<{ employee_no: string; at: string }>(SERVICE, data, error);
   if (said.error) return said as unknown as Result<AttendanceScan>;
+  const { data: emp, error: e1 } = await db()
+    .from("employees").select("id").eq("employee_no", said.data.employee_no).single();
+  if (e1) return fromRows<AttendanceScan>(SERVICE, null, e1);
   const { data: row, error: e2 } = await db()
     .from("attendance_scans")
     .select("id,employee_id,work_date,at,verify,location,source,import_id,reason,recorded_by,recorded_at")
-    .eq("id", said.data.scan_id).single();
+    .eq("employee_id", (emp as { id: string }).id)
+    .eq("at", said.data.at)
+    .single();
   return fromRows<AttendanceScan>(SERVICE, row as unknown as AttendanceScan, e2);
 }
 
@@ -1050,11 +1086,14 @@ interface DayRow {
   window_from: string;
   window_to: string;
   overnight: boolean;
+  /** 0195 (D340). */
+  pay_multiplier: number | null;
+  scheduled_hours: number | null;
 }
 
 interface ScanRow {
   id: string; employee_id: string; work_date: string; at: string;
-  verify: string | null; source: ScanSource;
+  verify: string | null; source: ScanSource; reason: string | null;
 }
 
 /** Which slot a tap was placed in. **Read off the reading, not worked out
@@ -1071,7 +1110,10 @@ function slotOf(row: DayRow, at: string): ScanSlot | null {
   return null;
 }
 
-function buildDay(row: DayRow, scans: ScanRow[], marks: DayMark[]): TimesheetDay {
+function buildDay(
+  row: DayRow, scans: ScanRow[], marks: DayMark[],
+  readings: Map<string, TapReadingRow> = new Map(), sites: WorkSite[] = [],
+): TimesheetDay {
   /* The taps the reading read: its own window, not the calendar day. A guard's
      07.05 pulang is stored on Tuesday and read into Monday night (D330), and
      matching by `work_date` here would show it under the wrong day. */
@@ -1104,6 +1146,7 @@ function buildDay(row: DayRow, scans: ScanRow[], marks: DayMark[]): TimesheetDay
       .sort((a, b) => a.at.localeCompare(b.at))
       .map((s) => ({
         at: s.at, verify: s.verify ?? "", slot: slotOf(row, s.at), source: s.source,
+        where: tapWhere(s.source, s.reason, readings.get(s.id) ?? null, sites),
       })),
     slots,
     state: row.state,
@@ -1118,6 +1161,8 @@ function buildDay(row: DayRow, scans: ScanRow[], marks: DayMark[]): TimesheetDay
     window_from: row.window_from,
     window_to: row.window_to,
     overnight: row.overnight,
+    pay_multiplier: row.pay_multiplier == null ? 1 : Number(row.pay_multiplier),
+    scheduled_hours: row.scheduled_hours == null ? null : Number(row.scheduled_hours),
   };
 }
 
@@ -1127,7 +1172,8 @@ function buildDay(row: DayRow, scans: ScanRow[], marks: DayMark[]): TimesheetDay
 async function readDays(
   from: string, to: string, unit?: string, employeeNo?: string,
 ): Promise<Result<TimesheetDay[]>> {
-  const [{ data, error }, { data: scans, error: e2 }, { data: marks, error: e3 }] =
+  const [{ data, error }, { data: scans, error: e2 }, { data: marks, error: e3 },
+         { data: located, error: e4 }, { data: sites, error: e5 }] =
     await Promise.all([
       db().rpc("timesheet_rows", {
         p_from: from, p_to: to, p_unit: unit ?? null, p_employee_no: employeeNo ?? null,
@@ -1135,19 +1181,31 @@ async function readDays(
       db()
         /* One calendar day past the range: the last day's window can reach
            into the next morning for somebody on a night (D330). */
-        .from("attendance_scans").select("id,employee_id,work_date,at,verify,source")
+        .from("attendance_scans").select("id,employee_id,work_date,at,verify,source,reason")
         .gte("work_date", from).lte("work_date", nextOfficeDay(to)),
       db()
         .from("day_marks").select("id,employee_id,work_date,kind,reason,marked_by,marked_at")
         .gte("work_date", from).lte("work_date", to).is("withdrawn_at", null),
+      /* Where each phone tap was made, and the sites — so every tap can say
+         where it was (D344). */
+      db()
+        .from("v_located_tap")
+        .select("scan_id,lat,lng,verdict,distance_m,accuracy_m,site_code,site_name,note,photo_id,photo_link,photo_filename")
+        .gte("work_date", from).lte("work_date", nextOfficeDay(to)),
+      db().from("work_sites").select("id,code,name,lat,lng,radius_m,active,updated_at"),
     ]);
   if (error) return fromRows<TimesheetDay[]>(SERVICE, null, error);
   const rows = (data ?? []) as DayRow[];
   if (e2) return fromRows<TimesheetDay[]>(SERVICE, null, e2);
   if (e3) return fromRows<TimesheetDay[]>(SERVICE, null, e3);
+  if (e4) return fromRows<TimesheetDay[]>(SERVICE, null, e4);
+  if (e5) return fromRows<TimesheetDay[]>(SERVICE, null, e5);
+  const readings = new Map<string, TapReadingRow>();
+  for (const l of (located ?? []) as (TapReadingRow & { scan_id: string })[]) readings.set(l.scan_id, l);
 
   return ok(SERVICE, rows.map(
-    (r) => buildDay(r, (scans ?? []) as ScanRow[], (marks ?? []) as unknown as DayMark[])));
+    (r) => buildDay(r, (scans ?? []) as ScanRow[], (marks ?? []) as unknown as DayMark[],
+                    readings, (sites ?? []) as WorkSite[])));
 }
 
 export async function attendanceFor(
@@ -1295,6 +1353,18 @@ export async function saveWorkSite(
     p_radius_m: input.radius_m, p_active: input.active, p_key: idempotencyKey ?? null,
   });
   return fromSeam<WorkSite>(SERVICE, data, error);
+}
+
+/** Take a site out (D343). Refused, with the count, once any tap was judged
+ *  against it — switch it off instead; the seam decides. */
+export async function removeWorkSite(
+  code: string,
+  idempotencyKey?: string,
+): Promise<Result<{ code: string; name: string }>> {
+  const { data, error } = await db().rpc("remove_work_site", {
+    p_code: code, p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<{ code: string; name: string }>(SERVICE, data, error);
 }
 
 /** Phone taps with their reading, in a period of office days. HRD's review

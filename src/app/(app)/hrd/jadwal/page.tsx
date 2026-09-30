@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarClock, AlertTriangle, Users, Link2, Moon, Pencil, Plus } from "lucide-react";
+import { CalendarClock, AlertTriangle, Users, Link2, Moon, Pencil, Plus, CalendarDays } from "lucide-react";
 import { Badge, Button, Card, CardHeader, EmptyState, PageHeader, StatCard } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { Combobox } from "@/components/ui/combobox";
@@ -12,7 +12,7 @@ import { useSession } from "@/store/session";
 import { useTr } from "@/lib/i18n";
 import { officeToday } from "@/lib/office";
 import { NumberInput } from "@/components/ui/number-input";
-import { dayBoundaryMinutes, isOvernight, scheduleHoursOf } from "@/services/hr/schedule-rules";
+import { dayBoundaryMinutes, isOvernight, scheduleHoursOf, scheduleWeek, WEEKDAY_NAMES, type ScheduleDay } from "@/services/hr/schedule-rules";
 import type { WorkSchedule } from "@/services/hr/contracts";
 
 /** Working patterns, and who is on them (Q53, D279).
@@ -38,6 +38,7 @@ export default function SchedulePage() {
   const mayEdit = can("hrd.update");
   const [data, reload] = useLoad(() => hr.listSchedules(), []);
   const [editing, setEditing] = useState<string | null>(null);
+  const [editingDays, setEditingDays] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
   return (
@@ -152,6 +153,8 @@ export default function SchedulePage() {
                               </>
                             )}
                           </span>
+                          {/* The seven days as the reading sees them (D340). */}
+                          <WeekStrip week={sc.week ?? scheduleWeek(sc)} />
                         </td>
                         <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{hours(sc.hours.daily_hours)}</td>
                         <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{hours(sc.hours.friday_hours)}</td>
@@ -165,8 +168,11 @@ export default function SchedulePage() {
                         </td>
                         {mayEdit && (
                           <td className="px-3 py-2.5 text-right">
-                            <Button size="sm" variant="ghost" icon={Pencil} onClick={() => { setEditing(editing === sc.code ? null : sc.code); setAdding(false); }}>
+                            <Button size="sm" variant="ghost" icon={Pencil} onClick={() => { setEditing(editing === sc.code ? null : sc.code); setEditingDays(null); setAdding(false); }}>
                               {tr("Hours", "Jam")}
+                            </Button>
+                            <Button size="sm" variant="ghost" icon={CalendarDays} onClick={() => { setEditingDays(editingDays === sc.code ? null : sc.code); setEditing(null); setAdding(false); }}>
+                              {tr("Per day", "Per hari")}
                             </Button>
                           </td>
                         )}
@@ -214,6 +220,15 @@ export default function SchedulePage() {
                 daysPerWeek={d.week_pattern === "5day" ? 5 : 6}
                 onClose={() => setEditing(null)}
                 onDone={() => { setEditing(null); reload(); }}
+              />
+            )}
+
+            {mayEdit && editingDays && d.schedules.find((sc) => sc.code === editingDays) && (
+              <EditDays
+                key={`days-${editingDays}`}
+                schedule={d.schedules.find((sc) => sc.code === editingDays)!}
+                onClose={() => setEditingDays(null)}
+                onDone={() => { setEditingDays(null); reload(); }}
               />
             )}
 
@@ -620,6 +635,176 @@ function AddSchedule({
           disabled={busy || !code.trim() || !name.trim() || !note.trim() || taken}>
           {tr("Add pattern", "Tambah pola")}
         </Button>
+      </div>
+    </Card>
+  );
+}
+
+/** The seven days of a pattern in one line: what each weekday reads as, and
+ *  the ones worth more than a day marked (D340). */
+function WeekStrip({ week }: { week: ReturnType<typeof scheduleWeek> }) {
+  const tr = useTr();
+  return (
+    <span className="mt-1 flex flex-wrap gap-1">
+      {week.map((w) => (
+        <span
+          key={w.isodow}
+          title={w.off ? tr("day off", "libur")
+            : `${clock(w.start_minutes)}–${clock(w.end_minutes)} · ${tr("break", "istirahat")} ${w.break_minutes ?? 0} m${w.pay_multiplier !== 1 ? ` · ${w.pay_multiplier}×` : ""}`}
+          className={
+            "rounded px-1 py-0.5 text-[10px] tabular-nums " +
+            (w.off ? "bg-slate-100 text-slate-400"
+              : w.pay_multiplier > 1 ? "bg-amber-50 text-amber-800 ring-1 ring-amber-200"
+                : w.own ? "bg-brand-50 text-brand-800" : "bg-slate-50 text-slate-600")
+          }
+        >
+          {WEEKDAY_NAMES[w.isodow - 1].slice(0, 3)} {w.off ? "—" : hours(w.hours)}
+          {!w.off && w.pay_multiplier !== 1 && ` ×${w.pay_multiplier}`}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+interface DayDraft {
+  /** Follows the pattern's ordinary hours (Friday its Friday ones). */
+  inherit: boolean;
+  start: string;
+  end: string;
+  breakMin: number;
+  multiplier: number;
+  off: boolean;
+}
+
+/** HRD sets a pattern's weekdays (D340) — *di jadwal harusnya bisa di-setting
+ *  per harinya* (owner). Each weekday either follows the pattern's ordinary
+ *  hours or carries its own start, end, break and what a day of it is worth;
+ *  Saturday and Sunday at the workshop are 08.00–16.00 without a break, paid
+ *  2×. Saved through `set_schedule_days` as a new dated version of the book. */
+function EditDays({
+  schedule, onClose, onDone,
+}: {
+  schedule: WorkSchedule;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const tr = useTr();
+  const { toast } = useToast();
+  const week = scheduleWeek(schedule);
+  const [rows, setRows] = useState<DayDraft[]>(() => week.map((w) => ({
+    inherit: !w.own,
+    start: clockInput(w.start_minutes),
+    end: clockInput(w.end_minutes),
+    breakMin: w.break_minutes ?? 0,
+    multiplier: w.pay_multiplier,
+    off: w.off,
+  })));
+  const [from, setFrom] = useState(officeToday());
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const patch = (i: number, p: Partial<DayDraft>) =>
+    setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...p } : r)));
+
+  const days: Record<string, ScheduleDay> = {};
+  rows.forEach((r, i) => {
+    if (r.inherit) return;
+    days[String(i + 1)] = r.off
+      ? { off: true }
+      : {
+          start_minutes: minutesOfClock(r.start),
+          end_minutes: minutesOfClock(r.end),
+          break_minutes: r.breakMin,
+          pay_multiplier: r.multiplier,
+        };
+  });
+  const preview = scheduleWeek({ ...schedule, days });
+
+  async function save() {
+    setBusy(true);
+    const res = await hr.setScheduleDays({ code: schedule.code, days, effective_from: from, note });
+    setBusy(false);
+    if (res.error) {
+      toast(res.error.status === 409 ? "critical" : "warning", tr("Not saved yet", "Belum tersimpan"), res.error.message);
+      return;
+    }
+    toast("success", schedule.name, tr(
+      `Days saved as rule book v${res.data.version}, in force from ${res.data.effective_from}.`,
+      `Jadwal per hari tersimpan sebagai buku aturan v${res.data.version}, berlaku mulai ${res.data.effective_from}.`,
+    ));
+    onDone();
+  }
+
+  const inputCls = "h-8 w-full rounded-md border border-slate-200 px-1.5 text-[13px] focus:border-brand-400 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400";
+
+  return (
+    <Card className="mb-4">
+      <CardHeader
+        title={tr(`Days of ${schedule.name}`, `Jadwal per hari ${schedule.name}`)}
+        subtitle={tr(
+          "Each weekday follows the pattern's hours or has its own. The multiplier is what a day worked is worth in days of pay — 2× for Saturday and Sunday. The attendance reads hours against the day's own schedule.",
+          "Setiap hari ikut jam pola atau punya jamnya sendiri. Pengali adalah nilai sehari kerja dalam hari upah — 2× untuk Sabtu dan Minggu. Absensi membaca jam terhadap jadwal hari itu sendiri.",
+        )}
+        icon={CalendarDays}
+      />
+      <div className="overflow-x-auto px-5">
+        <table className="w-full min-w-[640px] text-[13px]">
+          <thead>
+            <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400">
+              <th className="py-1.5 pr-2 font-medium">{tr("Day", "Hari")}</th>
+              <th className="py-1.5 pr-2 font-medium">{tr("Own hours", "Jam sendiri")}</th>
+              <th className="py-1.5 pr-2 font-medium">{tr("Start", "Masuk")}</th>
+              <th className="py-1.5 pr-2 font-medium">{tr("End", "Pulang")}</th>
+              <th className="py-1.5 pr-2 font-medium">{tr("Break (min)", "Istirahat (mnt)")}</th>
+              <th className="py-1.5 pr-2 font-medium">{tr("Pay ×", "Upah ×")}</th>
+              <th className="py-1.5 pr-2 font-medium">{tr("Off", "Libur")}</th>
+              <th className="py-1.5 text-right font-medium">{tr("Hours", "Jam")}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.map((r, i) => {
+              const locked = r.inherit || r.off;
+              return (
+                <tr key={i}>
+                  <td className="py-1.5 pr-2 font-medium text-slate-700">{WEEKDAY_NAMES[i]}</td>
+                  <td className="py-1.5 pr-2">
+                    <input type="checkbox" checked={!r.inherit} onChange={(e) => patch(i, { inherit: !e.target.checked })}
+                      aria-label={tr(`${WEEKDAY_NAMES[i]} has its own hours`, `${WEEKDAY_NAMES[i]} punya jam sendiri`)} />
+                  </td>
+                  <td className="py-1.5 pr-2"><input type="time" value={r.start} disabled={locked} onChange={(e) => patch(i, { start: e.target.value })} className={inputCls} /></td>
+                  <td className="py-1.5 pr-2"><input type="time" value={r.end} disabled={locked} onChange={(e) => patch(i, { end: e.target.value })} className={inputCls} /></td>
+                  <td className="py-1.5 pr-2 w-24"><NumberInput size="sm" value={r.breakMin} onChange={(v) => patch(i, { breakMin: v })} min={0} max={1440} disabled={locked} /></td>
+                  <td className="py-1.5 pr-2 w-20"><NumberInput size="sm" value={r.multiplier} onChange={(v) => patch(i, { multiplier: v })} min={0} max={5} step={0.5} disabled={locked} /></td>
+                  <td className="py-1.5 pr-2">
+                    <input type="checkbox" checked={r.off} disabled={r.inherit} onChange={(e) => patch(i, { off: e.target.checked })}
+                      aria-label={tr(`${WEEKDAY_NAMES[i]} is a day off`, `${WEEKDAY_NAMES[i]} libur`)} />
+                  </td>
+                  <td className="py-1.5 text-right tabular-nums text-slate-700">
+                    {preview[i].off ? "—" : hours(preview[i].hours)}
+                    {!preview[i].off && preview[i].pay_multiplier !== 1 && <span className="ml-1 text-amber-700">×{preview[i].pay_multiplier}</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="grid gap-3 px-5 py-3 sm:grid-cols-3">
+        <label className="text-[12px] text-slate-600">
+          {tr("In force from", "Berlaku mulai")}
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)}
+            className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none" />
+        </label>
+        <label className="text-[12px] text-slate-600 sm:col-span-2">
+          {tr("Why", "Alasan")}
+          <input value={note} onChange={(e) => setNote(e.target.value)}
+            placeholder={tr("Who decided — the owner, the production head…", "Siapa yang menetapkan — pemilik, kepala produksi…")}
+            className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none" />
+        </label>
+      </div>
+      <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-3">
+        <Button size="sm" variant="ghost" onClick={onClose} disabled={busy}>{tr("Cancel", "Batal")}</Button>
+        <Button size="sm" onClick={save} disabled={busy || !note.trim()}>{tr("Save days", "Simpan jadwal per hari")}</Button>
       </div>
     </Card>
   );

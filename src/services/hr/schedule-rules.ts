@@ -73,6 +73,79 @@ export interface ScheduleShape {
    *  hours across midnight and never said from when. Absent and `false` mean
    *  the same — somebody stated these hours. HRD saving them clears it. */
   hours_unconfirmed?: boolean;
+  /** One weekday's own hours and worth, by ISO weekday "1" (Senin) … "7"
+   *  (Minggu) — D340. A weekday not listed takes the pattern's hours (and
+   *  Friday its Friday ones). Transcribes `ops_hr.schedule_day()`. */
+  days?: Record<string, ScheduleDay> | null;
+}
+
+/** One weekday on a pattern (D340). Every field optional: what is not said
+ *  falls back to the pattern. */
+export interface ScheduleDay {
+  start_minutes?: number | null;
+  end_minutes?: number | null;
+  break_minutes?: number | null;
+  /** What a day worked on this weekday is worth, in days of pay. 2 for
+   *  Sabtu and Minggu at the workshop (owner: *hitung 2×*). Default 1. */
+  pay_multiplier?: number | null;
+  /** Not a working day on this pattern. */
+  off?: boolean | null;
+}
+
+/** One weekday as the reading will see it (D340) — `schedule_roll().week`. */
+export interface ScheduleWeekDay {
+  isodow: number;
+  start_minutes: number | null;
+  end_minutes: number | null;
+  break_minutes: number | null;
+  pay_multiplier: number;
+  off: boolean;
+  /** Set on the pattern itself, rather than taken from its ordinary hours. */
+  own: boolean;
+  hours: number | null;
+}
+
+/** The seven days of a pattern, Senin first — what `schedule_roll()` builds. */
+export function scheduleWeek(sc: ScheduleShape): ScheduleWeekDay[] {
+  return [1, 2, 3, 4, 5, 6, 7].map((d) => {
+    const x = scheduleDay(sc, d)!;
+    const hours = x.off || x.start_minutes == null || x.end_minutes == null
+      ? null
+      : Math.round(((shiftMinutes(x.start_minutes, x.end_minutes) ?? 0) - (x.break_minutes ?? 0)) / 60 * 100) / 100;
+    return {
+      isodow: d, start_minutes: x.start_minutes, end_minutes: x.end_minutes,
+      break_minutes: x.break_minutes, pay_multiplier: x.pay_multiplier, off: x.off,
+      own: sc.days?.[String(d)] != null, hours,
+    };
+  });
+}
+
+export const WEEKDAY_NAMES = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"] as const;
+
+/** What one weekday is on a pattern — `ops_hr.schedule_day()`. `isodow` is
+ *  1 (Senin) … 7 (Minggu). */
+export function scheduleDay(sc: ScheduleShape | null, isodow: number): {
+  start_minutes: number | null; end_minutes: number | null; break_minutes: number | null;
+  pay_multiplier: number; off: boolean;
+} | null {
+  if (!sc) return null;
+  const fri = isodow === 5;
+  const base = {
+    start_minutes: sc.start_minutes,
+    end_minutes: fri ? (sc.friday_end_minutes ?? sc.end_minutes) : sc.end_minutes,
+    break_minutes: fri ? (sc.friday_break_minutes ?? sc.break_minutes) : sc.break_minutes,
+    pay_multiplier: 1,
+    off: false,
+  };
+  const d = sc.days?.[String(isodow)];
+  if (!d) return base;
+  return {
+    start_minutes: d.start_minutes ?? base.start_minutes,
+    end_minutes: d.end_minutes ?? base.end_minutes,
+    break_minutes: d.break_minutes ?? base.break_minutes,
+    pay_multiplier: d.pay_multiplier ?? 1,
+    off: d.off ?? false,
+  };
 }
 
 /** A refusal, in the two parts a seam needs: a code the client can branch on
@@ -236,6 +309,52 @@ export function scheduleProblems(
         message: `${where}: istirahat Jumat ${fBreak} menit menghabiskan seluruh hari Jumat ${clockOf(st as number)}–${clockOf(fEnd as number)}.`,
       });
     }
+
+    /* The weekdays (D340), in key order, each from *is it a day* to *does its
+       arithmetic work*. The sentences are `ops_hr.schedule_problem()`'s. */
+    const days = sc.days;
+    if (days != null && (typeof days !== "object" || Array.isArray(days))) {
+      out.push({
+        code: "days_shape",
+        message: `${where}: jadwal per hari harus berupa daftar hari 1 (Senin) sampai 7 (Minggu).`,
+      });
+    } else if (days != null) {
+      for (const key of Object.keys(days).sort()) {
+        if (!/^[1-7]$/.test(key)) {
+          out.push({ code: "day_key", message: `${where}: hari "${key}" tidak dikenal — pakai 1 (Senin) sampai 7 (Minggu).` });
+          continue;
+        }
+        const dv = days[key];
+        const dn = WEEKDAY_NAMES[Number(key) - 1];
+        if (dv == null || typeof dv !== "object" || Array.isArray(dv)) {
+          out.push({ code: "day_shape", message: `${where}: ${dn} harus berisi jam masuk, jam pulang dan istirahat, atau libur.` });
+          continue;
+        }
+        if (dv.off) continue;
+        const dayFields: [keyof ScheduleDay, string][] = [
+          ["start_minutes", "jam masuk"], ["end_minutes", "jam pulang"], ["break_minutes", "istirahat"],
+        ];
+        for (const [k, label] of dayFields) {
+          if (badMinutes((dv[k] as number | null | undefined) ?? null)) {
+            out.push({ code: "minutes_range", message: `${where}: ${label} ${dn} harus menit dalam sehari (0–1440) atau dikosongkan.` });
+          }
+        }
+        const m = dv.pay_multiplier;
+        if (m !== undefined && m !== null && (typeof m !== "number" || !(m > 0) || m > 5)) {
+          out.push({ code: "day_multiplier", message: `${where}: pengali upah ${dn} harus angka lebih dari 0 dan paling banyak 5.` });
+        }
+        const dSt = dv.start_minutes ?? st;
+        const dEn = dv.end_minutes ?? (key === "5" ? (fen ?? en) : en);
+        const dBr = dv.break_minutes ?? (key === "5" ? (fbr ?? br) : br);
+        if (ok(dSt) && ok(dEn) && dEn === dSt) {
+          out.push({ code: "day_end_before_start", message: `${where}: pulang ${dn} ${clockOf(dEn)} tidak sesudah masuk ${clockOf(dSt)}.` });
+        }
+        const dSpan = ok(dSt) && ok(dEn) && dEn !== dSt ? shiftMinutes(dSt, dEn) : null;
+        if (dSpan != null && dBr != null && dBr >= dSpan) {
+          out.push({ code: "day_break_too_long", message: `${where}: istirahat ${dn} ${dBr} menit menghabiskan seluruh hari ${clockOf(dSt as number)}–${clockOf(dEn as number)}.` });
+        }
+      }
+    }
   });
 
   /* A unit pointing at a pattern that is not there is worse than a unit
@@ -326,6 +445,19 @@ export const SCHEDULE_CASES: ScheduleCase[] = (() => {
     { name: "unit menunjuk pola yang tidak ada", schedules: [sc({})], schedule_by_unit: { Workshop: "PRODUKSI" }, expect: "unit_unknown_code" },
     /* Urutan dilaporkannya penting: baris dulu, baru pemetaan unit. */
     { name: "baris rusak dilaporkan sebelum unit", schedules: [sc({ code: "kantor" })], schedule_by_unit: { Workshop: "PRODUKSI" }, expect: "code_shape" },
+    /* D340 — jadwal per hari. Pola produksi pemilik: Sabtu dan Minggu 08.00–
+       16.00 tanpa istirahat, dibayar 2×. */
+    { name: "jadwal per hari produksi", schedules: [sc({ code: "PRODUKSI", name: "Produksi", start_minutes: 450, end_minutes: 990, break_minutes: 45, friday_end_minutes: 960, friday_break_minutes: 90, days: { "6": { start_minutes: 480, end_minutes: 960, break_minutes: 0, pay_multiplier: 2 }, "7": { start_minutes: 480, end_minutes: 960, break_minutes: 0, pay_multiplier: 2 } } })], schedule_by_unit: {}, expect: null },
+    { name: "hari libur di pola", schedules: [sc({ days: { "7": { off: true } } })], schedule_by_unit: {}, expect: null },
+    { name: "hari tidak dikenal", schedules: [sc({ days: { "8": { pay_multiplier: 2 } } })], schedule_by_unit: {}, expect: "day_key" },
+    { name: "pengali nol", schedules: [sc({ days: { "6": { pay_multiplier: 0 } } })], schedule_by_unit: {}, expect: "day_multiplier" },
+    { name: "menit hari di luar sehari", schedules: [sc({ days: { "6": { start_minutes: 2000 } } })], schedule_by_unit: {}, expect: "minutes_range" },
+    { name: "pulang Sabtu sama dengan masuk", schedules: [sc({ days: { "6": { start_minutes: 480, end_minutes: 480 } } })], schedule_by_unit: {}, expect: "day_end_before_start" },
+    { name: "istirahat Sabtu menghabiskan Sabtu", schedules: [sc({ days: { "6": { start_minutes: 480, end_minutes: 720, break_minutes: 240 } } })], schedule_by_unit: {}, expect: "day_break_too_long" },
+    /* Jumat per hari jatuh ke jam pulang Jumat pola, bukan jam pulang biasa. */
+    { name: "jadwal per hari bukan daftar", schedules: [sc({ days: [1, 2] as unknown as Record<string, ScheduleDay> })], schedule_by_unit: {}, expect: "days_shape" },
+    { name: "hari berisi angka", schedules: [sc({ days: { "6": 2 as unknown as ScheduleDay } })], schedule_by_unit: {}, expect: "day_shape" },
+    { name: "istirahat Jumat per hari terhadap pulang Jumat", schedules: [sc({ friday_end_minutes: 720, days: { "5": { break_minutes: 240 } } })], schedule_by_unit: {}, expect: "day_break_too_long" },
   ];
   return cases;
 })();

@@ -18,6 +18,7 @@
 /** How somebody is paid. Both exist here: staff on a monthly salary, and
  *  workshop people paid for the days they actually worked (owner). */
 import type { ScheduleShape, ScheduleHoursShape } from "./schedule-rules";
+import type { TapWhere } from "./tap-where";
 import { bilingual, trNow, type Message } from "@/lib/i18n";
 import { CADENCE_LABELS } from "./task-periods";
 
@@ -240,7 +241,12 @@ export interface TimesheetDay {
   full_name: string;
   work_date: string;
   /** Every tap, in order. The reading is derived; the taps are the record. */
-  scans: { at: string; verify: string; slot: ScanSlot | null; source: ScanSource }[];
+  scans: {
+    at: string; verify: string; slot: ScanSlot | null; source: ScanSource;
+    /** Where it was made — the warehouse for the reader, the reading for a
+     *  phone, the reason for one typed in (D344). */
+    where?: TapWhere;
+  }[];
   slots: Partial<Record<ScanSlot, string>>;
   state: DayState;
   mark: DayMark | null;
@@ -277,6 +283,12 @@ export interface TimesheetDay {
   window_to: string;
   /** Read as a shift that crosses midnight. */
   overnight: boolean;
+  /** What a day worked on this date is worth, in days of pay — 2 on a
+   *  Saturday, Sunday or tanggal merah at the workshop (D340). Absent = 1. */
+  pay_multiplier?: number;
+  /** The hours this weekday's pattern calls a normal day (8,25 Senin–Kamis,
+   *  7 Jumat, 8 Sabtu/Minggu). Null when nobody has said. */
+  scheduled_hours?: number | null;
 }
 
 /** Overtime arrives as a **sheet**, and there are two kinds of sheet.
@@ -1861,6 +1873,35 @@ export interface PayRules {
    *  allowance is a **separate decision, made by HRD, with its own reason**
    *  (D250), not a second penalty riding on the same event. */
   late_forfeits_allowance: boolean;
+
+  /* ── D340, all optional: a book without them reads and pays as before ── */
+  /** `slots` (default): six taps placed in slots, and a day the rule cannot
+   *  fit goes to review (D141). `schedule`: any tap is a day present and its
+   *  hours are read against the weekday's pattern — *tap yang lebih/kurang
+   *  tidak perlu dipermasalahkan* (owner). */
+  day_reading?: "slots" | "schedule";
+  /** Hours are rounded to this many minutes under `schedule`. Default 15. */
+  hours_rounding_minutes?: number;
+  /** How far from the scheduled end a tap still counts as pulang. Default 30. */
+  out_window_minutes?: number;
+  /** A tanggal merah somebody came in on is worth this many days. Null = the
+   *  old rule (the hours become overtime). */
+  holiday_pay_multiplier?: number | null;
+  /** Whether a day paid above one day also earns the tunjangan. The payroll
+   *  sheet pays insentif and tunjangan Senin–Jumat only. Default true. */
+  allowance_on_premium_days?: boolean;
+  /** A half day earns half the tunjangan, as the sheet pays it. Default false
+   *  (D272: a half day is presence and earns all of it). */
+  allowance_by_day_value?: boolean;
+  /** Overtime past this minute of the day (1320 = 22.00) is paid at
+   *  `overtime_night_multiplier`, for lines that say when they finished. */
+  overtime_night_after_minutes?: number | null;
+  overtime_night_multiplier?: number | null;
+  /** Price an overtime hour before rounding it to the rupiah, as the sheet
+   *  does (170.500 / 8 = 21.312,5). */
+  overtime_exact_hourly?: boolean;
+  /** The weekday a weekly pay period starts on, ISO (6 = Sabtu). Default 1. */
+  pay_week_starts_isodow?: number;
 }
 
 /** One dated version of the rule book. Never edited — a change writes the next

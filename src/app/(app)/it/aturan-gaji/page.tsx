@@ -2,7 +2,7 @@
 
 import { stripRefs } from "@/lib/refs";
 import { useState } from "react";
-import { Scale, History, Play, AlertTriangle, Clock } from "lucide-react";
+import { Scale, History, Play, AlertTriangle, Clock, CalendarDays } from "lucide-react";
 import { ScheduleEditor } from "./ScheduleEditor";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
@@ -441,6 +441,108 @@ export default function PayRulesPage() {
                           "berapa rupiah yang tidak dipotong — supaya keterlambatan tidak terbaca gratis.",
                         )}
                       </p>
+                    </div>
+                  </Card>
+
+                  {/* D340 — how a day is read and what it is worth. Every key
+                      here is optional in the book; unset reads as before. */}
+                  <Card>
+                    <CardHeader
+                      title={tr("Situation 5 — reading attendance, and days worth more", "Situasi 5 — cara membaca absensi, dan hari yang bernilai lebih")}
+                      subtitle={tr(
+                        "What a Saturday, Sunday or public holiday is worth is set per weekday on each work schedule (HRD → Work schedules → Per day). A pattern that works Monday–Saturday has Sunday ×2; production, Monday–Friday, has Saturday and Sunday ×2.",
+                        "Nilai Sabtu, Minggu atau tanggal merah diatur per hari di tiap jadwal kerja (HRD → Jadwal kerja → Per hari). Pola yang bekerja Senin–Sabtu punya Minggu ×2; produksi, Senin–Jumat, punya Sabtu dan Minggu ×2.",
+                      )}
+                      icon={CalendarDays}
+                    />
+                    <div className="space-y-3 px-5 py-3 text-[13px]">
+                      <label className="block">
+                        <span className="block text-[12px] text-slate-500">{tr("How a day is read", "Cara membaca satu hari")}</span>
+                        <select
+                          value={rules.day_reading ?? "slots"}
+                          onChange={(e) => set({ day_reading: e.target.value as "slots" | "schedule" })}
+                          disabled={!mayEdit}
+                          className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                        >
+                          <option value="slots">{tr("Six taps in slots — a day the rule cannot fit waits for HRD", "Enam tap per slot — hari yang tidak cocok menunggu HRD")}</option>
+                          <option value="schedule">{tr("By the schedule — any tap is a day present, hours against that weekday's schedule", "Sesuai jadwal — ada tap berarti hadir, jam dibaca terhadap jadwal hari itu")}</option>
+                        </select>
+                      </label>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <Field
+                          label={tr("Round hours to (minutes)", "Bulatkan jam ke (menit)")}
+                          hint={tr("15 = quarter hours, as the payroll sheet does.", "15 = seperempat jam, seperti payroll sheet.")}
+                          value={rules.hours_rounding_minutes ?? 15}
+                          onChange={(v) => set({ hours_rounding_minutes: v })}
+                          disabled={!mayEdit}
+                        />
+                        <Field
+                          label={tr("Clock-out window (minutes)", "Jendela tap pulang (menit)")}
+                          hint={tr("A tap this close to the scheduled end is pulang; none means the scheduled end.", "Tap sedekat ini dengan jam pulang dianggap pulang; tidak ada berarti jam pulang jadwal.")}
+                          value={rules.out_window_minutes ?? 30}
+                          onChange={(v) => set({ out_window_minutes: v })}
+                          disabled={!mayEdit}
+                        />
+                        <Field
+                          label={tr("Public holiday worked — × a day's pay", "Tanggal merah masuk — × upah sehari")}
+                          hint={tr("0 = the old rule: the hours become overtime. The owner: 2.", "0 = aturan lama: jamnya jadi lembur. Pemilik: 2.")}
+                          value={rules.holiday_pay_multiplier ?? 0}
+                          onChange={(v) => set({ holiday_pay_multiplier: v > 0 ? v : null })}
+                          disabled={!mayEdit}
+                        />
+                        <label className="block">
+                          <span className="block text-[12px] text-slate-500">{tr("Weekly pay period starts on", "Minggu gaji mulai hari")}</span>
+                          <select
+                            value={rules.pay_week_starts_isodow ?? 1}
+                            onChange={(e) => set({ pay_week_starts_isodow: Number(e.target.value) })}
+                            disabled={!mayEdit}
+                            className="mt-1 h-9 w-full max-w-[180px] rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                          >
+                            {["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"].map((d, i) => (
+                              <option key={d} value={i + 1}>{d}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <Field
+                          label={tr("Overtime after (minutes from midnight)", "Lembur lewat jam (menit dari tengah malam)")}
+                          hint={tr("1320 = 22.00. 0 = no separate rate.", "1320 = jam 22.00. 0 = tanpa tarif terpisah.")}
+                          value={rules.overtime_night_after_minutes ?? 0}
+                          onChange={(v) => set({ overtime_night_after_minutes: v > 0 ? v : null })}
+                          disabled={!mayEdit}
+                        />
+                        <Field
+                          label={tr("…paid at ×", "…dibayar ×")}
+                          hint={tr("The sheet: 2.", "Sheet: 2.")}
+                          value={rules.overtime_night_multiplier ?? 0}
+                          onChange={(v) => set({ overtime_night_multiplier: v > 0 ? v : null })}
+                          disabled={!mayEdit}
+                        />
+                      </div>
+                      {([
+                        ["allowance_on_premium_days", true,
+                          tr("A day paid above ×1 also earns the allowance", "Hari yang dibayar di atas ×1 juga dapat tunjangan"),
+                          tr("Off in the sheet: insentif and tunjangan are paid Monday–Friday only.", "Mati di sheet: insentif dan tunjangan hanya Senin–Jumat.")],
+                        ["allowance_by_day_value", false,
+                          tr("A half day earns half the allowance", "Setengah hari dapat setengah tunjangan"),
+                          tr("On in the sheet (insentif × days).", "Nyala di sheet (insentif × hari).")],
+                        ["overtime_exact_hourly", false,
+                          tr("Price overtime on the exact hourly rate, rounded once at the end", "Hitung lembur dari tarif per jam yang tidak dibulatkan dulu"),
+                          tr("170.500 / 8 = 21.312,5 — as the sheet does.", "170.500 / 8 = 21.312,5 — seperti sheet.")],
+                      ] as [keyof PayRules, boolean, string, string][]).map(([key, dflt, label, hint]) => (
+                        <label key={key} className="flex items-start gap-2 text-[12px] text-slate-600">
+                          <input
+                            type="checkbox"
+                            checked={(rules[key] as boolean | undefined) ?? dflt}
+                            onChange={(e) => set({ [key]: e.target.checked } as Partial<PayRules>)}
+                            disabled={!mayEdit}
+                            className="mt-0.5"
+                          />
+                          <span>
+                            <span className="block font-medium text-slate-700">{label}</span>
+                            {hint}
+                          </span>
+                        </label>
+                      ))}
                     </div>
                   </Card>
                 </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Users, Plus, Wallet } from "lucide-react";
+import { Users, Plus, Wallet, Search, X } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
@@ -25,6 +25,10 @@ export default function EmployeesPage() {
   const [rows, reload] = useLoad(() => hr.listEmployees({ include_left: true }), []);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [adding, setAdding] = useState(false);
+  /* Forty-odd people over two pages: finding one by paging is the wrong
+     tool (owner). The search sits above both lists and filters them both,
+     so somebody who has left is found the same way. */
+  const [q, setQ] = useState("");
   const mayEdit = can("hrd.update");
   const [sched] = useLoad(() => hr.listSchedules(), []);
   const schedules = sched.status === "ready" ? sched.data.schedules : [];
@@ -162,6 +166,13 @@ export default function EmployeesPage() {
              in is exactly the condition that earns it. */
           const dailyCost = daily.reduce((s, e) => s + e.base_rate + e.allowance_rate, 0);
 
+          const needle = q.trim().toLowerCase();
+          const matches = (e: Employee) => !needle
+            || `${e.full_name} ${e.employee_no} ${e.position} ${e.unit} ${accountOf.get(e.id)?.user_email ?? ""}`
+              .toLowerCase().includes(needle);
+          const activeShown = active.filter(matches);
+          const leftShown = left.filter(matches);
+
           return (
             <>
               <div className="mb-4 rounded-xl border border-slate-200 bg-white shadow-card">
@@ -183,9 +194,36 @@ export default function EmployeesPage() {
                 </dl>
               </div>
 
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                <label className="relative flex-1 sm:max-w-md">
+                  <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text" value={q} onChange={(ev) => setQ(ev.target.value)}
+                    placeholder={tr("Search name, number, position, unit or account", "Cari nama, nomor, jabatan, unit atau akun")}
+                    aria-label={tr("Search employees", "Cari karyawan")}
+                    className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-8 pr-8 text-sm focus:border-brand-400 focus:outline-none"
+                  />
+                  {q && (
+                    <button
+                      type="button" onClick={() => setQ("")} aria-label={tr("Clear search", "Hapus pencarian")}
+                      className="absolute right-2 top-2 rounded p-0.5 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </label>
+                {needle && (
+                  <span className="text-[12px] text-slate-500">
+                    {tr(`${activeShown.length + leftShown.length} found`, `${activeShown.length + leftShown.length} ditemukan`)}
+                  </span>
+                )}
+              </div>
+
               <Card className="mb-4">
                 <CardHeader
-                  title={tr(`${active.length} working here`, `${active.length} bekerja di sini`)}
+                  title={needle
+                    ? tr(`${activeShown.length} of ${active.length} working here`, `${activeShown.length} dari ${active.length} bekerja di sini`)
+                    : tr(`${active.length} working here`, `${active.length} bekerja di sini`)}
                   subtitle={tr(
                     "Click somebody to change what they are paid, or to offboard them — the figure before and after goes on the audit row.",
                     "Klik seseorang untuk mengubah bayarannya atau mengeluarkannya — angka sebelum dan sesudahnya dicatat di baris audit.",
@@ -194,17 +232,24 @@ export default function EmployeesPage() {
                   action={<SourceBadge state={rows} />}
                 />
                 <DataTable
-                  dense columns={columns} rows={active} rowKey={(e) => e.employee_no}
+                  dense columns={columns} rows={activeShown} rowKey={(e) => e.employee_no}
                   onRowClick={(e) => mayEdit && setEditing(e)}
-                  empty={tr("Nobody on the payroll yet.", "Belum ada orang di daftar gaji.")}
+                  empty={needle
+                    ? tr("Nobody working here matches.", "Tidak ada karyawan aktif yang cocok.")
+                    : tr("Nobody on the payroll yet.", "Belum ada orang di daftar gaji.")}
                 />
               </Card>
 
-              {left.length > 0 && (
+              {leftShown.length > 0 && (
                 <Card>
-                  <CardHeader title={tr(`${left.length} who have left`, `${left.length} yang sudah keluar`)} icon={Wallet} />
+                  <CardHeader
+                    title={needle
+                      ? tr(`${leftShown.length} of ${left.length} who have left`, `${leftShown.length} dari ${left.length} yang sudah keluar`)
+                      : tr(`${left.length} who have left`, `${left.length} yang sudah keluar`)}
+                    icon={Wallet}
+                  />
                   <DataTable
-                    dense columns={columns} rows={left} rowKey={(e) => e.employee_no}
+                    dense columns={columns} rows={leftShown} rowKey={(e) => e.employee_no}
                     onRowClick={(e) => mayEdit && setEditing(e)}
                     empty={tr("Nobody has left.", "Belum ada yang keluar.")}
                   />
