@@ -27,6 +27,7 @@ import type {
   ProductStockRow, ProductLedgerRow, ProductMoveInput, ProductCountInput, ProductAllocateInput, ProductOrderLine,
   AssetView, AssetCategory, AssetStatus, AssetInput, AssetService, AssetServiceInput,
   LabelKind, LabelSource, LabelCard, StockedCategory,
+  StockEntryChange, StockMovePatch, ItemDetailsPatch,
 } from "@/services/inventory/contracts";
 import { stockedCategoryTree } from "@/services/inventory/categories";
 import type { MaterialPlan } from "@/services/production/contracts";
@@ -172,6 +173,73 @@ export async function registerItem(
   const res = fromSeam<{ code: string }>(SERVICE, data, error);
   if (res.error) return res;
   return getStockItem(res.data.code);
+}
+
+/** One stock entry (`0198`, D348): a catalogue item picked by name, a
+ *  location, a quantity and a note — an adjustment, because it declares what
+ *  is on the rack (D171). The catalogue is the list of names; the rack starts
+ *  from what people enter. */
+export async function inputStock(
+  input: { item_code: string; location: string; qty: number; note?: string | null },
+  idempotencyKey?: string,
+): Promise<Result<{ move_no: string; on_hand: number }>> {
+  const { data, error } = await db().rpc("input_stock", {
+    p_item_code: input.item_code,
+    p_location: input.location,
+    p_qty: input.qty,
+    p_note: input.note ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const res = fromSeam<{ move_no: string; on_hand: number | string }>(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, { move_no: res.data.move_no, on_hand: Number(res.data.on_hand) });
+}
+
+/** Correcting an entry in place (`0198`): what it was is kept in the audit row
+ *  and read back by `stockEntryHistory`. A receipt and a transfer are refused
+ *  with the way to correct them. */
+export async function editStockMove(moveNo: string, patch: StockMovePatch): Promise<Result<{ move_no: string }>> {
+  const { data, error } = await db().rpc("edit_stock_move", {
+    p_move_no: moveNo,
+    p_item_code: patch.item_code ?? null,
+    p_location: patch.location ?? null,
+    p_qty: patch.qty ?? null,
+    p_reason: patch.reason ?? null,
+    p_ref_no: patch.ref_no ?? null,
+    p_clear_ref: patch.clear_ref ?? false,
+  });
+  const res = fromSeam<{ move_no: string }>(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, { move_no: moveNo });
+}
+
+/** Removing an entry, with the reason; a transfer goes as its pair. */
+export async function deleteStockMove(moveNo: string, reason: string): Promise<Result<{ deleted: string[] }>> {
+  const { data, error } = await db().rpc("delete_stock_move", { p_move_no: moveNo, p_reason: reason });
+  const res = fromSeam<{ deleted: string[] }>(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, { deleted: res.data.deleted ?? [moveNo] });
+}
+
+/** Every correction to this item's entries, newest first. */
+export async function stockEntryHistory(itemCode: string): Promise<Result<StockEntryChange[]>> {
+  const { data, error } = await db().rpc("stock_entry_history", { p_item_code: itemCode });
+  return fromSeam<StockEntryChange[]>(SERVICE, data, error);
+}
+
+/** The item's own details from inventory (`update_item_details`, `0198`). */
+export async function updateItemDetails(itemCode: string, patch: ItemDetailsPatch): Promise<Result<StockItemDetail>> {
+  const { data, error } = await db().rpc("update_item_details", {
+    p_code: itemCode,
+    p_name: patch.name ?? null,
+    p_name_local: patch.name_local ?? null,
+    p_category_code: patch.category_code ?? null,
+    p_base_uom: patch.base_uom ?? null,
+    p_clear_local: patch.clear_local ?? false,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return getStockItem(itemCode);
 }
 
 /** The floor's name for an item already in the catalogue — most of the rack
@@ -535,7 +603,7 @@ async function viewMoves(moves: StockMove[]): Promise<Result<StockMoveView[]>> {
   if (moves.length === 0) return ok(SERVICE, []);
   const itemCodes = [...new Set(moves.map((m) => m.item_code))];
   const locCodes = [...new Set(moves.map((m) => m.location))];
-  const userIds = [...new Set(moves.map((m) => m.moved_by))];
+  const userIds = [...new Set(moves.flatMap((m) => [m.moved_by, m.edited_by ?? null]).filter((x): x is string => !!x))];
   const spkRefs = [...new Set(moves.filter((m) => m.ref_no?.startsWith("spk-")).map((m) => m.ref_no as string))];
 
   const [itemsRes, locsRes, usersRes, woRes] = await Promise.all([
@@ -563,6 +631,7 @@ async function viewMoves(moves: StockMove[]): Promise<Result<StockMoveView[]>> {
     item_name: itemNames.get(m.item_code) ?? m.item_code,
     location_name: locNames.get(m.location) ?? m.location,
     by_name: userNames.get(m.moved_by) ?? m.moved_by,
+    edited_by_name: m.edited_by ? userNames.get(m.edited_by) ?? m.edited_by : null,
     ref_missing: !!m.ref_no?.startsWith("spk-") && !knownWos.has(m.ref_no),
   })));
 }

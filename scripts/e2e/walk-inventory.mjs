@@ -123,8 +123,9 @@ try {
   await h.step({
     process: "inv.register_item", action: "Nama lapangan barang katalog: buka Sandpaper 240 → Edit → amplas 240 → Save", button: "Save",
     act: async () => {
-      await h.go("/inventory/material");
-      await h.page.locator("tr", { hasText: "Sandpaper 240" }).first().click();
+      /* Not entered on the rack yet, so not in the list (D348): opened by its
+         code, the way a label's QR opens it. */
+      await h.go("/inventory/material?item=I-E2E02");
       await h.page.waitForTimeout(1200);
       await h.page.getByRole("button", { name: "Edit" }).first().click();
       await h.page.getByPlaceholder("e.g. amplas 240").fill("amplas 240");

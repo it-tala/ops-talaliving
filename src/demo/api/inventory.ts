@@ -15,7 +15,7 @@ import type {
   LabelKind, LabelSource, LabelCard,
 } from "@/services/inventory/contracts";
 import { ASSET_GONE, ASSET_OWNERSHIP_LABEL } from "@/services/inventory/contracts";
-import type { StockedCategory } from "@/services/inventory/contracts";
+import type { StockedCategory, StockEntryChange, StockMovePatch, ItemDetailsPatch } from "@/services/inventory/contracts";
 import { stockedCategoryTree } from "@/services/inventory/categories";
 import type { ItemPurchase } from "@/services/procurement/contracts";
 import { ITEM_PHOTO_MAX, ITEM_PHOTO_MIN } from "@/services/documents/contracts";
@@ -483,6 +483,207 @@ export async function registerItem(
   const detail = stockItemDetail(getState(), code)!;
   remember(SERVICE, "registerItem", idempotencyKey, detail);
   return ok(SERVICE, detail);
+}
+
+/** The item's unit when it is a live, stocked catalogue item — the same test
+ *  as `ops_inv.stock_item_uom` (`0198`). */
+function stockItemUom(state: DemoState, code: string): string | null {
+  const item = state.items.find((i) => i.code === code);
+  if (!item || item.merged_into || item.archived_at || item.kind !== "goods") return null;
+  return STOCKED_CATEGORIES.has(item.category_code) ? item.base_uom : null;
+}
+
+/** One stock entry (`0198`, D348): the same refusals as `ops_inv.input_stock`,
+ *  in the same order. */
+export async function inputStock(
+  input: { item_code: string; location: string; qty: number; note?: string | null },
+  idempotencyKey?: string,
+): Promise<Result<{ move_no: string; on_hand: number }>> {
+  await latency();
+  const cached = replayed<{ move_no: string; on_hand: number }>(SERVICE, "inputStock", idempotencyKey);
+  if (cached) return cached;
+  const denied = requireModule(SERVICE, "inventory");
+  if (denied) return denied;
+  const state = getState();
+  if (!state.items.some((i) => i.code === input.item_code)) {
+    return invalid(SERVICE, "no_such_item", `Tidak ada barang ${input.item_code} di katalog.`, { field: "item_code" });
+  }
+  const uom = stockItemUom(state, input.item_code);
+  if (!uom) {
+    return invalid(SERVICE, "not_stocked",
+      `${input.item_code} tidak dihitung di gudang (digabung, diarsipkan, jasa, atau kategorinya tidak dihitung).`, { field: "item_code" });
+  }
+  if (!state.stock_locations.some((l) => l.code === input.location && l.is_active)) {
+    return invalid(SERVICE, "location_required", "Pilih lokasi yang aktif.", { field: "location" });
+  }
+  if (!(input.qty > 0)) return invalid(SERVICE, "qty_invalid", "Jumlah harus lebih dari nol.", { field: "qty" });
+  const user = actingUser();
+  let moveNo = "";
+  apply((draft) => {
+    const note = input.note?.trim();
+    moveNo = writeMove(draft, {
+      item_code: input.item_code, location: input.location, kind: "adjust", qty: input.qty, uom,
+      reason: `Input stok${note ? ` — ${note}` : ""}`,
+    }, user.id, user.email).move_no;
+  });
+  const onHand = getState().stock_moves.filter((m) => m.item_code === input.item_code).reduce((s, m) => s + m.qty, 0);
+  const result = { move_no: moveNo, on_hand: onHand };
+  remember(SERVICE, "inputStock", idempotencyKey, result);
+  return ok(SERVICE, result);
+}
+
+const moveFields = (m: StockMove) => ({
+  item_code: m.item_code, location: m.location, qty: m.qty, uom: m.uom, reason: m.reason, ref_no: m.ref_no,
+});
+
+/** Correcting an entry in place (`ops_inv.edit_stock_move`). */
+export async function editStockMove(moveNo: string, patch: StockMovePatch): Promise<Result<{ move_no: string }>> {
+  await latency();
+  const denied = requireModule(SERVICE, "inventory");
+  if (denied) return denied;
+  const state = getState();
+  const m = state.stock_moves.find((x) => x.move_no === moveNo);
+  if (!m) return notFound(SERVICE, "not_found", "Catatan stok tidak ditemukan.");
+  if (m.kind === "receipt") {
+    return invalid(SERVICE, "from_receipt", "Barang masuk ini dari penerimaan barang di procurement — koreksi di penerimaannya.");
+  }
+  if (m.kind === "transfer") {
+    return invalid(SERVICE, "transfer_pair", "Pindah lokasi tercatat berpasangan (keluar dan masuk). Hapus lalu catat ulang.");
+  }
+  const item = patch.item_code?.trim() || m.item_code;
+  let uom = m.uom;
+  if (item !== m.item_code) {
+    const u = stockItemUom(state, item);
+    if (!u) return invalid(SERVICE, "not_stocked", `${item} tidak ada di katalog atau tidak dihitung di gudang.`, { field: "item_code" });
+    uom = u;
+  }
+  const loc = patch.location?.trim() || m.location;
+  if (loc !== m.location && !state.stock_locations.some((l) => l.code === loc && l.is_active)) {
+    return invalid(SERVICE, "location_required", "Pilih lokasi yang aktif.", { field: "location" });
+  }
+  let qty = m.qty;
+  if (patch.qty != null) {
+    if (m.kind === "adjust") {
+      if (patch.qty === 0) {
+        return invalid(SERVICE, "qty_invalid", "Jumlah tidak boleh nol — hapus catatannya kalau memang tidak ada.", { field: "qty" });
+      }
+      qty = patch.qty;
+    } else {
+      if (!(patch.qty > 0)) return invalid(SERVICE, "qty_invalid", "Jumlah harus lebih dari nol.", { field: "qty" });
+      qty = m.kind === "issue" ? -Math.abs(patch.qty) : Math.abs(patch.qty);
+    }
+  }
+  const reason = patch.reason === undefined ? m.reason : patch.reason.trim() || null;
+  if (m.kind === "adjust" && !reason) {
+    return invalid(SERVICE, "reason_required", "Penyesuaian stok wajib beralasan.", { field: "reason" });
+  }
+  const ref = patch.clear_ref ? null : patch.ref_no?.trim() || m.ref_no;
+  if (ref !== m.ref_no && ref && /^(spk|jo)-/i.test(ref) && !state.work_orders.some((w) => w.wo_no === ref)) {
+    return invalid(SERVICE, "jo_missing", `Job Order ${ref} tidak ada. Periksa nomornya — rantai pembelian-produksi putus di sini.`, { field: "ref_no" });
+  }
+  const before = moveFields(m);
+  const after = { item_code: item, location: loc, qty, uom, reason, ref_no: ref };
+  if (JSON.stringify(before) === JSON.stringify(after)) return noop(SERVICE, { move_no: moveNo });
+  const user = actingUser();
+  apply((draft) => {
+    const row = draft.stock_moves.find((x) => x.move_no === moveNo)!;
+    Object.assign(row, after, { edited_at: new Date().toISOString(), edited_by: user.id });
+    writeAudit(draft, {
+      service: SERVICE, entity: "stock_move", entity_no: moveNo, action: "edit", outcome: "ok", reason: null,
+      detail: { before, after },
+    });
+  });
+  return ok(SERVICE, { move_no: moveNo });
+}
+
+/** Removing an entry with its reason; a transfer goes as its pair. */
+export async function deleteStockMove(moveNo: string, reason: string): Promise<Result<{ deleted: string[] }>> {
+  await latency();
+  const denied = requireModule(SERVICE, "inventory");
+  if (denied) return denied;
+  if (!reason.trim()) return invalid(SERVICE, "reason_required", "Tulis alasan menghapus catatan ini.", { field: "reason" });
+  const state = getState();
+  const m = state.stock_moves.find((x) => x.move_no === moveNo);
+  if (!m) return notFound(SERVICE, "not_found", "Catatan stok tidak ditemukan.");
+  if (m.kind === "receipt") {
+    return invalid(SERVICE, "from_receipt", "Barang masuk ini dari penerimaan barang di procurement — koreksi di penerimaannya.");
+  }
+  const pair = m.kind === "transfer"
+    ? state.stock_moves.find((x) => x.kind === "transfer" && x.id !== m.id && x.item_code === m.item_code
+        && x.moved_at === m.moved_at && x.moved_by === m.moved_by && x.qty === -m.qty)
+    : undefined;
+  const gone = [m, ...(pair ? [pair] : [])];
+  apply((draft) => {
+    draft.stock_moves = draft.stock_moves.filter((x) => !gone.some((g) => g.id === x.id));
+    writeAudit(draft, {
+      service: SERVICE, entity: "stock_move", entity_no: moveNo, action: "delete", outcome: "ok", reason: reason.trim(),
+      detail: { before: { rows: gone.map((g) => ({ move_no: g.move_no, ...moveFields(g) })), reason: reason.trim() }, after: null },
+    });
+  });
+  return ok(SERVICE, { deleted: gone.map((g) => g.move_no) });
+}
+
+/** Every correction to this item's entries, newest first. */
+export async function stockEntryHistory(itemCode: string): Promise<Result<StockEntryChange[]>> {
+  await latency();
+  const state = getState();
+  const names = (s: unknown) => (s && typeof s === "object" ? s as Record<string, unknown> : null);
+  return ok(SERVICE, state.audit_log
+    .filter((a) => a.service === SERVICE && a.entity === "stock_move" && a.outcome === "ok"
+      && (a.action === "edit" || a.action === "delete"))
+    .map((a) => {
+      const before = names(a.detail?.before);
+      const after = names(a.detail?.after);
+      return {
+        at: a.at, action: a.action as "edit" | "delete", move_no: a.entity_no,
+        by_name: state.users.find((u) => u.id === a.actor_id)?.full_name ?? a.actor_email,
+        before, after, reason: a.action === "delete" ? a.reason : null,
+      };
+    })
+    .filter((c) => c.before?.item_code === itemCode || c.after?.item_code === itemCode
+      || (Array.isArray(c.before?.rows) && (c.before!.rows as { item_code: string }[]).some((r) => r.item_code === itemCode))));
+}
+
+/** The item's own details from inventory (`ops_inv.update_item_details`). */
+export async function updateItemDetails(itemCode: string, patch: ItemDetailsPatch): Promise<Result<StockItemDetail>> {
+  await latency();
+  const denied = requireModule(SERVICE, "inventory");
+  if (denied) return denied;
+  const state = getState();
+  const item = state.items.find((i) => i.code === itemCode);
+  if (!item) return notFound(SERVICE, "not_found", "Barang tidak ditemukan.");
+  if (item.merged_into) return invalid(SERVICE, "already_merged", "Barang ini sudah digabung ke barang lain; ubah yang itu.");
+  if (patch.name !== undefined && !patch.name.trim()) {
+    return invalid(SERVICE, "name_required", "Barang butuh nama katalog.", { field: "name" });
+  }
+  const name = patch.name?.trim() || item.name;
+  const local = patch.clear_local ? null : patch.name_local?.trim() || item.name_local || null;
+  const cat = patch.category_code || item.category_code;
+  const uom = patch.base_uom || item.base_uom;
+  if (name.toLowerCase() !== item.name.toLowerCase()
+      && state.items.some((i) => i.code !== itemCode && !i.merged_into && i.name.toLowerCase() === name.toLowerCase())) {
+    return conflict(SERVICE, "name_taken", `Sudah ada barang bernama "${name}". Kalau sama, gabungkan di Procurement.`, { field: "name" });
+  }
+  if (cat !== item.category_code && !STOCKED_CATEGORIES.has(cat)) {
+    return invalid(SERVICE, "not_stocked", `Kategori ${cat} tidak dihitung di gudang.`, { field: "category_code" });
+  }
+  if (uom !== item.base_uom && state.stock_moves.some((m) => m.item_code === itemCode && m.uom !== uom)) {
+    return invalid(SERVICE, "uom_has_moves",
+      `Stok barang ini sudah dicatat dalam ${item.base_uom}. Ubah atau hapus catatannya dulu, baru ganti satuan.`, { field: "base_uom" });
+  }
+  const before = { name: item.name, name_local: item.name_local ?? null, category_code: item.category_code, base_uom: item.base_uom };
+  const after = { name, name_local: local, category_code: cat, base_uom: uom };
+  if (JSON.stringify(before) === JSON.stringify(after)) return noop(SERVICE, stockItemDetail(state, itemCode)!);
+  apply((draft) => {
+    const row = draft.items.find((i) => i.code === itemCode)!;
+    if (name !== row.name) row.aka = [...new Set([...row.aka, row.name])].filter((x) => x.toLowerCase() !== name.toLowerCase());
+    Object.assign(row, after);
+    writeAudit(draft, {
+      service: SERVICE, entity: "item", entity_no: itemCode, action: "update_details", outcome: "ok", reason: null,
+      detail: { before, after },
+    });
+  });
+  return ok(SERVICE, stockItemDetail(getState(), itemCode)!);
 }
 
 export async function setItemLocalName(itemCode: string, nameLocal: string | null): Promise<Result<StockItemDetail>> {
