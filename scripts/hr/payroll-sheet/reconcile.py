@@ -36,7 +36,7 @@ Inputs other than the workbook: `machine_map.csv` (payroll name → machine
 number, taken from the machine's own export, not the payroll's FP column —
 F197) and the rule book in `RULES` below.
 """
-import csv, datetime as dt, json, os, subprocess, sys, tempfile
+import csv, datetime as dt, json, math, os, subprocess, sys, tempfile
 
 try:
     import openpyxl
@@ -149,6 +149,7 @@ def main(path):
     missing = [p['name'] for p in people if p['name'] not in mmap]
     if missing:
         sys.exit("not in machine_map.csv: " + ", ".join(missing))
+    # A rate in half rupiah (the guards' 52.083,5) is rounded up: D342.
     for p in people:
         m = mmap[p['name']]
         p['emp'] = m['machine_no'] or ("NM-" + p['name'].replace(' ', '_'))
@@ -160,7 +161,7 @@ def main(path):
 
     # 1. identities, rule book, employees, the machine's taps
     emp_rows = ",\n".join(
-        f"  ({q(p['emp'])}, {q(p['name'])}, {q(p['division'])}, {round(p['rate'])}, "
+        f"  ({q(p['emp'])}, {q(p['name'])}, {q(p['division'])}, {math.floor(p['rate'] + 0.5)}, "
         f"{round(p['incentive'] + p['allowance'])}, {12 if p['guard'] else 8}, {q(p['pattern'])})"
         for p in people)
     tap_json = json.dumps([{"employee_ref": n, "at": at.strftime("%Y-%m-%dT%H:%M:%S") + "+07:00", "verify": v}

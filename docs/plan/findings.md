@@ -8372,7 +8372,12 @@ rest are two things ops cannot express yet, both needing the owner:
   pattern, so those three Sundays pay one day less in ops unless the second
   shift is recorded as approved overtime.
 - **The guards' rate is Rp 52.083,5**, and `base_rate` is whole rupiah: six
-  days are Rp 3 off either way.
+  days are Rp 3 off either way. The owner rounds it up to Rp 52.084 (D342), so the Rp 3–5 a week is
+  ops paying the rounded rate, by decision.
+- **Wednesday 16 Sep was a company event** (D342): unpaid, with the few who
+  worked paid ×1. Ops needs no new mark for it — an unmarked day already
+  reads that way — only HRD's marks for the five who tapped in for the event
+  without working, which is what `reconcile.py` derived from the sheet.
 
 Two rules the sheet encodes that ops needs as patterns, not constants: the
 helper (NUR), like the guards, has **Saturday as an ordinary ×1 day** — the
