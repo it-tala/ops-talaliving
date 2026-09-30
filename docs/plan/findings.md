@@ -8409,3 +8409,32 @@ it is read back by.
 `ops_core.ok(...)` payload, not from what the row would have — and a demo
 that returns the row directly hides the difference.
 
+
+## F200 · 2026-09-30 · A code built from what somebody picks inherits every wrong pick, and a free-text place cannot become a key without first becoming a row
+
+The owner asked for item codes that read `lokasi - kategori - nomor urut`
+(D346). It was built — a short code on every location and category, a
+counter per pair — walked in the demo, and then cancelled (D347): *salah
+input akan membuat salah kode.* The objection is structural, not cosmetic. An
+item code is written on a sticker and referenced by stock moves, BOMs and QR
+tokens; a location and a category are the two fields most likely to be picked
+wrong at the rack and corrected later, and an item moves racks anyway. A code
+that embeds them is either wrong for ever or rewritten everywhere it was
+printed. The catalogue number (`I-00001`) carries no meaning, so it cannot be
+wrong. Where an item is and what it is stay in columns, where they can be
+corrected.
+
+The asset register's location was the last free text in inventory. Turning it
+into a foreign key would have refused every asset whose place was typed
+differently from any rack, so the migration first makes each distinct place a
+location of its own and points the assets at it; afterwards a trigger accepts
+either a code or a location's name and stores the code, which keeps the asset
+seams' signatures and John Lau's drafts unchanged. The asset label joined the
+text as its own name; it now joins the location. With that, material stock,
+finished goods (0170) and assets all reference one list — the owner's
+*general* list.
+
+**Rule:** a key is meaningless on purpose; anything a person picks at the
+moment of entry belongs in a column that can be corrected, never inside the
+code. And a free-text field becomes a reference by first making each distinct
+value a row, then pointing at it.

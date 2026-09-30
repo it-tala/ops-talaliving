@@ -26,7 +26,11 @@ import { useTr } from "@/lib/i18n";
  *
  *  A name can be changed; a code cannot (`0157`: the code is the key the
  *  history is filed under). *Rename* was in D308 and in both API layers but
- *  never on this panel — found by the inventory walk (F178). */
+ *  never on this panel — found by the inventory walk (F178).
+ *
+ *  One list for every place inventory keeps something (`0197`, D347): racks
+ *  for material and finished goods, and where an asset stands — furniture,
+ *  machines, vehicles. The asset form picks from it too. */
 export function LocationManager({ onChanged }: { onChanged?: () => void }) {
   const tr = useTr();
   const { toast } = useToast();
@@ -73,7 +77,7 @@ export function LocationManager({ onChanged }: { onChanged?: () => void }) {
     <Card className="mb-4">
       <CardHeader
         title={tr("Manage locations", "Kelola lokasi")}
-        subtitle={tr("Areas that can be chosen during an opname. Deactivating a location does not delete its count history.", "Area yang bisa dipilih saat opname. Menonaktifkan sebuah lokasi tidak menghapus riwayat hitungannya.")}
+        subtitle={tr("One list for material stock, finished goods and assets (furniture, machines, vehicles). Deactivating a location does not delete its history.", "Satu daftar untuk stok material, barang jadi dan aset (perabotan, mesin, kendaraan). Menonaktifkan sebuah lokasi tidak menghapus riwayatnya.")}
         icon={MapPin}
       />
       <Loaded state={locs} skeletonRows={2} onRetry={reload}>

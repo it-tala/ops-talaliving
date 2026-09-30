@@ -221,21 +221,62 @@ export const ITEM_CATEGORIES: ItemCategory[] = [
   { code: "bahan", parent_code: null, name: "Bahan baku" },
   { code: "kayu", parent_code: "bahan", name: "Kayu solid" },
   { code: "panel", parent_code: "bahan", name: "Panel & pelapis" },
+  { code: "veneer", parent_code: "bahan", name: "Veneer & edging" },
+  { code: "logam", parent_code: "bahan", name: "Besi, aluminium & stainless" },
+  { code: "rotan", parent_code: "bahan", name: "Rotan, tali & anyaman" },
+  { code: "jok", parent_code: "bahan", name: "Busa, kain & kulit (jok)" },
+  { code: "kaca", parent_code: "bahan", name: "Kaca, cermin & batu" },
 
   { code: "hardware", parent_code: null, name: "Hardware" },
   { code: "engsel-rel", parent_code: "hardware", name: "Engsel, rel & mekanis" },
   { code: "handle", parent_code: "hardware", name: "Handle & aksesori" },
   { code: "pengikat", parent_code: "hardware", name: "Sekrup, paku & baut" },
+  { code: "kaki", parent_code: "hardware", name: "Kaki, glide & fitting" },
+  { code: "dowel", parent_code: "hardware", name: "Dowel, biskuit & sambungan" },
 
   { code: "finishing", parent_code: null, name: "Finishing" },
   { code: "cat", parent_code: "finishing", name: "Cat, stain & sealer" },
   { code: "pelarut", parent_code: "finishing", name: "Pelarut & pembersih" },
   { code: "lem", parent_code: "finishing", name: "Lem & dempul" },
+  { code: "minyak", parent_code: "finishing", name: "Minyak & wax" },
+  { code: "semprot", parent_code: "finishing", name: "Perlengkapan semprot & masking" },
 
   { code: "abrasif", parent_code: null, name: "Amplas & abrasif" },
+  { code: "abrasif-lembar", parent_code: "abrasif", name: "Amplas lembar" },
+  { code: "abrasif-roll", parent_code: "abrasif", name: "Amplas roll" },
+  { code: "abrasif-disc", parent_code: "abrasif", name: "Disc & belt amplas" },
+  { code: "abrasif-spons", parent_code: "abrasif", name: "Spons, pad & wol baja" },
+
   { code: "mesin", parent_code: null, name: "Perkakas & sparepart mesin" },
+  { code: "mesin-mata", parent_code: "mesin", name: "Mata gergaji, bor & pisau" },
+  { code: "mesin-gerinda", parent_code: "mesin", name: "Batu gerinda & potong" },
+  { code: "mesin-sparepart", parent_code: "mesin", name: "Sparepart mesin" },
+  { code: "mesin-pelumas", parent_code: "mesin", name: "Oli & pelumas" },
+  { code: "mesin-tangan", parent_code: "mesin", name: "Alat tangan" },
+
   { code: "kemasan", parent_code: null, name: "Kemasan & pengiriman" },
+  { code: "kemasan-kardus", parent_code: "kemasan", name: "Kardus & box" },
+  { code: "kemasan-wrap", parent_code: "kemasan", name: "Bubble wrap & stretch film" },
+  { code: "kemasan-busa", parent_code: "kemasan", name: "Busa, styrofoam & pelindung sudut" },
+  { code: "kemasan-lakban", parent_code: "kemasan", name: "Lakban & strapping" },
+  { code: "kemasan-palet", parent_code: "kemasan", name: "Palet & peti" },
+
   { code: "kantor", parent_code: null, name: "Kantor & umum" },
+  { code: "kantor-atk", parent_code: "kantor", name: "ATK" },
+  { code: "kantor-cetak", parent_code: "kantor", name: "Kertas, tinta & toner" },
+  { code: "kantor-pantry", parent_code: "kantor", name: "Pantry & air minum" },
+  { code: "kantor-kebersihan", parent_code: "kantor", name: "Alat & bahan kebersihan" },
+
+  { code: "apd", parent_code: null, name: "K3 & APD" },
+  { code: "apd-masker", parent_code: "apd", name: "Masker & respirator" },
+  { code: "apd-sarung", parent_code: "apd", name: "Sarung tangan" },
+  { code: "apd-mata-telinga", parent_code: "apd", name: "Pelindung mata & telinga" },
+  { code: "apd-seragam", parent_code: "apd", name: "Seragam, sepatu & P3K" },
+
+  { code: "perawatan", parent_code: null, name: "Bangunan & listrik" },
+  { code: "perawatan-listrik", parent_code: "perawatan", name: "Listrik: kabel, lampu & stopkontak" },
+  { code: "perawatan-pipa", parent_code: "perawatan", name: "Pipa & air" },
+  { code: "perawatan-bangunan", parent_code: "perawatan", name: "Bahan bangunan" },
 
   { code: "jasa", parent_code: null, name: "Jasa" },
   { code: "uncurated", parent_code: null, name: "Belum dikategorikan" },
@@ -243,10 +284,18 @@ export const ITEM_CATEGORIES: ItemCategory[] = [
 
 /** Which categories sit on a rack and are counted. Everything else is bought
  *  and gone the same day — a service, the electricity bill, an item nobody has
- *  filed yet (D169). */
+ *  filed yet (D169). Every type under a counted group is counted (`0104`,
+ *  `0197`). */
 export const STOCKED_CATEGORIES = new Set([
-  "kayu", "panel", "engsel-rel", "handle", "pengikat",
-  "cat", "pelarut", "lem", "abrasif", "mesin", "kemasan", "kantor",
+  "kayu", "panel", "veneer", "logam", "rotan", "jok", "kaca",
+  "engsel-rel", "handle", "pengikat", "kaki", "dowel",
+  "cat", "pelarut", "lem", "minyak", "semprot",
+  "abrasif", "abrasif-lembar", "abrasif-roll", "abrasif-disc", "abrasif-spons",
+  "mesin", "mesin-mata", "mesin-gerinda", "mesin-sparepart", "mesin-pelumas", "mesin-tangan",
+  "kemasan", "kemasan-kardus", "kemasan-wrap", "kemasan-busa", "kemasan-lakban", "kemasan-palet",
+  "kantor", "kantor-atk", "kantor-cetak", "kantor-pantry", "kantor-kebersihan",
+  "apd", "apd-masker", "apd-sarung", "apd-mata-telinga", "apd-seragam",
+  "perawatan", "perawatan-listrik", "perawatan-pipa", "perawatan-bangunan",
 ]);
 
 export const PROJECTS: Project[] = [

@@ -488,12 +488,22 @@ export const MOVE_LABELS: Record<StockMoveKind, Message> = {
 };
 export const MOVE_LABEL = bilingual(MOVE_LABELS);
 
-/** Where stock physically is. Deliberately few: a location nobody walks to is
- *  a location nobody counts. */
+/** Every place inventory keeps something — racks for material stock,
+ *  finished goods, and where an asset stands (`0197`, D347). Deliberately few:
+ *  a location nobody walks to is a location nobody counts. */
 export interface StockLocation {
   code: string;
   name: string;
   is_active: boolean;
+}
+
+/** A category an item registered at the rack may go into, with the group it
+ *  sits under, so the picker can show the tree (`0197`). */
+export interface StockedCategory {
+  code: string;
+  name: string;
+  parent_code: string | null;
+  parent_name: string | null;
 }
 
 /** One movement of one item. Append-only: a mistake is corrected by another
