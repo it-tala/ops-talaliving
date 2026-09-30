@@ -1,16 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarCheck, Upload, AlertTriangle, Clock, Flag, ChevronLeft, ChevronRight, Moon } from "lucide-react";
+import { CalendarCheck, Upload, AlertTriangle, Clock, Flag, ChevronLeft, ChevronRight, Moon, Wallet } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { usePaged } from "@/components/ui/pager";
-import { formatNumber } from "@/lib/format";
+import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { mondayOf, officeToday, shiftDay } from "@/lib/office";
 import { isLiveMode } from "@/lib/live";
 import { hr } from "@/demo/api";
-import type { TimesheetTotal } from "@/services/hr/contracts";
+import type { PayBasis, PayrollLine, TimesheetDay, TimesheetTotal } from "@/services/hr/contracts";
 import { DAY_MARK_SHORT, OVERTIME_STAGE_LABEL, type DayState } from "@/services/hr/contracts";
 import Link from "next/link";
 import { useSession } from "@/store/session";
@@ -32,16 +32,27 @@ import { MarkDay } from "./MarkDay";
  *  **which days a person still has to read** — because until they have, a
  *  payroll over this period is arithmetic rather than wages (D141).
  */
-/** Two weeks: the one before this and this one. Last week is the one a
- *  weekly payroll pays, and this week is the one being tapped into. Until F154
- *  this was a constant — the demo's own fortnight, 29 Aug – 7 Sep 2026 — so in
- *  live mode the grid never showed a day anybody could still fix. */
-const SPAN_DAYS = 14;
+/** Five days at a time, or one pay week (D345). Owner: *cukup menampilkan
+ *  absensi per 5 hari, total jam kerja dan estimasi gaji — terpisah untuk
+ *  karyawan bulanan dan mingguan.* Fourteen columns was a fortnight nobody
+ *  read across; five is a working week on one screen, and the pay week
+ *  (Sabtu–Jumat by the rule book) is the one the weekly payroll pays. */
+type Span = 5 | 7;
 
-/** Where the grid opens: the last fortnight in live mode; in the demo, the
- *  fortnight its fixtures were recorded in, which is otherwise an empty grid. */
-function defaultFrom(): string {
-  return isLiveMode() ? mondayOf(shiftDay(officeToday(), -7)) : "2026-08-24";
+/** The first day of the pay week `key` falls in, for a week starting on ISO
+ *  weekday `isodow` — the weekly payroll's own rule (D340). */
+function payWeekStart(key: string, isodow: number): string {
+  const monday = mondayOf(key);
+  const start = shiftDay(monday, isodow - 1);
+  return start > key ? shiftDay(start, -7) : start;
+}
+
+/** Where the grid opens: the last five days, or this pay week, in live mode;
+ *  in the demo, the week its fixtures were recorded in, which is otherwise an
+ *  empty grid. */
+function defaultFrom(span: Span, weekStartsOn: number): string {
+  if (!isLiveMode()) return span === 5 ? "2026-08-31" : payWeekStart("2026-08-31", weekStartsOn);
+  return span === 5 ? shiftDay(officeToday(), -4) : payWeekStart(officeToday(), weekStartsOn);
 }
 
 const CELL: Record<DayState, string> = {
@@ -56,30 +67,43 @@ export default function TimesheetPage() {
   const { can, hasAuthority } = useSession();
   /* Read off the address, as the weekly payroll does, so a link (or a reload)
      lands on the fortnight somebody was looking at. */
+  const [span, setSpan] = useState<Span>(() => {
+    const asked = typeof window === "undefined"
+      ? null : new URLSearchParams(window.location.search).get("span");
+    return asked === "7" ? 7 : 5;
+  });
+  /* Which weekday a pay week starts on is the rule book's (D340). */
+  const [books] = useLoad(() => hr.listPayRules(), []);
+  const weekStartsOn = (() => {
+    if (books.status !== "ready") return 1;
+    const today = officeToday();
+    const inForce = [...books.data]
+      .filter((b) => b.effective_from <= today)
+      .sort((a, b) => a.effective_from.localeCompare(b.effective_from) || a.version - b.version)
+      .pop();
+    return inForce?.rules.pay_week_starts_isodow ?? 1;
+  })();
   const [from, setFrom] = useState(() => {
     const asked = typeof window === "undefined"
       ? null : new URLSearchParams(window.location.search).get("from");
-    return asked && /^\d{4}-\d{2}-\d{2}$/.test(asked) ? mondayOf(asked) : defaultFrom();
+    return asked && /^\d{4}-\d{2}-\d{2}$/.test(asked) ? asked : defaultFrom(5, 1);
   });
-  const to = shiftDay(from, SPAN_DAYS - 1);
+  const to = shiftDay(from, span - 1);
   useEffect(() => {
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
     url.searchParams.set("from", from);
+    url.searchParams.set("span", String(span));
     window.history.replaceState(null, "", url.toString());
-  }, [from]);
+  }, [from, span]);
   const [sheet, reload] = useLoad(() => hr.getTimesheet({ from, to }), [from, to]);
+  /* What the days are worth — the weekly payroll's own figures for exactly
+     these days, never a second calculation here (A3). */
+  const [pay, reloadPay] = useLoad(() => hr.previewPayroll({ period_start: from, period_end: to }), [from, to]);
   const [sheets, reloadSheets] = useLoad(() => hr.listOvertimeSheets(), []);
   const [importing, setImporting] = useState(false);
   const [marking, setMarking] = useState<string | null>(null);
   const [open, setOpen] = useState<{ employee_no: string; work_date: string } | null>(null);
-  /* The grid pages by person. Computed out here rather than inside the
-     `Loaded` callback, which is not always called and so is no place for a
-     hook (D157). */
-  const { shown: people, pager: peoplePager } = usePaged(
-    sheet.status === "ready" ? sheet.data.employees : [],
-    12,
-  );
   const mayEdit = can("hrd.update");
   const mayLeader = hasAuthority("approve_overtime");
 
@@ -98,15 +122,29 @@ export default function TimesheetPage() {
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Button variant="outline" size="sm" icon={ChevronLeft} onClick={() => setFrom(shiftDay(from, -7))}>
-          {tr("Previous week", "Minggu sebelumnya")}
+        <div className="inline-flex overflow-hidden rounded-lg border border-slate-200" role="group" aria-label={tr("Days shown", "Hari yang ditampilkan")}>
+          {([5, 7] as Span[]).map((n) => (
+            <button
+              key={n}
+              type="button"
+              aria-pressed={span === n}
+              onClick={() => { setSpan(n); setFrom(n === 7 ? payWeekStart(from, weekStartsOn) : from); }}
+              className={cn("px-3 py-1.5 text-[12px] font-medium",
+                span === n ? "bg-brand-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50")}
+            >
+              {n === 5 ? tr("5 days", "5 hari") : tr("Pay week", "Minggu gaji")}
+            </button>
+          ))}
+        </div>
+        <Button variant="outline" size="sm" icon={ChevronLeft} onClick={() => setFrom(shiftDay(from, -span))}>
+          {span === 5 ? tr("Previous 5 days", "5 hari sebelumnya") : tr("Previous week", "Minggu sebelumnya")}
         </Button>
         <span className="px-2 font-mono text-[12px] text-slate-500">{from} → {to}</span>
-        <Button variant="outline" size="sm" onClick={() => setFrom(shiftDay(from, 7))}>
-          {tr("Next week", "Minggu depan")} <ChevronRight className="ml-1 h-3.5 w-3.5" />
+        <Button variant="outline" size="sm" onClick={() => setFrom(shiftDay(from, span))}>
+          {span === 5 ? tr("Next 5 days", "5 hari berikutnya") : tr("Next week", "Minggu depan")} <ChevronRight className="ml-1 h-3.5 w-3.5" />
         </Button>
-        <Button variant="ghost" size="sm" onClick={() => setFrom(defaultFrom())}>
-          {tr("Last two weeks", "Dua minggu terakhir")}
+        <Button variant="ghost" size="sm" onClick={() => setFrom(defaultFrom(span, weekStartsOn))}>
+          {span === 5 ? tr("Last 5 days", "5 hari terakhir") : tr("This pay week", "Minggu gaji ini")}
         </Button>
       </div>
 
@@ -143,94 +181,33 @@ export default function TimesheetPage() {
               )}
             </div>
 
-            <Card className="mb-4">
-              <CardHeader
-                title={tr("Every person, every day", "Setiap orang, setiap hari")}
-                subtitle={tr(
-                  "Click a cell for the taps behind it. Click a date to mark the whole day — public holiday, half day.",
-                  "Klik sel untuk melihat tap di baliknya. Klik tanggal untuk menandai seluruh hari — tanggal merah, setengah hari.",
-                )}
-                icon={CalendarCheck}
-                action={<SourceBadge state={sheet} />}
+            {/* Two groups, because the two are paid differently and read for
+                different things (D345): somebody on a day rate is paid for
+                exactly these days, somebody on a salary is paid the month
+                and these days only move the allowance. */}
+            {([
+              ["weekly", tr("Weekly — paid by the day", "Mingguan — dibayar per hari"),
+                tr("What these days earn: day rate × days (Saturday, Sunday and red days at the schedule's multiplier), allowance, and approved overtime. Days still to read are not in it yet.",
+                   "Yang dihasilkan hari-hari ini: upah harian × hari (Sabtu, Minggu dan tanggal merah dengan pengali jadwal), tunjangan, dan lembur yang disetujui. Hari yang belum dibaca belum masuk.")],
+              ["monthly", tr("Monthly — on a salary", "Bulanan — bergaji bulanan"),
+                tr("The salary is the month's whatever these days say; what these days add is the allowance for days present and approved overtime.",
+                   "Gajinya gaji sebulan apa pun isi hari-hari ini; yang ditambahkan hari-hari ini adalah tunjangan hari hadir dan lembur yang disetujui.")],
+            ] as ["weekly" | "monthly", string, string][]).map(([group, title, subtitle]) => (
+              <PeopleGrid
+                key={group}
+                group={group}
+                title={title}
+                subtitle={subtitle}
+                sheet={s}
+                sheetState={sheet}
+                pay={pay.status === "ready" ? pay.data.lines : null}
+                payFailed={pay.status === "failed"}
+                onRetryPay={reloadPay}
+                mayEdit={mayEdit}
+                onMarkDate={setMarking}
+                onOpen={(employee_no, work_date) => setOpen({ employee_no, work_date })}
               />
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[900px] border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-200 bg-slate-50/70">
-                      <th className="sticky left-0 z-10 bg-slate-50/70 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                        {tr("Employee", "Karyawan")}
-                      </th>
-                      {s.dates.map((d) => (
-                        <th key={d} className="px-2 py-2.5 text-center text-[11px] font-semibold text-slate-500">
-                          <button
-                            onClick={() => mayEdit && setMarking(d)}
-                            className="underline decoration-dotted underline-offset-4 hover:text-brand-700"
-                            title={tr("Mark this day for everybody", "Tandai hari ini untuk semua orang")}
-                          >
-                            {d.slice(8)}/{d.slice(5, 7)}
-                          </button>
-                        </th>
-                      ))}
-                      {/* Pertanyaan yang ditanyakan sebelum *hari ini kenapa*:
-                          berapa jam, berapa hari. Dijumlahkan di basis data,
-                          bukan di sini (0067). */}
-                      <th className="sticky right-0 z-10 border-l border-slate-200 bg-slate-50/70 px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                        {tr("Total", "Total")}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {people.map((e) => (
-                      <tr key={e.employee_no} className="border-b border-slate-100">
-                        <th scope="row" className="sticky left-0 z-10 bg-white px-4 py-1.5 text-left">
-                          <span className="block text-[13px] font-medium text-slate-800">{e.full_name}</span>
-                          <span className="block font-mono text-[10px] text-slate-400">
-                            {e.employee_no} · {e.pay_basis === "monthly" ? tr("monthly", "bulanan") : tr("daily", "harian")}
-                          </span>
-                        </th>
-                        {s.dates.map((date) => {
-                          const day = s.days.find((d) => d.employee_no === e.employee_no && d.work_date === date);
-                          if (!day) return <td key={date} />;
-                          return (
-                            <td key={date} className="px-1 py-1 text-center">
-                              <button
-                                onClick={() => setOpen({ employee_no: e.employee_no, work_date: date })}
-                                className={cn(
-                                  "w-full rounded border px-1 py-1 text-[11px] leading-tight transition-colors hover:brightness-95",
-                                  CELL[day.state],
-                                )}
-                                title={day.issues.join(" · ") || day.mark?.reason || ""}
-                              >
-                                {day.overnight && day.state !== "off" && (
-                                  <Moon className="mr-0.5 inline h-2.5 w-2.5 align-[-1px]" aria-label={tr("night shift", "shift malam")} />
-                                )}
-                                {day.state === "off" ? "—"
-                                  : day.state === "marked" ? DAY_MARK_SHORT[day.mark!.kind]
-                                    : day.state === "review" ? tr(`${day.scans.length} tap`, `${day.scans.length} tap`)
-                                      : formatNumber(day.work_hours)}
-                              </button>
-                            </td>
-                          );
-                        })}
-                        <TotalCell total={s.totals.find((t) => t.employee_no === e.employee_no)} />
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {/* Forty names today, more next year: the grid pages like every
-                  other table rather than growing without limit (D157). */}
-              {peoplePager}
-              <p className="flex flex-wrap gap-3 border-t border-slate-100 px-4 py-2 text-[11px] text-slate-500">
-                <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 text-emerald-800">{tr("hours", "jam")}</span> {tr("read cleanly", "terbaca bersih")}
-                <span className="rounded border border-amber-300 bg-amber-50 px-1.5 text-amber-900">{tr("n tap", "n tap")}</span> {tr("needs reading", "perlu dibaca")}
-                <span className="rounded border border-violet-200 bg-violet-50 px-1.5 text-violet-800">{tr("marked", "ditandai")}</span> {tr("HRD said what happened", "HRD menyatakan apa yang terjadi")}
-                <span className="rounded border border-slate-100 bg-slate-50 px-1.5 text-slate-400">—</span> {tr("no tap at all", "tidak ada tap sama sekali")}
-                {/* A night belongs to the day it started (D330): its morning
-                    taps are counted in the evening's cell, not the next day's. */}
-                <span className="inline-flex items-center gap-1"><Moon className="h-3 w-3 text-indigo-600" /> {tr("night shift, counted on the day it started", "shift malam, dihitung pada hari mulainya")}</span>
-              </p>
-            </Card>
+            ))}
 
             {/* Overtime lives on its own screen now: it arrives as a sheet,
                 and the two kinds of sheet answer to different people (D146).
@@ -283,14 +260,14 @@ export default function TimesheetPage() {
         )}
       </Loaded>
 
-      {importing && <ImportScans onClose={() => setImporting(false)} onDone={() => { setImporting(false); reload(); }} />}
-      {marking && <MarkDay date={marking} onClose={() => setMarking(null)} onDone={() => { setMarking(null); reload(); }} />}
+      {importing && <ImportScans onClose={() => setImporting(false)} onDone={() => { setImporting(false); reload(); reloadPay(); }} />}
+      {marking && <MarkDay date={marking} onClose={() => setMarking(null)} onDone={() => { setMarking(null); reload(); reloadPay(); }} />}
       {open && (
         <DayDrawer
           employeeNo={open.employee_no}
           workDate={open.work_date}
           onClose={() => setOpen(null)}
-          onChanged={() => { reload(); }}
+          onChanged={() => { reload(); reloadPay(); }}
         />
       )}
     </div>
@@ -318,6 +295,207 @@ function TotalCell({ total }: { total?: TimesheetTotal }) {
       {total.days_review > 0 && (
         <span className="mt-0.5 block text-[10px] font-medium tabular-nums text-amber-700">
           {tr(`${total.days_review} not yet read`, `${total.days_review} belum dibaca`)}
+        </span>
+      )}
+    </td>
+  );
+}
+
+
+interface Sheet {
+  days: TimesheetDay[];
+  dates: string[];
+  employees: { employee_no: string; full_name: string; pay_basis: PayBasis }[];
+  totals: TimesheetTotal[];
+  needs_review: number;
+  marked: number;
+}
+
+/** One group's days, hours and what they are worth (D345). */
+function PeopleGrid({
+  group, title, subtitle, sheet: s, sheetState, pay, payFailed, onRetryPay, mayEdit, onMarkDate, onOpen,
+}: {
+  group: "weekly" | "monthly";
+  title: string;
+  subtitle: string;
+  sheet: Sheet;
+  sheetState: Parameters<typeof SourceBadge>[0]["state"];
+  pay: PayrollLine[] | null;
+  payFailed: boolean;
+  onRetryPay: () => void;
+  mayEdit: boolean;
+  onMarkDate: (date: string) => void;
+  onOpen: (employeeNo: string, workDate: string) => void;
+}) {
+  const tr = useTr();
+  const members = s.employees.filter((e) => (e.pay_basis === "monthly") === (group === "monthly"));
+  /* Pages by person like every table (D157). */
+  const { shown: people, pager } = usePaged(members, 12);
+  const lineOf = new Map((pay ?? []).map((l) => [l.employee_no, l]));
+  if (members.length === 0) return null;
+
+  const weeklySum = members.reduce((n, e) => n + (lineOf.get(e.employee_no)?.gross ?? 0), 0);
+  const monthlyAdd = members.reduce((n, e) => {
+    const l = lineOf.get(e.employee_no);
+    return n + (l ? l.allowance_pay + l.overtime_pay : 0);
+  }, 0);
+  const hoursSum = members.reduce((n, e) => n + (s.totals.find((t) => t.employee_no === e.employee_no)?.work_hours ?? 0), 0);
+
+  return (
+    <Card className="mb-4" data-testid={`grid-${group}`}>
+      <CardHeader
+        title={tr(`${title} · ${members.length}`, `${title} · ${members.length}`)}
+        subtitle={subtitle}
+        icon={group === "weekly" ? CalendarCheck : Wallet}
+        action={<SourceBadge state={sheetState} />}
+      />
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[760px] border-collapse">
+          <thead>
+            <tr className="border-b border-slate-200 bg-slate-50/70">
+              <th className="sticky left-0 z-10 bg-slate-50/70 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                {tr("Employee", "Karyawan")}
+              </th>
+              {s.dates.map((d) => (
+                <th key={d} className="px-2 py-2.5 text-center text-[11px] font-semibold text-slate-500">
+                  <button
+                    onClick={() => mayEdit && onMarkDate(d)}
+                    className="underline decoration-dotted underline-offset-4 hover:text-brand-700"
+                    title={tr("Mark this day for everybody", "Tandai hari ini untuk semua orang")}
+                  >
+                    {DAY_SHORT[new Date(`${d}T00:00:00Z`).getUTCDay()]} {d.slice(8)}/{d.slice(5, 7)}
+                  </button>
+                </th>
+              ))}
+              <th className="border-l border-slate-200 px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                {tr("Hours", "Jam")}
+              </th>
+              <th className="sticky right-0 z-10 border-l border-slate-200 bg-slate-50/70 px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                {tr("Estimated pay", "Estimasi gaji")}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {people.map((e) => (
+              <tr key={e.employee_no} className="border-b border-slate-100">
+                <th scope="row" className="sticky left-0 z-10 bg-white px-4 py-1.5 text-left">
+                  <span className="block text-[13px] font-medium text-slate-800">{e.full_name}</span>
+                  <span className="block font-mono text-[10px] text-slate-400">
+                    {e.employee_no} · {e.pay_basis === "monthly" ? tr("monthly", "bulanan") : e.pay_basis === "daily" ? tr("daily", "harian") : tr("hourly", "per jam")}
+                  </span>
+                </th>
+                {s.dates.map((date) => {
+                  const day = s.days.find((d) => d.employee_no === e.employee_no && d.work_date === date);
+                  if (!day) return <td key={date} />;
+                  return (
+                    <td key={date} className="px-1 py-1 text-center">
+                      <button
+                        onClick={() => onOpen(e.employee_no, date)}
+                        className={cn(
+                          "w-full rounded border px-1 py-1 text-[11px] leading-tight transition-colors hover:brightness-95",
+                          CELL[day.state],
+                        )}
+                        title={day.issues.join(" · ") || day.mark?.reason || ""}
+                      >
+                        {day.overnight && day.state !== "off" && (
+                          <Moon className="mr-0.5 inline h-2.5 w-2.5 align-[-1px]" aria-label={tr("night shift", "shift malam")} />
+                        )}
+                        {day.state === "off" ? "—"
+                          : day.state === "marked" ? DAY_MARK_SHORT[day.mark!.kind]
+                            : day.state === "review" ? tr(`${day.scans.length} tap`, `${day.scans.length} tap`)
+                              : formatNumber(day.work_hours)}
+                        {(day.pay_multiplier ?? 1) > 1 && day.day_value > 0 && (
+                          <span className="ml-0.5 text-[9px] font-semibold text-amber-700">×{day.pay_multiplier}</span>
+                        )}
+                      </button>
+                    </td>
+                  );
+                })}
+                <TotalCell total={s.totals.find((t) => t.employee_no === e.employee_no)} />
+                <PayCell line={lineOf.get(e.employee_no)} monthly={group === "monthly"} loading={pay === null && !payFailed} />
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="border-t border-slate-200 bg-slate-50/50">
+              <th scope="row" colSpan={s.dates.length + 1} className="px-4 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                {tr(`All ${members.length}`, `Semua ${members.length}`)}
+              </th>
+              <td className="border-l border-slate-200 px-3 py-2 text-right text-[13px] font-semibold tabular-nums text-slate-800">
+                {tr(`${formatNumber(hoursSum)} h`, `${formatNumber(hoursSum)} jam`)}
+              </td>
+              <td className="sticky right-0 border-l border-slate-200 bg-slate-50 px-3 py-2 text-right">
+                {pay && (
+                  <>
+                    <span className="block text-[13px] font-bold tabular-nums text-slate-800">
+                      {group === "weekly" ? formatIDR(weeklySum) : `+ ${formatIDR(monthlyAdd)}`}
+                    </span>
+                    <span className="block text-[10px] text-slate-400">
+                      {group === "weekly" ? tr("gross, these days", "bruto, hari-hari ini") : tr("allowance + overtime, these days", "tunjangan + lembur, hari-hari ini")}
+                    </span>
+                  </>
+                )}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      {payFailed && (
+        <p className="border-t border-slate-100 px-4 py-2 text-[12px] text-amber-800">
+          {tr("The estimate could not be computed. ", "Estimasi tidak bisa dihitung. ")}
+          <button className="underline" onClick={onRetryPay}>{tr("Try again", "Coba lagi")}</button>
+        </p>
+      )}
+      {pager}
+      <p className="flex flex-wrap gap-3 border-t border-slate-100 px-4 py-2 text-[11px] text-slate-500">
+        <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 text-emerald-800">{tr("hours", "jam")}</span> {tr("read cleanly", "terbaca bersih")}
+        <span className="rounded border border-amber-300 bg-amber-50 px-1.5 text-amber-900">{tr("n tap", "n tap")}</span> {tr("needs reading", "perlu dibaca")}
+        <span className="rounded border border-violet-200 bg-violet-50 px-1.5 text-violet-800">{tr("marked", "ditandai")}</span> {tr("HRD said what happened", "HRD menyatakan apa yang terjadi")}
+        <span className="rounded border border-slate-100 bg-slate-50 px-1.5 text-slate-400">—</span> {tr("no tap at all", "tidak ada tap sama sekali")}
+        <span><span className="font-semibold text-amber-700">×2</span> {tr("paid at the schedule's multiplier", "dibayar dengan pengali jadwal")}</span>
+        <span className="inline-flex items-center gap-1"><Moon className="h-3 w-3 text-indigo-600" /> {tr("night shift, counted on the day it started", "shift malam, dihitung pada hari mulainya")}</span>
+      </p>
+    </Card>
+  );
+}
+
+const DAY_SHORT = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
+
+/** What the days are worth — the payroll line for exactly these days. For a
+ *  day rate that is the pay; for a salary it is the month, plus what these
+ *  days add. A figure with unread days beside it says so (it is too low). */
+function PayCell({ line, monthly, loading }: { line?: PayrollLine; monthly: boolean; loading: boolean }) {
+  const tr = useTr();
+  if (!line) {
+    return (
+      <td className="sticky right-0 z-10 border-l border-slate-200 bg-white px-3 py-1.5 text-right text-[11px] text-slate-400">
+        {loading ? "…" : "—"}
+      </td>
+    );
+  }
+  return (
+    <td className="sticky right-0 z-10 border-l border-slate-200 bg-white px-3 py-1.5 text-right" data-testid="pay-cell">
+      {monthly ? (
+        <>
+          <span className="block text-[13px] font-semibold tabular-nums text-slate-800">{formatIDR(line.base_pay)}</span>
+          <span className="block text-[10px] text-slate-400">{tr("per month", "per bulan")}</span>
+          {(line.allowance_pay > 0 || line.overtime_pay > 0) && (
+            <span className="block text-[10px] tabular-nums text-slate-500">
+              + {formatIDR(line.allowance_pay + line.overtime_pay)} {tr("these days", "hari ini")}
+            </span>
+          )}
+        </>
+      ) : (
+        <>
+          <span className="block text-[13px] font-semibold tabular-nums text-slate-800">{formatIDR(line.gross)}</span>
+          <span className="block text-[10px] tabular-nums text-slate-400">
+            {formatIDR(line.base_pay)}{line.allowance_pay > 0 && ` + ${formatIDR(line.allowance_pay)}`}{line.overtime_pay > 0 && ` + ${tr("OT", "lembur")} ${formatIDR(line.overtime_pay)}`}
+          </span>
+        </>
+      )}
+      {line.days_open > 0 && (
+        <span className="mt-0.5 block text-[10px] font-medium text-amber-700">
+          {tr(`${line.days_open} day(s) unread — too low`, `${line.days_open} hari belum dibaca — masih kurang`)}
         </span>
       )}
     </td>
