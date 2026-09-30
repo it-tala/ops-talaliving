@@ -19,6 +19,7 @@ import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 import { instantInDay } from "@/services/hr/schedule-rules";
+import { TapWhereLine } from "@/components/attendance/located-tap";
 
 /** A tap's office calendar day and clock face, from the instant rather than
  *  from the string's own offset, so a night's morning tap can say it is
@@ -342,7 +343,7 @@ export function DayDrawer({
             {/* Everything the reader recorded, including what the rule could not place. */}
             <div>
               <p className="mb-1.5 text-[11px] uppercase tracking-wide text-slate-400">
-                {tr(`Every tap on the machine (${d.scans.length})`, `Semua tap di mesin (${d.scans.length})`)}
+                {tr(`Every tap, and where it was made (${d.scans.length})`, `Semua tap dan tempatnya (${d.scans.length})`)}
               </p>
               {d.scans.length === 0 ? (
                 <p className="rounded-xl border border-slate-200 px-3 py-3 text-[13px] text-slate-500">
@@ -352,17 +353,19 @@ export function DayDrawer({
                   )}
                 </p>
               ) : (
-                <ul className="flex flex-wrap gap-2">
+                <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200" data-testid="day-taps">
                   {d.scans.map((s) => (
                     <li key={s.at} className={cn(
-                      "rounded-lg border px-2 py-1 text-[11px]",
-                      s.slot ? "border-slate-200 bg-white text-slate-700" : "border-amber-300 bg-amber-50 text-amber-900",
+                      "flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-3 py-1.5 text-[12px]",
+                      s.slot ? "text-slate-700" : "bg-amber-50 text-amber-900",
                     )}>
                       <span className="font-mono tabular-nums">{tapClock(s.at)}</span>
-                      {tapDay(s.at) > workDate && <span className="ml-1 text-indigo-700">{tr("next day", "esok")}</span>}
-                      <span className="ml-1.5 text-slate-400">{s.verify}</span>
-                      <span className="ml-1.5">{s.slot ? SLOT_LABEL[s.slot] : tr("unreadable", "tidak terbaca")}</span>
-                      {s.source === "manual" && <span className="ml-1.5 text-slate-400">· {tr("manual", "manual")}</span>}
+                      {tapDay(s.at) > workDate && <span className="text-[11px] text-indigo-700">{tr("next day", "esok")}</span>}
+                      <span className="text-[11px] text-slate-400">{s.verify}</span>
+                      <span className="text-[11px]">{s.slot ? SLOT_LABEL[s.slot] : tr("unreadable", "tidak terbaca")}</span>
+                      {/* Where it was made (D344): the warehouse reader, the
+                          phone's reading and selfie, or HRD's reason. */}
+                      <span className="basis-full text-[11px]"><TapWhereLine where={s.where} /></span>
                     </li>
                   ))}
                 </ul>

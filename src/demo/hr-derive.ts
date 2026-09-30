@@ -6,6 +6,7 @@
  *  from attendance and approved overtime every time it is read, and the run
  *  stores only the period, the status and who said yes.
  */
+import { tapWhere, type TapReadingRow } from "@/services/hr/tap-where";
 import type { DemoState } from "./state";
 import { settingNumber } from "./settings";
 import { officeClock, officeDay, officeStamp, officeToday } from "@/lib/office";
@@ -56,6 +57,19 @@ function hoursBetween(from: string, to: string): number {
  *  calendar day it happened and read into the night that began the evening
  *  before (D330).
  */
+/** A phone tap's reading as `v_located_tap` would carry it (0188). */
+function readingOf(state: DemoState, scanId: string): TapReadingRow | null {
+  const l = state.scan_locations.find((x) => x.scan_id === scanId);
+  if (!l) return null;
+  const w = state.work_sites.find((x) => x.id === l.site_id);
+  const photo = l.photo_id ? state.attachments.find((a) => a.id === l.photo_id) : undefined;
+  return {
+    lat: l.lat, lng: l.lng, verdict: l.verdict, distance_m: l.distance_m, accuracy_m: l.accuracy_m,
+    site_code: w?.code ?? null, site_name: w?.name ?? null, note: l.note,
+    photo_id: l.photo_id, photo_link: null, photo_filename: photo?.filename ?? null,
+  };
+}
+
 function tapsOf(state: DemoState, employeeId: string, from: string, to: string) {
   const lo = Date.parse(from);
   const hi = Date.parse(to);
@@ -361,6 +375,7 @@ export function timesheetDay(
     work_date: workDate,
     scans: taps.map((t) => ({
       at: t.at, verify: t.verify, slot: assigned.get(t.id) ?? null, source: t.source,
+      where: tapWhere(t.source, t.reason ?? null, readingOf(state, t.id), state.work_sites),
     })),
     slots,
     state: state_,

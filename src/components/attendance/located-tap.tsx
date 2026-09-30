@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { Camera, Fingerprint, MapPin, MapPinOff, ShieldCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/primitives";
 import { documents, hr } from "@/demo/api";
-import type { LocationJudgement, TapReading, TapSelfResult } from "@/services/hr/contracts";
+import type { LocationJudgement, LocationVerdict, TapReading, TapSelfResult } from "@/services/hr/contracts";
+import type { TapWhere } from "@/services/hr/tap-where";
 import { OFFICE_TZ, officeClock } from "@/lib/office";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
@@ -301,5 +302,71 @@ export function LocatedTap({
         )}
       </p>
     </div>
+  );
+}
+
+/** Where one tap was made, in one line (D344): the warehouse for the reader,
+ *  the reading and the selfie for a phone, the reason for one typed in. Each
+ *  point opens in Google Maps. */
+export function TapWhereLine({ where }: { where: TapWhere | undefined }) {
+  const tr = useTr();
+  const lang = tr("en", "id") as "en" | "id";
+  if (!where) return null;
+  const map = where.lat != null && where.lng != null
+    ? (
+      <a href={mapLink(where.lat, where.lng)} target="_blank" rel="noreferrer"
+         className="inline-flex items-center gap-0.5 text-brand-700 underline">
+        <MapPin className="h-3 w-3" />{tr("map", "peta")}
+      </a>
+    ) : null;
+
+  if (where.kind === "machine") {
+    return (
+      <span className="inline-flex flex-wrap items-center gap-x-1.5 text-slate-500" data-testid="tap-where">
+        <Fingerprint className="h-3 w-3" />
+        {where.site_name
+          ? tr(`${where.site_name} · fingerprint reader`, `${where.site_name} · mesin sidik jari`)
+          : tr("Fingerprint reader · no warehouse point set", "Mesin sidik jari · titik gudang belum diatur")}
+        {map}
+      </span>
+    );
+  }
+  if (where.kind === "manual") {
+    return (
+      <span className="text-slate-500" data-testid="tap-where">
+        {tr("Typed by HRD", "Diketik HRD")}{where.reason ? ` — ${where.reason}` : ""}
+      </span>
+    );
+  }
+  const verdict: Record<LocationVerdict, { text: string; cls: string }> = {
+    inside: { text: tr(`At ${where.site_name ?? "the site"}`, `Di ${where.site_name ?? "lokasi"}`), cls: "text-emerald-700" },
+    outside: {
+      text: tr(`Outside · ${metres(where.distance_m ?? 0, lang)} from ${where.site_name ?? "the site"}`,
+               `Di luar · ${metres(where.distance_m ?? 0, lang)} dari ${where.site_name ?? "lokasi"}`),
+      cls: "text-amber-700",
+    },
+    uncertain: { text: tr("Location too loose to tell", "Lokasi kurang tepat"), cls: "text-amber-700" },
+    no_location: { text: tr("No location", "Tanpa lokasi"), cls: "text-amber-700" },
+    no_site: { text: tr("Not judged — no location point set", "Tidak dinilai — titik lokasi belum diatur"), cls: "text-slate-500" },
+  };
+  const v = verdict[where.verdict ?? "no_location"];
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-1.5" data-testid="tap-where">
+      <span className={v.cls}>{tr("Phone", "HP")} · {v.text}</span>
+      {where.accuracy_m != null && <span className="text-slate-400">±{Math.round(where.accuracy_m)} m</span>}
+      {map}
+      {where.photo_id && (where.photo_link
+        ? (
+          <a href={where.photo_link} target="_blank" rel="noreferrer" title={where.photo_filename ?? undefined}
+             className="inline-flex items-center gap-0.5 text-brand-700 underline">
+            <Camera className="h-3 w-3" />{tr("selfie", "foto selfie")}
+          </a>
+        ) : (
+          <span className="inline-flex items-center gap-0.5 text-slate-500" title={where.photo_filename ?? undefined}>
+            <Camera className="h-3 w-3" />{tr("selfie attached", "foto selfie terlampir")}
+          </span>
+        ))}
+      {where.note && <span className="text-slate-600">“{where.note}”</span>}
+    </span>
   );
 }

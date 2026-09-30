@@ -57,6 +57,7 @@ import {
   ADJUSTMENT_LABEL, SCHEME_LABEL,
 } from "@/services/hr/contracts";
 import { instantInDay, nextOfficeDay, type ScheduleDay, type ScheduleWeekDay } from "@/services/hr/schedule-rules";
+import { tapWhere, type TapReadingRow } from "@/services/hr/tap-where";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fromSeam, fromRows, notFound, invalid, ok, type Result } from "./_kit";
 import { link as linkDocument } from "./documents";
@@ -1092,7 +1093,7 @@ interface DayRow {
 
 interface ScanRow {
   id: string; employee_id: string; work_date: string; at: string;
-  verify: string | null; source: ScanSource;
+  verify: string | null; source: ScanSource; reason: string | null;
 }
 
 /** Which slot a tap was placed in. **Read off the reading, not worked out
@@ -1109,7 +1110,10 @@ function slotOf(row: DayRow, at: string): ScanSlot | null {
   return null;
 }
 
-function buildDay(row: DayRow, scans: ScanRow[], marks: DayMark[]): TimesheetDay {
+function buildDay(
+  row: DayRow, scans: ScanRow[], marks: DayMark[],
+  readings: Map<string, TapReadingRow> = new Map(), sites: WorkSite[] = [],
+): TimesheetDay {
   /* The taps the reading read: its own window, not the calendar day. A guard's
      07.05 pulang is stored on Tuesday and read into Monday night (D330), and
      matching by `work_date` here would show it under the wrong day. */
@@ -1142,6 +1146,7 @@ function buildDay(row: DayRow, scans: ScanRow[], marks: DayMark[]): TimesheetDay
       .sort((a, b) => a.at.localeCompare(b.at))
       .map((s) => ({
         at: s.at, verify: s.verify ?? "", slot: slotOf(row, s.at), source: s.source,
+        where: tapWhere(s.source, s.reason, readings.get(s.id) ?? null, sites),
       })),
     slots,
     state: row.state,
@@ -1167,7 +1172,8 @@ function buildDay(row: DayRow, scans: ScanRow[], marks: DayMark[]): TimesheetDay
 async function readDays(
   from: string, to: string, unit?: string, employeeNo?: string,
 ): Promise<Result<TimesheetDay[]>> {
-  const [{ data, error }, { data: scans, error: e2 }, { data: marks, error: e3 }] =
+  const [{ data, error }, { data: scans, error: e2 }, { data: marks, error: e3 },
+         { data: located, error: e4 }, { data: sites, error: e5 }] =
     await Promise.all([
       db().rpc("timesheet_rows", {
         p_from: from, p_to: to, p_unit: unit ?? null, p_employee_no: employeeNo ?? null,
@@ -1175,19 +1181,31 @@ async function readDays(
       db()
         /* One calendar day past the range: the last day's window can reach
            into the next morning for somebody on a night (D330). */
-        .from("attendance_scans").select("id,employee_id,work_date,at,verify,source")
+        .from("attendance_scans").select("id,employee_id,work_date,at,verify,source,reason")
         .gte("work_date", from).lte("work_date", nextOfficeDay(to)),
       db()
         .from("day_marks").select("id,employee_id,work_date,kind,reason,marked_by,marked_at")
         .gte("work_date", from).lte("work_date", to).is("withdrawn_at", null),
+      /* Where each phone tap was made, and the sites — so every tap can say
+         where it was (D344). */
+      db()
+        .from("v_located_tap")
+        .select("scan_id,lat,lng,verdict,distance_m,accuracy_m,site_code,site_name,note,photo_id,photo_link,photo_filename")
+        .gte("work_date", from).lte("work_date", nextOfficeDay(to)),
+      db().from("work_sites").select("id,code,name,lat,lng,radius_m,active,updated_at"),
     ]);
   if (error) return fromRows<TimesheetDay[]>(SERVICE, null, error);
   const rows = (data ?? []) as DayRow[];
   if (e2) return fromRows<TimesheetDay[]>(SERVICE, null, e2);
   if (e3) return fromRows<TimesheetDay[]>(SERVICE, null, e3);
+  if (e4) return fromRows<TimesheetDay[]>(SERVICE, null, e4);
+  if (e5) return fromRows<TimesheetDay[]>(SERVICE, null, e5);
+  const readings = new Map<string, TapReadingRow>();
+  for (const l of (located ?? []) as (TapReadingRow & { scan_id: string })[]) readings.set(l.scan_id, l);
 
   return ok(SERVICE, rows.map(
-    (r) => buildDay(r, (scans ?? []) as ScanRow[], (marks ?? []) as unknown as DayMark[])));
+    (r) => buildDay(r, (scans ?? []) as ScanRow[], (marks ?? []) as unknown as DayMark[],
+                    readings, (sites ?? []) as WorkSite[])));
 }
 
 export async function attendanceFor(

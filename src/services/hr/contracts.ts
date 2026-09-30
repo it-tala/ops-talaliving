@@ -18,6 +18,7 @@
 /** How somebody is paid. Both exist here: staff on a monthly salary, and
  *  workshop people paid for the days they actually worked (owner). */
 import type { ScheduleShape, ScheduleHoursShape } from "./schedule-rules";
+import type { TapWhere } from "./tap-where";
 import { bilingual, trNow, type Message } from "@/lib/i18n";
 import { CADENCE_LABELS } from "./task-periods";
 
@@ -240,7 +241,12 @@ export interface TimesheetDay {
   full_name: string;
   work_date: string;
   /** Every tap, in order. The reading is derived; the taps are the record. */
-  scans: { at: string; verify: string; slot: ScanSlot | null; source: ScanSource }[];
+  scans: {
+    at: string; verify: string; slot: ScanSlot | null; source: ScanSource;
+    /** Where it was made — the warehouse for the reader, the reading for a
+     *  phone, the reason for one typed in (D344). */
+    where?: TapWhere;
+  }[];
   slots: Partial<Record<ScanSlot, string>>;
   state: DayState;
   mark: DayMark | null;
