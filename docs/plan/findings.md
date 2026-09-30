@@ -8390,3 +8390,22 @@ not on it. `machine_map.csv` is the one place those are written.
 somebody signed, not by reading its code. The week-4 sheet's total equals the
 bank transfer, which is the strongest reference available.
 
+## F199 · 2026-09-30 · A tap typed in was saved, and the screen said *undefined*
+
+HRD → Attendance → *Tap yang terlewat mesin* saved the tap and answered with
+an error reading `undefined` (owner, HRD evaluation). `add_scan` (0053)
+answers `{employee_no, work_date, at}`; the real client typed the answer as
+`{scan_id}` and read the row back with `.eq("id", said.data.scan_id)` — an
+`id` of `undefined`, which PostgREST refuses. The demo never read anything
+back, so the sandbox never showed it.
+
+The client now reads the row back by what the seam does return: the person
+and the instant, which the seam itself makes unique (`already_recorded`).
+No migration: the seam was right, the client assumed a field it never had.
+`mark_day`, the other write on the same drawer, does return the `mark_no`
+it is read back by.
+
+**Rule:** a client's read-back after a seam is typed from the seam's
+`ops_core.ok(...)` payload, not from what the row would have — and a demo
+that returns the row directly hides the difference.
+

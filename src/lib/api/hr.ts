@@ -910,12 +910,22 @@ export async function addScan(
     p_reason: input.reason,
     p_key: null,
   });
-  const said = fromSeam<{ scan_id: string }>(SERVICE, data, error);
+  /* The seam answers with the person and the instant it wrote, not the row's
+     id (0053). Reading back `id = scan_id` asked for `id = undefined`: the tap
+     was saved and the screen said *undefined* (owner, HRD evaluation). The
+     row is found by what the seam did return — one person has one tap per
+     instant, which the seam itself enforces (`already_recorded`). */
+  const said = fromSeam<{ employee_no: string; at: string }>(SERVICE, data, error);
   if (said.error) return said as unknown as Result<AttendanceScan>;
+  const { data: emp, error: e1 } = await db()
+    .from("employees").select("id").eq("employee_no", said.data.employee_no).single();
+  if (e1) return fromRows<AttendanceScan>(SERVICE, null, e1);
   const { data: row, error: e2 } = await db()
     .from("attendance_scans")
     .select("id,employee_id,work_date,at,verify,location,source,import_id,reason,recorded_by,recorded_at")
-    .eq("id", said.data.scan_id).single();
+    .eq("employee_id", (emp as { id: string }).id)
+    .eq("at", said.data.at)
+    .single();
   return fromRows<AttendanceScan>(SERVICE, row as unknown as AttendanceScan, e2);
 }
 
