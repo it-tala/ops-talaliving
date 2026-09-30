@@ -15,6 +15,8 @@ import type {
   LabelKind, LabelSource, LabelCard,
 } from "@/services/inventory/contracts";
 import { ASSET_GONE, ASSET_OWNERSHIP_LABEL } from "@/services/inventory/contracts";
+import type { StockedCategory } from "@/services/inventory/contracts";
+import { ABBR_SHAPE, itemCode, pickAbbr, stockedCategoryTree } from "@/services/inventory/item-code";
 import type { ItemPurchase } from "@/services/procurement/contracts";
 import { ITEM_PHOTO_MAX, ITEM_PHOTO_MIN } from "@/services/documents/contracts";
 import { itemPurchases } from "./procurement";
@@ -384,12 +386,9 @@ export async function listStock(
   return ok(SERVICE, rows);
 }
 
-export async function listStockedCategories(): Promise<Result<{ code: string; name: string }[]>> {
+export async function listStockedCategories(): Promise<Result<StockedCategory[]>> {
   await latency();
-  const state = getState();
-  return ok(SERVICE, [...STOCKED_CATEGORIES]
-    .map((code) => ({ code, name: state.item_categories.find((c) => c.code === code)?.name ?? code }))
-    .sort((a, b) => a.name.localeCompare(b.name)));
+  return ok(SERVICE, stockedCategoryTree([...STOCKED_CATEGORIES], getState().item_categories));
 }
 
 /** An item registered at the rack (`0168`). The same refusals as
@@ -442,9 +441,6 @@ export async function registerItem(
       return invalid(SERVICE, "counted_invalid",
         "Jumlah hasil hitung harus lebih dari nol — kosongkan kalau belum dihitung.", { field: "counted" });
     }
-    if (!state.stock_locations.some((l) => l.code === input.location && l.is_active)) {
-      return invalid(SERVICE, "location_required", "Hasil hitung butuh lokasi rak yang aktif.", { field: "location" });
-    }
   }
   const existing = state.items.find((i) => !i.merged_into && !i.archived_at && (
     i.name.trim().toLowerCase() === name.toLowerCase()
@@ -454,7 +450,22 @@ export async function registerItem(
       { existing_code: existing.code });
   }
 
-  const code = `ITM-${String(state.items.length + 1).padStart(4, "0")}`;
+  /* The code names the rack, so the rack is required, counted or not (`0197`). */
+  const loc = state.stock_locations.find((l) => l.code === input.location && l.is_active);
+  if (!loc) {
+    return invalid(SERVICE, "location_required", "Pilih lokasi rak yang aktif — kode barang memakai lokasinya.", { field: "location" });
+  }
+  const cat = state.item_categories.find((c) => c.code === input.category_code)!;
+  if (!loc.abbr || !cat.abbr) {
+    return invalid(SERVICE, "abbr_missing", "Lokasi atau kategori ini belum punya kode singkat.",
+      { location: loc.code, category_code: cat.code });
+  }
+  /* LOC-CAT-NNNN, the number per location and type. */
+  const prefix = `${loc.abbr}-${cat.abbr}-`;
+  const n = 1 + Math.max(0, ...state.items
+    .filter((i) => i.code.startsWith(prefix))
+    .map((i) => Number(i.code.slice(prefix.length)) || 0));
+  const code = itemCode(loc.abbr, cat.abbr, n);
   const user = actingUser();
   apply((draft) => {
     draft.items.push({
@@ -463,6 +474,7 @@ export async function registerItem(
       is_curated: false, standard_price: null, last_price: null,
       last_vendor_id: null, last_purchased_at: null, merged_into: null,
     });
+    draft.stock_settings.push({ item_code: code, min_qty: null, home_location: loc.code });
     for (const attachment_id of photos) {
       draft.attachment_links.push({
         id: newId("lnk"), attachment_id, entity: "item", entity_no: code, kind: "Foto",
@@ -471,7 +483,7 @@ export async function registerItem(
     }
     if (input.counted != null) {
       writeMove(draft, {
-        item_code: code, location: input.location!, kind: "adjust", qty: input.counted,
+        item_code: code, location: loc.code, kind: "adjust", qty: input.counted,
         uom: input.base_uom,
         reason: input.reason?.trim() || "Opname: barang baru didaftarkan, dihitung saat didaftarkan",
       }, user.id, user.email);
@@ -810,19 +822,29 @@ export async function listStockLocations(
  *  own to check (only the module gate every write here already asks), so a
  *  duplicate code is the one refusal this layer can still prove. */
 export async function createStockLocation(
-  input: { code: string; name: string },
+  input: { code: string; name: string; abbr?: string | null },
 ): Promise<Result<StockLocation>> {
   await latency();
   const denied = requireModule(SERVICE, "inventory");
   if (denied) return denied;
   const code = input.code.trim().toUpperCase();
   const name = input.name.trim();
+  const given = input.abbr?.trim().toUpperCase() || null;
   if (!code) return invalid(SERVICE, "code_required", "Kode lokasi wajib diisi.", { field: "code" });
   if (!name) return invalid(SERVICE, "name_required", "Nama lokasi wajib diisi.", { field: "name" });
-  if (getState().stock_locations.some((l) => l.code === code)) {
+  if (given && !ABBR_SHAPE.test(given)) {
+    return invalid(SERVICE, "abbr_invalid", "Kode singkat 2–4 huruf besar atau angka.", { field: "abbr" });
+  }
+  const locs = getState().stock_locations;
+  if (locs.some((l) => l.code === code)) {
     return conflict(SERVICE, "already_exists", `Lokasi ${code} sudah ada.`);
   }
-  const loc: StockLocation = { code, name, is_active: true };
+  if (given && locs.some((l) => l.abbr === given)) {
+    return conflict(SERVICE, "already_exists", `Kode singkat ${given} sudah dipakai lokasi lain.`);
+  }
+  /* No abbr: picked the way `0197`'s trigger picks it. */
+  const abbr = given ?? pickAbbr([code, name], locs.map((l) => l.abbr));
+  const loc: StockLocation = { code, name, is_active: true, abbr };
   apply((draft) => { draft.stock_locations.push(loc); });
   return ok(SERVICE, loc);
 }
@@ -1605,6 +1627,24 @@ function assetRefsInvalid(state: DemoState, input: AssetInput) {
 
 const blank = (x: string | undefined) => (x === undefined ? undefined : x.trim() || null);
 
+/** An asset's location is a location (`0197`): a code or a location's name
+ *  in, the code out; anything else refused with the way to add it — the same
+ *  as `ops_inv.asset_location_resolve`. */
+function assetLocation(state: DemoState, raw: string | null | undefined): { code: string | null } | Result<never> {
+  const place = raw?.trim() || null;
+  if (!place) return { code: null };
+  const hit = state.stock_locations
+    .filter((l) => l.code === place.toUpperCase() || l.name.toLowerCase() === place.toLowerCase())
+    .sort((a, b) => Number(b.code === place.toUpperCase()) - Number(a.code === place.toUpperCase())
+      || Number(b.is_active) - Number(a.is_active))[0];
+  if (!hit) {
+    return invalid(SERVICE, "location_unknown",
+      `Lokasi "${place}" tidak ada di daftar lokasi. Tambahkan dulu di Inventory → Penyesuaian → Kelola lokasi.`,
+      { field: "location" });
+  }
+  return { code: hit.code };
+}
+
 export async function createAsset(
   input: AssetInput & { name: string; category_code: string; status?: AssetStatus },
   idempotencyKey?: string,
@@ -1629,13 +1669,15 @@ export async function createAsset(
   } satisfies Partial<Asset>;
   const badRent = assetRentInvalid(rent);
   if (badRent) return badRent;
+  const place = assetLocation(state, input.location);
+  if (!("code" in place)) return place;
   const n = Math.max(0, ...state.assets.map((a) => Number(a.asset_no.slice(4)) || 0)) + 1;
   const now = new Date().toISOString();
   const row: Asset = {
     id: newId("ast"), asset_no: `AST-${String(n).padStart(4, "0")}`, name: input.name.trim(),
     category_code: input.category_code,
     brand: blank(input.brand) ?? null, model: blank(input.model) ?? null,
-    identifier: blank(input.identifier) ?? null, location: blank(input.location) ?? null,
+    identifier: blank(input.identifier) ?? null, location: place.code,
     holder: blank(input.holder) ?? null, status: input.status ?? "in_use",
     acquired_on: input.acquired_on ?? null, purchase_cost: input.purchase_cost ?? null,
     vendor_code: blank(input.vendor_code) ?? null, trx_no: blank(input.trx_no) ?? null,
@@ -1669,8 +1711,13 @@ export async function updateAsset(assetNo: string, input: AssetInput): Promise<R
   const next: Asset = { ...a };
   if (input.name !== undefined) next.name = input.name.trim();
   if (input.category_code !== undefined) next.category_code = input.category_code;
-  for (const k of ["brand", "model", "identifier", "location", "holder", "vendor_code", "trx_no", "notes"] as const) {
+  for (const k of ["brand", "model", "identifier", "holder", "vendor_code", "trx_no", "notes"] as const) {
     if (input[k] !== undefined) next[k] = blank(input[k]) ?? null;
+  }
+  if (input.location !== undefined) {
+    const place = assetLocation(state, input.location);
+    if (!("code" in place)) return place;
+    next.location = place.code;
   }
   for (const k of ["acquired_on", "warranty_until"] as const) {
     if (input[k] !== undefined) next[k] = input[k] ?? null;

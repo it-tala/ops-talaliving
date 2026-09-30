@@ -8409,3 +8409,37 @@ it is read back by.
 `ops_core.ok(...)` payload, not from what the row would have — and a demo
 that returns the row directly hides the difference.
 
+
+## F200 · 2026-09-30 · An item code that names its rack needs a short code for every rack and category, and the write paths that make them do not know it
+
+The owner asked for item codes that read `lokasi - kategori - nomor urut`
+(D346). A category's key is a slug (`production-metal-stock`) and a
+location's is whatever the floor typed (`FINISHING`, `AREA-A`) — both too long
+for a sticker, and neither was ever meant to be read in a code. So each gets a
+short code (`abbr`, 2–4 capitals or digits).
+
+Three paths already insert categories and locations: `create_category`
+(0104), the *Manage locations* panel (0157, a plain RLS insert) and the smoke
+fixtures. None of them knows the new column, and teaching each one would
+leave the next writer to forget. A `before insert` trigger fills the short
+code when it is missing, from the location's code (then its name) or the
+category's name, skipping ones already taken — `RAK-A1` → `RAK`, `RAK-A2` →
+`RKA2`. The seeded rows get the short codes people say (`GDG`, `AMS`).
+
+The asset register's location was the last free text in inventory. Turning it
+into a foreign key would have refused every asset whose place was typed
+differently from any rack, so the migration first makes each distinct place a
+location of its own and points the assets at it; afterwards a trigger accepts
+either a code or a location's name and stores the code, which keeps the asset
+seams' signatures and John Lau's drafts unchanged. The asset label joined the
+text as its own name; it now joins the location.
+
+Two consequences to know: registering an item **requires** a rack now (the
+code names it), so a smoke fixture that registered without one had to say
+where; and the duplicate-name check runs **before** the rack is asked for,
+because *this is already I-00042 — count it there* does not depend on where
+the counter is standing.
+
+**Rule:** a new column that a code is built from gets its default in the
+database (a trigger), not in each screen that inserts the row — and a key
+chosen by a person (a location code) is never assumed short enough to print.

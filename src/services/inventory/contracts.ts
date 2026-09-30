@@ -494,6 +494,20 @@ export interface StockLocation {
   code: string;
   name: string;
   is_active: boolean;
+  /** Short code (2–4 capitals/digits) that item codes carry: `GDG` in
+   *  `GDG-AMS-0001` (`0197`). Filled by the database when not given. */
+  abbr: string | null;
+}
+
+/** A category an item registered at the rack may go into, with the group it
+ *  sits under, so the picker can show the tree (`0197`). `abbr` is the middle
+ *  of the item code. */
+export interface StockedCategory {
+  code: string;
+  name: string;
+  abbr: string | null;
+  parent_code: string | null;
+  parent_name: string | null;
 }
 
 /** One movement of one item. Append-only: a mistake is corrected by another

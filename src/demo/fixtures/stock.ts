@@ -16,9 +16,15 @@ import type { StockLocation, StockMove, StockSetting } from "@/services/inventor
  *    no stock at all, which is different from having none left.
  */
 export const STOCK_LOCATIONS: StockLocation[] = [
-  { code: "GUDANG", name: "Gudang utama", is_active: true },
-  { code: "WORKSHOP", name: "Lantai produksi", is_active: true },
-  { code: "FINISHING", name: "Ruang finishing", is_active: true },
+  { code: "GUDANG", name: "Gudang utama", is_active: true, abbr: "GDG" },
+  { code: "WORKSHOP", name: "Lantai produksi", is_active: true, abbr: "WSP" },
+  { code: "FINISHING", name: "Ruang finishing", is_active: true, abbr: "FNS" },
+  /* Where the assets are (`0197`: an asset's location is a location). */
+  { code: "KANTOR", name: "Kantor", is_active: true, abbr: "KTR" },
+  { code: "POS-SATPAM", name: "Pos satpam / gerbang workshop", is_active: true, abbr: "POS" },
+  { code: "HALAMAN", name: "Halaman workshop", is_active: true, abbr: "HLM" },
+  { code: "SHOWROOM", name: "Showroom", is_active: true, abbr: "SHR" },
+  { code: "SERVIS-LUAR", name: "Di tempat servis (luar)", is_active: true, abbr: "SVC" },
 ];
 
 export const STOCK_SETTINGS: StockSetting[] = [

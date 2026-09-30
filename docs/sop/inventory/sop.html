@@ -46,7 +46,7 @@
     <div class="kicker">SOP · OPS TALALIVING</div>
     <h1>Inventory: dari rak sampai surat jalan</h1>
     <p>Cara memakai sistem inventory, langkah demi langkah: lokasi rak, mendaftarkan barang dari rak dengan fotonya, barang datang yang menambah stok, pemakaian dan perpindahan material, opname, barang jadi dari Job Order sampai surat jalan, aset, kayu dan label. Setiap langkah di dokumen ini sudah dijalankan dalam simulasi terhadap database yang sama dengan sistem live.</p>
-    <p class="note">Versi 28 September 2026 · dibuat otomatis dari tabel pengetahuan John Lau (<code>ops_asst.processes</code>). Gambar diambil dari uji jalan lewat layar live (14 langkah, 2026-09-28) dengan data uji; yang tidak ada di uji jalan diambil dari mode demo.</p>
+    <p class="note">Versi 30 September 2026 · dibuat otomatis dari tabel pengetahuan John Lau (<code>ops_asst.processes</code>). Gambar diambil dari uji jalan lewat layar live (14 langkah, 2026-09-28) dengan data uji; yang tidak ada di uji jalan diambil dari mode demo.</p>
     <ol><li><span>1.</span> Lokasi stok (rak dan area)</li><li><span>2.</span> Mendaftarkan barang dari rak</li><li><span>3.</span> Barang datang menambah stok</li><li><span>4.</span> Mengeluarkan, mengembalikan dan memindah material</li><li><span>5.</span> Opname: hitung rak dan catat selisih</li><li><span>6.</span> Barang jadi: dari Job Order sampai surat jalan</li><li><span>7.</span> Register aset</li><li><span>8.</span> Kayu log dan papan</li><li><span>9.</span> Mencetak label</li></ol>
   </div>
 
@@ -73,8 +73,8 @@
     <ol class="steps">
       
       <li>
-        <div class="act">Buka Inventory → Stock adjustments (Opname &amp; penyesuaian). Di kartu <b class="btn">Manage locations</b> (<b class="btn">Kelola lokasi</b>) isi kode dan nama rak, lalu tekan <b class="btn">Add location</b> (<b class="btn">Tambah lokasi</b>).</div>
-        <div class="rule"><b>Kenapa:</b> Hanya pemegang inventory.update yang melihat kartu ini. Kode tidak bisa diganti sesudahnya — riwayat stok memakainya.</div>
+        <div class="act">Buka Inventory → Stock adjustments (Opname &amp; penyesuaian). Di kartu <b class="btn">Manage locations</b> (<b class="btn">Kelola lokasi</b>) isi kode dan nama rak — kode singkat untuk kode barang boleh diisi atau dikosongkan — lalu tekan <b class="btn">Add location</b> (<b class="btn">Tambah lokasi</b>).</div>
+        <div class="rule"><b>Kenapa:</b> Hanya pemegang inventory.update yang melihat kartu ini. Kode tidak bisa diganti sesudahnya — riwayat stok memakainya. Kode singkat (2–4 huruf/angka) menjadi awal kode barang yang didaftarkan di lokasi itu; kalau dikosongkan, sistem memilihkannya.</div>
         <div class="status">— <span>→</span> aktif</div>
         <figure><img src="walk-01-lokasi.jpg" alt=""></figure>
       </li>
@@ -112,8 +112,8 @@
         <figure><img src="walk-04-daftar-barang.jpg" alt=""></figure>
       </li>
       <li>
-        <div class="act">Isi nama katalog (sistem, bahasa Inggris), nama lapangan (yang dipakai tim), kategori dan satuan. Kalau sudah dihitung, isi jumlah dan pilih raknya. Tekan <b class="btn">Register</b> (<b class="btn">Daftarkan</b>).</div>
-        <div class="rule"><b>Kenapa:</b> Nama katalog atau nama lapangan yang sudah ada ditolak (already_catalogued) — hitung di barang yang sudah ada. Hitungan awal tercatat sebagai penyesuaian opname (butuh inventory.adjust) dan harus menyebut rak yang aktif. Kategori yang tidak dihitung di gudang ditolak (not_stocked).</div>
+        <div class="act">Isi nama katalog (sistem, bahasa Inggris), nama lapangan (yang dipakai tim), kategori (pilih grup lalu jenisnya), satuan dan lokasi raknya. Kode barang terbentuk dari lokasi · kategori · nomor urut, mis. GDG-AMS-0001. Kalau sudah dihitung, isi jumlahnya. Tekan <b class="btn">Register</b> (<b class="btn">Daftarkan</b>).</div>
+        <div class="rule"><b>Kenapa:</b> Lokasi wajib (location_required) — kode barang memakainya dan rak itu menjadi lokasi rumah barangnya. Nama katalog atau nama lapangan yang sudah ada ditolak (already_catalogued) — hitung di barang yang sudah ada. Hitungan awal tercatat sebagai penyesuaian opname (butuh inventory.adjust) di rak itu. Kategori yang tidak dihitung di gudang ditolak (not_stocked).</div>
         <div class="status">— <span>→</span> terdaftar</div>
         <figure><img src="walk-04-daftar-barang.jpg" alt=""></figure>
       </li>
@@ -291,12 +291,12 @@
         <p class="meta">Layar: <code>/inventory/assets</code> · Butuh: <code>inventory.create</code> · <span class="proof">diuji lewat layar live: 1 langkah</span></p>
       </div>
     </header>
-    <p class="purpose">Aset perusahaan (alat, mesin, kendaraan, komputer, CCTV) dan barang sewa/leasing/pinjaman dicatat dengan nomor seri, lokasi dan pemegangnya, beserta riwayat servis dan statusnya.</p>
+    <p class="purpose">Aset perusahaan (alat, mesin, kendaraan, komputer, CCTV) dan barang sewa/leasing/pinjaman dicatat dengan nomor seri, lokasi (dipilih dari daftar lokasi yang sama dengan rak) dan pemegangnya, beserta riwayat servis dan statusnya.</p>
     <ol class="steps">
       
       <li>
         <div class="act">Buka Inventory → Assets, tekan <b class="btn">Register asset</b> (<b class="btn">Daftarkan aset</b>). Isi nama, kategori, kepemilikan, nomor seri/plat, merek, model, lokasi, pemegang, tanggal dan harga beli kalau ada, lalu <b class="btn">Save</b> (<b class="btn">Simpan</b>).</div>
-        <div class="rule"><b>Kenapa:</b> Nama dan kategori wajib (name_required, category_required). Aset sewa/leasing/pinjaman butuh biaya, periode dan tanggal jatuh tempo sewanya.</div>
+        <div class="rule"><b>Kenapa:</b> Nama dan kategori wajib (name_required, category_required). Lokasi dipilih dari daftar lokasi; tempat yang belum ada ditambah dulu di Opname &amp; penyesuaian → Kelola lokasi. Aset sewa/leasing/pinjaman butuh biaya, periode dan tanggal jatuh tempo sewanya.</div>
         <div class="status">— <span>→</span> in_use</div>
         <figure><img src="walk-13-aset.jpg" alt=""></figure>
       </li>

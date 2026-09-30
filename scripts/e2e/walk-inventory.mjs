@@ -314,7 +314,7 @@ try {
       await h.page.fill("#as-ident", "SN-9403-77");
       await h.page.fill("#as-brand", "Makita");
       await h.page.fill("#as-model", "9403");
-      await h.page.fill("#as-loc", "Bengkel");
+      await h.page.selectOption("#as-loc", "BENGKEL");
       await h.page.fill("#as-holder", "Pak Wayan");
       const b = h.page.getByRole("button", { name: "Save", exact: true });
       await h.mark(b); await b.click(); await h.page.waitForTimeout(1800);
