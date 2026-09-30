@@ -8619,3 +8619,27 @@ Numbers are handed out by whoever writes `06-decisions.md` first; a session
 that runs for hours should re-read the tail of that file — and of
 `supabase/migrations/` — right before it merges, not only before it commits.
 
+## F205 · 2026-09-30 · The picker was built for the one person who could not see it
+
+The timeslot form (D352) picks its people from `hr.listEmployees()`, which
+reads `ops_hr.employees`. That table is readable with `hrd.read` or
+`payroll.read` and nothing else (0043) — correctly, because the same row
+carries the daily rate, the allowance and the bank account. The demo persona
+used for every walk held HRD as well as production, so the list was always
+full. A real production admin, who holds production and not HRD, would have
+opened the form to an **empty** picker: every name typed by hand, unlinked,
+queued on `/produksi/penautan` for somebody else to resolve. `/produksi/penautan`
+had the same fault — the screen that links names to employees could not list
+the employees.
+
+It was found by asking *how would the production admin use this*, not by a
+test: the permission was right, the screen was right, and the pair was wrong
+only for the user the screen was built for. The fix is a roster
+(`ops_hr.work_roster()`, `0200`) — four columns, active people, production or
+HRD may read it — rather than widening the table's policy, which would have
+handed every production login the pay of every employee.
+
+**Rule:** a screen that reads across a service boundary is walked as the role
+it is built for, with only that role's grants — not as the demo persona who
+happens to hold everything.
+
