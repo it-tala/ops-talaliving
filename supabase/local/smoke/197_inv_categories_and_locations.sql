@@ -33,10 +33,14 @@ begin
      where c.parent_code in (select category_code from ops_inv.stocked_categories)
        and c.code not in (select category_code from ops_inv.stocked_categories)),
     'every type under a counted group is counted';
-  assert exists (select 1 from ops_procure.item_categories where code = 'sanding-sheets' and parent_code = 'sanding'),
-    'a seeded type under its group';
-  assert (select count(*) from ops_procure.item_categories where parent_code is null and code in ('safety','maintenance')) = 2,
-    'the two new groups';
+  assert exists (select 1 from ops_procure.item_categories where code = 'production-hinges-slides' and parent_code = 'production'),
+    'an added type under its group';
+  assert exists (select 1 from ops_procure.item_categories where code = 'finishing-thinner-solvents'),
+    'production''s own types are part of the tree';
+  assert not exists (select 1 from ops_procure.item_categories where code in ('safety','maintenance','finishing-thinner-solvent')),
+    'no near-twin of a type production already has';
+  assert not exists (select 1 from ops_inv.stocked_categories where category_code like 'facility%'),
+    'facility stays off the rack, as production has it';
   assert not exists (select 1 from ops_inv.stocked_categories where category_code in ('service','uncurated')),
     'services and the holding pen stay off the rack';
 end $$;
@@ -63,7 +67,7 @@ set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-000000019701';
 do $$
 declare r jsonb;
 begin
-  r := ops_inv.register_item('Sandpaper 400 (197)', 'Amplas 400', 'sanding-sheets', 'pcs',
+  r := ops_inv.register_item('Sandpaper 400 (197)', 'Amplas 400', 'sanding-sandpaper', 'pcs',
          array['19700000-0000-0000-0000-000000000001'::uuid]);
   assert r->>'outcome' = 'ok', 'a seeded type registers without a location, got ' || r::text;
   assert r->'data'->>'code' ~ '^I-[0-9]{5}$', 'the catalogue''s own number, got ' || (r->'data'->>'code');
