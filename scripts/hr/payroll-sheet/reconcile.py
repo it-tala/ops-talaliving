@@ -53,6 +53,11 @@ if not (HOST.startswith("/") or HOST in ("localhost", "127.0.0.1", "::1")):
 HRD = "ffffffff-0000-0000-0000-00000000d340"
 LEAD = "ffffffff-0000-0000-0000-00000000d341"
 
+# What a guard's Sunday is worth. The sheets pay a guard who works a Sunday
+# 2 weekend units at 2× (F198) — 4× a day — so `SATPAM_SUNDAY=4` checks that
+# reading; the default is the 2× every other weekend day has.
+SATPAM_SUNDAY = float(os.environ.get("SATPAM_SUNDAY", "2"))
+
 # The rule book being checked: production's v5 patterns with D340's keys.
 RULES = {
     "late_mode": "manual", "late_grace_minutes": 15, "undertime_mode": "off", "undertime_grace_minutes": 15,
@@ -79,7 +84,7 @@ RULES = {
                   "7": {"start_minutes": 480, "end_minutes": 960, "break_minutes": 0, "pay_multiplier": 2}}},
         {"code": "SATPAM", "name": "Satpam", "start_minutes": 1140, "end_minutes": 420, "break_minutes": 0,
          "friday_end_minutes": None, "friday_break_minutes": None, "note": None,
-         "days": {"7": {"pay_multiplier": 2}}},
+         "days": {"7": {"pay_multiplier": SATPAM_SUNDAY}}},
     ],
     "schedule_by_unit": {"Workshop": "PRODUKSI"},
 }
@@ -224,7 +229,9 @@ select e.employee_no, d.work_date, d.day_value, d.taps
             want(p, d, p['day'][d])
         # SABTU/MINGGU/TANGGAL MERAH: a count, not days. Filled in date order,
         # days with taps first; what is left over is typed in or cannot be.
-        left = p['weekend']
+        # A guard's Sunday at 4× is one day that the sheet counts as 2 units.
+        per_day = SATPAM_SUNDAY / 2 if p['guard'] else 1
+        left = p['weekend'] / per_day
         wk = [d for d in days if d.isoweekday() == 7] if sat_ordinary else [d for d in days if d.isoweekday() >= 6]
         wk.sort(key=lambda d: (read[(p['emp'], d)][1] == 0, d))
         for d in wk:
@@ -238,8 +245,10 @@ select e.employee_no, d.work_date, d.day_value, d.taps
     mark_sql = ",\n".join(f"  ({q(n)}, {q(d)}::date, {q(k)}::ops_hr.day_mark_t, {q(w)})" for n, d, k, w in marks) or None
     friday = next(d for d in days if d.isoweekday() == 5)
     ot = [p for p in people if p['ot15'] or p['ot2']]
+    # The 2× hours are the part after 22.00, so the line finishes that long
+    # after 22.00 — past midnight it is the next morning, as ops reads it.
     ot_sql = ",\n".join(
-        f"  ({q(p['emp'])}, {p['ot15'] + p['ot2']}, {('null' if not p['ot2'] else int(1320 + p['ot2'] * 60))}::int)"
+        f"  ({q(p['emp'])}, {p['ot15'] + p['ot2']}, {('null' if not p['ot2'] else int(1320 + p['ot2'] * 60) % 1440)}::int)"
         for p in ot)
     adj = []
     for p in people:

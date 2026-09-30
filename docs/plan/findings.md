@@ -8347,17 +8347,27 @@ through ops on a scratch database: the workbook's own machine export through
 overtime totals on one approved sheet, its saldo/potongan as adjustments —
 then compares `period_lines` with TOTAL GAJI per person.
 
-| Week | People | Sheet | Ops | Match < Rp 1 |
+| Week | People | Sheet | Ops (Minggu satpam ×2) | Ops (Minggu satpam ×4) |
 |---|---|---|---|---|
-| 29 Agu – 4 Sep | 39 | 32.117.570,08 | 32.013.415 | 37 |
-| 19 – 25 Sep | 37 | 14.214.514,13 (= the transfer receipt) | 14.110.357 | 35 |
+| 29 Agu – 4 Sep | 39 | 32.117.570,08 | 32.013.415 | 32.117.583 |
+| 5 – 11 Sep | 39 | 20.236.077,08 | 20.236.085 | 20.236.085 |
+| 12 – 18 Sep | 37 | 27.614.870,33 | 27.510.713 | 27.614.881 |
+| 19 – 25 Sep | 37 | 14.214.514,13 (= the transfer receipt) | 14.110.357 | 14.214.525 |
+
+With the guard's Sunday at 4× every one of the 152 person-weeks matches:
+144 to under Rp 1 (the sheet keeps fractions of a rupiah) and the guards'
+8 within Rp 5 (their Rp 52.083,5 rate). `audit.py` found every row of all four
+sheets consistent with its own columns; what is typed rather than computed —
+overtime hours, weekend counts, saldo, potongan — is exactly what the
+reconciliation feeds in.
 
 The sub-rupiah differences are the sheet keeping fractions of a rupiah. The
 rest are two things ops cannot express yet, both needing the owner:
 
 - **A guard who works a Sunday is paid 2 weekend units at 2×** — four days'
-  pay for one Sunday (JAMI week 1, KIDO week 4: −104.163 each). Either SATPAM's
-  Sunday is ×4, or the guard works two shifts that Sunday; the sheet does not say.
+  pay for one Sunday, three times in four weeks (JAMI weeks 1 and 3, KIDO
+  week 4: −104.163 each at ×2). `SATPAM_SUNDAY=4` makes all three match;
+  whether that is the rule or two shifts is the owner's to say.
 - **The guards' rate is Rp 52.083,5**, and `base_rate` is whole rupiah: six
   days are Rp 3 off either way.
 
