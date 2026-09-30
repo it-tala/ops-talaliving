@@ -1,5 +1,5 @@
 -- 198_hr_employee_contact_leave.sql — email dan nomor HP karyawan; hak cuti
--- diisi HRD setelah 1 tahun bekerja (D348).
+-- diisi HRD setelah 1 tahun bekerja (D349).
 --
 -- Yang dibuktikan:
 --   • karyawan baru menyimpan email (huruf kecil) dan HP (angka saja);

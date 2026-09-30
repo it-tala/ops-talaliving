@@ -65,11 +65,11 @@ export interface Employee {
    *  almost everybody. Days beyond it are still taken and still recorded —
    *  they are simply not paid, and the timesheet says which is which (D144).
    *
-   *  **Nought until a year of service** (D348): HRD writes it once
+   *  **Nought until a year of service** (D349): HRD writes it once
    *  `joined_on` is a year behind, and the seam refuses it before then
    *  (`employee-rules.ts`). */
   paid_leave_days: number;
-  /** How to reach them (D348). Optional — most of the floor has no email —
+  /** How to reach them (D349). Optional — most of the floor has no email —
    *  and not the sign-in account, which IT links separately (D329). The phone
    *  is digits only, with a leading + when given. */
   email?: string | null;
@@ -2248,7 +2248,7 @@ export interface LocatedTapView {
 }
 
 /** The weekday a week starts on when the rule book does not say: **Sabtu**
- *  (D349). Owner: *awal minggu mulai dari Sabtu, Minggu, Senin, Selasa, Rabu,
+ *  (D350). Owner: *awal minggu mulai dari Sabtu, Minggu, Senin, Selasa, Rabu,
  *  Kamis, Jumat* — the week the payroll sheet pays. The rule book's
  *  `pay_week_starts_isodow` still overrides it; the weekly payroll, the
  *  attendance week and the rule-book form all read this one constant. */

@@ -135,7 +135,7 @@ export default function EmployeesPage() {
       header: tr("Leave entitlement", "Hak cuti"),
       align: "right",
       render: (e) => {
-        /* Nought until a year of service, then HRD writes it (D348) — so the
+        /* Nought until a year of service, then HRD writes it (D349) — so the
            column says which of the three a nought is. */
         const st = leaveStanding(e, today);
         return (
@@ -196,7 +196,7 @@ export default function EmployeesPage() {
             || `${e.full_name} ${e.employee_no} ${e.position} ${e.unit} ${accountOf.get(e.id)?.user_email ?? ""} ${e.email ?? ""} ${e.phone ?? ""}`
               .toLowerCase().includes(needle);
           /* People whose year is up and whose entitlement nobody has written
-             yet — HRD's to fill in, so the screen counts them (D348). */
+             yet — HRD's to fill in, so the screen counts them (D349). */
           const leaveDue = active.filter((e) => leaveStanding(e, today).kind === "due");
           const activeShown = active.filter(matches);
           const leftShown = left.filter(matches);

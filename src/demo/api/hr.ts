@@ -192,7 +192,7 @@ export async function saveEmployee(
     paid_leave_days?: number;
     joined_on?: string;
     note?: string | null;
-    /** Absent leaves it as it is; an empty string clears it (D348). */
+    /** Absent leaves it as it is; an empty string clears it (D349). */
     email?: string;
     phone?: string;
   },
@@ -230,7 +230,7 @@ export async function saveEmployee(
     }
   }
   const existing = state.employees.find((e) => e.employee_no === input.employee_no.trim());
-  /* 0198's two refusals, from the same rules (D348): contact details that
+  /* 0198's two refusals, from the same rules (D349): contact details that
      cannot be used, and paid leave before a year of service. */
   const contact = contactProblem(input.email, input.phone);
   if (contact) return invalid(SERVICE, contact.code, contact.message, { field: contact.field });
@@ -300,7 +300,7 @@ export async function saveEmployee(
         /* Null, never a guess: a new joiner whose pattern nobody has set is
            counted as unlinked and named on the schedule screen (D279). */
         schedule_code: input.schedule_code ?? null,
-        /* Nought until a year of service, then HRD's number (D348). */
+        /* Nought until a year of service, then HRD's number (D349). */
         paid_leave_days: input.paid_leave_days ?? 0,
         joined_on: input.joined_on || today,
         email: email ?? null,

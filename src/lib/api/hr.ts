@@ -149,7 +149,7 @@ export async function saveEmployee(
     paid_leave_days?: number;
     joined_on?: string;
     note?: string | null;
-    /** Absent leaves it as it is; an empty string clears it (D348). */
+    /** Absent leaves it as it is; an empty string clears it (D349). */
     email?: string;
     phone?: string;
   },

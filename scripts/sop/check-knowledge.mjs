@@ -35,6 +35,7 @@ const NOT_WALKED = {
   "hr.payslip": "opens a print dialog in a new tab — read-only, nothing to record",
   "inv.labels": "read-only and ends in the print dialog; 178 smoke reads label_sources, the QR was checked by decoding it (F175)",
   "inv.timber": "walked in SQL (99_sim_inventory §8, 88 smoke); the screen's nota reading has its own checks (V2)",
+  "inv.stock_input": "added after the last live walk (D348): 198 smoke covers every seam, and the screens were walked in the demo; walk-inventory records it on its next run",
 };
 
 if (!existsSync(WALK)) {

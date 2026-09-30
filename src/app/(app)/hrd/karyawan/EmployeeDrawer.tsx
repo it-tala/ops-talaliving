@@ -42,7 +42,7 @@ export function EmployeeDrawer({
   const [allowance, setAllowance] = useState(employee?.allowance_rate ?? 0);
   const [hours, setHours] = useState(employee?.daily_hours ?? 8);
   /* Nought for a new person: paid leave is HRD's to write after a year of
-     service (D348). */
+     service (D349). */
   const [leave, setLeave] = useState(employee?.paid_leave_days ?? 0);
   const [email, setEmail] = useState(employee?.email ?? "");
   const [phone, setPhone] = useState(employee?.phone ?? "");
@@ -85,7 +85,7 @@ export function EmployeeDrawer({
       pay_basis: basis, base_rate: rate, allowance_rate: allowance,
       daily_hours: hours, paid_leave_days: leave,
       ...(joined ? { joined_on: joined } : {}),
-      /* Sent as typed; blank clears it on an existing person (D348). */
+      /* Sent as typed; blank clears it on an existing person (D349). */
       email, phone,
       /* Empty means *follow the unit*, which is a real answer here and not an
          omission — so it is sent as an explicit null rather than left out
@@ -202,7 +202,7 @@ export function EmployeeDrawer({
               className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
             />
           </div>
-          {/* How to reach them (D348). Both optional: most of the floor has
+          {/* How to reach them (D349). Both optional: most of the floor has
               no email. Not the sign-in account — IT links that. */}
           <div>
             <label htmlFor="e-email" className="block text-xs text-slate-500">{tr("Email", "Email")}</label>
@@ -324,7 +324,7 @@ export function EmployeeDrawer({
             <label htmlFor="e-leave" className="block text-xs text-slate-500">{tr("Paid leave entitlement, per year", "Hak cuti berbayar, per tahun")}</label>
             {/* Per person, because the owner said so: length of service and
                 what was agreed at hiring both move it (D144) — and **only
-                after a year of service**, written by HRD (D348). */}
+                after a year of service**, written by HRD (D349). */}
             {leaveOpen || leave > 0 ? (
               <NumberInput id="e-leave" value={leave} min={0} max={60} onChange={setLeave} className="mt-1" />
             ) : (

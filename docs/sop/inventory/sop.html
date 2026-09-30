@@ -47,7 +47,7 @@
     <h1>Inventory: dari rak sampai surat jalan</h1>
     <p>Cara memakai sistem inventory, langkah demi langkah: lokasi rak, mendaftarkan barang dari rak dengan fotonya, barang datang yang menambah stok, pemakaian dan perpindahan material, opname, barang jadi dari Job Order sampai surat jalan, aset, kayu dan label. Setiap langkah di dokumen ini sudah dijalankan dalam simulasi terhadap database yang sama dengan sistem live.</p>
     <p class="note">Versi 30 September 2026 · dibuat otomatis dari tabel pengetahuan John Lau (<code>ops_asst.processes</code>). Gambar diambil dari uji jalan lewat layar live (14 langkah, 2026-09-28) dengan data uji; yang tidak ada di uji jalan diambil dari mode demo.</p>
-    <ol><li><span>1.</span> Lokasi stok (rak dan area)</li><li><span>2.</span> Mendaftarkan barang dari rak</li><li><span>3.</span> Barang datang menambah stok</li><li><span>4.</span> Mengeluarkan, mengembalikan dan memindah material</li><li><span>5.</span> Opname: hitung rak dan catat selisih</li><li><span>6.</span> Barang jadi: dari Job Order sampai surat jalan</li><li><span>7.</span> Register aset</li><li><span>8.</span> Kayu log dan papan</li><li><span>9.</span> Mencetak label</li></ol>
+    <ol><li><span>1.</span> Lokasi stok (rak dan area)</li><li><span>2.</span> Input stok dari awal</li><li><span>3.</span> Mendaftarkan barang dari rak</li><li><span>4.</span> Barang datang menambah stok</li><li><span>5.</span> Mengeluarkan, mengembalikan dan memindah material</li><li><span>6.</span> Opname: hitung rak dan catat selisih</li><li><span>7.</span> Barang jadi: dari Job Order sampai surat jalan</li><li><span>8.</span> Register aset</li><li><span>9.</span> Kayu log dan papan</li><li><span>10.</span> Mencetak label</li></ol>
   </div>
 
   <section class="intro">
@@ -92,17 +92,56 @@
       </li>
     </ol>
     
-    <p class="next">Berikutnya: <b>Mendaftarkan barang dari rak</b></p>
+    <p class="next">Berikutnya: <b>Input stok dari awal</b></p>
   </section>
   <section class="proc">
     <header>
       <div class="num">2</div>
       <div>
+        <h2>Input stok dari awal</h2>
+        <p class="meta">Layar: <code>/inventory/material</code> · Butuh: <code>inventory.adjust</code></p>
+      </div>
+    </header>
+    <p class="purpose">Stok gudang dimulai dari nol: daftar Bahan &amp; hardware hanya berisi barang yang sudah diinput. Katalog (nama barang dari procurement) menjadi pilihan nama saat input — ketik untuk mencari. Setiap input bisa diubah atau dihapus, dan nilai sebelum dan sesudahnya tercatat.</p>
+    <ol class="steps">
+      
+      <li>
+        <div class="act">Buka Inventory → Materials &amp; hardware, tekan <b class="btn">Input stock</b> (<b class="btn">Input stok</b>). Di kolom Barang ketik nama atau kodenya lalu pilih dari daftar katalog; pilih Lokasi; isi Jumlah dan catatan kalau perlu; tekan <b class="btn">Save entry</b> (<b class="btn">Simpan input</b>). Form tetap terbuka dengan lokasi yang sama untuk input berikutnya.</div>
+        <div class="rule"><b>Kenapa:</b> Lokasi aktif dan jumlah lebih dari nol wajib (location_required, qty_invalid). Barang jasa, digabung, diarsipkan, atau yang kategorinya tidak dihitung di gudang ditolak (not_stocked). Input menambah stok barang itu di lokasi tersebut — tercatat sebagai penyesuaian "Input stok" dan butuh inventory.adjust.</div>
+        <div class="status">— <span>→</span> di rak</div>
+        
+      </li>
+      <li>
+        <div class="act">Nama yang belum ada di katalog: ketik namanya di kolom Barang lalu pilih <b class="btn">Barang baru</b>. Form <b class="btn">Register an item</b> (<b class="btn">Daftarkan barang</b>) terbuka dengan nama itu; lengkapi foto, kategori, satuan, lokasi dan jumlahnya, lalu tekan <b class="btn">Register</b> (<b class="btn">Daftarkan</b>).</div>
+        <div class="rule"><b>Kenapa:</b> Barang baru tetap butuh minimal satu foto, dan didaftarkan bersama jumlah dan raknya supaya langsung muncul di daftar.</div>
+        <div class="status">— <span>→</span> di rak</div>
+        
+      </li>
+      <li>
+        <div class="act">Membetulkan input: klik barangnya, di Riwayat pergerakan tekan <b class="btn">Change</b> (<b class="btn">Ubah</b>) pada barisnya, ubah barang, lokasi, jumlah, alasan atau Job Order, lalu <b class="btn">Save change</b> (<b class="btn">Simpan perubahan</b>). Untuk membuang: <b class="btn">Delete</b> (<b class="btn">Hapus</b>), tulis alasannya, lalu <b class="btn">Delete entry</b> (<b class="btn">Hapus input</b>).</div>
+        <div class="rule"><b>Kenapa:</b> Setiap perubahan dan penghapusan tercatat dengan nilai sebelum dan sesudahnya di "Changes to entries" ("Perubahan input"). Barang masuk dari penerimaan procurement dikoreksi di penerimaannya (from_receipt); pindah lokasi dihapus berpasangan lalu dicatat ulang (transfer_pair).</div>
+        
+        
+      </li>
+      <li>
+        <div class="act">Membetulkan data barangnya: di laci barang tekan <b class="btn">Edit</b> (<b class="btn">Ubah</b>) di samping nama lapangan, ubah nama katalog, nama lapangan, kategori atau satuan, lalu <b class="btn">Save</b> (<b class="btn">Simpan</b>).</div>
+        <div class="rule"><b>Kenapa:</b> Nama yang sudah dipakai barang lain ditolak (name_taken). Satuan hanya bisa diganti selama belum ada input dalam satuan lain (uom_has_moves).</div>
+        
+        
+      </li>
+    </ol>
+    
+    
+  </section>
+  <section class="proc">
+    <header>
+      <div class="num">3</div>
+      <div>
         <h2>Mendaftarkan barang dari rak</h2>
         <p class="meta">Layar: <code>/inventory/material</code> · Butuh: <code>inventory.create</code> · <span class="proof">diuji lewat layar live: 2 langkah</span></p>
       </div>
     </header>
-    <p class="purpose">Barang yang ada di rak tapi belum ada di katalog didaftarkan dari layar Bahan &amp; hardware: nama katalog (sistem) dan nama lapangan (yang dipakai tim), satu sampai empat foto, kategori, satuan, dan kalau sudah dihitung, jumlah dan raknya. Barang yang sudah ada di katalog cukup diberi nama lapangan.</p>
+    <p class="purpose">Barang yang ada di rak tapi belum ada di katalog didaftarkan dari layar Bahan &amp; hardware: nama katalog (sistem) dan nama lapangan (yang dipakai tim), satu sampai empat foto, kategori, satuan, dan jumlah serta raknya — barang muncul di daftar bersama input pertamanya. Barang yang sudah ada di katalog cukup diinput lewat Input stok.</p>
     <ol class="steps">
       
       <li>
@@ -112,8 +151,8 @@
         <figure><img src="walk-04-daftar-barang.jpg" alt=""></figure>
       </li>
       <li>
-        <div class="act">Isi nama katalog (sistem, bahasa Inggris), nama lapangan (yang dipakai tim), kategori dan satuan. Kalau sudah dihitung, isi jumlah dan pilih raknya. Tekan <b class="btn">Register</b> (<b class="btn">Daftarkan</b>).</div>
-        <div class="rule"><b>Kenapa:</b> Nama katalog atau nama lapangan yang sudah ada ditolak (already_catalogued) — hitung di barang yang sudah ada. Hitungan awal tercatat sebagai penyesuaian opname (butuh inventory.adjust) dan harus menyebut rak yang aktif. Kategori yang tidak dihitung di gudang ditolak (not_stocked).</div>
+        <div class="act">Isi nama katalog (sistem, bahasa Inggris), nama lapangan (yang dipakai tim), kategori dan satuan, lalu jumlah yang ada dan raknya. Tekan <b class="btn">Register</b> (<b class="btn">Daftarkan</b>).</div>
+        <div class="rule"><b>Kenapa:</b> Nama katalog atau nama lapangan yang sudah ada ditolak (already_catalogued) — input stoknya lewat Input stok. Jumlah dan rak wajib; tercatat sebagai penyesuaian opname (butuh inventory.adjust) di rak itu. Kategori yang tidak dihitung di gudang ditolak (not_stocked).</div>
         <div class="status">— <span>→</span> terdaftar</div>
         <figure><img src="walk-04-daftar-barang.jpg" alt=""></figure>
       </li>
@@ -124,7 +163,7 @@
         
       </li>
       <li>
-        <div class="act">Barang yang sudah ada di katalog: klik barangnya, pada <b class="btn">Floor name</b> (<b class="btn">Nama lapangan</b>) tekan <b class="btn">Edit</b> (<b class="btn">Ubah</b>), ketik namanya, lalu <b class="btn">Save</b> (<b class="btn">Simpan</b>).</div>
+        <div class="act">Barang yang sudah ada di katalog: klik barangnya (atau buka lewat Input stok), pada <b class="btn">Floor name</b> (<b class="btn">Nama lapangan</b>) tekan <b class="btn">Edit</b> (<b class="btn">Ubah</b>), ketik namanya, lalu <b class="btn">Save</b> (<b class="btn">Simpan</b>).</div>
         <div class="rule"><b>Kenapa:</b> Nama lapangan ikut dicari seperti nama katalog; bukan barang kedua.</div>
         
         
@@ -141,7 +180,7 @@
   </section>
   <section class="proc">
     <header>
-      <div class="num">3</div>
+      <div class="num">4</div>
       <div>
         <h2>Barang datang menambah stok</h2>
         <p class="meta">Layar: <code>/procurement/tracker</code> · Butuh: <code>procurement.create</code> · <span class="proof">diuji lewat layar live: 1 langkah</span></p>
@@ -168,7 +207,7 @@
   </section>
   <section class="proc">
     <header>
-      <div class="num">4</div>
+      <div class="num">5</div>
       <div>
         <h2>Mengeluarkan, mengembalikan dan memindah material</h2>
         <p class="meta">Layar: <code>/inventory/material</code> · Butuh: <code>inventory.create</code> · <span class="proof">diuji lewat layar live: 2 langkah</span></p>
@@ -207,7 +246,7 @@
   </section>
   <section class="proc">
     <header>
-      <div class="num">5</div>
+      <div class="num">6</div>
       <div>
         <h2>Opname: hitung rak dan catat selisih</h2>
         <p class="meta">Layar: <code>/inventory/penyesuaian</code> · Butuh: <code>inventory.adjust</code> · <span class="proof">diuji lewat layar live: 2 langkah</span></p>
@@ -240,7 +279,7 @@
   </section>
   <section class="proc">
     <header>
-      <div class="num">6</div>
+      <div class="num">7</div>
       <div>
         <h2>Barang jadi: dari Job Order sampai surat jalan</h2>
         <p class="meta">Layar: <code>/inventory/produk</code> · Butuh: <code>inventory.create</code> · <span class="proof">diuji lewat layar live: 3 langkah</span></p>
@@ -285,7 +324,7 @@
   </section>
   <section class="proc">
     <header>
-      <div class="num">7</div>
+      <div class="num">8</div>
       <div>
         <h2>Register aset</h2>
         <p class="meta">Layar: <code>/inventory/assets</code> · Butuh: <code>inventory.create</code> · <span class="proof">diuji lewat layar live: 1 langkah</span></p>
@@ -312,7 +351,7 @@
   </section>
   <section class="proc">
     <header>
-      <div class="num">8</div>
+      <div class="num">9</div>
       <div>
         <h2>Kayu log dan papan</h2>
         <p class="meta">Layar: <code>/inventory/log</code> · Butuh: <code>inventory.create</code></p>
@@ -339,7 +378,7 @@
   </section>
   <section class="proc">
     <header>
-      <div class="num">9</div>
+      <div class="num">10</div>
       <div>
         <h2>Mencetak label</h2>
         <p class="meta">Layar: <code>/inventory/label</code> · Butuh: <code>inventory.read</code></p>

@@ -1,20 +1,21 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowRightLeft, Boxes, PackageMinus, Undo2, Hammer, Truck, Receipt, Pencil } from "lucide-react";
+import { ArrowRightLeft, PackageMinus, Undo2, Hammer, Truck, Receipt } from "lucide-react";
 import Link from "next/link";
 import { Drawer } from "@/components/ui/drawer";
-import { Badge, Button } from "@/components/ui/primitives";
+import { Button } from "@/components/ui/primitives";
 import { Loaded, useLoad } from "@/components/ui/loaded";
 import { NumberInput } from "@/components/ui/number-input";
 import { formatIDR, formatNumber } from "@/lib/format";
-import { cn } from "@/lib/cn";
 import { inventory } from "@/demo/api";
-import { MOVE_LABEL, type StockItemDetail } from "@/services/inventory/contracts";
+import { MOVE_LABEL, type StockItemDetail, type StockItemView } from "@/services/inventory/contracts";
 import { useToast } from "@/store/toast";
 import { EvidenceStrip } from "@/components/ui/evidence-strip";
 import { ITEM_PHOTO_MAX, ITEM_PHOTO_MIN } from "@/services/documents/contracts";
 import { useTr } from "@/lib/i18n";
+import { ItemDetails } from "./ItemDetails";
+import { MoveHistory } from "./MoveHistory";
 
 /** One item: what is on the rack, where it came from, and what needs it.
  *
@@ -25,10 +26,14 @@ import { useTr } from "@/lib/i18n";
  *  having (D170).
  */
 export function StockDrawer({
-  itemCode, mayMove, onClose, onChanged,
+  itemCode, mayMove, mayAdjust = false, catalogue = [], onClose, onChanged,
 }: {
   itemCode: string;
   mayMove: boolean;
+  /** Correct or delete entries (`0198`, `inventory.adjust`). */
+  mayAdjust?: boolean;
+  /** The catalogue, for moving an entry to the item it should have named. */
+  catalogue?: StockItemView[];
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -38,7 +43,6 @@ export function StockDrawer({
   const [locations] = useLoad(() => inventory.listStockLocations(), []);
   const [purchases] = useLoad(() => inventory.stockItemPurchases(itemCode), [itemCode]);
   const [busy, setBusy] = useState(false);
-  const [localName, setLocalName] = useState<string | null>(null);
   const [form, setForm] = useState<{ kind: "issue" | "return" | "transfer"; qty: number; location: string; to: string; ref: string; reason: string }>({
     kind: "issue", qty: 1, location: "", to: "", ref: "", reason: "",
   });
@@ -89,16 +93,6 @@ export function StockDrawer({
     after();
   }
 
-  async function saveLocalName(value: string) {
-    setBusy(true);
-    const res = await inventory.setItemLocalName(itemCode, value.trim() || null);
-    setBusy(false);
-    if (res.error) { toast("warning", tr("Not saved", "Tidak tersimpan"), res.error.message); return; }
-    setLocalName(null);
-    reload();
-    onChanged();
-  }
-
   function after() {
     setForm((f) => ({ ...f, qty: 1, ref: "", reason: "" }));
     reload();
@@ -146,29 +140,9 @@ export function StockDrawer({
               </div>
             )}
 
-            {/* The floor's name: what the counter reads on the shelf, beside the
-                catalogue's English one (0168). */}
-            {mayMove && (
-              <div className="flex flex-wrap items-center gap-2 text-[12px]">
-                <span className="text-slate-500">{tr("Floor name", "Nama lapangan")}</span>
-                {localName == null ? (
-                  <>
-                    <span className="font-medium text-slate-800">{d.item_name_local ?? <span className="text-amber-700">{tr("not filled in", "belum diisi")}</span>}</span>
-                    <Button size="sm" variant="ghost" icon={Pencil} onClick={() => setLocalName(d.item_name_local ?? "")}>{tr("Edit", "Ubah")}</Button>
-                  </>
-                ) : (
-                  <>
-                    <input
-                      value={localName} onChange={(e) => setLocalName(e.target.value)} autoFocus
-                      placeholder={tr("e.g. amplas 240", "mis. amplas 240")}
-                      className="h-8 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
-                    />
-                    <Button size="sm" disabled={busy} onClick={() => saveLocalName(localName)}>{tr("Save", "Simpan")}</Button>
-                    <Button size="sm" variant="ghost" onClick={() => setLocalName(null)}>{tr("Cancel", "Batal")}</Button>
-                  </>
-                )}
-              </div>
-            )}
+            {/* The item's own details — name, floor name, category, unit —
+                editable from here (0198, D348). */}
+            <ItemDetails d={d} mayEdit={mayMove} onSaved={() => { reload(); onChanged(); }} />
 
             <EvidenceStrip
               entity="item"
@@ -331,51 +305,7 @@ export function StockDrawer({
               </Loaded>
             </div>
 
-            <div>
-              <p className="mb-1 flex items-center gap-1.5 text-[12px] font-semibold text-slate-700">
-                <Boxes className="h-3.5 w-3.5 text-slate-400" /> {tr("Movement history", "Riwayat pergerakan")}
-              </p>
-              <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
-                {d.moves.length === 0 && (
-                  <li className="px-4 py-6 text-[12px] text-slate-500">
-                    {tr(
-                      "This item is in the catalogue but has never come in or gone out. That does not mean it ran out — it means it was never recorded.",
-                      "Barang ini ada di katalog tapi belum pernah masuk atau keluar. Bukan berarti habis — berarti belum pernah tercatat.",
-                    )}
-                  </li>
-                )}
-                {d.moves.map((m) => (
-                  <li key={m.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2">
-                    <span className="w-[74px] shrink-0 font-mono text-[10px] text-slate-400">
-                      {m.moved_at.slice(5, 10)}
-                    </span>
-                    <Badge tone={m.kind === "adjust" ? "amber" : m.qty > 0 ? "green" : "slate"}>
-                      {MOVE_LABEL[m.kind]}
-                    </Badge>
-                    <span className={cn(
-                      "w-[80px] text-right font-semibold tabular-nums",
-                      m.qty > 0 ? "text-emerald-700" : "text-slate-800",
-                    )}>
-                      {m.qty > 0 ? "+" : ""}{formatNumber(m.qty)}
-                    </span>
-                    <span className="text-[11px] text-slate-500">{m.location_name}</span>
-                    {m.ref_no && (
-                      <span className={cn("font-mono text-[10px]", m.ref_missing ? "text-amber-700" : "text-slate-400")}>
-                        {m.ref_no}
-                        {/* A reference nothing follows is a reference nothing
-                            checks — which is how nine seeded issues pointed at
-                            work orders that had never existed (F86). */}
-                        {m.ref_missing && <span className="ml-1">· {tr("this Job Order does not exist", "Job Order ini tidak ada")}</span>}
-                      </span>
-                    )}
-                    <span className="min-w-[160px] flex-1 text-[11px] text-slate-500">
-                      {m.reason ?? (m.unit_cost != null ? `${formatIDR(m.unit_cost)} / ${m.uom}` : "—")}
-                    </span>
-                    <span className="text-[11px] text-slate-400">{m.by_name}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <MoveHistory d={d} mayAdjust={mayAdjust} catalogue={catalogue} onChanged={() => { reload(); onChanged(); }} />
           </div>
         </Drawer>
       )}

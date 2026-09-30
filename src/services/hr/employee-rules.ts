@@ -1,5 +1,5 @@
 /** What a personnel record may say about how to reach somebody, and when
- *  their paid leave starts (D348).
+ *  their paid leave starts (D349).
  *
  *  Owner (HRD evaluation, 2026-09-30): *new employee tambahkan alamat email dan
  *  nomor HP* and *paid leave entitlement, per year — harus dimasukkan oleh HR
@@ -16,6 +16,8 @@
  *     somebody's position must not fail over a number nobody touched.
  *
  *  `ops_hr.save_employee` (0198) makes the same refusals with the same codes
+ *  (its comments say D348: written before that number went to inventory —
+ *  F202)
  *  and sentences; the demo reads them from here (ADR-009). Pure, imports
  *  nothing.
  */

@@ -8454,3 +8454,67 @@ code. A free-text field becomes a reference by first making each distinct
 value a row — distinct regardless of case — then pointing at it. And a seed
 for a table people already edit through a screen is written from what
 production holds, not from what the ladder holds.
+
+## F201 · 2026-09-30 · A rack that lists the whole catalogue is a catalogue, and "append-only" was a rule for the system, not for the people entering it
+
+*Materials & hardware* listed every item in a counted category — 883 on
+production, of which 4 had ever moved. The screen had been written to show
+*we have none* and *nobody ever bought this* side by side on purpose (0071),
+which is the right call for a rack that is already recorded. It is the wrong
+one for a rack being recorded for the first time: the storeman scrolls 879
+zeros to find the one shelf they are standing at. The owner's fix is to swap
+the roles — the catalogue becomes the list of names an entry picks from, and
+the rack is only what has been entered (D348). No view changed: the list
+filters on `moves_count > 0` and the entry form offers all of `v_stock_item`.
+
+The second half overturned a standing rule. A5/D171 said a stock row is never
+edited; a mistake is another move with a reason. That keeps the arithmetic
+honest, but for a first count typed by hand on a phone it turns every typo
+into two rows and a sentence nobody wants to read. The owner asked for data
+that can be edited. What A5 protected is kept another way: the edit happens
+in a seam that records the row's before and after, the row says when and by
+whom it was last changed, and the changes are listed under the item. Two
+kinds stay out, for reasons that are not about taste: a receipt's source of
+truth is the signed receiving report (editing its stock row would split the
+two), and a transfer is a pair whose halves only mean something together.
+
+Two smaller things. The audit trail is readable by IT only (0003), so *show
+the before and after* needed its own read (`stock_entry_history`) scoped to
+one item and `inventory.read`. And re-firing the Job Order check on every
+edit would refuse correcting the quantity of an old entry over a reference
+nobody touched; the update trigger fires only when the reference changes.
+
+**Rule:** a list is shaped by the question the person asks standing in front
+of it — *what is on this shelf* — not by the question the table can answer.
+And a no-edit rule is kept by recording the edit, not by forbidding it, once
+the owner says the data has to be editable.
+
+## F202 · 2026-09-30 · Two sessions, one day, the same numbers: D348 and migration 0198 were each taken twice
+
+Two sessions worked on main the same afternoon, one on HRD and one on
+inventory. Each read the decision log, saw 347 as the last entry, and
+wrote D348: the inventory one (*stok dimulai dari nol*) and the HRD one
+(employee email and phone, leave after a year). Each also named its migration
+`0198_…`, and three `0198_*` files reached production within a few hours:
+`0198_prod_work_slots`, `0198_inv_stock_input` and
+`0198_hr_employee_contact_leave`. Postgres and the ladder do not mind, because
+files sort by full name and none depends on another. The log does mind:
+two decisions under one number is how *see D348* ends up pointing at the
+wrong argument.
+
+What happened next: inventory merged first and kept D348. The HRD decisions
+became **D349** (email/phone, leave) and **D350** (attendance week
+Sabtu–Jumat) when PR #100 merged main in. Every reference in the code and
+smoke tests was renumbered. **The migration file was left as it is.** Its
+function comments say D348, and `0198_hr_employee_contact_leave` had already
+been applied to production. Editing a comment inside a function body changes
+`prosrc`, and that is exactly what the check *production matches the ladder*
+compares (the md5 of `prosrc`). A file that no longer matches what ran is a
+worse lie than a stale number. `employee-rules.ts` and D349's row say so.
+
+**Rule:** take the next decision number, finding number and migration number
+**when merging main in, just before the PR merges**, not when the work
+starts. Until then, write them as placeholders. A number is a claim on a
+shared list, and it is only safe once nobody else can write to that list
+first. Never renumber a migration that has already been applied; note the
+mismatch instead.

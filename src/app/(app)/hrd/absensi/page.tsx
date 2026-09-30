@@ -32,7 +32,7 @@ import { MarkDay } from "./MarkDay";
  *  **which days a person still has to read** — because until they have, a
  *  payroll over this period is arithmetic rather than wages (D141).
  */
-/** One pay week, or five days at a time (D345, D349). Owner: *cukup
+/** One pay week, or five days at a time (D345, D350). Owner: *cukup
  *  menampilkan absensi per 5 hari, total jam kerja dan estimasi gaji —
  *  terpisah untuk karyawan bulanan dan mingguan*, and then: *tampilan absensi
  *  berdasarkan minggu, awal minggu mulai dari Sabtu … Jumat*. So the grid opens

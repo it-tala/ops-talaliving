@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Boxes, AlertTriangle, Search, PackageMinus, PackagePlus, Camera, Tags } from "lucide-react";
+import { Boxes, AlertTriangle, Search, PackageMinus, PackagePlus, Camera, Tags, ClipboardPlus } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { Paged } from "@/components/ui/pager";
@@ -13,6 +13,7 @@ import { inventory } from "@/demo/api";
 import type { StockItemView } from "@/services/inventory/contracts";
 import { StockDrawer } from "./StockDrawer";
 import { RegisterItem } from "./RegisterItem";
+import { StockInput } from "./StockInput";
 import { useSession } from "@/store/session";
 import { useTr } from "@/lib/i18n";
 
@@ -34,6 +35,12 @@ import { useTr } from "@/lib/i18n";
  *  The fourth question — what the stock that *left* cost — is not answered
  *  here. FIFO, average and standard costing give three different numbers and
  *  nobody has said which one this business uses (Q43).
+ *
+ *  **Only what was entered is listed** (D348). The catalogue's 800-odd names
+ *  showed here at *0 · never moved* until the owner asked for the rack to
+ *  start from zero, with the catalogue as the list of names an entry picks
+ *  from (*Input stock*). An item opened by its code — a label's QR — still
+ *  opens, entered or not.
  */
 export default function StockPage() {
   const tr = useTr();
@@ -47,11 +54,13 @@ export default function StockPage() {
   const params = useSearchParams();
   const linked = params.get("item");
   useEffect(() => { if (linked) setOpen(linked); }, [linked]);
-  const [registering, setRegistering] = useState(false);
+  const [registering, setRegistering] = useState<false | { name?: string }>(false);
+  const [entering, setEntering] = useState(false);
   /* The item just registered, so its label is one click away (D321). */
   const [justRegistered, setJustRegistered] = useState<string | null>(null);
   const mayMove = can("inventory.update");
   const mayRegister = can("inventory.create");
+  const mayEnter = can("inventory.adjust");
 
   return (
     <div>
@@ -65,7 +74,10 @@ export default function StockPage() {
               <Button size="sm" variant="secondary" icon={Tags}>{tr("Print labels", "Cetak label")}</Button>
             </Link>
             {mayRegister && !registering && (
-              <Button size="sm" icon={PackagePlus} onClick={() => setRegistering(true)}>{tr("Register an item", "Daftarkan barang")}</Button>
+              <Button size="sm" variant="secondary" icon={PackagePlus} onClick={() => setRegistering({})}>{tr("Register an item", "Daftarkan barang")}</Button>
+            )}
+            {mayEnter && !entering && (
+              <Button size="sm" icon={ClipboardPlus} onClick={() => setEntering(true)}>{tr("Input stock", "Input stok")}</Button>
             )}
             <SourceBadge state={rows} />
           </div>
@@ -85,14 +97,26 @@ export default function StockPage() {
       )}
       {registering && (
         <RegisterItem
+          key={registering.name ?? ""}
           mayCount={can("inventory.adjust")}
+          initialName={registering.name}
           onCancel={() => setRegistering(false)}
           onCreated={(code) => { setRegistering(false); setJustRegistered(code); reload(); setOpen(code); }}
         />
       )}
+      {entering && rows.status === "ready" && (
+        <StockInput
+          catalogue={rows.data}
+          onSaved={() => reload()}
+          onNewItem={(name) => setRegistering({ name })}
+          onClose={() => setEntering(false)}
+        />
+      )}
 
       <Loaded state={rows} onRetry={reload}>
-        {(all) => {
+        {(catalogue) => {
+          /* The rack is what was entered; the catalogue is the list of names. */
+          const all = catalogue.filter((r) => r.moves_count > 0);
           const shown = all
             .filter((r) => !group || r.group_code === group)
             .filter((r) => !lowOnly || r.below_min)
@@ -105,7 +129,6 @@ export default function StockPage() {
           const unpriced = all.filter((r) => r.unpriced_qty > 0);
           const low = all.filter((r) => r.below_min);
           const noMin = all.filter((r) => r.min_qty == null);
-          const never = all.filter((r) => r.moves_count === 0);
           const noPhoto = all.filter((r) => r.photo_count === 0);
 
           return (
@@ -118,7 +141,7 @@ export default function StockPage() {
                         ? tr(`${unpriced.length} items with incomplete prices`, `${unpriced.length} barang belum lengkap harganya`)
                         : tr("all stock has a price", "seluruh stok punya harga")],
                     ["kinds", tr("Item types", "Jenis barang"), String(all.length),
-                      tr(`${never.length} never moved · ${noPhoto.length} without a photo`, `${never.length} belum pernah bergerak · ${noPhoto.length} belum ada foto`)],
+                      tr(`of ${catalogue.length} catalogue names · ${noPhoto.length} without a photo`, `dari ${catalogue.length} nama katalog · ${noPhoto.length} belum ada foto`)],
                     ["low", tr("Below minimum", "Di bawah minimum"), String(low.length),
                       low.length > 0 ? tr("needs buying", "perlu dibelikan") : tr("nothing running low", "tidak ada yang menipis")],
                     ["nomin", tr("Minimum not set", "Minimum belum ditetapkan"), String(noMin.length),
@@ -208,7 +231,12 @@ export default function StockPage() {
                         <tbody>
                           {page.map((r) => <Row key={r.item_code} row={r} onOpen={() => setOpen(r.item_code)} />)}
                           {shown.length === 0 && (
-                            <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-500">{tr("Nothing matches.", "Tidak ada yang cocok.")}</td></tr>
+                            <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                              {all.length === 0
+                                ? tr("No stock entered yet. Start with Input stock — pick the item by name, the location and the quantity.",
+                                    "Belum ada stok yang diinput. Mulai dengan Input stok — pilih nama barang, lokasi dan jumlahnya.")
+                                : tr("Nothing matches.", "Tidak ada yang cocok.")}
+                            </td></tr>
                           )}
                         </tbody>
                       </table>
@@ -233,6 +261,8 @@ export default function StockPage() {
                 <StockDrawer
                   itemCode={open}
                   mayMove={mayMove}
+                  mayAdjust={mayEnter}
+                  catalogue={catalogue}
                   onClose={() => setOpen(null)}
                   onChanged={reload}
                 />
