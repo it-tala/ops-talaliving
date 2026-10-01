@@ -95,7 +95,8 @@ begin
 
   r := ops_procure.file_receiving('ev-b5-2',
          '[{"url":"https://drive/d","filename":"po-barang.jpg","source_ref":"blob-d"},
-           {"url":"https://drive/e","filename":"tanda-terima.jpg","source_ref":"blob-e"}]'::jsonb, 'Plywood PO', 'buyer-rcv@talaliving.com');
+           {"url":"https://drive/e","filename":"tanda-terima.jpg","source_ref":"blob-e"},
+           {"url":"https://drive/g","filename":"nota.jpg","source_ref":"blob-g"}]'::jsonb, 'Plywood PO', 'buyer-rcv@talaliving.com');
   assert ops_core.said_ok(r), format('%s', r);
   insert into t_ctx values ('rr2', r->'data'->>'rr_no');
   r := ops_procure.file_receiving('ev-b5-3', '[{"url":"https://drive/f","filename":"ok.jpg","source_ref":"blob-f"}]'::jsonb, 'Baik mas', 'Andi Uji');
@@ -229,9 +230,10 @@ select ops_procure.issue_po((select v from t_ctx where k = 'po'));
 
 do $$
 declare r jsonb; rr text := (select v from t_ctx where k = 'rr2'); po text := (select v from t_ctx where k = 'po');
-        fd uuid; fe uuid; l1 uuid; foreign_line uuid; c jsonb;
+        fd uuid; fe uuid; fg uuid; l1 uuid; foreign_line uuid; c jsonb;
 begin
-  select (files->0->>'attachment_id')::uuid, (files->1->>'attachment_id')::uuid into fd, fe
+  select (files->0->>'attachment_id')::uuid, (files->1->>'attachment_id')::uuid, (files->2->>'attachment_id')::uuid
+    into fd, fe, fg
     from ops_procure.v_receiving_inbox where rr_no = rr;
   select o.id into l1 from ops_procure.po_lines o join ops_procure.purchase_orders p on p.id = o.po_id
    where p.po_no = po and o.line_no = 1;
@@ -268,7 +270,8 @@ begin
   assert r->'error'->>'code' = 'nothing_billable', format('%s', r);
 
   r := ops_procure.match_receiving_to_po(rr, po,
-         jsonb_build_array(jsonb_build_object('po_line_id', l1, 'qty', 4)), array[fd], array[fe]);
+         jsonb_build_array(jsonb_build_object('po_line_id', l1, 'qty', 4)), array[fd], array[fe],
+         p_notas => array[fg]);
   assert ops_core.said_ok(r) and r->'data'->>'status' = 'CONFIRMED', format('matched to the order: %s', r);
   assert (r->'data'->>'billable_now')::numeric = 400000, format('4 of 10 at 100.000 is billable: %s', r);
   assert (select count(*) from ops_procure.receipts where po_line_id = l1 and status = 'CONFIRMED' and qty_received = 4) = 1,
@@ -277,6 +280,9 @@ begin
            where k.entity = 'receipt' and k.entity_no = r->'data'->'receipt_nos'->>0
              and k.kind in ('goods_photo','delivery_note')) = 2, 'carrying the photo and the tanda terima';
   assert (select po_no from ops_procure.receiving_inbox where rr_no = rr) = po, 'the row names the order';
+  assert (select count(*) from ops_core.attachment_links
+           where entity = 'purchase_order' and entity_no = po and kind = 'nota' and attachment_id = fg
+             and unlinked_at is null) = 1, 'the vendor''s nota is filed on the order';
 end $$;
 
 /* ── 5. the payment request, and the money reaching the order ──────────── */

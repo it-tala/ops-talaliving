@@ -71,36 +71,42 @@ export async function POST(request: Request): Promise<Response> {
   }).files;
   if (files.length === 0) return answer(200, { data: { rr_no: rrNo, archived: [], failed: [] } });
 
-  /* The procurement drive's own folder — the same road as an upload (D320). */
-  const { data: whereRaw, error: whereErr } = await sb.schema("ops_core")
-    .rpc("drive_folder_for", { p_kind: "goods_photo", p_entity: null });
-  if (whereErr) return refuse(500, "database_error", whereErr.message);
-  const where = whereRaw as Envelope;
-  if (where.outcome !== "ok") return answer(where.error?.status ?? 422, { error: where.error });
-  const folder = where.data as {
-    folder_id?: string | null; drive_id?: string | null; parent_folder_id?: string | null;
-    label: string; slug: string;
-  };
-
-  let appFolderId = folder.folder_id ?? null;
-  if (!appFolderId) {
-    try {
-      let driveId = folder.drive_id ?? null;
-      if (!driveId) {
-        if (!folder.parent_folder_id) {
-          return refuse(501, "drive_not_configured",
-            `Nothing records which shared drive is ${folder.label}. IT records it in ops_core.drive_folders.`);
+  /* Each kind's drive and its own ops-talaliving folder — the same road as an
+     upload (D320). A nota goes where every nota goes (ACCOUNTING); the rest
+     to PROCUREMENT. Asked once per kind. */
+  type Folder = { folder_id?: string | null; drive_id?: string | null; parent_folder_id?: string | null; label: string; slug: string };
+  const folders = new Map<string, { folder: Folder; appFolderId: string } | { error: string }>();
+  async function folderFor(kind: string) {
+    const known = folders.get(kind);
+    if (known) return known;
+    const { data: whereRaw, error: whereErr } = await sb.schema("ops_core")
+      .rpc("drive_folder_for", { p_kind: kind, p_entity: null });
+    const where = whereRaw as Envelope;
+    let out: { folder: Folder; appFolderId: string } | { error: string };
+    if (whereErr || where.outcome !== "ok") {
+      out = { error: whereErr?.message ?? where.error?.message ?? "No drive for this kind." };
+    } else {
+      const folder = where.data as Folder;
+      let appFolderId = folder.folder_id ?? null;
+      try {
+        if (!appFolderId) {
+          let driveId = folder.drive_id ?? null;
+          if (!driveId) {
+            if (!folder.parent_folder_id) throw new Error(`Nothing records which shared drive is ${folder.label}.`);
+            driveId = (await driveOf(folder.parent_folder_id)).driveId;
+          }
+          appFolderId = (await findOrCreateAppFolder(driveId)).id;
+          await sb.schema("ops_core").rpc("record_ops_folder", {
+            p_slug: folder.slug, p_folder_id: appFolderId, p_drive_id: driveId,
+          });
         }
-        driveId = (await driveOf(folder.parent_folder_id)).driveId;
+        out = { folder, appFolderId };
+      } catch (e) {
+        out = { error: explainDriveFailure(e, "app_folder", { label: folder.label, path: kind, folderId: null }).message };
       }
-      appFolderId = (await findOrCreateAppFolder(driveId)).id;
-      await sb.schema("ops_core").rpc("record_ops_folder", {
-        p_slug: folder.slug, p_folder_id: appFolderId, p_drive_id: driveId,
-      });
-    } catch (e) {
-      const x = explainDriveFailure(e, "app_folder", { label: folder.label, path: "RECEIVING REPORT", folderId: null });
-      return refuse(x.status, x.code, x.message);
     }
+    folders.set(kind, out);
+    return out;
   }
 
   const archived: { attachment_id: string; path: string; filename: string }[] = [];
@@ -112,6 +118,12 @@ export async function POST(request: Request): Promise<Response> {
       failed.push({ attachment_id: f.attachment_id, filename: f.filename, message: "The Chat file has no Drive id to copy from." });
       continue;
     }
+    const target = await folderFor(f.kind);
+    if ("error" in target) {
+      failed.push({ attachment_id: f.attachment_id, filename: f.filename, message: target.error });
+      continue;
+    }
+    const { folder, appFolderId } = target;
     try {
       const src = await fetchDriveFile(sourceId, MAX_BYTES);
       if (!src || !src.bytes) {

@@ -2167,7 +2167,7 @@ export async function labelCard(token: string): Promise<Result<LabelCard>> {
  *  same reason `stockFromReceipt` lives here. Callers validate first. */
 export function stockArrival(
   draft: DemoState,
-  input: { item_code: string; qty: number; location?: string | null; ref_no: string; reason: string },
+  input: { item_code: string; qty: number; location?: string | null; ref_no: string; reason: string; unit_cost?: number | null },
   userId: string,
   userEmail: string,
 ): StockMove {
@@ -2175,7 +2175,7 @@ export function stockArrival(
   const home = draft.stock_settings.find((s) => s.item_code === input.item_code)?.home_location;
   return writeMove(draft, {
     item_code: input.item_code, location: input.location || home || "GUDANG",
-    kind: "receipt", qty: input.qty, uom, unit_cost: null, ref_no: input.ref_no, reason: input.reason,
+    kind: "receipt", qty: input.qty, uom, unit_cost: input.unit_cost ?? null, ref_no: input.ref_no, reason: input.reason,
   }, userId, userEmail);
 }
 
@@ -2184,14 +2184,15 @@ export function registerArrivedAsset(
   input: {
     name: string; category_code: string; trx_no: string; acquired_on: string | null;
     purchase_cost: number | null; vendor_code: string | null; notes: string;
+    brand?: string | null; location?: string | null; holder?: string | null;
   },
 ): Asset {
   const n = Math.max(0, ...draft.assets.map((a) => Number(a.asset_no.slice(4)) || 0)) + 1;
   const now = new Date().toISOString();
   const row: Asset = {
     id: newId("ast"), asset_no: `AST-${String(n).padStart(4, "0")}`, name: input.name.trim(),
-    category_code: input.category_code, brand: null, model: null, identifier: null,
-    location: null, holder: null, status: "in_use",
+    category_code: input.category_code, brand: input.brand ?? null, model: null, identifier: null,
+    location: input.location ?? null, holder: input.holder ?? null, status: "in_use",
     acquired_on: input.acquired_on, purchase_cost: input.purchase_cost,
     vendor_code: input.vendor_code, trx_no: input.trx_no, warranty_until: null, notes: input.notes,
     ended_on: null, created_at: now, updated_at: now,
