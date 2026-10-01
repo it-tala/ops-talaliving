@@ -127,9 +127,9 @@ select 'cafe0003-0000-0000-0000-000000000001', to_char(ops_core.office_day(now()
   from ops_acct.transactions
  where description = 'Sewa kantor - dibayar lebih awal';
 
--- December carries the THR: four Fridays at 2,000,000 would be 8,000,000;
--- the override says the month totals 16,000,000, so the difference
--- (8,000,000) lands entirely on the last Friday (D114).
+-- December carries the THR: the month's Fridays at 2,000,000 each, and the
+-- override says the month totals 16,000,000, so the difference lands
+-- entirely on the last Friday (D114). Four Fridays or five — see below.
 insert into ops_acct.cash_overrides (component_id, month, amount, reason, recorded_by)
 values ('cafe0003-0000-0000-0000-000000000002', to_char(ops_core.office_day(now()) + interval '3 months', 'YYYY-MM'),
         16000000, 'THR', 'cafe0001-0000-0000-0000-000000000001');
@@ -192,21 +192,41 @@ begin
   end;
 
   -- December's payroll: the THR spread, remainder on the last Friday.
-  declare c jsonb; evs jsonb; last_ev jsonb; begin
+  --
+  -- "December" is three months from today, so it is whatever month that is,
+  -- and a month has four Fridays or five: run from October 2026 it is January
+  -- 2027, with five, and a hardcoded four failed every day of that month. The
+  -- Fridays are counted from the calendar here, never assumed, and the last
+  -- run carries what the override leaves after the others.
+  declare c jsonb; evs jsonb; last_ev jsonb; fridays int; begin
+    select count(*) into fridays
+      from generate_series(to_date(december, 'YYYY-MM'),
+                           (to_date(december, 'YYYY-MM') + interval '1 month - 1 day')::date,
+                           interval '1 day') d
+     where extract(isodow from d) = 5;
     select cell into c from jsonb_array_elements(payroll -> 'cells') cell where cell ->> 'month' = december;
     assert (c ->> 'planned')::numeric = 16000000, format('got %s', c ->> 'planned');
     evs := c -> 'events';
-    assert jsonb_array_length(evs) = 4, format('four Fridays in this December, got %s', jsonb_array_length(evs));
+    assert jsonb_array_length(evs) = fridays,
+      format('%s Fridays in %s, got %s runs', fridays, december, jsonb_array_length(evs));
     last_ev := evs -> (jsonb_array_length(evs) - 1);
-    assert (last_ev ->> 'planned')::numeric = 10000000,
-      format('base 2,000,000 plus the 8,000,000 difference, got %s', last_ev ->> 'planned');
+    assert (last_ev ->> 'planned')::numeric = 16000000 - 2000000 * (fridays - 1),
+      format('16,000,000 less %s runs of 2,000,000, got %s', fridays - 1, last_ev ->> 'planned');
     assert (last_ev ->> 'carries_override')::boolean, 'the run carrying the override should say so';
     assert not (evs -> 0 ->> 'carries_override')::boolean, 'only the last run carries it';
   end;
 
   -- The one-off, still unpaid, does not appear in the unplanned money —
   -- unplanned is only for ledger rows nothing claimed.
-  assert (bonus -> 'cells' -> 0 ->> 'state') = 'OVERDUE', format('got %s', bonus -> 'cells' -> 0 ->> 'state');
+  --
+  -- It is due on the 15th of this month, so it is OVERDUE only from the 16th:
+  -- on the 1st to the 15th it is still PLANNED, and asserting OVERDUE
+  -- outright failed for half of every month. The state is derived from the
+  -- same two dates `cash_plan` compares.
+  assert (bonus -> 'cells' -> 0 ->> 'state') =
+         case when date_trunc('month', ops_core.office_day(now()))::date + 14 < ops_core.office_day(now())
+              then 'OVERDUE' else 'PLANNED' end,
+    format('due the 15th, today %s, got %s', ops_core.office_day(now()), bonus -> 'cells' -> 0 ->> 'state');
 
   -- The transport row: nothing claims it, so it shows up as unplanned money
   -- this month and nowhere in `_claimed`.
