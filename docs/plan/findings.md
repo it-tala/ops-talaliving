@@ -8815,3 +8815,23 @@ office-day reasoning at the top of 86.
 every day. A month's length, its weekdays and "is it past the 15th" are not.
 Either derive the expected value from the same date, or pin the date as an
 argument the function takes.
+
+## F211 · 2026-10-01 · A smoke written against an empty table broke when a later migration seeded it
+
+`182_prod_bom_rates` failed on `main` with `first code RT-0001, got RT-0027`.
+It was not leftover state: CI rebuilds the ladder from nothing. `0200` (D355)
+seeds 26 PLV rates, and `save_bom_rate` numbers a new rate `max + 1`. So the
+first rate the smoke saves is RT-0027, and its later *a reader sees 3 rates*
+count would have failed too. `200_prod_bom_rates_plv` passed and its own
+smoke never touched 182, so the merge did not show it.
+
+Fixed by emptying `ops_prod.bom_rates` at the top of 182, inside its
+rolled-back transaction. Nothing has a foreign key to the table, and the file
+is about the seam on an empty list, which is still what it asserts. Not
+taken: rewriting the expected codes relative to `max`. That keeps the file
+passing but makes every RT-000n and the count of 3 a computed value, which
+asserts less.
+
+**Rule:** a smoke that assumes a table starts empty must make it empty
+itself. A seed migration added later is an ordinary change, not an edge
+case.
