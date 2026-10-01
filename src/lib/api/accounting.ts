@@ -813,7 +813,7 @@ const INBOX_COLUMNS =
   "id, ref_id, origin, status, attachment_id, reported_by, reported_at, "
   + "extracted, money_direction, produced_trx_no, produced_pr_line_no";
 
-function toInboxRow(r: InboxRowDb): Omit<EvidenceInboxRow, "reported_by_name"> {
+function toInboxRow(r: InboxRowDb): Omit<EvidenceInboxRow, "reported_by_name" | "file_key"> {
   return {
     id: r.id,
     ref_id: r.ref_id,
@@ -841,17 +841,39 @@ function toInboxRow(r: InboxRowDb): Omit<EvidenceInboxRow, "reported_by_name"> {
   };
 }
 
-/** Who `reported_by` is, spelled out — batched, so a queue of twenty rows is
- *  one extra query rather than twenty. */
+/** Who `reported_by` is, spelled out, and which file each row is — batched,
+ *  so a queue of twenty rows is two extra queries rather than forty.
+ *
+ *  `file_key` is the attachment's link or path: the capture worker gives
+ *  every row its own attachment row, so the id cannot say which rows are one
+ *  photo, and the `<event>` part of `ref_id` cannot either — one chat message
+ *  with three photos is one event. The key is the same expression
+ *  `book_evidence_group` (0161) compares, so the screen groups exactly what
+ *  the seam will accept as one document. */
 async function withReporterNames(
-  rows: Omit<EvidenceInboxRow, "reported_by_name">[],
+  rows: Omit<EvidenceInboxRow, "reported_by_name" | "file_key">[],
 ): Promise<Result<EvidenceInboxRow[]>> {
   if (rows.length === 0) return ok(SERVICE, []);
   const ids = [...new Set(rows.map((r) => r.reported_by))];
-  const { data, error } = await core().from("users").select("id, full_name").in("id", ids);
-  if (error) return fail(SERVICE, error);
-  const nameOf = new Map((data ?? []).map((u) => [u.id as string, u.full_name as string]));
-  return ok(SERVICE, rows.map((r) => ({ ...r, reported_by_name: nameOf.get(r.reported_by) ?? null })));
+  const attIds = [...new Set(rows.map((r) => r.attachment_id))];
+  /* A hundred ids a request, so a long queue cannot outgrow the URL. */
+  const attChunks: string[][] = [];
+  for (let i = 0; i < attIds.length; i += 100) attChunks.push(attIds.slice(i, i + 100));
+  const [users, ...atts] = await Promise.all([
+    core().from("users").select("id, full_name").in("id", ids),
+    ...attChunks.map((c) => core().from("attachments").select("id, url, storage_path").in("id", c)),
+  ]);
+  if (users.error) return fail(SERVICE, users.error);
+  const attFailed = atts.find((a) => a.error);
+  if (attFailed?.error) return fail(SERVICE, attFailed.error);
+  const nameOf = new Map((users.data ?? []).map((u) => [u.id as string, u.full_name as string]));
+  const fileOf = new Map(atts.flatMap((a) => a.data ?? []).map((a) =>
+    [a.id as string, (a.url as string | null) || (a.storage_path as string | null) || (a.id as string)]));
+  return ok(SERVICE, rows.map((r) => ({
+    ...r,
+    file_key: fileOf.get(r.attachment_id) ?? r.attachment_id,
+    reported_by_name: nameOf.get(r.reported_by) ?? null,
+  })));
 }
 
 export async function listInbox(): Promise<Result<EvidenceInboxRow[]>> {

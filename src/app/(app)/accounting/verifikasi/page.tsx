@@ -75,8 +75,8 @@ const DECIDED_SHOWN = 20;
  *  extractor read — `<event>~x0`, `<event>~x1`, … — so a transfer and its
  *  admin fee, or a nota of five items, arrived here as two or five
  *  "documents" that were the same photo. They are grouped back by the event
- *  part of `ref_id`; the seam (0161) checks they really are one file rather
- *  than trusting this.
+ *  part of `ref_id` and the file they point at (`docKey`); the seam (0161)
+ *  checks they really are one file rather than trusting this.
  *
  *  `rows[0]` is the **main** row — the largest amount, so the transfer and not
  *  its fee — and is what the header, the vendor guess and the date come from.
@@ -89,10 +89,14 @@ interface InboxDoc {
   amount: number | null;
 }
 
-/** The event a chat ref belongs to. A web upload has no slot and is its own. */
+/** The photo a chat ref belongs to: its event **and** its file. One chat
+ *  message can carry several photos, and the worker files them under the same
+ *  event (`<event>~<drive id>`, or slots `~x0`, `~x1` read across them), so
+ *  the event alone put two different notas on one card — which the seam then
+ *  refused, correctly, as *different files*. A web upload is its own. */
 function docKey(r: EvidenceInboxRow): string {
   const i = r.ref_id.indexOf("~");
-  return r.origin === "chat" && i > 0 ? r.ref_id.slice(0, i) : r.ref_id;
+  return r.origin === "chat" && i > 0 ? `${r.ref_id.slice(0, i)}|${r.file_key}` : r.ref_id;
 }
 
 /** `YYYY-MM-DD` moved by whole days, in UTC so a timezone never shifts it. */

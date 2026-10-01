@@ -171,9 +171,9 @@ export const PAYMENT_ALLOCATIONS: PaymentAllocation[] = [
  * unknown because somebody bought first (ADR-010). Three waiting, one already
  * resolved to a note, one that produced a transaction. If this list grows,
  * people are routing around the normal road. */
-/* `reported_by_name` is derived, not stated — see the comment on
+/* `reported_by_name` and `file_key` are derived, not stated — see the comment on
    `DemoState.evidence_inbox`. */
-export const EVIDENCE_INBOX: Omit<EvidenceInboxRow, "reported_by_name">[] = [
+export const EVIDENCE_INBOX: Omit<EvidenceInboxRow, "reported_by_name" | "file_key">[] = [
   /* Two decisions from months back, which exist so the history has a **shape**
      rather than a length (B4, D269). A window that never has anything outside
      it proves nothing: these are what makes *3 dari 5 keputusan, 2 lagi lebih
@@ -261,6 +261,22 @@ export const EVIDENCE_INBOX: Omit<EvidenceInboxRow, "reported_by_name">[] = [
     id: "inb_14", ref_id: "upl_26-09-15_04~x1", origin: "chat", status: "PENDING",
     attachment_id: "att_69", reported_by: "usr_made", reported_at: "2026-09-15T15:10:00+07:00",
     extracted: { vendor_name: "UD KARYA LOGAM ABADI", document_date: "2026-09-15", amount_idr: 2_500, doc_type: "Payment Proof", confidence: 95, note: "Transfer admin fee" },
+    produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
+  },
+  /** Two different notas sent in **one** chat message — one event, two files,
+   *  filed `<event>~<drive id>` the way the worker files a message with several
+   *  photos. They are two documents: grouping them by the event alone put both
+   *  on one card, and booking it was refused as *different files*. */
+  {
+    id: "inb_15", ref_id: "upl_26-09-16_02~1aLyaTirta", origin: "chat", status: "PENDING",
+    attachment_id: "att_70", reported_by: "usr_made", reported_at: "2026-09-16T11:05:00+07:00",
+    extracted: { vendor_name: "ALYA TIRTA", document_date: "2026-09-16", amount_idr: 110_000, doc_type: "Receipt / Invoice / Nota", confidence: 86, note: "Air galon 5 x 22.000" },
+    produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
+  },
+  {
+    id: "inb_16", ref_id: "upl_26-09-16_02~1kUsAiRi", origin: "chat", status: "PENDING",
+    attachment_id: "att_71", reported_by: "usr_made", reported_at: "2026-09-16T11:05:00+07:00",
+    extracted: { vendor_name: "KUSAIRI", document_date: "2026-09-16", amount_idr: 150_000, doc_type: "Receipt / Invoice / Nota", confidence: 80, note: "Ongkos angkut" },
     produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
   },
   {

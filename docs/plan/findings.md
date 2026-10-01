@@ -8729,3 +8729,27 @@ while the demo applies them. Recorded for its own session.
 **Rule:** before building a capture path, look for the one that already
 exists. The expensive half (capture, storage, reading) was done; what was
 missing was one verb and a schedule.
+
+## F209 · 2026-10-01 · One chat message is not one photo, so the event is not the document
+
+Accounting saw *Not booked — These inbox rows are different files. Only rows
+of the same photo can be booked as one document.* on `/accounting/verifikasi`.
+The seam was right; the screen asked for the wrong thing. It grouped inbox
+rows into one card by the `<event>` part of `ref_id`, on the assumption from
+0161 that the worker files one photo as slots `<event>~x0`, `~x1`, …. It also
+files a message with **several photos** under one event — one row per photo,
+`<event>~<drive id>` — and its slots can be read across photos too
+(`~x1`, `~x4` on two files). Measured on production the same day: of 62
+PENDING rows, **8 cards** were really 2–6 different files each (a transfer
+and its fee screenshot, five notas from five vendors in one message, …).
+Every one of them was unbookable: `book_evidence_group` compares the
+attachments' links and refused, and `link_evidence` the same.
+
+The fix is the screen's, not the seam's: each row now carries `file_key`
+(the attachment's `url`, else `storage_path` — the expression 0161 compares),
+and a chat card is `<event>` **and** `file_key`. Rows of one photo still
+merge (the worker gives each slot its own attachment row but the same Drive
+link); two photos in one message are two cards. No migration.
+
+**Rule:** group on the identity the seam checks, not on a naming habit of the
+producer. A refusal that the screen can trigger by itself is a screen bug.
