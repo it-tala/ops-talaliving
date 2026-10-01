@@ -31,7 +31,7 @@ import type {
   VendorJourney, RoundSummary, RoundTransfer, VarianceReason, Channel, ApprovalBatchView,
   PoDetail, PoLine, PoStatusView, PurchaseOrder, Receipt, ReceiptCondition,
   ReceivingInboxRow, ReceivingInboxStatus, ReceivingCandidates, ReceivingLineInput,
-  ReceivingMatchResult, PoPaymentRequest,
+  ReceivingMatchResult, PoPaymentRequest, ReceivingArchiveResult,
   UomCode, PrCategory, PrDocument,
   ProjectView, ProjectLineView, ProjectStatus, ProjectStatusChange, Client, ClientView,
 } from "@/services/procurement/contracts";
@@ -2221,4 +2221,38 @@ export async function requestPoPayment(
     p_key: idempotencyKey ?? null,
   });
   return fromSeam<PoPaymentRequest>(SERVICE, data, error);
+}
+
+/** File a matched message's photos into PROCUREMENT / ops-talaliving /
+ *  RECEIVING REPORT / <YYYY-MM> / <YYYY-MM-DD> (0204, D360). Through a server
+ *  route, like `documents.upload`: the copy needs the service account, and the
+ *  route records it as this person. Safe to repeat — only what is not filed
+ *  yet is copied. */
+export async function archiveReceiving(rrNo: string): Promise<Result<ReceivingArchiveResult>> {
+  let res: Response;
+  try {
+    res = await fetch("/api/procurement/receiving/archive", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ rr_no: rrNo }),
+    });
+  } catch (e) {
+    return {
+      error: {
+        code: "archive_interrupted",
+        message: `Pengarsipan terputus. Coba lagi. (${String((e as Error).message)})`,
+        outcome: "refused", status: 500,
+      },
+      meta: { request_id: "", service: SERVICE, version: "1", outcome: "refused" },
+    };
+  }
+  const envelope = await res.json() as { data?: ReceivingArchiveResult; error?: Result<never>["error"] };
+  if (!res.ok || envelope.error || !envelope.data) {
+    return {
+      error: envelope.error ?? { code: "archive_failed", message: `HTTP ${res.status}`, outcome: "refused", status: 500 },
+      meta: { request_id: "", service: SERVICE, version: "1", outcome: "refused" },
+    };
+  }
+  return ok(SERVICE, envelope.data);
 }

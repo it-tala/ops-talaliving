@@ -8870,3 +8870,46 @@ now today.
 
 **Rule:** "always shown" is not the same as "seen". A control that answers an
 action belongs where the action is made, or follows it there.
+## F211 · 2026-10-01 · A smoke written against an empty table broke when a later migration seeded it
+
+`182_prod_bom_rates` failed on `main` with `first code RT-0001, got RT-0027`.
+It was not leftover state: CI rebuilds the ladder from nothing. `0200` (D355)
+seeds 26 PLV rates, and `save_bom_rate` numbers a new rate `max + 1`. So the
+first rate the smoke saves is RT-0027, and its later *a reader sees 3 rates*
+count would have failed too. `200_prod_bom_rates_plv` passed and its own
+smoke never touched 182, so the merge did not show it.
+
+Fixed by emptying `ops_prod.bom_rates` at the top of 182, inside its
+rolled-back transaction. Nothing has a foreign key to the table, and the file
+is about the seam on an empty list, which is still what it asserts. Not
+taken: rewriting the expected codes relative to `max`. That keeps the file
+passing but makes every RT-000n and the count of 3 a computed value, which
+asserts less.
+
+**Rule:** a smoke that assumes a table starts empty must make it empty
+itself. A seed migration added later is an ordinary change, not an edge
+case.
+## F212 · 2026-10-01 · A copy is only "in one place" if the records point at it
+
+Copying a matched Chat photo into `ops-talaliving / RECEIVING REPORT` (D360)
+is half the job. The ledger row's item photo, the receipt and the asset all
+link the **capture's** attachment, so after a bare copy the file would be in
+two folders and every screen would still open the one in John Lau's folder —
+the duplication the owner was asking to end, just moved. So the seam that
+records a copy (`receiving_file_archived`) also moves every live link to it:
+the old link unlinked (never deleted, A2/A5), the same link made for the copy.
+The capture stays untouched and remembered as the copy's origin.
+
+Two smaller things:
+
+- **The day of a Chat photo is the day it was sent.** `drive_path_for` read
+  only the office day, which is right for an upload and wrong for a photo
+  matched days later. It takes an optional day now; making that a second
+  overload was refused by `00_no_overloads` (PostgREST cannot call an
+  overloaded seam), so the old signature was dropped and the day defaulted.
+- **Only what a record uses is copied.** A file marked *Not used* has no link,
+  so nothing would show the copy; it stays in the Chat folder.
+
+**Rule:** moving a file is moving every pointer to it. A copy nothing links is
+a second file, not a move.
+

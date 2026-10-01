@@ -214,6 +214,7 @@ PO and receiving:
 | POST | `/receiving-inbox/{rr_no}/match-transaction` | `{trx_no, photos[], reports[]?, lines[{kind: material, item_code, qty, location?} \| {kind: asset, name, category_code, count?, unit_cost?}]?, note?}` — photos become the ledger row's *Receiving Item*, sheets its *Receiving Report*; materials onto the rack (`receipt`, ref `rr-…`), assets into the register. **422** `not_a_purchase`, `photo_required`, `file_not_on_report`, `item_not_stocked`; **409** `already_resolved` |
 | POST | `/receiving-inbox/{rr_no}/match-po` | `{po_no, lines[{po_line_id, qty, condition?}], photos[], notes[]?, reports[]?, qc_by?, note?}` — a receipt per line, CONFIRMED with the tanda terima (`notes`). All or none. **409** `order_not_open` |
 | POST | `/receiving-inbox/{rr_no}/dismiss` | `{reason}` — not an arrival. **422** without a reason |
+| POST | `/api/procurement/receiving/archive` | `{rr_no}` — a MATCHED message's used photos copied into PROCUREMENT / ops-talaliving / RECEIVING REPORT / <YYYY-MM> / <YYYY-MM-DD> (the day it was sent) and every record's link moved to the copy (0204, D360). Answers `{archived[], failed[]}`; repeating copies only what is left. **409** `not_matched` |
 | POST | `/po/{po_no}/request-payment` | `{amount?, note?}` — one request line against the order, submitted to the meeting; amount defaults to billable now less what is already asked for. **409** `nothing_billable`, **422** `over_billable`. Paying that line pays the order (`allocate_payment`, 0203) |
 
 ### Projects — master data

@@ -676,6 +676,18 @@ export interface ReceivingFile {
   url: string | null;
   filename: string;
   mime: string | null;
+  /** Copied into PROCUREMENT / ops-talaliving / RECEIVING REPORT (0204, D360). */
+  archived: boolean;
+  /** Where it is filed under ops-talaliving, once it is: `RECEIVING REPORT/2026-09/2026-09-30`. */
+  drive_path: string | null;
+}
+
+/** What filing a matched message's photos did (0204): the ones copied into
+ *  the month tree, and any that could not be, each with why. */
+export interface ReceivingArchiveResult {
+  rr_no: string;
+  archived: { attachment_id: string; path: string; filename: string }[];
+  failed: { attachment_id: string; filename: string; message: string }[];
 }
 
 export interface ReceivingInboxRow {

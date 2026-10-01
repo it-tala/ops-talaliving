@@ -30,7 +30,10 @@ begin
   r := ops_core.drive_folder_for('foto');
   assert r->'data'->>'path' = 'FOTO', 'a photo of nothing in particular, got ' || r::text;
   r := ops_core.drive_folder_for('receiving_report', 'receipt');
-  assert r->'data'->>'path' = 'RECEIVING REPORT', 'the owner''s example, got ' || r::text;
+  -- By month and day since 0204 (D360), the tree accounting uses (D359).
+  assert r->'data'->>'path' = 'RECEIVING REPORT/' || to_char(ops_core.office_day(), 'YYYY-MM')
+                             || '/' || to_char(ops_core.office_day(), 'YYYY-MM-DD'),
+    'the owner''s example, got ' || r::text;
   r := ops_core.drive_folder_for('purchase_order');
   assert r->'data'->>'path' = 'PURCHASE ORDER', 'the kind''s own name, got ' || r::text;
   r := ops_core.drive_folder_for('ktp', 'item');
