@@ -62,7 +62,8 @@ const ACTION_LABEL: Record<string, Message> = {
  *  zero, and the reason is mandatory. A deleted row cannot be asked about.
  *  A wrong amount or description is fixed in place with Edit (owner,
  *  2026-09-23) — an amount change needs a remark, and the audit log keeps
- *  both values.
+ *  both values. So are the vendor, project and type (`0105`) and the account
+ *  the money moved through (`0204`, D359).
  */
 export function TrxDrawer({
   trxNo, onClose, onChanged,
@@ -97,15 +98,21 @@ export function TrxDrawer({
   const [editVendor, setEditVendor] = useState("");
   const [editProject, setEditProject] = useState("");
   const [editType, setEditType] = useState("");
+  const [editAccount, setEditAccount] = useState("");
   const [refs, setRefs] = useState<{
     vendors: { id: string; code: string; name: string }[];
     projects: { id: string; code: string; name: string }[];
     types: { code: string }[];
+    accounts: { code: string; name: string; custody: string; currency: string; is_active: boolean }[];
   } | null>(null);
   /* Whether the row carries a receipt / nota or a payment proof — the one
      thing COMPLETED requires (`0103`). Asked of the row's own documents. */
   const [hasCompletionDoc, setHasCompletionDoc] = useState(false);
   const mayPost = hasAuthority("post_ledger");
+  /* A leadership account's balance is `approve_funds`' (D87), and moving a
+     row on or off one changes it — the seam refuses, so the picker says so
+     first. */
+  const mayMoveLeadership = hasAuthority("approve_funds");
   /* The request line an allocation names, opened on top of this panel rather
      than by navigating to procurement: closing it lands back on this row. */
   const [openLine, setOpenLine] = useState<PrLineView | null>(null);
@@ -198,15 +205,19 @@ export function TrxDrawer({
      open a row to read it, and 296 vendors is not a list to fetch for that. */
   async function loadRefs() {
     if (refs) return;
-    const [v, p, t] = await Promise.all([
+    const [v, p, t, a] = await Promise.all([
       procurement.listVendors(),
       procurement.listProjects(),
       accounting.listTypeRows(),
+      accounting.listAccountRows(),
     ]);
     setRefs({
       vendors: isOk(v) ? v.data.map((x) => ({ id: x.id, code: x.code, name: x.name })) : [],
       projects: isOk(p) ? p.data.map((x) => ({ id: x.id, code: x.code, name: x.name })) : [],
       types: isOk(t) ? t.data.map((x) => ({ code: x.code })) : [],
+      accounts: isOk(a)
+        ? a.data.map((x) => ({ code: x.code, name: x.name, custody: x.custody, currency: x.currency, is_active: x.is_active !== false }))
+        : [],
     });
   }
 
@@ -215,6 +226,7 @@ export function TrxDrawer({
     setEditDesc(trx!.description);
     setEditReason("");
     setEditType(trx!.type_code);
+    setEditAccount(trx!.account_code);
     setVoidOpen(false);
     setEditOpen(true);
     await loadRefs();
@@ -227,6 +239,16 @@ export function TrxDrawer({
   const currentProjectCode = refs?.projects.find((p) => p.id === trx?.project_id)?.code ?? "";
   const projectChanged = !!trx && !!refs && editProject !== currentProjectCode;
   const typeChanged = !!trx && editType !== trx.type_code;
+  const accountChanged = !!trx && !!editAccount && editAccount !== trx.account_code;
+  const anyChanged = amountChanged || descChanged || vendorChanged || projectChanged || typeChanged || accountChanged;
+  /* Where the row can go: active accounts in the same currency — a rupiah
+     amount has no rate to land on the dollar account with (`0204`) — plus
+     the one it is on now, so the select can show it even if it was closed. */
+  const currentAccount = refs?.accounts.find((a) => a.code === trx?.account_code);
+  const accountOptions = (refs?.accounts ?? []).filter((a) =>
+    a.code === trx?.account_code
+    || (a.is_active && (!currentAccount || a.currency === currentAccount.currency)));
+  const leadershipLocked = !mayMoveLeadership && currentAccount?.custody === "leadership";
 
   async function saveEdit() {
     setBusy(true);
@@ -239,6 +261,7 @@ export function TrxDrawer({
       ...(vendorChanged ? { vendor_code: editVendor } : {}),
       ...(projectChanged ? { project_code: editProject } : {}),
       ...(typeChanged ? { type_code: editType } : {}),
+      ...(accountChanged ? { account_code: editAccount } : {}),
       ...(editReason.trim() ? { reason: editReason.trim() } : {}),
     });
     setBusy(false);
@@ -372,6 +395,41 @@ export function TrxDrawer({
                 className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none"
               />
             </div>
+            {/* **Which account** — `0204` (D359). Before it, a row booked on
+                BCA 271 that was paid from JAGO could only be voided and posted
+                again. It moves the row from one balance to the other, so the
+                seam refuses it once a bank statement has confirmed the row. */}
+            <div>
+              <label htmlFor="trx-edit-account" className="block text-xs text-slate-600">{tr("Account", "Rekening")}</label>
+              <select
+                id="trx-edit-account" value={editAccount}
+                onChange={(e) => setEditAccount(e.target.value)}
+                disabled={!refs || leadershipLocked}
+                className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 text-sm focus:border-brand-400 focus:outline-none disabled:bg-slate-50"
+              >
+                {accountOptions.map((a) => (
+                  <option
+                    key={a.code} value={a.code}
+                    disabled={a.code !== trx.account_code && a.custody === "leadership" && !mayMoveLeadership}
+                  >
+                    {a.name.startsWith(a.code) ? a.name : `${a.code} — ${a.name}`}
+                  </option>
+                ))}
+              </select>
+              {accountChanged && (
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {tr(
+                    `Was ${trx.account_code}. ${formatIDR(trx.amount_idr)} moves from its balance to ${editAccount}'s.`,
+                    `Sebelumnya ${trx.account_code}. ${formatIDR(trx.amount_idr)} pindah dari saldonya ke saldo ${editAccount}.`,
+                  )}
+                </p>
+              )}
+              {leadershipLocked && (
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {tr("A leadership account — moving a row off it needs approve_funds.", "Rekening pimpinan — memindahkan baris darinya perlu approve_funds.")}
+                </p>
+              )}
+            </div>
             {/* **Who, what for, and what kind** — `0105`. The import left 59 rows
                 naming a vendor that resolves to nobody, 11 with a project the
                 project table spells differently, and 184 filed `OTHERS`
@@ -444,7 +502,7 @@ export function TrxDrawer({
               <Button variant="ghost" size="sm" onClick={() => setEditOpen(false)} disabled={busy}>{tr("Cancel", "Batal")}</Button>
               <Button
                 size="sm"
-                disabled={busy || (!amountChanged && !descChanged) || editAmount <= 0 || !editDesc.trim()
+                disabled={busy || !anyChanged || editAmount <= 0 || !editDesc.trim()
                   || (amountChanged && !editReason.trim())}
                 onClick={saveEdit}
               >
@@ -463,8 +521,8 @@ export function TrxDrawer({
               <Ban className="h-4 w-4" /> {tr("Void this entry", "Batalkan entri ini")}
             </p>
             <p className="text-[12px] text-rose-800">
-              {tr("Only for a row that should never have existed — a double entry, a wrong account. If only the amount or the description is wrong, use Edit instead.",
-                "Hanya untuk baris yang seharusnya tidak pernah ada — entri ganda, rekening yang salah. Bila hanya jumlah atau deskripsinya yang salah, gunakan Edit.")}
+              {tr("Only for a row that should never have existed — a double entry. If the amount, description, account, vendor, project or type is wrong, use Edit instead.",
+                "Hanya untuk baris yang seharusnya tidak pernah ada — entri ganda. Bila jumlah, deskripsi, rekening, vendor, proyek atau jenisnya yang salah, gunakan Edit.")}
             </p>
             <label htmlFor="void-reason" className="block text-xs text-rose-900">
               {tr("Why is this being voided? Required — a row with no reason cannot be asked about later.", "Mengapa ini dibatalkan? Wajib — baris tanpa alasan tidak bisa ditanyakan nanti.")}

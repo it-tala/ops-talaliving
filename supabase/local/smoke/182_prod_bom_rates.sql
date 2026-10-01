@@ -24,6 +24,15 @@
 
 begin;
 
+-- **This file tests the seam on an empty list, so it empties the list first.**
+-- `0200` (D355) seeds the 26 PLV rates on every fresh ladder, and
+-- `save_bom_rate` numbers a new rate `max + 1`. So without this the first rate
+-- here is RT-0027, not RT-0001, and the reader below sees 29 rates, not 3
+-- (F211). Nothing has a foreign key to `bom_rates`, a BOM line names a rate by
+-- `ref_code`, and the whole file is rolled back, so the delete reaches nothing
+-- outside it.
+delete from ops_prod.bom_rates;
+
 insert into auth.users (id, email, raw_user_meta_data) values
   ('ffffffff-0000-0000-0000-00000000cd01','estimator@talaliving.com','{"full_name":"Estimator"}'),
   ('ffffffff-0000-0000-0000-00000000cd02','gudang@talaliving.com','{"full_name":"Gudang"}');
