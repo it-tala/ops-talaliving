@@ -530,6 +530,11 @@ export default function PayRulesPage() {
                         ["overtime_exact_hourly", false,
                           tr("Price overtime on the exact hourly rate, rounded once at the end", "Hitung lembur dari tarif per jam yang tidak dibulatkan dulu"),
                           tr("170.500 / 8 = 21.312,5 — as the sheet does.", "170.500 / 8 = 21.312,5 — seperti sheet.")],
+                        ["pay_week_assume_last_day", false,
+                          tr("Weekly pay is approved on the week's last day: count that day as a full scheduled day, and pay its overtime the week after",
+                             "Payroll mingguan di-approve di hari terakhir minggu: hari itu dihitung hadir penuh sesuai jadwal, lemburnya dibayar minggu depan"),
+                          tr("Owner (D357): Jumat–Kamis, approved Thursday, paid Friday. A Thursday absence or early leave is corrected by HRD next week.",
+                             "Pemilik (D357): Jumat–Kamis, approve Kamis, dibayar Jumat. Kamis tidak masuk/pulang cepat dikoreksi HRD minggu depan.")],
                       ] as [keyof PayRules, boolean, string, string][]).map(([key, dflt, label, hint]) => (
                         <label key={key} className="flex items-start gap-2 text-[12px] text-slate-600">
                           <input
@@ -550,6 +555,20 @@ export default function PayRulesPage() {
                 </div>
 
                 <div className="space-y-4">
+                  {/* Always there for somebody who may write a version — a card that
+                      only appeared after a change read as *there is no save
+                      button* (owner, 2026-10-01). */}
+                  {mayEdit && !draft && (
+                    <Card>
+                      <CardHeader title={tr("Save as a new version", "Simpan sebagai versi baru")} subtitle={tr("Old versions are not changed.", "Versi lama tidak diubah.")} icon={Play} />
+                      <p className="px-5 py-3 text-[12px] text-slate-600">
+                        {tr(
+                          "Change a rule on the left — for example How a day is read. The effective date, the reason and the save button open here as soon as something differs from the version in force.",
+                          "Ubah aturan di kolom kiri — misalnya Cara membaca satu hari. Tanggal berlaku, alasan dan tombol simpan terbuka di sini begitu ada yang berbeda dari versi yang berlaku.",
+                        )}
+                      </p>
+                    </Card>
+                  )}
                   {mayEdit && draft && (
                     <Card>
                       <CardHeader title={tr("Save as a new version", "Simpan sebagai versi baru")} subtitle={tr("Old versions are not changed.", "Versi lama tidak diubah.")} icon={Play} />
