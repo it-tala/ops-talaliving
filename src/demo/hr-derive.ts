@@ -24,7 +24,7 @@ import type {
   EmployeeIdentity, EmployeeIdentityView, IdentityField, WlkpBucket, WlkpRecap,
 } from "@/services/hr/contracts";
 import {
-  ADJUSTMENT_LABEL, DAY_MARK_SHORT,
+  ADJUSTMENT_LABEL, DAY_MARK_SHORT, PAY_WEEK_STARTS_DEFAULT,
   EMPLOYEE_DOC_CHECKLIST, EMPLOYEE_DOC_LABEL, SENSITIVE_DOC_KINDS, DOC_NO_DIGITS, maskDocNo,
   SCHEME_LABEL, COMPUTED_SCHEMES,
 } from "@/services/hr/contracts";
@@ -533,7 +533,30 @@ export function payrollLine(
    *  answering before somebody commits to the answer (D175). */
   rulesOverride?: PayRules,
 ): PayrollLine {
-  const days = timesheet(state, employee, from, to);
+  const rules = rulesOverride ?? activePayRules(state, from).rules;
+  /* 0202 (D357): a pay week approved on its last day counts that day as the
+     full scheduled day — unless HRD marked it, and never a day the person was
+     not employed on — and pays the overtime of the week moved back by one
+     day, so the last day's overtime lands in the week after. Monthly salaries
+     are not projected. Same rule as `ops_hr.payroll_line_for`. */
+  const projected = rules.pay_week_assume_last_day === true
+    && employee.pay_basis !== "monthly"
+    && daysBetweenDates(from, to) === 6
+    && weekdayOf(from) === (rules.pay_week_starts_isodow ?? PAY_WEEK_STARTS_DEFAULT);
+  const otFrom = projected ? addDays(from, -1) : from;
+  const otTo = projected ? addDays(to, -1) : to;
+  const assumedDates = new Set<string>();
+  const days = timesheet(state, employee, from, to).map((d) => {
+    if (!projected || d.work_date !== to || d.mark || d.scheduled_hours == null
+      || (employee.left_on != null && employee.left_on < to)
+      || (employee.joined_on != null && employee.joined_on > to)) return d;
+    assumedDates.add(d.work_date);
+    return {
+      ...d, state: "complete" as const, day_value: 1,
+      work_hours: Math.round(d.scheduled_hours * 100) / 100,
+      overtime_hours: 0, slots: {}, issues: [],
+    };
+  });
   /* A day is worth what the timesheet says it is worth: a full day, half of
      one when the office closed at noon, none at all when somebody was away
      (D142). */
@@ -548,9 +571,9 @@ export function payrollLine(
     .map((l) => ({ line: l, sheet: state.overtime_sheets.find((sh) => sh.id === l.sheet_id) }))
     .filter((x) => x.sheet
       && x.line.employee_id === employee.id
-      && x.sheet.work_date >= from && x.sheet.work_date <= to);
+      && x.sheet.work_date >= otFrom && x.sheet.work_date <= otTo);
 
-  const payableLines = payableLinesOf(state, employee, from, to);
+  const payableLines = payableLinesOf(state, employee, otFrom, otTo);
   const approvedOt = payableLines.reduce((s, x) => s + x.line.hours, 0);
   const pendingOt = myLines
     .filter((x) => !overtimePayable(state, x.sheet!) && !x.sheet!.declined_reason && x.sheet!.paid)
@@ -574,10 +597,9 @@ export function payrollLine(
      the active rule book says to multiply it by (D173). Both come out of the
      rules — the monthly divisor is 173 because the regulation says so, not
      because the code does. */
-  const rules = rulesOverride ?? activePayRules(state, from).rules;
   const rate = hourlyRate(employee, rules);
   const hourly = rate.hourly;
-  const overtime_parts = overtimeParts(state, employee, from, to, rules, hourly);
+  const overtime_parts = overtimeParts(state, employee, otFrom, otTo, rules, hourly);
   const overtime_pay = overtime_parts.reduce((s, p) => s + p.amount, 0);
 
   /* Hours short of the contracted day. Off by default: what a short hour costs
@@ -613,6 +635,12 @@ export function payrollLine(
   const overLeave = marked.filter((d) => d.mark!.kind === "leave" && d.day_value === 0).length;
   if (overLeave > 0) {
     warnings.push(`${overLeave} day(s) of cuti beyond this person's ${employee.paid_leave_days}-day entitlement — recorded, not paid`);
+  }
+  if (assumedDates.size > 0) {
+    warnings.push(`${to.slice(8)}/${to.slice(5, 7)} dihitung hadir penuh sesuai jadwal (asumsi saat persetujuan) — tidak masuk atau pulang cepat hari itu dikoreksi HRD minggu depan; lembur hari itu dibayar minggu depan`);
+  }
+  if (projected) {
+    warnings.push(`Lembur yang dibayar di sini: ${otFrom.slice(8)}/${otFrom.slice(5, 7)} s.d. ${otTo.slice(8)}/${otTo.slice(5, 7)}`);
   }
   if (employee.pay_basis !== "monthly" && worked_days === 0) {
     warnings.push("No day counted in this period");
@@ -718,6 +746,7 @@ export function payrollLine(
     work_hours: d.work_hours,
     overtime_hours: d.overtime_hours,
     mark: d.mark ? DAY_MARK_SHORT[d.mark.kind] : null,
+    assumed: assumedDates.has(d.work_date),
     day_value: d.day_value,
     open: d.state === "review",
   }));

@@ -8652,3 +8652,73 @@ STMV actuals also collide with norms already in `bom_norms` — overhead 13 %
 against 17 %, finishing labour 88,755 against 12,500 per m², finishing
 material 51,640 against 96,300 — each pair from the same ledger with a
 different numerator and denominator. None of that was visible from the code.
+## F205 · 2026-09-30 · The picker was built for the one person who could not see it
+
+The timeslot form (D352) picks its people from `hr.listEmployees()`, which
+reads `ops_hr.employees`. That table is readable with `hrd.read` or
+`payroll.read` and nothing else (0043) — correctly, because the same row
+carries the daily rate, the allowance and the bank account. The demo persona
+used for every walk held HRD as well as production, so the list was always
+full. A real production admin, who holds production and not HRD, would have
+opened the form to an **empty** picker: every name typed by hand, unlinked,
+queued on `/produksi/penautan` for somebody else to resolve. `/produksi/penautan`
+had the same fault — the screen that links names to employees could not list
+the employees.
+
+It was found by asking *how would the production admin use this*, not by a
+test: the permission was right, the screen was right, and the pair was wrong
+only for the user the screen was built for. The fix is a roster
+(`ops_hr.work_roster()`, `0200`) — four columns, active people, production or
+HRD may read it — rather than widening the table's policy, which would have
+handed every production login the pay of every employee.
+
+**Rule:** a screen that reads across a service boundary is walked as the role
+it is built for, with only that role's grants — not as the demo persona who
+happens to hold everything.
+
+## F206 · 2026-09-30 · `now()` is one instant for a whole transaction, so it cannot say which change came last
+
+The target in force was first read as *the row with the latest `set_at`*,
+and `set_at` defaults to `now()`. The smoke set a target of 15 and changed it
+to 12 inside one transaction, and the view answered 15: in Postgres `now()` is
+the transaction's start time, so both rows carried the same instant and
+`distinct on … order by set_at desc` picked either. Two changes in one
+transaction are rare from a screen, but a seam calling a seam, a batch
+import, or two requests landing in the same microsecond are not impossible,
+and the failure is silent — the wrong target, with nothing to say so.
+
+`daily_targets` now carries `seq` (an identity column) and the target in
+force is the highest `seq`; `set_at` stays as the time a person would quote.
+
+**Rule:** "the latest row" is decided by an ordering that is strictly
+increasing per write — an identity or sequence — never by a timestamp that
+defaults to `now()`.
+
+## F207 · 2026-10-01 · A payroll run's figures are not frozen by its approval, and a save button that appears only after a change reads as no save button
+
+Two things turned up while building D357, and neither is fixed by it.
+
+**An approved run still recomputes.** `run_lines()` computes every line
+from attendance, marks, overtime sheets and the rule book each time it is
+read. Approval stops adjustments (0047's trigger) and stops a rule-book
+version landing inside the period (0047, 0195), but nothing stops a tap, a day
+mark or an overtime sheet dated inside a signed period from changing that
+run's numbers afterwards. D357 avoids it for Thursday by design: the projected
+day is computed the same way whenever it is read, and Thursday's overtime
+belongs to the next run's window, so neither moves a signed figure. A
+correction typed into Monday after Thursday's signature still would. The
+honest fix is to keep the signed lines as rows at approval, so the payslip
+reads what was signed and a later change shows up as a difference to carry
+forward. That is a decision about money, so it waits for the owner.
+
+**The save card on `/it/aturan-gaji` only rendered once a draft existed.**
+The owner opened the page, saw rules but no date and no button, and
+concluded there was no way to save. Two causes were stacked: the account in
+use (evin@) holds IT at `read`, which makes the page view-only by design
+(D193), and for an editor the card was invisible until something changed. The
+card is now always shown to an editor and says what to do. The view-only
+notice was already there.
+
+**Rule:** a screen that writes something shows where the writing happens
+before anything is written. A control that appears only once its
+precondition is met is a control nobody finds.

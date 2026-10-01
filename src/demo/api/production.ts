@@ -4,7 +4,7 @@ import { trNow } from "@/lib/i18n";
 import {
   PROCESS_STAGES, RETIRED_STAGES, VENDOR_PROCESSES, VENDOR_PROCESS_NAME, DESIGN_KIND_LABEL, ROUTE, STAGE_NAME, goodsOnSite,
   type WorkOrder, type WorkOrderView, type WorkOrderRef, type ProgressEntry, type ProgressEntryOnOrder, type ProductView,
-  type WorkSlot, type WorkSlotView, type WorkSlotWorker,
+  type WorkSlot, type WorkSlotView, type WorkSlotWorker, type DailyTargetView,
   type DesignKind, type DesignTaskView, type RouteCode, type BomExplosion,
   type VendorLegView, type VendorRecord,
   type WorkAttribution, type BomKind,
@@ -882,6 +882,103 @@ export async function voidWorkSlot(input: { slot_no: string; reason: string }): 
     });
   });
   return ok(SERVICE, slotView(getState(), getState().work_slots.find((x) => x.id === sl.id)!));
+}
+
+/* ------------------------------------------------------------------ */
+/* Daily targets (D356)                                                */
+/* ------------------------------------------------------------------ */
+
+function targetViews(state: ReturnType<typeof getState>): DailyTargetView[] {
+  const groups = new Map<string, typeof state.daily_targets>();
+  for (const t of state.daily_targets) {
+    const k = `${t.wo_id}|${t.work_date}|${t.stage}`;
+    groups.set(k, [...(groups.get(k) ?? []), t]);
+  }
+  return [...groups.values()].map((rows) => {
+    const sorted = [...rows].sort((a, b) => a.seq - b.seq);
+    const cur = sorted[sorted.length - 1];
+    const w = state.work_orders.find((x) => x.id === cur.wo_id);
+    const who = state.users.find((u) => u.id === cur.set_by);
+    return {
+      wo_no: w?.wo_no ?? "", item_name: w?.item_name ?? "", uom: w?.uom ?? "", wo_qty: w?.qty ?? 0,
+      work_date: cur.work_date, stage: cur.stage, stage_name: STAGE_NAME(cur.stage),
+      target: cur.qty,
+      actual: state.production_progress
+        .filter((e) => e.wo_id === cur.wo_id && e.stage === cur.stage && e.work_date === cur.work_date)
+        .reduce((t, e) => t + e.qty, 0),
+      reason: cur.reason, set_at: cur.set_at, set_by_name: who?.full_name ?? who?.email ?? null,
+      revisions: sorted.length, first_set_at: sorted[0].set_at,
+    };
+  });
+}
+
+/** The targets in force between two office days, with the day's actual count
+ *  beside each. */
+export async function listDailyTargets(
+  opts: { from: string; to: string; wo_no?: string },
+): Promise<Result<DailyTargetView[]>> {
+  await latency();
+  return ok(SERVICE, targetViews(getState())
+    .filter((t) => t.work_date >= opts.from && t.work_date <= opts.to && (!opts.wo_no || t.wo_no === opts.wo_no))
+    .sort((a, b) => a.work_date.localeCompare(b.work_date) || a.wo_no.localeCompare(b.wo_no) || a.stage.localeCompare(b.stage)));
+}
+
+/** Setting, or changing, a day's target — in the seam's order (0201). */
+export async function setDailyTarget(
+  input: { wo_no: string; work_date: string; stage: string; qty: number; reason?: string | null },
+): Promise<Result<DailyTargetView>> {
+  await latency();
+  const user = actingUser();
+  const writes = (m: string) => user.modules.some((x) => x.module === m && x.level !== "read");
+  if (!(writes("production") || writes("hrd")
+        || user.authorities.includes("approve_funds") || user.authorities.includes("approve_goods"))) {
+    return refused(SERVICE, "not_permitted", "Target harian diisi pimpinan, HRD, atau admin produksi.");
+  }
+  const state = getState();
+  const wo = state.work_orders.find((w) => w.wo_no === input.wo_no);
+  if (!wo) return notFound(SERVICE, "wo_not_found", `Tidak ada Job Order ${input.wo_no}.`);
+  const stages = workOrderView(state, wo).stages.map((x) => x.stage);
+  if (!stages.includes(input.stage)) {
+    return invalid(SERVICE, "stage_not_on_product",
+      `Tahap ${STAGE_NAME(input.stage)} tidak dilalui ${wo.product_code ?? wo.wo_no}. Tahapnya: ${stages.map(STAGE_NAME).join(" → ")}.`,
+      { field: "stage", stages });
+  }
+  if (input.qty == null || input.qty < 0) {
+    return invalid(SERVICE, "qty_required", "Berapa targetnya? Nol berarti tidak ada yang direncanakan di tahap ini hari itu.", { field: "qty" });
+  }
+  if (input.qty > wo.qty) {
+    return invalid(SERVICE, "over_order", `${wo.wo_no} hanya ${wo.qty} ${wo.uom}; target ${input.qty} dalam sehari melebihi seluruh order.`,
+      { field: "qty", ordered: wo.qty });
+  }
+  const day = input.work_date || officeDay();
+  if (day < officeDay()) {
+    return invalid(SERVICE, "day_passed", `${day} sudah lewat. Target hari yang sudah selesai tidak diubah — hasilnya sudah diketahui.`,
+      { field: "work_date" });
+  }
+  if (wo.status !== "OPEN") return conflict(SERVICE, "wo_not_open", `${wo.wo_no} sudah ${wo.status}.`);
+  const cur = state.daily_targets
+    .filter((t) => t.wo_id === wo.id && t.work_date === day && t.stage === input.stage)
+    .sort((a, b) => b.seq - a.seq)[0];
+  const view = () => targetViews(getState()).find((t) => t.wo_no === wo.wo_no && t.work_date === day && t.stage === input.stage)!;
+  if (cur && cur.qty === input.qty) return noop(SERVICE, view());
+  if (cur && !input.reason?.trim()) {
+    return invalid(SERVICE, "reason_required",
+      `Target ${wo.wo_no} ${STAGE_NAME(input.stage)} hari itu sudah ${cur.qty}. Mengubahnya menyebut alasannya.`,
+      { field: "reason", current: cur.qty });
+  }
+  apply((draft) => {
+    draft.daily_targets.push({
+      id: newId("dtg"), seq: Math.max(0, ...draft.daily_targets.map((t) => t.seq)) + 1,
+      wo_id: wo.id, work_date: day, stage: input.stage, qty: input.qty,
+      reason: input.reason?.trim() || null, set_by: user.id, set_at: new Date().toISOString(),
+    });
+    writeAudit(draft, {
+      service: SERVICE, entity: "daily_target", entity_no: wo.wo_no, action: "set", outcome: "ok",
+      reason: input.reason?.trim() ?? null,
+      detail: { work_date: day, stage: input.stage, target: input.qty, before: cur?.qty ?? null, by: user.email },
+    });
+  });
+  return ok(SERVICE, view());
 }
 
 /* ------------------------------------------------------------------ */
