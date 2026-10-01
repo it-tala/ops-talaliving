@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { CalendarClock, AlertTriangle, Users, Link2, Moon, Pencil, Plus, CalendarDays, Repeat, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { CalendarClock, AlertTriangle, Users, Link2, Moon, Pencil, Plus, CalendarDays, Repeat, Trash2, Building2 } from "lucide-react";
 import { Badge, Button, Card, CardHeader, EmptyState, PageHeader, StatCard } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { Combobox } from "@/components/ui/combobox";
@@ -16,7 +16,7 @@ import {
   dayBoundaryMinutes, isOvernight, scheduleHoursOf, scheduleWeek, scheduleProblem, shiftMinutes, WEEKDAY_NAMES,
   SATPAM_SHIFTS, type ScheduleDay, type ScheduleShift,
 } from "@/services/hr/schedule-rules";
-import type { WorkSchedule } from "@/services/hr/contracts";
+import type { UnitScheduleDefault, WorkSchedule } from "@/services/hr/contracts";
 
 /** Working patterns, and who is on them (Q53, D279).
  *
@@ -44,6 +44,9 @@ export default function SchedulePage() {
   const [editingDays, setEditingDays] = useState<string | null>(null);
   const [editingShifts, setEditingShifts] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [editingUnit, setEditingUnit] = useState<string | null>(null);
+  /** One editor open at a time, whichever button opened it. */
+  const closeAll = () => { setEditing(null); setEditingDays(null); setEditingShifts(null); setAdding(false); setEditingUnit(null); };
 
   return (
     <div>
@@ -97,7 +100,7 @@ export default function SchedulePage() {
                         republish the whole rule book (D335). */}
                     {mayEdit && (
                       <Button size="sm" variant="outline" icon={Plus}
-                        onClick={() => { setAdding(true); setEditing(null); }}>
+                        onClick={() => { closeAll(); setAdding(true); }}>
                         {tr("Add pattern", "Tambah pola")}
                       </Button>
                     )}
@@ -124,9 +127,14 @@ export default function SchedulePage() {
                       <tr key={sc.code} className="align-top">
                         <td className="px-5 py-2.5">
                           <span className="block font-medium text-slate-800">{sc.name}</span>
-                          <span className="block text-[11px] text-slate-400">
-                            {sc.units.length > 0 ? sc.units.join(", ") : tr("not assigned to any unit", "tidak dipasang ke unit mana pun")}
-                          </span>
+                          {/* Only when some unit defaults to it. "Not assigned to any
+                              unit" read as "nobody is on it" for Satpam, whose
+                              guards are linked one by one (D365). */}
+                          {sc.units.length > 0 && (
+                            <span className="block text-[11px] text-slate-400">
+                              {tr("default for", "bawaan untuk")} {sc.units.join(", ")}
+                            </span>
+                          )}
                         </td>
                         <td className="px-3 py-2.5 tabular-nums text-slate-600">
                           {clock(sc.start_minutes)} – {clock(sc.end_minutes)}
@@ -184,13 +192,13 @@ export default function SchedulePage() {
                         </td>
                         {mayEdit && (
                           <td className="px-3 py-2.5 text-right">
-                            <Button size="sm" variant="ghost" icon={Pencil} onClick={() => { setEditing(editing === sc.code ? null : sc.code); setEditingDays(null); setEditingShifts(null); setAdding(false); }}>
+                            <Button size="sm" variant="ghost" icon={Pencil} onClick={() => { const open = editing === sc.code; closeAll(); if (!open) setEditing(sc.code); }}>
                               {tr("Hours", "Jam")}
                             </Button>
-                            <Button size="sm" variant="ghost" icon={CalendarDays} onClick={() => { setEditingDays(editingDays === sc.code ? null : sc.code); setEditing(null); setEditingShifts(null); setAdding(false); }}>
+                            <Button size="sm" variant="ghost" icon={CalendarDays} onClick={() => { const open = editingDays === sc.code; closeAll(); if (!open) setEditingDays(sc.code); }}>
                               {tr("Per day", "Per hari")}
                             </Button>
-                            <Button size="sm" variant="ghost" icon={Repeat} onClick={() => { setEditingShifts(editingShifts === sc.code ? null : sc.code); setEditing(null); setEditingDays(null); setAdding(false); }}>
+                            <Button size="sm" variant="ghost" icon={Repeat} onClick={() => { const open = editingShifts === sc.code; closeAll(); if (!open) setEditingShifts(sc.code); }}>
                               {tr("Shifts", "Shift")}
                             </Button>
                           </td>
@@ -200,65 +208,74 @@ export default function SchedulePage() {
                   </tbody>
                 </table>
               </div>
-              {d.schedules.filter((sc) => sc.hours_unconfirmed).map((sc) => (
-                <p key={`u-${sc.code}`} className="border-t border-slate-100 px-5 py-2 text-[12px] text-amber-800">
-                  <strong>{sc.name}:</strong>{" "}
-                  {tr(
-                    `${clock(sc.start_minutes)}–${clock(sc.end_minutes)} is a default nobody has confirmed. The owner said twelve hours across midnight, not from when — and whether guards rotate between day and night weeks has not been said either, so each person is on one pattern. Saving the hours here confirms them.`,
-                    `${clock(sc.start_minutes)}–${clock(sc.end_minutes)} adalah default yang belum dikonfirmasi siapa pun. Pemilik menyebut dua belas jam lewat tengah malam, bukan mulai jam berapa — dan apakah satpam bergilir minggu siang dan malam juga belum disebut, jadi setiap orang ada di satu pola. Menyimpan jamnya di sini berarti mengonfirmasinya.`,
-                  )}
-                </p>
-              ))}
               {d.schedules.filter((sc) => sc.hours.blocked_by).map((sc) => (
                 <p key={sc.code} className="border-t border-slate-100 px-5 py-2 text-[12px] text-amber-800">
                   <strong>{sc.name}:</strong> {sc.hours.blocked_by}{" "}
                   {sc.note && <span className="text-amber-700">{sc.note}</span>}
                 </p>
               ))}
-              <p className="border-t border-slate-100 px-5 py-2 text-[11px] text-slate-500">
-                {tr(
-                  "Per month = per week × 52 ÷ 12. Not stored anywhere — two figures that must agree are the easiest way to make them disagree.",
-                  "Sebulan = seminggu × 52 ÷ 12. Tidak disimpan di mana pun — dua angka yang harus cocok adalah cara paling mudah membuatnya tidak cocok.",
-                )}
-              </p>
             </Card>
 
             {mayEdit && adding && (
-              <AddSchedule
-                existing={d.schedules.map((sc) => sc.code)}
-                daysPerWeek={d.week_pattern === "5day" ? 5 : 6}
-                onClose={() => setAdding(false)}
-                onDone={() => { setAdding(false); reload(); }}
-              />
+              <Reveal key="add">
+                <AddSchedule
+                  existing={d.schedules.map((sc) => sc.code)}
+                  daysPerWeek={d.week_pattern === "5day" ? 5 : 6}
+                  onClose={() => setAdding(false)}
+                  onDone={() => { setAdding(false); reload(); }}
+                />
+              </Reveal>
             )}
 
             {mayEdit && editing && d.schedules.find((sc) => sc.code === editing) && (
-              <EditHours
-                key={editing}
-                schedule={d.schedules.find((sc) => sc.code === editing)!}
-                daysPerWeek={d.week_pattern === "5day" ? 5 : 6}
-                onClose={() => setEditing(null)}
-                onDone={() => { setEditing(null); reload(); }}
-              />
+              <Reveal key={editing}>
+                <EditHours
+                  schedule={d.schedules.find((sc) => sc.code === editing)!}
+                  daysPerWeek={d.week_pattern === "5day" ? 5 : 6}
+                  onClose={() => setEditing(null)}
+                  onDone={() => { setEditing(null); reload(); }}
+                />
+              </Reveal>
             )}
 
             {mayEdit && editingDays && d.schedules.find((sc) => sc.code === editingDays) && (
-              <EditDays
-                key={`days-${editingDays}`}
-                schedule={d.schedules.find((sc) => sc.code === editingDays)!}
-                onClose={() => setEditingDays(null)}
-                onDone={() => { setEditingDays(null); reload(); }}
-              />
+              <Reveal key={`days-${editingDays}`}>
+                <EditDays
+                  schedule={d.schedules.find((sc) => sc.code === editingDays)!}
+                  onClose={() => setEditingDays(null)}
+                  onDone={() => { setEditingDays(null); reload(); }}
+                />
+              </Reveal>
             )}
 
             {mayEdit && editingShifts && d.schedules.find((sc) => sc.code === editingShifts) && (
-              <EditShifts
-                key={`shifts-${editingShifts}`}
-                schedule={d.schedules.find((sc) => sc.code === editingShifts)!}
-                others={d.schedules.filter((sc) => sc.code !== editingShifts)}
-                onClose={() => setEditingShifts(null)}
-                onDone={() => { setEditingShifts(null); reload(); }}
-              />
+              <Reveal key={`shifts-${editingShifts}`}>
+                <EditShifts
+                  schedule={d.schedules.find((sc) => sc.code === editingShifts)!}
+                  others={d.schedules.filter((sc) => sc.code !== editingShifts)}
+                  onClose={() => setEditingShifts(null)}
+                  onDone={() => { setEditingShifts(null); reload(); }}
+                />
+              </Reveal>
+            )}
+
+            <UnitDefaults
+              units={d.unit_defaults}
+              schedules={d.schedules}
+              mayEdit={mayEdit}
+              editing={editingUnit}
+              onEdit={(unit) => { const open = editingUnit === unit; closeAll(); if (!open) setEditingUnit(unit); }}
+            />
+
+            {mayEdit && editingUnit && d.unit_defaults.find((u) => u.unit === editingUnit) && (
+              <Reveal key={`unit-${editingUnit}`}>
+                <EditUnitDefault
+                  row={d.unit_defaults.find((u) => u.unit === editingUnit)!}
+                  schedules={d.schedules}
+                  onClose={() => setEditingUnit(null)}
+                  onDone={() => { setEditingUnit(null); reload(); }}
+                />
+              </Reveal>
             )}
 
             {d.unlinked.length > 0 ? (
@@ -295,6 +312,176 @@ export default function SchedulePage() {
         )}
       </Loaded>
     </div>
+  );
+}
+
+/** An editor opens below the whole table, which on a laptop is under the
+ *  fold — the click looked like it did nothing. Scroll it into view the
+ *  moment it opens; each editor is keyed, so switching rows scrolls again. */
+function Reveal({ children }: { children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+  return <div ref={ref} className="scroll-mt-4">{children}</div>;
+}
+
+/** Which pattern each unit defaults to (D365). A default reaches only the
+ *  people in the unit with no pattern of their own — a pattern HR sets on the
+ *  person wins — so the count beside it says who it actually moves. */
+function UnitDefaults({
+  units, schedules, mayEdit, editing, onEdit,
+}: {
+  units: UnitScheduleDefault[];
+  schedules: WorkSchedule[];
+  mayEdit: boolean;
+  editing: string | null;
+  onEdit: (unit: string) => void;
+}) {
+  const tr = useTr();
+  const nameOf = (code: string) => schedules.find((sc) => sc.code === code)?.name ?? code;
+  return (
+    <Card className="mb-4">
+      <CardHeader
+        title={tr("Unit default pattern", "Pola bawaan unit")}
+        subtitle={tr(
+          "People in a unit follow its default unless HR has set a pattern on the person.",
+          "Orang di sebuah unit ikut pola bawaannya, kecuali HR sudah memasang pola ke orangnya.",
+        )}
+        icon={Building2}
+      />
+      {units.length === 0 ? (
+        <p className="px-5 pb-4 text-[12px] text-slate-500">{tr("No units yet.", "Belum ada unit.")}</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[520px] text-[13px]">
+            <thead>
+              <tr className="border-b border-slate-100 text-left text-[10px] uppercase tracking-wide text-slate-400">
+                <th className="px-5 py-2 font-medium">{tr("Unit", "Unit")}</th>
+                <th className="px-3 py-2 font-medium">{tr("Default pattern", "Pola bawaan")}</th>
+                <th className="px-3 py-2 text-right font-medium">{tr("People", "Orang")}</th>
+                <th className="px-3 py-2 text-right font-medium">{tr("Following default", "Ikut bawaan")}</th>
+                {mayEdit && <th className="px-3 py-2" />}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {units.map((u) => (
+                <tr key={u.unit}>
+                  <td className="px-5 py-2.5 font-medium text-slate-800">{u.unit}</td>
+                  <td className="px-3 py-2.5 text-slate-700">
+                    {u.schedule_code ? nameOf(u.schedule_code) : <span className="text-slate-400">{tr("none", "tidak ada")}</span>}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{u.people}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{u.following}</td>
+                  {mayEdit && (
+                    <td className="px-3 py-2.5 text-right">
+                      <Button size="sm" variant="ghost" icon={Pencil} onClick={() => onEdit(u.unit)}
+                        aria-pressed={editing === u.unit}>
+                        {tr("Change", "Ubah")}
+                      </Button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/** HRD sets one unit's default pattern (D365) — a new dated version of the
+ *  rule book, like the pattern's own hours. */
+function EditUnitDefault({
+  row, schedules, onClose, onDone,
+}: {
+  row: UnitScheduleDefault;
+  schedules: WorkSchedule[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const tr = useTr();
+  const { toast } = useToast();
+  const [code, setCode] = useState(row.schedule_code ?? "");
+  const [from, setFrom] = useState(officeToday());
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const field = "mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none";
+  const changed = code !== (row.schedule_code ?? "");
+  const nameOf = (c: string) => schedules.find((sc) => sc.code === c)?.name ?? c;
+  /* Who the change reaches: the unit's people with no pattern of their own. */
+  const reached = row.people - row.own;
+
+  async function save() {
+    setBusy(true);
+    const res = await hr.setUnitSchedule({
+      unit: row.unit,
+      schedule_code: code || null,
+      effective_from: from,
+      note,
+    });
+    setBusy(false);
+    if (res.error) {
+      toast(res.error.status === 409 ? "critical" : "warning", tr("Not saved yet", "Belum tersimpan"), res.error.message);
+      return;
+    }
+    toast("success", row.unit, tr(
+      `Saved as rule book v${res.data.version}, in force from ${res.data.effective_from}.`,
+      `Tersimpan sebagai buku aturan v${res.data.version}, berlaku mulai ${res.data.effective_from}.`,
+    ));
+    onDone();
+  }
+
+  return (
+    <Card className="mb-4">
+      <CardHeader
+        title={tr(`Default pattern for ${row.unit}`, `Pola bawaan ${row.unit}`)}
+        subtitle={tr(
+          "Saved as a new dated version of the rule book; every other rule is copied unchanged.",
+          "Disimpan sebagai versi buku aturan baru yang bertanggal; aturan lain disalin tanpa berubah.",
+        )}
+        icon={Building2}
+      />
+      <div className="grid gap-3 px-5 pb-4 sm:grid-cols-3">
+        <label className="text-[12px] text-slate-600">
+          {tr("Pattern", "Pola")}
+          <select value={code} onChange={(e) => setCode(e.target.value)} className={field}>
+            <option value="">{tr("— no default —", "— tanpa pola bawaan —")}</option>
+            {schedules.map((sc) => (
+              <option key={sc.code} value={sc.code}>{sc.name}</option>
+            ))}
+          </select>
+        </label>
+        <label className="text-[12px] text-slate-600">
+          {tr("In force from", "Berlaku mulai")}
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={field} />
+        </label>
+        <label className="text-[12px] text-slate-600">
+          {tr("Why", "Alasan")}
+          <input value={note} onChange={(e) => setNote(e.target.value)}
+            placeholder={tr("Who decided — HRD, the owner…", "Siapa yang menetapkan — HRD, pemilik…")}
+            className={field} />
+        </label>
+      </div>
+      {changed && (
+        <p className={`border-t border-slate-100 px-5 py-3 text-[12px] ${code ? "text-slate-600" : "text-amber-800"}`}>
+          {code
+            ? tr(
+                `${reached} of ${row.people} people in ${row.unit} have no pattern of their own and will follow ${nameOf(code)}.`,
+                `${reached} dari ${row.people} orang di ${row.unit} tidak punya pola sendiri dan akan ikut ${nameOf(code)}.`,
+              )
+            : tr(
+                `${reached} of ${row.people} people in ${row.unit} have no pattern of their own and will have no schedule until HR sets one.`,
+                `${reached} dari ${row.people} orang di ${row.unit} tidak punya pola sendiri dan tidak akan punya jadwal sampai HR memasangnya.`,
+              )}
+        </p>
+      )}
+      <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-3">
+        <Button size="sm" variant="ghost" onClick={onClose} disabled={busy}>{tr("Cancel", "Batal")}</Button>
+        <Button size="sm" onClick={save} disabled={busy || !changed || !note.trim()}>{tr("Save", "Simpan")}</Button>
+      </div>
+    </Card>
   );
 }
 

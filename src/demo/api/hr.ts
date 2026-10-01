@@ -5,7 +5,7 @@ import type {
   OvertimeSheet, OvertimeLine, OvertimeSheetView, OvertimeKind, OvertimeDecider, SelfOvertimeView,
   PayrollRun, PayrollView, PayrollLine, PayBasis,
   AdjustmentKind, PayrollAdjustmentView,
-  PayRules, PayRuleSet, PayRuleSetView, WorkSchedule, ScheduleHours,
+  PayRules, PayRuleSet, PayRuleSetView, WorkSchedule, ScheduleHours, UnitScheduleDefault,
   EmployeeDocKind, EmployeeFileView, DocNoSource, LeaveBalance, LeaveKind, LeaveRequestView, LeaveStatus,
   TaskCadence, TaskRoutine, TaskRoutineView,
   Sex, Education, Citizenship, MaritalStatus,
@@ -4266,6 +4266,8 @@ export async function listSchedules(): Promise<Result<{
   /** On a pattern by assumption. HR confirming one is one click, and until
    *  somebody does, *setiap karyawan punya jadwal tertaut* is not yet true. */
   inherited: { employee_no: string; full_name: string; unit: string; schedule_code: string }[];
+  /** Every unit and its default pattern (D365). */
+  unit_defaults: UnitScheduleDefault[];
   week_pattern: string;
 }>> {
   await latency();
@@ -4299,8 +4301,121 @@ export async function listSchedules(): Promise<Result<{
         employee_no: e.employee_no, full_name: e.full_name, unit: e.unit,
         schedule_code: scheduleFor(rules, e)!.code,
       })),
+    unit_defaults: [...new Set([
+      ...active.map((e) => e.unit).filter((u): u is string => Boolean(u)),
+      ...Object.keys(rules.schedule_by_unit ?? {}),
+    ])].sort().map((unit) => {
+      const inUnit = active.filter((e) => e.unit === unit);
+      return {
+        unit,
+        schedule_code: rules.schedule_by_unit?.[unit] ?? null,
+        people: inUnit.length,
+        own: inUnit.filter((e) => Boolean(e.schedule_code)).length,
+        following: inUnit.filter((e) => !e.schedule_code && scheduleFor(rules, e) !== null).length,
+      };
+    }),
     week_pattern: rules.week_pattern,
   });
+}
+
+/** HRD sets which pattern a unit defaults to (D365) — `ops_hr.set_unit_schedule`.
+ *
+ *  A new dated version of the book in force on that date with one entry of
+ *  `schedule_by_unit` changed, everything else copied; an empty code removes
+ *  the unit's default. Refuses what the seam refuses, with the same sentences.
+ */
+export async function setUnitSchedule(
+  input: {
+    unit: string;
+    schedule_code: string | null;
+    effective_from: string;
+    note: string;
+  },
+  idempotencyKey?: string,
+): Promise<Result<{ unit: string; schedule_code: string | null; following: number; version: number; effective_from: string }>> {
+  await latency();
+  type Answer = { unit: string; schedule_code: string | null; following: number; version: number; effective_from: string };
+  const cached = replayed<Answer>(SERVICE, "setUnitSchedule", idempotencyKey);
+  if (cached) return cached;
+
+  const denied = requireLevel(SERVICE, "hrd", "write");
+  if (denied) return denied;
+  const unit = (input.unit ?? "").trim();
+  const code = (input.schedule_code ?? "").trim() || null;
+  if (!unit) return invalid(SERVICE, "unit_required", "Pilih unitnya.", { field: "unit" });
+  if (!input.note?.trim()) {
+    return invalid(
+      SERVICE, "note_required",
+      "Tulis alasannya. Jam satu unit yang berubah tanpa keterangan tidak bisa dijelaskan ke orang-orang di unit itu.",
+      { field: "note" },
+    );
+  }
+
+  const state = getState();
+  const from = input.effective_from || sharedOfficeToday();
+  const sorted = [...state.pay_rule_sets].sort(
+    (a, b) => a.effective_from.localeCompare(b.effective_from) || a.version - b.version);
+  const base = sorted.filter((r) => r.effective_from <= from).pop();
+  if (!base) {
+    return conflict(SERVICE, "no_rule_book",
+      `Belum ada buku aturan gaji yang berlaku pada ${from}. IT menerbitkannya dulu.`);
+  }
+  const later = sorted.find((r) => r.effective_from > from);
+  if (later) {
+    return conflict(SERVICE, "later_version_exists",
+      `Versi ${later.version} berlaku mulai ${later.effective_from}, sesudah tanggal ini, dan tidak memuat perubahan ini — pola unitnya akan kembali pada tanggal itu. Pilih tanggal mulai ${later.effective_from} atau sesudahnya.`);
+  }
+  if (code && !(base.rules.schedules ?? []).some((sc) => sc.code === code)) {
+    return notFound(SERVICE, "not_found",
+      `Tidak ada jadwal kerja bernama ${code} di buku aturan yang berlaku.`);
+  }
+
+  const map = { ...(base.rules.schedule_by_unit ?? {}) };
+  const old = map[unit] ?? null;
+  if (old === code) {
+    return noop(SERVICE, { unit, schedule_code: code, following: 0, version: base.version, effective_from: base.effective_from });
+  }
+  if (code) map[unit] = code; else delete map[unit];
+  const rules: PayRules = { ...base.rules, schedule_by_unit: map };
+
+  const problem = scheduleProblem(rules.schedules ?? [], map);
+  if (problem) return invalid(SERVICE, problem.code, problem.message, { field: "schedule_by_unit" });
+
+  const spent = state.payroll_runs
+    .filter((r) => r.status !== "DRAFT" && r.period_end >= from)
+    .sort((a, b) => a.period_start.localeCompare(b.period_start))[0];
+  if (spent) {
+    return conflict(SERVICE, "already_paid",
+      `${spent.run_no} sudah ditandatangani untuk periode yang berakhir ${from} atau sesudahnya. Aturan tidak bisa mundur melewati uang yang sudah dibayarkan — terbitkan yang baru berlaku setelahnya.`);
+  }
+  const clash = state.payroll_runs.find((r) => from > r.period_start && from <= r.period_end);
+  if (clash) {
+    return conflict(SERVICE, "inside_existing_run",
+      `${clash.run_no} mencakup tanggal itu, dan periode itu dihitung dengan aturan yang berlaku saat dibuka. Pilih tanggal di luar periode yang sudah ada.`);
+  }
+
+  const following = state.employees.filter((e) => e.active && e.unit === unit && !e.schedule_code).length;
+  const user = actingUser();
+  let version = 0;
+  apply((draft) => {
+    version = Math.max(0, ...draft.pay_rule_sets.map((r) => r.version)) + 1;
+    draft.pay_rule_sets.push({
+      id: newId("prs"), version, effective_from: from, note: input.note.trim(), rules,
+      created_by: user.id, created_at: new Date().toISOString(),
+    });
+    writeAudit(draft, {
+      service: SERVICE, entity: "unit_schedule", entity_no: unit,
+      action: "set", outcome: "ok", reason: input.note.trim(),
+      detail: {
+        before: { schedule_code: old },
+        after: { schedule_code: code, version, effective_from: from },
+        by: user.email,
+      },
+    });
+  });
+  const answer: Answer = { unit, schedule_code: code, following, version, effective_from: from };
+  remember(SERVICE, "setUnitSchedule", idempotencyKey, answer);
+  return ok(SERVICE, answer);
 }
 
 /** HRD adds a working pattern (D335).
