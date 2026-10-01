@@ -2157,6 +2157,8 @@ export async function matchReceivingToTrx(
     reports?: string[];
     lines?: ReceivingLineInput[];
     note?: string | null;
+    /** Files that are the receipt / nota (D360). */
+    notas?: string[];
   },
   idempotencyKey?: string,
 ): Promise<Result<ReceivingMatchResult>> {
@@ -2168,6 +2170,7 @@ export async function matchReceivingToTrx(
     p_lines: input.lines ?? [],
     p_note: input.note ?? null,
     p_key: idempotencyKey ?? null,
+    p_notas: input.notas ?? [],
   });
   return fromSeam<ReceivingMatchResult>(SERVICE, data, error);
 }
@@ -2184,6 +2187,8 @@ export async function matchReceivingToPo(
     reports?: string[];
     qc_by?: string | null;
     note?: string | null;
+    /** Files that are the vendor's receipt / nota, filed on the order (D360). */
+    notas?: string[];
   },
   idempotencyKey?: string,
 ): Promise<Result<ReceivingMatchResult>> {
@@ -2197,6 +2202,7 @@ export async function matchReceivingToPo(
     p_qc_by: input.qc_by ?? null,
     p_note: input.note ?? null,
     p_key: idempotencyKey ?? null,
+    p_notas: input.notas ?? [],
   });
   return fromSeam<ReceivingMatchResult>(SERVICE, data, error);
 }

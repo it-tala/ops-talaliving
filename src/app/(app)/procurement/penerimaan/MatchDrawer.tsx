@@ -11,20 +11,22 @@ import { MoneyInput } from "@/components/ui/money-input";
 import { ImageTiles } from "@/components/ui/image-tiles";
 import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
-import { inventory, procurement } from "@/demo/api";
+import { documents, inventory, procurement } from "@/demo/api";
 import {
   RECEIPT_CONDITIONS,
-  type Item, type ReceiptCondition, type ReceivingInboxRow, type ReceivingLineInput,
+  type Item, type ReceiptCondition, type ReceivingInboxRow, type ReceivingLineInput, type UomCode,
   type ReceivingMatchResult,
 } from "@/services/procurement/contracts";
-import type { AssetCategory } from "@/services/inventory/contracts";
+import type { AssetCategory, StockLocation, StockedCategory } from "@/services/inventory/contracts";
 import { useToast } from "@/store/toast";
+import { useSession } from "@/store/session";
 import { useTr, type Tr } from "@/lib/i18n";
 
 /** What each file of the message is. A tanda terima only means something
  *  against an order; against money already paid the signed sheet is the
- *  ledger's *Receiving Report*. */
-type Role = "photo" | "report" | "note" | "skip";
+ *  ledger's *Receiving Report*. The receipt / nota is the purchase's own
+ *  paper: the ledger row's against a transaction, the order's against a PO. */
+type Role = "photo" | "nota" | "report" | "note" | "skip";
 
 interface LineDraft {
   key: number;
@@ -33,17 +35,24 @@ interface LineDraft {
   read: string;
   item_code: string;
   item_name: string;
+  /** The item's own unit, shown beside the quantity. */
+  uom: string;
   qty: number;
+  /** A rack, for a material; a place on the list, for an asset. Empty = the item's home. */
+  location: string;
   name: string;
   category_code: string;
   count: number;
+  /** Per unit. 0 = not known: never written as zero (D172). */
   unit_cost: number;
+  brand: string;
+  holder: string;
 }
 
 let seq = 0;
 const blankLine = (read = "", qty = 0): LineDraft => ({
-  key: ++seq, kind: "material", read, item_code: "", item_name: "", qty,
-  name: read, category_code: "", count: 1, unit_cost: 0,
+  key: ++seq, kind: "material", read, item_code: "", item_name: "", uom: "", qty, location: "",
+  name: read, category_code: "", count: 1, unit_cost: 0, brand: "", holder: "",
 });
 
 /** File a matched message's photos into the month tree and say what happened. */
@@ -59,9 +68,10 @@ export async function archiveAfterMatch(
   }
   const { archived, failed } = res.data;
   if (archived.length > 0) {
+    /* The drive follows the kind (a nota to ACCOUNTING), so only the folder is named. */
     toast("success",
-      tr(`${archived.length} photo(s) filed`, `${archived.length} foto tersimpan`),
-      `PROCUREMENT / ops-talaliving / ${archived[0].path}`);
+      tr(`${archived.length} file(s) filed`, `${archived.length} file tersimpan`),
+      [...new Set(archived.map((a) => `ops-talaliving / ${a.path}`))].join(" · "));
   }
   if (failed.length > 0) {
     toast("warning",
@@ -109,14 +119,21 @@ export function MatchDrawer({ row, onClose, onMatched }: {
     setBusy(true);
     const res = mode === "trx"
       ? await procurement.matchReceivingToTrx({
-        rr_no: row.rr_no, trx_no: trxNo, photos, reports: of("report"),
+        rr_no: row.rr_no, trx_no: trxNo, photos, reports: of("report"), notas: of("nota"),
         lines: lines.map((l): ReceivingLineInput => l.kind === "material"
-          ? { kind: "material", item_code: l.item_code, qty: l.qty }
-          : { kind: "asset", name: l.name, category_code: l.category_code, count: l.count, unit_cost: l.unit_cost || null }),
+          ? {
+            kind: "material", item_code: l.item_code, qty: l.qty,
+            location: l.location || null, unit_cost: l.unit_cost > 0 ? l.unit_cost : null,
+          }
+          : {
+            kind: "asset", name: l.name, category_code: l.category_code, count: l.count,
+            unit_cost: l.unit_cost > 0 ? l.unit_cost : null,
+            brand: l.brand.trim() || null, location: l.location || null, holder: l.holder.trim() || null,
+          }),
         note: note || null,
       })
       : await procurement.matchReceivingToPo({
-        rr_no: row.rr_no, po_no: poNo, photos, notes: of("note"), reports: of("report"),
+        rr_no: row.rr_no, po_no: poNo, photos, notes: of("note"), reports: of("report"), notas: of("nota"),
         lines: Object.entries(poQty).filter(([, q]) => q > 0)
           .map(([po_line_id, qty]) => ({ po_line_id, qty, condition: poCond[po_line_id] ?? "GOOD" })),
         note: note || null,
@@ -139,8 +156,12 @@ export function MatchDrawer({ row, onClose, onMatched }: {
   }
 
   const poQtyTotal = Object.values(poQty).reduce((s, q) => s + (q > 0 ? q : 0), 0);
-  const ready = photos.length > 0 && (mode === "trx"
-    ? !!trxNo && lines.every((l) => l.kind === "material" ? !!l.item_code && l.qty > 0 : !!l.name.trim() && !!l.category_code && l.count >= 1)
+  /* Against money already paid, the nota alone is evidence enough; goods
+     received on an order need the photo (a receipt is a photo, D131). */
+  const hasEvidence = mode === "trx" ? photos.length > 0 || of("nota").length > 0 : photos.length > 0;
+  const lineProblem = mode === "trx" ? lines.map((l) => linePending(l, tr)).find(Boolean) ?? null : null;
+  const ready = hasEvidence && (mode === "trx"
+    ? !!trxNo && !lineProblem
     : !!poNo && poQtyTotal > 0);
 
   return (
@@ -151,8 +172,14 @@ export function MatchDrawer({ row, onClose, onMatched }: {
       footer={done ? undefined : (
         <div className="flex items-center gap-2">
           <span className="text-[12px] text-slate-500">
-            {photos.length === 0
-              ? tr("Mark at least one photo of the goods.", "Tandai minimal satu foto barang.")
+            {!hasEvidence
+              ? (mode === "trx"
+                ? tr("Mark a photo of the goods or the receipt / nota.", "Tandai foto barang atau kuitansi / nota.")
+                : tr("Mark at least one photo of the goods.", "Tandai minimal satu foto barang."))
+              : mode === "trx" && !trxNo
+                ? tr("Pick the transaction that paid for it.", "Pilih transaksi yang membayarnya.")
+              : lineProblem
+                ? lineProblem
               : mode === "po" && of("note").length === 0
                 ? tr("Without the tanda terima it is recorded as reported, not yet counted.", "Tanpa tanda terima tercatat sebagai dilaporkan, belum terhitung.")
                 : ""}
@@ -295,7 +322,12 @@ export function MatchDrawer({ row, onClose, onMatched }: {
             </Loaded>
           </section>
 
-          {mode === "trx" && <GoodsLines lines={lines} setLines={setLines} />}
+          {mode === "trx" && (
+            <GoodsLines
+              lines={lines} setLines={setLines}
+              photoIds={[...of("photo"), ...of("nota"), ...row.files.map((f) => f.attachment_id)]}
+            />
+          )}
 
           <section>
             <label htmlFor="rr-note" className="block text-xs text-slate-500">{tr("Note (optional)", "Catatan (opsional)")}</label>
@@ -308,9 +340,27 @@ export function MatchDrawer({ row, onClose, onMatched }: {
   );
 }
 
+/** What still keeps an inventory line from being written, in words. */
+function linePending(l: LineDraft, tr: Tr): string | null {
+  if (l.kind === "material") {
+    if (!l.item_code) {
+      return l.read
+        ? tr(`Pick the catalogue item for "${l.read}", or add it as a new item.`, `Pilih item katalog untuk "${l.read}", atau tambahkan sebagai barang baru.`)
+        : tr("Pick the catalogue item of the material line, or add it as a new item.", "Pilih item katalog di baris material, atau tambahkan sebagai barang baru.");
+    }
+    if (!(l.qty > 0)) return tr(`How many ${l.item_name} arrived?`, `Berapa ${l.item_name} yang datang?`);
+    return null;
+  }
+  if (!l.name.trim()) return tr("An asset needs a name.", "Aset perlu nama.");
+  if (!l.category_code) return tr(`Pick the category of ${l.name}.`, `Pilih kategori ${l.name}.`);
+  if (!(l.count >= 1)) return tr("How many units?", "Berapa unit?");
+  return null;
+}
+
 function roleOptions(tr: Tr, mode: "trx" | "po"): [Role, string][] {
   return [
     ["photo", tr("Item photo", "Foto barang")],
+    ["nota", tr("Receipt / Nota", "Kuitansi / Nota")],
     ...(mode === "po" ? [["note", tr("Tanda terima", "Tanda terima")] as [Role, string]] : []),
     ["report", tr("Receiving report", "Receiving report")],
     ["skip", tr("Not used", "Tidak dipakai")],
@@ -318,12 +368,30 @@ function roleOptions(tr: Tr, mode: "trx" | "po"): [Role, string][] {
 }
 
 /** Where the goods go: a counted material onto the rack, or an asset into
- *  the register. Nothing is also an answer — a stamp, a service. */
-function GoodsLines({ lines, setLines }: { lines: LineDraft[]; setLines: (f: (cur: LineDraft[]) => LineDraft[]) => void }) {
+ *  the register. Nothing is also an answer — a stamp, a service.
+ *
+ *  Every field the record will carry is asked here, so nobody has to open
+ *  inventory afterwards to finish it (F213): for a material the catalogue item
+ *  (or a new one), how many in its unit, which rack and the price per unit;
+ *  for an asset its name, category, how many, price, brand, place and who
+ *  holds it. */
+function GoodsLines({ lines, setLines, photoIds }: {
+  lines: LineDraft[];
+  setLines: (f: (cur: LineDraft[]) => LineDraft[]) => void;
+  /** The message's files, best first, for a new catalogue item's photo. */
+  photoIds: string[];
+}) {
   const tr = useTr();
   const [cats] = useLoad(() => inventory.listAssetCategories(), []);
+  const [places] = useLoad(() => inventory.listStockLocations(), []);
+  const [stocked] = useLoad(() => inventory.listStockedCategories(), []);
   const patch = (key: number, p: Partial<LineDraft>) => setLines((cur) => cur.map((l) => l.key === key ? { ...l, ...p } : l));
   const activeCats: AssetCategory[] = cats.status === "ready" ? cats.data.filter((c) => c.is_active) : [];
+  const locations: StockLocation[] = places.status === "ready" ? places.data : [];
+  const stockedCats: StockedCategory[] = useMemo(() => (stocked.status === "ready" ? stocked.data : []), [stocked]);
+  const stockedCodes = useMemo(() => new Set(stockedCats.map((c) => c.code)), [stockedCats]);
+  const field = "h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none";
+  const label = "mb-0.5 block text-[11px] text-slate-500";
 
   return (
     <section>
@@ -332,14 +400,14 @@ function GoodsLines({ lines, setLines }: { lines: LineDraft[]; setLines: (f: (cu
       </h3>
       <p className="mb-2 text-[12px] text-slate-500">
         {tr(
-          "Materials go onto the rack, assets into the register. Leave it empty for something that is not kept (a stamp, a service).",
-          "Material masuk rak, aset masuk daftar aset. Kosongkan untuk barang yang tidak disimpan (meterai, jasa).",
+          "Materials go onto the rack, assets into the register. Leave it empty for something that is not kept (a stamp, a service, drinking water).",
+          "Material masuk rak, aset masuk daftar aset. Kosongkan untuk barang yang tidak disimpan (meterai, jasa, air minum).",
         )}
       </p>
       <ul className="space-y-2">
         {lines.map((l) => (
           <li key={l.key} className="rounded-lg border border-slate-200 p-2">
-            <div className="mb-1 flex items-center gap-2">
+            <div className="mb-2 flex items-center gap-2">
               {(["material", "asset"] as const).map((k) => (
                 <button key={k} type="button" onClick={() => patch(l.key, { kind: k })}
                   className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset",
@@ -354,23 +422,69 @@ function GoodsLines({ lines, setLines }: { lines: LineDraft[]; setLines: (f: (cu
               </button>
             </div>
             {l.kind === "material" ? (
-              <div className="grid gap-2 sm:grid-cols-[1fr_7rem]">
-                <ItemPick initial={l.read} code={l.item_code} name={l.item_name}
-                  onPick={(it) => patch(l.key, { item_code: it.code, item_name: `${it.name} (${it.base_uom})` })} />
-                <NumberInput value={l.qty} min={0} onChange={(v) => patch(l.key, { qty: v })} />
+              <div className="grid gap-2 sm:grid-cols-6">
+                <div className="sm:col-span-6">
+                  <span className={label}>{tr("Catalogue item", "Item katalog")}</span>
+                  <ItemPick
+                    initial={l.read} code={l.item_code} name={l.item_name}
+                    stockedCodes={stockedCodes}
+                    stockedCats={stockedCats} photoIds={photoIds}
+                    onPick={(it) => patch(l.key, { item_code: it.code, item_name: it.name, uom: it.base_uom })}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <span className={label}>{tr("Quantity", "Jumlah")}{l.uom && ` (${l.uom})`}</span>
+                  <NumberInput value={l.qty} min={0} onChange={(v) => patch(l.key, { qty: v })} />
+                </div>
+                <div className="sm:col-span-2">
+                  <span className={label}>{tr("Rack", "Rak / lokasi")}</span>
+                  <select value={l.location} onChange={(e) => patch(l.key, { location: e.target.value })} className={field}>
+                    <option value="">{tr("the item's home (default)", "lokasi bawaan item")}</option>
+                    {locations.map((x) => <option key={x.code} value={x.code}>{x.name}</option>)}
+                  </select>
+                </div>
+                <div className="sm:col-span-2">
+                  <span className={label}>{tr("Price / unit (optional)", "Harga / unit (opsional)")}</span>
+                  <MoneyInput value={l.unit_cost} onChange={(v) => patch(l.key, { unit_cost: v })} />
+                </div>
               </div>
             ) : (
-              <div className="grid gap-2 sm:grid-cols-[1fr_10rem_5rem_9rem]">
-                <input value={l.name} onChange={(e) => patch(l.key, { name: e.target.value })}
-                  placeholder={tr("Asset name", "Nama aset")}
-                  className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none" />
-                <select value={l.category_code} onChange={(e) => patch(l.key, { category_code: e.target.value })}
-                  className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm">
-                  <option value="">{tr("Category…", "Kategori…")}</option>
-                  {activeCats.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
-                </select>
-                <NumberInput value={l.count} min={1} max={50} onChange={(v) => patch(l.key, { count: v })} />
-                <MoneyInput value={l.unit_cost} onChange={(v) => patch(l.key, { unit_cost: v })} placeholder={tr("Cost / unit", "Harga / unit")} />
+              <div className="grid gap-2 sm:grid-cols-6">
+                <div className="sm:col-span-4">
+                  <span className={label}>{tr("Asset name", "Nama aset")}</span>
+                  <input value={l.name} onChange={(e) => patch(l.key, { name: e.target.value })} className={field} />
+                </div>
+                <div className="sm:col-span-2">
+                  <span className={label}>{tr("Category", "Kategori")}</span>
+                  <select value={l.category_code} onChange={(e) => patch(l.key, { category_code: e.target.value })}
+                    className={cn(field, !l.category_code && "border-amber-300")}>
+                    <option value="">{tr("Pick…", "Pilih…")}</option>
+                    {activeCats.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div className="sm:col-span-2">
+                  <span className={label}>{tr("Brand", "Merek")}</span>
+                  <input value={l.brand} onChange={(e) => patch(l.key, { brand: e.target.value })} className={field} />
+                </div>
+                <div className="sm:col-span-2">
+                  <span className={label}>{tr("Location", "Lokasi")}</span>
+                  <select value={l.location} onChange={(e) => patch(l.key, { location: e.target.value })} className={field}>
+                    <option value="">{tr("not set", "belum diisi")}</option>
+                    {locations.map((x) => <option key={x.code} value={x.code}>{x.name}</option>)}
+                  </select>
+                </div>
+                <div className="sm:col-span-2">
+                  <span className={label}>{tr("Held by", "Pemegang")}</span>
+                  <input value={l.holder} onChange={(e) => patch(l.key, { holder: e.target.value })} className={field} />
+                </div>
+                <div className="sm:col-span-2">
+                  <span className={label}>{tr("Units", "Jumlah unit")}</span>
+                  <NumberInput value={l.count} min={1} max={50} onChange={(v) => patch(l.key, { count: v })} />
+                </div>
+                <div className="sm:col-span-4">
+                  <span className={label}>{tr("Price / unit (optional)", "Harga / unit (opsional)")}</span>
+                  <MoneyInput value={l.unit_cost} onChange={(v) => patch(l.key, { unit_cost: v })} />
+                </div>
               </div>
             )}
           </li>
@@ -383,52 +497,186 @@ function GoodsLines({ lines, setLines }: { lines: LineDraft[]; setLines: (f: (cu
   );
 }
 
-/** A catalogue item by name. Only counted items can go onto the rack; the
- *  database says so by name if the one picked is not. */
-function ItemPick({ initial, code, name, onPick }: {
-  initial: string; code: string; name: string; onPick: (it: Item) => void;
+/** The words worth searching for in what the AI read or the person typed:
+ *  `Plywood full Meranti 18mm 1lembar` → plywood, meranti, 18mm, full. */
+function searchWords(text: string): string[] {
+  return [...new Set(text.toLowerCase().split(/[^a-z0-9.]+/)
+    .filter((w) => w.length >= 3 && !/^\d+(pcs|lbr|lembar|pc|unit|ltr|kg|m2|gln|galon)?$/.test(w)))]
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 4);
+}
+
+/** A catalogue item by name, searched word by word, so the AI's reading of a
+ *  photo finds the item even when the catalogue spells it differently (F213).
+ *  Items whose category is not counted cannot go onto the rack; they are
+ *  shown, marked, and point to *Asset* or to a new item. A name not in the
+ *  catalogue is added here, with the message's photo as its item photo. */
+function ItemPick({ initial, code, name, stockedCodes, stockedCats, photoIds, onPick }: {
+  initial: string; code: string; name: string;
+  stockedCodes: Set<string>; stockedCats: StockedCategory[]; photoIds: string[];
+  onPick: (it: Pick<Item, "code" | "name" | "base_uom">) => void;
 }) {
   const tr = useTr();
+  const { toast } = useToast();
   const [q, setQ] = useState(initial);
-  const [hits, setHits] = useState<Item[]>([]);
+  const [hits, setHits] = useState<{ item: Item; score: number }[] | null>(null);
   const [open, setOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
 
   useEffect(() => {
-    const term = q.trim();
-    if (term.length < 2 || !open) { setHits([]); return; }
-    const t = setTimeout(() => {
-      void procurement.listItems({ q: term }).then((r) => setHits((r.data ?? []).filter((i) => i.kind === "goods").slice(0, 12)));
+    const words = searchWords(q);
+    if (!open || words.length === 0) { setHits(null); return; }
+    let live = true;
+    const t = setTimeout(async () => {
+      const found = await Promise.all(words.map((w) => procurement.listItems({ q: w })));
+      if (!live) return;
+      const byId = new Map<string, Item>();
+      for (const r of found) for (const it of r.data ?? []) if (it.kind === "goods") byId.set(it.id, it);
+      const ranked = [...byId.values()].map((item) => {
+        const n = item.name.toLowerCase();
+        return { item, score: words.filter((w) => n.includes(w)).length + (stockedCodes.has(item.category_code) ? 0.5 : 0) };
+      }).sort((a, b) => b.score - a.score || a.item.name.localeCompare(b.item.name)).slice(0, 15);
+      setHits(ranked);
     }, 250);
-    return () => clearTimeout(t);
-  }, [q, open]);
-
-  const label = useMemo(() => code ? `${code} · ${name}` : "", [code, name]);
+    return () => { live = false; clearTimeout(t); };
+  }, [q, open, stockedCodes]);
 
   return (
     <div className="relative">
-      <input
-        value={open ? q : label || q}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder={tr("Find the catalogue item…", "Cari item katalog…")}
-        className={cn("h-9 w-full rounded-lg border bg-white px-2 text-sm focus:border-brand-400 focus:outline-none",
-          code ? "border-slate-200" : "border-amber-300")}
-      />
-      {open && hits.length > 0 && (
-        <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
-          {hits.map((it) => (
-            <li key={it.id}>
-              <button type="button" className="block w-full px-2 py-1.5 text-left text-[12px] hover:bg-slate-50"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => { onPick(it); setQ(it.name); setOpen(false); }}>
-                <span className="font-mono text-slate-500">{it.code}</span> {it.name}
-                <span className="text-slate-400"> · {it.base_uom}</span>
-              </button>
+      <div className="flex gap-2">
+        <input
+          value={open ? q : (code ? `${code} · ${name}` : q)}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 200)}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder={tr("Type part of the name…", "Ketik sebagian nama…")}
+          className={cn("h-9 w-full rounded-lg border bg-white px-2 text-sm focus:border-brand-400 focus:outline-none",
+            code ? "border-slate-200" : "border-amber-300")}
+        />
+        <Button size="sm" variant="outline" icon={Plus} type="button" className="shrink-0 whitespace-nowrap" onClick={() => setAdding((v) => !v)}>
+          {tr("New item", "Barang baru")}
+        </Button>
+      </div>
+      {open && hits && (
+        <ul className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+          {hits.length === 0 && (
+            <li className="px-2 py-2 text-[12px] text-slate-500">
+              {tr("Nothing in the catalogue by that name — add it with New item.", "Tidak ada di katalog — tambahkan lewat Barang baru.")}
             </li>
-          ))}
+          )}
+          {hits.map(({ item: it }) => {
+            const counted = stockedCodes.has(it.category_code);
+            return (
+              <li key={it.id}>
+                <button type="button" disabled={!counted}
+                  className={cn("block w-full px-2 py-1.5 text-left text-[12px]", counted ? "hover:bg-slate-50" : "cursor-not-allowed opacity-60")}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => { onPick(it); setQ(it.name); setOpen(false); }}>
+                  <span className="font-mono text-slate-500">{it.code}</span> {it.name}
+                  <span className="text-slate-400"> · {it.base_uom}</span>
+                  {!counted && (
+                    <span className="ml-1 text-amber-700">
+                      {tr("· not counted in stock — use Asset or New item", "· tidak dihitung stok — pakai Aset atau Barang baru")}
+                    </span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
+      {adding && (
+        <NewItem
+          initialName={q} stockedCats={stockedCats} photoIds={photoIds}
+          onCancel={() => setAdding(false)}
+          onCreated={(it) => {
+            onPick(it); setQ(it.name); setAdding(false);
+            toast("success", tr(`${it.code} added to the catalogue`, `${it.code} ditambahkan ke katalog`), it.name);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** A name the catalogue does not have yet, registered from here with the
+ *  photo that came with the message (an item needs one, D309). */
+function NewItem({ initialName, stockedCats, photoIds, onCancel, onCreated }: {
+  initialName: string; stockedCats: StockedCategory[]; photoIds: string[];
+  onCancel: () => void; onCreated: (it: { code: string; name: string; base_uom: UomCode }) => void;
+}) {
+  const tr = useTr();
+  const { toast } = useToast();
+  const { can } = useSession();
+  const [uoms] = useLoad(() => procurement.listUom(), []);
+  const [nm, setNm] = useState(initialName);
+  const [cat, setCat] = useState("");
+  const [uom, setUom] = useState("pcs");
+  const [busy, setBusy] = useState(false);
+  const field = "h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none";
+
+  /* Inventory's own road when the person has it — the item is registered at
+     the rack with its photo (D309). Otherwise procurement's: the catalogue is
+     procurement's, so a buyer can add the name, and the photo is filed on it
+     after. */
+  async function save() {
+    setBusy(true);
+    if (can("inventory.create")) {
+      const res = await inventory.registerItem({
+        name: nm.trim(), category_code: cat, base_uom: uom, photo_ids: photoIds.slice(0, 1),
+      });
+      setBusy(false);
+      if (res.error) { toast("warning", tr("Not added", "Tidak ditambahkan"), res.error.message); return; }
+      onCreated({ code: res.data.item_code, name: res.data.item_name, base_uom: res.data.uom as UomCode });
+      return;
+    }
+    const res = await procurement.createItem({ name: nm.trim(), category_code: cat, base_uom: uom as UomCode });
+    if (res.error) {
+      /* The name is already in the catalogue: that item is the answer. */
+      if (res.error.status === 409) {
+        const found = await procurement.listItems({ q: nm.trim() });
+        const same = (found.data ?? []).find((i) => i.name.toLowerCase() === nm.trim().toLowerCase());
+        if (same) {
+          setBusy(false);
+          toast("info", tr("Already in the catalogue", "Sudah ada di katalog"), `${same.code} · ${same.name}`);
+          onCreated({ code: same.code, name: same.name, base_uom: same.base_uom });
+          return;
+        }
+      }
+      setBusy(false);
+      toast("warning", tr("Not added", "Tidak ditambahkan"), res.error.message);
+      return;
+    }
+    if (photoIds[0]) {
+      await documents.link({ attachment_id: photoIds[0], entity: "item", entity_no: res.data.code, kind: "Foto" });
+    }
+    setBusy(false);
+    onCreated({ code: res.data.code, name: res.data.name, base_uom: res.data.base_uom });
+  }
+
+  return (
+    <div className="mt-2 grid gap-2 rounded-lg border border-dashed border-brand-300 bg-brand-50/40 p-2 sm:grid-cols-6">
+      <div className="sm:col-span-6 text-[11px] text-slate-600">
+        {tr("A new catalogue item, with this message's photo as its item photo.",
+          "Item katalog baru, dengan foto dari pesan ini sebagai foto itemnya.")}
+      </div>
+      <input value={nm} onChange={(e) => setNm(e.target.value)} className={cn(field, "sm:col-span-6")}
+        placeholder={tr("Item name", "Nama barang")} />
+      <select value={cat} onChange={(e) => setCat(e.target.value)} className={cn(field, "sm:col-span-3", !cat && "border-amber-300")}>
+        <option value="">{tr("Category…", "Kategori…")}</option>
+        {stockedCats.map((c) => (
+          <option key={c.code} value={c.code}>{c.parent_name ? `${c.parent_name} › ${c.name}` : c.name}</option>
+        ))}
+      </select>
+      <select value={uom} onChange={(e) => setUom(e.target.value)} className={cn(field, "sm:col-span-1")}>
+        {(uoms.status === "ready" ? uoms.data : []).map((u) => <option key={u.code} value={u.code}>{u.code}</option>)}
+      </select>
+      <div className="flex gap-2 sm:col-span-2">
+        <Button size="sm" type="button" disabled={busy || !nm.trim() || !cat || photoIds.length === 0} onClick={save}>
+          {busy ? tr("Adding…", "Menambah…") : tr("Add", "Tambah")}
+        </Button>
+        <Button size="sm" variant="ghost" type="button" onClick={onCancel}>{tr("Cancel", "Batal")}</Button>
+      </div>
     </div>
   );
 }
