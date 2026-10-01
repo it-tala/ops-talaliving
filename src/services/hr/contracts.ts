@@ -1811,6 +1811,22 @@ export type WorkSchedule = ScheduleShape;
  */
 export type ScheduleHours = ScheduleHoursShape;
 
+/** One unit and the pattern it defaults to (D365) — set by HRD on
+ *  `/hrd/jadwal`. `following` is who the default actually reaches: people in
+ *  the unit with no pattern of their own. */
+export interface UnitScheduleDefault {
+  unit: string;
+  /** null: the unit has no default, and its people without their own
+   *  pattern have no clock at all. */
+  schedule_code: string | null;
+  /** Active people in the unit. */
+  people: number;
+  /** Of them, on a pattern HR set on the person — the default does not reach
+   *  them. */
+  own: number;
+  following: number;
+}
+
 export interface PayRules {
   overtime_mode: OvertimeMode;
   /** Ordinary working day. */

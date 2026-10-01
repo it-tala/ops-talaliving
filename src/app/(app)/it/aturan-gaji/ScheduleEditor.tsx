@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Plus, X } from "lucide-react";
 import type { PayRules, WorkSchedule } from "@/services/hr/contracts";
 import { scheduleProblems, scheduleHoursOf } from "@/services/hr/contracts";
@@ -175,10 +176,13 @@ export function ScheduleEditor({
         </button>
       )}
 
+      {/* Read-only here since D365: HRD sets each unit's default on
+          `/hrd/jadwal`. Deleting a pattern above still drops the units that
+          pointed at it, so the book never names a pattern it does not have. */}
       <UnitMap
         schedules={schedules}
         byUnit={byUnit}
-        disabled={disabled}
+        disabled
         onChange={(schedule_by_unit) => onChange({ schedule_by_unit })}
       />
 
@@ -238,9 +242,13 @@ function UnitMap({
       <p className="text-[12px] font-medium text-slate-700">{tr("Units use pattern", "Unit memakai pola")}</p>
       <p className="mt-0.5 text-[11px] text-slate-500">
         {tr(
-          "A default, not a decision: somebody who moves unit has their hours changed without anyone choosing it. A schedule HR sets on the person wins over this list, and a unit not listed here falls back to the company start time.",
-          "Bawaan, bukan keputusan: seseorang yang pindah unit ikut berubah jamnya tanpa ada yang memilihkan. Jadwal yang dipasang HR ke orangnya menang atas daftar ini, dan unit yang tidak ada di sini jatuh ke jam masuk perusahaan.",
-        )}
+          "A schedule HR sets on the person wins over this list, and a unit not listed here falls back to the company start time.",
+          "Jadwal yang dipasang HR ke orangnya menang atas daftar ini, dan unit yang tidak ada di sini jatuh ke jam masuk perusahaan.",
+        )}{" "}
+        {tr("Set by HRD in", "Diatur HRD di")}{" "}
+        <Link href="/hrd/jadwal" className="text-brand-700 underline">
+          {tr("HRD → Work schedules", "HRD → Jadwal kerja")}
+        </Link>.
       </p>
 
       <ul className="mt-2 space-y-1.5">
