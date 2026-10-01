@@ -371,7 +371,7 @@ function roleOptions(tr: Tr, mode: "trx" | "po"): [Role, string][] {
  *  the register. Nothing is also an answer — a stamp, a service.
  *
  *  Every field the record will carry is asked here, so nobody has to open
- *  inventory afterwards to finish it (F213): for a material the catalogue item
+ *  inventory afterwards to finish it (F214): for a material the catalogue item
  *  (or a new one), how many in its unit, which rack and the price per unit;
  *  for an asset its name, category, how many, price, brand, place and who
  *  holds it. */
@@ -507,7 +507,7 @@ function searchWords(text: string): string[] {
 }
 
 /** A catalogue item by name, searched word by word, so the AI's reading of a
- *  photo finds the item even when the catalogue spells it differently (F213).
+ *  photo finds the item even when the catalogue spells it differently (F214).
  *  Items whose category is not counted cannot go onto the rack; they are
  *  shown, marked, and point to *Asset* or to a new item. A name not in the
  *  catalogue is added here, with the message's photo as its item photo. */

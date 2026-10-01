@@ -1,7 +1,7 @@
 "use client";
 
 import { stripRefs } from "@/lib/refs";
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Scale, History, Play, AlertTriangle, Clock, CalendarDays } from "lucide-react";
 import { ScheduleEditor } from "./ScheduleEditor";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
@@ -68,7 +68,9 @@ export default function PayRulesPage() {
   const tr = useTr();
   const [sets, reload] = useLoad(() => hr.listPayRules(), []);
   const [draft, setDraft] = useState<PayRules | null>(null);
-  const [effective, setEffective] = useState("2026-10-01");
+  /* Today, not a date typed into the code: a fixed default goes stale the day
+     after it is written and then opens every save on a date in the past. */
+  const [effective, setEffective] = useState(() => officeToday());
   const [note, setNote] = useState("");
   const [preview, setPreview] = useState<Awaited<ReturnType<typeof hr.previewPayRules>>["data"] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -76,6 +78,23 @@ export default function PayRulesPage() {
      the people whose payslips these rules compute are not the people who can
      change them alone. HRD proposes; IT writes the version, with the note. */
   const mayEdit = can("it.update");
+  const saveCard = useRef<HTMLDivElement | null>(null);
+  /* Whether the save card is on screen, so the bar below only speaks when it
+     is not — over the card it would cover the very fields it points to. */
+  const [saveInView, setSaveInView] = useState(false);
+  const watchSaveCard = useCallback((el: HTMLDivElement | null) => {
+    saveCard.current = el;
+    if (!el) { setSaveInView(false); return; }
+    const seen = new IntersectionObserver(([e]) => setSaveInView(e.isIntersecting));
+    seen.observe(el);
+    return () => seen.disconnect();
+  }, []);
+  const noteField = useRef<HTMLInputElement>(null);
+
+  function goToSave() {
+    saveCard.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    noteField.current?.focus({ preventScroll: true });
+  }
 
   async function runPreview() {
     if (!draft) return;
@@ -554,7 +573,11 @@ export default function PayRulesPage() {
                   </Card>
                 </div>
 
-                <div className="space-y-4">
+                {/* Sticky on a wide screen: the switches people come here for sit at
+                    the bottom of a long form (Situasi 5), and a save card at the
+                    top of the column was off screen the moment one was ticked —
+                    the change looked like it did nothing (F213). */}
+                <div className="space-y-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-12rem)] lg:self-start lg:overflow-y-auto">
                   {/* Always there for somebody who may write a version — a card that
                       only appeared after a change read as *there is no save
                       button* (owner, 2026-10-01). */}
@@ -570,40 +593,43 @@ export default function PayRulesPage() {
                     </Card>
                   )}
                   {mayEdit && draft && (
-                    <Card>
-                      <CardHeader title={tr("Save as a new version", "Simpan sebagai versi baru")} subtitle={tr("Old versions are not changed.", "Versi lama tidak diubah.")} icon={Play} />
-                      <div className="space-y-2 px-5 py-3">
-                        <label className="block">
-                          <span className="block text-[12px] text-slate-500">{tr("Effective from", "Berlaku mulai")}</span>
+                    <div ref={watchSaveCard} className="scroll-mt-4">
+                      <Card>
+                        <CardHeader title={tr("Save as a new version", "Simpan sebagai versi baru")} subtitle={tr("Old versions are not changed.", "Versi lama tidak diubah.")} icon={Play} />
+                        <div className="space-y-2 px-5 py-3">
+                          <label className="block">
+                            <span className="block text-[12px] text-slate-500">{tr("Effective from", "Berlaku mulai")}</span>
+                            <input
+                              type="date" value={effective} onChange={(e) => setEffective(e.target.value)}
+                              className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                            />
+                          </label>
                           <input
-                            type="date" value={effective} onChange={(e) => setEffective(e.target.value)}
-                            className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                            ref={noteField}
+                            value={note} onChange={(e) => setNote(e.target.value)}
+                            placeholder={tr("Reason for the change — read when an old payslip is questioned", "Alasan perubahan — dibaca saat slip lama ditanyakan")}
+                            className="h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
                           />
-                        </label>
-                        <input
-                          value={note} onChange={(e) => setNote(e.target.value)}
-                          placeholder={tr("Reason for the change — read when an old payslip is questioned", "Alasan perubahan — dibaca saat slip lama ditanyakan")}
-                          className="h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
-                        />
-                        <div className="flex gap-2">
-                          <Button size="sm" variant="outline" icon={Play} disabled={busy} onClick={runPreview}>
-                            {tr("See the effect", "Lihat dampaknya")}
-                          </Button>
-                          <Button size="sm" disabled={busy || !note.trim() || !preview} onClick={save}>
-                            {busy ? tr("Saving…", "Menyimpan…") : tr("Save version", "Simpan versi")}
+                          <div className="flex gap-2">
+                            <Button size="sm" variant="outline" icon={Play} disabled={busy} onClick={runPreview}>
+                              {tr("See the effect", "Lihat dampaknya")}
+                            </Button>
+                            <Button size="sm" disabled={busy || !note.trim() || !preview} onClick={save}>
+                              {busy ? tr("Saving…", "Menyimpan…") : tr("Save version", "Simpan versi")}
+                            </Button>
+                          </div>
+                          <p className="text-[11px] text-slate-500">
+                            {tr(
+                              "The save button opens once the effect has been computed. A pay rule saved without seeing its effect is a rule whose effect employees discover.",
+                              "Tombol simpan terbuka setelah dampaknya dihitung. Aturan gaji yang disimpan tanpa dilihat dampaknya adalah aturan yang dampaknya ditemukan karyawan.",
+                            )}
+                          </p>
+                          <Button size="sm" variant="ghost" onClick={() => { setDraft(null); setPreview(null); }}>
+                            {tr("Discard changes", "Batalkan perubahan")}
                           </Button>
                         </div>
-                        <p className="text-[11px] text-slate-500">
-                          {tr(
-                            "The save button opens once the effect has been computed. A pay rule saved without seeing its effect is a rule whose effect employees discover.",
-                            "Tombol simpan terbuka setelah dampaknya dihitung. Aturan gaji yang disimpan tanpa dilihat dampaknya adalah aturan yang dampaknya ditemukan karyawan.",
-                          )}
-                        </p>
-                        <Button size="sm" variant="ghost" onClick={() => { setDraft(null); setPreview(null); }}>
-                          {tr("Discard changes", "Batalkan perubahan")}
-                        </Button>
-                      </div>
-                    </Card>
+                      </Card>
+                    </div>
                   )}
 
                   {preview && (
@@ -675,6 +701,15 @@ export default function PayRulesPage() {
                   </Card>
                 </div>
               </div>
+
+              {/* On a narrow screen the save card is below the whole form, so the
+                  change says where it went instead of appearing to do nothing. */}
+              {mayEdit && draft && !saveInView && (
+                <div className="sticky bottom-20 z-20 mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-[13px] text-amber-900 shadow-lg lg:hidden">
+                  <span className="mr-auto">{tr("Changes not saved yet.", "Perubahan belum disimpan.")}</span>
+                  <Button size="sm" onClick={goToSave}>{tr("Reason & save", "Isi alasan & simpan")}</Button>
+                </div>
+              )}
             </>
           );
         }}
