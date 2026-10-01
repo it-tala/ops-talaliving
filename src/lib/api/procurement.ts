@@ -1830,12 +1830,19 @@ export async function closePo(
  *  (`0086` — the seam's own smoke test asserts confirming is a person's act,
  *  not a document's, and reversing that is not this file's call). What
  *  changed is that the seam now has somewhere to put one *when offered*, and
- *  the redrawn `Receipt` replaces the bare seam echo. */
+ *  the redrawn `Receipt` replaces the bare seam echo.
+ *
+ *  `qty_received` and `condition` are the daylight count (D131): omitted, the
+ *  reported figure stands. They are applied in the same UPDATE as the status
+ *  change, so the stock trigger puts the corrected quantity on the rack
+ *  (`0205`, F214 — before it the screen sent them and they were dropped). */
 export async function confirmReceipt(
   input: {
     receipt_no: string;
     delivery_note_attachment_id?: string | null;
     qc_by?: string | null;
+    qty_received?: number;
+    condition?: ReceiptCondition;
     note?: string | null;
   },
   idempotencyKey?: string,
@@ -1846,6 +1853,8 @@ export async function confirmReceipt(
     p_note: input.note ?? null,
     p_key: idempotencyKey ?? null,
     p_delivery_note_attachment_id: input.delivery_note_attachment_id ?? null,
+    p_qty: input.qty_received ?? null,
+    p_condition: input.condition ?? null,
   });
   const res = fromSeam(SERVICE, data, error);
   if (res.error) return res;

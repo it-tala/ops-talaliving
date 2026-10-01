@@ -8913,6 +8913,40 @@ Two smaller things:
 **Rule:** moving a file is moving every pointer to it. A copy nothing links is
 a second file, not a move.
 
+## F214 · 2026-10-01 · The morning's count was typed, sent, and dropped: a field one client ignores passes the parity check
+
+`/procurement/penerimaan` completes a receipt reported at night: the signed
+tanda terima, who checked it, and the quantity and condition once somebody
+counted in daylight (D131). The screen sent `qty_received` and `condition` to
+`procurement.confirmReceipt`. The demo applied them. The real client's input
+type did not have them, so it never passed them, and `confirm_receipt` (0086)
+had no parameter to take them anyway. In production the night's rough number
+was what got signed for, and it was what `ops_inv.stock_from_receipt` put on
+the rack. The toast still said *8 now counts as received*.
+
+Nothing caught it, and the reason is the useful part. `check-api-parity.mjs`
+assigns each real function to the demo's type (`typeof demo.f = live.f`).
+Parameters are checked contravariantly: the demo's input must be assignable
+to the real one's. An object with **more** optional fields is assignable to
+one with fewer, so a real client that silently ignores a field the demo
+honours type-checks cleanly. The screen is typed against the demo
+(`src/demo/api/index.ts`), so `tsc` never saw the real signature at the call
+site either. The smoke files call the seam directly and never send what it
+does not take.
+
+Fixed in `0205` (D363): the seam takes `p_qty` and `p_condition` and applies
+them in the **same UPDATE** as the status change, because the stock trigger
+reads `new.qty_received` on that update. A correction written in a later
+statement would stock the night's number. The row is read `for update`, so
+a second confirmation waits and gets 409 instead of overwriting a quantity
+already stocked. Audit carries before/after. Smoke
+`B7_procure_confirm_receipt_correction` fails against the old body.
+
+**Rule:** parity by assignability proves the real client *accepts* the demo's
+input, not that it *uses* it. When a real client's input type is narrower
+than the demo's, that is drift, even though the check passes. Not yet
+enforced: a check that compares the input keys of both signatures would
+catch this class.
 ## F214 · 2026-10-01 · "Always an error" that never reached the database
 
 The owner: *ketika masuk ke inventory selalu error*. Production had **no
