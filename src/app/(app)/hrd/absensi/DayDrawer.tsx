@@ -171,7 +171,7 @@ export function DayDrawer({
               {d.state === "off" && <Badge tone="slate" dot>{tr("no tap at all", "tidak ada tap sama sekali")}</Badge>}
               <span className="text-[12px] text-slate-500">
                 {tr(`${formatNumber(d.work_hours)} h paid`, `${formatNumber(d.work_hours)} jam dibayar`)}
-                {/* Hours actually worked beside hours paid (D354, D361): first tap to
+                {/* Hours actually worked beside hours paid (D354, D362): first tap to
                     last, less the break. */}
                 {actualHours(d) != null && tr(
                   ` · ${formatNumber(actualHours(d)!)} h actually worked (${officeClock(new Date(d.scans[0].at))}–${officeClock(new Date(d.scans[d.scans.length - 1].at))}, less ${formatNumber(d.break_hours)} h break)`,

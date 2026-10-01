@@ -33,6 +33,8 @@ stand) and `docs/plan/07-ways-of-working.md` (the loop). Decisions are in
   │   ├── ITEMS            (item photos, D309)
   │   └── FINISHED GOODS   (finished product photos, D311)
   └── RECEIVING REPORT     (receiving reports, goods photos, vendor delivery notes)
+      └── <YYYY-MM>/<YYYY-MM-DD>   by the day it arrived (D360), as ACCOUNTING files
+                                   TRANSACTIONS/<YYYY-MM>/<YYYY-MM-DD> (D359)
   ```
 
 - The folder is decided by the database, not the screen:

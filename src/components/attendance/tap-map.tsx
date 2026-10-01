@@ -9,7 +9,7 @@ import { officeClock } from "@/lib/office";
 import { useTr } from "@/lib/i18n";
 import { mapLink, metres } from "./located-tap";
 
-/** Where everybody tapped on one day, on a map (D360).
+/** Where everybody tapped on one day, on a map (D361).
  *
  *  Owner: *di timesheet attendance, tambahkan maps di bawahnya untuk melihat
  *  hari ini karyawan absen dari mana saja.* Nothing new is read: every tap on

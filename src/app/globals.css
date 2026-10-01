@@ -61,7 +61,7 @@ body {
   padding-bottom: 11rem;
 }
 
-/* The number on the fingerprint reader's point on the attendance map (D360):
+/* The number on the fingerprint reader's point on the attendance map (D361):
    white on the blue marker, not Leaflet's tooltip box. */
 .leaflet-tooltip.tap-map-count {
   background: transparent;

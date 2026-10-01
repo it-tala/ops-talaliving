@@ -692,6 +692,11 @@ export async function voidTransaction(
  *  behaviour a description-only edit needs: without it, every typo fix would
  *  quietly clear the vendor. `type_code` has no clearing case — the column is
  *  `not null`, and `OTHERS` is what this system calls unclassified.
+ *
+ *  `account_code` arrived with `0204` (D359): BCA 271 → JAGO without a VOID.
+ *  No clearing case either; the seam refuses a statement-matched row, another
+ *  currency, an inactive account, and a leadership account without
+ *  `approve_funds`.
  */
 export async function editTransaction(
   input: {
@@ -701,6 +706,7 @@ export async function editTransaction(
     vendor_code?: string | null;
     project_code?: string | null;
     type_code?: string;
+    account_code?: string;
     reason?: string;
   },
   idempotencyKey?: string,
@@ -712,6 +718,7 @@ export async function editTransaction(
     p_vendor_code: input.vendor_code ?? null,
     p_project_code: input.project_code ?? null,
     p_type_code: input.type_code ?? null,
+    p_account_code: input.account_code ?? null,
     p_reason: input.reason ?? null,
     p_key: idempotencyKey ?? null,
   });

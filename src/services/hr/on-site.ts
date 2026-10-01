@@ -18,7 +18,7 @@ export function onSiteHours(scans: { at: string }[]): number | null {
   return Math.round((t[t.length - 1] - t[0]) / 36_000) / 100;
 }
 
-/** The hours actually worked on a day (D361): on site, first tap to last,
+/** The hours actually worked on a day (D362): on site, first tap to last,
  *  **less the break** — the schedule's (45 minutes at the workshop, an hour at
  *  the office, 90 on a Friday) under the arrival-and-departure reading, or
  *  the break tapped out and back in under the slot reading. Owner, on D354:

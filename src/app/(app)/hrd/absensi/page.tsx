@@ -21,7 +21,7 @@ import { ImportScans } from "./ImportScans";
 import { DayDrawer } from "./DayDrawer";
 import { MarkDay } from "./MarkDay";
 
-/* Leaflet reads `window`, so the map is never rendered on the server (D360). */
+/* Leaflet reads `window`, so the map is never rendered on the server (D361). */
 const TapMap = dynamic(() => import("@/components/attendance/tap-map").then((m) => m.TapMap), {
   ssr: false,
   loading: () => <div className="h-[380px] w-full animate-pulse rounded-lg bg-slate-100" />,
@@ -134,7 +134,7 @@ export default function TimesheetPage() {
     window.history.replaceState(null, "", url.toString());
   }, [from, span]);
   const [sheet, reload] = useLoad(() => hr.getTimesheet({ from, to }), [from, to]);
-  /* Where people tapped, one day at a time (D360): today when it is shown,
+  /* Where people tapped, one day at a time (D361): today when it is shown,
      else the last day shown that has happened. */
   const [sites] = useLoad(() => hr.listWorkSites(), []);
   const [mapDay, setMapDay] = useState<string | null>(null);
@@ -261,7 +261,7 @@ export default function TimesheetPage() {
               />
             ))}
 
-            {/* Where everybody tapped, on a map (D360). */}
+            {/* Where everybody tapped, on a map (D361). */}
             {(() => {
               const today = officeToday();
               const past = s.dates.filter((d) => d <= today);

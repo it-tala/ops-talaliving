@@ -10,6 +10,7 @@ import type {
   ProjectView, ProjectLineView, ProjectStatus, ProjectStatusChange, Client, ClientView,
   ReceivingInboxRow, ReceivingInboxStatus, ReceivingCandidates, ReceivingLineInput,
   ReceivingMatchResult, PoPaymentRequest, ReceivingTrxCandidate, ReceivingPoCandidate,
+  ReceivingArchiveResult,
 } from "@/services/procurement/contracts";
 import { RECEIPT_CONDITIONS } from "@/services/procurement/contracts";
 import type { DemoState, DemoReceivingInbox } from "../state";
@@ -3672,7 +3673,9 @@ function receivingRow(state: DemoState, r: DemoReceivingInbox): ReceivingInboxRo
     ...rest,
     sender_name: state.users.find((u) => u.id === reported_by)?.full_name ?? r.sender_name,
     files: file_ids.map((id) => state.attachments.find((a) => a.id === id)).filter((a) => !!a).map((a) => ({
-      attachment_id: a!.id, url: a!.url ?? a!.web_view_link ?? null, filename: a!.filename, mime: a!.mime,
+      attachment_id: a!.id, url: a!.web_view_link ?? a!.url ?? null, filename: a!.filename, mime: a!.mime,
+      archived: (r.archived_from ?? {})[a!.id] !== undefined,
+      drive_path: a!.filed_in ?? null,
     })),
     resolved_by_name: resolved_by ? state.users.find((u) => u.id === resolved_by)?.full_name ?? null : null,
   };
@@ -4044,4 +4047,54 @@ export async function requestPoPayment(
   };
   remember(SERVICE, endpoint, idempotencyKey, result);
   return ok(SERVICE, result);
+}
+
+/** The sandbox's copy into ops-talaliving (0204): no Drive, so the copy is a
+ *  new attachment row filed under the month path, and every live link moves to
+ *  it — what `receiving_file_archived` does. Only files a record uses. */
+export async function archiveReceiving(rrNo: string): Promise<Result<ReceivingArchiveResult>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "procurement", "write");
+  if (denied) return denied;
+  const state = getState();
+  const row = state.receiving_inbox.find((r) => r.rr_no === rrNo);
+  if (!row) return notFound(SERVICE, "not_found", `No receiving report ${rrNo}.`);
+  if (row.status !== "MATCHED") {
+    return conflict(SERVICE, "not_matched", `${rrNo} is ${row.status.toLowerCase()} — its photos are filed once it is matched.`);
+  }
+  const day = row.reported_at.slice(0, 10);
+  const path = `RECEIVING REPORT/${day.slice(0, 7)}/${day}`;
+  const user = actingUser();
+  const archived: ReceivingArchiveResult["archived"] = [];
+  apply((draft) => {
+    const r = draft.receiving_inbox.find((x) => x.rr_no === rrNo)!;
+    const from = { ...(r.archived_from ?? {}) };
+    r.file_ids = r.file_ids.map((id) => {
+      if (Object.values(from).includes(id) || from[id] !== undefined) return id;
+      const live = draft.attachment_links.filter((k) => k.attachment_id === id);
+      if (live.length === 0) return id;
+      const old = draft.attachments.find((a) => a.id === id);
+      if (!old) return id;
+      const copy = {
+        ...old, id: newId("att"), url: null, storage_path: `demo/${path}/${rrNo} ${old.filename}`,
+        web_view_link: null, filed_in: path, uploaded_by: user.id, uploaded_at: new Date().toISOString(),
+      };
+      draft.attachments.push(copy);
+      /* The sandbox drops an unlinked link (`documents.unlink`); the database
+         keeps it, unlinked. Either way every record now shows the copy. */
+      for (const k of live) {
+        k.attachment_id = copy.id;
+        k.linked_by = user.id;
+        k.linked_at = new Date().toISOString();
+      }
+      from[copy.id] = id;
+      archived.push({ attachment_id: id, path, filename: old.filename });
+      return copy.id;
+    });
+    r.archived_from = from;
+    if (archived.length) {
+      writeAudit(draft, { service: SERVICE, entity: "receiving_inbox", entity_no: rrNo, action: "archive", outcome: "ok", reason: null, detail: { path, files: archived.length } });
+    }
+  });
+  return ok(SERVICE, { rr_no: rrNo, archived, failed: [] });
 }
