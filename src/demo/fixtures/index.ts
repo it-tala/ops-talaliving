@@ -12,6 +12,7 @@ import {
   TRANSACTIONS, TRANSACTION_LINES, PAYMENT_ALLOCATIONS, EVIDENCE_INBOX,
 } from "./ledger";
 import { ATTACHMENTS, ATTACHMENT_LINKS } from "./documents";
+import { RECEIVING_ATTACHMENTS, RECEIVING_INBOX } from "./receiving";
 import { CASH_COMPONENTS, CASH_OVERRIDES, CASH_SETTLEMENTS } from "./cash";
 import {
   EMPLOYEES, ATTENDANCE_SCANS, DAY_MARKS, OVERTIME_SHEETS, OVERTIME_LINES,
@@ -102,6 +103,7 @@ export function initialState(): DemoState {
     payment_rounds: PAYMENT_ROUNDS,
     payment_round_lines: PAYMENT_ROUND_LINES,
     receipts: RECEIPTS,
+    receiving_inbox: RECEIVING_INBOX,
     line_settlements: LINE_SETTLEMENTS,
     line_notes: LINE_NOTES,
     approval_requests: APPROVAL_REQUESTS,
@@ -215,7 +217,7 @@ export function initialState(): DemoState {
     sawn_boards: SAWN_BOARDS,
     board_moves: BOARD_MOVES,
 
-    attachments: ATTACHMENTS,
+    attachments: [...ATTACHMENTS, ...RECEIVING_ATTACHMENTS],
     attachment_links: ATTACHMENT_LINKS,
 
     audit_log: AUDIT_SEED,

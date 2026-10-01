@@ -186,3 +186,17 @@ carries the merged mirror, every document photographed from now on lands in the
 legacy queue and nowhere else, and this gap reopens at the rate people work. The
 bridge is the mop, not the fix — the same thing this file said on 2026-09-21.
 
+
+## The RECEIVING REPORT space (2026-10-01, D358)
+
+Same shape as the review queue, opposite conclusion about where the bridge
+runs. The worker has captured `spaces/AAQAiO_aiOA` since 2026-09-09 into
+`public.raw_events`, `public.blobs` and `public.receiving_extractions`, and
+none of it reached `ops_*` (F208). `05_bridge_receiving.sql` installs
+`public.ops_bridge_receiving()` and schedules it in `pg_cron` every five
+minutes; it calls `ops_procure.file_receiving()` (`0203`), which is idempotent
+per message and merges files or a reading that arrive late. Nothing to deploy
+in GCP, nothing written to the worker's tables.
+
+Order: apply `0203`, then run the file once by hand (it backfills and
+schedules). To stop: `select cron.unschedule('ops-receiving-bridge');`
