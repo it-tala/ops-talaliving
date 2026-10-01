@@ -77,6 +77,23 @@ export interface ScheduleShape {
    *  (Minggu) — D340. A weekday not listed takes the pattern's hours (and
    *  Friday its Friday ones). Transcribes `ops_hr.schedule_day()`. */
   days?: Record<string, ScheduleDay> | null;
+  /** The shifts somebody on this pattern may work, read off their taps (D364)
+   *  — Satpam's Shift 1 07.00–17.00 and Shift 2 17.00–07.00, given out in no
+   *  fixed order. Absent or empty: the pattern is one working day, as before.
+   *  Transcribes the `shifts` key `ops_hr.shift_reading()` reads. */
+  shifts?: ScheduleShift[] | null;
+}
+
+/** One shift on a pattern (D364). An end not after its start ends the next
+ *  morning. One shift is one day of pay, whichever it is. */
+export interface ScheduleShift {
+  /** Short, upper case — what the timesheet cell shows: `S1`, `S2`. */
+  code: string;
+  name: string;
+  start_minutes: number;
+  end_minutes: number;
+  /** None for Satpam. Absent = none. */
+  break_minutes?: number | null;
 }
 
 /** One weekday on a pattern (D340). Every field optional: what is not said
@@ -162,6 +179,10 @@ const MINUTES_IN_DAY = 24 * 60;
  *  (ADR-004's reason, in a place ADR-004 did not reach). Lower case and spaces
  *  are how two rows that look the same stop matching. */
 const CODE_SHAPE = /^[A-Z][A-Z0-9_-]*$/;
+
+/** A shift's code is what a timesheet cell shows (`S1`, `S2`), so it may start
+ *  with a digit; the rest is `CODE_SHAPE`'s reasoning (D364). */
+const SHIFT_CODE_SHAPE = /^[A-Z0-9][A-Z0-9_-]*$/;
 
 /** Minutes from start to end, walking forward through midnight when the end
  *  is earlier on the clock (D330). Null when either is unstated — a shift
@@ -355,6 +376,56 @@ export function scheduleProblems(
         }
       }
     }
+
+    /* The shifts (D364), in list order, each from *is it a shift* to *does
+       its arithmetic work*. The sentences are `ops_hr.schedule_problem()`'s. */
+    const shifts = sc.shifts as unknown;
+    if (Array.isArray(shifts)) {
+      if (shifts.length > 6) {
+        out.push({ code: "shifts_too_many", message: `${where}: paling banyak 6 shift dalam satu pola.` });
+      }
+      const seenShift = new Set<string>();
+      shifts.forEach((raw: unknown, j: number) => {
+        const n = j + 1;
+        if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {
+          out.push({ code: "shift_shape", message: `${where}: shift ke-${n} harus berisi kode, nama, jam masuk dan jam pulang.` });
+          return;
+        }
+        const sh = raw as Partial<ScheduleShift>;
+        const sCode = typeof sh.code === "string" ? sh.code.trim() : "";
+        const sWhere = sCode === "" ? `shift ke-${n}` : `shift ${sCode}`;
+        if (sCode === "") {
+          out.push({ code: "shift_code", message: `${where}: shift ke-${n} belum punya kode.` });
+        } else if (!SHIFT_CODE_SHAPE.test(sCode)) {
+          out.push({ code: "shift_code", message: `${where}: kode shift ${sCode} hanya huruf besar, angka, garis bawah dan tanda hubung.` });
+        } else if (seenShift.has(sCode)) {
+          out.push({ code: "shift_code_duplicate", message: `${where}: shift ${sCode} muncul dua kali.` });
+        }
+        if (sCode !== "") seenShift.add(sCode);
+        if (typeof sh.name !== "string" || sh.name.trim() === "") {
+          out.push({ code: "shift_name", message: `${where}: ${sWhere} belum punya nama.` });
+        }
+        const sSt = sh.start_minutes ?? null, sEn = sh.end_minutes ?? null, sBr = sh.break_minutes ?? null;
+        if (sSt == null || badMinutes(sSt) || sEn == null || badMinutes(sEn)) {
+          out.push({ code: "shift_minutes", message: `${where}: jam masuk dan jam pulang ${sWhere} harus menit dalam sehari (0–1440).` });
+          return;
+        }
+        if (badMinutes(sBr)) {
+          out.push({ code: "minutes_range", message: `${where}: istirahat ${sWhere} harus menit dalam sehari (0–1440) atau dikosongkan.` });
+          return;
+        }
+        if (sEn === sSt) {
+          out.push({ code: "shift_end_before_start", message: `${where}: pulang ${sWhere} ${clockOf(sEn)} tidak sesudah masuk ${clockOf(sSt)}.` });
+          return;
+        }
+        const sSpan = shiftMinutes(sSt, sEn) as number;
+        if (sBr != null && sBr >= sSpan) {
+          out.push({ code: "shift_break", message: `${where}: istirahat ${sWhere} ${sBr} menit menghabiskan seluruh shift ${clockOf(sSt)}–${clockOf(sEn)}.` });
+        }
+      });
+    } else if (shifts != null) {
+      out.push({ code: "shifts_shape", message: `${where}: daftar shift harus berupa daftar.` });
+    }
   });
 
   /* A unit pointing at a pattern that is not there is worse than a unit
@@ -399,6 +470,13 @@ export interface ScheduleCase {
   schedule_by_unit: Record<string, string>;
   expect: string | null;
 }
+
+/** Satpam's two shifts as the owner gave them (D364): 07.00–17.00 and
+ *  17.00–07.00, no break. */
+export const SATPAM_SHIFTS: ScheduleShift[] = [
+  { code: "S1", name: "Shift 1", start_minutes: 420, end_minutes: 1020, break_minutes: 0 },
+  { code: "S2", name: "Shift 2", start_minutes: 1020, end_minutes: 420, break_minutes: 0 },
+];
 
 export const SCHEDULE_CASES: ScheduleCase[] = (() => {
   const sc = (o: Partial<ScheduleShape>): ScheduleShape => ({
@@ -458,6 +536,21 @@ export const SCHEDULE_CASES: ScheduleCase[] = (() => {
     { name: "jadwal per hari bukan daftar", schedules: [sc({ days: [1, 2] as unknown as Record<string, ScheduleDay> })], schedule_by_unit: {}, expect: "days_shape" },
     { name: "hari berisi angka", schedules: [sc({ days: { "6": 2 as unknown as ScheduleDay } })], schedule_by_unit: {}, expect: "day_shape" },
     { name: "istirahat Jumat per hari terhadap pulang Jumat", schedules: [sc({ friday_end_minutes: 720, days: { "5": { break_minutes: 240 } } })], schedule_by_unit: {}, expect: "day_break_too_long" },
+    /* D364 — shift Satpam: Shift 1 07.00–17.00, Shift 2 17.00–07.00. */
+    { name: "shift satpam", schedules: [sc({ code: "SATPAM", name: "Satpam", start_minutes: 420, end_minutes: 1020, break_minutes: 0, friday_break_minutes: null, friday_end_minutes: null, shifts: SATPAM_SHIFTS })], schedule_by_unit: {}, expect: null },
+    { name: "daftar shift kosong", schedules: [sc({ shifts: [] })], schedule_by_unit: {}, expect: null },
+    { name: "shift bukan daftar", schedules: [sc({ shifts: { S1: 1 } as unknown as ScheduleShift[] })], schedule_by_unit: {}, expect: "shifts_shape" },
+    { name: "tujuh shift", schedules: [sc({ shifts: Array.from({ length: 7 }, (_, k) => ({ code: `S${k + 1}`, name: `Shift ${k + 1}`, start_minutes: k * 60, end_minutes: k * 60 + 30 })) })], schedule_by_unit: {}, expect: "shifts_too_many" },
+    { name: "shift berisi angka", schedules: [sc({ shifts: [3 as unknown as ScheduleShift] })], schedule_by_unit: {}, expect: "shift_shape" },
+    { name: "shift tanpa kode", schedules: [sc({ shifts: [{ code: " ", name: "Pagi", start_minutes: 420, end_minutes: 1020 }] })], schedule_by_unit: {}, expect: "shift_code" },
+    { name: "kode shift huruf kecil", schedules: [sc({ shifts: [{ code: "s1", name: "Pagi", start_minutes: 420, end_minutes: 1020 }] })], schedule_by_unit: {}, expect: "shift_code" },
+    { name: "kode shift kembar", schedules: [sc({ shifts: [SATPAM_SHIFTS[0], { ...SATPAM_SHIFTS[1], code: "S1" }] })], schedule_by_unit: {}, expect: "shift_code_duplicate" },
+    { name: "shift tanpa nama", schedules: [sc({ shifts: [{ ...SATPAM_SHIFTS[0], name: "" }] })], schedule_by_unit: {}, expect: "shift_name" },
+    { name: "shift tanpa jam masuk", schedules: [sc({ shifts: [{ ...SATPAM_SHIFTS[0], start_minutes: null as unknown as number }] })], schedule_by_unit: {}, expect: "shift_minutes" },
+    { name: "jam shift di luar sehari", schedules: [sc({ shifts: [{ ...SATPAM_SHIFTS[0], end_minutes: 1500 }] })], schedule_by_unit: {}, expect: "shift_minutes" },
+    { name: "istirahat shift pecahan", schedules: [sc({ shifts: [{ ...SATPAM_SHIFTS[0], break_minutes: 30.5 }] })], schedule_by_unit: {}, expect: "minutes_range" },
+    { name: "pulang shift sama dengan masuk", schedules: [sc({ shifts: [{ ...SATPAM_SHIFTS[0], end_minutes: 420 }] })], schedule_by_unit: {}, expect: "shift_end_before_start" },
+    { name: "istirahat menghabiskan shift malam", schedules: [sc({ shifts: [{ ...SATPAM_SHIFTS[1], break_minutes: 840 }] })], schedule_by_unit: {}, expect: "shift_break" },
   ];
   return cases;
 })();

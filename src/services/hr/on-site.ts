@@ -27,8 +27,29 @@ export function onSiteHours(scans: { at: string }[]): number | null {
  *  at the schedule and this one does not: the gap between them is time
  *  worked past the schedule that only an overtime sheet pays. Null with
  *  fewer than two taps. */
-export function actualHours(day: { scans: { at: string }[]; break_hours: number }): number | null {
-  const on = onSiteHours(day.scans);
-  if (on == null) return null;
+export function actualHours(day: OnSiteDay): number | null {
+  const span = onSiteSpan(day);
+  if (span == null) return null;
+  const on = Math.round((Date.parse(span.to) - Date.parse(span.from)) / 36_000) / 100;
   return Math.max(Math.round((on - day.break_hours) * 100) / 100, 0);
+}
+
+export interface OnSiteDay {
+  scans: { at: string }[];
+  break_hours: number;
+  shift_code?: string | null;
+  slots?: { in?: string; out?: string };
+}
+
+/** The stretch the actual hours are measured over: first tap to last — or,
+ *  for a day read as a shift (D364), its masuk to its pulang, because a
+ *  guard's stray tap at 00.30 is not twelve more hours at the gate. Null
+ *  without two ends. */
+export function onSiteSpan(day: OnSiteDay): { from: string; to: string } | null {
+  if (day.shift_code) {
+    return day.slots?.in && day.slots?.out ? { from: day.slots.in, to: day.slots.out } : null;
+  }
+  if (day.scans.length < 2) return null;
+  const t = [...day.scans].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  return { from: t[0].at, to: t[t.length - 1].at };
 }

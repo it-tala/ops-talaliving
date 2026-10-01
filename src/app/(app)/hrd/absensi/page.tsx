@@ -108,8 +108,9 @@ export default function TimesheetPage() {
       .filter((b) => b.effective_from <= day.work_date)
       .sort((a, b) => a.effective_from.localeCompare(b.effective_from) || a.version - b.version)
       .pop();
-    if (book?.rules.day_reading !== "in_out") return false;
-    const step = book.rules.hours_rounding_minutes ?? 15;
+    /* A shift is always read in and out (D364), whatever the book says. */
+    if (book?.rules.day_reading !== "in_out" && !day.shift_code) return false;
+    const step = book?.rules.hours_rounding_minutes ?? 15;
     const quota = step > 0 ? Math.round((day.scheduled_hours * 60) / step) * step / 60 : day.scheduled_hours;
     return day.work_hours < quota - 0.001;
   };
@@ -522,6 +523,12 @@ function PeopleGrid({
                               : formatNumber(day.work_hours)}
                         {(day.pay_multiplier ?? 1) > 1 && day.day_value > 0 && (
                           <span className="ml-0.5 text-[9px] font-semibold text-amber-700">×{day.pay_multiplier}</span>
+                        )}
+                        {/* D364: which shift the taps were read as. */}
+                        {day.shift_code && day.state !== "off" && day.state !== "marked" && (
+                          <span className="block text-[9px] font-semibold tracking-wide opacity-80" title={day.shift_name ?? undefined}>
+                            {day.shift_code}
+                          </span>
                         )}
                         {day.state === "complete" && actualHours(day) != null && (
                           <span
