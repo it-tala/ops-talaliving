@@ -28,16 +28,10 @@ import { useTr, type Tr } from "@/lib/i18n";
  *  week (D155). Where none exists it says so, and offers to open one (D158).
  */
 
-/** Monday of the week a date falls in. Dates are walked as strings and the
- *  arithmetic is done in UTC, because the office day is not the browser's day
- *  (F17). */
-function mondayOf(key: string): string {
-  return weekStartOf(key, 1);
-}
 
 /** The first day of the pay week a date falls in, for a week that starts on
  *  ISO weekday `isodow` (1 Senin … 7 Minggu). The workshop's week runs
- *  Sabtu–Jumat (6), the way the payroll sheet pays it — read from the rule
+ *  Jumat–Kamis (5, D357; it was Sabtu–Jumat until then) — read from the rule
  *  book's `pay_week_starts_isodow` (D340), never assumed here. */
 function weekStartOf(key: string, isodow: number): string {
   const [y, m, d] = key.split("-").map(Number);
@@ -81,9 +75,11 @@ export default function PayrollWeekPage() {
     const asked = typeof window === "undefined"
       ? null
       : new URLSearchParams(window.location.search).get("from");
-    return mondayOf(asked && /^\d{4}-\d{2}-\d{2}$/.test(asked)
+    /* The pay week's own start (D357), not Monday: snapping a Friday link to
+       its Monday first and then back to a Friday landed one week early. */
+    return weekStartOf(asked && /^\d{4}-\d{2}-\d{2}$/.test(asked)
       ? asked
-      : new Date().toISOString().slice(0, 10));
+      : new Date().toISOString().slice(0, 10), PAY_WEEK_STARTS_DEFAULT);
   });
   const weekEnd = shift(weekStart, 6);
 
@@ -101,6 +97,19 @@ export default function PayrollWeekPage() {
   useEffect(() => {
     setWeekStart((w) => weekStartOf(w, startDow));
   }, [startDow]);
+  /* Whether this week is approved on its last day with that day assumed full
+     (0202, D357) — the book in force when the week opened says so, as it does
+     for the figures themselves. */
+  const assumesLastDay = (() => {
+    if (books.status !== "ready") return false;
+    const book = [...books.data]
+      .filter((b) => b.effective_from <= weekStart)
+      .sort((a, b) => a.effective_from.localeCompare(b.effective_from) || a.version - b.version)
+      .pop();
+    return book?.rules.pay_week_assume_last_day === true
+      && (book.rules.pay_week_starts_isodow ?? PAY_WEEK_STARTS_DEFAULT) === startDow;
+  })();
+  const dm = (key: string) => `${key.slice(8)}/${key.slice(5, 7)}`;
 
   /* Walking a week changes the address too, so a reload or a shared link lands
      on the week somebody was actually looking at. */
@@ -294,6 +303,15 @@ export default function PayrollWeekPage() {
                 </>
               )}
             </div>
+
+            {assumesLastDay && (
+              <p className="mb-4 rounded-xl border border-sky-200 bg-sky-50/70 px-4 py-3 text-[13px] text-sky-900">
+                {tr(
+                  `Approved on ${dm(weekEnd)} before the day is over: for people paid by the day or hour, ${dm(weekEnd)} counts as a full scheduled day unless HRD marked it. Overtime paid this week: ${dm(shift(weekStart, -1))} to ${dm(shift(weekEnd, -1))} — ${dm(weekEnd)}'s overtime is paid next week. A ${dm(weekEnd)} absence or early leave is corrected by HRD next week.`,
+                  `Di-approve tanggal ${dm(weekEnd)} sebelum harinya selesai: untuk karyawan harian/per jam, ${dm(weekEnd)} dihitung hadir penuh sesuai jadwal kecuali ditandai HRD. Lembur yang dibayar minggu ini: ${dm(shift(weekStart, -1))} s.d. ${dm(shift(weekEnd, -1))} — lembur ${dm(weekEnd)} dibayar minggu depan. Tidak masuk atau pulang cepat tanggal ${dm(weekEnd)} dikoreksi HRD minggu depan.`,
+                )}
+              </p>
+            )}
 
             <Card>
               <CardHeader

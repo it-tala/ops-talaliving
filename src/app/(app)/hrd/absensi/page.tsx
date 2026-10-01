@@ -37,7 +37,7 @@ import { MarkDay } from "./MarkDay";
  *  menampilkan absensi per 5 hari, total jam kerja dan estimasi gaji —
  *  terpisah untuk karyawan bulanan dan mingguan*, and then: *tampilan absensi
  *  berdasarkan minggu, awal minggu mulai dari Sabtu … Jumat*. So the grid opens
- *  on the week — Sabtu–Jumat unless the rule book says otherwise — which is the
+ *  on the week — Jumat–Kamis (D357) unless the rule book says otherwise — which is the
  *  week the weekly payroll pays. *5 hari* is five **calendar** days, not five
  *  working days: opened fresh it is the five days up to today. Days that have
  *  not happened yet are drawn as *belum*, so a Thursday missing on a

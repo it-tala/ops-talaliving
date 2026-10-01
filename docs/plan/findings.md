@@ -8661,3 +8661,31 @@ force is the highest `seq`; `set_at` stays as the time a person would quote.
 increasing per write — an identity or sequence — never by a timestamp that
 defaults to `now()`.
 
+## F207 · 2026-10-01 · A payroll run's figures are not frozen by its approval, and a save button that appears only after a change reads as no save button
+
+Two things turned up while building D357, and neither is fixed by it.
+
+**An approved run still recomputes.** `run_lines()` computes every line
+from attendance, marks, overtime sheets and the rule book each time it is
+read. Approval stops adjustments (0047's trigger) and stops a rule-book
+version landing inside the period (0047, 0195), but nothing stops a tap, a day
+mark or an overtime sheet dated inside a signed period from changing that
+run's numbers afterwards. D357 avoids it for Thursday by design: the projected
+day is computed the same way whenever it is read, and Thursday's overtime
+belongs to the next run's window, so neither moves a signed figure. A
+correction typed into Monday after Thursday's signature still would. The
+honest fix is to keep the signed lines as rows at approval, so the payslip
+reads what was signed and a later change shows up as a difference to carry
+forward. That is a decision about money, so it waits for the owner.
+
+**The save card on `/it/aturan-gaji` only rendered once a draft existed.**
+The owner opened the page, saw rules but no date and no button, and
+concluded there was no way to save. Two causes were stacked: the account in
+use (evin@) holds IT at `read`, which makes the page view-only by design
+(D193), and for an editor the card was invisible until something changed. The
+card is now always shown to an editor and says what to do. The view-only
+notice was already there.
+
+**Rule:** a screen that writes something shows where the writing happens
+before anything is written. A control that appears only once its
+precondition is met is a control nobody finds.

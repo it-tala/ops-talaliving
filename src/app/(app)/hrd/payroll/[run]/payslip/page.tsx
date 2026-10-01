@@ -494,7 +494,9 @@ function WeekGrid({ days }: { days: PayslipDay[] }) {
               <td className="pr-1 text-right text-[7px] uppercase text-slate-400">{tr("in", "masuk")}</td>
               {week.map((d) => (
                 <td key={d.work_date} className="border border-slate-200 py-0.5">
-                  {d.mark ? <span className="text-slate-500">{d.mark}</span> : (d.in_at ?? "—")}
+                  {d.mark ? <span className="text-slate-500">{d.mark}</span>
+                    : d.assumed ? <span className="text-slate-500" title={tr("Counted as a full day: the week was approved before it ended", "Dihitung penuh: minggu ini di-approve sebelum hari ini selesai")}>{tr("assumed", "asumsi")}</span>
+                      : (d.in_at ?? "—")}
                 </td>
               ))}
             </tr>

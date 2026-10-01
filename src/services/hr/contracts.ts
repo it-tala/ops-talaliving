@@ -1925,9 +1925,16 @@ export interface PayRules {
   /** Price an overtime hour before rounding it to the rupiah, as the sheet
    *  does (170.500 / 8 = 21.312,5). */
   overtime_exact_hourly?: boolean;
-  /** The weekday a weekly pay period starts on, ISO (6 = Sabtu). Absent
+  /** The weekday a weekly pay period starts on, ISO (5 = Jumat). Absent
    *  means `PAY_WEEK_STARTS_DEFAULT`. */
   pay_week_starts_isodow?: number;
+  /** 0202 (D357): a pay week is approved on its last day (Kamis), before that
+   *  day is over. When true, for everybody not on a monthly salary, that last
+   *  day counts as the full scheduled day unless HRD marked it, and the
+   *  overtime paid is the week moved back one day — so Thursday's overtime is
+   *  paid the week after. A Thursday shorter than assumed is corrected by HRD
+   *  in the next run (owner's choice). Default false. */
+  pay_week_assume_last_day?: boolean;
 }
 
 /** One dated version of the rule book. Never edited — a change writes the next
@@ -2104,6 +2111,9 @@ export interface PayslipDay {
   /** `merah`, `sakit`, `cuti` — the short mark, when there is one. */
   mark: string | null;
   day_value: number;
+  /** Counted as the full scheduled day because the pay week was approved
+   *  before it was over (0202, D357). Its overtime is paid the week after. */
+  assumed?: boolean;
   /** The machine's record of this day is incomplete and nobody has read it, so
    *  it counts for nothing yet. Printed on the slip rather than hidden: a day
    *  with hours beside it that adds nothing to the total is the one an
@@ -2263,9 +2273,12 @@ export interface LocatedTapView {
   photo_filename: string | null;
 }
 
-/** The weekday a week starts on when the rule book does not say: **Sabtu**
- *  (D350). Owner: *awal minggu mulai dari Sabtu, Minggu, Senin, Selasa, Rabu,
- *  Kamis, Jumat* — the week the payroll sheet pays. The rule book's
- *  `pay_week_starts_isodow` still overrides it; the weekly payroll, the
- *  attendance week and the rule-book form all read this one constant. */
-export const PAY_WEEK_STARTS_DEFAULT = 6;
+/** The weekday a week starts on when the rule book does not say: **Jumat**
+ *  (D357, replacing D350's Sabtu). Owner: *karyawan daily dibayar di hari
+ *  Jumat; pekerjaan di Jumat akan dibayar di minggu depan, jadi payroll rilis
+ *  di hari Kamis untuk di-approve — awal minggu ganti ke Jumat.* So a pay week
+ *  is Jumat–Kamis, approved on its Thursday and paid the Friday after. The
+ *  rule book's `pay_week_starts_isodow` still overrides it; the weekly
+ *  payroll, the attendance week and the rule-book form all read this one
+ *  constant. */
+export const PAY_WEEK_STARTS_DEFAULT = 5;
