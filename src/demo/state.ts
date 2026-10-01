@@ -376,4 +376,6 @@ export type DemoReceivingInbox = Omit<ReceivingInboxRow, "files" | "resolved_by_
   sender_name: string | null;
   reported_by: string | null;
   resolved_by: string | null;
+  /** Copies filed into ops-talaliving (0204): copy id → the capture it came from. */
+  archived_from?: Record<string, string>;
 };
