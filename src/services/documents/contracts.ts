@@ -240,6 +240,10 @@ export interface AttachmentView extends Attachment {
   /** More than one link means one document covering several parents — the
    *  normal case here, not the parked-file problem it is today. */
   covers_count: number;
+  /** Set by `upload` only: these exact bytes were already filed (from Google
+   *  Chat, or earlier in the same drive), so that file was returned and
+   *  nothing new went to Drive (D358, F208). */
+  reused?: boolean;
 }
 
 /* ── IT → Google Drive (F173, D320) ───────────────────────────────────── */
