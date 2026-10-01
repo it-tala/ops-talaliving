@@ -8723,7 +8723,7 @@ notice was already there.
 before anything is written. A control that appears only once its
 precondition is met is a control nobody finds.
 
-## F208 · 2026-10-01 · The same receipt filed twice: once by the chat, once by hand from *New ledger entry*
+## F209 · 2026-10-01 · The same receipt filed twice: once by the chat, once by hand from *New ledger entry*
 
 The owner saw two trees for one kind of document in the ACCOUNTING drive:
 `OPS/TRANSACTIONS/<month>`, where John Lau's capture worker files every photo
@@ -8744,7 +8744,7 @@ Two things made it easy to do and invisible afterwards. The form gave no hint
 that the document was already waiting in Verifikasi. And the inbox mirror never
 sent the capture's hash (`ops_inbox.file_evidence` left `p_sha256` empty, so
 83 of 132 inbox attachments had none), so even the advisory *identical bytes
-seen before* warning could not fire. D358 fixes both: the form says so, John
+seen before* warning could not fire. D359 fixes both: the form says so, John
 Lau now sends the hash, and the upload route links the existing file
 (`ops_core.same_bytes`) instead of filing a second one.
 

@@ -122,7 +122,7 @@ export function EvidenceStrip({
     if (link.error) { toast("warning", tr("Not attached", "Tidak terlampir"), link.error.message); return; }
     if (up.data.reused) {
       /* These exact bytes were already filed (a Google Chat capture), so the
-         file that is there was linked and nothing new went to Drive (D358). */
+         file that is there was linked and nothing new went to Drive (D359). */
       toast("info", tr("Attached — already in Drive", "Terlampir — sudah ada di Drive"),
         tr("The same file was already filed from Google Chat, so it was linked instead of uploaded again.",
           "File yang sama sudah tersimpan dari Google Chat, jadi ditautkan, tidak diunggah ulang."));

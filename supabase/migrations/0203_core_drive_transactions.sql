@@ -1,5 +1,5 @@
 -- 0203_core_drive_transactions.sql — money evidence filed by month, and the
--- same bytes never filed twice (D358, F208).
+-- same bytes never filed twice (D359, F209).
 --
 -- Two things the owner saw in the ACCOUNTING drive on 2026-10-01:
 --
@@ -112,4 +112,4 @@ grant execute on function ops_core.same_bytes(text, text) to authenticated;
 
 comment on function ops_core.same_bytes(text, text) is
   'Is this exact file (by SHA-256) already filed where this kind of document goes? Asked by the upload '
-  'route before Drive, so a receipt the chat already filed is linked, not copied (0203, D358).';
+  'route before Drive, so a receipt the chat already filed is linked, not copied (0203, D359).';

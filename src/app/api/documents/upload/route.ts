@@ -182,10 +182,10 @@ export async function POST(request: Request): Promise<Response> {
     new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
   ).map((b) => b.toString(16).padStart(2, "0")).join("");
 
-  /* **Already filed? Then nothing goes to Drive (D358).** A receipt sent to
+  /* **Already filed? Then nothing goes to Drive (D359).** A receipt sent to
      the accounting chat is filed by the capture worker the moment it arrives;
      downloading it and attaching it again here made a second copy in a second
-     folder (F208). The database says whether these bytes are already where
+     folder (F209). The database says whether these bytes are already where
      this kind goes, and if so that file is the answer. Different bytes of the
      same receipt — a second photograph — still upload and still warn. */
   const { data: same } = await sb

@@ -1,4 +1,4 @@
--- core — money evidence by month, and the same bytes never filed twice (0203, D358).
+-- core — money evidence by month, and the same bytes never filed twice (0203, D359).
 --
 -- DERIVATIONS  with IT's two rows, a nota and a transfer proof go to
 --              TRANSACTIONS/<month>/<day> of the office day; other kinds keep their folders; a chat

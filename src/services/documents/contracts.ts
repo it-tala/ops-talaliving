@@ -242,7 +242,7 @@ export interface AttachmentView extends Attachment {
   covers_count: number;
   /** Set by `upload` only: these exact bytes were already filed (from Google
    *  Chat, or earlier in the same drive), so that file was returned and
-   *  nothing new went to Drive (D358, F208). */
+   *  nothing new went to Drive (D359, F209). */
   reused?: boolean;
 }
 

@@ -278,7 +278,7 @@ export async function upload(
      of the three are things only it can know. */
   const filed = await getAttachment(envelope.data!.attachment_id);
   /* The route found these exact bytes already filed and sent nothing to
-     Drive (D358). Said on the result so the screen can say so. */
+     Drive (D359). Said on the result so the screen can say so. */
   if (!filed.error && envelope.data!.reused) filed.data.reused = true;
   return filed;
 }

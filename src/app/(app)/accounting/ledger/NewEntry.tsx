@@ -295,7 +295,7 @@ export function NewEntry({ onClose, onPosted }: { onClose: () => void; onPosted:
           )}
 
           {/* Sent to Google Chat already? It is waiting in Verifikasi with its
-              file. Re-uploading it here put a second copy in Drive (F208). */}
+              file. Re-uploading it here put a second copy in Drive (F209). */}
           <p className="mb-2 rounded-lg bg-sky-50 px-3 py-2 text-[12px] text-sky-800">
             {tr("Already sent to the accounting chat? Book it from ", "Sudah dikirim ke chat accounting? Bukukan dari ")}
             <Link href="/accounting/verifikasi" className="font-medium underline">{tr("Verification", "Verifikasi")}</Link>
