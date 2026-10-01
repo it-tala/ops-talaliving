@@ -1,5 +1,5 @@
--- 0205_procure_confirm_receipt_correction.sql — the daylight count reaches the
--- database (F214, D363).
+-- 0206_procure_confirm_receipt_correction.sql — the daylight count reaches the
+-- database (F215, D364).
 --
 -- `/procurement/penerimaan` completes a reported arrival: the signed tanda
 -- terima, who checked it, and **what the quantity and condition turned out to

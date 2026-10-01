@@ -8913,7 +8913,7 @@ Two smaller things:
 **Rule:** moving a file is moving every pointer to it. A copy nothing links is
 a second file, not a move.
 
-## F214 · 2026-10-01 · The morning's count was typed, sent, and dropped: a field one client ignores passes the parity check
+## F215 · 2026-10-01 · The morning's count was typed, sent, and dropped: a field one client ignores passes the parity check
 
 `/procurement/penerimaan` completes a receipt reported at night: the signed
 tanda terima, who checked it, and the quantity and condition once somebody
@@ -8934,7 +8934,7 @@ honours type-checks cleanly. The screen is typed against the demo
 site either. The smoke files call the seam directly and never send what it
 does not take.
 
-Fixed in `0205` (D363): the seam takes `p_qty` and `p_condition` and applies
+Fixed in `0206` (D364): the seam takes `p_qty` and `p_condition` and applies
 them in the **same UPDATE** as the status change, because the stock trigger
 reads `new.qty_received` on that update. A correction written in a later
 statement would stock the night's number. The row is read `for update`, so
