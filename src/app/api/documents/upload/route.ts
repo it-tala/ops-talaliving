@@ -185,7 +185,7 @@ export async function POST(request: Request): Promise<Response> {
   /* **Already filed? Then nothing goes to Drive (D359).** A receipt sent to
      the accounting chat is filed by the capture worker the moment it arrives;
      downloading it and attaching it again here made a second copy in a second
-     folder (F209). The database says whether these bytes are already where
+     folder (F211). The database says whether these bytes are already where
      this kind goes, and if so that file is the answer. Different bytes of the
      same receipt — a second photograph — still upload and still warn. */
   const { data: same } = await sb

@@ -1,5 +1,5 @@
 -- 0203_core_drive_transactions.sql — money evidence filed by month, and the
--- same bytes never filed twice (D359, F209).
+-- same bytes never filed twice (D359, F211).
 --
 -- Two things the owner saw in the ACCOUNTING drive on 2026-10-01:
 --

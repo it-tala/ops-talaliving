@@ -156,8 +156,9 @@ export interface DemoState {
   /** `reported_by_name` is not stored here, the same as every other `_name`
    *  field this state carries (`approval_asked_by_name`, `by_name`…) — it is
    *  derived from `reported_by` against `users` at the API boundary, so a
-   *  fixture only ever states one fact about a person. */
-  evidence_inbox: Omit<EvidenceInboxRow, "reported_by_name">[];
+   *  fixture only ever states one fact about a person. `file_key` likewise
+   *  comes from the row's attachment at the boundary. */
+  evidence_inbox: Omit<EvidenceInboxRow, "reported_by_name" | "file_key">[];
   /** Rekening koran, and its lines. For the two leadership accounts this is
    *  how their ledger rows come to exist at all (D180). */
   bank_statements: BankStatement[];

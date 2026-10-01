@@ -791,13 +791,19 @@ export async function historyFor(trxNo: string): Promise<Result<AuditRow[]>> {
 /* The exception inbox                                                 */
 /* ------------------------------------------------------------------ */
 
-/** Who `reported_by` is, spelled out. Not stored on the row (`state.ts`'s own
- *  comment on `evidence_inbox`) — resolved here, the same boundary every
- *  other `_name` field in this file sits on. */
+/** Who `reported_by` is, spelled out, and which file the row is. Neither is
+ *  stored on the row (`state.ts`'s own comment on `evidence_inbox`) — resolved
+ *  here, the same boundary every other `_name` field in this file sits on.
+ *  The demo files one photo's rows against one attachment, so the attachment
+ *  is the file — the same identity `linkEvidence` checks below. */
 function withReporterName(
-  state: DemoState, row: Omit<EvidenceInboxRow, "reported_by_name">,
+  state: DemoState, row: Omit<EvidenceInboxRow, "reported_by_name" | "file_key">,
 ): EvidenceInboxRow {
-  return { ...row, reported_by_name: state.users.find((u) => u.id === row.reported_by)?.full_name ?? null };
+  return {
+    ...row,
+    file_key: row.attachment_id,
+    reported_by_name: state.users.find((u) => u.id === row.reported_by)?.full_name ?? null,
+  };
 }
 
 export async function listInbox(): Promise<Result<EvidenceInboxRow[]>> {

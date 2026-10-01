@@ -281,11 +281,12 @@ begin
   assert cash = -29500000,
          format('only the paying accounts, and only live rows, got %s', cash);
 
-  -- The view plans twelve months from **today**, unlike the `cash_events`
-  -- calls above, which are pinned to a date. Asking it for '2026-09' stopped
-  -- answering on 1 October 2026; the current office month is always inside it.
+  -- The view is the calendar from **today**: `v_cash_event` calls
+  -- `cash_events()` with no `p_from`, so its window starts at the office
+  -- month. Asking it for 2026-09 went red the day September ended (F210);
+  -- the lines here are open-ended, so the current month always has cells.
   select count(*) into n from ops_acct.v_cash_cell
-   where month = to_char(ops_core.office_day(now()), 'YYYY-MM');
+   where month = to_char(ops_core.office_day(), 'YYYY-MM');
   assert n > 0, 'the cells aggregate the events';
 end $$;
 
