@@ -177,7 +177,10 @@ export async function saveEmployee(
     position: string;
     unit: string;
     pay_basis: PayBasis;
-    base_rate: number;
+    /** Absent leaves it as it is. Required for a new person, and never nought
+     *  — but somebody already on the books with no salary yet can still have
+     *  their other details saved (owner, HRD review). */
+    base_rate?: number;
     allowance_rate?: number;
     daily_hours?: number;
     schedule_code?: string | null;
@@ -196,7 +199,7 @@ export async function saveEmployee(
     p_position: input.position,
     p_unit: input.unit,
     p_pay_basis: input.pay_basis,
-    p_base_rate: input.base_rate,
+    p_base_rate: input.base_rate ?? null,
     p_allowance_rate: input.allowance_rate ?? null,
     p_daily_hours: input.daily_hours ?? null,
     p_schedule_code: input.schedule_code ?? null,

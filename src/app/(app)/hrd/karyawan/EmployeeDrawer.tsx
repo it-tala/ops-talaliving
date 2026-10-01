@@ -76,13 +76,26 @@ export function EmployeeDrawer({
   const contact = contactProblem(email, phone);
 
   const changed = employee && rate !== employee.base_rate;
+  /* Somebody already on the books with no salary written yet (six monthly
+     people in production) can still have everything else saved: the rate is
+     then left as it is rather than sent as nought. A new person needs one,
+     and a salary that is there cannot be wiped to nought (the seam's rule). */
+  const rateUnset = !!employee && employee.base_rate <= 0;
+  const rateMissing = rate <= 0 && !rateUnset;
+  /* A disabled button is a refusal too, and says why (F214). */
+  const blockers = [
+    !no.trim() && tr("the number on the machine", "nomor di mesin"),
+    !name.trim() && tr("the full name", "nama lengkap"),
+    rateMissing && (basis === "monthly" ? tr("the salary", "gajinya") : tr("the rate", "tarifnya")),
+    contact && contact.message,
+  ].filter(Boolean) as string[];
   const allowanceChanged = employee && allowance !== employee.allowance_rate;
 
   async function save() {
     setBusy(true);
     const res = await hr.saveEmployee({
       employee_no: no, full_name: name, position, unit,
-      pay_basis: basis, base_rate: rate, allowance_rate: allowance,
+      pay_basis: basis, ...(rate > 0 ? { base_rate: rate } : {}), allowance_rate: allowance,
       daily_hours: hours, paid_leave_days: leave,
       ...(joined ? { joined_on: joined } : {}),
       /* Sent as typed; blank clears it on an existing person (D349). */
@@ -144,9 +157,14 @@ export function EmployeeDrawer({
         ? tr(`${employee.employee_no} · joined ${employee.joined_on}`, `${employee.employee_no} · masuk ${employee.joined_on}`)
         : tr("The number has to match the fingerprint machine.", "Nomornya harus sama dengan mesin sidik jari.")}
       footer={
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {blockers.length > 0 && (
+            <p className="mr-auto text-[12px] text-amber-700">
+              {tr("To save, fill in: ", "Untuk menyimpan, isi dulu: ")}{blockers.join(" · ")}
+            </p>
+          )}
           <Button variant="ghost" onClick={onClose} disabled={busy}>{tr("Cancel", "Batal")}</Button>
-          <Button icon={Save} onClick={save} disabled={busy || !name.trim() || !no.trim() || rate <= 0 || contact !== null}>
+          <Button icon={Save} onClick={save} disabled={busy || blockers.length > 0}>
             {busy ? tr("Saving…", "Menyimpan…") : tr("Save", "Simpan")}
           </Button>
         </div>
@@ -281,7 +299,20 @@ export function EmployeeDrawer({
               {basis === "monthly" ? tr("Salary, per month", "Gaji, per bulan") : basis === "daily" ? tr("Rate, per day", "Tarif, per hari") : tr("Rate, per hour", "Tarif, per jam")}
             </label>
             <MoneyInput id="e-rate" value={rate} onChange={setRate} className="mt-1" />
-            {changed && (
+            {rateUnset && rate <= 0 && (
+              <p className="mt-1 text-[11px] text-amber-700">
+                {tr(
+                  "Not written yet — the rest can be saved without it; payroll counts nought until it is filled in.",
+                  "Belum diisi — data lainnya tetap bisa disimpan; penggajian menghitung nol sampai ini diisi.",
+                )}
+              </p>
+            )}
+            {rateMissing && !rateUnset && employee && (
+              <p className="mt-1 text-[11px] text-amber-700">
+                {tr("Nought is not pay. Write what they are actually paid.", "Nol bukan upah. Tulis yang benar-benar dibayar.")}
+              </p>
+            )}
+            {changed && rate > 0 && (
               <p className="mt-1 text-[11px] text-amber-700">
                 {formatIDR(employee!.base_rate)} → {formatIDR(rate)} · {tr("both figures go on the audit row.", "kedua angka dicatat di baris audit.")}
               </p>

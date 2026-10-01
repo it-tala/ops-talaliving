@@ -199,7 +199,9 @@ export async function saveEmployee(
     position: string;
     unit: string;
     pay_basis: PayBasis;
-    base_rate: number;
+    /** Absent leaves it as it is; required for a new person, never nought
+     *  — the same as `ops_hr.save_employee`. */
+    base_rate?: number;
     /** Tunjangan harian. Optional, and **absent means unchanged** rather than
      *  zero: a save that forgot this field must not quietly stop paying
      *  somebody's allowance (D250). */
@@ -230,8 +232,10 @@ export async function saveEmployee(
   if (!input.employee_no.trim()) {
     return invalid(SERVICE, "employee_no_required", "The number on the fingerprint machine — it is how attendance finds them.", { field: "employee_no" });
   }
-  if (!input.base_rate || input.base_rate <= 0) {
-    return invalid(SERVICE, "rate_required", "A rate of zero is not a rate. Put what they are actually paid.", { field: "base_rate" });
+  const known = getState().employees.some((e) => e.employee_no === input.employee_no.trim());
+  if ((!known && !(input.base_rate && input.base_rate > 0))
+      || (input.base_rate != null && input.base_rate <= 0)) {
+    return invalid(SERVICE, "rate_required", "Nol bukan upah. Tulis yang benar-benar dibayar.", { field: "base_rate" });
   }
   if (input.allowance_rate != null && input.allowance_rate < 0) {
     return invalid(SERVICE, "allowance_negative", "Tunjangan tidak bisa negatif. Potongan ditulis sebagai potongan, dengan alasannya.", { field: "allowance_rate" });
@@ -280,7 +284,7 @@ export async function saveEmployee(
         position: input.position.trim() || row.position,
         unit: input.unit.trim() || row.unit,
         pay_basis: input.pay_basis,
-        base_rate: Math.round(input.base_rate),
+        base_rate: input.base_rate != null ? Math.round(input.base_rate) : row.base_rate,
         allowance_rate: input.allowance_rate != null ? Math.round(input.allowance_rate) : row.allowance_rate,
         daily_hours: input.daily_hours ?? row.daily_hours,
         schedule_code: input.schedule_code !== undefined ? input.schedule_code : row.schedule_code,
@@ -313,7 +317,7 @@ export async function saveEmployee(
         position: input.position.trim(),
         unit: input.unit.trim() || "Workshop",
         pay_basis: input.pay_basis,
-        base_rate: Math.round(input.base_rate),
+        base_rate: Math.round(input.base_rate ?? 0),
         allowance_rate: Math.round(input.allowance_rate ?? 0),
         daily_hours: input.daily_hours ?? 8,
         /* Null, never a guess: a new joiner whose pattern nobody has set is
