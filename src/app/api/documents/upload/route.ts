@@ -173,6 +173,38 @@ export async function POST(request: Request): Promise<Response> {
     return refuse(x.status, x.code, x.message, detail);
   };
 
+  const bytes = await file.arrayBuffer();
+
+  /* Hashed here rather than in the browser: it is what makes *we have seen
+     these exact bytes before* answerable, and a value the client computes is a
+     value the client can get wrong. */
+  const sha256 = Array.from(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+  ).map((b) => b.toString(16).padStart(2, "0")).join("");
+
+  /* **Already filed? Then nothing goes to Drive (D359).** A receipt sent to
+     the accounting chat is filed by the capture worker the moment it arrives;
+     downloading it and attaching it again here made a second copy in a second
+     folder (F211). The database says whether these bytes are already where
+     this kind goes, and if so that file is the answer. Different bytes of the
+     same receipt — a second photograph — still upload and still warn. */
+  const { data: same } = await sb
+    .schema("ops_core").rpc("same_bytes", { p_sha256: sha256, p_kind: kind });
+  const existing = (same as Envelope | null)?.data as
+    { found?: boolean; attachment_id?: string; link?: string | null; source?: string } | undefined;
+  if (existing?.found && existing.attachment_id) {
+    return Response.json({
+      data: {
+        attachment_id: existing.attachment_id,
+        web_view_link: existing.link ?? null,
+        filed_in: existing.source === "chat" ? "Google Chat capture" : `${folder.label} / ops-talaliving`,
+        sha256,
+        reused: true,
+      },
+      meta: { request_id: "", service: "documents", version: "1", outcome: "ok" },
+    });
+  }
+
   /* **The app's own folder, made once per drive (D320).**
    *
    * `drive.file` cannot see a folder a person made, so the owner's hand-made
@@ -216,17 +248,6 @@ export async function POST(request: Request): Promise<Response> {
   } catch (e) {
     return failed(e, "folder");
   }
-
-  const bytes = await file.arrayBuffer();
-
-  /* Hashed here rather than in the browser: it is what makes *we have seen
-     these exact bytes before* answerable, and a value the client computes is a
-     value the client can get wrong. It is a warning and never a block — the
-     same receipt really can be photographed twice, and refusing the second one
-     hides it. */
-  const sha256 = Array.from(
-    new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
-  ).map((b) => b.toString(16).padStart(2, "0")).join("");
 
   let uploaded;
   try {

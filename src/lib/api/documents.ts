@@ -259,7 +259,7 @@ export async function upload(
   }
 
   const envelope = await res.json() as
-    { data?: { attachment_id: string }; error?: Result<never>["error"] };
+    { data?: { attachment_id: string; reused?: boolean }; error?: Result<never>["error"] };
   if (!res.ok || envelope.error) {
     /* The route's refusal, relayed whole. It is the database's wording in the
        cases that matter — *the HRD shared drive has no `ops` folder recorded
@@ -276,7 +276,11 @@ export async function upload(
   /* Read back rather than building the view from what went up: `uploaded_at`,
      `duplicate_suspect` and `covers_count` are the database's answers, and two
      of the three are things only it can know. */
-  return getAttachment(envelope.data!.attachment_id);
+  const filed = await getAttachment(envelope.data!.attachment_id);
+  /* The route found these exact bytes already filed and sent nothing to
+     Drive (D359). Said on the result so the screen can say so. */
+  if (!filed.error && envelope.data!.reused) filed.data.reused = true;
+  return filed;
 }
 
 /** Filing an address as evidence (D125).

@@ -71,6 +71,19 @@ export async function upload(
   }
 
   const sha = input.sha256 ?? newId("sha").slice(4, 16);
+
+  /* **Already filed from Google Chat? Then that file is the answer (D359).**
+   * The live route asks `ops_core.same_bytes` before anything reaches Drive;
+   * here the chat captures are the attachments with `source: "chat"`. Only
+   * for the money kinds, which share the chat's drive. */
+  if (input.kind === "Receipt / Invoice / Nota" || input.kind === "Payment Proof") {
+    const same = getState().attachments.find((a) => a.sha256 === sha && a.source === "chat");
+    if (same) {
+      const result = { ...view(same), reused: true };
+      remember(SERVICE, "upload", idempotencyKey, result);
+      return ok(SERVICE, result);
+    }
+  }
   /* Identical bytes seen before is a warning, never a block: the same receipt
    * really can be photographed twice, and refusing it hides the second one. */
   const duplicate = getState().attachments.some((a) => a.sha256 === sha);

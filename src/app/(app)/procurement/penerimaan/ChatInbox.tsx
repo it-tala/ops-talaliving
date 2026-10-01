@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { MessageSquare, Sparkles, CheckCircle2, XCircle } from "lucide-react";
+import { MessageSquare, Sparkles, CheckCircle2, XCircle, FolderInput } from "lucide-react";
 import { Badge, Button, Card, CardHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { Paged } from "@/components/ui/pager";
@@ -12,7 +12,7 @@ import { procurement } from "@/demo/api";
 import type { ReceivingInboxRow, ReceivingInboxStatus } from "@/services/procurement/contracts";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
-import { MatchDrawer } from "./MatchDrawer";
+import { MatchDrawer, archiveAfterMatch } from "./MatchDrawer";
 
 /** The RECEIVING REPORT space in Google Chat (0203, D358).
  *
@@ -72,6 +72,7 @@ export function ChatInbox({ mayAct, onMatched }: { mayAct: boolean; onMatched: (
               <ul className="divide-y divide-slate-100">
                 {shown.map((r) => (
                   <InboxRow key={r.rr_no} row={r} mayAct={mayAct && status === "PENDING"}
+                    mayArchive={mayAct && status === "MATCHED"}
                     onMatch={() => setMatching(r)} onDone={reload} />
                 ))}
               </ul>
@@ -90,14 +91,16 @@ export function ChatInbox({ mayAct, onMatched }: { mayAct: boolean; onMatched: (
   );
 }
 
-function InboxRow({ row, mayAct, onMatch, onDone }: {
-  row: ReceivingInboxRow; mayAct: boolean; onMatch: () => void; onDone: () => void;
+function InboxRow({ row, mayAct, mayArchive, onMatch, onDone }: {
+  row: ReceivingInboxRow; mayAct: boolean; mayArchive: boolean; onMatch: () => void; onDone: () => void;
 }) {
   const tr = useTr();
   const { toast } = useToast();
   const [dismissing, setDismissing] = useState(false);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const notFiled = row.files.filter((f) => !f.archived).length;
   const x = row.extracted ?? {};
   const lines = (x.lines ?? []).filter((l) => l.item);
   const hours = Math.max(Math.round((Date.now() - Date.parse(row.reported_at)) / 3_600_000), 0);
@@ -146,7 +149,11 @@ function InboxRow({ row, mayAct, onMatch, onDone }: {
 
       <ImageTiles
         className="mt-2 grid grid-cols-4 gap-2 sm:grid-cols-6"
-        files={row.files.map((f) => ({ id: f.attachment_id, filename: f.filename, mime: f.mime, url: f.url }))}
+        files={row.files.map((f) => ({
+          id: f.attachment_id, filename: f.filename, mime: f.mime, url: f.url,
+          /* The month and day folder; the drive and RECEIVING REPORT are the same for all. */
+          caption: f.archived ? (f.drive_path ?? "").replace(/^RECEIVING REPORT\//, "") || null : null,
+        }))}
       />
 
       {(x.doc_kind || x.vendor || x.po_number || lines.length > 0) && (
@@ -181,6 +188,21 @@ function InboxRow({ row, mayAct, onMatch, onDone }: {
             </>
           )}
         </p>
+      )}
+
+      {mayArchive && notFiled > 0 && (
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-amber-800">
+          <span>
+            {tr(
+              `${notFiled} file(s) still only in the Chat folder (an unused one stays there).`,
+              `${notFiled} file masih hanya di folder Chat (yang tidak dipakai memang tetap di sana).`,
+            )}
+          </span>
+          <Button size="sm" variant="outline" icon={FolderInput} disabled={archiving}
+            onClick={async () => { setArchiving(true); await archiveAfterMatch(row.rr_no, tr, toast, onDone); setArchiving(false); }}>
+            {archiving ? tr("Filing…", "Menyimpan…") : tr("File in Drive", "Simpan ke Drive")}
+          </Button>
+        </div>
       )}
 
       {dismissing && (

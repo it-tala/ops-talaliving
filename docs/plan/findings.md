@@ -8723,6 +8723,35 @@ notice was already there.
 before anything is written. A control that appears only once its
 precondition is met is a control nobody finds.
 
+## F211 · 2026-10-01 · The same receipt filed twice: once by the chat, once by hand from *New ledger entry*
+
+The owner saw two trees for one kind of document in the ACCOUNTING drive:
+`OPS/TRANSACTIONS/<month>`, where John Lau's capture worker files every photo
+sent to the accounting chat, and `ops-talaliving/NOTA` and
+`ops-talaliving/TRANSFER PROOF`, where this app's uploads went.
+
+Nothing copied anything. The capture worker files each chat photo once, and
+mirrors it into the Verifikasi inbox **as a link**, so booking it from
+Verifikasi points the ledger row at the chat's file. The second copy came from
+people: the file was downloaded from Drive and attached again from *New ledger
+entry*. That upload went where 0172 sends any kind with no `drive_paths` row,
+which is the kind's own name. Comparing hashes with John Lau's `blobs` showed it:
+28 of the 116 files uploaded through the app (25 from one account, 3 from
+another, all between 28/09 and 01/10) were the same bytes as a chat capture.
+25 still carried John Lau's `RECEIPT_…` names.
+
+Two things made it easy to do and invisible afterwards. The form gave no hint
+that the document was already waiting in Verifikasi. And the inbox mirror never
+sent the capture's hash (`ops_inbox.file_evidence` left `p_sha256` empty, so
+83 of 132 inbox attachments had none), so even the advisory *identical bytes
+seen before* warning could not fire. D359 fixes both: the form says so, John
+Lau now sends the hash, and the upload route links the existing file
+(`ops_core.same_bytes`) instead of filing a second one.
+
+Also found while checking: `ops_acct.supersede_allocation(id, null)`, the
+*withdraw* path, always fails. It points the row at itself, and the
+`supersede_not_self` check refuses exactly that. Raised as a separate task.
+
 ## F208 · 2026-10-01 · The photos were already captured, read and stored — they just had no road into ops
 
 The owner asked to *activate* receiving reports from the RECEIVING REPORT
@@ -8835,3 +8864,27 @@ asserts less.
 **Rule:** a smoke that assumes a table starts empty must make it empty
 itself. A seed migration added later is an ordinary change, not an edge
 case.
+## F212 · 2026-10-01 · A copy is only "in one place" if the records point at it
+
+Copying a matched Chat photo into `ops-talaliving / RECEIVING REPORT` (D360)
+is half the job. The ledger row's item photo, the receipt and the asset all
+link the **capture's** attachment, so after a bare copy the file would be in
+two folders and every screen would still open the one in John Lau's folder —
+the duplication the owner was asking to end, just moved. So the seam that
+records a copy (`receiving_file_archived`) also moves every live link to it:
+the old link unlinked (never deleted, A2/A5), the same link made for the copy.
+The capture stays untouched and remembered as the copy's origin.
+
+Two smaller things:
+
+- **The day of a Chat photo is the day it was sent.** `drive_path_for` read
+  only the office day, which is right for an upload and wrong for a photo
+  matched days later. It takes an optional day now; making that a second
+  overload was refused by `00_no_overloads` (PostgREST cannot call an
+  overloaded seam), so the old signature was dropped and the day defaulted.
+- **Only what a record uses is copied.** A file marked *Not used* has no link,
+  so nothing would show the copy; it stays in the Chat folder.
+
+**Rule:** moving a file is moving every pointer to it. A copy nothing links is
+a second file, not a move.
+

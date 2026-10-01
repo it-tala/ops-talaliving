@@ -43,6 +43,13 @@ insert into ops_core.user_modules (user_id, module, level) values
 insert into ops_procure.items (code, name, category_code, base_uom, standard_price, last_price) values
   ('R-MINDI','Kayu mindi grade A (item)','raw-wood','m3', 5500000, null);
 
+-- This file is written against an empty rate list: the first rate saved is
+-- RT-0001, and every BOM line below names its rate by that code. 0200 seeds
+-- the PLV rate card as data, so on a fresh ladder RT-0001..RT-0026 are already
+-- taken. Nothing references them yet, and the whole file rolls back, so they
+-- are set aside here rather than every code below being made relative.
+delete from ops_prod.bom_rates;
+
 set local role authenticated;
 set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-00000000cd01';
 

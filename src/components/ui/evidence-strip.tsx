@@ -120,7 +120,13 @@ export function EvidenceStrip({
       attachment_id: up.data.id, entity, entity_no: entityNo, kind,
     });
     if (link.error) { toast("warning", tr("Not attached", "Tidak terlampir"), link.error.message); return; }
-    if (up.data.duplicate_suspect) {
+    if (up.data.reused) {
+      /* These exact bytes were already filed (a Google Chat capture), so the
+         file that is there was linked and nothing new went to Drive (D359). */
+      toast("info", tr("Attached — already in Drive", "Terlampir — sudah ada di Drive"),
+        tr("The same file was already filed from Google Chat, so it was linked instead of uploaded again.",
+          "File yang sama sudah tersimpan dari Google Chat, jadi ditautkan, tidak diunggah ulang."));
+    } else if (up.data.duplicate_suspect) {
       /* Advisory, never a block: the same receipt really can be photographed
          twice, and refusing the second one hides the first (A6). */
       toast("warning", tr("Attached — identical bytes seen before", "Terlampir — isi berkas yang sama pernah terlihat"), tr("Worth a look in case this is a duplicate.", "Layak dicek, siapa tahu ini duplikat."));
