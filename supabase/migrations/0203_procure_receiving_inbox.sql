@@ -456,7 +456,7 @@ begin
 
   if cardinality(photos) = 0 then
     return ops_core.invalid('procurement','receiving_inbox', p_rr_no,'match',
-      'photo_required','Pick at least one photo of the goods — it is what the ledger ib shows as the item photo.',
+      'photo_required','Pick at least one photo of the goods — it is what the ledger row shows as the item photo.',
       jsonb_build_object('field','photos'));
   end if;
   select count(*) into stray
@@ -520,7 +520,7 @@ begin
       end if;
       if v_cnt < 1 or v_cnt > 50 then
         return ops_core.invalid('procurement','receiving_inbox', p_rr_no,'match',
-          'bad_count','Between 1 and 50 of one asset at a time — each one is its own ib in the register.',
+          'bad_count','Between 1 and 50 of one asset at a time — each one is its own row in the register.',
           jsonb_build_object('field','lines'));
       end if;
       if nullif(ln ->> 'unit_cost', '')::numeric < 0 then
