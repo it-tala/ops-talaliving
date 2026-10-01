@@ -1,6 +1,7 @@
 "use client";
 
 import { TypeOptions } from "@/components/ui/type-options";
+import Link from "next/link";
 import { useRef, useState } from "react";
 import { Plus, Trash2, Upload, FileText, Save } from "lucide-react";
 import { Badge, Button } from "@/components/ui/primitives";
@@ -77,7 +78,11 @@ export function NewEntry({ onClose, onPosted }: { onClose: () => void; onPosted:
     const up = await documents.upload({ file, kind });
     if (up.error) { toast("critical", tr("Upload failed", "Unggah gagal"), up.error.message); return; }
     setDocs((d) => [...d, { attachment_id: up.data.id, filename: file.name, kind }]);
-    if (up.data.duplicate_suspect) {
+    if (up.data.reused) {
+      toast("info", tr("Already in Drive from Google Chat", "Sudah ada di Drive dari Google Chat"),
+        tr("The same file was linked instead of uploaded again. Next time, book it from Verification.",
+          "File yang sama ditautkan, tidak diunggah ulang. Lain kali bukukan dari Verifikasi."));
+    } else if (up.data.duplicate_suspect) {
       toast("warning", tr("Identical bytes seen before", "Berkas identik pernah terlihat"), tr("Worth a look in case this is a duplicate.", "Perlu dicek, siapa tahu ini duplikat."));
     }
   }
@@ -288,6 +293,14 @@ export function NewEntry({ onClose, onPosted }: { onClose: () => void; onPosted:
           ) : (
             <p className="mb-2 text-[13px] text-slate-500">{tr("Nothing attached yet.", "Belum ada lampiran.")}</p>
           )}
+
+          {/* Sent to Google Chat already? It is waiting in Verifikasi with its
+              file. Re-uploading it here put a second copy in Drive (F211). */}
+          <p className="mb-2 rounded-lg bg-sky-50 px-3 py-2 text-[12px] text-sky-800">
+            {tr("Already sent to the accounting chat? Book it from ", "Sudah dikirim ke chat accounting? Bukukan dari ")}
+            <Link href="/accounting/verifikasi" className="font-medium underline">{tr("Verification", "Verifikasi")}</Link>
+            {tr(" instead of uploading it again.", ", jangan diunggah ulang di sini.")}
+          </p>
 
           <div className="rounded-lg border border-dashed border-slate-300 px-3 py-3">
             <label htmlFor="ne-kind" className="block text-xs text-slate-500">{tr("Document type", "Jenis dokumen")}</label>
