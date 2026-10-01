@@ -9002,3 +9002,20 @@ re-anchors the run, and the days around it are read again (smoke `206`,
 ambiguity where a person can see it (a lone tap is review, not a guess), and
 let one human answer settle the whole run rather than every day of it.
 
+
+## F216 · 2026-10-01 · An editor that opens off screen reads as "cannot be edited"
+
+HRD reported Satpam's row on `/hrd/jadwal` as *tidak bisa diedit*. The seam
+accepted the save (shape fine, no run on the date) and the Jam / Per hari /
+Shift buttons were there for `hrd.update`. The editor, though, rendered
+**below the table and its notes**: on a laptop, under the fold, so the click
+changed nothing the person could see. The same review asked for two notes to go
+(*19.00–07.00 is a default nobody has confirmed…* and *Per month = per week ×
+52 ÷ 12. Not stored anywhere…*): reasoning for whoever builds the screen, not
+for whoever uses it. The amber *belum dikonfirmasi* badge and the editor's own
+*Menyimpan berarti mengonfirmasi* line still say what the long note said.
+
+**Rule:** a button that opens something must show it. An editor placed away
+from what was clicked scrolls itself into view when it opens (`Reveal`, keyed so
+switching rows scrolls again). Explanations of *why the screen is built this
+way* go in the code and in `06-decisions.md`, not on the page.

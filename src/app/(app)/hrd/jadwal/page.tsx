@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CalendarClock, AlertTriangle, Users, Link2, Moon, Pencil, Plus, CalendarDays, Repeat, Trash2 } from "lucide-react";
 import { Badge, Button, Card, CardHeader, EmptyState, PageHeader, StatCard } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
@@ -200,65 +200,55 @@ export default function SchedulePage() {
                   </tbody>
                 </table>
               </div>
-              {d.schedules.filter((sc) => sc.hours_unconfirmed).map((sc) => (
-                <p key={`u-${sc.code}`} className="border-t border-slate-100 px-5 py-2 text-[12px] text-amber-800">
-                  <strong>{sc.name}:</strong>{" "}
-                  {tr(
-                    `${clock(sc.start_minutes)}–${clock(sc.end_minutes)} is a default nobody has confirmed. The owner said twelve hours across midnight, not from when — and whether guards rotate between day and night weeks has not been said either, so each person is on one pattern. Saving the hours here confirms them.`,
-                    `${clock(sc.start_minutes)}–${clock(sc.end_minutes)} adalah default yang belum dikonfirmasi siapa pun. Pemilik menyebut dua belas jam lewat tengah malam, bukan mulai jam berapa — dan apakah satpam bergilir minggu siang dan malam juga belum disebut, jadi setiap orang ada di satu pola. Menyimpan jamnya di sini berarti mengonfirmasinya.`,
-                  )}
-                </p>
-              ))}
               {d.schedules.filter((sc) => sc.hours.blocked_by).map((sc) => (
                 <p key={sc.code} className="border-t border-slate-100 px-5 py-2 text-[12px] text-amber-800">
                   <strong>{sc.name}:</strong> {sc.hours.blocked_by}{" "}
                   {sc.note && <span className="text-amber-700">{sc.note}</span>}
                 </p>
               ))}
-              <p className="border-t border-slate-100 px-5 py-2 text-[11px] text-slate-500">
-                {tr(
-                  "Per month = per week × 52 ÷ 12. Not stored anywhere — two figures that must agree are the easiest way to make them disagree.",
-                  "Sebulan = seminggu × 52 ÷ 12. Tidak disimpan di mana pun — dua angka yang harus cocok adalah cara paling mudah membuatnya tidak cocok.",
-                )}
-              </p>
             </Card>
 
             {mayEdit && adding && (
-              <AddSchedule
-                existing={d.schedules.map((sc) => sc.code)}
-                daysPerWeek={d.week_pattern === "5day" ? 5 : 6}
-                onClose={() => setAdding(false)}
-                onDone={() => { setAdding(false); reload(); }}
-              />
+              <Reveal key="add">
+                <AddSchedule
+                  existing={d.schedules.map((sc) => sc.code)}
+                  daysPerWeek={d.week_pattern === "5day" ? 5 : 6}
+                  onClose={() => setAdding(false)}
+                  onDone={() => { setAdding(false); reload(); }}
+                />
+              </Reveal>
             )}
 
             {mayEdit && editing && d.schedules.find((sc) => sc.code === editing) && (
-              <EditHours
-                key={editing}
-                schedule={d.schedules.find((sc) => sc.code === editing)!}
-                daysPerWeek={d.week_pattern === "5day" ? 5 : 6}
-                onClose={() => setEditing(null)}
-                onDone={() => { setEditing(null); reload(); }}
-              />
+              <Reveal key={editing}>
+                <EditHours
+                  schedule={d.schedules.find((sc) => sc.code === editing)!}
+                  daysPerWeek={d.week_pattern === "5day" ? 5 : 6}
+                  onClose={() => setEditing(null)}
+                  onDone={() => { setEditing(null); reload(); }}
+                />
+              </Reveal>
             )}
 
             {mayEdit && editingDays && d.schedules.find((sc) => sc.code === editingDays) && (
-              <EditDays
-                key={`days-${editingDays}`}
-                schedule={d.schedules.find((sc) => sc.code === editingDays)!}
-                onClose={() => setEditingDays(null)}
-                onDone={() => { setEditingDays(null); reload(); }}
-              />
+              <Reveal key={`days-${editingDays}`}>
+                <EditDays
+                  schedule={d.schedules.find((sc) => sc.code === editingDays)!}
+                  onClose={() => setEditingDays(null)}
+                  onDone={() => { setEditingDays(null); reload(); }}
+                />
+              </Reveal>
             )}
 
             {mayEdit && editingShifts && d.schedules.find((sc) => sc.code === editingShifts) && (
-              <EditShifts
-                key={`shifts-${editingShifts}`}
-                schedule={d.schedules.find((sc) => sc.code === editingShifts)!}
-                others={d.schedules.filter((sc) => sc.code !== editingShifts)}
-                onClose={() => setEditingShifts(null)}
-                onDone={() => { setEditingShifts(null); reload(); }}
-              />
+              <Reveal key={`shifts-${editingShifts}`}>
+                <EditShifts
+                  schedule={d.schedules.find((sc) => sc.code === editingShifts)!}
+                  others={d.schedules.filter((sc) => sc.code !== editingShifts)}
+                  onClose={() => setEditingShifts(null)}
+                  onDone={() => { setEditingShifts(null); reload(); }}
+                />
+              </Reveal>
             )}
 
             {d.unlinked.length > 0 ? (
@@ -296,6 +286,17 @@ export default function SchedulePage() {
       </Loaded>
     </div>
   );
+}
+
+/** An editor opens below the whole table, which on a laptop is under the
+ *  fold — the click looked like it did nothing. Scroll it into view the
+ *  moment it opens; each editor is keyed, so switching rows scrolls again. */
+function Reveal({ children }: { children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+  return <div ref={ref} className="scroll-mt-4">{children}</div>;
 }
 
 /** Minutes from midnight as a clock face, and an **honest blank** where the
