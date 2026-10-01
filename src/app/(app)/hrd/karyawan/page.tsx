@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Users, Plus, Wallet, Search, X, Phone, Mail } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
+import { Pager } from "@/components/ui/pager";
 import { formatIDR, formatNumber } from "@/lib/format";
 import { hr } from "@/demo/api";
 import type { Employee, EmployeeAccount } from "@/services/hr/contracts";
@@ -21,10 +22,30 @@ import { EmployeeDrawer } from "./EmployeeDrawer";
  *  rate*). The difference shows up in exactly one place — how a day becomes
  *  money — so it is a column, not two screens.
  */
+/** People who have left, per page — read from the database a page at a time. */
+const LEFT_PAGE = 10;
+
 export default function EmployeesPage() {
   const tr = useTr();
   const { can } = useSession();
-  const [rows, reload] = useLoad(() => hr.listEmployees({ include_left: true }), []);
+  /* Only the people working here are read whole: they are the ones the tiles
+     add up. Those who have left come from the database ten at a time (owner,
+     HRD evaluation: *tidak perlu dirender semuanya*). */
+  const [rows, reloadActive] = useLoad(() => hr.listEmployees(), []);
+  const [leftPage, setLeftPage] = useState(0);
+  const [leftQ, setLeftQ] = useState("");
+  const [leftRev, setLeftRev] = useState(0);
+  const [leavers] = useLoad(
+    () => hr.listLeavers({ offset: leftPage * LEFT_PAGE, limit: LEFT_PAGE, q: leftQ }),
+    [leftPage, leftQ, leftRev],
+  );
+  const reload = () => { reloadActive(); setLeftRev((n) => n + 1); };
+  /* The tile counts everybody who has left, whatever the search says; the
+     unfiltered total is kept from the last read that had no search. */
+  const [leftAll, setLeftAll] = useState<number | null>(null);
+  useEffect(() => {
+    if (leavers.status === "ready" && !leftQ) setLeftAll(leavers.data.total);
+  }, [leavers, leftQ]);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [adding, setAdding] = useState(false);
   /* Forty-odd people over two pages: finding one by paging is the wrong
@@ -33,6 +54,12 @@ export default function EmployeesPage() {
   const [q, setQ] = useState("");
   const mayEdit = can("hrd.update");
   const today = officeToday();
+  /* The search reaches the leavers through the database, so it waits for the
+     typing to stop and starts them from their first page. */
+  useEffect(() => {
+    const t = setTimeout(() => { setLeftQ(q.trim()); setLeftPage(0); }, 300);
+    return () => clearTimeout(t);
+  }, [q]);
   const [sched] = useLoad(() => hr.listSchedules(), []);
   const schedules = sched.status === "ready" ? sched.data.schedules : [];
   /* Which account each person signs in with — read-only here; IT links it on
@@ -178,7 +205,7 @@ export default function EmployeesPage() {
       <Loaded state={rows} onRetry={reload}>
         {(all) => {
           const active = all.filter((e) => e.active);
-          const left = all.filter((e) => !e.active);
+          const leftTotal = leavers.status === "ready" ? leavers.data.total : null;
           const monthly = active.filter((e) => e.pay_basis === "monthly");
           const daily = active.filter((e) => e.pay_basis !== "monthly");
           /* Pokok and tunjangan kept apart in the tiles for the same reason
@@ -199,7 +226,6 @@ export default function EmployeesPage() {
              yet — HRD's to fill in, so the screen counts them (D349). */
           const leaveDue = active.filter((e) => leaveStanding(e, today).kind === "due");
           const activeShown = active.filter(matches);
-          const leftShown = left.filter(matches);
 
           return (
             <>
@@ -211,7 +237,7 @@ export default function EmployeesPage() {
                       ? tr(`base pay every month · + ${formatIDR(monthlyAllowance)} allowance per day present`, `pokok setiap bulan · + ${formatIDR(monthlyAllowance)} tunjangan per hari hadir`)
                       : tr("every month, whatever the machine says", "setiap bulan, apa pun kata mesin")],
                     [tr("A full day of the workshop", "Sehari penuh workshop"), formatIDR(dailyCost), tr(`${daily.length} people, if everybody is in — base + allowance`, `${daily.length} orang, kalau semua hadir — pokok + tunjangan`)],
-                    [tr("Left", "Keluar"), String(left.length), tr("records kept — a payslip from March is still a fact", "catatan tetap disimpan — slip gaji bulan Maret tetap sebuah fakta")],
+                    [tr("Left", "Keluar"), leftAll == null ? "…" : String(leftAll), tr("records kept — a payslip from March is still a fact", "catatan tetap disimpan — slip gaji bulan Maret tetap sebuah fakta")],
                   ] as [string, string, string][]).map(([k, v, note]) => (
                     <div key={k} className="px-4 py-3.5">
                       <dt className="text-[11px] uppercase tracking-wide text-slate-400">{k}</dt>
@@ -242,7 +268,9 @@ export default function EmployeesPage() {
                 </label>
                 {needle && (
                   <span className="text-[12px] text-slate-500">
-                    {tr(`${activeShown.length + leftShown.length} found`, `${activeShown.length + leftShown.length} ditemukan`)}
+                    {leftTotal == null
+                      ? tr(`${activeShown.length} working here found`, `${activeShown.length} karyawan aktif ditemukan`)
+                      : tr(`${activeShown.length + leftTotal} found`, `${activeShown.length + leftTotal} ditemukan`)}
                   </span>
                 )}
               </div>
@@ -271,6 +299,7 @@ export default function EmployeesPage() {
                 />
                 <DataTable
                   dense columns={columns} rows={activeShown} rowKey={(e) => e.employee_no}
+                  pageSize={10}
                   onRowClick={(e) => mayEdit && setEditing(e)}
                   empty={needle
                     ? tr("Nobody working here matches.", "Tidak ada karyawan aktif yang cocok.")
@@ -278,19 +307,45 @@ export default function EmployeesPage() {
                 />
               </Card>
 
-              {leftShown.length > 0 && (
+              {/* Ten at a time, newest leaver first; the next ten are read
+                  from the database when somebody asks for them. */}
+              {(leftTotal == null || leftTotal > 0 || leftQ) && (
                 <Card>
                   <CardHeader
-                    title={needle
-                      ? tr(`${leftShown.length} of ${left.length} who have left`, `${leftShown.length} dari ${left.length} yang sudah keluar`)
-                      : tr(`${left.length} who have left`, `${left.length} yang sudah keluar`)}
+                    title={leftTotal == null
+                      ? tr("Who have left", "Yang sudah keluar")
+                      : leftQ
+                        ? tr(`${leftTotal} who have left match`, `${leftTotal} yang sudah keluar cocok`)
+                        : tr(`${leftTotal} who have left`, `${leftTotal} yang sudah keluar`)}
+                    subtitle={tr("Most recent first.", "Yang terakhir keluar lebih dulu.")}
                     icon={Wallet}
+                    action={<SourceBadge state={leavers} />}
                   />
-                  <DataTable
-                    dense columns={columns} rows={leftShown} rowKey={(e) => e.employee_no}
-                    onRowClick={(e) => mayEdit && setEditing(e)}
-                    empty={tr("Nobody has left.", "Belum ada yang keluar.")}
-                  />
+                  <Loaded state={leavers}>
+                    {(lv) => (
+                      <>
+                        <DataTable
+                          dense columns={columns} rows={lv.rows} rowKey={(e) => e.employee_no}
+                          paginate={false}
+                          onRowClick={(e) => mayEdit && setEditing(e)}
+                          empty={leftQ
+                            ? tr("Nobody who has left matches.", "Tidak ada yang sudah keluar yang cocok.")
+                            : tr("Nobody has left.", "Belum ada yang keluar.")}
+                        />
+                        {lv.total > LEFT_PAGE && (
+                          <Pager
+                            from={leftPage * LEFT_PAGE + 1}
+                            to={Math.min((leftPage + 1) * LEFT_PAGE, lv.total)}
+                            total={lv.total}
+                            page={leftPage}
+                            pages={Math.ceil(lv.total / LEFT_PAGE)}
+                            onPage={setLeftPage}
+                            unit={tr("people", "orang")}
+                          />
+                        )}
+                      </>
+                    )}
+                  </Loaded>
                 </Card>
               )}
             </>

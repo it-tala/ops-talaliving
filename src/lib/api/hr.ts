@@ -91,6 +91,32 @@ export async function listEmployees(
   return fromRows<Employee[]>(SERVICE, data as unknown as Employee[], error);
 }
 
+/** The people who have left, newest leaver first, a page at a time (owner:
+ *  *tampilkan 10 terakhir, jika next ditekan baru pull dari database*). The
+ *  search runs in the database too, so a page never filters a page. */
+export async function listLeavers(
+  opts: { offset?: number; limit?: number; q?: string } = {},
+): Promise<Result<{ rows: Employee[]; total: number }>> {
+  const offset = Math.max(opts.offset ?? 0, 0);
+  const limit = Math.min(Math.max(opts.limit ?? 10, 1), 100);
+  let q = db().from("employees").select(EMPLOYEE_COLS, { count: "exact" })
+    .eq("active", false)
+    .order("left_on", { ascending: false, nullsFirst: false })
+    .order("employee_no")
+    .range(offset, offset + limit - 1);
+  /* PostgREST's `or` is a little language of its own: commas, brackets and
+     wildcards in what somebody typed would be read as syntax, so they go. */
+  const needle = (opts.q ?? "").replace(/[,()*%\\]/g, " ").trim();
+  if (needle) {
+    const like = `%${needle}%`;
+    q = q.or(["full_name", "employee_no", "position", "unit", "email", "phone"]
+      .map((c) => `${c}.ilike.${like}`).join(","));
+  }
+  const { data, error, count } = await q;
+  if (error) return fromRows<{ rows: Employee[]; total: number }>(SERVICE, null, error);
+  return ok(SERVICE, { rows: (data ?? []) as unknown as Employee[], total: count ?? 0 });
+}
+
 /** The active people, number, name, unit and position — the roster a
  *  timeslot names its workers from (D355). A function, not the table: a
  *  production admin cannot read `employees`, and the picker was empty for
@@ -151,7 +177,10 @@ export async function saveEmployee(
     position: string;
     unit: string;
     pay_basis: PayBasis;
-    base_rate: number;
+    /** Absent leaves it as it is. Required for a new person, and never nought
+     *  — but somebody already on the books with no salary yet can still have
+     *  their other details saved (owner, HRD review). */
+    base_rate?: number;
     allowance_rate?: number;
     daily_hours?: number;
     schedule_code?: string | null;
@@ -170,7 +199,7 @@ export async function saveEmployee(
     p_position: input.position,
     p_unit: input.unit,
     p_pay_basis: input.pay_basis,
-    p_base_rate: input.base_rate,
+    p_base_rate: input.base_rate ?? null,
     p_allowance_rate: input.allowance_rate ?? null,
     p_daily_hours: input.daily_hours ?? null,
     p_schedule_code: input.schedule_code ?? null,

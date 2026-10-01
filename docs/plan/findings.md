@@ -9002,6 +9002,25 @@ re-anchors the run, and the days around it are read again (smoke `206`,
 ambiguity where a person can see it (a lone tap is review, not a guess), and
 let one human answer settle the whole run rather than every day of it.
 
+## F216 · 2026-10-01 · One empty field locked the whole record, and the button never said so
+
+Owner, HRD review: *masuk sebagai superadmin tapi tidak bisa edit data
+karyawan, kecuali Salary, per month* — then, after looking again: *ternyata
+salary per month harus diisi dulu sebelum bisa edit yang lain.* The drawer
+disabled *Save* while the rate was nought, a rule meant for a new hire (*nol
+bukan upah*). Six monthly people in production were entered with no salary,
+so for them **nothing** could be saved — not a phone number, not a position —
+and the button gave no reason. Production's log showed only successful saves,
+because a refusal that happens in the browser never reaches it.
+
+The database already had it right: on an existing person an absent rate means
+*unchanged*. The screen now sends the rate only when there is one, a new
+person still needs one, a salary that is there still cannot be wiped to
+nought, and a disabled *Save* lists what is missing.
+
+**Rule:** a guard meant for creating a record must not lock editing one; and
+a disabled button says why (F214, again).
+
 
 ## F216 · 2026-10-01 · A version dated back stops at the next date already in the book
 
