@@ -46,6 +46,31 @@ const blankLine = (read = "", qty = 0): LineDraft => ({
   name: read, category_code: "", count: 1, unit_cost: 0,
 });
 
+/** File a matched message's photos into the month tree and say what happened. */
+export async function archiveAfterMatch(
+  rrNo: string, tr: Tr,
+  toast: ReturnType<typeof useToast>["toast"],
+  onDone: () => void,
+): Promise<void> {
+  const res = await procurement.archiveReceiving(rrNo);
+  if (res.error) {
+    toast("warning", tr("Photos not filed in Drive yet", "Foto belum tersimpan di Drive"), res.error.message);
+    return;
+  }
+  const { archived, failed } = res.data;
+  if (archived.length > 0) {
+    toast("success",
+      tr(`${archived.length} photo(s) filed`, `${archived.length} foto tersimpan`),
+      `PROCUREMENT / ops-talaliving / ${archived[0].path}`);
+  }
+  if (failed.length > 0) {
+    toast("warning",
+      tr(`${failed.length} photo(s) not filed`, `${failed.length} foto belum tersimpan`),
+      failed.map((f) => `${f.filename}: ${f.message}`).join(" · "));
+  }
+  onDone();
+}
+
 /** Match one Chat message to what it was (0203, D358). */
 export function MatchDrawer({ row, onClose, onMatched }: {
   row: ReceivingInboxRow; onClose: () => void; onMatched: () => void;
@@ -104,6 +129,11 @@ export function MatchDrawer({ row, onClose, onMatched }: {
     toast("success", tr(`${row.rr_no} matched`, `${row.rr_no} dicocokkan`),
       res.data.matched_to === "po" ? res.data.po_no ?? "" : res.data.trx_no ?? "");
     onMatched();
+    /* Then the photos into PROCUREMENT / ops-talaliving / RECEIVING REPORT /
+       <month> / <day> (D360). Not awaited by the drawer: the match stands
+       whether or not Drive answers, and a failure is offered again on the
+       row. */
+    void archiveAfterMatch(row.rr_no, tr, toast, onMatched);
     if (res.data.matched_to === "po") setDone(res.data);
     else onClose();
   }
