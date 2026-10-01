@@ -8619,6 +8619,39 @@ Numbers are handed out by whoever writes `06-decisions.md` first; a session
 that runs for hours should re-read the tail of that file — and of
 `supabase/migrations/` — right before it merges, not only before it commits.
 
+
+## F205 · 2026-09-30 · The board records the state at merge; the database records the state now
+
+A comparison of the owner's *PLV BOM* spreadsheets with the BOM module
+(`docs/analysis/2026-09-30-plv-bom-vs-ops-bom.md`) was first written from the
+README board. Two rows were read as facts: D324, *the rate list starts
+empty*, and D338, *`0193` not yet applied to production — waits on the
+owner*. Both were true when their pull requests merged on 29 September and
+false by the afternoon of the same day. Production held **84 active rates**,
+all created 29 September — 75 from the 24 September rate card
+(`BOM_RATE_REF`), 6 per-hour labour rates from the PLV labour rate card, 3
+from the finishing recipes — and `0193` had been applied at
+`20260929091210`, with its read policy and `v_bom_norm` in place. The
+comparison repeated both stale rows as findings about production, and the
+owner's question — *validate against the sheets, I imagine the PLV rates are
+more complete* — was what sent it back to the database.
+
+**Rule:** the board is a log of what merged, and data changes without a
+commit. Before writing what production *holds*, read production; the board
+only says what the code *can* hold.
+
+**What the read-through then showed** was more useful than the correction.
+The two rate sources share a unit and not a basis: the list in production
+prices timber **as bought** — per m³ of log (RT-0004–0006), of square
+(RT-0001–0002) and of *siap potong* (RT-0003, 0007) — while the PLV card
+prices timber **as a finished component**, per m³ with the yield and the
+carpentry labour already inside (TEAK_B 36.2 jt against a log at 4.5 or
+10.9 jt). Put in one list without a marker, the yield gets applied twice by
+one estimator and never by the next. Three figures the PLV card derived from
+STMV actuals also collide with norms already in `bom_norms` — overhead 13 %
+against 17 %, finishing labour 88,755 against 12,500 per m², finishing
+material 51,640 against 96,300 — each pair from the same ledger with a
+different numerator and denominator. None of that was visible from the code.
 ## F205 · 2026-09-30 · The picker was built for the one person who could not see it
 
 The timeslot form (D352) picks its people from `hr.listEmployees()`, which
