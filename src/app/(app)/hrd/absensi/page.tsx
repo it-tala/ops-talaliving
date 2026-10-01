@@ -16,7 +16,7 @@ import { DAY_MARK_SHORT, OVERTIME_STAGE_LABEL, PAY_WEEK_STARTS_DEFAULT, type Day
 import Link from "next/link";
 import { useSession } from "@/store/session";
 import { useTr } from "@/lib/i18n";
-import { onSiteHours } from "@/services/hr/on-site";
+import { actualHours } from "@/services/hr/on-site";
 import { ImportScans } from "./ImportScans";
 import { DayDrawer } from "./DayDrawer";
 import { MarkDay } from "./MarkDay";
@@ -381,7 +381,7 @@ function TotalCell({ total, onSite }: { total?: TimesheetTotal; onSite: number |
       {/* Beside the paid hours, the hours at work (D354). */}
       {onSite != null && (
         <span className="block text-[10px] tabular-nums text-slate-500">
-          {tr(`${formatNumber(onSite)} h on site`, `${formatNumber(onSite)} jam di lokasi`)}
+          {tr(`${formatNumber(onSite)} h actually worked`, `${formatNumber(onSite)} jam kerja aktual`)}
         </span>
       )}
       <span className="block text-[10px] tabular-nums text-slate-400">
@@ -440,7 +440,7 @@ function PeopleGrid({
   const onSiteOf = (employeeNo: string): number | null => {
     const spans = s.days
       .filter((d) => d.employee_no === employeeNo && d.state !== "off")
-      .map((d) => onSiteHours(d.scans))
+      .map((d) => actualHours(d))
       .filter((h): h is number => h != null);
     return spans.length ? Math.round(spans.reduce((a, b) => a + b, 0) * 100) / 100 : null;
   };
@@ -474,7 +474,7 @@ function PeopleGrid({
                 </th>
               ))}
               <th className="border-l border-slate-200 px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                {tr("Hours paid · on site", "Jam dibayar · di lokasi")}
+                {tr("Hours paid · actual", "Jam dibayar · aktual")}
               </th>
               <th className="sticky right-0 z-10 border-l border-slate-200 bg-slate-50/70 px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                 {tr("Estimated pay", "Estimasi gaji")}
@@ -523,12 +523,12 @@ function PeopleGrid({
                         {(day.pay_multiplier ?? 1) > 1 && day.day_value > 0 && (
                           <span className="ml-0.5 text-[9px] font-semibold text-amber-700">×{day.pay_multiplier}</span>
                         )}
-                        {day.state === "complete" && onSiteHours(day.scans) != null && (
+                        {day.state === "complete" && actualHours(day) != null && (
                           <span
                             className="block text-[9px] font-normal tabular-nums opacity-70"
-                            title={tr("hours on site, first tap to last", "jam di lokasi, tap pertama sampai terakhir")}
+                            title={tr("hours actually worked: first tap to last, less the break", "jam kerja aktual: tap pertama sampai terakhir, dikurangi istirahat")}
                           >
-                            {formatNumber(onSiteHours(day.scans)!)}
+                            {formatNumber(actualHours(day)!)}
                           </span>
                         )}
                       </button>
@@ -579,7 +579,7 @@ function PeopleGrid({
         <span className="rounded border border-amber-300 bg-amber-50 px-1.5 text-amber-900">{tr("n tap", "n tap")}</span> {tr("needs reading", "perlu dibaca")}
         <span className="rounded border border-violet-200 bg-violet-50 px-1.5 text-violet-800">{tr("marked", "ditandai")}</span> {tr("HRD said what happened", "HRD menyatakan apa yang terjadi")}
         <span className="rounded border border-rose-300 bg-rose-50 px-1.5 text-rose-800">{tr("hours", "jam")}</span> {tr("short of the schedule — late or left early", "kurang dari jadwal — telat atau pulang cepat")}
-        <span>{tr("big number = hours paid, small = hours on site (first tap to last)", "angka besar = jam dibayar, kecil = jam di lokasi (tap pertama sampai terakhir)")}</span>
+        <span>{tr("big number = hours paid (at most the schedule), small = hours actually worked (first tap to last, less the break)", "angka besar = jam dibayar (paling banyak sesuai jadwal), kecil = jam kerja aktual (tap pertama sampai terakhir, dikurangi istirahat)")}</span>
         <span className="rounded border border-slate-100 bg-slate-50 px-1.5 text-slate-400">—</span> {tr("no tap at all", "tidak ada tap sama sekali")}
         <span><span className="font-semibold text-amber-700">×2</span> {tr("paid at the schedule's multiplier", "dibayar dengan pengali jadwal")}</span>
         <span className="inline-flex items-center gap-1"><Moon className="h-3 w-3 text-indigo-600" /> {tr("night shift, counted on the day it started", "shift malam, dihitung pada hari mulainya")}</span>

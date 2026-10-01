@@ -17,3 +17,18 @@ export function onSiteHours(scans: { at: string }[]): number | null {
   const t = scans.map((s) => Date.parse(s.at)).sort((a, b) => a - b);
   return Math.round((t[t.length - 1] - t[0]) / 36_000) / 100;
 }
+
+/** The hours actually worked on a day (D361): on site, first tap to last,
+ *  **less the break** — the schedule's (45 minutes at the workshop, an hour at
+ *  the office, 90 on a Friday) under the arrival-and-departure reading, or
+ *  the break tapped out and back in under the slot reading. Owner, on D354:
+ *  *jika jadwal 8,25 maka maksimal paid hanya 8,25, dan jam bekerja aktual
+ *  kurangi jam istirahat entah 45 menit atau 1 jam.* So the paid hours stop
+ *  at the schedule and this one does not: the gap between them is time
+ *  worked past the schedule that only an overtime sheet pays. Null with
+ *  fewer than two taps. */
+export function actualHours(day: { scans: { at: string }[]; break_hours: number }): number | null {
+  const on = onSiteHours(day.scans);
+  if (on == null) return null;
+  return Math.max(Math.round((on - day.break_hours) * 100) / 100, 0);
+}
