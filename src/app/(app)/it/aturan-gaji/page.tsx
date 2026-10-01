@@ -6,7 +6,7 @@ import { Scale, History, Play, AlertTriangle, Clock, CalendarDays } from "lucide
 import { ScheduleEditor } from "./ScheduleEditor";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
-import { officeToday } from "@/lib/office";
+import { officeToday, shiftDay } from "@/lib/office";
 import { NumberInput } from "@/components/ui/number-input";
 import { Paged } from "@/components/ui/pager";
 import { formatIDR, formatNumber } from "@/lib/format";
@@ -604,6 +604,33 @@ export default function PayRulesPage() {
                               className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
                             />
                           </label>
+                          {/* A day is read by the version with the latest
+                              effective date on or before it, and only then
+                              the highest number — so a version dated back
+                              stops at the next date already in the book
+                              (F216: v11 from 1 Sep left 23–30 Sep on v5). */}
+                          {(() => {
+                            const later = [...new Set(all.filter((r) => r.effective_from > effective).map((r) => r.effective_from))].sort();
+                            if (later.length === 0) return null;
+                            const winner = (d: string) => Math.max(...all.filter((r) => r.effective_from === d).map((r) => r.version));
+                            return (
+                              <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+                                <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />
+                                {tr(
+                                  `This version reads ${effective} to ${shiftDay(later[0], -1)} only. `,
+                                  `Versi ini hanya membaca ${effective} s.d. ${shiftDay(later[0], -1)}. `,
+                                )}
+                                {tr("From then on the days stay on", "Sesudahnya hari-hari tetap dibaca")}{" "}
+                                {later.map((d, i) => (
+                                  <span key={d}>{i > 0 && ", "}<strong>v{winner(d)}</strong> ({tr("from", "mulai")} {d})</span>
+                                ))}
+                                {tr(
+                                  " — a day takes the version with the latest effective date first, the version number only after. To change those days too, save the same rules once more on each of those dates.",
+                                  " — satu hari memakai versi dengan tanggal berlaku paling akhir dulu, nomor versi baru sesudahnya. Supaya hari-hari itu ikut berubah, simpan aturan yang sama sekali lagi pada setiap tanggal tersebut.",
+                                )}
+                              </p>
+                            );
+                          })()}
                           <input
                             ref={noteField}
                             value={note} onChange={(e) => setNote(e.target.value)}

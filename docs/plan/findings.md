@@ -9003,6 +9003,26 @@ ambiguity where a person can see it (a lone tap is review, not a guess), and
 let one human answer settle the whole run rather than every day of it.
 
 
+## F216 · 2026-10-01 · A version dated back stops at the next date already in the book
+
+IT published the *Tap datang & pulang saja* reading on 1 Oct (v7–v10), saw
+the week of 25/09 still paid 8,89 / 8,94 / 8,97 on a schedule of 8,25 and
+still yellow for *1 tap*, and published it again from 1 Sep (v11). Nothing
+changed. `rules_on` takes the version with the **latest effective date** on or
+before the day, and only then the highest number — v1–v5 sit on 23 Sep, so
+from 23 Sep the day was still v5's, and v11 read only 1–22 Sep. The screen let
+the date be typed and said nothing about where the version would stop.
+Production was put right by v13, the same rules on 23 Sep (v12, a duplicate of
+v11 saved while this was being found, carries a note that says so); the week
+of 25/09 now reads 8,25.
+
+The ordering is right — a correction sits on the date it corrects, and a later
+date is a later decision — so the fix is on the screen: the save card now says
+*Versi ini hanya membaca … s.d. …* and names the version that keeps each later
+date.
+
+**Rule:** where a date decides which record applies, the screen that takes the
+date says what range it will actually reach before saving, not after.
 ## F216 · 2026-10-01 · An editor that opens off screen reads as "cannot be edited"
 
 HRD reported Satpam's row on `/hrd/jadwal` as *tidak bisa diedit*. The seam
