@@ -1,5 +1,5 @@
--- procure — completing a reported arrival applies the daylight count (0204,
--- F212, D360).
+-- procure — completing a reported arrival applies the daylight count (0205,
+-- F213, D361).
 --
 --   REFUSALS     confirming with procurement read only; a corrected quantity
 --                of zero or less (and the row is left as reported); confirming
@@ -109,7 +109,7 @@ begin
   r := ops_procure.confirm_receipt((select v from t_b6 where k = 'rcv2'), p_condition => 'WRONG ITEM');
   assert ops_core.said_ok(r), format('wrong item confirmed, got %s', r);
 
-  -- No correction: the reported figure stands, as before 0204.
+  -- No correction: the reported figure stands, as before 0205.
   r := ops_procure.confirm_receipt((select v from t_b6 where k = 'rcv3'));
   assert ops_core.said_ok(r), format('plain confirm, got %s', r);
 end $$;

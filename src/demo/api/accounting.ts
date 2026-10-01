@@ -529,6 +529,9 @@ export async function editTransaction(
     vendor_code?: string | null;
     project_code?: string | null;
     type_code?: string;
+    /** Which account the money moved through (`0204`). No clearing case —
+     *  money always moved through somewhere. */
+    account_code?: string;
     reason?: string;
   },
   idempotencyKey?: string,
@@ -590,9 +593,41 @@ export async function editTransaction(
     return invalid(SERVICE, "no_such_type", `There is no transaction type ${typeCode}.`, { field: "type_code" });
   }
 
+  /* The account (`0204`). Unlike the vendor it moves money from one balance
+     to another, so three guards the vendor does not have: the bank statement
+     that already confirmed the row, a leadership account on either side
+     (D87), and a different currency. */
+  const accFrom = state.accounts.find((a) => a.id === trx.account_id)!;
+  let accTo = accFrom;
+  const wantedAccount = input.account_code?.trim();
+  if (wantedAccount && wantedAccount !== accFrom.code) {
+    const a = state.accounts.find((x) => x.code === wantedAccount);
+    if (!a) {
+      return invalid(SERVICE, "no_such_account", `There is no account ${wantedAccount}.`, { field: "account_code" });
+    }
+    if (a.is_active === false) {
+      return invalid(SERVICE, "account_inactive", `${a.code} is no longer in use — a row is not moved onto it.`, { field: "account_code" });
+    }
+    if (a.currency !== accFrom.currency) {
+      return invalid(
+        SERVICE, "account_currency",
+        `${accFrom.code} is a ${accFrom.currency} account and ${a.code} is ${a.currency}. The amount here is in ${accFrom.currency}, so it cannot simply move — void it and post it on the right account.`,
+        { field: "account_code" },
+      );
+    }
+    if (accFrom.custody === "leadership" || a.custody === "leadership") {
+      const denied = requireAuthority(SERVICE, "approve_funds");
+      if (denied) return denied;
+    }
+    if (state.statement_lines.some((l) => l.trx_no === trx.trx_no && (l.status === "matched" || l.status === "booked"))) {
+      return conflict(SERVICE, "statement_matched", `This row is matched to a ${accFrom.code} bank statement line, so the bank says which account it moved through. Unmatch it first.`);
+    }
+    accTo = a;
+  }
+
   if (amount === trx.amount_idr && description === trx.description
       && vendorId === trx.vendor_id && projectId === trx.project_id
-      && typeCode === trx.type_code) {
+      && typeCode === trx.type_code && accTo.id === accFrom.id) {
     return ok(SERVICE, transactionView(state, trx));
   }
 
@@ -636,6 +671,9 @@ export async function editTransaction(
   if (typeCode !== trx.type_code) {
     Object.assign(detail, { type_before: trx.type_code, type_after: typeCode });
   }
+  if (accTo.id !== accFrom.id) {
+    Object.assign(detail, { account_before: accFrom.code, account_after: accTo.code });
+  }
 
   apply((draft) => {
     const t = draft.transactions.find((x) => x.id === trx.id)!;
@@ -644,6 +682,7 @@ export async function editTransaction(
     t.vendor_id = vendorId;
     t.project_id = projectId;
     t.type_code = typeCode as typeof t.type_code;
+    t.account_id = accTo.id;
     if (syncLine) {
       const l = draft.transaction_lines.find((x) => x.id === syncLine)!;
       l.amount = amount;
