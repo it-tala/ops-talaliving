@@ -8,8 +8,11 @@ import type {
   VendorView, ItemView, VarianceReason, PrApproval, VendorJourney,
   ApprovalRequestView, ApprovalBatchView, PoDetail, PoApprovalView,
   ProjectView, ProjectLineView, ProjectStatus, ProjectStatusChange, Client, ClientView,
+  ReceivingInboxRow, ReceivingInboxStatus, ReceivingCandidates, ReceivingLineInput,
+  ReceivingMatchResult, PoPaymentRequest, ReceivingTrxCandidate, ReceivingPoCandidate,
 } from "@/services/procurement/contracts";
-import type { DemoState } from "../state";
+import { RECEIPT_CONDITIONS } from "@/services/procurement/contracts";
+import type { DemoState, DemoReceivingInbox } from "../state";
 import { productView, workOrderView, joReferenceProblem } from "../production-derive";
 import type { PrLine as PrLineRow } from "@/services/procurement/contracts";
 import { PROBLEM_CONDITIONS, COUNTING_CONDITIONS, VARIANCE_REASON_LABELS } from "@/services/procurement/contracts";
@@ -22,16 +25,16 @@ import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "
    a delivery puts the goods on a rack (D170). Written as a function the
    inventory service owns, so Phase 2 replaces the call with the outbox
    consumer and nothing else moves (ADR-004, ADR-008). */
-import { stockFromReceipt } from "./inventory";
+import { stockFromReceipt, stockArrival, stockItemUom, registerArrivedAsset } from "./inventory";
 import {
   prLineView, approvalQueue, lineCoverage, roundSummary, poStatus, isApproved,
   poDetail, poTerms,
   boughtCategories, itemsBoughtFrom, itemSources, purchaseFacts, openLines,
-  pendingRequest, byTime, vendorJourney,
+  pendingRequest, byTime, vendorJourney, poJourney,
   varianceOf, currentApproval, lineEvidenceKinds, orderOfLine,
 } from "../derive";
 import {
-  latency, actingUser, requireAuthority, requireModule, conflict, replayed, remember, paged,
+  latency, actingUser, requireAuthority, requireModule, requireLevel, conflict, replayed, remember, paged,
 } from "./_kit";
 
 const SERVICE = "procurement" as const;
@@ -3657,4 +3660,388 @@ export async function answerPoFromChat(
   const detail = await getPoDetail(po.po_no);
   if (detail.data) remember(SERVICE, endpoint, idempotencyKey, detail.data);
   return detail;
+}
+
+/* ------------------------------------------------------------------ */
+/* Receiving report from Google Chat (0203, D358)                      */
+/* ------------------------------------------------------------------ */
+
+function receivingRow(state: DemoState, r: DemoReceivingInbox): ReceivingInboxRow {
+  const { file_ids, reported_by, resolved_by, ...rest } = r;
+  return {
+    ...rest,
+    sender_name: state.users.find((u) => u.id === reported_by)?.full_name ?? r.sender_name,
+    files: file_ids.map((id) => state.attachments.find((a) => a.id === id)).filter((a) => !!a).map((a) => ({
+      attachment_id: a!.id, url: a!.url ?? a!.web_view_link ?? null, filename: a!.filename, mime: a!.mime,
+    })),
+    resolved_by_name: resolved_by ? state.users.find((u) => u.id === resolved_by)?.full_name ?? null : null,
+  };
+}
+
+export async function listReceivingInbox(
+  input: { status?: ReceivingInboxStatus; limit?: number } = {},
+): Promise<Result<ReceivingInboxRow[]>> {
+  await latency();
+  const denied = requireModule(SERVICE, "procurement");
+  if (denied) return denied;
+  const state = getState();
+  const status = input.status ?? "PENDING";
+  const rows = state.receiving_inbox
+    .filter((r) => r.status === status)
+    .sort((a, b) => status === "PENDING" ? byTime(a.reported_at, b.reported_at) : byTime(b.reported_at, a.reported_at))
+    .slice(0, input.limit ?? 200)
+    .map((r) => receivingRow(state, r));
+  return ok(SERVICE, rows);
+}
+
+export async function receivingCandidates(
+  rrNo: string, query?: string | null,
+): Promise<Result<ReceivingCandidates>> {
+  await latency();
+  const denied = requireModule(SERVICE, "procurement");
+  if (denied) return denied;
+  const state = getState();
+  const row = state.receiving_inbox.find((r) => r.rr_no === rrNo);
+  if (!row) return notFound(SERVICE, "not_found", `No receiving report ${rrNo}.`);
+  const q = query?.trim().toLowerCase() || null;
+  const ven = row.extracted.vendor?.trim().toLowerCase() || null;
+  const day = Date.parse(row.reported_at.slice(0, 10));
+  const vendorName = (id: string | null) => state.vendors.find((v) => v.id === id)?.name ?? null;
+
+  /* The demo's ledger is older than its inbox, so it orders by distance
+     rather than cutting at three weeks — the database does cut. */
+  const transactions: ReceivingTrxCandidate[] = state.transactions
+    .filter((t) => t.direction === "OUT" && t.status !== "VOID")
+    .map((t) => {
+      const vn = vendorName(t.vendor_id);
+      return {
+        trx_no: t.trx_no, trx_date: t.trx_date, amount_idr: t.amount_idr, description: t.description,
+        remark: t.remark, vendor_name: vn,
+        account_code: state.accounts.find((a) => a.id === t.account_id)?.code ?? "",
+        vendor_hit: !!ven && !!vn && vn.toLowerCase().includes(ven),
+        days_off: Math.abs(Math.round((Date.parse(t.trx_date) - day) / 86_400_000)),
+        has_item_photo: state.attachment_links.some((k) => k.entity === "transaction" && k.entity_no === t.trx_no
+          && k.kind === "Receiving Item"),
+      };
+    })
+    .filter((t) => !q || [t.trx_no, t.description, t.remark ?? "", t.vendor_name ?? ""].some((x) => x.toLowerCase().includes(q)))
+    .sort((a, b) => Number(b.vendor_hit) - Number(a.vendor_hit) || a.days_off - b.days_off || b.trx_no.localeCompare(a.trx_no))
+    .slice(0, 40);
+
+  const poNumber = row.extracted.po_number?.trim().toLowerCase() || null;
+  const orders: ReceivingPoCandidate[] = state.purchase_orders
+    .filter((p) => p.status === "ISSUED")
+    .map((p) => {
+      const vn = vendorName(p.vendor_id) ?? "—";
+      const st = poStatus(state, p.id);
+      return {
+        po_no: p.po_no, status: p.status, vendor_name: vn,
+        delivery_state: st.delivery_state, payment_state: st.payment_state,
+        vendor_hit: !!ven && vn.toLowerCase().includes(ven),
+        po_hit: !!poNumber && p.po_no.toLowerCase().includes(poNumber),
+        lines: poJourney(state, p.id).lines.map((l) => ({
+          po_line_id: l.po_line_id, line_no: l.line_no, description: l.description,
+          qty: l.qty, uom: l.uom, received: l.received, reported: l.reported,
+        })),
+      };
+    })
+    .filter((o) => !q || o.po_no.toLowerCase().includes(q) || o.vendor_name.toLowerCase().includes(q))
+    .sort((a, b) => Number(b.vendor_hit) - Number(a.vendor_hit) || Number(b.po_hit) - Number(a.po_hit) || b.po_no.localeCompare(a.po_no));
+
+  return ok(SERVICE, { rr_no: rrNo, transactions, orders });
+}
+
+/** The refusals `match_receiving_*` share, in the same order. */
+function receivingOpenFor(state: DemoState, rrNo: string, files: string[]): Result<DemoReceivingInbox> | DemoReceivingInbox {
+  const row = state.receiving_inbox.find((r) => r.rr_no === rrNo);
+  if (!row) return notFound(SERVICE, "not_found", `No receiving report ${rrNo}.`);
+  if (row.status !== "PENDING") {
+    return conflict(SERVICE, "already_resolved", `${rrNo} is already ${row.status.toLowerCase()}.`);
+  }
+  if (files.some((f) => !row.file_ids.includes(f))) {
+    return invalid(SERVICE, "file_not_on_report", "Only the files that came with this message can be filed from it.", { field: "photos" });
+  }
+  if (new Set(files).size !== files.length) {
+    return invalid(SERVICE, "file_twice", "Each file is one thing: the goods, the tanda terima, or the receiving report.", { field: "reports" });
+  }
+  return row;
+}
+
+export async function matchReceivingToTrx(
+  input: {
+    rr_no: string;
+    trx_no: string;
+    photos: string[];
+    reports?: string[];
+    lines?: ReceivingLineInput[];
+    note?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<ReceivingMatchResult>> {
+  await latency();
+  const endpoint = `matchReceiving:${input.rr_no}`;
+  const cached = replayed<ReceivingMatchResult>(SERVICE, endpoint, idempotencyKey);
+  if (cached) return cached;
+  const denied = requireLevel(SERVICE, "procurement", "write");
+  if (denied) return denied;
+
+  const state = getState();
+  const reports = input.reports ?? [];
+  const lines = input.lines ?? [];
+  const open = receivingOpenFor(state, input.rr_no, []);
+  if ("outcome" in open) return open as Result<ReceivingMatchResult>;
+  const trx = state.transactions.find((t) => t.trx_no === input.trx_no.trim());
+  if (!trx) return notFound(SERVICE, "not_found", `No ledger transaction ${input.trx_no}.`);
+  if (trx.status === "VOID") return conflict(SERVICE, "transaction_void", `${trx.trx_no} is VOID — goods cannot arrive against money that never moved.`);
+  if (trx.direction !== "OUT") {
+    return invalid(SERVICE, "not_a_purchase", `${trx.trx_no} is money coming in. Goods arrive against a purchase.`, { field: "trx_no" });
+  }
+  if (input.photos.length === 0) {
+    return invalid(SERVICE, "photo_required", "Pick at least one photo of the goods — it is what the ledger row shows as the item photo.", { field: "photos" });
+  }
+  const files = receivingOpenFor(state, input.rr_no, [...input.photos, ...reports]);
+  if ("outcome" in files) return files as Result<ReceivingMatchResult>;
+
+  const seen = new Set<string>();
+  for (const l of lines) {
+    if (l.kind === "material") {
+      if (seen.has(l.item_code)) return invalid(SERVICE, "item_twice", `${l.item_code} is listed twice — add the two counts into one line.`, { field: "lines" });
+      seen.add(l.item_code);
+      if (!stockItemUom(state, l.item_code)) {
+        return invalid(SERVICE, "item_not_stocked", `${l.item_code || "(none)"} is not a counted catalogue item — pick the item, or file it as an asset.`, { field: "lines", item_code: l.item_code });
+      }
+      if (!(l.qty > 0)) return invalid(SERVICE, "bad_qty", `How many ${l.item_code} arrived?`, { field: "lines" });
+      if (l.location && !state.stock_locations.some((x) => x.code === l.location)) {
+        return invalid(SERVICE, "location_unknown", `No stock location ${l.location}.`, { field: "lines" });
+      }
+    } else {
+      const count = l.count ?? 1;
+      if (!l.name.trim()) return invalid(SERVICE, "name_required", "An asset needs a name.", { field: "lines" });
+      if (count < 1 || count > 50) return invalid(SERVICE, "bad_count", "Between 1 and 50 of one asset at a time — each one is its own row in the register.", { field: "lines" });
+      if ((l.unit_cost ?? 0) < 0) return invalid(SERVICE, "cost_negative", "A purchase cost cannot be negative.", { field: "lines" });
+      if (!l.category_code) return invalid(SERVICE, "category_required", "Pick the asset's category.", { field: "lines" });
+      if (!state.asset_categories.some((c) => c.code === l.category_code)) {
+        return invalid(SERVICE, "category_unknown", `No asset category ${l.category_code}.`, { field: "category_code" });
+      }
+    }
+  }
+
+  const user = actingUser();
+  const now = new Date().toISOString();
+  const moves: string[] = [];
+  const assets: string[] = [];
+  apply((draft) => {
+    const link = (attachment_id: string, entity: "transaction" | "asset", entity_no: string, kind: "Receiving Item" | "Receiving Report" | "Foto") => {
+      if (draft.attachment_links.some((k) => k.attachment_id === attachment_id && k.entity === entity
+        && k.entity_no === entity_no && k.kind === kind)) return;
+      draft.attachment_links.push({ id: newId("lnk"), attachment_id, entity, entity_no, kind, linked_by: user.id, linked_at: now });
+    };
+    input.photos.forEach((a) => link(a, "transaction", trx.trx_no, "Receiving Item"));
+    reports.forEach((a) => link(a, "transaction", trx.trx_no, "Receiving Report"));
+    const vendorCode = draft.vendors.find((v) => v.id === trx.vendor_id)?.code ?? null;
+    for (const l of lines) {
+      if (l.kind === "material") {
+        moves.push(stockArrival(draft, {
+          item_code: l.item_code, qty: l.qty, location: l.location ?? null, ref_no: input.rr_no,
+          reason: `Diterima (${input.rr_no}), dibayar ${trx.trx_no}`,
+        }, user.id, user.email).move_no);
+      } else {
+        for (let i = 0; i < (l.count ?? 1); i++) {
+          const a = registerArrivedAsset(draft, {
+            name: l.name, category_code: l.category_code, trx_no: trx.trx_no, acquired_on: trx.trx_date,
+            purchase_cost: l.unit_cost ?? null, vendor_code: vendorCode,
+            notes: `Dari laporan penerimaan ${input.rr_no}`,
+          });
+          assets.push(a.asset_no);
+          link(input.photos[0], "asset", a.asset_no, "Foto");
+        }
+      }
+    }
+    const row = draft.receiving_inbox.find((r) => r.rr_no === input.rr_no)!;
+    Object.assign(row, {
+      status: "MATCHED", matched_to: "transaction", trx_no: trx.trx_no, move_nos: moves, asset_nos: assets,
+      resolved_by: user.id, resolved_at: now, resolve_note: input.note?.trim() || null,
+    });
+    writeAudit(draft, { service: SERVICE, entity: "receiving_inbox", entity_no: input.rr_no, action: "match", outcome: "ok", reason: null, detail: { trx_no: trx.trx_no, moves, assets } });
+    writeOutbox(draft, { service: SERVICE, event_type: "procurement.receiving.matched", payload: { rr_no: input.rr_no, trx_no: trx.trx_no, moves, assets } });
+  });
+  const result: ReceivingMatchResult = {
+    rr_no: input.rr_no, matched_to: "transaction", trx_no: trx.trx_no, move_nos: moves, asset_nos: assets,
+  };
+  remember(SERVICE, endpoint, idempotencyKey, result);
+  return ok(SERVICE, result);
+}
+
+export async function matchReceivingToPo(
+  input: {
+    rr_no: string;
+    po_no: string;
+    lines: { po_line_id: string; qty: number; condition?: ReceiptCondition }[];
+    photos: string[];
+    notes?: string[];
+    reports?: string[];
+    qc_by?: string | null;
+    note?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<ReceivingMatchResult>> {
+  await latency();
+  const endpoint = `matchReceiving:${input.rr_no}`;
+  const cached = replayed<ReceivingMatchResult>(SERVICE, endpoint, idempotencyKey);
+  if (cached) return cached;
+  const denied = requireLevel(SERVICE, "procurement", "write");
+  if (denied) return denied;
+
+  const state = getState();
+  const notes = input.notes ?? [];
+  const reports = input.reports ?? [];
+  const open = receivingOpenFor(state, input.rr_no, []);
+  if ("outcome" in open) return open as Result<ReceivingMatchResult>;
+  const po = state.purchase_orders.find((p) => p.po_no === input.po_no.trim());
+  if (!po) return notFound(SERVICE, "not_found", `No purchase order ${input.po_no}.`);
+  if (po.status !== "ISSUED") {
+    return conflict(SERVICE, "order_not_open", `${po.po_no} is ${po.status} — goods arrive against an order that has been sent and is still open.`);
+  }
+  if (input.photos.length === 0) return invalid(SERVICE, "photo_required", "Pick at least one photo of the goods.", { field: "photos" });
+  const files = receivingOpenFor(state, input.rr_no, [...input.photos, ...notes, ...reports]);
+  if ("outcome" in files) return files as Result<ReceivingMatchResult>;
+  if (input.lines.length === 0) return invalid(SERVICE, "lines_required", "Say which lines of the order arrived, and how many.", { field: "lines" });
+  const live = new Set(state.po_lines.filter((l) => l.po_id === po.id && l.superseded_by === null).map((l) => l.id));
+  const bad = input.lines.find((l) => !live.has(l.po_line_id) || !(l.qty > 0));
+  if (bad) return invalid(SERVICE, "line_not_on_order", `Every line has to be a live line of ${po.po_no}, with a quantity above zero.`, { field: "lines", po_line_id: bad.po_line_id });
+  if (new Set(input.lines.map((l) => l.po_line_id)).size !== input.lines.length) {
+    return invalid(SERVICE, "line_twice", "An order line is listed twice — add the two counts into one.", { field: "lines" });
+  }
+  if (input.lines.some((l) => l.condition && !RECEIPT_CONDITIONS.includes(l.condition))) {
+    return invalid(SERVICE, "condition_unknown", "A condition this system does not know.", { field: "lines" });
+  }
+
+  const user = actingUser();
+  const now = new Date().toISOString();
+  const confirmed = notes.length > 0;
+  const nos: string[] = [];
+  apply((draft) => {
+    for (const l of input.lines) {
+      const receipt: Receipt = {
+        id: newId("rcp"), receipt_no: `rcv-${now.slice(2, 10)}_${String(draft.receipts.length + 1).padStart(2, "0")}`,
+        line_id: null, po_line_id: l.po_line_id, qty_received: l.qty, condition: l.condition ?? "GOOD",
+        received_by: user.id, received_at: now,
+        qc_by: confirmed ? input.qc_by ?? user.id : null,
+        note: input.note?.trim() || `Dari chat ${input.rr_no}`,
+        status: confirmed ? "CONFIRMED" : "REPORTED",
+        confirmed_by: confirmed ? user.id : null, confirmed_at: confirmed ? now : null,
+      };
+      draft.receipts.push(receipt);
+      nos.push(receipt.receipt_no);
+      const docs: [string, "Receiving Item" | "Delivery Note" | "Receiving Report"][] = [
+        ...input.photos.map((a) => [a, "Receiving Item"] as [string, "Receiving Item"]),
+        ...notes.map((a) => [a, "Delivery Note"] as [string, "Delivery Note"]),
+        ...reports.map((a) => [a, "Receiving Report"] as [string, "Receiving Report"]),
+      ];
+      for (const [attachment_id, kind] of docs) {
+        draft.attachment_links.push({ id: newId("lnk"), attachment_id, entity: "receipt", entity_no: receipt.receipt_no, kind, linked_by: user.id, linked_at: now });
+      }
+      if (confirmed) stockFromReceipt(draft, receipt.receipt_no, user.id, user.email);
+    }
+    const row = draft.receiving_inbox.find((r) => r.rr_no === input.rr_no)!;
+    Object.assign(row, {
+      status: "MATCHED", matched_to: "po", po_no: po.po_no, receipt_nos: nos,
+      resolved_by: user.id, resolved_at: now, resolve_note: input.note?.trim() || null,
+    });
+    writeAudit(draft, { service: SERVICE, entity: "receiving_inbox", entity_no: input.rr_no, action: "match", outcome: "ok", reason: null, detail: { po_no: po.po_no, receipts: nos } });
+    writeOutbox(draft, { service: SERVICE, event_type: "procurement.receiving.matched", payload: { rr_no: input.rr_no, po_no: po.po_no, receipts: nos } });
+  });
+  const result: ReceivingMatchResult = {
+    rr_no: input.rr_no, matched_to: "po", po_no: po.po_no, receipt_nos: nos,
+    status: confirmed ? "CONFIRMED" : "REPORTED",
+    billable_now: poJourney(getState(), po.id).billable_now,
+  };
+  remember(SERVICE, endpoint, idempotencyKey, result);
+  return ok(SERVICE, result);
+}
+
+export async function dismissReceiving(
+  rrNo: string, reason: string,
+): Promise<Result<{ rr_no: string; status: ReceivingInboxStatus }>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "procurement", "write");
+  if (denied) return denied;
+  const open = receivingOpenFor(getState(), rrNo, []);
+  if ("outcome" in open) return open as Result<{ rr_no: string; status: ReceivingInboxStatus }>;
+  if (!reason.trim()) return invalid(SERVICE, "reason_required", "Say why — a duplicate, a chat reply, not a delivery.", { field: "reason" });
+  const user = actingUser();
+  apply((draft) => {
+    const row = draft.receiving_inbox.find((r) => r.rr_no === rrNo)!;
+    Object.assign(row, { status: "DISMISSED", resolved_by: user.id, resolved_at: new Date().toISOString(), resolve_note: reason.trim() });
+    writeAudit(draft, { service: SERVICE, entity: "receiving_inbox", entity_no: rrNo, action: "dismiss", outcome: "ok", reason: reason.trim() });
+  });
+  return ok(SERVICE, { rr_no: rrNo, status: "DISMISSED" as const });
+}
+
+/** What is still being asked for on an order: request lines against it, live,
+ *  less what has been paid on them — `ops_procure.po_requested_open`. */
+function poRequestedOpen(state: DemoState, poNo: string): number {
+  return state.pr_lines
+    .filter((l) => l.against_po_no === poNo && !l.removed_at
+      && state.pr_documents.find((d) => d.id === l.doc_id)?.status !== "CANCELLED")
+    .reduce((sum, l) => {
+      const paid = state.payment_allocations
+        .filter((a) => a.pr_line_no === l.line_no_full && !a.superseded_by
+          && state.transactions.find((t) => t.id === a.trx_id)?.status !== "VOID")
+        .reduce((s, a) => s + a.amount, 0);
+      return sum + Math.max(l.item_total - paid, 0);
+    }, 0);
+}
+
+export async function requestPoPayment(
+  input: { po_no: string; amount?: number | null; note?: string | null },
+  idempotencyKey?: string,
+): Promise<Result<PoPaymentRequest>> {
+  await latency();
+  const endpoint = `requestPoPayment:${input.po_no}`;
+  const cached = replayed<PoPaymentRequest>(SERVICE, endpoint, idempotencyKey);
+  if (cached) return cached;
+  const denied = requireLevel(SERVICE, "procurement", "write");
+  if (denied) return denied;
+
+  const state = getState();
+  const po = state.purchase_orders.find((p) => p.po_no === input.po_no.trim());
+  if (!po) return notFound(SERVICE, "not_found", `No purchase order ${input.po_no}.`);
+  if (po.status !== "ISSUED") {
+    return conflict(SERVICE, "order_not_open", `${po.po_no} is ${po.status} — a payment is asked for on an order that is open.`);
+  }
+  const billable = poJourney(state, po.id).billable_now;
+  const asked = poRequestedOpen(state, po.po_no);
+  const avail = Math.max(billable - asked, 0);
+  const amount = input.amount ?? avail;
+  if (avail <= 0) {
+    return conflict(SERVICE, "nothing_billable", asked > 0
+      ? `Everything billable on ${po.po_no} is already asked for (${asked}) and waiting to be paid.`
+      : `Nothing on ${po.po_no} is billable yet — confirm what arrived first.`,
+    { billable_now: billable, already_requested: asked });
+  }
+  if (!(amount > 0)) return invalid(SERVICE, "amount_positive", "The amount asked for has to be above zero.", { field: "amount" });
+  if (amount > avail) {
+    return invalid(SERVICE, "over_billable",
+      `${avail} is billable on ${po.po_no} now (${billable} received and owed, ${asked} already asked for). Ask for that or less.`,
+      { field: "amount", available: avail, billable_now: billable, already_requested: asked, attempted: amount });
+  }
+  const vendor = state.vendors.find((v) => v.id === po.vendor_id);
+  const created = await createPr({ lines: [{
+    description: `Pembayaran ${po.po_no} — ${vendor?.name ?? ""}`,
+    item_total: amount, vendor_id: po.vendor_id, purpose: input.note?.trim() || null,
+    against_po_no: po.po_no,
+  }] });
+  if (created.error) return created as unknown as Result<PoPaymentRequest>;
+  const submitted = await submitPr(created.data.doc_no);
+  if (submitted.error) return submitted as unknown as Result<PoPaymentRequest>;
+  apply((draft) => {
+    writeOutbox(draft, { service: SERVICE, event_type: "procurement.po.payment_requested", payload: { po_no: po.po_no, amount } });
+  });
+  const result: PoPaymentRequest = {
+    po_no: po.po_no, doc_no: created.data.doc_no, line_no: `${created.data.doc_no}-L01`, amount,
+    billable_now: billable, already_requested: asked + amount,
+  };
+  remember(SERVICE, endpoint, idempotencyKey, result);
+  return ok(SERVICE, result);
 }

@@ -19,7 +19,7 @@ import {
   accountBalances, transactionView, allocatedTotal, inboxHealth, lineCoverage,
   lineStatus, fundings, fundingView, cashPlan, cashDue, cashMonthDetail,
   bankStatementView, bankStatementViews, documentCoverage, transactionCoverage,
-  monthlyBills, contributionAudit, orderOfLine,
+  monthlyBills, contributionAudit, orderOfLine, orderPaidByLine,
 } from "../derive";
 import { latency, actingUser, requireAuthority, requireModule, requireLevel, conflict, replayed, remember, paged } from "./_kit";
 import { PRIMARY_DOC_KINDS, COMPLETION_DOC_KINDS, type DocKind } from "@/services/documents/contracts";
@@ -755,7 +755,7 @@ export async function allocate(
   const alloc: PaymentAllocation = {
     /* A line on an order is paid on the order too (B8); the order is found
        from the link, never taken from the caller. */
-    id: newId("alc"), trx_id: trx.id, pr_line_no: input.pr_line_no, po_no: orderOfLine(state, input.pr_line_no),
+    id: newId("alc"), trx_id: trx.id, pr_line_no: input.pr_line_no, po_no: orderPaidByLine(state, input.pr_line_no),
     amount: input.amount, method: input.method ?? "transfer", superseded_by: null,
     allocated_by: user.id, allocated_at: new Date().toISOString(),
   };
@@ -1384,7 +1384,7 @@ export async function postFromLine(
       posted_by: user.id, posted_at: new Date().toISOString(), void_reason: null,
     });
     draft.payment_allocations.push({
-      id: newId("alc"), trx_id: trxId, pr_line_no: input.line_no, po_no: orderOfLine(draft, input.line_no),
+      id: newId("alc"), trx_id: trxId, pr_line_no: input.line_no, po_no: orderPaidByLine(draft, input.line_no),
       amount: input.amount, method: "transfer", superseded_by: null,
       allocated_by: user.id, allocated_at: new Date().toISOString(),
     });

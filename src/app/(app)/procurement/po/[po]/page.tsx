@@ -20,6 +20,7 @@ import { useToast } from "@/store/toast";
 import { AmendLine } from "./AmendLine";
 import { ClosePo } from "./ClosePo";
 import { PayPo } from "./PayPo";
+import { RequestPayment } from "./RequestPayment";
 
 /** One order, end to end.
  *
@@ -419,6 +420,7 @@ export default function PoDetailPage({ params }: { params: Promise<{ po: string 
               </div>
             </Card>
 
+            <RequestPayment po={d} onRequested={reload} />
             <PayPo po={d} onPosted={reload} />
 
             <Card className="mb-4">
