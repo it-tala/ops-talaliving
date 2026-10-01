@@ -14,7 +14,7 @@ import { officeToday } from "@/lib/office";
 import { NumberInput } from "@/components/ui/number-input";
 import {
   dayBoundaryMinutes, isOvernight, scheduleHoursOf, scheduleWeek, scheduleProblem, shiftMinutes, WEEKDAY_NAMES,
-  SATPAM_SHIFTS, type ScheduleDay, type ScheduleShift,
+  SATPAM_SHIFTS, shiftHours, shiftRange, type ScheduleDay, type ScheduleShift,
 } from "@/services/hr/schedule-rules";
 import type { UnitScheduleDefault, WorkSchedule } from "@/services/hr/contracts";
 
@@ -123,7 +123,14 @@ export default function SchedulePage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {d.schedules.map((sc) => (
+                    {d.schedules.map((sc) => {
+                      /* D364: a pattern with shifts is read by its shifts — they
+                         are its hours. Its own start and end (Satpam's 19.00–
+                         07.00 default) pay nobody, so they are not shown. */
+                      const week = sc.week ?? scheduleWeek(sc);
+                      const shifts = sc.shifts ?? [];
+                      const range = shiftRange(shifts, week.filter((w) => !w.off).length);
+                      return (
                       <tr key={sc.code} className="align-top">
                         <td className="px-5 py-2.5">
                           <span className="block font-medium text-slate-800">{sc.name}</span>
@@ -137,6 +144,27 @@ export default function SchedulePage() {
                           )}
                         </td>
                         <td className="px-3 py-2.5 tabular-nums text-slate-600">
+                          {range ? (
+                            <>
+                              {shifts.map((x) => (
+                                <span key={x.code} className="flex items-center gap-1.5">
+                                  <span className="w-14 text-[11px] text-slate-400">{x.name || x.code}</span>
+                                  {clock(x.start_minutes)} – {clock(x.end_minutes)}
+                                  {x.end_minutes <= x.start_minutes && <Moon className="h-3 w-3 text-indigo-600" />}
+                                  <span className="text-[11px] text-slate-400">
+                                    {hours(Math.round(shiftHours(x) * 100) / 100)} {tr("h", "jam")}
+                                    {x.break_minutes ? ` · ${tr("break", "istirahat")} ${x.break_minutes} m` : ""}
+                                  </span>
+                                </span>
+                              ))}
+                              <span className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-400">
+                                <Repeat className="h-3 w-3" />
+                                {tr("one shift a day, read from taps", "satu shift sehari, dibaca dari tap")}
+                              </span>
+                              <WeekStrip week={week} daysOnly />
+                            </>
+                          ) : (
+                          <>
                           {clock(sc.start_minutes)} – {clock(sc.end_minutes)}
                           {/* A default nobody has confirmed must not look like an
                               answer (D288): the guard's 19.00–07.00 is D330's
@@ -166,24 +194,14 @@ export default function SchedulePage() {
                             )}
                           </span>
                           {/* The seven days as the reading sees them (D340). */}
-                          <WeekStrip week={sc.week ?? scheduleWeek(sc)} />
-                          {/* D364: the shifts read off the taps. */}
-                          {(sc.shifts ?? []).length > 0 && (
-                            <span className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-slate-600">
-                              <Repeat className="h-3 w-3 text-slate-400" />
-                              {(sc.shifts ?? []).map((x) => (
-                                <Badge key={x.code} tone="violet">
-                                  {x.code} · {clock(x.start_minutes)}–{clock(x.end_minutes)}
-                                </Badge>
-                              ))}
-                              <span className="text-slate-400">{tr("read from taps", "dibaca dari tap")}</span>
-                            </span>
+                          <WeekStrip week={week} />
+                          </>
                           )}
                         </td>
-                        <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{hours(sc.hours.daily_hours)}</td>
-                        <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{hours(sc.hours.friday_hours)}</td>
-                        <td className="px-3 py-2.5 text-right tabular-nums font-medium text-slate-800">{hours(sc.hours.weekly_hours)}</td>
-                        <td className="px-3 py-2.5 text-right tabular-nums font-medium text-slate-800">{hours(sc.hours.monthly_hours)}</td>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-slate-700">{range ? span(range.daily) : hours(sc.hours.daily_hours)}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{range ? "—" : hours(sc.hours.friday_hours)}</td>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums font-medium text-slate-800">{range ? span(range.weekly) : hours(sc.hours.weekly_hours)}</td>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums font-medium text-slate-800">{range ? span(range.monthly) : hours(sc.hours.monthly_hours)}</td>
                         <td className="px-5 py-2.5 text-right tabular-nums text-slate-600">
                           {sc.assigned + sc.inherited}
                           {sc.inherited > 0 && (
@@ -192,9 +210,12 @@ export default function SchedulePage() {
                         </td>
                         {mayEdit && (
                           <td className="px-3 py-2.5 text-right">
-                            <Button size="sm" variant="ghost" icon={Pencil} onClick={() => { const open = editing === sc.code; closeAll(); if (!open) setEditing(sc.code); }}>
-                              {tr("Hours", "Jam")}
-                            </Button>
+                            {/* With shifts, the pattern's own hours are not read. */}
+                            {!range && (
+                              <Button size="sm" variant="ghost" icon={Pencil} onClick={() => { const open = editing === sc.code; closeAll(); if (!open) setEditing(sc.code); }}>
+                                {tr("Hours", "Jam")}
+                              </Button>
+                            )}
                             <Button size="sm" variant="ghost" icon={CalendarDays} onClick={() => { const open = editingDays === sc.code; closeAll(); if (!open) setEditingDays(sc.code); }}>
                               {tr("Per day", "Per hari")}
                             </Button>
@@ -204,7 +225,8 @@ export default function SchedulePage() {
                           </td>
                         )}
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -496,6 +518,11 @@ function clock(minutes: number | null): string {
  *  week, and the reason is printed under the table rather than as a zero. */
 function hours(n: number | null): string {
   return n == null ? "—" : formatNumber(n);
+}
+
+/** A shortest–longest range; one figure when the shifts are equally long. */
+function span([lo, hi]: [number, number]): string {
+  return lo === hi ? formatNumber(lo) : `${formatNumber(lo)}–${formatNumber(hi)}`;
 }
 
 function AssignRow({
@@ -858,7 +885,7 @@ function AddSchedule({
 
 /** The seven days of a pattern in one line: what each weekday reads as, and
  *  the ones worth more than a day marked (D340). */
-function WeekStrip({ week }: { week: ReturnType<typeof scheduleWeek> }) {
+function WeekStrip({ week, daysOnly }: { week: ReturnType<typeof scheduleWeek>; daysOnly?: boolean }) {
   const tr = useTr();
   return (
     <span className="mt-1 flex flex-wrap gap-1">
@@ -866,6 +893,7 @@ function WeekStrip({ week }: { week: ReturnType<typeof scheduleWeek> }) {
         <span
           key={w.isodow}
           title={w.off ? tr("day off", "libur")
+            : daysOnly ? tr("working day", "hari kerja")
             : `${clock(w.start_minutes)}–${clock(w.end_minutes)} · ${tr("break", "istirahat")} ${w.break_minutes ?? 0} m${w.pay_multiplier !== 1 ? ` · ${w.pay_multiplier}×` : ""}`}
           className={
             "rounded px-1 py-0.5 text-[10px] tabular-nums " +
@@ -874,7 +902,7 @@ function WeekStrip({ week }: { week: ReturnType<typeof scheduleWeek> }) {
                 : w.own ? "bg-brand-50 text-brand-800" : "bg-slate-50 text-slate-600")
           }
         >
-          {WEEKDAY_NAMES[w.isodow - 1].slice(0, 3)} {w.off ? "—" : hours(w.hours)}
+          {WEEKDAY_NAMES[w.isodow - 1].slice(0, 3)}{w.off ? " —" : daysOnly ? "" : ` ${hours(w.hours)}`}
           {!w.off && w.pay_multiplier !== 1 && ` ×${w.pay_multiplier}`}
         </span>
       ))}

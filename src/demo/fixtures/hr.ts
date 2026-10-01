@@ -68,7 +68,7 @@ export const EMPLOYEES: Employee[] = [
   /* Satpam malam (D330). Bergabung sesudah run terakhir ditutup, jadi tidak ada
      slip lama yang berubah; ada di sini supaya satu minggu malam bisa dilihat
      di /hrd/absensi dan dibuktikan terbaca sebagai hari kerja, bukan pecahan. */
-  { id: "emp_s201", employee_no: "S-201", full_name: "Yusuf Satpam", position: "Satpam", unit: "Warehouse", pay_basis: "daily", base_rate: 150_000, allowance_rate: 15_000, daily_hours: 12, joined_on: "2026-09-15", paid_leave_days: 12, active: true, left_on: null, note: "Shift malam 12 jam — jamnya default D330, belum dikonfirmasi.", schedule_code: "SATPAM" },
+  { id: "emp_s201", employee_no: "S-201", full_name: "Yusuf Satpam", position: "Satpam", unit: "Warehouse", pay_basis: "daily", base_rate: 150_000, allowance_rate: 15_000, daily_hours: 12, joined_on: "2026-09-15", paid_leave_days: 12, active: true, left_on: null, note: "Satpam — Shift 1 atau Shift 2, dibaca dari tap (D364).", schedule_code: "SATPAM" },
 ];
 
 /** The machine's own export, unedited. One row per tap. */

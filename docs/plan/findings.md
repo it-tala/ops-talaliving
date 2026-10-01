@@ -9019,3 +9019,27 @@ for whoever uses it. The amber *belum dikonfirmasi* badge and the editor's own
 from what was clicked scrolls itself into view when it opens (`Reveal`, keyed so
 switching rows scrolls again). Explanations of *why the screen is built this
 way* go in the code and in `06-decisions.md`, not on the page.
+
+## F217 · 2026-10-01 · A pattern with shifts kept showing the default its shifts replaced
+
+D364 gave Satpam two shifts (07.00–17.00, 17.00–07.00), and from then on every
+day of a guard is read and paid by the shift its taps fit. The pattern still
+carried D330's 19.00–07.00 *default, belum dikonfirmasi*, and `/hrd/jadwal`
+led with it: *19.00–07.00 unconfirmed · the next day begins 13.00*, 12 h a day,
+60 a week, 260 a month — figures nobody is paid against — with the real shifts
+in a small line underneath. `/it/aturan-gaji` printed the same 12/60/260, and
+the pattern note still said the start time and the rotation had never been
+stated (Q-D330a/b), which D364 had answered that morning. `set_schedule_shifts`
+copies the rest of the pattern untouched, so nothing cleared the flag or the
+note.
+
+Fixed on both screens — with shifts, the shifts **are** the hours: each shown
+with its length, the day as the shortest–longest shift (10–14), the week and
+month as that range over the working weekdays (60–84, 260–364), the weekday
+chips as working/off only, and no *Jam* button on `/hrd/jadwal` — and in
+production's book as v14 (note from D364, flag dropped, name *Satpam* rather
+than *Satpam — 12 jam*), every hour and shift copied from v10.
+
+**Rule:** when a new rule supersedes how a field is read, the screens stop
+leading with that field — and the stored doubts about it (flags, notes) are
+closed in the same change, or they go on asking a question already answered.

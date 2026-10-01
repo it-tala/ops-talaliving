@@ -347,3 +347,40 @@ PAY_RULE_SETS.push(((v5: PayRuleSet): PayRuleSet => ({
   },
   created_at: "2026-09-29T08:00:00+07:00",
 }))(PAY_RULE_SETS[PAY_RULE_SETS.length - 1]));
+
+/** The pattern note for Satpam once its shifts were decided (D364) — the same
+ *  sentence production's book carries. */
+export const SATPAM_SHIFT_NOTE =
+  "Dua shift, tanpa istirahat (D364): Shift 1 07.00–17.00 dan Shift 2 17.00–07.00. Shift setiap hari dibaca dari tap; bila tap tidak bisa memastikan, HRD memilihnya di laci hari absensi. Satu shift = satu hari upah, shift mana pun.";
+
+/* v7 — Satpam bekerja dalam shift (D364), seperti buku produksi sejak
+   1 Oktober: Shift 1 07.00–17.00 dan Shift 2 17.00–07.00 tanpa istirahat,
+   Minggu libur. Shift-nya **adalah** jamnya — setiap hari dibaca menurut
+   shift yang cocok dengan tapnya — jadi tanda *belum dikonfirmasi* atas
+   default 19.00–07.00 tidak lagi berarti apa-apa dan dilepas, dan catatannya
+   menyebut keputusan yang menjawab Q-D330a/b. Bertanggal sama dengan v6 sebagai
+   koreksi atasnya. */
+PAY_RULE_SETS.push(((v6: PayRuleSet): PayRuleSet => ({
+  ...v6,
+  id: "prs_07", version: 7,
+  note: "Satpam bekerja dalam dua shift (D364): Shift 1 07.00–17.00 dan Shift 2 17.00–07.00, tanpa istirahat, Minggu libur.",
+  rules: {
+    ...v6.rules,
+    schedules: v6.rules.schedules.map((sc) => {
+      if (sc.code !== "SATPAM") return sc;
+      const { hours_unconfirmed: _gone, ...rest } = sc;
+      void _gone;
+      return {
+        ...rest,
+        note: SATPAM_SHIFT_NOTE,
+        days: { "7": { off: true } },
+        shifts: [
+          { code: "S1", name: "Shift 1", start_minutes: 7 * 60, end_minutes: 17 * 60, break_minutes: 0 },
+          { code: "S2", name: "Shift 2", start_minutes: 17 * 60, end_minutes: 7 * 60, break_minutes: 0 },
+        ],
+      };
+    }),
+  },
+  created_at: "2026-10-01T16:00:00+07:00",
+}))(PAY_RULE_SETS[PAY_RULE_SETS.length - 1]));
+

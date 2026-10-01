@@ -135,6 +135,22 @@ export function ScheduleEditor({
                 onChange={(v) => patchRow(i, { friday_break_minutes: v })} />
             </div>
 
+            {/* D364: with shifts, the reading pays by the shift, and the start
+                and end above are not what anybody is paid against. Shifts are
+                set by HRD on /hrd/jadwal; this editor keeps them as they are. */}
+            {(sc.shifts ?? []).length > 0 && (
+              <p className="mt-2 rounded-md bg-violet-50 px-2 py-1.5 text-[12px] text-violet-900">
+                {tr("Works in shifts:", "Bekerja dalam shift:")}{" "}
+                {(sc.shifts ?? []).map((x) => `${x.name || x.code} ${clockText(x.start_minutes)}–${clockText(x.end_minutes)}`).join(", ")}.{" "}
+                {tr(
+                  "Each day is read and paid by its shift; the start and end above are not used. Shifts are set in",
+                  "Setiap hari dibaca dan dibayar menurut shift-nya; jam masuk dan pulang di atas tidak dipakai. Shift diatur di",
+                )}{" "}
+                <Link href="/hrd/jadwal" className="underline">{tr("HRD → Work schedules", "HRD → Jadwal kerja")}</Link>.
+              </p>
+            )}
+
+            {(sc.shifts ?? []).length === 0 && (
             <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[12px]">
               {hours.blocked_by ? (
                 <span className="text-amber-700">{hours.blocked_by}</span>
@@ -151,6 +167,7 @@ export function ScheduleEditor({
                 </>
               )}
             </div>
+            )}
 
             <input
               type="text"
@@ -316,6 +333,10 @@ function UnitMap({
 }
 
 /* ── the small inputs ─────────────────────────────────────────────────── */
+
+function clockText(m: number): string {
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}.${String(m % 60).padStart(2, "0")}`;
+}
 
 function Text({
   label, value, onChange, disabled, width, mono,

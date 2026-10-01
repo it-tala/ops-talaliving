@@ -193,6 +193,29 @@ export function shiftMinutes(start: number | null, end: number | null): number |
   return end > start ? end - start : end + MINUTES_IN_DAY - start;
 }
 
+/** Hours of one shift: its length less its break (D364). */
+export function shiftHours(sh: ScheduleShift): number {
+  return Math.max((shiftMinutes(sh.start_minutes, sh.end_minutes) ?? 0) - (sh.break_minutes ?? 0), 0) / 60;
+}
+
+/** A pattern with shifts works one shift a day, and which one is read off the
+ *  taps (D364) — so its day, week and month are a range from the shortest
+ *  shift to the longest, over the weekdays it works. Null with no shifts. */
+export function shiftRange(
+  shifts: ScheduleShift[] | null | undefined,
+  workingDays: number,
+): { daily: [number, number]; weekly: [number, number]; monthly: [number, number] } | null {
+  if (!shifts || shifts.length === 0) return null;
+  const each = shifts.map(shiftHours);
+  const lo = Math.min(...each), hi = Math.max(...each);
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  return {
+    daily: [r2(lo), r2(hi)],
+    weekly: [r2(lo * workingDays), r2(hi * workingDays)],
+    monthly: [r2(lo * workingDays * 52 / 12), r2(hi * workingDays * 52 / 12)],
+  };
+}
+
 /** *Any pattern whose end is before its start is overnight* — the whole
  *  definition (D330). Equal is not overnight; it is refused. */
 export function isOvernight(sc: Pick<ScheduleShape, "start_minutes" | "end_minutes"> | null): boolean {
