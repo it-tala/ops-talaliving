@@ -76,6 +76,24 @@ export async function listEmployees(opts: { include_left?: boolean } = {}): Prom
   return ok(SERVICE, rows);
 }
 
+/** The people who have left, newest leaver first, a page at a time —
+ *  `listLeavers` in `src/lib/api/hr.ts`. */
+export async function listLeavers(
+  opts: { offset?: number; limit?: number; q?: string } = {},
+): Promise<Result<{ rows: Employee[]; total: number }>> {
+  await latency();
+  const offset = Math.max(opts.offset ?? 0, 0);
+  const limit = Math.min(Math.max(opts.limit ?? 10, 1), 100);
+  const needle = (opts.q ?? "").replace(/[,()*%\\]/g, " ").trim().toLowerCase();
+  const all = getState().employees
+    .filter((e) => !e.active)
+    .filter((e) => !needle
+      || [e.full_name, e.employee_no, e.position, e.unit, e.email ?? "", e.phone ?? ""]
+        .some((v) => (v ?? "").toLowerCase().includes(needle)))
+    .sort((a, b) => (b.left_on ?? "").localeCompare(a.left_on ?? "") || a.employee_no.localeCompare(b.employee_no));
+  return ok(SERVICE, { rows: all.slice(offset, offset + limit), total: all.length });
+}
+
 export async function getEmployee(employeeNo: string): Promise<Result<Employee>> {
   await latency();
   const found = getState().employees.find((e) => e.employee_no === employeeNo);
