@@ -8753,3 +8753,32 @@ link); two photos in one message are two cards. No migration.
 
 **Rule:** group on the identity the seam checks, not on a naming habit of the
 producer. A refusal that the screen can trigger by itself is a screen bug.
+
+## F210 · 2026-10-01 · Three smoke assertions were true only in September
+
+CI went red on the first of October with `2 of 133 failed`, on no code
+change. Each one was an assertion that held on the day it was written:
+
+- `07_acct_calendar`: `v_cash_cell where month = '2026-09'`. The view is the
+  calendar from **today** (`v_cash_event` calls `cash_events()` with no
+  `p_from`), so September left it when September ended. The view was right.
+  The fixture is pinned by passing `p_from` to the function; the view takes
+  no anchor, so its check now asks for the office month.
+- `86_acct_cash_plan`: the THR month is `now + 3 months`, named `december`
+  and asserted to have four Fridays. From October it is January 2027, which
+  has five. The month now has its Fridays counted, and the last run must
+  carry `16,000,000 − 2,000,000 × (fridays − 1)`. That is the same D114
+  rule, for any month.
+- `86_acct_cash_plan`, hidden behind the first: the one-off due on the 15th
+  was asserted OVERDUE, which is true only from the 16th. It now expects
+  OVERDUE / DUE / PLANNED from its due date against today.
+
+Not taken: rewriting `v_cash_cell` to show history, or pinning 86 to a fixed
+date. The first would change a view the screens read and drop
+`security_invoker` (`17_core_view_invoker`). The second would undo the
+office-day reasoning at the top of 86.
+
+**Rule:** a test dated from `now()` can only assert things that are true on
+every day. A month's length, its weekdays and "is it past the 15th" are not.
+Either derive the expected value from the same date, or pin the date as an
+argument the function takes.
