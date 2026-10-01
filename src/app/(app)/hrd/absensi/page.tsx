@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarCheck, Upload, AlertTriangle, Clock, Flag, ChevronLeft, ChevronRight, Moon, Wallet } from "lucide-react";
+import { CalendarCheck, Upload, AlertTriangle, Clock, Flag, ChevronLeft, ChevronRight, Moon, Wallet, Map as MapIcon } from "lucide-react";
+import dynamic from "next/dynamic";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { usePaged } from "@/components/ui/pager";
@@ -19,6 +20,12 @@ import { onSiteHours } from "@/services/hr/on-site";
 import { ImportScans } from "./ImportScans";
 import { DayDrawer } from "./DayDrawer";
 import { MarkDay } from "./MarkDay";
+
+/* Leaflet reads `window`, so the map is never rendered on the server (D360). */
+const TapMap = dynamic(() => import("@/components/attendance/tap-map").then((m) => m.TapMap), {
+  ssr: false,
+  loading: () => <div className="h-[380px] w-full animate-pulse rounded-lg bg-slate-100" />,
+});
 
 /** The timesheet: every person, every day, and whether the machine told us
  *  enough to pay them.
@@ -127,6 +134,10 @@ export default function TimesheetPage() {
     window.history.replaceState(null, "", url.toString());
   }, [from, span]);
   const [sheet, reload] = useLoad(() => hr.getTimesheet({ from, to }), [from, to]);
+  /* Where people tapped, one day at a time (D360): today when it is shown,
+     else the last day shown that has happened. */
+  const [sites] = useLoad(() => hr.listWorkSites(), []);
+  const [mapDay, setMapDay] = useState<string | null>(null);
   /* What the days are worth — the weekly payroll's own figures for exactly
      these days, never a second calculation here (A3). */
   const [pay, reloadPay] = useLoad(() => hr.previewPayroll({ period_start: from, period_end: to }), [from, to]);
@@ -249,6 +260,43 @@ export default function TimesheetPage() {
                 isShort={isShort}
               />
             ))}
+
+            {/* Where everybody tapped, on a map (D360). */}
+            {(() => {
+              const today = officeToday();
+              const past = s.dates.filter((d) => d <= today);
+              if (past.length === 0) return null;
+              const day = mapDay && past.includes(mapDay) ? mapDay : (past.includes(today) ? today : past[past.length - 1]);
+              return (
+                <Card className="mb-4" data-testid="tap-map-card">
+                  <CardHeader
+                    title={tr("Where people tapped", "Lokasi absen karyawan")}
+                    subtitle={tr(
+                      "Each tap where it was made: the fingerprint reader at its site, a phone tap where the phone said it was.",
+                      "Setiap tap di tempat dibuatnya: mesin sidik jari di lokasinya, tap HP di titik yang dibaca HP.",
+                    )}
+                    icon={MapIcon}
+                  />
+                  <div className="flex flex-wrap gap-1.5 px-5 pt-1">
+                    {past.map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        aria-pressed={d === day}
+                        onClick={() => setMapDay(d)}
+                        className={cn("rounded-full border px-2.5 py-0.5 text-[11px]",
+                          d === day ? "border-brand-600 bg-brand-600 text-white" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50")}
+                      >
+                        {d === today ? tr("Today", "Hari ini") : `${DAY_SHORT[new Date(`${d}T00:00:00Z`).getUTCDay()]} ${d.slice(8)}/${d.slice(5, 7)}`}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="px-5 py-3">
+                    <TapMap days={s.days} sites={sites.status === "ready" ? sites.data : []} date={day} />
+                  </div>
+                </Card>
+              );
+            })()}
 
             {/* Overtime lives on its own screen now: it arrives as a sheet,
                 and the two kinds of sheet answer to different people (D146).
