@@ -231,6 +231,12 @@ export interface EvidenceInboxRow {
   origin: InboxOrigin;
   status: InboxStatus;
   attachment_id: string;
+  /** Which file this row is — the stored link or path of its attachment.
+   *  Rows of one photo share it even though each has its own attachment
+   *  row; two photos sent in one chat message do not. It is what the
+   *  screen groups a document by, and the same identity `book_evidence_group`
+   *  (0161) and `link_evidence` (0162) check before booking rows as one. */
+  file_key: string;
   reported_by: string;
   /** Who `reported_by` is, spelled out — the chat sender's own name, not a
    *  uuid the screen would otherwise have to look up itself. Null only for

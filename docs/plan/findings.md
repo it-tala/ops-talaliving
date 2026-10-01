@@ -8762,3 +8762,56 @@ while the demo applies them. Recorded for its own session.
 **Rule:** before building a capture path, look for the one that already
 exists. The expensive half (capture, storage, reading) was done; what was
 missing was one verb and a schedule.
+
+## F209 · 2026-10-01 · One chat message is not one photo, so the event is not the document
+
+Accounting saw *Not booked — These inbox rows are different files. Only rows
+of the same photo can be booked as one document.* on `/accounting/verifikasi`.
+The seam was right; the screen asked for the wrong thing. It grouped inbox
+rows into one card by the `<event>` part of `ref_id`, on the assumption from
+0161 that the worker files one photo as slots `<event>~x0`, `~x1`, …. It also
+files a message with **several photos** under one event — one row per photo,
+`<event>~<drive id>` — and its slots can be read across photos too
+(`~x1`, `~x4` on two files). Measured on production the same day: of 62
+PENDING rows, **8 cards** were really 2–6 different files each (a transfer
+and its fee screenshot, five notas from five vendors in one message, …).
+Every one of them was unbookable: `book_evidence_group` compares the
+attachments' links and refused, and `link_evidence` the same.
+
+The fix is the screen's, not the seam's: each row now carries `file_key`
+(the attachment's `url`, else `storage_path` — the expression 0161 compares),
+and a chat card is `<event>` **and** `file_key`. Rows of one photo still
+merge (the worker gives each slot its own attachment row but the same Drive
+link); two photos in one message are two cards. No migration.
+
+**Rule:** group on the identity the seam checks, not on a naming habit of the
+producer. A refusal that the screen can trigger by itself is a screen bug.
+
+## F210 · 2026-10-01 · Three smoke assertions were true only in September
+
+CI went red on the first of October with `2 of 133 failed`, on no code
+change. Each one was an assertion that held on the day it was written:
+
+- `07_acct_calendar`: `v_cash_cell where month = '2026-09'`. The view is the
+  calendar from **today** (`v_cash_event` calls `cash_events()` with no
+  `p_from`), so September left it when September ended. The view was right.
+  The fixture is pinned by passing `p_from` to the function; the view takes
+  no anchor, so its check now asks for the office month.
+- `86_acct_cash_plan`: the THR month is `now + 3 months`, named `december`
+  and asserted to have four Fridays. From October it is January 2027, which
+  has five. The month now has its Fridays counted, and the last run must
+  carry `16,000,000 − 2,000,000 × (fridays − 1)`. That is the same D114
+  rule, for any month.
+- `86_acct_cash_plan`, hidden behind the first: the one-off due on the 15th
+  was asserted OVERDUE, which is true only from the 16th. It now expects
+  OVERDUE / DUE / PLANNED from its due date against today.
+
+Not taken: rewriting `v_cash_cell` to show history, or pinning 86 to a fixed
+date. The first would change a view the screens read and drop
+`security_invoker` (`17_core_view_invoker`). The second would undo the
+office-day reasoning at the top of 86.
+
+**Rule:** a test dated from `now()` can only assert things that are true on
+every day. A month's length, its weekdays and "is it past the 15th" are not.
+Either derive the expected value from the same date, or pin the date as an
+argument the function takes.
