@@ -8913,3 +8913,31 @@ Two smaller things:
 **Rule:** moving a file is moving every pointer to it. A copy nothing links is
 a second file, not a move.
 
+## F214 · 2026-10-01 · "Always an error" that never reached the database
+
+The owner: *ketika masuk ke inventory selalu error*. Production had **no
+failed call at all**: every `match_receiving_to_trx` answered 200 and the
+audit log held no refusal. What it did hold was the shape of a workaround:
+all ten matches of the day were saved **with no inventory line**, and in the
+same minutes the same person registered assets one by one in inventory
+(AST-0066 … 0075) and edited their brand and location afterwards.
+
+The edge log showed why. The material line pre-filled the item search with the
+AI's whole reading, and searched the catalogue for it as one string —
+`name ilike '%Asah Sirkel 350 x 89T%'`, `'%Kaki Meja Gambang%'`. The catalogue
+spells things differently, so it found nothing; with no item picked the
+*Match* button stayed disabled and said nothing about why. From the chair that
+is an error. The fix is at the cause: search word by word and rank by how many
+words hit, mark items whose category is not counted instead of letting the
+database refuse them later, let a missing name be added on the spot, say in
+the footer exactly what is still missing, and ask on the line for everything
+the record carries (rack, price; brand, place, holder) so nobody finishes it
+in another module.
+
+**Rule:** a disabled button is a refusal too, and it must say why. When people
+route around a screen, the log of what they did instead is the bug report.
+
+Also seen in the same log, not this app's: John Lau's worker POSTs to
+`public.ledger_review_queue?on_conflict=ref_id` answer **400** every few
+seconds (06:42–06:52). Reported to the owner; it is the capture pipeline's.
+

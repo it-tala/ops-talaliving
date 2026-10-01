@@ -758,8 +758,19 @@ export interface ReceivingCandidates {
 /** What arrived, by kind: a counted material onto the rack, or an asset into
  *  the register (one row per unit). */
 export type ReceivingLineInput =
-  | { kind: "material"; item_code: string; qty: number; location?: string | null }
-  | { kind: "asset"; name: string; category_code: string; count?: number; unit_cost?: number | null };
+  | {
+    kind: "material"; item_code: string; qty: number; location?: string | null;
+    /** Price per unit in the item's unit. Never zero (D172): empty when unknown. */
+    unit_cost?: number | null;
+  }
+  | {
+    kind: "asset"; name: string; category_code: string; count?: number; unit_cost?: number | null;
+    brand?: string | null;
+    /** A location on the list, by code or name (0197). */
+    location?: string | null;
+    /** Who has it, as people say it. */
+    holder?: string | null;
+  };
 
 export interface ReceivingMatchResult {
   rr_no: string;

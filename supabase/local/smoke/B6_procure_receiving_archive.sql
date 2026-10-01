@@ -138,4 +138,61 @@ begin
   assert jsonb_array_length(r->'data'->'files') = 1, format('only the sheet is left to copy: %s', r);
 end $$;
 
+/* ── 5. a receipt / nota, and a fuller inventory line (D360) ─────────────── */
+reset role;
+insert into ops_procure.item_categories (code, name) values ('arc-uji','Bahan arsip (uji)') on conflict (code) do nothing;
+insert into ops_inv.stocked_categories (category_code) values ('arc-uji') on conflict do nothing;
+insert into ops_procure.items (code, name, category_code, base_uom) values ('ITM-ARC1','Lakban uji','arc-uji','lembar');
+do $$
+declare r jsonb;
+begin
+  r := ops_procure.file_receiving('ev-b6-3',
+         '[{"url":"https://drive.google.com/file/d/CHATFILE000000000031/view","filename":"nota.jpg","source_ref":"b31"},
+           {"url":"https://drive.google.com/file/d/CHATFILE000000000032/view","filename":"tv.jpg","source_ref":"b32"}]'::jsonb,
+         'Nota TV + lakban', 'buyer-arc@talaliving.com', timestamptz '2026-09-29 15:00+07');
+  insert into t_ctx values ('rr3', r->'data'->>'rr_no');
+end $$;
+set local role authenticated;
+set local request.jwt.claim.sub = 'b6000000-0000-0000-0000-0000000000a1';
+do $$
+declare r jsonb; rr text := (select v from t_ctx where k = 'rr3'); fn uuid; ft uuid; a record;
+begin
+  select (files->0->>'attachment_id')::uuid, (files->1->>'attachment_id')::uuid into fn, ft
+    from ops_procure.v_receiving_inbox where rr_no = rr;
+
+  r := ops_procure.match_receiving_to_trx(rr, 'trx-b6-out', array[fn], p_notas => array[fn]);
+  assert r->'error'->>'code' = 'file_twice', format('one file is one thing: %s', r);
+  r := ops_procure.match_receiving_to_trx(rr, 'trx-b6-out', '{}'::uuid[], '{}'::uuid[],
+         '[{"kind":"material","item_code":"ITM-ARC1","qty":3,"unit_cost":0}]', p_notas => array[fn]);
+  assert r->'error'->>'code' = 'cost_not_positive', format('a price is above zero or empty: %s', r);
+  r := ops_procure.match_receiving_to_trx(rr, 'trx-b6-out', '{}'::uuid[], '{}'::uuid[],
+         '[{"kind":"asset","name":"TV","category_code":"computer","location":"RUANG ANTAH"}]', p_notas => array[fn]);
+  assert r->'error'->>'code' = 'location_unknown', format('a place on the list: %s', r);
+
+  -- Only the nota as evidence, a priced material and a full asset.
+  r := ops_procure.match_receiving_to_trx(rr, 'trx-b6-out', '{}'::uuid[], '{}'::uuid[],
+         '[{"kind":"material","item_code":"ITM-ARC1","qty":3,"unit_cost":12500},
+           {"kind":"asset","name":"TV 43 inch","category_code":"computer","brand":"LG","location":"gudang","holder":"Kantor bawah","unit_cost":4200000}]',
+         null, null, array[fn]);
+  assert ops_core.said_ok(r) and (r->'data'->>'notas')::int = 1, format('nota only is enough: %s', r);
+  assert (select count(*) from ops_core.attachment_links
+           where entity = 'transaction' and entity_no = 'trx-b6-out' and kind = 'nota' and attachment_id = fn
+             and unlinked_at is null) = 1, 'the nota is the ledger row''s Receipt / Nota';
+
+  r := ops_procure.receiving_archive_plan(rr);
+  assert jsonb_array_length(r->'data'->'files') = 1
+     and r->'data'->'files'->0->>'kind' = 'nota' and r->'data'->'files'->0->>'path' = 'NOTA',
+    format('a nota is filed where every nota is (the unused tv photo is not): %s', r);
+end $$;
+reset role;
+do $$
+declare a record; m record; rr text := (select v from t_ctx where k = 'rr3');
+begin
+  select * into a from ops_inv.assets where trx_no = 'trx-b6-out' and name = 'TV 43 inch';
+  assert a.brand = 'LG' and a.location = 'GUDANG' and a.holder = 'Kantor bawah' and a.purchase_cost = 4200000,
+    format('the asset carries brand, place (resolved to its code) and holder: %s', to_jsonb(a));
+  select * into m from ops_inv.stock_moves where ref_no = rr and item_code = 'ITM-ARC1';
+  assert m.qty = 3 and m.unit_cost = 12500, format('the rack knows the price: %s', to_jsonb(m));
+end $$;
+
 rollback;

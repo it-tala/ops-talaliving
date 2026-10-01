@@ -3778,6 +3778,7 @@ export async function matchReceivingToTrx(
     reports?: string[];
     lines?: ReceivingLineInput[];
     note?: string | null;
+    notas?: string[];
   },
   idempotencyKey?: string,
 ): Promise<Result<ReceivingMatchResult>> {
@@ -3790,6 +3791,7 @@ export async function matchReceivingToTrx(
 
   const state = getState();
   const reports = input.reports ?? [];
+  const notas = input.notas ?? [];
   const lines = input.lines ?? [];
   const open = receivingOpenFor(state, input.rr_no, []);
   if ("outcome" in open) return open as Result<ReceivingMatchResult>;
@@ -3799,10 +3801,10 @@ export async function matchReceivingToTrx(
   if (trx.direction !== "OUT") {
     return invalid(SERVICE, "not_a_purchase", `${trx.trx_no} is money coming in. Goods arrive against a purchase.`, { field: "trx_no" });
   }
-  if (input.photos.length === 0) {
-    return invalid(SERVICE, "photo_required", "Pick at least one photo of the goods — it is what the ledger row shows as the item photo.", { field: "photos" });
+  if (input.photos.length === 0 && notas.length === 0) {
+    return invalid(SERVICE, "photo_required", "Pick at least one file — a photo of the goods, or the receipt / nota.", { field: "photos" });
   }
-  const files = receivingOpenFor(state, input.rr_no, [...input.photos, ...reports]);
+  const files = receivingOpenFor(state, input.rr_no, [...input.photos, ...reports, ...notas]);
   if ("outcome" in files) return files as Result<ReceivingMatchResult>;
 
   const seen = new Set<string>();
@@ -3817,6 +3819,9 @@ export async function matchReceivingToTrx(
       if (l.location && !state.stock_locations.some((x) => x.code === l.location)) {
         return invalid(SERVICE, "location_unknown", `No stock location ${l.location}.`, { field: "lines" });
       }
+      if (l.unit_cost != null && !(l.unit_cost > 0)) {
+        return invalid(SERVICE, "cost_not_positive", `The price of ${l.item_code} is above zero, or left empty.`, { field: "lines" });
+      }
     } else {
       const count = l.count ?? 1;
       if (!l.name.trim()) return invalid(SERVICE, "name_required", "An asset needs a name.", { field: "lines" });
@@ -3826,6 +3831,10 @@ export async function matchReceivingToTrx(
       if (!state.asset_categories.some((c) => c.code === l.category_code)) {
         return invalid(SERVICE, "category_unknown", `No asset category ${l.category_code}.`, { field: "category_code" });
       }
+      if (l.location && !state.stock_locations.some((x) => x.code === l.location!.toUpperCase()
+        || x.name.toLowerCase() === l.location!.toLowerCase())) {
+        return invalid(SERVICE, "location_unknown", `No location ${l.location} on the list.`, { field: "lines" });
+      }
     }
   }
 
@@ -3834,19 +3843,20 @@ export async function matchReceivingToTrx(
   const moves: string[] = [];
   const assets: string[] = [];
   apply((draft) => {
-    const link = (attachment_id: string, entity: "transaction" | "asset", entity_no: string, kind: "Receiving Item" | "Receiving Report" | "Foto") => {
+    const link = (attachment_id: string, entity: "transaction" | "asset", entity_no: string, kind: "Receiving Item" | "Receiving Report" | "Receipt / Invoice / Nota" | "Foto") => {
       if (draft.attachment_links.some((k) => k.attachment_id === attachment_id && k.entity === entity
         && k.entity_no === entity_no && k.kind === kind)) return;
       draft.attachment_links.push({ id: newId("lnk"), attachment_id, entity, entity_no, kind, linked_by: user.id, linked_at: now });
     };
     input.photos.forEach((a) => link(a, "transaction", trx.trx_no, "Receiving Item"));
     reports.forEach((a) => link(a, "transaction", trx.trx_no, "Receiving Report"));
+    notas.forEach((a) => link(a, "transaction", trx.trx_no, "Receipt / Invoice / Nota"));
     const vendorCode = draft.vendors.find((v) => v.id === trx.vendor_id)?.code ?? null;
     for (const l of lines) {
       if (l.kind === "material") {
         moves.push(stockArrival(draft, {
           item_code: l.item_code, qty: l.qty, location: l.location ?? null, ref_no: input.rr_no,
-          reason: `Diterima (${input.rr_no}), dibayar ${trx.trx_no}`,
+          reason: `Diterima (${input.rr_no}), dibayar ${trx.trx_no}`, unit_cost: l.unit_cost ?? null,
         }, user.id, user.email).move_no);
       } else {
         for (let i = 0; i < (l.count ?? 1); i++) {
@@ -3854,9 +3864,12 @@ export async function matchReceivingToTrx(
             name: l.name, category_code: l.category_code, trx_no: trx.trx_no, acquired_on: trx.trx_date,
             purchase_cost: l.unit_cost ?? null, vendor_code: vendorCode,
             notes: `Dari laporan penerimaan ${input.rr_no}`,
+            brand: l.brand ?? null, holder: l.holder ?? null,
+            location: draft.stock_locations.find((x) => x.code === l.location?.toUpperCase()
+              || x.name.toLowerCase() === (l.location ?? "").toLowerCase())?.code ?? null,
           });
           assets.push(a.asset_no);
-          link(input.photos[0], "asset", a.asset_no, "Foto");
+          if (input.photos[0]) link(input.photos[0], "asset", a.asset_no, "Foto");
         }
       }
     }
@@ -3885,6 +3898,7 @@ export async function matchReceivingToPo(
     reports?: string[];
     qc_by?: string | null;
     note?: string | null;
+    notas?: string[];
   },
   idempotencyKey?: string,
 ): Promise<Result<ReceivingMatchResult>> {
@@ -3896,6 +3910,7 @@ export async function matchReceivingToPo(
   if (denied) return denied;
 
   const state = getState();
+  const notas = input.notas ?? [];
   const notes = input.notes ?? [];
   const reports = input.reports ?? [];
   const open = receivingOpenFor(state, input.rr_no, []);
@@ -3906,7 +3921,7 @@ export async function matchReceivingToPo(
     return conflict(SERVICE, "order_not_open", `${po.po_no} is ${po.status} — goods arrive against an order that has been sent and is still open.`);
   }
   if (input.photos.length === 0) return invalid(SERVICE, "photo_required", "Pick at least one photo of the goods.", { field: "photos" });
-  const files = receivingOpenFor(state, input.rr_no, [...input.photos, ...notes, ...reports]);
+  const files = receivingOpenFor(state, input.rr_no, [...input.photos, ...notes, ...reports, ...notas]);
   if ("outcome" in files) return files as Result<ReceivingMatchResult>;
   if (input.lines.length === 0) return invalid(SERVICE, "lines_required", "Say which lines of the order arrived, and how many.", { field: "lines" });
   const live = new Set(state.po_lines.filter((l) => l.po_id === po.id && l.superseded_by === null).map((l) => l.id));
@@ -3945,6 +3960,9 @@ export async function matchReceivingToPo(
         draft.attachment_links.push({ id: newId("lnk"), attachment_id, entity: "receipt", entity_no: receipt.receipt_no, kind, linked_by: user.id, linked_at: now });
       }
       if (confirmed) stockFromReceipt(draft, receipt.receipt_no, user.id, user.email);
+    }
+    for (const a of notas) {
+      draft.attachment_links.push({ id: newId("lnk"), attachment_id: a, entity: "po", entity_no: po.po_no, kind: "Receipt / Invoice / Nota", linked_by: user.id, linked_at: now });
     }
     const row = draft.receiving_inbox.find((r) => r.rr_no === input.rr_no)!;
     Object.assign(row, {
@@ -4063,7 +4081,10 @@ export async function archiveReceiving(rrNo: string): Promise<Result<ReceivingAr
     return conflict(SERVICE, "not_matched", `${rrNo} is ${row.status.toLowerCase()} — its photos are filed once it is matched.`);
   }
   const day = row.reported_at.slice(0, 10);
-  const path = `RECEIVING REPORT/${day.slice(0, 7)}/${day}`;
+  const monthPath = `RECEIVING REPORT/${day.slice(0, 7)}/${day}`;
+  /* A nota goes where every nota goes (ACCOUNTING / NOTA); the rest to the month tree. */
+  const pathOf = (links: { kind: string }[]) =>
+    links.some((k) => k.kind === "Receipt / Invoice / Nota") ? "NOTA" : monthPath;
   const user = actingUser();
   const archived: ReceivingArchiveResult["archived"] = [];
   apply((draft) => {
@@ -4075,6 +4096,7 @@ export async function archiveReceiving(rrNo: string): Promise<Result<ReceivingAr
       if (live.length === 0) return id;
       const old = draft.attachments.find((a) => a.id === id);
       if (!old) return id;
+      const path = pathOf(live);
       const copy = {
         ...old, id: newId("att"), url: null, storage_path: `demo/${path}/${rrNo} ${old.filename}`,
         web_view_link: null, filed_in: path, uploaded_by: user.id, uploaded_at: new Date().toISOString(),
@@ -4093,7 +4115,7 @@ export async function archiveReceiving(rrNo: string): Promise<Result<ReceivingAr
     });
     r.archived_from = from;
     if (archived.length) {
-      writeAudit(draft, { service: SERVICE, entity: "receiving_inbox", entity_no: rrNo, action: "archive", outcome: "ok", reason: null, detail: { path, files: archived.length } });
+      writeAudit(draft, { service: SERVICE, entity: "receiving_inbox", entity_no: rrNo, action: "archive", outcome: "ok", reason: null, detail: { files: archived } });
     }
   });
   return ok(SERVICE, { rr_no: rrNo, archived, failed: [] });
