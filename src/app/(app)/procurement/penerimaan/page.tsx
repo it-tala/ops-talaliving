@@ -13,6 +13,7 @@ import { RECEIPT_CONDITIONS, type ReceiptCondition } from "@/services/procuremen
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
+import { ChatInbox } from "./ChatInbox";
 
 /** The morning queue.
  *
@@ -43,6 +44,8 @@ export default function ReceivingPage() {
           "Kedatangan yang sudah dilaporkan seseorang tetapi belum dilengkapi. Foto membuktikan barangnya datang; tanda terima membuktikan kita mengakuinya — dan hanya yang kedua yang membuatnya terhitung.",
         )}
       />
+
+      <ChatInbox mayAct={mayConfirm} onMatched={reload} />
 
       <Loaded state={rows} onRetry={reload}>
         {(all) => (

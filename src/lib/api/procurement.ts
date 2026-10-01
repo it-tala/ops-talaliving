@@ -30,6 +30,8 @@ import type {
   PrLineView, PrApproval, LineNote, LineVariance, ApprovalRequest,
   VendorJourney, RoundSummary, RoundTransfer, VarianceReason, Channel, ApprovalBatchView,
   PoDetail, PoLine, PoStatusView, PurchaseOrder, Receipt, ReceiptCondition,
+  ReceivingInboxRow, ReceivingInboxStatus, ReceivingCandidates, ReceivingLineInput,
+  ReceivingMatchResult, PoPaymentRequest,
   UomCode, PrCategory, PrDocument,
   ProjectView, ProjectLineView, ProjectStatus, ProjectStatusChange, Client, ClientView,
 } from "@/services/procurement/contracts";
@@ -1857,7 +1859,7 @@ export async function listReported(): Promise<Result<(Receipt & {
   description: string; po_no: string | null; vendor_name: string | null; reported_by_name: string;
 })[]>> {
   const { data, error } = await db().from("receipts").select("*").eq("status", "REPORTED")
-    .order("received_at", { ascending: false });
+    .order("received_at", { ascending: true });
   if (error) return fail(SERVICE, error);
   const receipts = (data ?? []) as Receipt[];
   if (receipts.length === 0) return ok(SERVICE, []);
@@ -2112,4 +2114,111 @@ export async function listPendingRequests(): Promise<Result<ApprovalRequest[]>> 
   const { data, error } = await db().from("approval_requests").select("*").is("answered_at", null)
     .order("sent_at", { ascending: false });
   return fromRows<ApprovalRequest[]>(SERVICE, data as ApprovalRequest[], error);
+}
+
+/* ------------------------------------------------------------------ */
+/* Receiving report from Google Chat (0203, D358)                      */
+/* ------------------------------------------------------------------ */
+
+/** The RECEIVING REPORT space, as the bridge filed it. Open ones oldest
+ *  first — the longer a photo waits, the harder it is to say what it was;
+ *  decided ones newest first. */
+export async function listReceivingInbox(
+  input: { status?: ReceivingInboxStatus; limit?: number } = {},
+): Promise<Result<ReceivingInboxRow[]>> {
+  const status = input.status ?? "PENDING";
+  const { data, error } = await db().from("v_receiving_inbox").select("*")
+    .eq("status", status)
+    .order("reported_at", { ascending: status === "PENDING" })
+    .limit(input.limit ?? 200);
+  return fromRows<ReceivingInboxRow[]>(SERVICE, data as ReceivingInboxRow[], error);
+}
+
+/** What one report could be matched to: money that went out near the day it
+ *  arrived, and the orders still waiting for goods. `query` searches every
+ *  date. */
+export async function receivingCandidates(
+  rrNo: string, query?: string | null,
+): Promise<Result<ReceivingCandidates>> {
+  const { data, error } = await db().rpc("receiving_candidates", {
+    p_rr_no: rrNo, p_query: query ?? null,
+  });
+  return fromSeam<ReceivingCandidates>(SERVICE, data, error);
+}
+
+/** Bought and already paid: the photos become the ledger row's item photo,
+ *  the sheet its receiving report, and each line goes onto the rack or into
+ *  the asset register. */
+export async function matchReceivingToTrx(
+  input: {
+    rr_no: string;
+    trx_no: string;
+    photos: string[];
+    reports?: string[];
+    lines?: ReceivingLineInput[];
+    note?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<ReceivingMatchResult>> {
+  const { data, error } = await db().rpc("match_receiving_to_trx", {
+    p_rr_no: input.rr_no,
+    p_trx_no: input.trx_no,
+    p_photos: input.photos,
+    p_reports: input.reports ?? [],
+    p_lines: input.lines ?? [],
+    p_note: input.note ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<ReceivingMatchResult>(SERVICE, data, error);
+}
+
+/** Against an order: a receipt per line, CONFIRMED when the tanda terima is
+ *  among the files (D131). */
+export async function matchReceivingToPo(
+  input: {
+    rr_no: string;
+    po_no: string;
+    lines: { po_line_id: string; qty: number; condition?: ReceiptCondition }[];
+    photos: string[];
+    notes?: string[];
+    reports?: string[];
+    qc_by?: string | null;
+    note?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<ReceivingMatchResult>> {
+  const { data, error } = await db().rpc("match_receiving_to_po", {
+    p_rr_no: input.rr_no,
+    p_po_no: input.po_no,
+    p_lines: input.lines,
+    p_photos: input.photos,
+    p_notes: input.notes ?? [],
+    p_reports: input.reports ?? [],
+    p_qc_by: input.qc_by ?? null,
+    p_note: input.note ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<ReceivingMatchResult>(SERVICE, data, error);
+}
+
+export async function dismissReceiving(
+  rrNo: string, reason: string,
+): Promise<Result<{ rr_no: string; status: ReceivingInboxStatus }>> {
+  const { data, error } = await db().rpc("dismiss_receiving", { p_rr_no: rrNo, p_reason: reason });
+  return fromSeam(SERVICE, data, error);
+}
+
+/** Ask for the payment an order has earned: one request line against it,
+ *  submitted to the meeting. Paying that line is paying the order (0203). */
+export async function requestPoPayment(
+  input: { po_no: string; amount?: number | null; note?: string | null },
+  idempotencyKey?: string,
+): Promise<Result<PoPaymentRequest>> {
+  const { data, error } = await db().rpc("request_po_payment", {
+    p_po_no: input.po_no,
+    p_amount: input.amount ?? null,
+    p_note: input.note ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<PoPaymentRequest>(SERVICE, data, error);
 }

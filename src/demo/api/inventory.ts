@@ -487,7 +487,7 @@ export async function registerItem(
 
 /** The item's unit when it is a live, stocked catalogue item — the same test
  *  as `ops_inv.stock_item_uom` (`0198`). */
-function stockItemUom(state: DemoState, code: string): string | null {
+export function stockItemUom(state: DemoState, code: string): string | null {
   const item = state.items.find((i) => i.code === code);
   if (!item || item.merged_into || item.archived_at || item.kind !== "goods") return null;
   return STOCKED_CATEGORIES.has(item.category_code) ? item.base_uom : null;
@@ -2157,4 +2157,48 @@ export async function labelCard(token: string): Promise<Result<LabelCard>> {
     }
   }
   return notFound(SERVICE, "not_found", "Label ini tidak dikenal.");
+}
+
+/* ── Arrivals matched in procurement (0203, D358) ──────────────────────────
+ *
+ *  A receiving report from Chat matched to money already paid writes its
+ *  material onto the rack and its assets into the register, from
+ *  procurement's act. Written here because both are inventory's rows, the
+ *  same reason `stockFromReceipt` lives here. Callers validate first. */
+export function stockArrival(
+  draft: DemoState,
+  input: { item_code: string; qty: number; location?: string | null; ref_no: string; reason: string },
+  userId: string,
+  userEmail: string,
+): StockMove {
+  const uom = stockItemUom(draft, input.item_code) ?? "pcs";
+  const home = draft.stock_settings.find((s) => s.item_code === input.item_code)?.home_location;
+  return writeMove(draft, {
+    item_code: input.item_code, location: input.location || home || "GUDANG",
+    kind: "receipt", qty: input.qty, uom, unit_cost: null, ref_no: input.ref_no, reason: input.reason,
+  }, userId, userEmail);
+}
+
+export function registerArrivedAsset(
+  draft: DemoState,
+  input: {
+    name: string; category_code: string; trx_no: string; acquired_on: string | null;
+    purchase_cost: number | null; vendor_code: string | null; notes: string;
+  },
+): Asset {
+  const n = Math.max(0, ...draft.assets.map((a) => Number(a.asset_no.slice(4)) || 0)) + 1;
+  const now = new Date().toISOString();
+  const row: Asset = {
+    id: newId("ast"), asset_no: `AST-${String(n).padStart(4, "0")}`, name: input.name.trim(),
+    category_code: input.category_code, brand: null, model: null, identifier: null,
+    location: null, holder: null, status: "in_use",
+    acquired_on: input.acquired_on, purchase_cost: input.purchase_cost,
+    vendor_code: input.vendor_code, trx_no: input.trx_no, warranty_until: null, notes: input.notes,
+    ended_on: null, created_at: now, updated_at: now,
+    ownership: "owned", rent_amount: null, rent_period: null, rent_due_day: null,
+    contract_start: null, contract_end: null,
+  };
+  draft.assets.push(row);
+  writeAudit(draft, { service: SERVICE, entity: "asset", entity_no: row.asset_no, action: "create", outcome: "ok", reason: null });
+  return row;
 }

@@ -8689,3 +8689,43 @@ notice was already there.
 **Rule:** a screen that writes something shows where the writing happens
 before anything is written. A control that appears only once its
 precondition is met is a control nobody finds.
+
+## F208 · 2026-10-01 · The photos were already captured, read and stored — they just had no road into ops
+
+The owner asked to *activate* receiving reports from the RECEIVING REPORT
+space. Measured before building anything: the John Lau worker has captured
+that space since 2026-09-09 — 43 messages, 26 with photos, every photo
+already in Drive (`public.blobs`) and already read by Gemini into
+`public.receiving_extractions` (ITEM PHOTO / RECEIVING SHEET, with lines,
+vendor and PO number). **Zero** of them reached `ops_*`: the only inbound
+road was accounting's `evidence_inbox`, and nothing filed these there. The
+work had been done twice (capture and extraction) and was visible to nobody.
+
+Three things the build taught:
+
+- **The bridge belongs where the data already is.** `03_bridge_review_queue`
+  showed that a worker change merged and not deployed silently reopens the
+  gap at the rate people work. Everything needed is in the same database, so
+  `05_bridge_receiving.sql` runs from `pg_cron` every five minutes and calls
+  one idempotent seam (`file_receiving`). No GCP deploy, no trigger on the
+  worker's own tables that could fail its insert, no `service_role` widening
+  (the guard `A2_core_execute_grants` asked exactly that question).
+- **A message is not a file, and the reading lags the files.** Messages carry
+  one or two photos (goods + signed sheet), and the extraction lands seconds
+  after the blobs. So the seam is keyed on the message and **merges** a second
+  filing while the row is open, rather than refusing it as a duplicate.
+- **A request line *against* an order was paid on the line only.** `0158` let
+  a balance payment stand on an open PO, but `allocate_payment` stamped the
+  order only for lines *on* it (`order_of_line`, B8). So the road the owner
+  described — receiving → PR → approve → paid → PO paid — ended one hop short:
+  the PO would have read UNPAID after its PR was paid. Production had no such
+  line yet (measured), so nothing to backfill; `0203` closes it for every
+  future payment.
+
+Also noticed, not fixed here: the real `confirmReceipt` drops the corrected
+qty/condition the morning screen sends (the seam has no such parameters),
+while the demo applies them. Recorded for its own session.
+
+**Rule:** before building a capture path, look for the one that already
+exists. The expensive half (capture, storage, reading) was done; what was
+missing was one verb and a schedule.

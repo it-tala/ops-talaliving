@@ -70,6 +70,8 @@ const VIEW_CONTRACTS = {
   v_item_view:       "ItemView",
   v_vendor_journey:  { type: "VendorJourney", composed: ["headline"] },
   v_round_summary:   "RoundSummary",
+  /* The RECEIVING REPORT space from Google Chat (0203). */
+  v_receiving_inbox: "ReceivingInboxRow",
   /* Read for one column, `line_id` — which lines belong to a round, so
      `getRoundView()` can fetch them from `v_pr_line` the same way every other
      line list does. No row here is ever handed to a screen, so there is
