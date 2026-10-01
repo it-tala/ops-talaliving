@@ -31,6 +31,7 @@ import {
 import {
   scheduleHoursOf, isOvernight, dayBoundaryMinutes, shiftMinutes, nextOfficeDay, scheduleDay,
 } from "@/services/hr/schedule-rules";
+import { shiftReading, addDayKey, SHIFT_LOOKBACK_DAYS, SHIFT_LOOKAHEAD_DAYS } from "@/services/hr/shift-reading";
 import {
   addDays, taskPeriodStart, taskPeriodEnd, taskPeriodLabel, ageOn, ageBand,
 } from "@/services/hr/task-periods";
@@ -246,9 +247,32 @@ export function timesheetDay(
      dated (D173). */
   const rules = activePayRules(state, workDate).rules;
   const sc = scheduleFor(rules, employee);
-  const overnight = isOvernight(sc);
-  const window_from = dayBeginsAt(state, employee, workDate);
-  const window_to = dayBeginsAt(state, employee, nextOfficeDay(workDate));
+  let overnight = isOvernight(sc);
+  let window_from = dayBeginsAt(state, employee, workDate);
+  let window_to = dayBeginsAt(state, employee, nextOfficeDay(workDate));
+  /* 0206 (D364): a pattern with shifts is read as a chain of taps, and the
+     day's window is the taps its shift took. */
+  const shifts = sc?.shifts ?? [];
+  const sr = shifts.length > 0
+    ? shiftReading(
+        shifts,
+        state.attendance_scans
+          .filter((s) => s.employee_id === employee.id
+            && s.work_date >= addDayKey(workDate, -SHIFT_LOOKBACK_DAYS)
+            && s.work_date <= addDayKey(workDate, SHIFT_LOOKAHEAD_DAYS))
+          .map((s) => ({ id: s.id, at: s.at })),
+        (state.shift_picks ?? []).filter((p) => p.employee_id === employee.id),
+        workDate,
+      )
+    : null;
+  if (sr) {
+    if (sr.taps.length > 0) {
+      window_from = new Date(Date.parse(sr.taps[0].at)).toISOString();
+      window_to = new Date(Date.parse(sr.taps[sr.taps.length - 1].at) + 60 * 60_000).toISOString();
+    }
+    const own = shifts.find((x) => x.code === sr.code);
+    overnight = own ? own.end_minutes <= own.start_minutes : false;
+  }
   const taps = tapsOf(state, employee.id, window_from, window_to);
   const mark = state.day_marks.find(
     (m) => m.work_date === workDate
@@ -282,11 +306,21 @@ export function timesheetDay(
   const sMin = sd && !sd.off ? sd.start_minutes : null;
   const eMin = sd && !sd.off ? sd.end_minutes : null;
   const bMin = sd?.break_minutes ?? 0;
-  const scheduled_hours = sMin != null && eMin != null
+  let scheduled_hours = sMin != null && eMin != null
     ? Math.max((shiftMinutes(sMin, eMin) ?? 0) - bMin, 0) / 60
     : null;
+  const shiftOwn = sr ? shifts.find((x) => x.code === sr.code) ?? null : null;
+  const shiftBreak = shiftOwn?.break_minutes ?? 0;
+  if (shiftOwn && sr?.start != null && sr.end != null) {
+    scheduled_hours = Math.max((sr.end - sr.start) / 60_000 - shiftBreak, 0) / 60;
+  }
 
-  if (taps.length > 0 && inOut) {
+  if (sr && taps.length > 0) {
+    /* Masuk and pulang are the taps the shift reading paired (D364). */
+    if (sr.in) take("in", (t) => Date.parse(t.at) === Date.parse(sr.in!.at));
+    if (sr.out) take("out", (t) => Date.parse(t.at) === Date.parse(sr.out!.at));
+    rest.length = 0;
+  } else if (taps.length > 0 && inOut) {
     take("in", () => true);
     /* Pulang is the last tap, whenever it is; one tap has none. The break
        taps are placed for the screen only. */
@@ -316,7 +350,7 @@ export function timesheetDay(
     take("break_in", (t) => Date.parse(t.at) < outFrom);
     take("out", (t) => Date.parse(t.at) >= outFrom);
   }
-  if (taps.length > 0 && !inOut) {
+  if (taps.length > 0 && !inOut && !sr) {
     take("ot_start", (t) => slots.out !== undefined && Date.parse(t.at) > Date.parse(slots.out!));
     take("ot_end", (t) => slots.ot_start !== undefined && Date.parse(t.at) > Date.parse(slots.ot_start!));
   }
@@ -334,7 +368,37 @@ export function timesheetDay(
   if (rest.length > 0) {
     issues.push(`${rest.length} tap(s) the rule could not place: ${rest.map((t) => hhmm(t.at)).join(", ")}`);
   }
-  if (taps.length > 0 && inOut) {
+  if (sr && taps.length > 0) {
+    /* The shift's hours at most, less its break; past its end is lembur,
+       shown and never paid from here (D138). One shift is one day of pay. */
+    const step = rules.hours_rounding_minutes ?? 15;
+    const round = (m: number) => (step > 0 ? Math.round(m / step) * step : m);
+    break_hours = shiftBreak / 60;
+    overtime_hours = 0;
+    work_hours = 0;
+    if (sr.status === "paired" && sr.in && sr.out && sr.start != null && sr.end != null) {
+      const inAt = Date.parse(sr.in.at);
+      const outAt = Date.parse(sr.out.at);
+      work_hours = round(Math.max((Math.min(outAt, sr.end) - Math.max(inAt, sr.start)) / 60_000 - shiftBreak, 0)) / 60;
+      if (outAt > sr.end) {
+        overtime_hours = round((outAt - sr.end) / 60_000) / 60;
+      }
+      const quota = round((scheduled_hours ?? 0) * 60) / 60;
+      if (scheduled_hours != null && work_hours < quota - 1e-9) {
+        notes.push(`Kurang ${(scheduled_hours - work_hours).toFixed(2)} jam dari jadwal ${scheduled_hours.toFixed(2)} jam`);
+      }
+    } else if (sr.status === "open") {
+      issues.push(`${sr.name} sedang berjalan — belum ada tap pulang`);
+    } else if (sr.code == null) {
+      issues.push("Tap di luar jam shift mana pun — pilih shift-nya di laci hari");
+    } else if (sr.picked) {
+      issues.push(`${sr.name} dipilih, tapi tap ${sr.out == null ? "pulang" : "datang"} belum ada — lengkapi tapnya`);
+    } else {
+      issues.push("Satu tap tanpa pasangan — pilih shift-nya di laci hari, atau lengkapi tap yang hilang");
+    }
+    if (sr.picked) notes.push(`Shift dipilih HRD: ${sr.name ?? sr.code}`);
+    if (sr.extra > 0) notes.push(`${sr.extra} tap lain di shift ini tidak dihitung`);
+  } else if (taps.length > 0 && inOut) {
     const step = rules.hours_rounding_minutes ?? 15;
     const round = (m: number) => (step > 0 ? Math.round(m / step) * step : m);
     const at = (m: number) => Date.parse(officeStamp(workDate, clockOf(m).replace(".", ":")));
@@ -437,6 +501,8 @@ export function timesheetDay(
     window_to,
     overnight,
     scheduled_hours,
+    shift_code: sr?.code ?? null,
+    shift_name: sr?.name ?? null,
   };
 }
 
@@ -666,7 +732,11 @@ export function payrollLine(
   const lateBy = (d: (typeof days)[number]): number => {
     const inAt = d.slots.in;
     if (!inAt || d.mark) return 0;
-    const start = dayStartFor(rules, employee);
+    /* 0206 (D364): late against the shift worked — 17.00 for Shift 2. */
+    const shiftStart = d.shift_code
+      ? (scheduleFor(rules, employee)?.shifts ?? []).find((x) => x.code === d.shift_code)?.start_minutes ?? null
+      : null;
+    const start = shiftStart ?? dayStartFor(rules, employee);
     /* Nobody has said when this person's day starts, so nothing about this day
        is late. Not zero because they were punctual — zero because there is no
        threshold, and inventing one puts minutes on a payslip (D274). */
@@ -747,6 +817,7 @@ export function payrollLine(
     overtime_hours: d.overtime_hours,
     mark: d.mark ? DAY_MARK_SHORT[d.mark.kind] : null,
     assumed: assumedDates.has(d.work_date),
+    shift: d.shift_code ?? null,
     day_value: d.day_value,
     open: d.state === "review",
   }));

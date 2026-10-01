@@ -100,6 +100,17 @@ export interface DemoScanLocation {
   photo_id: string | null;
 }
 
+/** One row of `ops_hr.shift_picks` (0206). */
+export interface DemoShiftPick {
+  id: string;
+  employee_id: string;
+  work_date: string;
+  shift_code: string;
+  reason: string | null;
+  picked_by: string;
+  picked_at: string;
+}
+
 export interface DemoState {
   /** Which demo user is acting. Phase 2 reads this from Supabase Auth. */
   session_user_id: string;
@@ -186,6 +197,9 @@ export interface DemoState {
   scan_locations: DemoScanLocation[];
   /** What HRD says about a day that no reader can know (D142). */
   day_marks: DayMark[];
+  /** HRD's word on which shift a day was, for somebody on shifts (D364,
+   *  `ops_hr.shift_picks`). Optional so a saved demo from before it loads. */
+  shift_picks?: DemoShiftPick[];
   /** Overtime is a sheet with lines on it — one night, many names for
    *  production, one session for staff (D146). */
   overtime_sheets: OvertimeSheet[];

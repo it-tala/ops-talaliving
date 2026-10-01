@@ -21,7 +21,8 @@ import type {
 import {
   SENSITIVE_DOC_KINDS, SCHEME_LABELS, maskDocNo, clauseValueOk, scheduleProblem, OFF_SITE_VERDICTS,
 } from "@/services/hr/contracts";
-import { instantInDay, isOvernight, dayBoundaryMinutes, type ScheduleDay, type ScheduleWeekDay, scheduleWeek } from "@/services/hr/schedule-rules";
+import { addDayKey } from "@/services/hr/shift-reading";
+import { instantInDay, isOvernight, dayBoundaryMinutes, type ScheduleDay, type ScheduleShift, type ScheduleWeekDay, scheduleWeek } from "@/services/hr/schedule-rules";
 import type { DocKind } from "@/services/documents/contracts";
 import type { DemoState } from "../state";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
@@ -4612,6 +4613,170 @@ export async function setScheduleDays(
   });
   const answer = { code: input.code, version, effective_from: from };
   remember(SERVICE, "setScheduleDays", idempotencyKey, answer);
+  return ok(SERVICE, answer);
+}
+
+/** HRD sets one pattern's shifts (D364) — `ops_hr.set_schedule_shifts`.
+ *  The whole list is replaced; `[]` removes it. */
+export async function setScheduleShifts(
+  input: {
+    code: string;
+    shifts: ScheduleShift[];
+    effective_from: string;
+    note: string;
+  },
+  idempotencyKey?: string,
+): Promise<Result<{ code: string; version: number; effective_from: string }>> {
+  await latency();
+  const cached = replayed<{ code: string; version: number; effective_from: string }>(
+    SERVICE, "setScheduleShifts", idempotencyKey);
+  if (cached) return cached;
+
+  const denied = requireLevel(SERVICE, "hrd", "write");
+  if (denied) return denied;
+  if (!input.note?.trim()) {
+    return invalid(
+      SERVICE, "note_required",
+      "Tulis alasannya. Jam kerja yang berubah tanpa keterangan tidak bisa dijelaskan ke orang yang jamnya berubah.",
+      { field: "note" },
+    );
+  }
+
+  const state = getState();
+  const from = input.effective_from || sharedOfficeToday();
+  const sorted = [...state.pay_rule_sets].sort(
+    (a, b) => a.effective_from.localeCompare(b.effective_from) || a.version - b.version);
+  const base = sorted.filter((r) => r.effective_from <= from).pop();
+  if (!base) {
+    return conflict(SERVICE, "no_rule_book",
+      `Belum ada buku aturan gaji yang berlaku pada ${from}. IT menerbitkannya dulu.`);
+  }
+  const later = sorted.find((r) => r.effective_from > from);
+  if (later) {
+    return conflict(SERVICE, "later_version_exists",
+      `Versi ${later.version} berlaku mulai ${later.effective_from}, sesudah tanggal ini, dan tidak memuat perubahan ini — shiftnya akan kembali pada tanggal itu. Pilih tanggal mulai ${later.effective_from} atau sesudahnya.`);
+  }
+  const old = (base.rules.schedules ?? []).find((sc) => sc.code === input.code);
+  if (!old) {
+    return notFound(SERVICE, "not_found",
+      `Tidak ada jadwal kerja bernama ${input.code} di buku aturan yang berlaku.`);
+  }
+
+  const { shifts: _oldShifts, ...kept } = old;
+  void _oldShifts;
+  const changed = (input.shifts ?? []).length === 0 ? kept : { ...kept, shifts: input.shifts };
+  const rules: PayRules = {
+    ...base.rules,
+    schedules: (base.rules.schedules ?? []).map((sc) => (sc.code === input.code ? changed : sc)),
+  };
+  if (JSON.stringify(changed) === JSON.stringify(old)) {
+    return noop(SERVICE, { code: input.code, version: base.version, effective_from: base.effective_from });
+  }
+
+  const problem = scheduleProblem(rules.schedules ?? [], rules.schedule_by_unit ?? {});
+  if (problem) return invalid(SERVICE, problem.code, problem.message, { field: "shifts" });
+
+  const spent = state.payroll_runs
+    .filter((r) => r.status !== "DRAFT" && r.period_end >= from)
+    .sort((a, b) => a.period_start.localeCompare(b.period_start))[0];
+  if (spent) {
+    return conflict(SERVICE, "already_paid",
+      `${spent.run_no} sudah ditandatangani untuk periode yang berakhir ${from} atau sesudahnya. Aturan tidak bisa mundur melewati uang yang sudah dibayarkan — terbitkan yang baru berlaku setelahnya.`);
+  }
+  const clash = state.payroll_runs.find((r) => from > r.period_start && from <= r.period_end);
+  if (clash) {
+    return conflict(SERVICE, "inside_existing_run",
+      `${clash.run_no} mencakup tanggal itu, dan periode itu dihitung dengan aturan yang berlaku saat dibuka. Pilih tanggal di luar periode yang sudah ada.`);
+  }
+
+  const user = actingUser();
+  let version = 0;
+  apply((draft) => {
+    version = Math.max(0, ...draft.pay_rule_sets.map((r) => r.version)) + 1;
+    draft.pay_rule_sets.push({
+      id: newId("prs"), version, effective_from: from, note: input.note.trim(), rules,
+      created_by: user.id, created_at: new Date().toISOString(),
+    });
+    writeAudit(draft, {
+      service: SERVICE, entity: "schedule", entity_no: input.code,
+      action: "set_shifts", outcome: "ok", reason: input.note.trim(),
+      detail: {
+        before: { shifts: old.shifts ?? [] },
+        after: { shifts: input.shifts ?? [], version, effective_from: from },
+        by: user.email,
+      },
+    });
+  });
+  const answer = { code: input.code, version, effective_from: from };
+  remember(SERVICE, "setScheduleShifts", idempotencyKey, answer);
+  return ok(SERVICE, answer);
+}
+
+/** HRD says which shift a day was (D364) — `ops_hr.pick_shift`. A null shift
+ *  takes the pick away. */
+export async function pickShift(
+  input: { employee_no: string; work_date: string; shift_code: string | null; reason: string | null },
+  idempotencyKey?: string,
+): Promise<Result<{ employee_no: string; work_date: string; shift_code: string | null }>> {
+  await latency();
+  type Answer = { employee_no: string; work_date: string; shift_code: string | null };
+  const cached = replayed<Answer>(SERVICE, "pickShift", idempotencyKey);
+  if (cached) return cached;
+
+  const denied = requireLevel(SERVICE, "hrd", "write");
+  if (denied) return denied;
+  const state = getState();
+  const emp = state.employees.find((e) => e.employee_no === input.employee_no);
+  if (!emp) return notFound(SERVICE, "not_found", `Tidak ada karyawan bernomor ${input.employee_no}.`);
+  if (!input.work_date) {
+    return invalid(SERVICE, "date_required", "Tanggalnya belum ada.", { field: "work_date" });
+  }
+  if (input.shift_code != null && !input.reason?.trim()) {
+    return invalid(SERVICE, "reason_required",
+      "Tulis alasannya — misalnya dari mana HRD tahu shift-nya.", { field: "reason" });
+  }
+  if (input.shift_code != null) {
+    const sc = scheduleFor(activePayRules(state, input.work_date).rules, emp);
+    if (!(sc?.shifts ?? []).some((x) => x.code === input.shift_code)) {
+      return invalid(SERVICE, "shift_unknown",
+        `Pola kerja ${sc?.code ?? "(tanpa pola)"} pada ${input.work_date} tidak punya shift ${input.shift_code}.`,
+        { field: "shift_code" });
+    }
+  }
+  const paid = state.payroll_runs
+    .filter((r) => r.status !== "DRAFT"
+      && input.work_date >= addDayKey(r.period_start, -1) && input.work_date <= addDayKey(r.period_end, 1))
+    .sort((a, b) => a.period_start.localeCompare(b.period_start))[0];
+  if (paid) {
+    return conflict(SERVICE, "already_paid",
+      `${paid.run_no} sudah ditandatangani untuk tanggal itu. Koreksinya lewat penyesuaian di periode berikutnya.`);
+  }
+  const old = (state.shift_picks ?? []).find(
+    (p) => p.employee_id === emp.id && p.work_date === input.work_date) ?? null;
+  const answer: Answer = { employee_no: input.employee_no, work_date: input.work_date, shift_code: input.shift_code };
+  if (input.shift_code == null && !old) return noop(SERVICE, answer);
+  if (input.shift_code != null && old?.shift_code === input.shift_code) return noop(SERVICE, answer);
+
+  const user = actingUser();
+  apply((draft) => {
+    const picks = (draft.shift_picks ??= []);
+    const i = picks.findIndex((p) => p.employee_id === emp.id && p.work_date === input.work_date);
+    if (i >= 0) picks.splice(i, 1);
+    if (input.shift_code != null) {
+      picks.push({
+        id: newId("shp"), employee_id: emp.id, work_date: input.work_date,
+        shift_code: input.shift_code, reason: input.reason!.trim(),
+        picked_by: user.id, picked_at: new Date().toISOString(),
+      });
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "shift_pick", entity_no: `${input.employee_no}/${input.work_date}`,
+      action: input.shift_code == null ? "unpick" : "pick", outcome: "ok",
+      reason: input.reason?.trim() || null,
+      detail: { before: { shift_code: old?.shift_code ?? null }, after: { shift_code: input.shift_code }, by: user.email },
+    });
+  });
+  remember(SERVICE, "pickShift", idempotencyKey, answer);
   return ok(SERVICE, answer);
 }
 

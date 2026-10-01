@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarClock, AlertTriangle, Users, Link2, Moon, Pencil, Plus, CalendarDays } from "lucide-react";
+import { CalendarClock, AlertTriangle, Users, Link2, Moon, Pencil, Plus, CalendarDays, Repeat, Trash2 } from "lucide-react";
 import { Badge, Button, Card, CardHeader, EmptyState, PageHeader, StatCard } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { Combobox } from "@/components/ui/combobox";
@@ -12,7 +12,10 @@ import { useSession } from "@/store/session";
 import { useTr } from "@/lib/i18n";
 import { officeToday } from "@/lib/office";
 import { NumberInput } from "@/components/ui/number-input";
-import { dayBoundaryMinutes, isOvernight, scheduleHoursOf, scheduleWeek, WEEKDAY_NAMES, type ScheduleDay } from "@/services/hr/schedule-rules";
+import {
+  dayBoundaryMinutes, isOvernight, scheduleHoursOf, scheduleWeek, scheduleProblem, shiftMinutes, WEEKDAY_NAMES,
+  SATPAM_SHIFTS, type ScheduleDay, type ScheduleShift,
+} from "@/services/hr/schedule-rules";
 import type { WorkSchedule } from "@/services/hr/contracts";
 
 /** Working patterns, and who is on them (Q53, D279).
@@ -39,6 +42,7 @@ export default function SchedulePage() {
   const [data, reload] = useLoad(() => hr.listSchedules(), []);
   const [editing, setEditing] = useState<string | null>(null);
   const [editingDays, setEditingDays] = useState<string | null>(null);
+  const [editingShifts, setEditingShifts] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
   return (
@@ -155,6 +159,18 @@ export default function SchedulePage() {
                           </span>
                           {/* The seven days as the reading sees them (D340). */}
                           <WeekStrip week={sc.week ?? scheduleWeek(sc)} />
+                          {/* D364: the shifts read off the taps. */}
+                          {(sc.shifts ?? []).length > 0 && (
+                            <span className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-slate-600">
+                              <Repeat className="h-3 w-3 text-slate-400" />
+                              {(sc.shifts ?? []).map((x) => (
+                                <Badge key={x.code} tone="violet">
+                                  {x.code} · {clock(x.start_minutes)}–{clock(x.end_minutes)}
+                                </Badge>
+                              ))}
+                              <span className="text-slate-400">{tr("read from taps", "dibaca dari tap")}</span>
+                            </span>
+                          )}
                         </td>
                         <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{hours(sc.hours.daily_hours)}</td>
                         <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{hours(sc.hours.friday_hours)}</td>
@@ -168,11 +184,14 @@ export default function SchedulePage() {
                         </td>
                         {mayEdit && (
                           <td className="px-3 py-2.5 text-right">
-                            <Button size="sm" variant="ghost" icon={Pencil} onClick={() => { setEditing(editing === sc.code ? null : sc.code); setEditingDays(null); setAdding(false); }}>
+                            <Button size="sm" variant="ghost" icon={Pencil} onClick={() => { setEditing(editing === sc.code ? null : sc.code); setEditingDays(null); setEditingShifts(null); setAdding(false); }}>
                               {tr("Hours", "Jam")}
                             </Button>
-                            <Button size="sm" variant="ghost" icon={CalendarDays} onClick={() => { setEditingDays(editingDays === sc.code ? null : sc.code); setEditing(null); setAdding(false); }}>
+                            <Button size="sm" variant="ghost" icon={CalendarDays} onClick={() => { setEditingDays(editingDays === sc.code ? null : sc.code); setEditing(null); setEditingShifts(null); setAdding(false); }}>
                               {tr("Per day", "Per hari")}
+                            </Button>
+                            <Button size="sm" variant="ghost" icon={Repeat} onClick={() => { setEditingShifts(editingShifts === sc.code ? null : sc.code); setEditing(null); setEditingDays(null); setAdding(false); }}>
+                              {tr("Shifts", "Shift")}
                             </Button>
                           </td>
                         )}
@@ -229,6 +248,16 @@ export default function SchedulePage() {
                 schedule={d.schedules.find((sc) => sc.code === editingDays)!}
                 onClose={() => setEditingDays(null)}
                 onDone={() => { setEditingDays(null); reload(); }}
+              />
+            )}
+
+            {mayEdit && editingShifts && d.schedules.find((sc) => sc.code === editingShifts) && (
+              <EditShifts
+                key={`shifts-${editingShifts}`}
+                schedule={d.schedules.find((sc) => sc.code === editingShifts)!}
+                others={d.schedules.filter((sc) => sc.code !== editingShifts)}
+                onClose={() => setEditingShifts(null)}
+                onDone={() => { setEditingShifts(null); reload(); }}
               />
             )}
 
@@ -805,6 +834,153 @@ function EditDays({
       <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-3">
         <Button size="sm" variant="ghost" onClick={onClose} disabled={busy}>{tr("Cancel", "Batal")}</Button>
         <Button size="sm" onClick={save} disabled={busy || !note.trim()}>{tr("Save days", "Simpan jadwal per hari")}</Button>
+      </div>
+    </Card>
+  );
+}
+
+interface ShiftDraft { code: string; name: string; start: string; end: string; breakMin: number }
+
+/** HRD sets the shifts somebody on a pattern may work (D364).
+ *
+ *  Owner: *Satpam ada 2 shift — Shift 1 07.00–17.00, Shift 2 17.00–07.00*,
+ *  given out in no fixed order. Nobody writes a roster: each day is read as
+ *  whichever shift its taps fit, and where they fit none, HRD picks it in the
+ *  day's drawer on /hrd/absensi. One shift is one day of pay, whichever it is.
+ *  Saved as a new dated version of the rule book, like the days. */
+function EditShifts({
+  schedule, others, onClose, onDone,
+}: {
+  schedule: WorkSchedule;
+  others: WorkSchedule[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const tr = useTr();
+  const { toast } = useToast();
+  const toDraft = (x: ScheduleShift): ShiftDraft => ({
+    code: x.code, name: x.name, start: clockInput(x.start_minutes), end: clockInput(x.end_minutes),
+    breakMin: x.break_minutes ?? 0,
+  });
+  const [rows, setRows] = useState<ShiftDraft[]>(() => (schedule.shifts ?? []).map(toDraft));
+  const [from, setFrom] = useState(officeToday());
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const patch = (i: number, p: Partial<ShiftDraft>) =>
+    setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...p } : r)));
+  const shifts: ScheduleShift[] = rows.map((r) => ({
+    code: r.code.trim().toUpperCase(),
+    name: r.name.trim(),
+    start_minutes: minutesOfClock(r.start) as number,
+    end_minutes: minutesOfClock(r.end) as number,
+    break_minutes: r.breakMin,
+  }));
+  /* The same rule the seam applies, before anybody presses save. */
+  const problem = scheduleProblem([...others, { ...schedule, shifts }], {});
+
+  async function save() {
+    setBusy(true);
+    const res = await hr.setScheduleShifts({ code: schedule.code, shifts, effective_from: from, note });
+    setBusy(false);
+    if (res.error) {
+      toast(res.error.status === 409 ? "critical" : "warning", tr("Not saved yet", "Belum tersimpan"), res.error.message);
+      return;
+    }
+    toast("success", schedule.name, tr(
+      `Shifts saved as rule book v${res.data.version}, in force from ${res.data.effective_from}.`,
+      `Shift tersimpan sebagai buku aturan v${res.data.version}, berlaku mulai ${res.data.effective_from}.`,
+    ));
+    onDone();
+  }
+
+  const inputCls = "h-8 w-full rounded-md border border-slate-200 px-1.5 text-[13px] focus:border-brand-400 focus:outline-none";
+
+  return (
+    <Card className="mb-4">
+      <CardHeader
+        title={tr(`Shifts of ${schedule.name}`, `Shift ${schedule.name}`)}
+        subtitle={tr(
+          "Each day is read as whichever shift its taps fit — arriving near a shift's start and leaving near its end. A shift ending at or before its start ends the next morning. Where the taps fit none, HRD picks the shift in the day's drawer. One shift is one day of pay. No shifts: the pattern is one working day, as before.",
+          "Setiap hari dibaca sebagai shift yang cocok dengan tapnya — datang dekat jam masuk shift dan pulang dekat jam pulangnya. Shift yang pulangnya tidak sesudah jam masuk berakhir esok paginya. Kalau tapnya tidak cocok dengan shift mana pun, HRD memilih shift-nya di laci hari. Satu shift = satu hari upah. Tanpa shift: pola ini satu hari kerja seperti biasa.",
+        )}
+        icon={Repeat}
+        action={rows.length === 0 ? (
+          <Button size="sm" variant="outline" onClick={() => setRows(SATPAM_SHIFTS.map(toDraft))}>
+            {tr("Use Satpam's two shifts", "Pakai 2 shift Satpam")}
+          </Button>
+        ) : undefined}
+      />
+      <div className="overflow-x-auto px-5">
+        <table className="w-full min-w-[600px] text-[13px]">
+          <thead>
+            <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400">
+              <th className="py-1.5 pr-2 font-medium">{tr("Code", "Kode")}</th>
+              <th className="py-1.5 pr-2 font-medium">{tr("Name", "Nama")}</th>
+              <th className="py-1.5 pr-2 font-medium">{tr("Start", "Masuk")}</th>
+              <th className="py-1.5 pr-2 font-medium">{tr("End", "Pulang")}</th>
+              <th className="py-1.5 pr-2 font-medium">{tr("Break (min)", "Istirahat (mnt)")}</th>
+              <th className="py-1.5 pr-2 text-right font-medium">{tr("Hours", "Jam")}</th>
+              <th className="py-1.5" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.length === 0 && (
+              <tr><td colSpan={7} className="py-3 text-[12px] text-slate-500">
+                {tr("No shifts — this pattern is read as one working day.", "Belum ada shift — pola ini dibaca sebagai satu hari kerja.")}
+              </td></tr>
+            )}
+            {rows.map((r, i) => {
+              const st = minutesOfClock(r.start), en = minutesOfClock(r.end);
+              const span = st != null && en != null && st !== en ? shiftMinutes(st, en) : null;
+              return (
+                <tr key={i}>
+                  <td className="w-20 py-1.5 pr-2"><input value={r.code} onChange={(e) => patch(i, { code: e.target.value.toUpperCase() })} className={inputCls} aria-label={tr("Shift code", "Kode shift")} /></td>
+                  <td className="py-1.5 pr-2"><input value={r.name} onChange={(e) => patch(i, { name: e.target.value })} className={inputCls} aria-label={tr("Shift name", "Nama shift")} /></td>
+                  <td className="py-1.5 pr-2"><input type="time" value={r.start} onChange={(e) => patch(i, { start: e.target.value })} className={inputCls} aria-label={tr("Start", "Masuk")} /></td>
+                  <td className="py-1.5 pr-2"><input type="time" value={r.end} onChange={(e) => patch(i, { end: e.target.value })} className={inputCls} aria-label={tr("End", "Pulang")} /></td>
+                  <td className="w-24 py-1.5 pr-2"><NumberInput size="sm" value={r.breakMin} onChange={(v) => patch(i, { breakMin: v })} min={0} max={1440} /></td>
+                  <td className="py-1.5 pr-2 text-right tabular-nums text-slate-700">
+                    {span == null ? "—" : hours(Math.max(span - r.breakMin, 0) / 60)}
+                    {st != null && en != null && en < st && <Moon className="ml-1 inline h-3 w-3 text-indigo-600" aria-label={tr("ends next morning", "berakhir esok pagi")} />}
+                  </td>
+                  <td className="py-1.5 text-right">
+                    <Button size="sm" variant="ghost" icon={Trash2} onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))}
+                      aria-label={tr(`Remove ${r.code || "shift"}`, `Hapus ${r.code || "shift"}`)} />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {rows.length < 6 && (
+          <Button size="sm" variant="ghost" icon={Plus} className="mt-1"
+            onClick={() => setRows((rs) => [...rs, { code: `S${rs.length + 1}`, name: `Shift ${rs.length + 1}`, start: "", end: "", breakMin: 0 }])}>
+            {tr("Add shift", "Tambah shift")}
+          </Button>
+        )}
+        {problem && rows.length > 0 && (
+          <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-[12px] text-amber-800">{problem.message}</p>
+        )}
+      </div>
+      <div className="grid gap-3 px-5 py-3 sm:grid-cols-3">
+        <label className="text-[12px] text-slate-600">
+          {tr("In force from", "Berlaku mulai")}
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)}
+            className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none" />
+        </label>
+        <label className="text-[12px] text-slate-600 sm:col-span-2">
+          {tr("Why", "Alasan")}
+          <input value={note} onChange={(e) => setNote(e.target.value)}
+            placeholder={tr("Who decided — the owner, the head of security…", "Siapa yang menetapkan — pemilik, kepala keamanan…")}
+            className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none" />
+        </label>
+      </div>
+      <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-3">
+        <Button size="sm" variant="ghost" onClick={onClose} disabled={busy}>{tr("Cancel", "Batal")}</Button>
+        <Button size="sm" onClick={save} disabled={busy || !note.trim() || (problem != null && rows.length > 0)}>
+          {tr("Save shifts", "Simpan shift")}
+        </Button>
       </div>
     </Card>
   );

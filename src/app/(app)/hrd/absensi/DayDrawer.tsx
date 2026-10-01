@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Check, Flag, Plus, Clock, Undo2, Paperclip, Wallet, Moon } from "lucide-react";
+import { AlertTriangle, Check, Flag, Plus, Clock, Undo2, Paperclip, Wallet, Moon, Repeat } from "lucide-react";
 import { Drawer } from "@/components/ui/drawer";
 import { Badge, Button } from "@/components/ui/primitives";
 import { Loaded, useLoad } from "@/components/ui/loaded";
@@ -20,7 +20,7 @@ import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 import { instantInDay } from "@/services/hr/schedule-rules";
 import { TapWhereLine } from "@/components/attendance/located-tap";
-import { actualHours } from "@/services/hr/on-site";
+import { actualHours, onSiteSpan } from "@/services/hr/on-site";
 
 /** A tap's office calendar day and clock face, from the instant rather than
  *  from the string's own offset, so a night's morning tap can say it is
@@ -80,6 +80,35 @@ export function DayDrawer({
 
   const mayEdit = can("hrd.update");
   const mayClaim = can("hrd.create");
+
+  /* D364: the shifts this person's pattern has, so HRD can say which one a
+     day was when the taps cannot. The pattern is the person's own, else their
+     unit's; the seam checks it against the book in force on the day. */
+  const [shiftChoices] = useLoad(async () => {
+    const [emps, scheds] = await Promise.all([hr.listEmployees(), hr.listSchedules()]);
+    if (emps.error) return emps as never;
+    if (scheds.error) return scheds as never;
+    const emp = emps.data.find((e) => e.employee_no === employeeNo);
+    const sc = emp && scheds.data.schedules.find((x) =>
+      emp.schedule_code ? x.code === emp.schedule_code : x.units.includes(emp.unit));
+    return { ...scheds, data: sc?.shifts ?? [] };
+  }, [employeeNo]);
+  const [shiftPick, setShiftPick] = useState("");
+  const [shiftReason, setShiftReason] = useState("");
+
+  async function pickShift(code: string | null) {
+    setBusy(true);
+    const res = await hr.pickShift({ employee_no: employeeNo, work_date: workDate, shift_code: code, reason: code ? shiftReason : null });
+    setBusy(false);
+    if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", tr("Not saved", "Tidak tersimpan"), res.error.message); return; }
+    setShiftPick(""); setShiftReason("");
+    after(
+      tr("Shift saved", "Shift tersimpan"),
+      code
+        ? tr(`${workDate} is read as ${code}; the days around it are read again.`, `${workDate} dibaca sebagai ${code}; hari di sekitarnya ikut dibaca ulang.`)
+        : tr(`${workDate} is read from its taps again.`, `${workDate} kembali dibaca dari tapnya.`),
+    );
+  }
 
   function after(kindOf: string, message: string) {
     toast("success", kindOf, message);
@@ -174,8 +203,8 @@ export function DayDrawer({
                 {/* Hours actually worked beside hours paid (D354, D362): first tap to
                     last, less the break. */}
                 {actualHours(d) != null && tr(
-                  ` · ${formatNumber(actualHours(d)!)} h actually worked (${officeClock(new Date(d.scans[0].at))}–${officeClock(new Date(d.scans[d.scans.length - 1].at))}, less ${formatNumber(d.break_hours)} h break)`,
-                  ` · ${formatNumber(actualHours(d)!)} jam kerja aktual (${officeClock(new Date(d.scans[0].at))}–${officeClock(new Date(d.scans[d.scans.length - 1].at))}, dikurangi istirahat ${formatNumber(d.break_hours)} jam)`,
+                  ` · ${formatNumber(actualHours(d)!)} h actually worked (${officeClock(new Date(onSiteSpan(d)!.from))}–${officeClock(new Date(onSiteSpan(d)!.to))}, less ${formatNumber(d.break_hours)} h break)`,
+                  ` · ${formatNumber(actualHours(d)!)} jam kerja aktual (${officeClock(new Date(onSiteSpan(d)!.from))}–${officeClock(new Date(onSiteSpan(d)!.to))}, dikurangi istirahat ${formatNumber(d.break_hours)} jam)`,
                 )}
                 {actualHours(d) == null && d.break_hours > 0 && tr(` · ${formatNumber(d.break_hours)} h break`, ` · ${formatNumber(d.break_hours)} jam istirahat`)}
                 {d.overtime_hours > 0 && tr(` · ${formatNumber(d.overtime_hours)} h overtime`, ` · ${formatNumber(d.overtime_hours)} jam lembur`)}
@@ -285,6 +314,54 @@ export function DayDrawer({
                 </p>
               </div>
             )}
+
+            {/* D364: which shift the taps were read as, and HRD's word where
+                they cannot say. */}
+            {shiftChoices.status === "ready" && shiftChoices.data.length > 0 && d.state !== "marked" && (() => {
+              const picked = d.notes.some((n) => n.startsWith("Shift dipilih HRD"));
+              return (
+                <div className="rounded-xl border border-slate-200 px-4 py-3">
+                  <p className="flex items-center gap-2 text-[13px] font-semibold text-slate-800">
+                    <Repeat className="h-4 w-4 text-slate-400" />
+                    {d.shift_code
+                      ? tr(`Read as ${d.shift_name ?? d.shift_code}`, `Dibaca sebagai ${d.shift_name ?? d.shift_code}`)
+                      : tr("No shift read", "Belum terbaca shift-nya")}
+                    {picked && <Badge tone="violet">{tr("picked by HRD", "dipilih HRD")}</Badge>}
+                  </p>
+                  <p className="mt-0.5 text-[12px] text-slate-600">
+                    {tr(
+                      "The shift is read from the taps: arriving near a shift's start and leaving near its end. When the taps cannot tell — one tap with no partner, or a run read from the wrong end — pick the shift here.",
+                      "Shift dibaca dari tap: datang dekat jam masuk shift dan pulang dekat jam pulangnya. Kalau tap tidak bisa memastikan — satu tap tanpa pasangan, atau rangkaian yang terbaca dari ujung yang salah — pilih shift-nya di sini.",
+                    )}
+                  </p>
+                  {mayEdit && (
+                    <div className="mt-2 grid gap-2 sm:grid-cols-[auto_1fr_auto]">
+                      <select value={shiftPick} onChange={(e) => setShiftPick(e.target.value)}
+                        aria-label={tr("Shift", "Shift")}
+                        className="h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none">
+                        <option value="">{tr("Pick a shift…", "Pilih shift…")}</option>
+                        {shiftChoices.data.map((x) => (
+                          <option key={x.code} value={x.code}>
+                            {x.name} ({String(Math.floor(x.start_minutes / 60)).padStart(2, "0")}.{String(x.start_minutes % 60).padStart(2, "0")}–{String(Math.floor(x.end_minutes / 60)).padStart(2, "0")}.{String(x.end_minutes % 60).padStart(2, "0")})
+                          </option>
+                        ))}
+                      </select>
+                      <input value={shiftReason} onChange={(e) => setShiftReason(e.target.value)}
+                        placeholder={tr("How HRD knows — guard book, the guard's word…", "Dari mana HRD tahu — buku jaga, keterangan satpam…")}
+                        className="h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none" />
+                      <Button size="sm" disabled={busy || !shiftPick || !shiftReason.trim()} onClick={() => pickShift(shiftPick)}>
+                        {tr("Pick", "Pilih")}
+                      </Button>
+                    </div>
+                  )}
+                  {mayEdit && picked && (
+                    <Button size="sm" variant="ghost" icon={Undo2} className="mt-1" disabled={busy} onClick={() => pickShift(null)}>
+                      {tr("Read from the taps again", "Kembalikan ke bacaan tap")}
+                    </Button>
+                  )}
+                </div>
+              );
+            })()}
 
             {d.issues.length > 0 && (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">

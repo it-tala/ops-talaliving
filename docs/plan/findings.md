@@ -8975,3 +8975,30 @@ Also seen in the same log, not this app's: John Lau's worker POSTs to
 `public.ledger_review_queue?on_conflict=ref_id` answer **400** every few
 seconds (06:42–06:52). Reported to the owner; it is the capture pipeline's.
 
+## F215 · 2026-10-01 · A reader that only says *when* cannot tell a day shift from a night shift by looking at one day
+
+Satpam work Shift 1 (07.00–17.00) and Shift 2 (17.00–07.00) in no fixed order,
+and both shifts begin and end at the same two clock times. Production's taps
+for two guards in the same week:
+
+- KIDO: 28/09 17.02, 29/09 07.01, 17.05, 30/09 07.00, 17.03, 01/10 07.11 —
+  three nights;
+- JAMI: 28/09 07.07, 29/09 07.03, 17.11, 30/09 06.59, 17.11, 01/10 07.10 —
+  days, with 28/09's pulang missing.
+
+The single overnight pattern (19.00–07.00, D330) read JAMI's 17.11 → 06.59 as a
+13,8-hour night and sent 28/09 to review. Nothing inside one calendar day says
+which reading is right: 07.00 is both Shift 1's start and Shift 2's end. What
+does say it is the **chain** — every neighbouring pair of taps either fits a
+shift or does not, and a run of fitting pairs read from its first tap is
+unambiguous once its first tap is right. A missing tap starts a new run, so one
+mistake does not travel. Where the first tap itself is the wrong end (a guard
+whose masuk the evening before was not recorded), the run reads as the other
+shift all the way along — the taps alone cannot tell, so HRD's pick on one day
+re-anchors the run, and the days around it are read again (smoke `206`,
+*Guntur*).
+
+**Rule:** when the record has no direction, read it as a sequence, keep the
+ambiguity where a person can see it (a lone tap is review, not a guess), and
+let one human answer settle the whole run rather than every day of it.
+

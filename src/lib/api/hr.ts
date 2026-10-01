@@ -56,7 +56,7 @@ import {
   EMPLOYEE_DOC_CHECKLIST, EMPLOYEE_DOC_LABEL, SENSITIVE_DOC_KINDS,
   ADJUSTMENT_LABEL, SCHEME_LABEL,
 } from "@/services/hr/contracts";
-import { instantInDay, nextOfficeDay, type ScheduleDay, type ScheduleWeekDay } from "@/services/hr/schedule-rules";
+import { instantInDay, nextOfficeDay, type ScheduleDay, type ScheduleShift, type ScheduleWeekDay } from "@/services/hr/schedule-rules";
 import { tapWhere, type TapReadingRow } from "@/services/hr/tap-where";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fromSeam, fromRows, notFound, invalid, ok, type Result } from "./_kit";
@@ -350,6 +350,44 @@ export async function setScheduleDays(
     p_key: idempotencyKey ?? null,
   });
   return fromSeam<{ code: string; version: number; effective_from: string }>(SERVICE, data, error);
+}
+
+/** HRD sets one pattern's shifts (D364) — Satpam's Shift 1 and Shift 2. The
+ *  whole list is replaced; `[]` takes the shifts away and the pattern is one
+ *  working day again. Same dated-version rules as `setScheduleDays`. */
+export async function setScheduleShifts(
+  input: {
+    code: string;
+    shifts: ScheduleShift[];
+    effective_from: string;
+    note: string;
+  },
+  idempotencyKey?: string,
+): Promise<Result<{ code: string; version: number; effective_from: string }>> {
+  const { data, error } = await db().rpc("set_schedule_shifts", {
+    p_code: input.code,
+    p_shifts: input.shifts,
+    p_effective_from: input.effective_from,
+    p_note: input.note,
+    p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<{ code: string; version: number; effective_from: string }>(SERVICE, data, error);
+}
+
+/** HRD says which shift a day was, where the taps cannot (D364). A null
+ *  shift takes the pick away and the day is read off the taps again. */
+export async function pickShift(
+  input: { employee_no: string; work_date: string; shift_code: string | null; reason: string | null },
+  idempotencyKey?: string,
+): Promise<Result<{ employee_no: string; work_date: string; shift_code: string | null }>> {
+  const { data, error } = await db().rpc("pick_shift", {
+    p_employee_no: input.employee_no,
+    p_work_date: input.work_date,
+    p_shift_code: input.shift_code,
+    p_reason: input.reason,
+    p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<{ employee_no: string; work_date: string; shift_code: string | null }>(SERVICE, data, error);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1103,6 +1141,9 @@ interface DayRow {
   /** 0195 (D340). */
   pay_multiplier: number | null;
   scheduled_hours: number | null;
+  /** 0206 (D364). */
+  shift_code: string | null;
+  shift_name: string | null;
 }
 
 interface ScanRow {
@@ -1177,6 +1218,8 @@ function buildDay(
     overnight: row.overnight,
     pay_multiplier: row.pay_multiplier == null ? 1 : Number(row.pay_multiplier),
     scheduled_hours: row.scheduled_hours == null ? null : Number(row.scheduled_hours),
+    shift_code: row.shift_code ?? null,
+    shift_name: row.shift_name ?? null,
   };
 }
 

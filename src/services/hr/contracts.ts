@@ -309,6 +309,11 @@ export interface TimesheetDay {
   /** The hours this weekday's pattern calls a normal day (8,25 Senin–Kamis,
    *  7 Jumat, 8 Sabtu/Minggu). Null when nobody has said. */
   scheduled_hours?: number | null;
+  /** The shift this day was read as, for somebody on a pattern with shifts
+   *  (D364) — `S1`/`Shift 1`. The day is the shift that **starts** on it.
+   *  Null when the pattern has none, or no tap fits one. */
+  shift_code?: string | null;
+  shift_name?: string | null;
 }
 
 /** Overtime arrives as a **sheet**, and there are two kinds of sheet.
@@ -2114,6 +2119,8 @@ export interface PayslipDay {
   /** Counted as the full scheduled day because the pay week was approved
    *  before it was over (0202, D357). Its overtime is paid the week after. */
   assumed?: boolean;
+  /** The shift worked, on a pattern with shifts (D364). */
+  shift?: string | null;
   /** The machine's record of this day is incomplete and nobody has read it, so
    *  it counts for nothing yet. Printed on the slip rather than hidden: a day
    *  with hours beside it that adds nothing to the total is the one an
