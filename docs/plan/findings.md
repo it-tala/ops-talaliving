@@ -8619,6 +8619,39 @@ Numbers are handed out by whoever writes `06-decisions.md` first; a session
 that runs for hours should re-read the tail of that file — and of
 `supabase/migrations/` — right before it merges, not only before it commits.
 
+
+## F205 · 2026-09-30 · The board records the state at merge; the database records the state now
+
+A comparison of the owner's *PLV BOM* spreadsheets with the BOM module
+(`docs/analysis/2026-09-30-plv-bom-vs-ops-bom.md`) was first written from the
+README board. Two rows were read as facts: D324, *the rate list starts
+empty*, and D338, *`0193` not yet applied to production — waits on the
+owner*. Both were true when their pull requests merged on 29 September and
+false by the afternoon of the same day. Production held **84 active rates**,
+all created 29 September — 75 from the 24 September rate card
+(`BOM_RATE_REF`), 6 per-hour labour rates from the PLV labour rate card, 3
+from the finishing recipes — and `0193` had been applied at
+`20260929091210`, with its read policy and `v_bom_norm` in place. The
+comparison repeated both stale rows as findings about production, and the
+owner's question — *validate against the sheets, I imagine the PLV rates are
+more complete* — was what sent it back to the database.
+
+**Rule:** the board is a log of what merged, and data changes without a
+commit. Before writing what production *holds*, read production; the board
+only says what the code *can* hold.
+
+**What the read-through then showed** was more useful than the correction.
+The two rate sources share a unit and not a basis: the list in production
+prices timber **as bought** — per m³ of log (RT-0004–0006), of square
+(RT-0001–0002) and of *siap potong* (RT-0003, 0007) — while the PLV card
+prices timber **as a finished component**, per m³ with the yield and the
+carpentry labour already inside (TEAK_B 36.2 jt against a log at 4.5 or
+10.9 jt). Put in one list without a marker, the yield gets applied twice by
+one estimator and never by the next. Three figures the PLV card derived from
+STMV actuals also collide with norms already in `bom_norms` — overhead 13 %
+against 17 %, finishing labour 88,755 against 12,500 per m², finishing
+material 51,640 against 96,300 — each pair from the same ledger with a
+different numerator and denominator. None of that was visible from the code.
 ## F205 · 2026-09-30 · The picker was built for the one person who could not see it
 
 The timeslot form (D352) picks its people from `hr.listEmployees()`, which
@@ -8719,3 +8752,42 @@ Also found while checking: `ops_acct.supersede_allocation(id, null)`, the
 *withdraw* path, always fails. It points the row at itself, and the
 `supersede_not_self` check refuses exactly that. Raised as a separate task.
 
+## F208 · 2026-10-01 · The photos were already captured, read and stored — they just had no road into ops
+
+The owner asked to *activate* receiving reports from the RECEIVING REPORT
+space. Measured before building anything: the John Lau worker has captured
+that space since 2026-09-09 — 43 messages, 26 with photos, every photo
+already in Drive (`public.blobs`) and already read by Gemini into
+`public.receiving_extractions` (ITEM PHOTO / RECEIVING SHEET, with lines,
+vendor and PO number). **Zero** of them reached `ops_*`: the only inbound
+road was accounting's `evidence_inbox`, and nothing filed these there. The
+work had been done twice (capture and extraction) and was visible to nobody.
+
+Three things the build taught:
+
+- **The bridge belongs where the data already is.** `03_bridge_review_queue`
+  showed that a worker change merged and not deployed silently reopens the
+  gap at the rate people work. Everything needed is in the same database, so
+  `05_bridge_receiving.sql` runs from `pg_cron` every five minutes and calls
+  one idempotent seam (`file_receiving`). No GCP deploy, no trigger on the
+  worker's own tables that could fail its insert, no `service_role` widening
+  (the guard `A2_core_execute_grants` asked exactly that question).
+- **A message is not a file, and the reading lags the files.** Messages carry
+  one or two photos (goods + signed sheet), and the extraction lands seconds
+  after the blobs. So the seam is keyed on the message and **merges** a second
+  filing while the row is open, rather than refusing it as a duplicate.
+- **A request line *against* an order was paid on the line only.** `0158` let
+  a balance payment stand on an open PO, but `allocate_payment` stamped the
+  order only for lines *on* it (`order_of_line`, B8). So the road the owner
+  described — receiving → PR → approve → paid → PO paid — ended one hop short:
+  the PO would have read UNPAID after its PR was paid. Production had no such
+  line yet (measured), so nothing to backfill; `0203` closes it for every
+  future payment.
+
+Also noticed, not fixed here: the real `confirmReceipt` drops the corrected
+qty/condition the morning screen sends (the seam has no such parameters),
+while the demo applies them. Recorded for its own session.
+
+**Rule:** before building a capture path, look for the one that already
+exists. The expensive half (capture, storage, reading) was done; what was
+missing was one verb and a schedule.

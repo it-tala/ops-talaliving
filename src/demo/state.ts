@@ -6,7 +6,7 @@ import type {
   Vendor, Uom, UomConversion, ItemCategory, Item, Project, ProjectLine, Client, ProjectStatusChange,
   PrDocument, PrLine, PrApproval, PaymentRound, PaymentRoundLine,
   Receipt, LineSettlement, PurchaseOrder, PoLine, PoScheduleTerm, LineVariance,
-  LineNote, ApprovalRequest, ApprovalBatch, RoundTransfer,
+  LineNote, ApprovalRequest, ApprovalBatch, RoundTransfer, ReceivingInboxRow,
 } from "@/services/procurement/contracts";
 import type {
   Account, TransactionType, Transaction, TransactionLine,
@@ -134,6 +134,9 @@ export interface DemoState {
   payment_rounds: PaymentRound[];
   payment_round_lines: PaymentRoundLine[];
   receipts: Receipt[];
+  /** The RECEIVING REPORT space in Google Chat, as the bridge filed it (0203,
+   *  D358). Files by attachment id; the view's names are derived. */
+  receiving_inbox: DemoReceivingInbox[];
   line_settlements: LineSettlement[];
   line_notes: LineNote[];
   approval_requests: ApprovalRequest[];
@@ -366,3 +369,10 @@ export interface FinishingRecipeRow {
   remarks: string | null;
   effective_on: string | null;
 }
+
+export type DemoReceivingInbox = Omit<ReceivingInboxRow, "files" | "resolved_by_name" | "sender_name"> & {
+  file_ids: string[];
+  sender_name: string | null;
+  reported_by: string | null;
+  resolved_by: string | null;
+};

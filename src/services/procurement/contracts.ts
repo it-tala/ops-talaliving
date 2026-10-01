@@ -640,6 +640,139 @@ export interface Receipt {
   confirmed_at: string | null;
 }
 
+/* ------------------------------------------------------------------ */
+/* Receiving report from Google Chat (0203, D358)                      */
+/* ------------------------------------------------------------------ */
+
+/** A message in the RECEIVING REPORT space, filed by the bridge: the photos
+ *  somebody sent, waiting for procurement to say what they are. Matched to a
+ *  ledger transaction (bought and paid) or to a purchase order (qty and the
+ *  tanda terima), or set aside with a reason. Never deleted. */
+export type ReceivingInboxStatus = "PENDING" | "MATCHED" | "DISMISSED";
+
+/** What Gemini read off the photo, as the worker wrote it. A proposal for the
+ *  person matching, never a posting; every field may be empty. */
+export interface ReceivingReading {
+  doc_kind?: string;
+  vendor?: string;
+  po_number?: string;
+  delivery_note_no?: string;
+  delivery_date?: string;
+  received_by?: string;
+  qc_by?: string;
+  confidence?: number;
+  lines?: {
+    item?: string;
+    received_qty?: number | null;
+    expected_qty?: number | null;
+    condition?: string;
+    remark?: string;
+    line_id?: string;
+  }[];
+}
+
+export interface ReceivingFile {
+  attachment_id: string;
+  url: string | null;
+  filename: string;
+  mime: string | null;
+}
+
+export interface ReceivingInboxRow {
+  /** `rr-26-10-01_01` — this report's own number, and the `ref_no` of the
+   *  stock moves it writes when matched to a transaction. */
+  rr_no: string;
+  /** The Chat event it came from. */
+  ref_id: string;
+  status: ReceivingInboxStatus;
+  message: string | null;
+  sender_name: string | null;
+  reported_at: string;
+  extracted: ReceivingReading;
+  files: ReceivingFile[];
+  matched_to: "transaction" | "po" | null;
+  trx_no: string | null;
+  po_no: string | null;
+  receipt_nos: string[];
+  move_nos: string[];
+  asset_nos: string[];
+  resolved_by_name: string | null;
+  resolved_at: string | null;
+  resolve_note: string | null;
+}
+
+/** Money that went OUT, offered to match an arrival against. Only what lets a
+ *  person say *that one* — procurement does not read the ledger otherwise. */
+export interface ReceivingTrxCandidate {
+  trx_no: string;
+  trx_date: string;
+  amount_idr: number;
+  description: string;
+  remark: string | null;
+  vendor_name: string | null;
+  account_code: string;
+  /** The vendor the AI read matches this row's vendor. */
+  vendor_hit: boolean;
+  days_off: number;
+  /** It already carries an item photo. */
+  has_item_photo: boolean;
+}
+
+export interface ReceivingPoCandidate {
+  po_no: string;
+  status: string;
+  vendor_name: string;
+  delivery_state: string;
+  payment_state: string;
+  vendor_hit: boolean;
+  po_hit: boolean;
+  lines: {
+    po_line_id: string;
+    line_no: number;
+    description: string;
+    qty: number;
+    uom: string | null;
+    received: number;
+    reported: number;
+  }[];
+}
+
+export interface ReceivingCandidates {
+  rr_no: string;
+  transactions: ReceivingTrxCandidate[];
+  orders: ReceivingPoCandidate[];
+}
+
+/** What arrived, by kind: a counted material onto the rack, or an asset into
+ *  the register (one row per unit). */
+export type ReceivingLineInput =
+  | { kind: "material"; item_code: string; qty: number; location?: string | null }
+  | { kind: "asset"; name: string; category_code: string; count?: number; unit_cost?: number | null };
+
+export interface ReceivingMatchResult {
+  rr_no: string;
+  matched_to: "transaction" | "po";
+  trx_no?: string;
+  po_no?: string;
+  move_nos?: string[];
+  asset_nos?: string[];
+  receipt_nos?: string[];
+  /** For an order: CONFIRMED with the tanda terima, REPORTED without. */
+  status?: ReceiptStatus;
+  billable_now?: number;
+}
+
+/** A payment asked for on an order: one request line against it, submitted,
+ *  for what is billable now less what is already asked for (0203). */
+export interface PoPaymentRequest {
+  po_no: string;
+  doc_no: string;
+  line_no: string;
+  amount: number;
+  billable_now: number;
+  already_requested: number;
+}
+
 export interface LineSettlement {
   id: string;
   line_id: string;

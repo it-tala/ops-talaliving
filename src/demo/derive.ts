@@ -181,6 +181,13 @@ export function orderOfLine(state: DemoState, lineNoFull: string): string | null
   return ol ? state.purchase_orders.find((p) => p.id === ol.po_id)?.po_no ?? null : null;
 }
 
+/** The order a payment on this line reaches: the order it is on, else the
+ *  order it was raised against (0203, D358) — `allocate_payment`. */
+export function orderPaidByLine(state: DemoState, lineNoFull: string): string | null {
+  return orderOfLine(state, lineNoFull)
+    ?? state.pr_lines.find((l) => l.line_no_full === lineNoFull)?.against_po_no ?? null;
+}
+
 export function receivedQty(state: DemoState, line: PrLine): number {
   return receiptsOfLine(state, line)
     .filter((r) => receiptCounts(r))
