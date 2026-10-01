@@ -40,7 +40,7 @@ import type {
   EmployeeDocSlot, DocNoSource, AttendanceScan, DayMark, DayMarkKind,
   AllowanceWithholdingView, TimesheetDay, ScanSlot, ScanSource, DayState,
   OvertimeSheetView, OvertimeLineView, OvertimeKind, OvertimeDecider, SelfOvertimeView,
-  WorkSchedule, ScheduleHours,
+  WorkSchedule, ScheduleHours, UnitScheduleDefault,
   ContractKind, ContractStatus, ClauseKind, ClauseChecklistItem,
   ContractView, ContractDetail, ContractClause, ClauseCoverage, ClauseConflict,
   PayRules, PayRuleSetView, TimesheetTotal, EffectiveDaysCalendar,
@@ -257,6 +257,8 @@ export async function listSchedules(): Promise<Result<{
   })[];
   unlinked: { employee_no: string; full_name: string; unit: string }[];
   inherited: { employee_no: string; full_name: string; unit: string; schedule_code: string }[];
+  /** Every unit and its default pattern (D365). */
+  unit_defaults: UnitScheduleDefault[];
   week_pattern: string;
 }>> {
   const { data, error } = await db().rpc("schedule_roll");
@@ -266,9 +268,8 @@ export async function listSchedules(): Promise<Result<{
 /** HRD adds a working pattern (D335).
  *
  *  Appended to a new dated version of the rule book in force on
- *  `effective_from`, every other rule copied. Removing a pattern and a unit's
- *  default pattern stay with IT's full editor: people can be on a pattern, and
- *  a unit default changes what a whole unit is measured against. */
+ *  `effective_from`, every other rule copied. Removing a pattern stays with
+ *  IT's full editor: people can be on it. */
 export async function addSchedule(
   input: {
     code: string;
@@ -298,6 +299,28 @@ export async function addSchedule(
     p_key: idempotencyKey ?? null,
   });
   return fromSeam<{ code: string; version: number; effective_from: string }>(SERVICE, data, error);
+}
+
+/** HRD sets which pattern a unit defaults to (D365); `schedule_code: null`
+ *  removes the unit's default. Same dated-version rules as
+ *  `setScheduleHours`. `following` is how many people the default reaches. */
+export async function setUnitSchedule(
+  input: {
+    unit: string;
+    schedule_code: string | null;
+    effective_from: string;
+    note: string;
+  },
+  idempotencyKey?: string,
+): Promise<Result<{ unit: string; schedule_code: string | null; following: number; version: number; effective_from: string }>> {
+  const { data, error } = await db().rpc("set_unit_schedule", {
+    p_unit: input.unit,
+    p_code: input.schedule_code,
+    p_effective_from: input.effective_from,
+    p_note: input.note,
+    p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<{ unit: string; schedule_code: string | null; following: number; version: number; effective_from: string }>(SERVICE, data, error);
 }
 
 /** HRD sets one pattern's start, end and break (D330).
