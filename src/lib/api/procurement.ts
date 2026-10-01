@@ -1835,7 +1835,7 @@ export async function closePo(
  *  `qty_received` and `condition` are the daylight count (D131): omitted, the
  *  reported figure stands. They are applied in the same UPDATE as the status
  *  change, so the stock trigger puts the corrected quantity on the rack
- *  (`0205`, F213 — before it the screen sent them and they were dropped). */
+ *  (`0205`, F214 — before it the screen sent them and they were dropped). */
 export async function confirmReceipt(
   input: {
     receipt_no: string;

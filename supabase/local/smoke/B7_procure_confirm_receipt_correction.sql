@@ -1,5 +1,5 @@
 -- procure — completing a reported arrival applies the daylight count (0205,
--- F213, D361).
+-- F214, D363).
 --
 --   REFUSALS     confirming with procurement read only; a corrected quantity
 --                of zero or less (and the row is left as reported); confirming

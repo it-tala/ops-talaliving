@@ -8845,6 +8845,31 @@ every day. A month's length, its weekdays and "is it past the 15th" are not.
 Either derive the expected value from the same date, or pin the date as an
 argument the function takes.
 
+## F213 · 2026-10-01 · The save card was always there — just not where the change was made
+
+F207 made the *Simpan sebagai versi baru* card show for every IT editor, and
+the owner still could not save. The database was not the cause: production's
+logs had no `preview_pay_rules` or `save_pay_rules` request, ever, and both
+seams answered `ok` as superadmin@ in a rolled-back transaction. Nobody had
+reached the button.
+
+The switches anyone comes to this screen for now — *Tap datang & pulang saja*
+(D353), *Payroll mingguan di-approve di hari terakhir minggu* (D357) — are in
+Situasi 5, at the bottom of a form several screens long. The save card sits at
+the top of the right-hand column. Ticking the switch turned that card into the
+form with the date, the reason and the buttons, a full screen above where the
+eye was. Next to the switch the column was empty, so the change looked like it
+had done nothing. On a phone the card is below the whole form, so the same was
+true there.
+
+The right column is now sticky on a wide screen. On a narrow one, a bar says the
+change is not saved yet and takes you to the reason field, and it hides once the
+card is in view. *Berlaku mulai* also defaulted to a date typed into the code
+(`2026-10-01`), which would have offered a past date from tomorrow on. It is
+now today.
+
+**Rule:** "always shown" is not the same as "seen". A control that answers an
+action belongs where the action is made, or follows it there.
 ## F211 · 2026-10-01 · A smoke written against an empty table broke when a later migration seeded it
 
 `182_prod_bom_rates` failed on `main` with `first code RT-0001, got RT-0027`.
@@ -8888,7 +8913,7 @@ Two smaller things:
 **Rule:** moving a file is moving every pointer to it. A copy nothing links is
 a second file, not a move.
 
-## F213 · 2026-10-01 · The morning's count was typed, sent, and dropped: a field one client ignores passes the parity check
+## F214 · 2026-10-01 · The morning's count was typed, sent, and dropped: a field one client ignores passes the parity check
 
 `/procurement/penerimaan` completes a receipt reported at night: the signed
 tanda terima, who checked it, and the quantity and condition once somebody
@@ -8909,7 +8934,7 @@ honours type-checks cleanly. The screen is typed against the demo
 site either. The smoke files call the seam directly and never send what it
 does not take.
 
-Fixed in `0205` (D361): the seam takes `p_qty` and `p_condition` and applies
+Fixed in `0205` (D363): the seam takes `p_qty` and `p_condition` and applies
 them in the **same UPDATE** as the status change, because the stock trigger
 reads `new.qty_received` on that update. A correction written in a later
 statement would stock the night's number. The row is read `for update`, so
