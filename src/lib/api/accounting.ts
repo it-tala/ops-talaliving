@@ -27,7 +27,12 @@ import type {
   InboxOrigin, EvidenceInboxRow, IncomingMoney,
   DocumentCoverage, TransactionCoverage, CoverageTransaction,
   CoverageLine, CoveragePayment,
+  Subscription, SubscriptionPayment, SubscriptionRegister, SubscriptionInput,
+  SubscriptionPaymentInput, SubscriptionStatus,
 } from "@/services/accounting/contracts";
+import {
+  applySubscriptions, subscriptionRegister, subscriptionRows,
+} from "@/services/accounting/subscriptions";
 import type { DocKind } from "@/services/documents/contracts";
 import type { ContributionAuditGroup } from "@/services/hr/contracts";
 import type { LineCoverage } from "@/services/procurement/contracts";
@@ -1390,21 +1395,138 @@ async function planFrom(from?: string): Promise<Result<CashPlan>> {
 const planInFlight = new Map<string, Promise<Result<CashPlan>>>();
 
 async function readPlan(from?: string): Promise<Result<CashPlan>> {
-  const { data, error } = from
-    ? await db().rpc("cash_plan", { p_from: from })
-    : await db().rpc("cash_plan");
+  const [planned, subs] = await Promise.all([
+    from ? db().rpc("cash_plan", { p_from: from }) : db().rpc("cash_plan"),
+    readSubscriptions(),
+  ]);
+  const { data, error } = planned;
   if (error) return fail(SERVICE, error);
-  const plan = data as Omit<CashPlan, "months" | "verdict"> & {
+  const raw = data as Omit<CashPlan, "months" | "verdict"> & {
     months: Omit<CashMonth, "label">[];
   };
 
-  const months: CashMonth[] = plan.months.map((m) => ({ ...m, label: monthLabel(m.month) }));
+  /* The subscriptions are laid onto the plan the database computed: rows of
+     their own, their cost in each month, the balance walked again. If the
+     register cannot be read the calendar still opens without it — a screen
+     that stops answering *does the money last* because a side table is
+     unavailable is worse than one that says it without the subscriptions. */
+  const merged = subs
+    ? applySubscriptions(raw, subscriptionRows({
+        subscriptions: subs.subscriptions,
+        payments: subs.payments, usd_idr: subs.usd_idr,
+        months: raw.months.map((m) => m.month), today: raw.generated_for,
+        accountCodeOf: subs.accountCodeOf,
+      }))
+    : { months: raw.months, rows: raw.rows, short_month: raw.short_month, short_by: raw.short_by };
+  const plan = { ...raw, rows: merged.rows, short_month: merged.short_month, short_by: merged.short_by };
+
+  const months: CashMonth[] = merged.months.map((m) => ({ ...m, label: monthLabel(m.month) }));
   const last = months[months.length - 1];
   const verdict = plan.short_month
     ? trNow(`On this plan the money runs out in ${monthLabel(plan.short_month)} — ${formatIDRCompact(plan.short_by)} short.`, `Dengan rencana ini uangnya habis di ${monthLabel(plan.short_month)} — kurang ${formatIDRCompact(plan.short_by)}.`)
     : trNow(`The plan holds through ${last.label}, ending at ${formatIDRCompact(last.closing)}.`, `Rencana ini aman sampai ${last.label}, berakhir di ${formatIDRCompact(last.closing)}.`);
 
   return ok(SERVICE, { ...plan, months, verdict });
+}
+
+/* ------------------------------------------------------------------ */
+/* Subscriptions (`0208`)                                              */
+/* ------------------------------------------------------------------ */
+
+/** The register's three tables and the account codes, read together. Null when
+ *  any of them cannot be read — callers decide whether that is fatal. */
+async function readSubscriptions(): Promise<{
+  subscriptions: Subscription[]; payments: SubscriptionPayment[]; usd_idr: number;
+  accountCodeOf: (id: string | null) => string | null;
+} | null> {
+  const [s, p, f, a] = await Promise.all([
+    db().from("subscriptions").select("*").order("name"),
+    db().from("subscription_payments").select("*"),
+    db().from("subscription_settings").select("usd_idr").maybeSingle(),
+    db().from("accounts").select("id, code"),
+  ]);
+  if (s.error || p.error || f.error || a.error) return null;
+  const codes = new Map(((a.data ?? []) as { id: string; code: string }[]).map((x) => [x.id, x.code]));
+  const num = (v: unknown) => Number(v);
+  return {
+    subscriptions: ((s.data ?? []) as Subscription[]).map((x) => ({ ...x, amount: num(x.amount) })),
+    payments: ((p.data ?? []) as SubscriptionPayment[]).map((x) => ({
+      ...x, amount_idr: num(x.amount_idr),
+      amount_usd: x.amount_usd == null ? null : num(x.amount_usd),
+      fx_rate: x.fx_rate == null ? null : num(x.fx_rate),
+    })),
+    usd_idr: f.data ? num((f.data as { usd_idr: number }).usd_idr) : 19000,
+    accountCodeOf: (id) => (id ? codes.get(id) ?? null : null),
+  };
+}
+
+/** The register: every subscription with what it costs, when it is next
+ *  billed and what has been paid, and the rate dollars are converted at. */
+export async function getSubscriptions(): Promise<Result<SubscriptionRegister>> {
+  const subs = await readSubscriptions();
+  if (!subs) {
+    return fail(SERVICE, { message: "The subscription register could not be read." });
+  }
+  return ok(SERVICE, subscriptionRegister({
+    subscriptions: subs.subscriptions, payments: subs.payments, usd_idr: subs.usd_idr,
+    today: officeToday(), accountCodeOf: subs.accountCodeOf,
+  }));
+}
+
+export async function saveSubscription(
+  input: SubscriptionInput, id?: string | null,
+): Promise<Result<{ id: string; sub_no: string }>> {
+  const { data, error } = await db().rpc("save_subscription", {
+    p_name: input.name,
+    p_cycle: input.cycle,
+    p_amount_kind: input.amount_kind,
+    p_currency: input.currency,
+    p_amount: input.amount,
+    p_start_on: input.start_on,
+    p_account_code: await codeFor("accounts", input.account_id),
+    p_login_email: input.login_email ?? null,
+    p_provider: input.provider ?? null,
+    p_ends_on: input.ends_on ?? null,
+    p_note: input.note ?? null,
+    p_id: id ?? null,
+  });
+  return fromSeam<{ id: string; sub_no: string }>(SERVICE, data, error);
+}
+
+export async function setSubscriptionStatus(
+  id: string, status: SubscriptionStatus,
+): Promise<Result<{ id: string; status: SubscriptionStatus }>> {
+  const { data, error } = await db().rpc("set_subscription_status", { p_id: id, p_status: status });
+  return fromSeam<{ id: string; status: SubscriptionStatus }>(SERVICE, data, error);
+}
+
+/** Record what was charged for one billing period. Recording the same period
+ *  again corrects it. */
+export async function recordSubscriptionPayment(
+  id: string, input: SubscriptionPaymentInput,
+): Promise<Result<{ id: string; period: string; fx_rate: number | null }>> {
+  const { data, error } = await db().rpc("record_subscription_payment", {
+    p_id: id,
+    p_period: input.period,
+    p_paid_on: input.paid_on,
+    p_amount_idr: input.amount_idr,
+    p_amount_usd: input.amount_usd ?? null,
+    p_note: input.note ?? null,
+  });
+  return fromSeam<{ id: string; period: string; fx_rate: number | null }>(SERVICE, data, error);
+}
+
+export async function removeSubscriptionPayment(
+  id: string, period: string,
+): Promise<Result<{ id: string; period: string }>> {
+  const { data, error } = await db().rpc("remove_subscription_payment", { p_id: id, p_period: period });
+  return fromSeam<{ id: string; period: string }>(SERVICE, data, error);
+}
+
+/** The rate the plan converts dollars at — leadership's to change (D233). */
+export async function setSubscriptionFx(rate: number): Promise<Result<{ usd_idr: number }>> {
+  const { data, error } = await db().rpc("set_subscription_fx", { p_rate: rate });
+  return fromSeam<{ usd_idr: number }>(SERVICE, data, error);
 }
 
 function monthLabel(month: string): string {

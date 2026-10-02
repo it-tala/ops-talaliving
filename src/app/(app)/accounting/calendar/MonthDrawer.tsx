@@ -8,6 +8,7 @@ import { formatIDR } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { accounting } from "@/demo/api";
 import { useTr } from "@/lib/i18n";
+import { isSubscriptionLine } from "@/services/accounting/subscriptions";
 
 /** One month, opened up.
  *
@@ -103,19 +104,19 @@ export function MonthDrawer({ month, onClose }: { month: string; onClose: () => 
                     : <ArrowDownRight className="h-3.5 w-3.5 shrink-0 text-slate-400" />}
                   <span className="min-w-[160px] flex-1 text-[13px] text-slate-800">
                     {r.name}
-                    {r.frequency === "once" && (
+                    {r.frequency === "once" && !isSubscriptionLine(r.component_id) && (
                       <span className="ml-1.5 rounded bg-violet-50 px-1.5 py-0.5 text-[10px] text-violet-700">{tr("one-off", "sekali")}</span>
                     )}
                     {r.amount_kind === "estimate" && (
                       <span className="ml-1.5 rounded bg-sky-50 px-1.5 py-0.5 text-[10px] text-sky-700" title={tr("An estimate — any matched payment settles it", "Perkiraan — pembayaran apa pun yang cocok melunasinya")}>{tr("estimate", "perkiraan")}</span>
                     )}
-                    {r.carries_override && r.reason && (
+                    {((r.carries_override || isSubscriptionLine(r.component_id)) && r.reason) && (
                       <span className="block text-[11px] text-violet-700">{r.reason}</span>
                     )}
                     {r.actual > 0 && (
                       <span className="block text-[11px] text-slate-500">
                         {r.matched_by === "category" ? "≈ " : <Link2 className="mr-1 inline h-3 w-3" />}
-                        {formatIDR(r.actual)} {tr("actually went out", "benar-benar keluar")} · {r.trx_nos.join(", ")}
+                        {formatIDR(r.actual)} {tr("actually went out", "benar-benar keluar")}{r.trx_nos.length > 0 && <> · {r.trx_nos.join(", ")}</>}
                         {r.amount_kind === "estimate" && r.state === "PAID" && r.actual !== r.planned && (
                           <> · {r.actual > r.planned ? "+" : "−"}{formatIDR(Math.abs(r.actual - r.planned))} {tr("against the estimate", "terhadap perkiraan")}</>
                         )}

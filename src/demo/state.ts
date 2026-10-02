@@ -12,6 +12,7 @@ import type {
   Account, TransactionType, Transaction, TransactionLine,
   PaymentAllocation, EvidenceInboxRow,
   CashComponent, CashOverride, CashSettlement, BankStatement, StatementLine,
+  Subscription, SubscriptionPayment,
 } from "@/services/accounting/contracts";
 import type { Attachment, AttachmentLink } from "@/services/documents/contracts";
 import type {
@@ -180,6 +181,12 @@ export interface DemoState {
   cash_components: CashComponent[];
   cash_overrides: CashOverride[];
   cash_settlements: CashSettlement[];
+  /** Subscriptions, what was charged for them, and the rate the plan converts
+   *  dollars at (`0208`). They reach the calendar as rows of their own and
+   *  never touch the ledger. */
+  subscriptions: Subscription[];
+  subscription_payments: SubscriptionPayment[];
+  subscription_fx: number;
 
   attachments: Attachment[];
   attachment_links: AttachmentLink[];

@@ -14,6 +14,7 @@ import {
 import { ATTACHMENTS, ATTACHMENT_LINKS } from "./documents";
 import { RECEIVING_ATTACHMENTS, RECEIVING_INBOX } from "./receiving";
 import { CASH_COMPONENTS, CASH_OVERRIDES, CASH_SETTLEMENTS } from "./cash";
+import { SUBSCRIPTIONS, SUBSCRIPTION_PAYMENTS, SUBSCRIPTION_FX } from "./subscriptions";
 import {
   EMPLOYEES, ATTENDANCE_SCANS, DAY_MARKS, OVERTIME_SHEETS, OVERTIME_LINES,
   PAYROLL_RUNS, PAYROLL_ADJUSTMENTS, ALLOWANCE_WITHHOLDINGS,
@@ -125,6 +126,9 @@ export function initialState(): DemoState {
     cash_components: CASH_COMPONENTS,
     cash_overrides: CASH_OVERRIDES,
     cash_settlements: CASH_SETTLEMENTS,
+    subscriptions: SUBSCRIPTIONS,
+    subscription_payments: SUBSCRIPTION_PAYMENTS,
+    subscription_fx: SUBSCRIPTION_FX,
 
     employees: EMPLOYEES,
     attendance_scans: ATTENDANCE_SCANS,

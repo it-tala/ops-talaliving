@@ -10,7 +10,10 @@ import type {
   Direction, PaymentAllocation, EvidenceInboxRow, InboxHealth, AllocMethod,
   BankStatementView, DocumentCoverage, TransactionCoverage, MonthlyBills,
   AssetRentSchedule, AccountCode,
+  Subscription, SubscriptionRegister, SubscriptionInput, SubscriptionPaymentInput,
+  SubscriptionStatus, SubscriptionPayment,
 } from "@/services/accounting/contracts";
+import { subscriptionRegister } from "@/services/accounting/subscriptions";
 import { getActiveLocale, formatIDR } from "@/lib/format";
 import { officeToday } from "@/lib/office";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
@@ -2479,4 +2482,210 @@ export async function getMonthlyBills(month?: string): Promise<Result<MonthlyBil
   if (denied) return denied;
   const m = month || officeToday().slice(0, 7);
   return ok(SERVICE, monthlyBills(getState(), m));
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Subscriptions (`0208`)                                              */
+/* ------------------------------------------------------------------ */
+
+/** The register: every subscription, what it costs at the plan's rate, when it
+ *  is next billed, what has been paid. Read-only for anybody in accounting. */
+export async function getSubscriptions(): Promise<Result<SubscriptionRegister>> {
+  await latency();
+  const denied = requireModule(SERVICE, "accounting");
+  if (denied) return denied;
+  const state = getState();
+  return ok(SERVICE, subscriptionRegister({
+    subscriptions: state.subscriptions, payments: state.subscription_payments,
+    usd_idr: state.subscription_fx, today: officeToday(),
+    accountCodeOf: (id) => state.accounts.find((a) => a.id === id)?.code ?? null,
+  }));
+}
+
+export async function saveSubscription(
+  input: SubscriptionInput, id?: string | null,
+): Promise<Result<{ id: string; sub_no: string }>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "accounting", "write");
+  if (denied) return denied;
+
+  if (!input.name.trim()) {
+    return invalid(SERVICE, "name_required", "Name the service so somebody will recognise it.", { field: "name" });
+  }
+  if (!["monthly", "yearly", "biennial"].includes(input.cycle)) {
+    return invalid(SERVICE, "cycle_invalid", "Billed monthly, yearly or every two years.", { field: "cycle" });
+  }
+  if (!["fixed", "payg"].includes(input.amount_kind)) {
+    return invalid(SERVICE, "amount_kind_invalid", "The price is either fixed or pay as you go.", { field: "amount_kind" });
+  }
+  if (!["USD", "IDR"].includes(input.currency)) {
+    return invalid(SERVICE, "currency_invalid", "Billed in USD or in IDR.", { field: "currency" });
+  }
+  if (!(input.amount > 0)) {
+    return invalid(SERVICE, "amount_required", "Put the amount per billing — for pay as you go, the amount you expect.", { field: "amount" });
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.start_on ?? "")) {
+    return invalid(SERVICE, "start_required", "The date it is billed — its first billing, or the next one.", { field: "start_on" });
+  }
+  if (input.ends_on && input.ends_on < input.start_on) {
+    return invalid(SERVICE, "end_before_start", "It ends before it starts.", { field: "ends_on" });
+  }
+  const state = getState();
+  if (input.account_id && !state.accounts.some((a) => a.id === input.account_id)) {
+    return invalid(SERVICE, "no_such_account", "There is no such account.", { field: "account_code" });
+  }
+  if (id && !state.subscriptions.some((x) => x.id === id)) {
+    return notFound(SERVICE, "subscription_not_found", "No such subscription.");
+  }
+
+  const user = actingUser();
+  let saved: { id: string; sub_no: string } | null = null;
+  apply((draft) => {
+    const fields = {
+      name: input.name.trim(),
+      provider: input.provider?.trim() || null,
+      login_email: input.login_email?.trim() || null,
+      cycle: input.cycle,
+      amount_kind: input.amount_kind,
+      currency: input.currency,
+      amount: input.amount,
+      start_on: input.start_on,
+      ends_on: input.ends_on || null,
+      account_id: input.account_id ?? null,
+      note: input.note?.trim() || null,
+    };
+    const existing = id ? draft.subscriptions.find((x) => x.id === id) : undefined;
+    if (existing) {
+      Object.assign(existing, fields);
+      saved = { id: existing.id, sub_no: existing.sub_no };
+    } else {
+      const n = draft.subscriptions.reduce((m, x) => Math.max(m, Number(x.sub_no.slice(4))), 0) + 1;
+      const row: Subscription = {
+        id: newId("sub"), sub_no: `SUB-${String(n).padStart(4, "0")}`, ...fields,
+        status: "active", created_by: user.id, created_at: new Date().toISOString(),
+      };
+      draft.subscriptions.push(row);
+      saved = { id: row.id, sub_no: row.sub_no };
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "subscription", entity_no: saved!.sub_no,
+      action: "save", outcome: "ok", reason: null,
+      detail: { name: fields.name, cycle: fields.cycle, currency: fields.currency, amount: fields.amount },
+    });
+  });
+  return ok(SERVICE, saved as unknown as { id: string; sub_no: string });
+}
+
+export async function setSubscriptionStatus(
+  id: string, status: SubscriptionStatus,
+): Promise<Result<{ id: string; status: SubscriptionStatus }>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "accounting", "write");
+  if (denied) return denied;
+  if (!["active", "paused", "cancelled"].includes(status)) {
+    return invalid(SERVICE, "status_invalid", "Active, paused or cancelled.", { field: "status" });
+  }
+  if (!getState().subscriptions.some((x) => x.id === id)) {
+    return notFound(SERVICE, "subscription_not_found", "No such subscription.");
+  }
+  apply((draft) => {
+    const row = draft.subscriptions.find((x) => x.id === id)!;
+    const was = row.status;
+    row.status = status;
+    writeAudit(draft, {
+      service: SERVICE, entity: "subscription", entity_no: row.sub_no,
+      action: "status", outcome: "ok", reason: null, detail: { from: was, to: status },
+    });
+  });
+  return ok(SERVICE, { id, status });
+}
+
+/** What was charged for one billing period. The rate is rupiah ÷ dollars — the
+ *  rate the card really went at. Recording the same period again corrects it. */
+export async function recordSubscriptionPayment(
+  id: string, input: SubscriptionPaymentInput,
+): Promise<Result<{ id: string; period: string; fx_rate: number | null }>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "accounting", "write");
+  if (denied) return denied;
+  const sub = getState().subscriptions.find((x) => x.id === id);
+  if (!sub) return notFound(SERVICE, "subscription_not_found", "No such subscription.");
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(input.period ?? "")) {
+    return invalid(SERVICE, "period_invalid", "The month it was billed for, as YYYY-MM.", { field: "period" });
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.paid_on ?? "")) {
+    return invalid(SERVICE, "paid_on_required", "The day it was charged.", { field: "paid_on" });
+  }
+  if (!(input.amount_idr > 0)) {
+    return invalid(SERVICE, "amount_required", "The rupiah that actually left.", { field: "amount_idr" });
+  }
+  if (input.amount_usd != null && !(input.amount_usd > 0)) {
+    return invalid(SERVICE, "usd_invalid", "The dollars charged must be more than zero.", { field: "amount_usd" });
+  }
+  if (sub.currency === "IDR" && input.amount_usd != null) {
+    return invalid(SERVICE, "usd_on_idr", "This one is billed in rupiah — there are no dollars to record.", { field: "amount_usd" });
+  }
+
+  const fx_rate = input.amount_usd == null ? null : Math.round((input.amount_idr / input.amount_usd) * 100) / 100;
+  const user = actingUser();
+  apply((draft) => {
+    const row: SubscriptionPayment = {
+      id: newId("subpay"), subscription_id: id, period: input.period, paid_on: input.paid_on,
+      amount_idr: input.amount_idr, amount_usd: input.amount_usd ?? null, fx_rate,
+      note: input.note?.trim() || null, recorded_by: user.id, recorded_at: new Date().toISOString(),
+    };
+    draft.subscription_payments = draft.subscription_payments
+      .filter((p) => !(p.subscription_id === id && p.period === input.period));
+    draft.subscription_payments.push(row);
+    writeAudit(draft, {
+      service: SERVICE, entity: "subscription", entity_no: sub.sub_no,
+      action: "pay", outcome: "ok", reason: null,
+      detail: { period: input.period, amount_idr: input.amount_idr, amount_usd: input.amount_usd ?? null, fx_rate },
+    });
+  });
+  return ok(SERVICE, { id, period: input.period, fx_rate });
+}
+
+export async function removeSubscriptionPayment(
+  id: string, period: string,
+): Promise<Result<{ id: string; period: string }>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "accounting", "write");
+  if (denied) return denied;
+  const state = getState();
+  const sub = state.subscriptions.find((x) => x.id === id);
+  if (!sub) return notFound(SERVICE, "subscription_not_found", "No such subscription.");
+  if (!state.subscription_payments.some((p) => p.subscription_id === id && p.period === period)) {
+    return notFound(SERVICE, "payment_not_found", "No payment recorded for that month.");
+  }
+  apply((draft) => {
+    draft.subscription_payments = draft.subscription_payments
+      .filter((p) => !(p.subscription_id === id && p.period === period));
+    writeAudit(draft, {
+      service: SERVICE, entity: "subscription", entity_no: sub.sub_no,
+      action: "unpay", outcome: "ok", reason: null, detail: { period },
+    });
+  });
+  return ok(SERVICE, { id, period });
+}
+
+/** The rate the plan converts dollars at — leadership's to change, so `admin`
+ *  and not `write` (Q24, D233). */
+export async function setSubscriptionFx(rate: number): Promise<Result<{ usd_idr: number }>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "accounting", "admin");
+  if (denied) return denied;
+  if (!(rate > 0)) {
+    return invalid(SERVICE, "rate_invalid", "Rupiah per dollar, more than zero.", { field: "usd_idr" });
+  }
+  apply((draft) => {
+    const was = draft.subscription_fx;
+    draft.subscription_fx = rate;
+    writeAudit(draft, {
+      service: SERVICE, entity: "subscription_fx", entity_no: "USD",
+      action: "set_rate", outcome: "ok", reason: null, detail: { from: was, to: rate },
+    });
+  });
+  return ok(SERVICE, { usd_idr: rate });
 }

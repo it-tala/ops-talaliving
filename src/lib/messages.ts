@@ -51,6 +51,7 @@ export const MESSAGES = {
     verification: m("Purchase verification", "Verifikasi pembelian"),
     calendar: m("Cash calendar", "Kalender kas"),
     monthlyBills: m("Monthly bills", "Tagihan bulanan"),
+    subscriptions: m("Subscriptions", "Langganan"),
     liquidation: m("Liquidation", "Pertanggungjawaban dana"),
     statements: m("Bank statements", "Rekening koran"),
 
