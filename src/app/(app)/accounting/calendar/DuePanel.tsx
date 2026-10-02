@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Bell, Link2, Search } from "lucide-react";
+import { Bell, CircleDollarSign, Link2, Search } from "lucide-react";
 import { Badge, Button, Card, CardHeader } from "@/components/ui/primitives";
 import { Modal } from "@/components/ui/drawer";
 import { Loaded, useLoad } from "@/components/ui/loaded";
@@ -13,6 +13,8 @@ import { accounting } from "@/demo/api";
 import type { CashDue } from "@/services/accounting/contracts";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
+import { isSubscriptionLine } from "@/services/accounting/subscriptions";
+import { PayModal } from "../langganan/PayModal";
 
 /** The reminder half of the calendar.
  *
@@ -24,6 +26,7 @@ export function DuePanel({ onChanged }: { onChanged: () => void }) {
   const tr = useTr();
   const [due, reload] = useLoad(() => accounting.listDue(), []);
   const [linking, setLinking] = useState<CashDue | null>(null);
+  const [paying, setPaying] = useState<CashDue | null>(null);
 
   return (
     <>
@@ -44,7 +47,7 @@ export function DuePanel({ onChanged }: { onChanged: () => void }) {
                   <span className="min-w-[180px] flex-1 text-[13px] font-medium text-slate-800">
                     {d.name}
                     {d.vendor_name && <span className="font-normal text-slate-500"> · {d.vendor_name}</span>}
-                    {d.frequency === "once" && (
+                    {d.frequency === "once" && !isSubscriptionLine(d.component_id) && (
                       <span className="ml-1.5 rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-normal text-violet-700">
                         {tr("one-off", "sekali")}
                       </span>
@@ -54,6 +57,9 @@ export function DuePanel({ onChanged }: { onChanged: () => void }) {
                         {tr("estimate", "perkiraan")}
                       </span>
                     )}
+                    {isSubscriptionLine(d.component_id) && d.reason && (
+                      <span className="block text-[11px] font-normal text-slate-500">{d.reason}</span>
+                    )}
                   </span>
                   <span className={cn(
                     "w-[120px] text-right text-[13px] tabular-nums",
@@ -62,6 +68,16 @@ export function DuePanel({ onChanged }: { onChanged: () => void }) {
                     {d.direction === "IN" ? "+ " : ""}{formatIDR(d.planned)}
                   </span>
                   <DueBadge d={d} />
+                  {/* A subscription is settled by the payment recorded on it, not by
+                      a ledger row — so it gets its own action (`0208`). */}
+                  {d.direction === "OUT" && isSubscriptionLine(d.component_id) && (
+                    <Button variant="ghost" size="sm" icon={CircleDollarSign} onClick={() => setPaying(d)}>
+                      {tr("Record payment", "Catat pembayaran")}
+                    </Button>
+                  )}
+                  {/* The same ledger link a calendar line has (`0209`): when
+                      the money went through an account that is in the ledger,
+                      point at that row instead of typing the figure twice. */}
                   {d.direction === "OUT" && (
                     <Button variant="ghost" size="sm" icon={Link2} onClick={() => setLinking(d)}>
                       {tr("Link a payment", "Tautkan pembayaran")}
@@ -73,6 +89,14 @@ export function DuePanel({ onChanged }: { onChanged: () => void }) {
           )}
         </Loaded>
       </Card>
+
+      {paying && (
+        <PayModal
+          subscriptionId={paying.component_id.slice(4)} period={paying.month}
+          onClose={() => setPaying(null)}
+          onSaved={() => { setPaying(null); reload(); onChanged(); }}
+        />
+      )}
 
       {linking && (
         <LinkPayment
@@ -132,9 +156,13 @@ function LinkPayment({ due, onClose, onLinked }: { due: CashDue; onClose: () => 
 
   async function link(trxNo: string) {
     setBusy(true);
-    const res = await accounting.linkPayment({
-      component_id: due.component_id, month: due.month, trx_no: trxNo,
-    });
+    const res = isSubscriptionLine(due.component_id)
+      ? await accounting.linkSubscriptionPayment({
+        subscription_id: due.component_id.slice(4), period: due.month, trx_no: trxNo,
+      })
+      : await accounting.linkPayment({
+        component_id: due.component_id, month: due.month, trx_no: trxNo,
+      });
     setBusy(false);
     if (res.error) {
       toast(res.error.status === 409 ? "warning" : "critical", tr("Not linked", "Tidak ditautkan"), res.error.message);

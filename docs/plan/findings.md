@@ -9058,3 +9058,47 @@ for whoever uses it. The amber *belum dikonfirmasi* badge and the editor's own
 from what was clicked scrolls itself into view when it opens (`Reveal`, keyed so
 switching rows scrolls again). Explanations of *why the screen is built this
 way* go in the code and in `06-decisions.md`, not on the page.
+
+## F217 · 2026-10-02 · A subscription is not a ledger payment, and the plan was built as if everything were
+
+The owner's spreadsheet carried the company's subscriptions: a prepaid card
+topped up each month, services billed in dollars and paid in rupiah, some every
+month, some yearly or every two years, some fixed and some pay as you go. Read
+against the calendar, three things the existing engine could not say:
+
+- **Its "paid" is a ledger match.** `cash_plan()` finds what happened by
+  category and vendor in `ops_acct.transactions`, and a card that is not in the
+  ledger gives it nothing to find. The register therefore settles a billing by
+  the payment recorded on the subscription (`0208`), and the calendar draws it
+  as a row of its own, laid on by `applySubscriptions()` — the same function in
+  both API layers, so the months, the balance and the first month the money
+  runs out are worked out once, with the subscriptions in them.
+- **A plan rate and a real rate are different facts.** The sheet planned at
+  19.000 and was charged at 18.304–18.637. A dollar subscription is planned at
+  the one editable rate; once paid, the rupiah that left replaces the estimate
+  and the rate it really went at is *derived* (rupiah ÷ dollars), never typed.
+  That also exposes the other systematic gap in the sheet: a vendor's 11% VAT
+  ($100 plan billed $111, $24 billed $26,64) was being planned without it.
+- **Two lines under the plan's own pen** — Manus planned Rp 855.000 and charged
+  Rp 410.061; Google AI Pro went at 16.974 where everything else went at
+  ~18.400 (very likely billed in rupiah, which the register now allows).
+
+**Two ways to settle a billing, and what each one does to the plan.**
+*Record payment* types the figure on the subscription: nothing is posted, so it
+does not reduce the opening cash the calendar starts from, and the month's
+*still to come* drops the paid billing — the balance is understated by what was
+paid from an account that is not in the ledger. *Link a payment* (`0209`,
+the owner's follow-up: link from the calendar as a component does) points the
+billing at the ledger row that paid it: the amount and the day are the row's,
+the row's money is already inside the opening cash, and the row is taken out of
+*Tidak ada di rencana* (`settleUnplanned`, in the plan merge — `cash_plan()` is
+not touched) so the same payment is not counted twice. The status is PAID
+either way, and one ledger row settles one billing — a subscription or a
+component, never both (`already_linked` in both seams, and a unique index). A
+linked payment is not retyped (`linked_to_ledger`); removing it removes the
+link. A ledger row carries no dollars, so a linked billing shows no real rate.
+
+**Rule:** a smoke that asserts a sequence-generated number (`SUB-0001`) is true
+once: sequences are not rolled back with the transaction, so a second run
+fails. Assert the shape and the order, never the value. (Found by the file's own
+second run.)

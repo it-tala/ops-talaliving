@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { CalendarDays, Plus, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
@@ -14,6 +15,7 @@ import { MonthOverride } from "./MonthOverride";
 import { MonthDrawer } from "./MonthDrawer";
 import { DuePanel } from "./DuePanel";
 import { useTr } from "@/lib/i18n";
+import { isSubscriptionLine } from "@/services/accounting/subscriptions";
 
 /** Will the money last, and what is due next.
  *
@@ -29,6 +31,7 @@ import { useTr } from "@/lib/i18n";
 export default function CalendarPage() {
   const tr = useTr();
   const { can } = useSession();
+  const router = useRouter();
   const [plan, reload] = useLoad(() => accounting.getCashPlan(), []);
   const [editing, setEditing] = useState<CashRow["component"] | null>(null);
   const [adding, setAdding] = useState(false);
@@ -66,8 +69,12 @@ export default function CalendarPage() {
               />
               <Grid
                 plan={p}
-                onPick={(c) => mayEdit && setEditing(c)}
-                onPickCell={(row, cell) => mayEdit && setCell({ row, cell })}
+                /* A subscription is kept in its own register, not edited as a
+                   calendar line: its price, rate and payments live there. */
+                onPick={(c) => isSubscriptionLine(c.id) ? router.push("/accounting/langganan") : mayEdit && setEditing(c)}
+                onPickCell={(row, cell) => isSubscriptionLine(row.component.id)
+                  ? router.push("/accounting/langganan")
+                  : mayEdit && setCell({ row, cell })}
                 onOpenMonth={setOpenMonth}
               />
             </Card>
@@ -205,12 +212,21 @@ function Grid({
       >
         <span className="block text-[13px] font-medium text-slate-800">
           {r.component.name}
+          {r.subscription && (
+            <span className="ml-1.5 rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-normal text-violet-700" title={tr("From the subscription register", "Dari daftar langganan")}>{tr("subscription", "langganan")}</span>
+          )}
           {r.component.amount_kind === "estimate" && (
             <span className="ml-1.5 rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-normal text-sky-700" title={tr("An estimate — any matched payment settles it", "Perkiraan — pembayaran apa pun yang cocok melunasinya")}>{tr("estimate", "perkiraan")}</span>
           )}
         </span>
         <span className="block text-[11px] text-slate-500">
-          {r.component.frequency === "weekly"
+          {r.subscription
+            ? [
+              { monthly: tr(`monthly · day ${r.component.due_day}`, `bulanan · tanggal ${r.component.due_day}`),
+                yearly: tr("yearly", "tahunan"), biennial: tr("every 2 years", "setiap 2 tahun") }[r.subscription.cycle],
+              r.subscription.currency === "USD" ? `$${r.subscription.amount}` : null,
+            ].filter(Boolean).join(" · ")
+            : r.component.frequency === "weekly"
             ? tr(`every ${WEEKDAYS[r.component.due_weekday ?? 5]}`, `setiap ${WEEKDAYS_ID[r.component.due_weekday ?? 5]}`)
             : r.component.frequency === "once"
               ? tr(`once · ${r.component.due_date}`, `sekali · ${r.component.due_date}`)
@@ -222,7 +238,7 @@ function Grid({
         <td
           key={c.month}
           className="cursor-pointer whitespace-nowrap px-3 py-2 text-right align-top hover:bg-brand-50/60"
-          title={tr("Change just this month", "Ubah bulan ini saja")}
+          title={r.subscription ? tr("Open the subscription register", "Buka daftar langganan") : tr("Change just this month", "Ubah bulan ini saja")}
           onClick={() => onPickCell(r, c)}
         >
           {c.state === "SKIPPED" ? (

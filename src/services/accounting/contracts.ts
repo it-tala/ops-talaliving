@@ -715,6 +715,11 @@ export interface CashCell {
 
 export interface CashRow {
   component: CashComponent;
+  /** Set on a line that is a subscription, not a calendar component (`0208`).
+   *  Such a row has no ledger match — it is settled by the payment recorded
+   *  on the subscription — and the grid sends a click on it to the register
+   *  instead of the component editor. */
+  subscription?: SubscriptionTag;
   vendor_name: string | null;
   account_code: AccountCode | null;
   cells: CashCell[];
@@ -882,4 +887,126 @@ export interface MonthlyBills {
   unusual_count: number;
   /** The same month a year of components ago, for the header comparison. */
   last_month_total: number | null;
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Subscriptions (`0208`)                                              */
+/* ------------------------------------------------------------------ */
+
+/** How often it is billed. Yearly and every-two-years are what make the
+ *  register more than a monthly list: one large charge in one month of the
+ *  calendar, not a twelfth of it every month. */
+export type SubscriptionCycle = "monthly" | "yearly" | "biennial";
+/** `fixed` is a quoted price; `payg` is billed on use, so the figure is an
+ *  expectation and whatever is charged settles it. */
+export type SubscriptionPriceKind = "fixed" | "payg";
+export type SubscriptionCurrency = "USD" | "IDR";
+export type SubscriptionStatus = "active" | "paused" | "cancelled";
+
+export interface Subscription {
+  id: string;
+  sub_no: string;
+  name: string;
+  provider: string | null;
+  /** Who the service is registered to — where access is lost when a person
+   *  leaves. */
+  login_email: string | null;
+  cycle: SubscriptionCycle;
+  amount_kind: SubscriptionPriceKind;
+  currency: SubscriptionCurrency;
+  /** Per billing, in `currency`. */
+  amount: number;
+  /** A billing date. Monthly repeats its day; yearly its day and month; every
+   *  two years its day and month in every second year. */
+  start_on: string;
+  ends_on: string | null;
+  /** How it is paid: an account from master data. A label — the register
+   *  never posts to the ledger. */
+  account_id: string | null;
+  status: SubscriptionStatus;
+  note: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+/** What was actually charged for one billing period. The rate is derived —
+ *  rupiah ÷ dollars — so it is the rate the card really went at. */
+export interface SubscriptionPayment {
+  id: string;
+  subscription_id: string;
+  /** `YYYY-MM` of the date it fell due. */
+  period: string;
+  paid_on: string;
+  amount_idr: number;
+  amount_usd: number | null;
+  fx_rate: number | null;
+  /** The ledger row that settled it, when it was linked rather than typed
+   *  (`0209`). Its amount and day are then the row's own, and the row is not
+   *  also a payment nobody planned. */
+  trx_no: string | null;
+  note: string | null;
+  recorded_by: string;
+  recorded_at: string;
+}
+
+/** What a calendar row says about the subscription behind it. */
+export interface SubscriptionTag {
+  subscription_id: string;
+  sub_no: string;
+  cycle: SubscriptionCycle;
+  currency: SubscriptionCurrency;
+  amount: number;
+  amount_kind: SubscriptionPriceKind;
+  usd_idr: number;
+}
+
+/** One subscription as the register draws it. */
+export interface SubscriptionView extends Subscription {
+  account_code: AccountCode | null;
+  /** One billing, in rupiah at the plan rate (a rupiah subscription: itself). */
+  planned_idr: number;
+  /** What it costs in a year at the plan rate — the figure that makes a
+   *  yearly and a monthly one comparable. */
+  per_year_idr: number;
+  /** The next billing that has not been paid yet, and what it is expected to
+   *  be. Null when it is cancelled or has ended. */
+  next_due: string | null;
+  next_period: string | null;
+  /** That billing's payment, if it has been recorded. */
+  paid: SubscriptionPayment | null;
+  /** Every payment on record, newest first. */
+  payments: SubscriptionPayment[];
+}
+
+export interface SubscriptionRegister {
+  /** The rate the plan converts dollars at. */
+  usd_idr: number;
+  subscriptions: SubscriptionView[];
+  /** Σ of `per_year_idr` over the active ones, and a twelfth of it. */
+  yearly_total: number;
+  monthly_average: number;
+}
+
+export interface SubscriptionInput {
+  name: string;
+  cycle: SubscriptionCycle;
+  amount_kind: SubscriptionPriceKind;
+  currency: SubscriptionCurrency;
+  amount: number;
+  start_on: string;
+  ends_on?: string | null;
+  account_id?: string | null;
+  provider?: string | null;
+  login_email?: string | null;
+  note?: string | null;
+}
+
+export interface SubscriptionPaymentInput {
+  /** `YYYY-MM` */
+  period: string;
+  paid_on: string;
+  amount_idr: number;
+  amount_usd?: number | null;
+  note?: string | null;
 }

@@ -46,6 +46,7 @@ import { contributionRoll } from "./hr-derive";
 import type { ContributionScheme, ContributionAuditGroup } from "@/services/hr/contracts";
 import { SCHEME_LABELS, COMPUTED_SCHEMES } from "@/services/hr/contracts";
 import { settingNumber } from "./settings";
+import { applySubscriptions, settleUnplanned, subscriptionRows } from "@/services/accounting/subscriptions";
 
 /** One definition, read from settings — never a literal repeated in three
  *  files, which is how `john-lau` ended up with three different tolerances. */
@@ -1363,20 +1364,33 @@ export function cashPlan(state: DemoState, now = new Date(), windowFrom = now): 
     };
   });
 
-  const short = monthViews.find((m) => m.closing < 0) ?? null;
+  /* Subscriptions are rows of their own beside the components, settled by the
+     payment recorded on them rather than by a ledger match, and priced at the
+     plan's rate (`0208`). One function lays them on, shared with the live API
+     layer, so the register and the calendar cannot disagree. */
+  const subRows = subscriptionRows({
+    subscriptions: state.subscriptions ?? [],
+    payments: state.subscription_payments ?? [],
+    usd_idr: state.subscription_fx ?? 19_000,
+    months, today,
+    accountCodeOf: (id) => state.accounts.find((a) => a.id === id)?.code ?? null,
+  });
+  const laid = applySubscriptions({ months: monthViews, rows }, subRows);
+  const short = laid.months.find((m) => m.closing < 0) ?? null;
   const undated_obligations = state.vendors
     .reduce((s, v) => s + vendorJourney(state, v.id).outstanding, 0);
 
   const verdict = short
     ? trNow(`On this plan the money runs out in ${short.label} — ${formatShort(Math.abs(short.closing))} short.`, `Dengan rencana ini uangnya habis di ${short.label} — kurang ${formatShort(Math.abs(short.closing))}.`)
-    : trNow(`The plan holds through ${monthViews[monthViews.length - 1].label}, ending at ${formatShort(monthViews[monthViews.length - 1].closing)}.`, `Rencana ini aman sampai ${monthViews[monthViews.length - 1].label}, berakhir di ${formatShort(monthViews[monthViews.length - 1].closing)}.`);
+    : trNow(`The plan holds through ${laid.months[laid.months.length - 1].label}, ending at ${formatShort(laid.months[laid.months.length - 1].closing)}.`, `Rencana ini aman sampai ${laid.months[laid.months.length - 1].label}, berakhir di ${formatShort(laid.months[laid.months.length - 1].closing)}.`);
 
   return {
     generated_for: today,
     opening_cash,
-    months: monthViews,
-    rows,
-    unplanned,
+    months: laid.months,
+    rows: laid.rows,
+    unplanned: settleUnplanned(unplanned, state.subscription_payments ?? [],
+      (n) => state.transactions.find((t) => t.trx_no === n)?.type_code ?? null),
     short_month: short?.month ?? null,
     short_by: short ? Math.abs(short.closing) : 0,
     undated_obligations,
