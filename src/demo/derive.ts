@@ -46,7 +46,7 @@ import { contributionRoll } from "./hr-derive";
 import type { ContributionScheme, ContributionAuditGroup } from "@/services/hr/contracts";
 import { SCHEME_LABELS, COMPUTED_SCHEMES } from "@/services/hr/contracts";
 import { settingNumber } from "./settings";
-import { applySubscriptions, subscriptionRows } from "@/services/accounting/subscriptions";
+import { applySubscriptions, settleUnplanned, subscriptionRows } from "@/services/accounting/subscriptions";
 
 /** One definition, read from settings — never a literal repeated in three
  *  files, which is how `john-lau` ended up with three different tolerances. */
@@ -1389,7 +1389,8 @@ export function cashPlan(state: DemoState, now = new Date(), windowFrom = now): 
     opening_cash,
     months: laid.months,
     rows: laid.rows,
-    unplanned,
+    unplanned: settleUnplanned(unplanned, state.subscription_payments ?? [],
+      (n) => state.transactions.find((t) => t.trx_no === n)?.type_code ?? null),
     short_month: short?.month ?? null,
     short_by: short ? Math.abs(short.closing) : 0,
     undated_obligations,

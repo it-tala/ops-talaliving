@@ -21,7 +21,7 @@
  */
 import { trNow } from "@/lib/i18n";
 import type {
-  AccountCode, CashCell, CashEvent, CashMonth, CashRow, CashCellState, CashComponent,
+  AccountCode, CashCell, CashEvent, CashMonth, CashRow, CashCellState, CashComponent, CashUnplanned,
   Subscription, SubscriptionPayment, SubscriptionRegister, SubscriptionView,
 } from "./contracts";
 
@@ -67,6 +67,7 @@ const rate = (n: number): string => Math.round(n).toLocaleString("id-ID");
 function reasonFor(sub: Subscription, usdIdr: number, pay: SubscriptionPayment | undefined): string {
   const kind = sub.amount_kind === "payg" ? trNow("pay as you go", "sesuai pemakaian") : null;
   if (pay) {
+    if (pay.trx_no) return trNow(`Settled by ledger row ${pay.trx_no}`, `Dilunasi baris ledger ${pay.trx_no}`);
     if (pay.amount_usd != null && pay.fx_rate != null) {
       return trNow(
         `${usd(pay.amount_usd)} charged at Rp ${rate(pay.fx_rate)} (plan Rp ${rate(usdIdr)})`,
@@ -145,13 +146,13 @@ export function subscriptionRows(input: {
       const event: CashEvent = {
         component_id: lineId, name: sub.name, direction: "OUT", frequency: component.frequency,
         amount_kind: kind, month, date, planned, actual: pay?.amount_idr ?? 0,
-        matched_by: null, trx_nos: [], state,
+        matched_by: pay?.trx_no ? "linked" as const : null, trx_nos: pay?.trx_no ? [pay.trx_no] : [], state,
         vendor_name: sub.provider, account_code,
         carries_override: false, reason: reason || null,
       };
       return {
-        month, due_date: date, planned, actual: pay?.amount_idr ?? 0, matched_by: null,
-        trx_nos: [], state, overridden: false, reason: reason || null, events: [event],
+        month, due_date: date, planned, actual: pay?.amount_idr ?? 0, matched_by: event.matched_by,
+        trx_nos: event.trx_nos, state, overridden: false, reason: reason || null, events: [event],
       };
     });
 
@@ -203,6 +204,36 @@ export function applySubscriptions<M extends Pick<CashMonth, "month" | "is_curre
     short_month: short?.month ?? null,
     short_by: short ? Math.abs(short.closing) : 0,
   };
+}
+
+/** The ledger rows a subscription has taken are spoken for: they are the
+ *  billing's payment, not money that left with no line planned for it. Taken
+ *  out of *Not in the plan* so the same payment is not counted twice. `typeOf`
+ *  names a row's category so the three biggest are right afterwards. */
+export function settleUnplanned(
+  unplanned: CashUnplanned[],
+  payments: SubscriptionPayment[],
+  typeOf: (trxNo: string) => string | null,
+): CashUnplanned[] {
+  const linked = payments.filter((p) => p.trx_no);
+  if (linked.length === 0) return unplanned;
+  return unplanned.map((u) => {
+    const mine = linked.filter((p) => u.trx_nos.includes(p.trx_no!));
+    if (mine.length === 0) return u;
+    const top = new Map(u.top_types.map((t) => [t.type_code, t.amount]));
+    for (const p of mine) {
+      const type = typeOf(p.trx_no!);
+      if (type && top.has(type)) top.set(type, top.get(type)! - p.amount_idr);
+    }
+    return {
+      ...u,
+      amount: Math.max(u.amount - mine.reduce((s, p) => s + p.amount_idr, 0), 0),
+      trx_nos: u.trx_nos.filter((n) => !mine.some((p) => p.trx_no === n)),
+      top_types: [...top.entries()].filter(([, amount]) => amount > 0)
+        .map(([type_code, amount]) => ({ type_code, amount }))
+        .sort((a, b) => b.amount - a.amount),
+    };
+  });
 }
 
 /** The register as the screen draws it. `months` is only used to look ahead

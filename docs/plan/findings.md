@@ -9083,14 +9083,20 @@ against the calendar, three things the existing engine could not say:
   Rp 410.061; Google AI Pro went at 16.974 where everything else went at
   ~18.400 (very likely billed in rupiah, which the register now allows).
 
-**What it does not do, and the owner should know.** Because nothing is posted
-to the ledger, a payment recorded here does not reduce the opening cash the
-calendar starts from, and a month's *still to come* drops the paid billing: the
-balance is understated by what was paid this month from an account that is not
-in the ledger. If the same payment is also booked in the ledger it will show
-under *Tidak ada di rencana* beside a subscription already marked paid. Both go
-away if the register later links a ledger row (as `link_cash_payment` does for
-components) — not built, because the owner asked for no ledger rows.
+**Two ways to settle a billing, and what each one does to the plan.**
+*Record payment* types the figure on the subscription: nothing is posted, so it
+does not reduce the opening cash the calendar starts from, and the month's
+*still to come* drops the paid billing — the balance is understated by what was
+paid from an account that is not in the ledger. *Link a payment* (`0209`,
+the owner's follow-up: link from the calendar as a component does) points the
+billing at the ledger row that paid it: the amount and the day are the row's,
+the row's money is already inside the opening cash, and the row is taken out of
+*Tidak ada di rencana* (`settleUnplanned`, in the plan merge — `cash_plan()` is
+not touched) so the same payment is not counted twice. The status is PAID
+either way, and one ledger row settles one billing — a subscription or a
+component, never both (`already_linked` in both seams, and a unique index). A
+linked payment is not retyped (`linked_to_ledger`); removing it removes the
+link. A ledger row carries no dollars, so a linked billing shows no real rate.
 
 **Rule:** a smoke that asserts a sequence-generated number (`SUB-0001`) is true
 once: sequences are not rolled back with the transaction, so a second run

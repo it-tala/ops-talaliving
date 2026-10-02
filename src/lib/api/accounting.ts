@@ -31,7 +31,7 @@ import type {
   SubscriptionPaymentInput, SubscriptionStatus,
 } from "@/services/accounting/contracts";
 import {
-  applySubscriptions, subscriptionRegister, subscriptionRows,
+  applySubscriptions, settleUnplanned, subscriptionRegister, subscriptionRows,
 } from "@/services/accounting/subscriptions";
 import type { DocKind } from "@/services/documents/contracts";
 import type { ContributionAuditGroup } from "@/services/hr/contracts";
@@ -1418,7 +1418,10 @@ async function readPlan(from?: string): Promise<Result<CashPlan>> {
         accountCodeOf: subs.accountCodeOf,
       }))
     : { months: raw.months, rows: raw.rows, short_month: raw.short_month, short_by: raw.short_by };
-  const plan = { ...raw, rows: merged.rows, short_month: merged.short_month, short_by: merged.short_by };
+  const plan = {
+    ...raw, rows: merged.rows, short_month: merged.short_month, short_by: merged.short_by,
+    unplanned: subs ? settleUnplanned(raw.unplanned, subs.payments, subs.typeOf) : raw.unplanned,
+  };
 
   const months: CashMonth[] = merged.months.map((m) => ({ ...m, label: monthLabel(m.month) }));
   const last = months[months.length - 1];
@@ -1438,6 +1441,7 @@ async function readPlan(from?: string): Promise<Result<CashPlan>> {
 async function readSubscriptions(): Promise<{
   subscriptions: Subscription[]; payments: SubscriptionPayment[]; usd_idr: number;
   accountCodeOf: (id: string | null) => string | null;
+  typeOf: (trxNo: string) => string | null;
 } | null> {
   const [s, p, f, a] = await Promise.all([
     db().from("subscriptions").select("*").order("name"),
@@ -1446,6 +1450,15 @@ async function readSubscriptions(): Promise<{
     db().from("accounts").select("id, code"),
   ]);
   if (s.error || p.error || f.error || a.error) return null;
+  /* The categories of the ledger rows the payments point at, so *Not in the
+     plan* can be taken down by them exactly (`0209`). Best effort: without it
+     the amounts are still right and only the top-three labels are not. */
+  const linked = ((p.data ?? []) as { trx_no: string | null }[]).map((x) => x.trx_no).filter((x): x is string => !!x);
+  const types = new Map<string, string>();
+  if (linked.length > 0) {
+    const t = await db().from("transactions").select("trx_no, type_code").in("trx_no", linked);
+    for (const r of (t.data ?? []) as { trx_no: string; type_code: string }[]) types.set(r.trx_no, r.type_code);
+  }
   const codes = new Map(((a.data ?? []) as { id: string; code: string }[]).map((x) => [x.id, x.code]));
   const num = (v: unknown) => Number(v);
   return {
@@ -1454,9 +1467,11 @@ async function readSubscriptions(): Promise<{
       ...x, amount_idr: num(x.amount_idr),
       amount_usd: x.amount_usd == null ? null : num(x.amount_usd),
       fx_rate: x.fx_rate == null ? null : num(x.fx_rate),
+      trx_no: x.trx_no ?? null,
     })),
     usd_idr: f.data ? num((f.data as { usd_idr: number }).usd_idr) : 19000,
     accountCodeOf: (id) => (id ? codes.get(id) ?? null : null),
+    typeOf: (n) => types.get(n) ?? null,
   };
 }
 
@@ -1514,6 +1529,16 @@ export async function recordSubscriptionPayment(
     p_note: input.note ?? null,
   });
   return fromSeam<{ id: string; period: string; fx_rate: number | null }>(SERVICE, data, error);
+}
+
+/** Point one billing at the ledger row that paid it (`0209`). */
+export async function linkSubscriptionPayment(input: {
+  subscription_id: string; period: string; trx_no: string;
+}): Promise<Result<{ id: string; period: string; trx_no: string; amount_idr: number }>> {
+  const { data, error } = await db().rpc("link_subscription_payment", {
+    p_id: input.subscription_id, p_period: input.period, p_trx_no: input.trx_no,
+  });
+  return fromSeam<{ id: string; period: string; trx_no: string; amount_idr: number }>(SERVICE, data, error);
 }
 
 export async function removeSubscriptionPayment(

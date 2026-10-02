@@ -941,6 +941,10 @@ export interface SubscriptionPayment {
   amount_idr: number;
   amount_usd: number | null;
   fx_rate: number | null;
+  /** The ledger row that settled it, when it was linked rather than typed
+   *  (`0209`). Its amount and day are then the row's own, and the row is not
+   *  also a payment nobody planned. */
+  trx_no: string | null;
   note: string | null;
   recorded_by: string;
   recorded_at: string;

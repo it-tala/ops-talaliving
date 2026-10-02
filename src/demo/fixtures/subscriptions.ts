@@ -35,7 +35,7 @@ export const SUBSCRIPTIONS: Subscription[] = [
 
 const pay = (n: number, sub: string, period: string, paid_on: string, idr: number, usd: number | null): SubscriptionPayment => ({
   id: `subpay_${n}`, subscription_id: sub, period, paid_on, amount_idr: idr, amount_usd: usd,
-  fx_rate: usd == null ? null : Math.round((idr / usd) * 100) / 100, note: null,
+  fx_rate: usd == null ? null : Math.round((idr / usd) * 100) / 100, trx_no: null, note: null,
   recorded_by: "usr_anggun", recorded_at: `${paid_on}T09:00:00+07:00`,
 });
 

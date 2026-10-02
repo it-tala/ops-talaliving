@@ -58,6 +58,7 @@ function PayForm({ sub, usdIdr, period, onClose, onSaved }: {
   const [note, setNote] = useState(existing?.note ?? "");
   const [busy, setBusy] = useState(false);
 
+  const linked = existing?.trx_no ?? null;
   const rate = isUsd && dollars > 0 ? rupiah / dollars : null;
   const off = rate ? ((rate - usdIdr) / usdIdr) * 100 : null;
 
@@ -80,6 +81,26 @@ function PayForm({ sub, usdIdr, period, onClose, onSaved }: {
     if (res.error) { toast("warning", tr("Not removed", "Tidak dihapus"), res.error.message); return; }
     toast("success", tr("Payment removed", "Pembayaran dihapus"), `${sub.name} · ${period}`);
     onSaved();
+  }
+
+  if (linked && existing) {
+    return (
+      <div className="space-y-4">
+        <p className="text-[13px] text-slate-600">
+          <strong className="text-slate-800">{sub.name}</strong> · {period}
+        </p>
+        <p className="rounded-lg bg-slate-50 px-3 py-2 text-[13px] text-slate-700">
+          {tr(`Settled by ledger row ${linked} — ${formatIDR(existing.amount_idr)} on ${existing.paid_on}. Its figures are the ledger's, so they are not retyped here.`,
+            `Dilunasi baris ledger ${linked} — ${formatIDR(existing.amount_idr)} pada ${existing.paid_on}. Angkanya milik ledger, jadi tidak diketik ulang di sini.`)}
+        </p>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" icon={Trash2} onClick={remove} disabled={busy}>
+            {tr("Remove the link", "Lepas tautan")}
+          </Button>
+          <Button variant="ghost" className="ml-auto" onClick={onClose}>{tr("Close", "Tutup")}</Button>
+        </div>
+      </div>
+    );
   }
 
   return (

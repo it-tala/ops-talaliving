@@ -201,7 +201,7 @@ export default function SubscriptionsPage() {
                                         <tbody>
                                           {s.payments.map((p) => (
                                             <tr key={p.id} className="border-t border-slate-100 text-slate-700">
-                                              <td className="py-1 pr-3 font-mono">{p.period}</td>
+                                              <td className="py-1 pr-3 font-mono">{p.period}{p.trx_no && <span className="ml-1 text-[10px] text-slate-400" title={tr("Settled by a ledger row", "Dilunasi baris ledger")}>· {p.trx_no}</span>}</td>
                                               <td className="py-1 pr-3 font-mono">{p.paid_on}</td>
                                               <td className="py-1 pr-3 text-right tabular-nums">{p.amount_usd == null ? "—" : usd(p.amount_usd)}</td>
                                               <td className="py-1 pr-3 text-right tabular-nums">

@@ -1978,6 +1978,13 @@ export async function linkPayment(
       { component_id: taken.component_id, month: taken.month },
     );
   }
+  if (state.subscription_payments.some((p) => p.trx_no === input.trx_no)) {
+    return conflict(
+      SERVICE, "already_linked",
+      `${input.trx_no} is already linked to a subscription on the calendar.`,
+      { trx_no: input.trx_no },
+    );
+  }
 
   const user = actingUser();
   let saved: CashSettlement | null = null;
@@ -2627,12 +2634,22 @@ export async function recordSubscriptionPayment(
     return invalid(SERVICE, "usd_on_idr", "This one is billed in rupiah — there are no dollars to record.", { field: "amount_usd" });
   }
 
+  const linkedTo = getState().subscription_payments
+    .find((p) => p.subscription_id === id && p.period === input.period)?.trx_no;
+  if (linkedTo) {
+    return conflict(
+      SERVICE, "linked_to_ledger",
+      `That billing is settled by ledger row ${linkedTo}, whose figures are the ledger's. Remove the link first to record it by hand.`,
+      { trx_no: linkedTo },
+    );
+  }
+
   const fx_rate = input.amount_usd == null ? null : Math.round((input.amount_idr / input.amount_usd) * 100) / 100;
   const user = actingUser();
   apply((draft) => {
     const row: SubscriptionPayment = {
       id: newId("subpay"), subscription_id: id, period: input.period, paid_on: input.paid_on,
-      amount_idr: input.amount_idr, amount_usd: input.amount_usd ?? null, fx_rate,
+      amount_idr: input.amount_idr, amount_usd: input.amount_usd ?? null, fx_rate, trx_no: null,
       note: input.note?.trim() || null, recorded_by: user.id, recorded_at: new Date().toISOString(),
     };
     draft.subscription_payments = draft.subscription_payments
@@ -2688,4 +2705,54 @@ export async function setSubscriptionFx(rate: number): Promise<Result<{ usd_idr:
     });
   });
   return ok(SERVICE, { usd_idr: rate });
+}
+
+/** Point one billing at the ledger row that paid it, as `linkPayment` does for a
+ *  calendar component. The amount and the day are the row's own, the row stops
+ *  counting as money nobody planned, and one row settles one billing — here or
+ *  on a component, never both (D112). Removing the payment undoes the link. */
+export async function linkSubscriptionPayment(input: {
+  subscription_id: string; period: string; trx_no: string;
+}): Promise<Result<{ id: string; period: string; trx_no: string; amount_idr: number }>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "accounting", "write");
+  if (denied) return denied;
+  const state = getState();
+  const sub = state.subscriptions.find((x) => x.id === input.subscription_id);
+  if (!sub) return notFound(SERVICE, "subscription_not_found", "No such subscription.");
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(input.period ?? "")) {
+    return invalid(SERVICE, "period_invalid", "The month it was billed for, as YYYY-MM.", { field: "period" });
+  }
+  const trx = state.transactions.find((t) => t.trx_no === input.trx_no);
+  if (!trx) return notFound(SERVICE, "transaction_not_found", `There is no ledger row ${input.trx_no}.`);
+  if (trx.status === "VOID") {
+    return invalid(SERVICE, "transaction_void", "That row was voided. A voided payment settles nothing.", { field: "trx_no" });
+  }
+  if (trx.direction !== "OUT") {
+    return invalid(SERVICE, "not_a_payment", "That row is money coming in. A subscription is paid out.", { field: "trx_no" });
+  }
+  const taken = state.cash_settlements.some((c) => c.trx_no === input.trx_no)
+    || state.subscription_payments.some((p) => p.trx_no === input.trx_no
+      && !(p.subscription_id === input.subscription_id && p.period === input.period));
+  if (taken) {
+    return conflict(SERVICE, "already_linked",
+      "That payment is already on the calendar against another line. One row, one bill.", { field: "trx_no" });
+  }
+
+  const user = actingUser();
+  apply((draft) => {
+    draft.subscription_payments = draft.subscription_payments
+      .filter((p) => !(p.subscription_id === input.subscription_id && p.period === input.period));
+    draft.subscription_payments.push({
+      id: newId("subpay"), subscription_id: input.subscription_id, period: input.period,
+      paid_on: trx.trx_date, amount_idr: trx.amount_idr, amount_usd: null, fx_rate: null,
+      trx_no: input.trx_no, note: null, recorded_by: user.id, recorded_at: new Date().toISOString(),
+    });
+    writeAudit(draft, {
+      service: SERVICE, entity: "subscription", entity_no: sub.sub_no,
+      action: "link", outcome: "ok", reason: null,
+      detail: { period: input.period, trx_no: input.trx_no, amount_idr: trx.amount_idr },
+    });
+  });
+  return ok(SERVICE, { id: input.subscription_id, period: input.period, trx_no: input.trx_no, amount_idr: trx.amount_idr });
 }

@@ -70,15 +70,19 @@ export function DuePanel({ onChanged }: { onChanged: () => void }) {
                   <DueBadge d={d} />
                   {/* A subscription is settled by the payment recorded on it, not by
                       a ledger row — so it gets its own action (`0208`). */}
-                  {d.direction === "OUT" && (isSubscriptionLine(d.component_id) ? (
+                  {d.direction === "OUT" && isSubscriptionLine(d.component_id) && (
                     <Button variant="ghost" size="sm" icon={CircleDollarSign} onClick={() => setPaying(d)}>
                       {tr("Record payment", "Catat pembayaran")}
                     </Button>
-                  ) : (
+                  )}
+                  {/* The same ledger link a calendar line has (`0209`): when
+                      the money went through an account that is in the ledger,
+                      point at that row instead of typing the figure twice. */}
+                  {d.direction === "OUT" && (
                     <Button variant="ghost" size="sm" icon={Link2} onClick={() => setLinking(d)}>
                       {tr("Link a payment", "Tautkan pembayaran")}
                     </Button>
-                  ))}
+                  )}
                 </li>
               ))}
             </ul>
@@ -152,9 +156,13 @@ function LinkPayment({ due, onClose, onLinked }: { due: CashDue; onClose: () => 
 
   async function link(trxNo: string) {
     setBusy(true);
-    const res = await accounting.linkPayment({
-      component_id: due.component_id, month: due.month, trx_no: trxNo,
-    });
+    const res = isSubscriptionLine(due.component_id)
+      ? await accounting.linkSubscriptionPayment({
+        subscription_id: due.component_id.slice(4), period: due.month, trx_no: trxNo,
+      })
+      : await accounting.linkPayment({
+        component_id: due.component_id, month: due.month, trx_no: trxNo,
+      });
     setBusy(false);
     if (res.error) {
       toast(res.error.status === 409 ? "warning" : "critical", tr("Not linked", "Tidak ditautkan"), res.error.message);
