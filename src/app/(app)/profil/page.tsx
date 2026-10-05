@@ -3,7 +3,7 @@
 import { useState } from "react";
 import {
   KeyRound, Activity, Fingerprint, Clock, CalendarClock, ClipboardList, Wallet,
-  Check, Plus, AlertTriangle, ShieldAlert,
+  Check, Plus, AlertTriangle, ShieldAlert, PlayCircle, PauseCircle, PackageCheck, Users,
 } from "lucide-react";
 import {
   Badge, Button, Card, CardHeader, PageHeader, EmptyState,
@@ -16,11 +16,12 @@ import { formatIDR, formatNumber } from "@/lib/format";
 import { OFFICE_TZ, officeClock, officeDay, officeToday, shiftDay } from "@/lib/office";
 import { hr, identity } from "@/demo/api";
 import {
-  LEAVE_KIND_LABEL, OVERTIME_STAGE_LABEL, type LeaveKind,
+  LEAVE_KIND_LABEL, OVERTIME_STAGE_LABEL, type LeaveKind, type TaskView,
 } from "@/services/hr/contracts";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
+import { GoalBoardList, GoalProgress } from "@/components/hr/goal-parts";
 import { OvertimeForm } from "../saya/overtime-form";
 import { OvertimeAskDetails, useOvertimeStatus } from "../saya/overtime-ask";
 import { useDayLabel } from "../saya/shared";
@@ -424,7 +425,16 @@ function LeaveTab({ me }: { me: ReturnType<typeof useLoad<Awaited<ReturnType<typ
   );
 }
 
-/* ── Tugas ────────────────────────────────────────────────────────────── */
+/* ── Tugas ────────────────────────────────────────────────────────────
+ *
+ *  Grouped by goal, in the goal's rank (D367): the order of the groups is the
+ *  leader's priority, so *what do I do first* is answered by the page and not
+ *  by asking. Under each goal, the reader's own parts with the things they
+ *  can do about them — receive, start, hand over, say what they are waiting
+ *  on (D368) — and, one tap away, every other part of the same goal: who holds
+ *  it, what it waits on, what was handed over. Tasks that belong to no goal
+ *  follow, then what is finished.
+ */
 
 function TasksTab({ me }: { me: ReturnType<typeof useLoad<Awaited<ReturnType<typeof hr.myProfile>>["data"]>>[0] }) {
   const { toast } = useToast();
@@ -441,7 +451,59 @@ function TasksTab({ me }: { me: ReturnType<typeof useLoad<Awaited<ReturnType<typ
     () => (linked ? hr.listTasks({ assignee_no: linked.employee_no }) : Promise.resolve({ data: [] })),
     [linked?.employee_no],
   );
+  /* The same narrowing for goals: `list_goals()` hands an HRD account every
+     goal, and this page is one person's — narrowed below to the goals with a
+     part of theirs, and the goals they put together. */
+  const [goals, reloadGoals] = useLoad(
+    () => (linked ? hr.listGoals() : Promise.resolve({ data: [] })),
+    [linked?.employee_no, tasks],
+  );
   const [busy, setBusy] = useState<string | null>(null);
+  const [team, setTeam] = useState<string | null>(null);
+
+  async function run(t: TaskView, action: "start" | "done" | "block" | "unblock") {
+    let reason: string | null = null;
+    let delivered: string | null = null;
+    if (action === "block") {
+      reason = window.prompt(
+        tr(
+          "Waiting on what, or on whom? A blocked task is not counted against you — and this sentence is what the person holding it up reads.",
+          "Tertahan menunggu apa, atau siapa? Tugas yang tertahan tidak dihitung merugikan Anda — dan kalimat ini yang dibaca pihak yang menahannya.",
+        ),
+        t.waiting && t.waits_on_title
+          ? tr(`Waiting on "${t.waits_on_title}" (${t.waits_on_assignee})`, `Menunggu "${t.waits_on_title}" (${t.waits_on_assignee})`)
+          : "",
+      );
+      if (!reason?.trim()) return;
+    }
+    if (action === "done") {
+      delivered = window.prompt(
+        (t.deliverable
+          ? tr(`Asked for: ${t.deliverable}\n\n`, `Yang diminta: ${t.deliverable}\n\n`)
+          : "")
+        + tr("What did you hand over, and where? Required.", "Apa yang Anda serahkan, dan ke mana? Wajib diisi."),
+        "",
+      );
+      if (delivered === null) return;
+      if (!delivered.trim()) {
+        toast("warning", tr("Not finished", "Belum selesai"), tr(
+          "Write what was handed over — without it nobody can check the task is really done.",
+          "Tulis apa yang diserahkan — tanpa itu tidak ada yang bisa memeriksa bahwa tugasnya memang selesai.",
+        ));
+        return;
+      }
+    }
+    setBusy(t.task_no);
+    const res = await hr.updateTask({ task_no: t.task_no, action, reason, delivered });
+    setBusy(null);
+    if (res.error) { toast("warning", tr("Not changed", "Tidak berubah"), res.error.message); return; }
+    toast("success", t.task_no,
+      action === "start" ? tr("Marked as started.", "Ditandai mulai dikerjakan.")
+      : action === "done" ? tr("Done and handed over.", "Selesai dan diserahkan.")
+      : action === "block" ? tr("Marked blocked.", "Ditandai tertahan.")
+      : tr("No longer blocked.", "Tidak lagi tertahan."));
+    reload();
+  }
 
   async function acknowledge(taskNo: string) {
     setBusy(taskNo);
@@ -458,50 +520,180 @@ function TasksTab({ me }: { me: ReturnType<typeof useLoad<Awaited<ReturnType<typ
   if (me.status === "loading") return null;
   if (!linked) return <NoEmployeeLink />;
 
-  return (
-    <Card>
-      <CardHeader
-        title={tr("My tasks", "Tugas saya")}
-        subtitle={tr(
-          "Reminders, and the basis for KPIs — a blocked task is not counted against its person (D261).",
-          "Pengingat, dan dasar untuk KPI — tugas yang tertahan tidak dihitung merugikan orangnya (D261).",
+  /* A render function, not a nested component: a component declared inside
+     another is a new type every render and React would remount every row. */
+  function taskLine(t: TaskView) {
+    const isBusy = busy === t.task_no;
+    return (
+      <li key={t.task_no} className="px-5 py-3 text-[13px]">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="font-medium text-slate-800">{t.title}</span>
+          {t.overdue && <Badge tone="red">{tr("Overdue", "Terlambat")}</Badge>}
+          {t.chase_due && <Badge tone="amber">{tr("Chased today", "Ditagih hari ini")}</Badge>}
+          {t.status === "OPEN" && t.blocked_reason && <Badge tone="amber">{tr("Blocked", "Tertahan")}</Badge>}
+          {t.status === "OPEN" && t.waiting && !t.blocked_reason && <Badge tone="slate">{tr("Waiting", "Menunggu")}</Badge>}
+          {t.status === "OPEN" && t.has_started && !t.blocked_reason && <Badge tone="brand">{tr("In progress", "Sedang dikerjakan")}</Badge>}
+          {t.status === "DONE" && <Badge tone="green">{tr("Done", "Selesai")}</Badge>}
+          {t.status === "CANCELLED" && <Badge tone="slate">{tr("Cancelled", "Dibatalkan")}</Badge>}
+        </div>
+        <p className="mt-0.5 text-slate-600">
+          {tr("Due", "Jatuh tempo")} {t.due_date}{t.period_label ? ` · ${tr("period", "periode")} ${t.period_label}` : ""}
+          <span className="text-slate-400"> · {tr("from", "dari")} {t.assigned_by_name}</span>
+        </p>
+        {t.waits_on_no && t.status === "OPEN" && (
+          <p className={`mt-0.5 text-[12px] ${t.waiting ? "text-slate-700" : "text-slate-400"}`}>
+            {t.waiting
+              ? tr(`Starts after "${t.waits_on_title}" (${t.waits_on_assignee}) — not finished yet.`,
+                   `Mulai setelah "${t.waits_on_title}" (${t.waits_on_assignee}) — belum selesai.`)
+              : tr(`"${t.waits_on_title}" is finished — you can start.`, `"${t.waits_on_title}" sudah selesai — bisa dimulai.`)}
+          </p>
         )}
-        icon={ClipboardList}
-      />
-      <Loaded state={tasks} onRetry={reload}>
-        {(list) => (
-          <ul className="divide-y divide-slate-100">
-            {list.length === 0 && (
-              <li className="px-5 py-6 text-[13px] text-slate-500">{tr("No tasks.", "Tidak ada tugas.")}</li>
+        {t.deliverable && <p className="mt-0.5 text-[12px] text-slate-500">{tr("Deliverable:", "Diserahkan:")} {t.deliverable}</p>}
+        {t.blocked_reason && t.status === "OPEN" && <p className="mt-0.5 text-[12px] text-amber-700">{tr("Blocked:", "Tertahan:")} {t.blocked_reason}</p>}
+        {t.delivered_note && t.status === "DONE" && <p className="mt-0.5 text-[12px] text-emerald-800">{t.delivered_note}</p>}
+        {t.status === "OPEN" && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {!t.acknowledged && (
+              <Button size="sm" variant="outline" icon={Check} disabled={isBusy} onClick={() => acknowledge(t.task_no)}>
+                {tr("Acknowledge", "Terima")}
+              </Button>
             )}
-            {/* Already in the board's own order — `queue_rank` then due date,
-                computed by `v_task`/`taskViews` alike (0152). Re-sorting here
-                would be a second opinion about what to show first. */}
-            {list.map((t) => (
-              <li key={t.task_no} className="px-5 py-3 text-[13px]">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="font-medium text-slate-800">{t.title}</span>
-                  {t.overdue && <Badge tone="red">{tr("Overdue", "Terlambat")}</Badge>}
-                  {t.chase_due && <Badge tone="amber">{tr("Chased today", "Ditagih hari ini")}</Badge>}
-                  {t.blocked_reason && <Badge tone="slate">{tr("Blocked", "Tertahan")}</Badge>}
-                  {t.status !== "OPEN" && <Badge tone="green">{t.status}</Badge>}
-                  {!t.acknowledged && t.status === "OPEN" && (
-                    <Button size="sm" variant="outline" icon={Check} disabled={busy === t.task_no} onClick={() => acknowledge(t.task_no)}>
-                      {tr("Acknowledge", "Terima")}
-                    </Button>
-                  )}
-                </div>
-                <p className="mt-0.5 text-slate-600">
-                  {tr("Due", "Jatuh tempo")} {t.due_date}{t.period_label ? ` · ${tr("period", "periode")} ${t.period_label}` : ""}
-                </p>
-                {t.deliverable && <p className="mt-0.5 text-[12px] text-slate-500">{tr("Deliverable:", "Diserahkan:")} {t.deliverable}</p>}
-                {t.blocked_reason && <p className="mt-0.5 text-[12px] text-amber-700">{tr("Blocked:", "Tertahan:")} {t.blocked_reason}</p>}
-              </li>
-            ))}
-          </ul>
+            {!t.has_started && (
+              <Button size="sm" variant="outline" icon={PlayCircle} disabled={isBusy} onClick={() => run(t, "start")}>
+                {tr("Start", "Mulai")}
+              </Button>
+            )}
+            <Button size="sm" variant="outline" icon={PackageCheck} disabled={isBusy} onClick={() => run(t, "done")}>
+              {tr("Done & hand over", "Selesai & serahkan")}
+            </Button>
+            {t.blocked_reason ? (
+              <Button size="sm" variant="outline" icon={PlayCircle} disabled={isBusy} onClick={() => run(t, "unblock")}>
+                {tr("Resume", "Lanjutkan")}
+              </Button>
+            ) : (
+              <Button size="sm" variant="outline" icon={PauseCircle} disabled={isBusy} onClick={() => run(t, "block")}>
+                {tr("Blocked", "Tertahan")}
+              </Button>
+            )}
+          </div>
         )}
-      </Loaded>
-    </Card>
+      </li>
+    );
+  }
+
+  return (
+    <Loaded state={tasks} onRetry={reload}>
+      {(list) => {
+        const mineOpen = list.filter((t) => t.status === "OPEN");
+        const closed = list.filter((t) => t.status !== "OPEN").slice(0, 10);
+        /* A goal stays on this page while it is open and the reader has any
+           part in it, finished or not, or puts it together: somebody whose
+           part is done still follows the result to the end — that is what
+           *put the parts together* asks of everybody in it. */
+        const myGoals = goals.status === "ready"
+          ? goals.data.filter((g) => g.is_owner || list.some((t) => t.goal_no === g.goal_no))
+          : [];
+        const inGoals = new Set(myGoals.map((g) => g.goal_no));
+        const loose = mineOpen.filter((t) => !t.goal_no || !inGoals.has(t.goal_no));
+        return (
+          <div className="space-y-4">
+            {list.length === 0 && myGoals.length === 0 && (
+              <Card><p className="px-5 py-6 text-[13px] text-slate-500">{tr("No tasks.", "Tidak ada tugas.")}</p></Card>
+            )}
+
+            {myGoals.length > 0 && (
+              <p className="text-[12px] text-slate-500">
+                {tr(
+                  "Your work, grouped by the goal it is part of, in the leader's order of priority — #1 first.",
+                  "Pekerjaan Anda, dikelompokkan menurut sasaran yang dibentuknya, dalam urutan prioritas pimpinan — #1 lebih dulu.",
+                )}
+              </p>
+            )}
+
+            {myGoals.map((g) => {
+              const mine = mineOpen.filter((t) => t.goal_no === g.goal_no);
+              return (
+                <Card key={g.goal_no}>
+                  <div className="flex gap-3 px-5 py-4">
+                    <span className="w-9 shrink-0 text-xl font-semibold text-slate-800">#{g.rank}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[15px] font-semibold text-slate-800">
+                        {g.title}
+                        {g.late && <span className="ml-2 align-middle"><Badge tone="red">{tr("past target", "lewat target")}</Badge></span>}
+                      </p>
+                      <p className="text-[13px] text-slate-600">{g.outcome}</p>
+                      <p className="text-[12px] text-slate-500">
+                        {g.is_owner
+                          ? tr("You put the parts together", "Anda yang menyatukan bagian-bagiannya")
+                          : tr(`Put together by ${g.owner_name}`, `Disatukan oleh ${g.owner_name}`)}
+                        {" · "}{tr("target", "target")} {g.target_date}
+                      </p>
+                      <div className="mt-2"><GoalProgress g={g} /></div>
+                    </div>
+                  </div>
+                  {mine.length === 0 && (
+                    <p className="border-t border-slate-100 px-5 py-2.5 text-[12px] text-slate-500">
+                      {g.is_owner && g.my_open === 0 && !list.some((t) => t.goal_no === g.goal_no)
+                        ? tr("You hold no part of this yourself — you put the parts together.", "Anda tidak memegang bagian sendiri — Anda yang menyatukan bagian-bagiannya.")
+                        : tr("Your part is done. The goal is reached when every part is.", "Bagian Anda sudah selesai. Sasarannya tercapai kalau semua bagian selesai.")}
+                    </p>
+                  )}
+                  {mine.length > 0 && (
+                    <ul className="divide-y divide-slate-100 border-t border-slate-100">
+                      {mine.map((t) => taskLine(t))}
+                    </ul>
+                  )}
+                  <div className="border-t border-slate-100 px-5 py-2">
+                    <Button size="sm" variant="ghost" icon={Users}
+                      onClick={() => setTeam(team === g.goal_no ? null : g.goal_no)}>
+                      {team === g.goal_no
+                        ? tr("Hide the other parts", "Sembunyikan bagian lain")
+                        : tr(`See all ${g.tasks_total} parts and who holds them`, `Lihat semua ${g.tasks_total} bagian dan pemegangnya`)}
+                    </Button>
+                  </div>
+                  {team === g.goal_no && (
+                    <div className="border-t border-slate-100">
+                      <GoalBoardList goalNo={g.goal_no} stamp={tasks} />
+                    </div>
+                  )}
+                </Card>
+              );
+            })}
+
+            {loose.length > 0 && (
+              <Card>
+                <CardHeader
+                  title={myGoals.length > 0 ? tr("Other tasks", "Tugas lain") : tr("My tasks", "Tugas saya")}
+                  subtitle={tr(
+                    "Not part of a goal — routine work and one-off requests. A blocked task is not counted against you (D261).",
+                    "Bukan bagian dari sasaran — pekerjaan rutin dan permintaan sekali jalan. Tugas yang tertahan tidak dihitung merugikan Anda (D261).",
+                  )}
+                  icon={ClipboardList}
+                />
+                {/* Already in the board's own order — `queue_rank`, the goal's
+                    rank, then due date, computed by `v_task`/`taskViews` alike.
+                    Re-sorting here would be a second opinion. */}
+                <ul className="divide-y divide-slate-100">
+                  {loose.map((t) => taskLine(t))}
+                </ul>
+              </Card>
+            )}
+
+            {closed.length > 0 && (
+              <Card>
+                <CardHeader title={tr("Recently closed", "Baru ditutup")} icon={Check} />
+                <ul className="divide-y divide-slate-100">
+                  {closed.map((t) => taskLine(t))}
+                </ul>
+              </Card>
+            )}
+            {goals.status === "failed" && (
+              <Button size="sm" variant="ghost" onClick={reloadGoals}>{tr("Reload goals", "Muat ulang sasaran")}</Button>
+            )}
+          </div>
+        );
+      }}
+    </Loaded>
   );
 }
 

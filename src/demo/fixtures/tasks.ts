@@ -1,4 +1,4 @@
-import type { Task, TaskRoutine } from "@/services/hr/contracts";
+import type { Goal, Task, TaskRoutine } from "@/services/hr/contracts";
 
 /** What people were asked to do, and what happened to it.
  *
@@ -43,6 +43,7 @@ const t = (
     acknowledged_at: null,
     chased_at: null, chased_by: null, chase_note: null,
     routine_id: null,
+    goal_id: null, waits_on: null, started_at: null,
     ...opts,
   };
 };
@@ -112,10 +113,13 @@ export const TASKS: Task[] = [
       chase_note: "Ditagih, katanya menunggu rekening koran BNI.",
       done_at: "2026-09-08T17:30:00+07:00", done_by: "usr_putri",
       delivered_note: "Terlambat tiga hari, menunggu rekening koran." }),
+  /* September's report is also a part of *Tutup buku September* — a routine
+     task can belong to a result like any other (D367). */
   t("emp_02", "Laporan keuangan bulanan", "2026-10-05", "OPEN",
     { routine_id: "rtn_001", period_start: "2026-09-01", period_end: "2026-09-30",
       chase_date: "2026-10-03", deliverable: "Laba rugi dan neraca, PDF, ke email pimpinan",
-      acknowledged_at: "2026-09-01T08:00:00+07:00" }),
+      acknowledged_at: "2026-09-01T08:00:00+07:00",
+      goal_id: "goal_002", waits_on: "tsk_g04", started_at: "2026-10-01T09:00:00+07:00" }),
 
   /* And a weekly one on somebody else, so the board is not a single cadence
      and `Minggu 39/2026` has to render beside `Sep 2026`. */
@@ -128,6 +132,67 @@ export const TASKS: Task[] = [
   t("emp_03", "Opname kas kecil mingguan", "2026-09-28", "OPEN",
     { routine_id: "rtn_002", period_start: "2026-09-21", period_end: "2026-09-27",
       chase_date: "2026-09-28", deliverable: "Foto buku kas dan selisihnya, ke grup WA" }),
+
+  /* ── parts of a result (D367) ─────────────────────────────────────────────
+     *Pesanan Hotel Sanur* is three people in three departments, in a chain:
+     the warehouse counts, procurement raises the PR from the count, finance
+     pays the deposit once the PR exists. Each part is somebody's task; the
+     result is none of theirs alone — which is the whole point of the goal. */
+  t("emp_05", "Hitung stok papan jati untuk 40 kursi makan", "2026-10-07", "OPEN",
+    { id: "tsk_g01", task_no: "tgs-26-10-01_01",
+      assigned_at: "2026-10-01T09:00:00+07:00",
+      goal_id: "goal_001",
+      deliverable: "Daftar kekurangan per ukuran, ke grup WA procurement",
+      acknowledged_at: "2026-10-01T09:30:00+07:00",
+      started_at: "2026-10-02T08:15:00+07:00" }),
+  t("emp_04", "Ajukan PR kekurangan papan jati", "2026-10-09", "OPEN",
+    { id: "tsk_g02", task_no: "tgs-26-10-01_02",
+      assigned_at: "2026-10-01T09:00:00+07:00",
+      goal_id: "goal_001", waits_on: "tsk_g01",
+      deliverable: "PR disetujui, nomor PR-nya di catatan serah",
+      acknowledged_at: "2026-10-01T10:05:00+07:00" }),
+  /* Not yet acknowledged: the board says so about the person who holds it. */
+  t("emp_03", "Bayar uang muka vendor kayu", "2026-10-12", "OPEN",
+    { id: "tsk_g03", task_no: "tgs-26-10-01_03",
+      assigned_at: "2026-10-01T09:00:00+07:00",
+      goal_id: "goal_001", waits_on: "tsk_g02",
+      deliverable: "Bukti transfer DP di ledger" }),
+
+  /* *Tutup buku September*: one part handed over, the report waiting on it. */
+  t("emp_03", "Rekonsiliasi kas kecil September", "2026-10-02", "DONE",
+    { id: "tsk_g04", task_no: "tgs-26-10-01_04",
+      assigned_at: "2026-10-01T09:00:00+07:00",
+      goal_id: "goal_002",
+      deliverable: "Selisih kas kecil September, dengan buktinya",
+      acknowledged_at: "2026-10-01T09:10:00+07:00",
+      started_at: "2026-10-01T09:10:00+07:00",
+      done_at: "2026-10-02T15:00:00+07:00", done_by: "usr_anggun",
+      delivered_note: "Selisih 8.500, foto buku kas di folder ACCOUNTING." }),
+];
+
+/** The results tasks are parts of (D367). Ranked: the hotel order first,
+ *  closing September's books second. */
+export const GOALS: Goal[] = [
+  {
+    id: "goal_001", goal_no: "ssr-26-10-01_01",
+    title: "Pesanan Hotel Sanur — 40 kursi makan siap produksi",
+    outcome: "Bahan lengkap di rak dan uang muka vendor terbayar, sehingga Job Order bisa dimulai",
+    detail: "Dibahas di rapat Senin 28 Sep. Klien minta kirim akhir November.",
+    owner_id: "emp_04", target_date: "2026-10-16",
+    status: "OPEN", rank: 1,
+    created_by: "usr_evin", created_at: "2026-10-01T08:45:00+07:00",
+    closed_at: null, closed_by: null, closed_note: null,
+  },
+  {
+    id: "goal_002", goal_no: "ssr-26-10-01_02",
+    title: "Tutup buku September",
+    outcome: "Laporan keuangan September diterima pimpinan, kas dan rekening cocok",
+    detail: null,
+    owner_id: "emp_02", target_date: "2026-10-08",
+    status: "OPEN", rank: 2,
+    created_by: "usr_evin", created_at: "2026-10-01T08:50:00+07:00",
+    closed_at: null, closed_by: null, closed_note: null,
+  },
 ];
 
 /** The standing expectations themselves (D303).
