@@ -306,8 +306,14 @@ begin
   -- Dan ia tetap bukan HRD: membaca bukan menulis.
   a := ops_hr.chase_task(current_setting('ops.mine'), 'saya tagih diri sendiri');
   assert (a -> 'error' ->> 'status')::int = 403, 'yang bukan HRD bisa menagih';
+  -- Sejak D368 (0210) ia boleh menyelesaikan tugasnya sendiri, tapi hanya
+  -- dengan catatan serah — dan membatalkan tetap keputusan HRD.
   a := ops_hr.update_task(current_setting('ops.mine'), 'done');
-  assert (a -> 'error' ->> 'status')::int = 403, 'yang bukan HRD bisa menutup tugas';
+  assert a -> 'error' ->> 'code' = 'delivered_required', a::text;
+  a := ops_hr.update_task(current_setting('ops.mine'), 'cancel', 'tidak mau');
+  assert (a -> 'error' ->> 'status')::int = 403, 'yang bukan HRD bisa membatalkan tugas';
+  a := ops_hr.update_task(current_setting('ops.other'), 'done', null, 'sudah');
+  assert (a -> 'error' ->> 'status')::int = 403, 'yang bukan HRD bisa menutup tugas orang lain';
 end $$;
 
 /* ── F141 lagi: definer yang terbuka untuk PUBLIC ──────────────────────── */

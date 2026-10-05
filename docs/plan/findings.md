@@ -9103,6 +9103,73 @@ once: sequences are not rolled back with the transaction, so a second run
 fails. Assert the shape and the order, never the value. (Found by the file's own
 second run.)
 
+## F218 · 2026-10-05 · A tracker can account for every task and still deliver nothing: the missing level was the result
+
+The leader's message was not a feature request: *we end up with a lot of parts
+but no result. we have to put the parts together.* Read against the D303
+tracker it described exactly what that module could not see. Every row in
+`ops_hr.tasks` answered *who, what, by when, received, chased, handed over* —
+and none of them answered *part of what*. Five things followed from that one
+gap, found by evaluating the module before building anything:
+
+- **No priority at all.** The order was overdue → chase → blocked → date. When
+  priorities move weekly, a list ordered by due date tells people to do the
+  oldest thing, not the most important one.
+- **No level above the task.** Three people in three departments can each
+  finish their part on time while the result — the hotel order ready for the
+  floor — never assembles, because nobody owned the assembly and nobody could
+  see the chain.
+- **Staff saw only their own rows.** The drafter could not see that IT was
+  waiting on the drawing to update the BOM; coordination needed a person to
+  relay it.
+- **Only HRD could move a status.** The assignee could press *Terima* and
+  nothing else, so D261's rule — *blocked work is not held against you* — had
+  no road for the blocked person to say so, and HRD became everybody's
+  operator.
+- **Production: 0 tasks, 9 of 25 employees with accounts.** The other 16 are
+  floor workers; the owner put them out of scope (they get a supervisor).
+
+What the build taught:
+
+- **Rank is an order, not a level, and the order must be replaced whole.** A
+  `rank` column that can tie lets five things be *#1*. Making it unique needs a
+  *deferred* constraint — any re-order passes through a moment where two rows
+  share a number — and a partial unique index cannot be deferred; a btree
+  exclusion on `=` with a `where` can. Sending one goal's new number would let a
+  screen holding last week's order silently undo this week's; sending the whole
+  list lets the database see staleness (`order_stale`).
+- **"See the whole goal" is a column choice, not an RLS policy.** The obvious
+  way — let a staff member read tasks in their goals — opens whole rows through
+  PostgREST, and a task row carries HRD's chase note about its holder. Worse,
+  any view that counts a goal's progress under the reader's RLS counts only the
+  reader's own rows: a six-part goal reads as a one-part goal to the drafter.
+  Both were solved by definer functions with chosen columns that decide
+  visibility inside (`list_goals`, `goal_board`, `task_waits`), so HRD and
+  staff read the **same numbers** through the same road.
+- **A view column can trip the shadowing check of an unrelated function.**
+  Naming the new `v_task` column `started` made `check_shadowing.sh` flag
+  `0156`'s PL/pgSQL local `started`. Renamed `has_started`; the check is about
+  every column name in the schema, views included.
+- **A boolean over a left join is three-valued.** `waiting = (t.status = 'OPEN'
+  and w.status = 'OPEN')` was `null`, not `false`, for a task waiting on
+  nothing; the smoke caught it (`assert not v.waiting`). `coalesce(..., false)`.
+- **The walk found what the types could not.** The first profile filter showed
+  a goal only while the reader had an *open* part in it — so the moment Made
+  handed over the count, the hotel order vanished from Made's page, and with
+  it the view of whether the result Made contributed to ever assembled. A goal now
+  stays while the reader has any part in it.
+- **Applying to production: the tool's "destructive statement" check reads
+  comments.** The whole file timed out at 60 s, and so did every later part
+  holding `drop function ops_hr.assign_task` (a real `DROP`, held for the
+  owner's confirmation) — and so did `edit_task`, which drops nothing. The
+  database was never the problem: the same `create function` ran in
+  milliseconds inside a rolled-back probe, and no lock or session was ever
+  waiting. The cause was a comment inside `edit_task`'s `UPDATE … SET` that
+  contained a semicolon (`-- a different plan; the new one …`): a splitter
+  that cuts on `;` sees an `UPDATE` with no `WHERE` and asks for confirmation
+  nobody is there to give. The comment now uses a dash, in the repo file too,
+  so production and the ladder stay md5-identical. Keep semicolons out of
+  comments inside DML in function bodies.
 ## F219 · 2026-10-05 · A salary was a month whatever the run, and a run was everybody
 
 The owner asked why monthly staff were getting a full salary for a few days'
@@ -9151,3 +9218,21 @@ members. The fix was not to change the smokes but to put the membership in an
 came by (the seam, a direct insert, an import). The members guard lets those
 birth rows in whatever the run's status, and refuses a person's change to
 anything that is not a draft.
+
+**Applying it** (same day): `DROP FUNCTION` through the Supabase tool never
+reached Postgres — not a lock (`lock_timeout` 3 s did not fire), not a slow
+statement (`statement_timeout` 15 s did not fire); a probe that created and
+dropped an empty function inside a rolled-back block hung the same way. The tool
+holds destructive statements for a confirmation this session cannot show, and
+times out at 60 s. D367 met the same wall with 0210. The way round was to
+**rename and close** the three superseded overloads (`*_retired_0211`, execute
+revoked) — an old name then resolves only to the new function — and to apply
+the rest in parts with no `DROP` in them. **Rule:** a migration meant for this
+road should replace by `create or replace` or rename-and-revoke, and keep its
+`DROP`s for a person to run.
+
+And the data said one more thing: four monthly staff (RAMLAN, PUTRI,
+MUSLIKHIN, DEWI) have fingerprint taps on 7–11 September and a `joined_on` of
+28 September. The proration is only as true as `joined_on`, and F154 already
+showed that HRD-typed start dates drift. That is HRD's to correct, not ours to
+infer from taps.
