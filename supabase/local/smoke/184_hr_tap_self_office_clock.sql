@@ -84,11 +84,11 @@ end $$;
 -- ── grants are the same as 0164 ───────────────────────────────────────────
 do $$
 begin
-  assert not has_function_privilege('public','ops_hr.tap_self(double precision,double precision,double precision,text,uuid,text)','execute'),
+  assert not has_function_privilege('public','ops_hr.tap_self(double precision,double precision,double precision,text,uuid,text,text)','execute'),
     'tap_self() opened to PUBLIC';
-  assert has_function_privilege('authenticated','ops_hr.tap_self(double precision,double precision,double precision,text,uuid,text)','execute'),
+  assert has_function_privilege('authenticated','ops_hr.tap_self(double precision,double precision,double precision,text,uuid,text,text)','execute'),
     'authenticated cannot call tap_self()';
-  assert not has_function_privilege('anon','ops_hr.tap_self(double precision,double precision,double precision,text,uuid,text)','execute'),
+  assert not has_function_privilege('anon','ops_hr.tap_self(double precision,double precision,double precision,text,uuid,text,text)','execute'),
     'anon can call tap_self()';
 end $$;
 

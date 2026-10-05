@@ -8,7 +8,7 @@ import { Loaded, useLoad } from "@/components/ui/loaded";
 import { mapLink, metres, useWhereLine } from "@/components/attendance/located-tap";
 import { hr } from "@/demo/api";
 import {
-  DEFAULT_SITE_RADIUS_M, type LocatedTapView, type LocationJudgement, type LocationVerdict, type WorkSite,
+  DEFAULT_SITE_RADIUS_M, TAP_KIND_LABEL, type LocatedTapView, type LocationJudgement, type LocationVerdict, type WorkSite,
 } from "@/services/hr/contracts";
 import { OFFICE_TZ, officeClock, officeToday, shiftDay } from "@/lib/office";
 import { useSession } from "@/store/session";
@@ -148,6 +148,7 @@ function TapRow({ r }: { r: LocatedTapView }) {
           <span className="font-semibold text-slate-800">{r.full_name}</span>
           <span className="font-mono text-[11px] text-slate-400">{r.employee_no}</span>
           <Badge tone={VERDICT_TONE[r.verdict]}>{verdictLabel[r.verdict]}</Badge>
+          {r.kind && <Badge tone="slate">{TAP_KIND_LABEL[r.kind]}</Badge>}
         </div>
         <p className="mt-0.5 text-slate-600">
           {r.work_date} · {officeClock(new Date(r.at))} {ZONE}
