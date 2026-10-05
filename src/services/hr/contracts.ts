@@ -127,8 +127,8 @@ export interface AttendanceScan {
   verify: string;
   location: string | null;
   source: ScanSource;
-  /** What the person said the tap was, from the phone (D367). Null for the
-   *  machine, HRD, and phone taps before 0210 — read by the clock. */
+  /** What the person said the tap was, from the phone (D369). Null for the
+   *  machine, HRD, and phone taps before 0211 — read by the clock. */
   kind?: TapKind | null;
   /** The import type { ScheduleShape } from "./schedule-rules";
 import that brought it in, so a re-upload is a no-op rather than a
@@ -169,7 +169,7 @@ export const SLOT_LABELS: Record<ScanSlot, Message> = {
 };
 export const SLOT_LABEL = bilingual(SLOT_LABELS);
 
-/** What a tap from the phone says it is (D367, `attendance_scans.kind`).
+/** What a tap from the phone says it is (D369, `attendance_scans.kind`).
  *
  *  The six slots, plus leaving the office and coming back. A tap that says a
  *  slot fills it in the reading; the clock places only the taps that say
@@ -180,7 +180,7 @@ export const TAP_KINDS = [...SCAN_SLOTS, "away_out", "away_back"] as const;
 export type TapKind = (typeof TAP_KINDS)[number];
 
 /** The words on the buttons, and on the tap wherever it is listed. Same as
- *  `ops_hr.tap_kind_label` (0210). */
+ *  `ops_hr.tap_kind_label` (0211). */
 export const TAP_KIND_LABELS: Record<TapKind, Message> = {
   in: { en: "Clock in", id: "Masuk" },
   break_out: { en: "Start break", id: "Mulai istirahat" },
@@ -294,7 +294,7 @@ export interface TimesheetDay {
   /** Every tap, in order. The reading is derived; the taps are the record. */
   scans: {
     at: string; verify: string; slot: ScanSlot | null; source: ScanSource;
-    /** What the person said it was (D367); null when it says only when. */
+    /** What the person said it was (D369); null when it says only when. */
     kind?: TapKind | null;
     /** Where it was made — the warehouse for the reader, the reading for a
      *  phone, the reason for one typed in (D344). */
@@ -723,6 +723,17 @@ export interface Task {
   chase_note: string | null;
   /** The standing expectation that raised this, when one did. */
   routine_id: string | null;
+
+  /** The result this task is a part of (D367). Null for a task that stands
+   *  on its own — a routine report, a one-off errand. */
+  goal_id: string | null;
+  /** The part of the same goal this one starts from — the drawing before the
+   *  BOM, the BOM before the PR. Information for the board, never a rule on a
+   *  score: somebody waiting on it still says so with *tertahan* (D368). */
+  waits_on: string | null;
+  /** When the person holding it said they had started. Set by the assignee
+   *  themselves, or by HRD. */
+  started_at: string | null;
 }
 
 export interface TaskView extends Task {
@@ -752,7 +763,120 @@ export interface TaskView extends Task {
   /** The period as a person says it out loud — `Sep 2026`, `TW3 2026`. Null
    *  when the task covers no period. */
   period_label: string | null;
+
+  goal_no: string | null;
+  goal_title: string | null;
+  /** The goal's place in the ranked order, 1 = most important. Null when the
+   *  task has no goal or its goal is closed. */
+  goal_rank: number | null;
+  waits_on_no: string | null;
+  waits_on_title: string | null;
+  waits_on_assignee: string | null;
+  /** Open, and the part it starts from is still open. */
+  waiting: boolean;
+  has_started: boolean;
 }
+
+/** How a result ends. */
+export type GoalStatus = "OPEN" | "DONE" | "CANCELLED";
+
+/** A goal as stored (`ops_hr.goals`). Screens read `GoalView`. */
+export interface Goal {
+  id: string;
+  goal_no: string;
+  title: string;
+  outcome: string;
+  detail: string | null;
+  owner_id: string;
+  target_date: string;
+  status: GoalStatus;
+  rank: number | null;
+  created_by: string;
+  created_at: string;
+  closed_at: string | null;
+  closed_by: string | null;
+  closed_note: string | null;
+}
+
+/** *Sasaran* — a result several tasks are parts of, ranked (D367).
+ *
+ *  The level the leader's message was about: *a lot of parts but no result*.
+ *  A task knows who and by when; a goal knows **what the parts add up to**,
+ *  who puts them together, and how it ranks against every other open result.
+ *  The rank is an order, not a level — two goals never share a place, so
+ *  moving one up is visibly moving another down.
+ *
+ *  Read through `ops_hr.list_goals()`, never a view: the progress counts are
+ *  over everybody's tasks in the goal, and a staff member's own RLS would count
+ *  only theirs.
+ */
+export interface GoalView {
+  id: string;
+  goal_no: string;
+  title: string;
+  /** What *done* looks like for the whole thing. Required. */
+  outcome: string;
+  detail: string | null;
+  /** The one person who puts the parts together. */
+  owner_no: string;
+  owner_name: string;
+  target_date: string;
+  status: GoalStatus;
+  /** 1 = most important. Null once closed. */
+  rank: number | null;
+  created_at: string;
+  created_by_name: string;
+  closed_at: string | null;
+  closed_note: string | null;
+  days_left: number;
+  /** Open and past its target date. */
+  late: boolean;
+  /** Not counting cancelled parts. */
+  tasks_total: number;
+  tasks_done: number;
+  tasks_open: number;
+  tasks_blocked: number;
+  tasks_overdue: number;
+  /** Open parts whose predecessor is still open. */
+  tasks_waiting: number;
+  tasks_unacknowledged: number;
+  /** The reader's own open parts in it. */
+  my_open: number;
+  is_owner: boolean;
+}
+
+/** One part of a goal, as anybody in that goal may read it (D367).
+ *
+ *  Chosen columns, not a `TaskView`: a colleague in the same goal reads what
+ *  the part is, whose it is, its state and what was handed over — not HRD's
+ *  chase notes about the person holding it. */
+export interface GoalBoardTask {
+  task_no: string;
+  title: string;
+  detail: string | null;
+  deliverable: string | null;
+  delivered_note: string | null;
+  assignee_no: string;
+  assignee_name: string;
+  due_date: string;
+  days_left: number;
+  status: TaskStatus;
+  started_at: string | null;
+  done_at: string | null;
+  blocked_reason: string | null;
+  acknowledged: boolean;
+  overdue: boolean;
+  waits_on_no: string | null;
+  waits_on_title: string | null;
+  waiting: boolean;
+  is_mine: boolean;
+}
+
+/** What may happen to a task, and who may do it.
+ *
+ *  `start`, `done`, `block`, `unblock` — the assignee on their own task, or
+ *  HRD. `cancel`, `reopen` — HRD only (D368). */
+export type TaskAction = "start" | "done" | "block" | "unblock" | "cancel" | "reopen";
 
 /** How often a standing expectation comes round.
  *
@@ -2284,7 +2408,7 @@ export interface TapSelfResult {
   work_date: string;
   /** The tap's public code: `B-1841/2026-09-29T07:25:03.000000` (office clock). */
   tap_no: string;
-  /** What the tap said it was (D367). */
+  /** What the tap said it was (D369). */
   kind: TapKind | null;
   location: LocationJudgement;
 }
@@ -2329,7 +2453,7 @@ export interface LocatedTapView {
   /** Drive's own link for the photo, when the live upload recorded one. */
   photo_link: string | null;
   photo_filename: string | null;
-  /** What the tap said it was (D367). */
+  /** What the tap said it was (D369). */
   kind: TapKind | null;
 }
 

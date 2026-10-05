@@ -23,7 +23,7 @@ function at(v: string | undefined): string | null {
  *
  *  Read off the reading's slots. Where the reading has not placed a tap in a
  *  slot, the first tap stands for *masuk*, which is what the reader at the
- *  door would show too (D307). Keluar / kembali kantor are neither (D367). */
+ *  door would show too (D307). Keluar / kembali kantor are neither (D369). */
 export function readToday(day: TimesheetDay | undefined) {
   const scans = (day?.scans ?? []).filter((s) => !isAwayTap(s.kind));
   const inAt = at(day?.slots.in) ?? (scans[0] ? at(scans[0].at) : null);
@@ -31,7 +31,7 @@ export function readToday(day: TimesheetDay | undefined) {
   return { inAt, outAt, taps: scans.length };
 }
 
-/** Where somebody is in their day, from today's taps in order (D367).
+/** Where somebody is in their day, from today's taps in order (D369).
  *
  *  Each tap is what it said it was, or — for the reader's taps and old phone
  *  taps, which say only when — the slot the reading put it in. A tap the
@@ -132,7 +132,7 @@ export function PresensiTab({ employeeNo }: { employeeNo: string }) {
         </p>
 
         {/* D332: the tap reads where the phone is, once, at the press, and is
-            judged against the warehouse. D367: each button says what the tap
+            judged against the warehouse. D369: each button says what the tap
             is — the next one large, the others that make sense now under it,
             and every other kind behind *Tap lain* for the one somebody forgot.
             Nothing is refused for its order; the reading says what is missing. */}

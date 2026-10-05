@@ -13,6 +13,7 @@ import type {
   AllowanceWithholding, AllowanceWithholdingView,
   ContributionScheme, ContributionRate, ContributionRoll, Enrolment,
   Task, TaskView, TaskRefKind, KpiView,
+  TaskAction, Goal, GoalView, GoalBoardTask,
   ContractKind, ClauseKind, ClauseChecklistItem, EmploymentContract,
   ContractView, ContractDetail, ContractClause, ClauseConflict, TimesheetTotal, DayState,
   EffectiveDaysCalendar, EmployeeAccount, ScanImportResult,
@@ -32,6 +33,7 @@ import {
   employeeFile, leaveBalance, leaveRequestView, datesBetween,
   contributionRoll, allRolls,
   taskView, taskViews, taskRoutineView, taskRoutineViews, kpiView, kpiViews, weekdayOf,
+  goalViews, goalBoardRows,
   employeeIdentityViews, wlkpRecap,
 } from "../hr-derive";
 import { latency, actingUser, requireModule, requireLevel, requireAuthority, conflict, replayed, remember } from "./_kit";
@@ -631,7 +633,7 @@ export async function tapSelf(
   const emp = myEmployee(state);
   if (!emp) return noEmployeeLink();
 
-  /* D367: what the tap says it is, if it says. Never refused for its order —
+  /* D369: what the tap says it is, if it says. Never refused for its order —
      the tap is a fact and the reading says what is missing (D307). */
   const kind = input.kind ?? null;
   if (kind !== null && !(TAP_KINDS as readonly string[]).includes(kind)) {
@@ -659,7 +661,7 @@ export async function tapSelf(
       { ...detail, field: "note" },
     );
   }
-  /* Leaving the office says where to, with the same form (D367). */
+  /* Leaving the office says where to, with the same form (D369). */
   if (kind === "away_out" && !note) {
     const { site_id: _omit, ...detail } = where;
     return invalid(
@@ -2981,6 +2983,10 @@ export async function createTask(
     period_end?: string | null;
     /** The day somebody should ask for it — the answer to *pimpinan lupa*. */
     chase_date?: string | null;
+    /** The result this is a part of (D367). */
+    goal_no?: string | null;
+    /** The part of the same goal it starts from. */
+    waits_on_no?: string | null;
   },
   idempotencyKey?: string,
 ): Promise<Result<TaskView>> {
@@ -3039,6 +3045,9 @@ export async function createTask(
     );
   }
 
+  const place = taskPlace(state, null, input.goal_no ?? null, input.waits_on_no ?? null);
+  if ("refusal" in place) return place.refusal as Result<TaskView>;
+
   const user = actingUser();
   let no = "";
   apply((draft) => {
@@ -3064,11 +3073,13 @@ export async function createTask(
       acknowledged_at: null,
       chased_at: null, chased_by: null, chase_note: null,
       routine_id: null,
+      goal_id: place.goal_id, waits_on: place.waits_on, started_at: null,
     });
     writeAudit(draft, {
       service: SERVICE, entity: "task", entity_no: no,
       action: "create", outcome: "ok", reason: null,
-      detail: { assignee: emp.employee_no, due: input.due_date, by: user.email },
+      detail: { assignee: emp.employee_no, due: input.due_date, by: user.email,
+                goal: input.goal_no ?? null, waits_on: input.waits_on_no ?? null },
     });
   });
   const state2 = getState();
@@ -3078,32 +3089,86 @@ export async function createTask(
   return ok(SERVICE, view);
 }
 
-/** Done, blocked, unblocked or cancelled — the four things that happen to a
- *  task, each carrying what it needs.
+/** What happens to a task, each action carrying what it needs — and, since
+ *  D368, from two doors instead of one.
  *
  *  **Blocking requires a reason**, because a blocked task is removed from the
  *  assignee's score (D261) and something that lifts a penalty has to say why.
  *  It is also the sentence somebody else reads when they are the blocker.
+ *
+ *  The assignee may `start`, `done`, `block` and `unblock` their own task —
+ *  the second half of D261: a rule that blocked work is not held against
+ *  anybody only works if the blocked person can say so. Finishing one's own
+ *  task needs the hand-over note and is stamped today; `cancel` and `reopen`
+ *  stay with HRD. Same order of checks and same codes as `ops_hr.update_task`
+ *  (0210).
  */
 export async function updateTask(
   input: {
     task_no: string;
-    action: "done" | "block" | "unblock" | "cancel";
+    action: TaskAction;
     reason?: string | null;
     done_on?: string | null;
-    /** What was actually handed over. Never required: refusing to let somebody
-     *  close their own work over an empty text box is how a tracker stops
-     *  being used (A6). Money refuses; this warns. */
+    /** What was actually handed over. Optional for HRD (A6) — a person
+     *  closing their own task must say what they handed over (D368). */
     delivered?: string | null;
   },
 ): Promise<Result<TaskView>> {
   await latency();
-  const denied = requireModule(SERVICE, "hrd");
-  if (denied) return denied;
+  const actions: TaskAction[] = ["start", "done", "block", "unblock", "cancel", "reopen"];
+  if (!actions.includes(input.action)) {
+    return invalid(SERVICE, "unknown_action", `Tidak ada tindakan ${input.action || "(kosong)"}.`,
+      { field: "action" });
+  }
 
   const state = getState();
   const t = state.tasks.find((x) => x.task_no === input.task_no);
-  if (!t) return notFound(SERVICE, "task_not_found", `No task ${input.task_no}.`);
+  const hrd = requireModule(SERVICE, "hrd") === null;
+  const mine = !!t && myEmployee(state)?.id === t.assignee_id;
+  if (!hrd && !mine) {
+    return refused(SERVICE, "not_permitted",
+      "Mengubah tugas ini butuh akses HRD, atau tugas ini harus milik Anda sendiri.");
+  }
+  if (!t) return notFound(SERVICE, "task_not_found", `Tidak ada tugas ${input.task_no}.`);
+  if (!hrd && (input.action === "cancel" || input.action === "reopen")) {
+    return refused(SERVICE, "not_permitted",
+      input.action === "cancel"
+        ? "Membatalkan tugas adalah keputusan pemberi tugas (HRD). Kalau tugas ini tidak bisa dikerjakan, tandai tertahan dan tulis alasannya."
+        : "Membuka lagi tugas yang sudah selesai adalah keputusan pemberi tugas (HRD).");
+  }
+
+  const user = actingUser();
+  const today = officeToday();
+
+  if (input.action === "reopen") {
+    if (t.status !== "DONE") {
+      return conflict(SERVICE, "task_not_done", `${t.task_no} tidak sedang selesai — tidak ada yang dibuka lagi.`);
+    }
+    if (!input.reason?.trim()) {
+      return invalid(SERVICE, "reason_required",
+        "Kenapa dibuka lagi? Yang diserahkan kurang apa? Kalimat ini yang dibaca orangnya.",
+        { field: "reason" });
+    }
+    const g = t.goal_id ? state.goals.find((x) => x.id === t.goal_id) : null;
+    if (g && g.status !== "OPEN") {
+      return conflict(SERVICE, "goal_closed", "Sasarannya sudah ditutup — bagiannya tidak bisa dibuka lagi.");
+    }
+    apply((draft) => {
+      const row = draft.tasks.find((x) => x.task_no === input.task_no);
+      if (!row) return;
+      row.status = "OPEN";
+      row.done_at = null;
+      row.done_by = null;
+      writeAudit(draft, {
+        service: SERVICE, entity: "task", entity_no: row.task_no,
+        action: "reopen", outcome: "ok", reason: input.reason!.trim(),
+        detail: { by: user.email },
+      });
+    });
+    const after = getState();
+    return ok(SERVICE, taskView(after, after.tasks.find((x) => x.task_no === input.task_no)!));
+  }
+
   if (t.status !== "OPEN" && input.action !== "done") {
     return conflict(SERVICE, "task_closed", `${t.task_no} sudah ${t.status}.`);
   }
@@ -3122,25 +3187,44 @@ export async function updateTask(
   if (input.action === "done" && t.status === "DONE") {
     return noop(SERVICE, taskView(state, t));
   }
+  if (input.action === "start" && t.started_at !== null) {
+    return noop(SERVICE, taskView(state, t));
+  }
+  if (input.action === "done" && !hrd) {
+    if (!input.delivered?.trim()) {
+      return invalid(SERVICE, "delivered_required",
+        (t.deliverable
+          ? `Apa yang diserahkan, dan ke mana? Yang diminta: ${t.deliverable}.`
+          : "Apa yang diserahkan, dan ke mana?")
+        + " Tanpa catatan ini tidak ada yang bisa memeriksa bahwa tugasnya memang selesai.",
+        { field: "delivered" });
+    }
+    if (input.done_on && input.done_on !== today) {
+      return invalid(SERVICE, "done_on_self",
+        "Tugas sendiri ditandai selesai hari ini. Tanggal selesai yang lain dicatat oleh HRD.",
+        { field: "done_on" });
+    }
+  }
 
-  const user = actingUser();
   apply((draft) => {
     const row = draft.tasks.find((x) => x.task_no === input.task_no);
     if (!row) return;
+    const now = new Date().toISOString();
     if (input.action === "done") {
       row.status = "DONE";
       /* The day it was finished, not the day it was typed — the same rule the
          production board follows (D148). */
-      row.done_at = input.done_on
-        ? officeStamp(input.done_on, "12:00")
-        : new Date().toISOString();
+      row.done_at = input.done_on ? officeStamp(input.done_on, "12:00") : now;
       row.done_by = user.id;
+      row.started_at = row.started_at ?? now;
       row.delivered_note = input.delivered?.trim() || row.delivered_note;
       row.blocked_reason = null;
       row.blocked_at = null;
+    } else if (input.action === "start") {
+      row.started_at = now;
     } else if (input.action === "block") {
       row.blocked_reason = input.reason!.trim();
-      row.blocked_at = new Date().toISOString();
+      row.blocked_at = now;
     } else if (input.action === "unblock") {
       row.blocked_reason = null;
       row.blocked_at = null;
@@ -3151,11 +3235,351 @@ export async function updateTask(
     writeAudit(draft, {
       service: SERVICE, entity: "task", entity_no: row.task_no,
       action: input.action, outcome: "ok", reason: input.reason?.trim() || null,
-      detail: { by: user.email },
+      detail: { by: user.email, via: mine && !hrd ? "assignee" : "hrd" },
     });
   });
   const after = getState();
   return ok(SERVICE, taskView(after, after.tasks.find((x) => x.task_no === input.task_no)!));
+}
+
+/** Where a task sits: its goal and the part it starts from, checked the way
+ *  `ops_hr.check_task_place` checks them (0210) — same codes, same order. */
+function taskPlace(
+  state: DemoState, taskId: string | null, goalNo: string | null, waitsOnNo: string | null,
+): { goal_id: string | null; waits_on: string | null } | { refusal: Result<never> } {
+  let goal: Goal | null = null;
+  if (goalNo?.trim()) {
+    goal = state.goals.find((g) => g.goal_no === goalNo.trim()) ?? null;
+    if (!goal) return { refusal: notFound(SERVICE, "goal_not_found", `Tidak ada sasaran ${goalNo}.`) };
+    if (goal.status !== "OPEN") {
+      return { refusal: conflict(SERVICE, "goal_closed",
+        `${goal.goal_no} sudah ${goal.status.toLowerCase()} — tugas baru tidak bisa ditaruh di sasaran yang sudah ditutup.`) };
+    }
+  }
+  if (!waitsOnNo?.trim()) return { goal_id: goal?.id ?? null, waits_on: null };
+  if (!goal) {
+    return { refusal: invalid(SERVICE, "waits_on_needs_goal",
+      "Urutan kerja hanya ada di dalam satu sasaran. Pilih sasarannya dulu.", { field: "waits_on_no" }) };
+  }
+  const w = state.tasks.find((x) => x.task_no === waitsOnNo.trim());
+  if (!w) return { refusal: notFound(SERVICE, "task_not_found", `Tidak ada tugas ${waitsOnNo}.`) };
+  if (taskId !== null && w.id === taskId) {
+    return { refusal: invalid(SERVICE, "waits_on_self", "Tugas tidak bisa menunggu dirinya sendiri.",
+      { field: "waits_on_no" }) };
+  }
+  if (w.goal_id !== goal.id) {
+    return { refusal: invalid(SERVICE, "waits_on_other_goal",
+      `${w.task_no} ada di sasaran lain. Urutan kerja hanya antar bagian dari sasaran yang sama.`,
+      { field: "waits_on_no" }) };
+  }
+  if (w.status === "CANCELLED") {
+    return { refusal: conflict(SERVICE, "waits_on_cancelled",
+      `${w.task_no} sudah dibatalkan — tidak ada yang bisa ditunggu darinya.`) };
+  }
+  if (taskId !== null) {
+    let cur = w.waits_on;
+    for (let hops = 0; cur !== null && hops < 200; hops += 1) {
+      if (cur === taskId) {
+        return { refusal: invalid(SERVICE, "waits_on_cycle",
+          `${w.task_no} sudah (lewat rantainya) menunggu tugas ini. Saling menunggu berarti tidak ada yang mulai.`,
+          { field: "waits_on_no" }) };
+      }
+      cur = state.tasks.find((x) => x.id === cur)?.waits_on ?? null;
+    }
+  }
+  return { goal_id: goal.id, waits_on: w.id };
+}
+
+/** Moving the plan of an open task without cancelling the work (D368).
+ *  Full state: a null means *none*. Same refusals as `ops_hr.edit_task`. */
+export async function editTask(
+  input: {
+    task_no: string;
+    due_date: string;
+    assignee_no: string;
+    goal_no: string | null;
+    waits_on_no: string | null;
+    chase_date: string | null;
+  },
+): Promise<Result<TaskView>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+
+  const state = getState();
+  const t = state.tasks.find((x) => x.task_no === input.task_no);
+  if (!t) return notFound(SERVICE, "task_not_found", `Tidak ada tugas ${input.task_no}.`);
+  if (t.status !== "OPEN") {
+    return conflict(SERVICE, "task_closed",
+      `${t.task_no} sudah ${t.status.toLowerCase()} — rencananya tidak bisa digeser lagi.`);
+  }
+  const today = officeToday();
+  if (!input.due_date) {
+    return invalid(SERVICE, "due_date_required", "Tugas tanpa tanggal tidak bisa terlambat.",
+      { field: "due_date" });
+  }
+  if (input.due_date !== t.due_date && input.due_date < today) {
+    return invalid(SERVICE, "due_in_past",
+      `Jatuh tempo tidak bisa dipindah ke tanggal yang sudah lewat (${input.due_date}) — itu membuat orangnya terlambat oleh tangan orang lain.`,
+      { field: "due_date" });
+  }
+  if (t.period_end !== null && input.due_date < t.period_end) {
+    return invalid(SERVICE, "due_inside_period",
+      `Jatuh tempo ${input.due_date} jatuh sebelum periodenya selesai (${t.period_end}).`,
+      { field: "due_date" });
+  }
+  if (input.chase_date && input.chase_date > input.due_date) {
+    return invalid(SERVICE, "chase_after_due", "Tanggal penagihan lewat dari jatuh tempo.",
+      { field: "chase_date" });
+  }
+  const emp = state.employees.find((e) => e.employee_no === input.assignee_no);
+  if (!emp) return notFound(SERVICE, "employee_not_found", `Tidak ada karyawan ${input.assignee_no}.`);
+  if (!emp.active && emp.id !== t.assignee_id) {
+    return conflict(SERVICE, "employee_left", `${emp.full_name} sudah tidak aktif.`);
+  }
+  const place = taskPlace(state, t.id, input.goal_no, input.waits_on_no);
+  if ("refusal" in place) return place.refusal as Result<TaskView>;
+  if (place.goal_id !== t.goal_id) {
+    const dependents = state.tasks
+      .filter((d) => d.waits_on === t.id && d.status === "OPEN")
+      .map((d) => d.task_no).sort();
+    if (dependents.length > 0) {
+      return conflict(SERVICE, "has_dependents",
+        `${t.task_no} masih ditunggu oleh ${dependents.join(", ")}. Lepaskan urutan kerja itu dulu sebelum memindahkan tugas ini ke sasaran lain.`);
+    }
+  }
+
+  const movedPerson = emp.id !== t.assignee_id;
+  const chaseMoved = (input.chase_date ?? null) !== t.chase_date;
+  const unchanged = !movedPerson && !chaseMoved && input.due_date === t.due_date
+    && place.goal_id === t.goal_id && place.waits_on === t.waits_on;
+  if (unchanged) return noop(SERVICE, taskView(state, t));
+
+  const user = actingUser();
+  apply((draft) => {
+    const row = draft.tasks.find((x) => x.task_no === input.task_no);
+    if (!row) return;
+    const before = {
+      due: row.due_date, assignee: state.employees.find((e) => e.id === row.assignee_id)?.employee_no,
+      goal: state.goals.find((g) => g.id === row.goal_id)?.goal_no ?? null,
+      waits_on: state.tasks.find((x) => x.id === row.waits_on)?.task_no ?? null,
+      chase: row.chase_date,
+    };
+    row.due_date = input.due_date;
+    row.assignee_id = emp.id;
+    row.goal_id = place.goal_id;
+    row.waits_on = place.waits_on;
+    row.chase_date = input.chase_date ?? null;
+    if (movedPerson || chaseMoved) {
+      row.chased_at = null; row.chased_by = null; row.chase_note = null;
+    }
+    if (movedPerson) {
+      row.acknowledged_at = null;
+      row.started_at = null;
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "task", entity_no: row.task_no,
+      action: "edit", outcome: "ok", reason: null,
+      detail: { by: user.email, before,
+                after: { due: input.due_date, assignee: emp.employee_no, goal: input.goal_no,
+                         waits_on: input.waits_on_no, chase: input.chase_date } },
+    });
+  });
+  const after = getState();
+  return ok(SERVICE, taskView(after, after.tasks.find((x) => x.task_no === input.task_no)!));
+}
+
+/* ── sasaran (D367) ───────────────────────────────────────────────────── */
+
+export async function listGoals(
+  input: { include_closed?: boolean } = {},
+): Promise<Result<GoalView[]>> {
+  await latency();
+  const state = getState();
+  const hrd = requireModule(SERVICE, "hrd") === null;
+  return ok(SERVICE, goalViews(state, myEmployee(state)?.id ?? null, hrd, input.include_closed ?? false));
+}
+
+export async function goalBoard(
+  input: { goal_no: string },
+): Promise<Result<GoalBoardTask[]>> {
+  await latency();
+  const state = getState();
+  const hrd = requireModule(SERVICE, "hrd") === null;
+  return ok(SERVICE, goalBoardRows(state, input.goal_no, myEmployee(state)?.id ?? null, hrd));
+}
+
+function goalViewByNo(goalNo: string): GoalView {
+  const state = getState();
+  return goalViews(state, myEmployee(state)?.id ?? null, true, true).find((g) => g.goal_no === goalNo)!;
+}
+
+/** New (no `goal_no`) or changed. A new goal joins the order at the bottom:
+ *  putting it first is a decision, made with `rankGoals`. */
+export async function saveGoal(
+  input: {
+    goal_no?: string | null;
+    title: string;
+    outcome: string;
+    owner_no: string;
+    target_date: string;
+    detail?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<GoalView>> {
+  await latency();
+  const cached = replayed<GoalView>(SERVICE, "saveGoal", idempotencyKey);
+  if (cached) return cached;
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+
+  const state = getState();
+  const existing = input.goal_no ? state.goals.find((g) => g.goal_no === input.goal_no) : null;
+  if (input.goal_no && !existing) {
+    return notFound(SERVICE, "goal_not_found", `Tidak ada sasaran ${input.goal_no}.`);
+  }
+  if (existing && existing.status !== "OPEN") {
+    return conflict(SERVICE, "goal_closed",
+      `${existing.goal_no} sudah ${existing.status.toLowerCase()} — sasaran yang ditutup adalah sejarah.`);
+  }
+  if (!input.title?.trim()) {
+    return invalid(SERVICE, "title_required", "Sasarannya apa?", { field: "title" });
+  }
+  if (!input.outcome?.trim()) {
+    return invalid(SERVICE, "outcome_required",
+      "Seperti apa hasilnya kalau sudah tercapai? Tanpa itu, semua bagian bisa selesai dan tetap tidak ada hasilnya.",
+      { field: "outcome" });
+  }
+  if (!input.target_date) {
+    return invalid(SERVICE, "target_required",
+      "Sasaran tanpa tanggal tidak bisa terlambat, dan tidak ada yang tahu kapan harus ditanyakan.",
+      { field: "target_date" });
+  }
+  const emp = state.employees.find((e) => e.employee_no === input.owner_no);
+  if (!emp) return notFound(SERVICE, "employee_not_found", `Tidak ada karyawan ${input.owner_no || "(kosong)"}.`);
+  if (!emp.active) return conflict(SERVICE, "employee_left", `${emp.full_name} sudah tidak aktif.`);
+
+  const user = actingUser();
+  let no = existing?.goal_no ?? "";
+  apply((draft) => {
+    if (existing) {
+      const row = draft.goals.find((g) => g.id === existing.id);
+      if (!row) return;
+      row.title = input.title.trim();
+      row.outcome = input.outcome.trim();
+      row.detail = input.detail?.trim() || null;
+      row.owner_id = emp.id;
+      row.target_date = input.target_date;
+    } else {
+      no = nextDocNumber(draft, "ssr");
+      const rank = Math.max(0, ...draft.goals.filter((g) => g.status === "OPEN").map((g) => g.rank ?? 0)) + 1;
+      draft.goals.push({
+        id: newId("goal"), goal_no: no,
+        title: input.title.trim(), outcome: input.outcome.trim(),
+        detail: input.detail?.trim() || null,
+        owner_id: emp.id, target_date: input.target_date,
+        status: "OPEN", rank,
+        created_by: user.id, created_at: new Date().toISOString(),
+        closed_at: null, closed_by: null, closed_note: null,
+      });
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "goal", entity_no: no,
+      action: existing ? "update" : "create", outcome: "ok", reason: null,
+      detail: { by: user.email, owner: emp.employee_no, target: input.target_date },
+    });
+  });
+  const view = goalViewByNo(no);
+  remember(SERVICE, "saveGoal", idempotencyKey, view);
+  return ok(SERVICE, view);
+}
+
+/** The whole order of the open goals, most important first. A list that no
+ *  longer matches the open goals is refused with `order_stale` — applying it
+ *  would undo somebody else's move without either person knowing. */
+export async function rankGoals(
+  input: { goal_nos: string[] },
+): Promise<Result<GoalView[]>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+
+  const state = getState();
+  const open = state.goals.filter((g) => g.status === "OPEN");
+  const sentSorted = [...input.goal_nos].sort();
+  const openSorted = open.map((g) => g.goal_no).sort();
+  if (sentSorted.join("|") !== openSorted.join("|")) {
+    return conflict(SERVICE, "order_stale",
+      "Daftar sasaran sudah berubah sejak layar ini dibuka (ada yang ditambah, ditutup, atau diurutkan orang lain). Muat ulang, lalu urutkan lagi.");
+  }
+  const before = [...open].sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0)).map((g) => g.goal_no);
+  const hrdViews = () => goalViews(getState(), myEmployee(getState())?.id ?? null, true);
+  if (before.join("|") === input.goal_nos.join("|")) return noop(SERVICE, hrdViews());
+
+  const user = actingUser();
+  apply((draft) => {
+    input.goal_nos.forEach((no, i) => {
+      const row = draft.goals.find((g) => g.goal_no === no);
+      if (row) row.rank = i + 1;
+    });
+    writeAudit(draft, {
+      service: SERVICE, entity: "goal", entity_no: "",
+      action: "rank", outcome: "ok", reason: null,
+      detail: { by: user.email, before, after: input.goal_nos },
+    });
+  });
+  return ok(SERVICE, hrdViews());
+}
+
+/** Tercapai or dibatalkan — refused while any part is still open, and the
+ *  goals left behind close ranks. */
+export async function closeGoal(
+  input: { goal_no: string; action: "done" | "cancel"; note?: string | null },
+): Promise<Result<GoalView>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+  if (input.action !== "done" && input.action !== "cancel") {
+    return invalid(SERVICE, "unknown_action", `Tidak ada tindakan ${input.action || "(kosong)"}.`,
+      { field: "action" });
+  }
+  const state = getState();
+  const g = state.goals.find((x) => x.goal_no === input.goal_no);
+  if (!g) return notFound(SERVICE, "goal_not_found", `Tidak ada sasaran ${input.goal_no}.`);
+  if (g.status !== "OPEN") {
+    return conflict(SERVICE, "goal_closed", `${g.goal_no} sudah ${g.status.toLowerCase()}.`);
+  }
+  if (input.action === "cancel" && !input.note?.trim()) {
+    return invalid(SERVICE, "reason_required",
+      "Kenapa dibatalkan? Alasannya adalah satu-satunya jejak yang tersisa dari sasaran ini.",
+      { field: "note" });
+  }
+  const openParts = state.tasks.filter((t) => t.goal_id === g.id && t.status === "OPEN").length;
+  if (openParts > 0) {
+    return conflict(SERVICE, "parts_still_open",
+      `${g.goal_no} masih punya ${openParts} tugas terbuka. Selesaikan, batalkan, atau pindahkan dulu — sasaran tidak ditutup di atas bagian yang belum ada.`);
+  }
+
+  const user = actingUser();
+  apply((draft) => {
+    const row = draft.goals.find((x) => x.id === g.id);
+    if (!row) return;
+    row.status = input.action === "done" ? "DONE" : "CANCELLED";
+    row.rank = null;
+    row.closed_at = new Date().toISOString();
+    row.closed_by = user.id;
+    row.closed_note = input.note?.trim() || null;
+    draft.goals
+      .filter((x) => x.status === "OPEN")
+      .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0))
+      .forEach((x, i) => { x.rank = i + 1; });
+    writeAudit(draft, {
+      service: SERVICE, entity: "goal", entity_no: g.goal_no,
+      action: input.action, outcome: "ok", reason: input.note?.trim() || null,
+      detail: { by: user.email, rank: g.rank },
+    });
+  });
+  return ok(SERVICE, goalViewByNo(g.goal_no));
 }
 
 /** Writing down that somebody was asked.
@@ -3492,6 +3916,7 @@ export async function rollTaskRoutines(
           acknowledged_at: null,
           chased_at: null, chased_by: null, chase_note: null,
           routine_id: r.id,
+          goal_id: null, waits_on: null, started_at: null,
         });
         made.push(no);
       }

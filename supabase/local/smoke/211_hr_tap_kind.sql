@@ -1,4 +1,4 @@
--- 210_hr_tap_kind.sql — a tap from the phone says what it is (0210, D367).
+-- 211_hr_tap_kind.sql — a tap from the phone says what it is (0211, D369).
 --
 -- DERIVATIONS  slot reading: a tap that says *mulai istirahat* at 10.30 is the
 --              break going out, though the clock would never place it there;
@@ -32,14 +32,14 @@ insert into ops_core.user_modules (user_id, module, level) values
 
 -- v1 (1 Aug): the slot reading (no `day_reading`). v2 (1 Sep): datang & pulang.
 insert into ops_hr.pay_rule_sets (version, effective_from, note, rules, created_by) values
- (1, '2026-08-01', 'uji D367 slots', '{
+ (1, '2026-08-01', 'uji D369 slots', '{
    "week_pattern":"5day","late_grace_minutes":15,"late_mode":"manual","undertime_mode":"off",
    "schedules":[
      {"code":"PRODUKSI","name":"Produksi","start_minutes":450,"end_minutes":990,
       "break_minutes":45,"note":null}],
    "schedule_by_unit":{"Workshop":"PRODUKSI"}
  }'::jsonb, 'ffffffff-0000-0000-0000-000000021001'),
- (2, '2026-09-01', 'uji D367 in_out', '{
+ (2, '2026-09-01', 'uji D369 in_out', '{
    "week_pattern":"5day","late_grace_minutes":15,"late_mode":"manual","undertime_mode":"off",
    "day_reading":"in_out","hours_rounding_minutes":15,
    "schedules":[
@@ -90,7 +90,7 @@ select 'aaaa2100-0000-0000-0000-000000000001', ops_core.office_day(t), t, 'app',
 
 -- The reader's own taps on Tue 11/8, saying only when.
 insert into ops_hr.attendance_scans (employee_id, work_date, at, verify, source, reason)
-select 'aaaa2100-0000-0000-0000-000000000001', ops_core.office_day(t), t, 'FP', 'manual', 'uji D367'
+select 'aaaa2100-0000-0000-0000-000000000001', ops_core.office_day(t), t, 'FP', 'manual', 'uji D369'
   from unnest(array['2026-08-11 08:00:00','2026-08-11 13:59:30','2026-08-11 17:00:00']::timestamp[]) s(ts)
   cross join lateral (select s.ts at time zone ops_core.office_tz() as t) x;
 

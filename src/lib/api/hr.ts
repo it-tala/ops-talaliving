@@ -48,6 +48,7 @@ import type {
   AdjustmentKind, ContributionScheme,
   LeaveKind, LeaveStatus, LeaveRequestView, LeaveBalance,
   TaskStatus, TaskRefKind, TaskView, TaskCadence, TaskRoutineView,
+  TaskAction, GoalView, GoalBoardTask,
   Sex, Education, Citizenship, MaritalStatus, EmployeeIdentityView, WlkpRecap,
   TapReading, TapSelfResult, LocationJudgement, WorkSite, LocatedTapView, TapKind,
   EmployeeAccount, ScanImportResult,
@@ -1414,7 +1415,7 @@ export async function myProfile(): Promise<Result<Employee | null>> {
 }
 
 /** Presensi dari akun sendiri — a tap with a different machine behind it
- *  (0164). Since `0210` (D367) it may say what it is — masuk, mulai/selesai
+ *  (0164). Since `0211` (D369) it may say what it is — masuk, mulai/selesai
  *  istirahat, pulang, mulai/selesai lembur, keluar/kembali kantor — and a tap
  *  that says a slot fills it in `read_day`; without `kind` it says only when
  *  and the reading places it by the clock (D141). Keluar kantor needs a note
@@ -2127,8 +2128,14 @@ export async function savePayRules(
 export async function listTasks(
   filter: { assignee_no?: string; status?: TaskStatus } = {},
 ): Promise<Result<TaskView[]>> {
+  /* Within each rung of the queue, the goal's rank decides (D367): two overdue
+     tasks are not equally urgent when one is a part of this week's first
+     result and the other of its fifth. A task with no goal follows the ranked
+     ones. Every key is a column of the view, so this is still the database's
+     order (ADR-009). */
   let q = db().from("v_task").select("*")
     .order("queue_rank", { ascending: true })
+    .order("goal_rank", { ascending: true, nullsFirst: false })
     .order("due_date", { ascending: true });
   if (filter.assignee_no) q = q.eq("assignee_no", filter.assignee_no);
   if (filter.status) q = q.eq("status", filter.status);
@@ -2166,6 +2173,10 @@ export async function createTask(
     period_start?: string | null;
     period_end?: string | null;
     chase_date?: string | null;
+    /** The result this is a part of (D367). */
+    goal_no?: string | null;
+    /** The part of the same goal it starts from. */
+    waits_on_no?: string | null;
   },
   idempotencyKey?: string,
 ): Promise<Result<TaskView>> {
@@ -2181,16 +2192,21 @@ export async function createTask(
     p_ref_kind: input.ref_kind ?? "none",
     p_ref_no: input.ref_no ?? null,
     p_key: idempotencyKey ?? null,
+    p_goal_no: input.goal_no ?? null,
+    p_waits_on_no: input.waits_on_no ?? null,
   });
   const made = fromSeam<{ task_no: string }>(SERVICE, data, error);
   if (made.error) return made as unknown as Result<TaskView>;
   return taskByNo(made.data.task_no);
 }
 
+/** What happens to a task. `start`/`done`/`block`/`unblock` may come from
+ *  the assignee on their own task; `cancel`/`reopen` only from HRD — the seam
+ *  decides, this client does not (D368). */
 export async function updateTask(
   input: {
     task_no: string;
-    action: "done" | "block" | "unblock" | "cancel";
+    action: TaskAction;
     reason?: string | null;
     done_on?: string | null;
     delivered?: string | null;
@@ -2224,6 +2240,118 @@ export async function acknowledgeTask(
   const said = fromSeam<{ task_no: string }>(SERVICE, data, error);
   if (said.error) return said as unknown as Result<TaskView>;
   return taskByNo(input.task_no);
+}
+
+/** Moving the plan of an open task: due date, person, goal, predecessor,
+ *  chase date. **Full state** — a null means *none*, not *unchanged*, so the
+ *  screen sends every field as it should now be (D368). */
+export async function editTask(
+  input: {
+    task_no: string;
+    due_date: string;
+    assignee_no: string;
+    goal_no: string | null;
+    waits_on_no: string | null;
+    chase_date: string | null;
+  },
+): Promise<Result<TaskView>> {
+  const { data, error } = await db().rpc("edit_task", {
+    p_task_no: input.task_no, p_due: input.due_date, p_assignee_no: input.assignee_no,
+    p_goal_no: input.goal_no, p_waits_on_no: input.waits_on_no,
+    p_chase_date: input.chase_date,
+  });
+  const said = fromSeam<{ task_no: string }>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<TaskView>;
+  return taskByNo(input.task_no);
+}
+
+/* ------------------------------------------------------------------ */
+/* Sasaran: the result the parts add up to, ranked (D367)               */
+/* ------------------------------------------------------------------ */
+//
+// Read through functions, not views. A goal's progress is counted over every
+// part in it, and under a staff member's own RLS a view would count only
+// theirs — the drafter would read a six-part goal as a one-part goal. The
+// function decides who may see a goal (HRD, its owner, anybody with a part in
+// it) and hands both audiences the same numbers.
+
+export async function listGoals(
+  input: { include_closed?: boolean } = {},
+): Promise<Result<GoalView[]>> {
+  const { data, error } = await db().rpc("list_goals", {
+    p_include_closed: input.include_closed ?? false,
+  });
+  return fromRows<GoalView[]>(SERVICE, (data ?? []) as GoalView[], error);
+}
+
+/** Every part of one goal, for anybody allowed to see it. An unknown goal and
+ *  one the reader may not see both answer an empty list. */
+export async function goalBoard(
+  input: { goal_no: string },
+): Promise<Result<GoalBoardTask[]>> {
+  const { data, error } = await db().rpc("goal_board", { p_goal_no: input.goal_no });
+  return fromRows<GoalBoardTask[]>(SERVICE, (data ?? []) as GoalBoardTask[], error);
+}
+
+async function goalByNo(goalNo: string): Promise<Result<GoalView>> {
+  const { data, error } = await db().rpc("list_goals", { p_include_closed: true });
+  if (error) return fromRows<GoalView>(SERVICE, null, error);
+  const row = ((data ?? []) as GoalView[]).find((g) => g.goal_no === goalNo);
+  if (!row) {
+    return notFound(SERVICE, "goal_not_found",
+      `Sasaran ${goalNo} tersimpan tapi tidak terbaca kembali.`);
+  }
+  return ok(SERVICE, row);
+}
+
+/** New (no `goal_no`) or changed. A new goal joins the order at the bottom:
+ *  putting it first is a decision made with `rankGoals`. */
+export async function saveGoal(
+  input: {
+    goal_no?: string | null;
+    title: string;
+    outcome: string;
+    owner_no: string;
+    target_date: string;
+    detail?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<GoalView>> {
+  const { data, error } = await db().rpc("save_goal", {
+    p_goal_no: input.goal_no ?? null,
+    p_title: input.title,
+    p_outcome: input.outcome,
+    p_owner_no: input.owner_no,
+    p_target_date: input.target_date,
+    p_detail: input.detail ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const made = fromSeam<{ goal_no: string }>(SERVICE, data, error);
+  if (made.error) return made as unknown as Result<GoalView>;
+  return goalByNo(made.data.goal_no);
+}
+
+/** The whole order of the open goals, most important first. A list that no
+ *  longer matches the open goals is refused with `order_stale`. */
+export async function rankGoals(
+  input: { goal_nos: string[] },
+): Promise<Result<GoalView[]>> {
+  const { data, error } = await db().rpc("rank_goals", { p_goal_nos: input.goal_nos });
+  const said = fromSeam<unknown>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<GoalView[]>;
+  return listGoals();
+}
+
+/** Tercapai or dibatalkan. Refused while any part is still open. */
+export async function closeGoal(
+  input: { goal_no: string; action: "done" | "cancel"; note?: string | null },
+): Promise<Result<GoalView>> {
+  const { data, error } = await db().rpc("close_goal", {
+    p_goal_no: input.goal_no, p_action: input.action, p_note: input.note ?? null,
+  });
+  const said = fromSeam<{ goal_no: string }>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<GoalView>;
+  return goalByNo(input.goal_no);
 }
 
 export async function listTaskRoutines(): Promise<Result<TaskRoutineView[]>> {

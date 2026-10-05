@@ -1,4 +1,4 @@
--- 0210 — a tap from the phone says what it is (D367).
+-- 0211 — a tap from the phone says what it is (D369).
 --
 -- Owner: *update attendance modul dari sisi user, tidak hanya tap clock in dan
 -- clock out, tapi juga tap ketika break in dan break out, overtime in,
@@ -57,7 +57,7 @@ alter table ops_hr.attendance_scans add constraint scan_kind_known check (
   kind is null or kind in ('in','break_out','break_in','out','ot_start','ot_end','away_out','away_back'));
 
 comment on column ops_hr.attendance_scans.kind is
-  'Apa tap ini menurut orang yang menekannya (D367): slot (in, break_out, break_in, out, ot_start, ot_end) atau keluar/kembali kantor (away_out, away_back). Null = tap hanya menyebut kapan (mesin, HRD, tap HP lama) dan dibaca oleh jam (D141).';
+  'Apa tap ini menurut orang yang menekannya (D369): slot (in, break_out, break_in, out, ot_start, ot_end) atau keluar/kembali kantor (away_out, away_back). Null = tap hanya menyebut kapan (mesin, HRD, tap HP lama) dan dibaca oleh jam (D141).';
 
 analyze ops_hr.attendance_scans;
 
@@ -114,7 +114,7 @@ begin
   for t in
     select a.at from ops_hr.attendance_scans a
      where a.employee_id = p_employee and a.work_date between p_date - 21 and p_date + 3
-       -- 0210 (D366): leaving the office and coming back is neither end of a shift.
+       -- 0211 (D369): leaving the office and coming back is neither end of a shift.
        and not ops_hr.is_away_tap(a.kind)
      order by a.at
   loop
@@ -289,7 +289,7 @@ declare
   v_shift       boolean := false;
   v_shift_code  text;
   v_shift_name  text;
-  -- 0210: what a tap says it is (D367).
+  -- 0211: what a tap says it is (D369).
   v_kinds       text[] := '{}';
   extra         timestamptz[] := '{}';
   d_ot          boolean := false;
@@ -328,7 +328,7 @@ begin
      The `work_date` pair is only there so the index is used: the window never
      reaches outside the day and the one after it.
 
-     0210 (D367): keluar kantor / kembali ke kantor are not read here at all —
+     0211 (D369): keluar kantor / kembali ke kantor are not read here at all —
      they are said as a note further down. When the reader and the phone took
      the same moment, the one tap keeps what the phone said it was; two taps
      that say different things (masuk, then mulai istirahat a minute later)
@@ -385,7 +385,7 @@ begin
     end if;
   end if;
 
-  /* 0210 (D367): a tap that says what it is fills its own slot — the first of
+  /* 0211 (D369): a tap that says what it is fills its own slot — the first of
      each kind; a second of the same kind is left over. Only the taps that say
      nothing go on to be placed by the clock, into the slots still empty. The
      shift reading pairs by the clock and is left as it is. */
@@ -463,7 +463,7 @@ begin
        day present, and its hours are read against **this weekday's** pattern,
        the way the payroll sheet has always read them:
 
-         masuk   the first tap (or the one that says it is masuk, D367);
+         masuk   the first tap (or the one that says it is masuk, D369);
                  arriving early does not add hours;
          pulang  the tap nearest the scheduled end, within `out_window_minutes`
                  (30) either side — and when there is none, the scheduled end
@@ -479,7 +479,7 @@ begin
     v_read   := true;
     v_win    := coalesce((v_rules ->> 'out_window_minutes')::int, 30);
     v_roundm := coalesce((v_rules ->> 'hours_rounding_minutes')::numeric, 15);
-    -- `rest` is the taps that say nothing (D367); with none of those, the
+    -- `rest` is the taps that say nothing (D369); with none of those, the
     -- first tap of all stands for masuk, as it always has.
     v_in     := coalesce(v_in, rest[1], kept[1]);
     select max(t) into v_last from unnest(rest) t where t > v_in;
@@ -517,7 +517,7 @@ begin
                                  - greatest(v_in, v_start_at)) / 60 - b_min, 0);
       v_work := case when v_roundm > 0 then round(v_work / v_roundm) * v_roundm else v_work end / 60.0;
       if d_ot then
-        /* 0210 (D367): the person said when lembur began and ended, so that is
+        /* 0211 (D369): the person said when lembur began and ended, so that is
            the lembur shown — still never paid from here (D138). */
         if v_ots is not null and v_ote is not null then
           v_ot := greatest(extract(epoch from v_ote - v_ots) / 60, 0);
@@ -571,7 +571,7 @@ begin
     extra := '{}';
 
   elsif n_taps > 0 and not v_night then
-    /* 0210 (D367): every slot below fills only if no tap said it was that. */
+    /* 0211 (D369): every slot below fills only if no tap said it was that. */
     if v_in is null then
       v_in := rest[1];
       rest := rest[2:];
@@ -646,7 +646,7 @@ begin
     if pick is not null then v_ote := pick; rest := array_remove(rest, pick); pick := null; end if;
   end if;
 
-  /* A second tap of a kind already filled is left over like any other (D367). */
+  /* A second tap of a kind already filled is left over like any other (D369). */
   if not v_read then
     select coalesce(array_agg(t order by t), '{}') into rest from unnest(rest || extra) t;
   end if;
@@ -666,7 +666,7 @@ begin
   end if;
 
   if n_taps > 0 and not v_read then
-    -- Only possible when every tap said what it was and none said masuk (D367).
+    -- Only possible when every tap said what it was and none said masuk (D369).
     if v_in is null then v_issues := v_issues || 'Tidak ada tap masuk'::text; end if;
     if v_out is null then v_issues := v_issues || 'No pulang — the day has no end'::text; end if;
     /* A guard on post does not go out to eat, so a night with no break taps
@@ -688,7 +688,7 @@ begin
     end if;
   end if;
 
-  /* 0210 (D367): time out of the office, said and never deducted — it is work
+  /* 0211 (D369): time out of the office, said and never deducted — it is work
      done somewhere else. Paired in order; one without the other is said too,
      and is not a problem for the day: the reading above never saw them. */
   for aw in
@@ -853,7 +853,7 @@ begin
       'Akun ini belum tertaut ke data karyawan, jadi presensi tidak bisa dicatat sendiri. Minta HRD menautkannya.');
   end if;
 
-  -- What the tap is, if it says (D367). Never refused for its order: the tap
+  -- What the tap is, if it says (D369). Never refused for its order: the tap
   -- is a fact and the reading says what is missing (D307).
   if v_kind is not null and ops_hr.tap_kind_label(v_kind) is null then
     return ops_core.invalid('hr','attendance', null,'tap_self',
@@ -886,7 +886,7 @@ begin
       v_where || jsonb_build_object('field','note'));
   end if;
 
-  -- Leaving the office says where to (D367), with the same form and the same
+  -- Leaving the office says where to (D369), with the same form and the same
   -- verdict, so the phone needs no second way of asking.
   if v_kind = 'away_out' and v_note is null then
     return ops_core.invalid('hr','attendance', null,'tap_self',

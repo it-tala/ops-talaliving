@@ -19,6 +19,7 @@ import type {
   AllowanceWithholding, AllowanceWithholdingView,
   ContributionScheme, ContributionRate, Enrolment, ContributionLine, ContributionRoll,
   Task, TaskView, TaskRoutine, TaskRoutineView, KpiMeasure, KpiView,
+  GoalView, GoalBoardTask,
   EmployeeFileView, EmployeeDocSlot, EmployeeDocument, EmployeeDocumentView,
   LeaveBalance, LeaveRequest, LeaveRequestView,
   EmployeeIdentity, EmployeeIdentityView, IdentityField, WlkpBucket, WlkpRecap,
@@ -85,7 +86,7 @@ function scansIn(state: DemoState, employeeId: string, from: string, to: string)
 }
 
 /** The taps the reading reads. Keluar / kembali kantor are not among them
- *  (D367); when the reader and the phone took the same moment, the one tap
+ *  (D369); when the reader and the phone took the same moment, the one tap
  *  keeps what the phone said it was; two taps that say different things are
  *  two taps, however close. */
 function tapsOf(state: DemoState, employeeId: string, from: string, to: string) {
@@ -103,8 +104,8 @@ function tapsOf(state: DemoState, employeeId: string, from: string, to: string) 
   return kept;
 }
 
-/** Time out of the office, said and never deducted (D367). Transcribes the
- *  note `ops_hr.read_day` writes (0210). */
+/** Time out of the office, said and never deducted (D369). Transcribes the
+ *  note `ops_hr.read_day` writes (0211). */
 function awayNotes(away: { at: string; kind?: string | null }[]): string[] {
   const notes: string[] = [];
   let out: string | null = null;
@@ -294,7 +295,7 @@ export function timesheetDay(
           .filter((s) => s.employee_id === employee.id
             && s.work_date >= addDayKey(workDate, -SHIFT_LOOKBACK_DAYS)
             && s.work_date <= addDayKey(workDate, SHIFT_LOOKAHEAD_DAYS)
-            /* Leaving the office and coming back is neither end of a shift (D367). */
+            /* Leaving the office and coming back is neither end of a shift (D369). */
             && !isAwayTap(s.kind))
           .map((s) => ({ id: s.id, at: s.at })),
         (state.shift_picks ?? []).filter((p) => p.employee_id === employee.id),
@@ -352,7 +353,7 @@ export function timesheetDay(
     scheduled_hours = Math.max((sr.end - sr.start) / 60_000 - shiftBreak, 0) / 60;
   }
 
-  /* 0210 (D367): a tap that says what it is fills its own slot — the first of
+  /* 0211 (D369): a tap that says what it is fills its own slot — the first of
      each kind; a second of the same kind is left over. The clock places only
      the taps that say nothing, into the slots still empty. The shift reading
      pairs by the clock and is left as it is. */
@@ -473,7 +474,7 @@ export function timesheetDay(
       const to = outAt ?? endAt;
       work_hours = round(Math.max((Math.min(to, endAt) - Math.max(inAt, startAt)) / 60_000 - bMin, 0)) / 60;
       if (saidOt) {
-        /* The lembur the person tapped (D367) — still never paid from here. */
+        /* The lembur the person tapped (D369) — still never paid from here. */
         overtime_hours = slots.ot_start && slots.ot_end
           ? round(Math.max((Date.parse(slots.ot_end) - Date.parse(slots.ot_start)) / 60_000, 0)) / 60
           : 0;
@@ -515,7 +516,7 @@ export function timesheetDay(
     if (slots.ot_start && !slots.ot_end) issues.push("Lembur started and never finished");
   }
 
-  /* Keluar / kembali kantor: said, not read, not deducted (D367). */
+  /* Keluar / kembali kantor: said, not read, not deducted (D369). */
   const away = scansIn(state, employee.id, window_from, window_to).filter((r) => isAwayTap(r.kind));
   notes.push(...awayNotes(away));
 
@@ -1189,6 +1190,8 @@ export function taskView(state: DemoState, t: Task, today = officeToday()): Task
     : null;
   const days_left = daysBetweenDates(today, t.due_date);
   const doneDay = t.done_at?.slice(0, 10) ?? null;
+  const goal = t.goal_id ? state.goals.find((g) => g.id === t.goal_id) ?? null : null;
+  const prev = t.waits_on ? state.tasks.find((x) => x.id === t.waits_on) ?? null : null;
   return {
     ...t,
     assignee_name: emp?.full_name ?? "—",
@@ -1216,7 +1219,101 @@ export function taskView(state: DemoState, t: Task, today = officeToday()): Task
     period_label: t.period_start === null || t.period_end === null ? null
       : routine ? taskPeriodLabel(routine.cadence, t.period_start)
       : `${t.period_start} – ${t.period_end}`,
+    goal_no: goal?.goal_no ?? null,
+    goal_title: goal?.title ?? null,
+    goal_rank: goal?.rank ?? null,
+    waits_on_no: prev?.task_no ?? null,
+    waits_on_title: prev?.title ?? null,
+    waits_on_assignee: prev
+      ? state.employees.find((e) => e.id === prev.assignee_id)?.full_name ?? null
+      : null,
+    /* Printed, never scored (D368). */
+    waiting: t.status === "OPEN" && prev?.status === "OPEN",
+    has_started: t.started_at !== null,
   };
+}
+
+/** Who may see a goal — `ops_hr.can_see_goal` (0210): HRD, its owner, anybody
+ *  with a part in it, open or closed. */
+export function canSeeGoal(
+  state: DemoState, goalId: string, me: string | null, hrd: boolean,
+): boolean {
+  if (hrd) return true;
+  if (!me) return false;
+  const g = state.goals.find((x) => x.id === goalId);
+  if (!g) return false;
+  return g.owner_id === me || state.tasks.some((t) => t.goal_id === goalId && t.assignee_id === me);
+}
+
+/** `ops_hr.list_goals()`, transcribed: the progress counts are over **every**
+ *  part, whoever reads them, so the drafter and HRD see the same numbers. */
+export function goalViews(
+  state: DemoState, me: string | null, hrd: boolean,
+  includeClosed = false, today = officeToday(),
+): GoalView[] {
+  return state.goals
+    .filter((g) => canSeeGoal(state, g.id, me, hrd) && (includeClosed || g.status === "OPEN"))
+    .map((g): GoalView => {
+      const parts = state.tasks.filter((t) => t.goal_id === g.id);
+      const open = parts.filter((t) => t.status === "OPEN");
+      const owner = state.employees.find((e) => e.id === g.owner_id);
+      const by = state.users.find((u) => u.id === g.created_by);
+      return {
+        id: g.id, goal_no: g.goal_no, title: g.title, outcome: g.outcome, detail: g.detail,
+        owner_no: owner?.employee_no ?? "—", owner_name: owner?.full_name ?? "—",
+        target_date: g.target_date, status: g.status, rank: g.rank,
+        created_at: g.created_at, created_by_name: by?.full_name ?? g.created_by,
+        closed_at: g.closed_at, closed_note: g.closed_note,
+        days_left: daysBetweenDates(today, g.target_date),
+        late: g.status === "OPEN" && g.target_date < today,
+        tasks_total: parts.filter((t) => t.status !== "CANCELLED").length,
+        tasks_done: parts.filter((t) => t.status === "DONE").length,
+        tasks_open: open.length,
+        tasks_blocked: open.filter((t) => t.blocked_reason !== null).length,
+        tasks_overdue: open.filter((t) => t.blocked_reason === null && t.due_date < today).length,
+        tasks_waiting: open.filter((t) =>
+          t.waits_on !== null && state.tasks.find((x) => x.id === t.waits_on)?.status === "OPEN").length,
+        tasks_unacknowledged: open.filter((t) => t.acknowledged_at === null).length,
+        my_open: me ? open.filter((t) => t.assignee_id === me).length : 0,
+        is_owner: me !== null && g.owner_id === me,
+      };
+    })
+    .sort((a, b) =>
+      Number(a.status !== "OPEN") - Number(b.status !== "OPEN")
+      || (a.rank ?? Infinity) - (b.rank ?? Infinity)
+      || (b.closed_at ?? "").localeCompare(a.closed_at ?? "")
+      || a.goal_no.localeCompare(b.goal_no));
+}
+
+/** `ops_hr.goal_board()`, transcribed: chosen columns, no chase notes. */
+export function goalBoardRows(
+  state: DemoState, goalNo: string, me: string | null, hrd: boolean, today = officeToday(),
+): GoalBoardTask[] {
+  const g = state.goals.find((x) => x.goal_no === goalNo);
+  if (!g || !canSeeGoal(state, g.id, me, hrd)) return [];
+  return state.tasks
+    .filter((t) => t.goal_id === g.id)
+    .map((t): GoalBoardTask => {
+      const emp = state.employees.find((e) => e.id === t.assignee_id);
+      const prev = t.waits_on ? state.tasks.find((x) => x.id === t.waits_on) ?? null : null;
+      return {
+        task_no: t.task_no, title: t.title, detail: t.detail,
+        deliverable: t.deliverable, delivered_note: t.delivered_note,
+        assignee_no: emp?.employee_no ?? "—", assignee_name: emp?.full_name ?? "—",
+        due_date: t.due_date, days_left: daysBetweenDates(today, t.due_date),
+        status: t.status, started_at: t.started_at, done_at: t.done_at,
+        blocked_reason: t.blocked_reason, acknowledged: t.acknowledged_at !== null,
+        overdue: t.status === "OPEN" && t.blocked_reason === null && t.due_date < today,
+        waits_on_no: prev?.task_no ?? null, waits_on_title: prev?.title ?? null,
+        waiting: t.status === "OPEN" && prev?.status === "OPEN",
+        is_mine: me !== null && t.assignee_id === me,
+      };
+    })
+    .sort((a, b) =>
+      Number(a.status !== "OPEN") - Number(b.status !== "OPEN")
+      || Number(a.waits_on_no !== null) - Number(b.waits_on_no !== null)
+      || a.due_date.localeCompare(b.due_date)
+      || a.task_no.localeCompare(b.task_no));
 }
 
 /** A routine as a person reads it — the definition beside what it would raise
@@ -1262,7 +1359,12 @@ export function taskViews(
   return state.tasks
     .filter((t) => (!emp || t.assignee_id === emp.id) && (!filter.status || t.status === filter.status))
     .map((t) => taskView(state, t, today))
-    .sort((a, b) => queueRank(a) - queueRank(b) || a.due_date.localeCompare(b.due_date));
+    /* `v_task`'s order as the live client asks for it: the queue rung, then
+       the goal's rank (a task with no goal after the ranked ones), then the
+       date (D367). */
+    .sort((a, b) => queueRank(a) - queueRank(b)
+      || (a.goal_rank ?? Infinity) - (b.goal_rank ?? Infinity)
+      || a.due_date.localeCompare(b.due_date));
 }
 
 function daysBetweenDates(from: string, to: string): number {

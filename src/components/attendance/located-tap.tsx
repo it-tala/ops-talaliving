@@ -27,7 +27,7 @@ import { cn } from "@/lib/cn";
  *  then written with those attached, and flagged for HRD. Never refused.
  *
  *  Self-contained so it can sit in `/profil` and `/saya` (D331). The parent
- *  names the button and hears about a written tap. Since D367 the parent may
+ *  names the button and hears about a written tap. Since D369 the parent may
  *  instead hand it **actions** — the taps that make sense next, each saying
  *  what it is (masuk, mulai istirahat, keluar kantor, …): one large primary
  *  button and smaller ones under it, sharing the one location read and the
@@ -136,7 +136,7 @@ export function LocatedTap({
   /** What the button says when the tap says only when (no `primary`). */
   label?: string;
   tone?: "brand" | "amber";
-  /** D367: the large button, saying what the tap is. */
+  /** D369: the large button, saying what the tap is. */
   primary?: TapAction | null;
   /** Smaller buttons under it, for the other taps that make sense now. */
   secondary?: TapAction[];
@@ -236,7 +236,7 @@ export function LocatedTap({
           size === "lg" ? "h-20 text-[22px]" : "h-16 text-[19px]",
         );
         const icon = <Fingerprint className={size === "lg" ? "h-8 w-8" : "h-7 w-7"} />;
-        /* The tap that says only when — `/profil`, and anything before D367. */
+        /* The tap that says only when — `/profil`, and anything before D369. */
         if (primary === undefined && !idle) {
           return (
             <button
@@ -319,7 +319,7 @@ export function LocatedTap({
       {phase.at === "form" && (() => {
         const line = whereLine(phase.where, phase.reading.denied);
         const { lat, lng, accuracy_m } = phase.reading;
-        /* Keluar kantor asks where to and why, wherever the phone is (D367). */
+        /* Keluar kantor asks where to and why, wherever the phone is (D369). */
         const away = phase.kind === "away_out";
         return (
           <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 text-left" data-testid="off-site-form">

@@ -451,7 +451,7 @@ export function DayDrawer({
                           : isAwayTap(s.kind) ? TAP_KIND_LABEL[s.kind!]
                           : tr("unreadable", "tidak terbaca")}
                       </span>
-                      {/* What the person said it was, from the phone (D367). */}
+                      {/* What the person said it was, from the phone (D369). */}
                       {s.kind && !isAwayTap(s.kind) && (
                         <span className="text-[11px] text-slate-400">
                           {tr(`said: ${TAP_KIND_LABEL[s.kind]}`, `disebut: ${TAP_KIND_LABEL[s.kind]}`)}
