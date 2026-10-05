@@ -9200,3 +9200,16 @@ Two smaller things the same work settled:
   trip to the supplier became a short or broken day. Taking keluar/kembali out
   of the reading entirely — and saying them as a note — keeps every existing
   rule untouched for the taps it was written for.
+- **The Supabase tool holds every `DROP`, and the hold never reached the
+  owner.** Applying `0211` timed out at 60 s three times. A probe settled
+  the cause: `drop function if exists` on a function that does not exist
+  timed out too, while `alter table … add column`, `create or replace` and
+  `grant` went straight through. The owner said *saya approve*, and no
+  prompt reached them. So a migration that replaces a function signature
+  can't drop the old one through this tool. Instead, **rename the old one and
+  revoke its execute** in the same step as the `create` (`alter function …
+  rename to tap_self_v0188`), which leaves one function under the name and
+  nothing callable behind it, and leave the actual `DROP` to the SQL editor.
+  Apply in parts so the non-destructive ones land first, and check
+  production with `execute_sql` after every timeout: the apply is atomic,
+  so a timeout means nothing ran.
