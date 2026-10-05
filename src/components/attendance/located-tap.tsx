@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Camera, Fingerprint, MapPin, MapPinOff, ShieldCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/primitives";
 import { documents, hr } from "@/demo/api";
-import type { LocationJudgement, LocationVerdict, TapReading, TapSelfResult } from "@/services/hr/contracts";
+import {
+  TAP_KIND_LABEL,
+  type LocationJudgement, type LocationVerdict, type TapKind, type TapReading, type TapSelfResult,
+} from "@/services/hr/contracts";
 import type { TapWhere } from "@/services/hr/tap-where";
 import { OFFICE_TZ, officeClock } from "@/lib/office";
 import { useToast } from "@/store/toast";
@@ -23,9 +26,14 @@ import { cn } from "@/lib/cn";
  *  location it has, an optional photo, and a required note. The same tap is
  *  then written with those attached, and flagged for HRD. Never refused.
  *
- *  Self-contained so it can sit in `/profil` today and replace `/saya`'s tap
- *  button when that lands (D331). The parent names the button (MASUK /
- *  PULANG, read from the day, D307) and hears about a written tap. */
+ *  Self-contained so it can sit in `/profil` and `/saya` (D331). The parent
+ *  names the button and hears about a written tap. Since D369 the parent may
+ *  instead hand it **actions** — the taps that make sense next, each saying
+ *  what it is (masuk, mulai istirahat, keluar kantor, …): one large primary
+ *  button and smaller ones under it, sharing the one location read and the
+ *  one note form. *Keluar kantor* always asks for the note (where to and
+ *  why): the database answers `away_needs_note` the way it answers an
+ *  off-site tap, and the same form takes it. */
 
 const ZONE = OFFICE_TZ.short;
 
@@ -33,10 +41,24 @@ type Reading = TapReading & { denied: boolean };
 
 type Phase =
   | { at: "idle" }
-  | { at: "reading" }
-  | { at: "sending" }
-  | { at: "form"; reading: Reading; where: LocationJudgement }
-  | { at: "done"; where: LocationJudgement; at_: string; denied: boolean };
+  | { at: "reading"; kind: TapKind | null }
+  | { at: "sending"; kind: TapKind | null }
+  | { at: "form"; reading: Reading; where: LocationJudgement; kind: TapKind | null }
+  | { at: "done"; where: LocationJudgement; at_: string; denied: boolean; kind: TapKind | null };
+
+/** One button the parent offers: what the tap is, and how loud. */
+export interface TapAction {
+  kind: TapKind;
+  /** Defaults to the kind's own words (`TAP_KIND_LABELS`). */
+  label?: string;
+  tone?: "brand" | "amber" | "slate";
+}
+
+const TONE_CLASS: Record<NonNullable<TapAction["tone"]>, string> = {
+  brand: "bg-brand-600 active:bg-brand-700 text-white",
+  amber: "bg-amber-600 active:bg-amber-700 text-white",
+  slate: "bg-slate-700 active:bg-slate-800 text-white",
+};
 
 /** One reading, at the tap. High accuracy, nothing cached, and a timeout a
  *  person standing at the warehouse door will tolerate. */
@@ -109,10 +131,19 @@ export function useWhereLine() {
 
 export function LocatedTap({
   label, tone = "brand", size = "md", disabled = false, onTapped, className,
+  primary, secondary = [], more = [], idle,
 }: {
-  /** What the button says. The parent reads the day to decide it (D307). */
+  /** What the button says when the tap says only when (no `primary`). */
   label?: string;
   tone?: "brand" | "amber";
+  /** D369: the large button, saying what the tap is. */
+  primary?: TapAction | null;
+  /** Smaller buttons under it, for the other taps that make sense now. */
+  secondary?: TapAction[];
+  /** Every other kind, behind *Tap lain*, for the tap somebody forgot. */
+  more?: TapAction[];
+  /** Shown in place of the large button when nothing is due next. */
+  idle?: ReactNode;
   /** `lg` is `/saya`'s thumb-sized button. */
   size?: "md" | "lg";
   /** While the parent is still reading the day, so the label is not a guess. */
@@ -127,6 +158,7 @@ export function LocatedTap({
   const [note, setNote] = useState("");
   const [photo, setPhoto] = useState<{ id: string; name: string; preview: string } | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [showMore, setShowMore] = useState(false);
   const selfieRef = useRef<HTMLInputElement>(null);
   const backRef = useRef<HTMLInputElement>(null);
 
@@ -135,27 +167,30 @@ export function LocatedTap({
   function written(r: TapSelfResult, denied: boolean) {
     const clock = `${officeClock(new Date(r.at))} ${ZONE}`;
     const line = whereLine(r.location, denied);
+    const what = r.kind ? TAP_KIND_LABEL[r.kind] : tr("Tap", "Tap");
     toast(
       r.location.needs_note ? "warning" : "success",
-      tr(`Tap recorded · ${clock}`, `Tap tercatat · ${clock}`),
+      tr(`${what} recorded · ${clock}`, `${what} tercatat · ${clock}`),
       r.location.needs_note
         ? tr(`${line.text}. Flagged for HRD with your note.`, `${line.text}. Ditandai untuk HRD beserta keterangan Anda.`)
         : line.text + ".",
     );
-    setPhase({ at: "done", where: r.location, at_: r.at, denied });
+    setPhase({ at: "done", where: r.location, at_: r.at, denied, kind: r.kind ?? null });
     setNote("");
     setPhoto(null);
+    setShowMore(false);
     onTapped?.(r);
   }
 
-  async function press() {
-    setPhase({ at: "reading" });
+  async function press(kind: TapKind | null = null) {
+    setPhase({ at: "reading", kind });
     const reading = await readOnce();
-    setPhase({ at: "sending" });
-    const res = await hr.tapSelf({ lat: reading.lat, lng: reading.lng, accuracy_m: reading.accuracy_m }, newKey());
+    setPhase({ at: "sending", kind });
+    const res = await hr.tapSelf(
+      { lat: reading.lat, lng: reading.lng, accuracy_m: reading.accuracy_m, kind }, newKey());
     if (!res.error) return written(res.data, reading.denied);
-    if (res.error.code === "off_site_needs_note" && res.error.detail) {
-      setPhase({ at: "form", reading, where: res.error.detail as unknown as LocationJudgement });
+    if ((res.error.code === "off_site_needs_note" || res.error.code === "away_needs_note") && res.error.detail) {
+      setPhase({ at: "form", reading, where: res.error.detail as unknown as LocationJudgement, kind });
       return;
     }
     setPhase({ at: "idle" });
@@ -177,14 +212,14 @@ export function LocatedTap({
 
   async function submitOffSite() {
     if (phase.at !== "form") return;
-    const { reading } = phase;
-    setPhase({ at: "sending" });
+    const { reading, kind } = phase;
+    setPhase({ at: "sending", kind });
     const res = await hr.tapSelf({
       lat: reading.lat, lng: reading.lng, accuracy_m: reading.accuracy_m,
-      note: note.trim(), photo_id: photo?.id ?? null,
+      note: note.trim(), photo_id: photo?.id ?? null, kind,
     }, newKey());
     if (!res.error) return written(res.data, reading.denied);
-    setPhase({ at: "form", reading, where: phase.where });
+    setPhase({ at: "form", reading, where: phase.where, kind });
     toast(res.error.status === 403 ? "critical" : "warning", tr("Not recorded", "Tidak tercatat"), res.error.message);
   }
 
@@ -192,23 +227,81 @@ export function LocatedTap({
 
   return (
     <div className={cn("space-y-3", className)} data-testid="located-tap">
-      {phase.at !== "form" && (
-        <button
-          type="button"
-          onClick={press}
-          disabled={busy || disabled}
-          className={cn(
-            "flex w-full items-center justify-center gap-3 rounded-2xl font-bold tracking-wide text-white shadow-sm transition active:scale-[0.99] disabled:opacity-60",
-            size === "lg" ? "h-20 text-[22px]" : "h-16 text-[19px]",
-            tone === "amber" ? "bg-amber-600 active:bg-amber-700" : "bg-brand-600 active:bg-brand-700",
-          )}
-        >
-          <Fingerprint className={size === "lg" ? "h-8 w-8" : "h-7 w-7"} />
-          {phase.at === "reading" ? tr("Reading location…", "Membaca lokasi…")
-            : phase.at === "sending" ? tr("Recording…", "Mencatat…")
-            : label ?? tr("Tap attendance", "Tap presensi")}
-        </button>
-      )}
+      {phase.at !== "form" && (() => {
+        const pressed = phase.at === "reading" || phase.at === "sending" ? phase.kind : null;
+        const busyText = (phase.at === "reading" ? tr("Reading location…", "Membaca lokasi…") : tr("Recording…", "Mencatat…"))
+          + (pressed ? ` ${TAP_KIND_LABEL[pressed]}` : "");
+        const big = cn(
+          "flex w-full items-center justify-center gap-3 rounded-2xl font-bold tracking-wide shadow-sm transition active:scale-[0.99] disabled:opacity-60",
+          size === "lg" ? "h-20 text-[22px]" : "h-16 text-[19px]",
+        );
+        const icon = <Fingerprint className={size === "lg" ? "h-8 w-8" : "h-7 w-7"} />;
+        /* The tap that says only when — `/profil`, and anything before D369. */
+        if (primary === undefined && !idle) {
+          return (
+            <button
+              type="button" onClick={() => press(null)} disabled={busy || disabled}
+              className={cn(big, tone === "amber" ? TONE_CLASS.amber : TONE_CLASS.brand)}
+            >
+              {icon}
+              {busy ? busyText : label ?? tr("Tap attendance", "Tap presensi")}
+            </button>
+          );
+        }
+        const extra = secondary.filter((a) => a.kind !== primary?.kind);
+        return (
+          <div className="space-y-2">
+            {busy ? (
+              <div className={cn(big, "bg-slate-200 text-slate-600")} data-testid="tap-busy">{icon}{busyText}</div>
+            ) : primary ? (
+              <button
+                type="button" onClick={() => press(primary.kind)} disabled={disabled}
+                data-testid={`tap-${primary.kind}`}
+                className={cn(big, TONE_CLASS[primary.tone ?? "brand"])}
+              >
+                {icon}
+                {primary.label ?? TAP_KIND_LABEL[primary.kind]}
+              </button>
+            ) : idle}
+            {extra.length > 0 && (
+              <div className={cn("grid gap-2", extra.length > 1 ? "grid-cols-2" : "grid-cols-1")}>
+                {extra.map((a) => (
+                  <button
+                    key={a.kind} type="button" onClick={() => press(a.kind)} disabled={busy || disabled}
+                    data-testid={`tap-${a.kind}`}
+                    className="h-12 rounded-xl border border-slate-300 bg-white text-[15px] font-semibold text-slate-800 shadow-sm transition active:scale-[0.99] active:bg-slate-50 disabled:opacity-60"
+                  >
+                    {a.label ?? TAP_KIND_LABEL[a.kind]}
+                  </button>
+                ))}
+              </div>
+            )}
+            {more.length > 0 && (
+              <div className="pt-1">
+                <button
+                  type="button" onClick={() => setShowMore((v) => !v)} disabled={busy || disabled}
+                  className="text-[12px] font-medium text-brand-700 underline disabled:opacity-60"
+                  aria-expanded={showMore}
+                >
+                  {showMore ? tr("Hide other taps", "Sembunyikan tap lain") : tr("Other taps…", "Tap lain…")}
+                </button>
+                {showMore && (
+                  <div className="mt-2 flex flex-wrap justify-center gap-1.5" data-testid="tap-more">
+                    {more.map((a) => (
+                      <button
+                        key={a.kind} type="button" onClick={() => press(a.kind)} disabled={busy || disabled}
+                        className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-[13px] text-slate-700 active:bg-slate-50 disabled:opacity-60"
+                      >
+                        {a.label ?? TAP_KIND_LABEL[a.kind]}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {phase.at === "done" && (() => {
         const line = whereLine(phase.where, phase.denied);
@@ -218,7 +311,7 @@ export function LocatedTap({
             line.tone === "green" ? "text-emerald-700" : line.tone === "amber" ? "text-amber-700" : "text-slate-500",
           )}>
             <MapPin className="h-4 w-4" />
-            {line.text} · {officeClock(new Date(phase.at_))} {ZONE}
+            {phase.kind ? `${TAP_KIND_LABEL[phase.kind]} · ` : ""}{line.text} · {officeClock(new Date(phase.at_))} {ZONE}
           </p>
         );
       })()}
@@ -226,6 +319,8 @@ export function LocatedTap({
       {phase.at === "form" && (() => {
         const line = whereLine(phase.where, phase.reading.denied);
         const { lat, lng, accuracy_m } = phase.reading;
+        /* Keluar kantor asks where to and why, wherever the phone is (D369). */
+        const away = phase.kind === "away_out";
         return (
           <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 text-left" data-testid="off-site-form">
             <p data-testid="where" className="flex items-center gap-1.5 text-[14px] font-semibold text-amber-800">
@@ -233,10 +328,15 @@ export function LocatedTap({
               {line.text}
             </p>
             <p className="mt-1 text-[12px] text-amber-900/80">
-              {tr(
-                "You can still clock in. Add a note (required) and, if you can, a photo. HRD will see it.",
-                "Presensi tetap bisa. Tulis keterangan (wajib) dan, bila bisa, foto. HRD akan melihatnya.",
-              )}
+              {away
+                ? tr(
+                    "Leaving the office: say where to and why (required). HRD will see it.",
+                    "Keluar kantor: tulis ke mana dan untuk apa (wajib). HRD akan melihatnya.",
+                  )
+                : tr(
+                    "You can still clock in. Add a note (required) and, if you can, a photo. HRD will see it.",
+                    "Presensi tetap bisa. Tulis keterangan (wajib) dan, bila bisa, foto. HRD akan melihatnya.",
+                  )}
             </p>
             {lat !== null && lng !== null && (
               <a href={mapLink(lat, lng)} target="_blank" rel="noreferrer"
@@ -246,12 +346,14 @@ export function LocatedTap({
             )}
 
             <label className="mt-3 block text-[13px] font-medium text-slate-700" htmlFor="off-site-note">
-              {tr("Note", "Keterangan")} <span className="text-rose-600">*</span>
+              {away ? tr("Where to, and why", "Keperluan") : tr("Note", "Keterangan")} <span className="text-rose-600">*</span>
             </label>
             <textarea
               id="off-site-note"
               value={note} onChange={(e) => setNote(e.target.value)} rows={2}
-              placeholder={tr("Why here? e.g. collecting timber from the supplier", "Kenapa di sini? mis. ambil kayu di pemasok")}
+              placeholder={away
+                ? tr("e.g. to the supplier to collect timber", "mis. ke pemasok ambil kayu")
+                : tr("Why here? e.g. collecting timber from the supplier", "Kenapa di sini? mis. ambil kayu di pemasok")}
               className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-[14px] focus:border-brand-400 focus:outline-none"
             />
 
@@ -284,7 +386,7 @@ export function LocatedTap({
             <div className="mt-4 flex gap-2">
               <Button type="button" className="flex-1" size="lg" icon={Fingerprint}
                 disabled={!note.trim() || uploading} onClick={submitOffSite}>
-                {tr("Record attendance", "Catat presensi")}
+                {phase.kind ? TAP_KIND_LABEL[phase.kind] : tr("Record attendance", "Catat presensi")}
               </Button>
               <Button type="button" variant="ghost" size="lg" onClick={() => { setPhase({ at: "idle" }); setPhoto(null); }}>
                 {tr("Cancel", "Batal")}

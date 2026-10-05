@@ -9236,3 +9236,46 @@ MUSLIKHIN, DEWI) have fingerprint taps on 7–11 September and a `joined_on` of
 28 September. The proration is only as true as `joined_on`, and F154 already
 showed that HRD-typed start dates drift. That is HRD's to correct, not ours to
 infer from taps.
+
+## F219 · 2026-10-05 · A two-minute "same tap" rule is about fingers, not about buttons
+
+D369 lets a phone tap say what it is. The reading already folded taps less
+than two minutes apart into one (D141): the real export has 29 fingers that
+did not take the first time. Carried over unchanged, that rule swallowed the
+walk's second press — *Masuk* and then *Mulai istirahat* a minute later read
+as one tap, and the screen stayed on *Bekerja sejak …* after the break began.
+Nothing in the SQL smoke caught it, because the smoke's taps were hours apart;
+the browser walk, pressing buttons the way a person tests them, did.
+
+What the rule is for decides where it stops: two taps are one event when they
+could be the same intention — a reader tap and nothing, or a reader tap and
+the phone saying what it was (the one tap keeps the phone's word). Two taps
+that **say different things** are two events however close, because somebody
+pressed two different buttons. `read_day` (`0211`) and the demo's `tapsOf`
+both keep them apart; smoke `211` has the case (08.00 masuk, 08.01 mulai
+istirahat → four taps, break at 08.01).
+
+Two smaller things the same work settled:
+
+- **A transaction has one `now()`.** `tap_self` stamps `now()` and a tap is
+  *who and when* (`scan_once`), so a smoke that taps twice for one person in
+  one transaction fails on the unique key, not on anything it meant to test.
+  One person per tap in the smoke, as `188` already did.
+- **Leaving the office is not a slot.** Read by the clock, *keluar kantor* at
+  15.30 is pulang under `in_out` and a leftover tap under `slots`; either way a
+  trip to the supplier became a short or broken day. Taking keluar/kembali out
+  of the reading entirely — and saying them as a note — keeps every existing
+  rule untouched for the taps it was written for.
+- **The Supabase tool holds every `DROP`, and the hold never reached the
+  owner.** Applying `0211` timed out at 60 s three times. A probe settled
+  the cause: `drop function if exists` on a function that does not exist
+  timed out too, while `alter table … add column`, `create or replace` and
+  `grant` went straight through. The owner said *saya approve*, and no
+  prompt reached them. So a migration that replaces a function signature
+  can't drop the old one through this tool. Instead, **rename the old one and
+  revoke its execute** in the same step as the `create` (`alter function …
+  rename to tap_self_v0188`), which leaves one function under the name and
+  nothing callable behind it, and leave the actual `DROP` to the SQL editor.
+  Apply in parts so the non-destructive ones land first, and check
+  production with `execute_sql` after every timeout: the apply is atomic,
+  so a timeout means nothing ran.

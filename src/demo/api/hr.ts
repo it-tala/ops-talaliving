@@ -18,11 +18,10 @@ import type {
   ContractKind, ClauseKind, ClauseChecklistItem, EmploymentContract,
   ContractView, ContractDetail, ContractClause, ClauseConflict, TimesheetTotal, DayState,
   EffectiveDaysCalendar, EmployeeAccount, ScanImportResult,
-  TapReading, TapSelfResult, LocationJudgement, LocationVerdict, WorkSite, LocatedTapView,
+  TapReading, TapSelfResult, LocationJudgement, LocationVerdict, WorkSite, LocatedTapView, TapKind,
 } from "@/services/hr/contracts";
 import {
-  SENSITIVE_DOC_KINDS, SCHEME_LABELS, maskDocNo, clauseValueOk, scheduleProblem, OFF_SITE_VERDICTS,
-  PAY_GROUPS,
+  TAP_KINDS, TAP_KIND_LABELS, SENSITIVE_DOC_KINDS, SCHEME_LABELS, maskDocNo, clauseValueOk, scheduleProblem, OFF_SITE_VERDICTS, PAY_GROUP
 } from "@/services/hr/contracts";
 import { addDayKey } from "@/services/hr/shift-reading";
 import { instantInDay, isOvernight, dayBoundaryMinutes, type ScheduleDay, type ScheduleShift, type ScheduleWeekDay, scheduleWeek } from "@/services/hr/schedule-rules";
@@ -626,7 +625,7 @@ function tapCodeStamp(iso: string): string {
  *  off-site tap needs a note — refused without one, written and flagged with
  *  one, never refused outright. */
 export async function tapSelf(
-  input: Partial<TapReading> & { note?: string | null; photo_id?: string | null } = {},
+  input: Partial<TapReading> & { note?: string | null; photo_id?: string | null; kind?: TapKind | null } = {},
   idempotencyKey?: string,
 ): Promise<Result<TapSelfResult>> {
   await latency();
@@ -635,6 +634,13 @@ export async function tapSelf(
   const state = getState();
   const emp = myEmployee(state);
   if (!emp) return noEmployeeLink();
+
+  /* D369: what the tap says it is, if it says. Never refused for its order —
+     the tap is a fact and the reading says what is missing (D307). */
+  const kind = input.kind ?? null;
+  if (kind !== null && !(TAP_KINDS as readonly string[]).includes(kind)) {
+    return invalid(SERVICE, "bad_kind", "Jenis tap tidak dikenal.", { field: "kind" });
+  }
 
   const lat = input.lat ?? null, lng = input.lng ?? null, acc = input.accuracy_m ?? null;
   if ((lat === null) !== (lng === null)
@@ -654,6 +660,15 @@ export async function tapSelf(
         : where.verdict === "uncertain"
           ? "Lokasi HP kurang tepat untuk memastikan Anda di area. Tulis keterangan, lalu tap lagi."
           : "Lokasi tidak terbaca. Tulis keterangan, lalu tap lagi.",
+      { ...detail, field: "note" },
+    );
+  }
+  /* Leaving the office says where to, with the same form (D369). */
+  if (kind === "away_out" && !note) {
+    const { site_id: _omit, ...detail } = where;
+    return invalid(
+      SERVICE, "away_needs_note",
+      "Tulis keperluan keluar kantor — ke mana dan untuk apa — lalu tap lagi.",
       { ...detail, field: "note" },
     );
   }
@@ -677,7 +692,7 @@ export async function tapSelf(
       id, employee_id: emp.id, work_date, at,
       /* `self`, as `tap_self` writes it: a real instant from the phone, the
          one kind of tap D334's hour never applied to. */
-      verify: "app", location: null, source: "self",
+      verify: "app", location: null, source: "self", kind,
       import_id: null, reason: null,
       recorded_by: actingUser().id, recorded_at: at,
     });
@@ -695,12 +710,12 @@ export async function tapSelf(
     writeAudit(draft, {
       service: SERVICE, entity: "attendance", entity_no: tap_no,
       action: "tap_self", outcome: "ok", reason: null,
-      detail: { at, by: actingUser().email, verdict: where.verdict },
+      detail: { at, by: actingUser().email, verdict: where.verdict, kind },
     });
     recordSelfActivity(draft, "attendance_tap", "attendance",
-      `Tap presensi pukul ${officeClock(new Date(at))}${where.needs_note ? " · di luar area" : ""}`);
+      `Tap ${kind ? TAP_KIND_LABELS[kind].id.toLowerCase() : "presensi"} pukul ${officeClock(new Date(at))}${where.needs_note ? " · di luar area" : ""}`);
   });
-  const result: TapSelfResult = { id, at, work_date, tap_no, location };
+  const result: TapSelfResult = { id, at, work_date, tap_no, kind, location };
   remember(SERVICE, "tap_self", idempotencyKey, result);
   return ok(SERVICE, result);
 }
@@ -817,6 +832,7 @@ export async function listLocatedTaps(
       lat: l.lat, lng: l.lng, accuracy_m: l.accuracy_m, distance_m: l.distance_m, radius_m: l.radius_m,
       site_code: w?.code ?? null, site_name: w?.name ?? null, note: l.note,
       photo_id: l.photo_id, photo_link: null, photo_filename: photo?.filename ?? null,
+      kind: s.kind ?? null,
     });
   }
   rows.sort((a, b) => b.at.localeCompare(a.at));
