@@ -9102,3 +9102,34 @@ link. A ledger row carries no dollars, so a linked billing shows no real rate.
 once: sequences are not rolled back with the transaction, so a second run
 fails. Assert the shape and the order, never the value. (Found by the file's own
 second run.)
+
+## F218 · 2026-10-05 · A two-minute "same tap" rule is about fingers, not about buttons
+
+D367 lets a phone tap say what it is. The reading already folded taps less
+than two minutes apart into one (D141): the real export has 29 fingers that
+did not take the first time. Carried over unchanged, that rule swallowed the
+walk's second press — *Masuk* and then *Mulai istirahat* a minute later read
+as one tap, and the screen stayed on *Bekerja sejak …* after the break began.
+Nothing in the SQL smoke caught it, because the smoke's taps were hours apart;
+the browser walk, pressing buttons the way a person tests them, did.
+
+What the rule is for decides where it stops: two taps are one event when they
+could be the same intention — a reader tap and nothing, or a reader tap and
+the phone saying what it was (the one tap keeps the phone's word). Two taps
+that **say different things** are two events however close, because somebody
+pressed two different buttons. `read_day` (`0210`) and the demo's `tapsOf`
+both keep them apart; smoke `210` has the case (08.00 masuk, 08.01 mulai
+istirahat → four taps, break at 08.01).
+
+Two smaller things the same work settled:
+
+- **A transaction has one `now()`.** `tap_self` stamps `now()` and a tap is
+  *who and when* (`scan_once`), so a smoke that taps twice for one person in
+  one transaction fails on the unique key, not on anything it meant to test.
+  One person per tap in the smoke, as `188` already did.
+- **Leaving the office is not a slot.** Read by the clock, *keluar kantor* at
+  15.30 is pulang under `in_out` and a leftover tap under `slots`; either way a
+  trip to the supplier became a short or broken day. Taking keluar/kembali out
+  of the reading entirely — and saying them as a note — keeps every existing
+  rule untouched for the taps it was written for.
+

@@ -12,7 +12,7 @@ import { officeClock, officeDay } from "@/lib/office";
 import { cn } from "@/lib/cn";
 import { documents, hr } from "@/demo/api";
 import {
-  SCAN_SLOTS, SLOT_LABEL, DAY_MARK_LABEL,
+  SCAN_SLOTS, SLOT_LABEL, DAY_MARK_LABEL, TAP_KIND_LABEL, isAwayTap,
   type DayMarkKind, type ScanSlot,
 } from "@/services/hr/contracts";
 import { useSession } from "@/store/session";
@@ -441,12 +441,22 @@ export function DayDrawer({
                   {d.scans.map((s) => (
                     <li key={s.at} className={cn(
                       "flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-3 py-1.5 text-[12px]",
-                      s.slot ? "text-slate-700" : "bg-amber-50 text-amber-900",
+                      s.slot || isAwayTap(s.kind) ? "text-slate-700" : "bg-amber-50 text-amber-900",
                     )}>
                       <span className="font-mono tabular-nums">{tapClock(s.at)}</span>
                       {tapDay(s.at) > workDate && <span className="text-[11px] text-indigo-700">{tr("next day", "esok")}</span>}
                       <span className="text-[11px] text-slate-400">{s.verify}</span>
-                      <span className="text-[11px]">{s.slot ? SLOT_LABEL[s.slot] : tr("unreadable", "tidak terbaca")}</span>
+                      <span className="text-[11px]">
+                        {s.slot ? SLOT_LABEL[s.slot]
+                          : isAwayTap(s.kind) ? TAP_KIND_LABEL[s.kind!]
+                          : tr("unreadable", "tidak terbaca")}
+                      </span>
+                      {/* What the person said it was, from the phone (D367). */}
+                      {s.kind && !isAwayTap(s.kind) && (
+                        <span className="text-[11px] text-slate-400">
+                          {tr(`said: ${TAP_KIND_LABEL[s.kind]}`, `disebut: ${TAP_KIND_LABEL[s.kind]}`)}
+                        </span>
+                      )}
                       {/* Where it was made (D344): the warehouse reader, the
                           phone's reading and selfie, or HRD's reason. */}
                       <span className="basis-full text-[11px]"><TapWhereLine where={s.where} /></span>

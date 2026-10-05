@@ -127,6 +127,9 @@ export interface AttendanceScan {
   verify: string;
   location: string | null;
   source: ScanSource;
+  /** What the person said the tap was, from the phone (D367). Null for the
+   *  machine, HRD, and phone taps before 0210 — read by the clock. */
+  kind?: TapKind | null;
   /** The import type { ScheduleShape } from "./schedule-rules";
 import that brought it in, so a re-upload is a no-op rather than a
    *  second day. */
@@ -165,6 +168,34 @@ export const SLOT_LABELS: Record<ScanSlot, Message> = {
   ot_end: { en: "Overtime end", id: "Lembur selesai" },
 };
 export const SLOT_LABEL = bilingual(SLOT_LABELS);
+
+/** What a tap from the phone says it is (D367, `attendance_scans.kind`).
+ *
+ *  The six slots, plus leaving the office and coming back. A tap that says a
+ *  slot fills it in the reading; the clock places only the taps that say
+ *  nothing (the machine's, HRD's, old phone taps). Keluar / kembali kantor
+ *  are not slots: the reading leaves them out and says them as a note, and
+ *  the time is not deducted. */
+export const TAP_KINDS = [...SCAN_SLOTS, "away_out", "away_back"] as const;
+export type TapKind = (typeof TAP_KINDS)[number];
+
+/** The words on the buttons, and on the tap wherever it is listed. Same as
+ *  `ops_hr.tap_kind_label` (0210). */
+export const TAP_KIND_LABELS: Record<TapKind, Message> = {
+  in: { en: "Clock in", id: "Masuk" },
+  break_out: { en: "Start break", id: "Mulai istirahat" },
+  break_in: { en: "End break", id: "Selesai istirahat" },
+  out: { en: "Clock out", id: "Pulang" },
+  ot_start: { en: "Start overtime", id: "Mulai lembur" },
+  ot_end: { en: "End overtime", id: "Selesai lembur" },
+  away_out: { en: "Leave the office", id: "Keluar kantor" },
+  away_back: { en: "Back at the office", id: "Kembali ke kantor" },
+};
+export const TAP_KIND_LABEL = bilingual(TAP_KIND_LABELS);
+
+export function isAwayTap(kind: TapKind | null | undefined): boolean {
+  return kind === "away_out" || kind === "away_back";
+}
 
 /** What HRD says about a day, when the machine alone cannot say it.
  *
@@ -263,6 +294,8 @@ export interface TimesheetDay {
   /** Every tap, in order. The reading is derived; the taps are the record. */
   scans: {
     at: string; verify: string; slot: ScanSlot | null; source: ScanSource;
+    /** What the person said it was (D367); null when it says only when. */
+    kind?: TapKind | null;
     /** Where it was made — the warehouse for the reader, the reading for a
      *  phone, the reason for one typed in (D344). */
     where?: TapWhere;
@@ -2251,6 +2284,8 @@ export interface TapSelfResult {
   work_date: string;
   /** The tap's public code: `B-1841/2026-09-29T07:25:03.000000` (office clock). */
   tap_no: string;
+  /** What the tap said it was (D367). */
+  kind: TapKind | null;
   location: LocationJudgement;
 }
 
@@ -2294,6 +2329,8 @@ export interface LocatedTapView {
   /** Drive's own link for the photo, when the live upload recorded one. */
   photo_link: string | null;
   photo_filename: string | null;
+  /** What the tap said it was (D367). */
+  kind: TapKind | null;
 }
 
 /** The weekday a week starts on when the rule book does not say: **Jumat**

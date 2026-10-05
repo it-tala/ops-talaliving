@@ -49,7 +49,7 @@ import type {
   LeaveKind, LeaveStatus, LeaveRequestView, LeaveBalance,
   TaskStatus, TaskRefKind, TaskView, TaskCadence, TaskRoutineView,
   Sex, Education, Citizenship, MaritalStatus, EmployeeIdentityView, WlkpRecap,
-  TapReading, TapSelfResult, LocationJudgement, WorkSite, LocatedTapView,
+  TapReading, TapSelfResult, LocationJudgement, WorkSite, LocatedTapView, TapKind,
   EmployeeAccount, ScanImportResult,
 } from "@/services/hr/contracts";
 import {
@@ -1201,6 +1201,7 @@ interface DayRow {
 interface ScanRow {
   id: string; employee_id: string; work_date: string; at: string;
   verify: string | null; source: ScanSource; reason: string | null;
+  kind: TapKind | null;
 }
 
 /** Which slot a tap was placed in. **Read off the reading, not worked out
@@ -1252,7 +1253,7 @@ function buildDay(
     scans: mine
       .sort((a, b) => a.at.localeCompare(b.at))
       .map((s) => ({
-        at: s.at, verify: s.verify ?? "", slot: slotOf(row, s.at), source: s.source,
+        at: s.at, verify: s.verify ?? "", slot: slotOf(row, s.at), source: s.source, kind: s.kind ?? null,
         where: tapWhere(s.source, s.reason, readings.get(s.id) ?? null, sites),
       })),
     slots,
@@ -1290,7 +1291,7 @@ async function readDays(
       db()
         /* One calendar day past the range: the last day's window can reach
            into the next morning for somebody on a night (D330). */
-        .from("attendance_scans").select("id,employee_id,work_date,at,verify,source,reason")
+        .from("attendance_scans").select("id,employee_id,work_date,at,verify,source,reason,kind")
         .gte("work_date", from).lte("work_date", nextOfficeDay(to)),
       db()
         .from("day_marks").select("id,employee_id,work_date,kind,reason,marked_by,marked_at")
@@ -1413,9 +1414,11 @@ export async function myProfile(): Promise<Result<Employee | null>> {
 }
 
 /** Presensi dari akun sendiri — a tap with a different machine behind it
- *  (0164). Not "clock in" or "clock out": a tap is a tap, and which slot it
- *  fills is a reading of the whole day, computed the same way whether the
- *  door's own reader produced it or a phone did (D141).
+ *  (0164). Since `0210` (D367) it may say what it is — masuk, mulai/selesai
+ *  istirahat, pulang, mulai/selesai lembur, keluar/kembali kantor — and a tap
+ *  that says a slot fills it in `read_day`; without `kind` it says only when
+ *  and the reading places it by the clock (D141). Keluar kantor needs a note
+ *  (`away_needs_note`, answered the same way as an off-site tap).
  *
  *  Since `0188` (D332) it carries where the phone was, read once at the tap.
  *  The database judges the reading against the warehouse; an off-site tap
@@ -1423,7 +1426,7 @@ export async function myProfile(): Promise<Result<Employee | null>> {
  *  `error.detail`, and the same call with a note (and optionally a photo
  *  already uploaded as `Foto Presensi`) writes it, flagged. */
 export async function tapSelf(
-  input: Partial<TapReading> & { note?: string | null; photo_id?: string | null } = {},
+  input: Partial<TapReading> & { note?: string | null; photo_id?: string | null; kind?: TapKind | null } = {},
   idempotencyKey?: string,
 ): Promise<Result<TapSelfResult>> {
   const { data, error } = await db().rpc("tap_self", {
@@ -1433,6 +1436,7 @@ export async function tapSelf(
     p_note: input.note ?? null,
     p_photo_id: input.photo_id ?? null,
     p_key: idempotencyKey ?? null,
+    p_kind: input.kind ?? null,
   });
   return fromSeam<TapSelfResult>(SERVICE, data, error);
 }

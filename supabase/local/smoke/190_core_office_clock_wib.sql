@@ -171,9 +171,9 @@ begin
   -- back as an overload PostgREST cannot choose between.
   assert (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
            where n.nspname = 'ops_hr' and p.proname = 'tap_self') = 1, 'tap_self has an overload';
-  assert not has_function_privilege('public','ops_hr.tap_self(double precision,double precision,double precision,text,uuid,text)','execute'),
+  assert not has_function_privilege('public','ops_hr.tap_self(double precision,double precision,double precision,text,uuid,text,text)','execute'),
     'tap_self() opened to PUBLIC';
-  assert has_function_privilege('authenticated','ops_hr.tap_self(double precision,double precision,double precision,text,uuid,text)','execute'),
+  assert has_function_privilege('authenticated','ops_hr.tap_self(double precision,double precision,double precision,text,uuid,text,text)','execute'),
     'authenticated cannot tap';
   assert not has_function_privilege('public','ops_hr.update_task(text,text,text,text,date)','execute'),
     'update_task() opened to PUBLIC';

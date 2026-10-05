@@ -24,6 +24,7 @@ import { useTr } from "@/lib/i18n";
 import { OvertimeForm } from "../saya/overtime-form";
 import { OvertimeAskDetails, useOvertimeStatus } from "../saya/overtime-ask";
 import { useDayLabel } from "../saya/shared";
+import { tapActionsFor } from "../saya/presensi";
 
 /** The profile every account owns (W7) — a different object from every other
  *  screen in this system, because it is the one screen where "which rows may
@@ -199,14 +200,27 @@ function AttendanceTab({ me }: { me: ReturnType<typeof useLoad<Awaited<ReturnTyp
       <CardHeader
         title={tr("Attendance", "Presensi")}
         subtitle={tr(
-          "A tap from this session itself, not from the machine at the door — one tap like any other. Whether it is arrival or departure is decided by reading the day, not by the button.",
-          "Tap dari sesi ini sendiri, bukan dari mesin di pintu — satu tap seperti tap lainnya. Yang menentukan masuk atau pulang adalah bacaan hari itu, bukan tombolnya.",
+          "A tap from this session itself, not from the machine at the door. Each button says what the tap is — clock in, break, out of the office, clock out, overtime.",
+          "Tap dari sesi ini sendiri, bukan dari mesin di pintu. Setiap tombol menyebut jenis tapnya — masuk, istirahat, keluar kantor, pulang, lembur.",
         )}
         icon={Fingerprint}
       />
       {/* D332: the tap reads the phone's location once and is judged against
           the warehouse. `/saya` takes this component when D331 lands. */}
-      <LocatedTap className="border-b border-slate-100 px-5 pb-4 pt-1" onTapped={() => reloadDays()} />
+      {(() => {
+        /* D367: the same buttons as `/saya` — each tap says what it is. */
+        const today = days.status === "ready" ? days.data.find((d) => d.work_date === officeToday()) : undefined;
+        const { primary, secondary, more } = tapActionsFor(today);
+        return (
+          <LocatedTap
+            className="border-b border-slate-100 px-5 pb-4 pt-1"
+            primary={primary} secondary={secondary} more={more}
+            idle={<p className="py-3 text-center text-[14px] text-slate-500">{tr("Done for today.", "Selesai untuk hari ini.")}</p>}
+            disabled={days.status === "loading"}
+            onTapped={() => reloadDays()}
+          />
+        );
+      })()}
       <Loaded state={days} onRetry={reloadDays}>
         {(rows) => (
           <ul className="divide-y divide-slate-100">

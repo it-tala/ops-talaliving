@@ -26,7 +26,7 @@ import type {
 import {
   ADJUSTMENT_LABEL, DAY_MARK_SHORT, PAY_WEEK_STARTS_DEFAULT,
   EMPLOYEE_DOC_CHECKLIST, EMPLOYEE_DOC_LABEL, SENSITIVE_DOC_KINDS, DOC_NO_DIGITS, maskDocNo,
-  SCHEME_LABEL, COMPUTED_SCHEMES,
+  SCHEME_LABEL, COMPUTED_SCHEMES, isAwayTap,
 } from "@/services/hr/contracts";
 import {
   scheduleHoursOf, isOvernight, dayBoundaryMinutes, shiftMinutes, nextOfficeDay, scheduleDay,
@@ -71,23 +71,57 @@ function readingOf(state: DemoState, scanId: string): TapReadingRow | null {
   };
 }
 
-function tapsOf(state: DemoState, employeeId: string, from: string, to: string) {
+function scansIn(state: DemoState, employeeId: string, from: string, to: string) {
   const lo = Date.parse(from);
   const hi = Date.parse(to);
-  const rows = state.attendance_scans
+  return state.attendance_scans
     .filter((r) => {
       if (r.employee_id !== employeeId) return false;
       const at = Date.parse(r.at);
       return at >= lo && at < hi;
     })
-    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+    /* At the same instant, the tap that says what it is comes first. */
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || Number(!a.kind) - Number(!b.kind));
+}
+
+/** The taps the reading reads. Keluar / kembali kantor are not among them
+ *  (D367); when the reader and the phone took the same moment, the one tap
+ *  keeps what the phone said it was; two taps that say different things are
+ *  two taps, however close. */
+function tapsOf(state: DemoState, employeeId: string, from: string, to: string) {
+  const rows = scansIn(state, employeeId, from, to).filter((r) => !isAwayTap(r.kind));
   const kept: typeof rows = [];
   for (const r of rows) {
     const last = kept[kept.length - 1];
-    if (last && Math.abs(Date.parse(r.at) - Date.parse(last.at)) < 120_000) continue;
+    const differ = !!r.kind && !!last?.kind && r.kind !== last.kind;
+    if (last && !differ && Math.abs(Date.parse(r.at) - Date.parse(last.at)) < 120_000) {
+      if (r.kind && !last.kind) kept[kept.length - 1] = { ...last, kind: r.kind };
+      continue;
+    }
     kept.push(r);
   }
   return kept;
+}
+
+/** Time out of the office, said and never deducted (D367). Transcribes the
+ *  note `ops_hr.read_day` writes (0210). */
+function awayNotes(away: { at: string; kind?: string | null }[]): string[] {
+  const notes: string[] = [];
+  let out: string | null = null;
+  for (const a of away) {
+    if (a.kind === "away_out") {
+      if (out) notes.push(`Keluar kantor ${hhmm(out)}, tanpa tap kembali`);
+      out = a.at;
+    } else if (!out) {
+      notes.push(`Kembali ke kantor ${hhmm(a.at)}, tanpa tap keluar`);
+    } else {
+      const mins = Math.round((Date.parse(a.at) - Date.parse(out)) / 60_000);
+      notes.push(`Di luar kantor ${hhmm(out)}–${hhmm(a.at)} (${mins} menit)`);
+      out = null;
+    }
+  }
+  if (out) notes.push(`Keluar kantor ${hhmm(out)}, belum kembali`);
+  return notes;
 }
 
 /** The instant a working day begins for this person, as an office-clock ISO string:
@@ -259,7 +293,9 @@ export function timesheetDay(
         state.attendance_scans
           .filter((s) => s.employee_id === employee.id
             && s.work_date >= addDayKey(workDate, -SHIFT_LOOKBACK_DAYS)
-            && s.work_date <= addDayKey(workDate, SHIFT_LOOKAHEAD_DAYS))
+            && s.work_date <= addDayKey(workDate, SHIFT_LOOKAHEAD_DAYS)
+            /* Leaving the office and coming back is neither end of a shift (D367). */
+            && !isAwayTap(s.kind))
           .map((s) => ({ id: s.id, at: s.at })),
         (state.shift_picks ?? []).filter((p) => p.employee_id === employee.id),
         workDate,
@@ -288,6 +324,7 @@ export function timesheetDay(
 
   const rest = [...taps];
   const take = (slot: ScanSlot, pick: (t: typeof taps[number]) => boolean) => {
+    if (slots[slot] !== undefined) return false;
     const i = rest.findIndex(pick);
     if (i === -1) return false;
     slots[slot] = rest[i].at;
@@ -315,6 +352,23 @@ export function timesheetDay(
     scheduled_hours = Math.max((sr.end - sr.start) / 60_000 - shiftBreak, 0) / 60;
   }
 
+  /* 0210 (D367): a tap that says what it is fills its own slot — the first of
+     each kind; a second of the same kind is left over. The clock places only
+     the taps that say nothing, into the slots still empty. The shift reading
+     pairs by the clock and is left as it is. */
+  const extra: typeof taps = [];
+  if (!sr) {
+    for (const t of taps) {
+      if (!t.kind || isAwayTap(t.kind)) continue;
+      const k = t.kind as ScanSlot;
+      if (slots[k] === undefined) { slots[k] = t.at; assigned.set(t.id, k); } else extra.push(t);
+      rest.splice(rest.indexOf(t), 1);
+    }
+  }
+  const saidOt = slots.ot_start !== undefined || slots.ot_end !== undefined;
+  const after = (t: { at: string }, iso: string | undefined) => !iso || Date.parse(t.at) > Date.parse(iso);
+  const before = (t: { at: string }, iso: string | undefined) => !iso || Date.parse(t.at) < Date.parse(iso);
+
   if (sr && taps.length > 0) {
     /* Masuk and pulang are the taps the shift reading paired (D364). */
     if (sr.in) take("in", (t) => Date.parse(t.at) === Date.parse(sr.in!.at));
@@ -322,19 +376,23 @@ export function timesheetDay(
     rest.length = 0;
   } else if (taps.length > 0 && inOut) {
     take("in", () => true);
+    /* With every tap saying what it is and none saying masuk, the first tap
+       of all stands for it, as it always has. */
+    if (slots.in === undefined) slots.in = taps[0].at;
     /* Pulang is the last tap, whenever it is; one tap has none. The break
        taps are placed for the screen only. */
-    const last = taps.length > 1 ? taps[taps.length - 1] : null;
+    const last = rest.filter((t) => after(t, slots.in)).pop() ?? null;
     if (last) take("out", (t) => t.id === last.id);
-    take("break_out", (t) => minutes(t.at) >= 11 * 60 && minutes(t.at) < 13 * 60 + 30);
-    take("break_in", (t) => minutes(t.at) >= 11 * 60 + 30 && minutes(t.at) < 14 * 60 + 30);
+    take("break_out", (t) => after(t, slots.in) && minutes(t.at) >= 11 * 60 && minutes(t.at) < 13 * 60 + 30);
+    take("break_in", (t) => after(t, slots.in) && after(t, slots.break_out)
+      && minutes(t.at) >= 11 * 60 + 30 && minutes(t.at) < 14 * 60 + 30);
     rest.length = 0;
   } else if (taps.length > 0 && !overnight) {
     take("in", () => true);
     /* The middle of the day: out to eat, back from eating. */
     take("break_out", (t) => minutes(t.at) >= 11 * 60 && minutes(t.at) < 13 * 60 + 30);
     take("break_in", (t) => minutes(t.at) >= 11 * 60 + 30 && minutes(t.at) < 14 * 60 + 30);
-    take("out", (t) => minutes(t.at) >= 14 * 60 + 30);
+    take("out", (t) => minutes(t.at) >= 14 * 60 + 30 && before(t, slots.ot_start));
   } else if (taps.length > 0 && sc) {
     /* The night, read against its own clock (D330). Pulang is the first tap in
        the last stretch of the shift — its final three hours, or its second
@@ -347,12 +405,15 @@ export function timesheetDay(
       - Math.min(180, Math.floor(span / 2)) * 60_000;
     take("in", () => true);
     take("break_out", (t) => Date.parse(t.at) < outFrom);
-    take("break_in", (t) => Date.parse(t.at) < outFrom);
-    take("out", (t) => Date.parse(t.at) >= outFrom);
+    take("break_in", (t) => Date.parse(t.at) < outFrom && after(t, slots.break_out));
+    take("out", (t) => Date.parse(t.at) >= outFrom && before(t, slots.ot_start));
   }
   if (taps.length > 0 && !inOut && !sr) {
     take("ot_start", (t) => slots.out !== undefined && Date.parse(t.at) > Date.parse(slots.out!));
     take("ot_end", (t) => slots.ot_start !== undefined && Date.parse(t.at) > Date.parse(slots.ot_start!));
+    /* A second tap of a kind already filled is left over like any other. */
+    rest.push(...extra);
+    rest.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
   }
 
   const worked = (a?: string, b?: string) =>
@@ -411,7 +472,12 @@ export function timesheetDay(
       const endAt = at(eMin);
       const to = outAt ?? endAt;
       work_hours = round(Math.max((Math.min(to, endAt) - Math.max(inAt, startAt)) / 60_000 - bMin, 0)) / 60;
-      if (outAt != null && outAt > endAt) overtime_hours = round((outAt - endAt) / 60_000) / 60;
+      if (saidOt) {
+        /* The lembur the person tapped (D367) — still never paid from here. */
+        overtime_hours = slots.ot_start && slots.ot_end
+          ? round(Math.max((Date.parse(slots.ot_end) - Date.parse(slots.ot_start)) / 60_000, 0)) / 60
+          : 0;
+      } else if (outAt != null && outAt > endAt) overtime_hours = round((outAt - endAt) / 60_000) / 60;
       const quota = round(scheduled_hours * 60) / 60;
       if (outAt == null) issues.push("Tidak ada tap pulang — tap datang dan pulang wajib");
       else if (work_hours < quota - 1e-9) {
@@ -421,7 +487,11 @@ export function timesheetDay(
       work_hours = round(Math.max(((outAt ?? inAt) - inAt) / 60_000 - bMin, 0)) / 60;
       if (outAt == null) issues.push("Tidak ada tap pulang — tap datang dan pulang wajib");
     }
+    if (slots.ot_start && !slots.ot_end) {
+      notes.push(`Mulai lembur ${hhmm(slots.ot_start)}, belum ada tap selesai lembur`);
+    }
   } else if (taps.length > 0) {
+    if (!slots.in) issues.push("Tidak ada tap masuk");
     if (!slots.out) issues.push("No pulang — the day has no end");
     /* A guard on post does not go out to eat, so a night with no break taps at
        all is a whole night, not an incomplete one. Half a break is still half
@@ -444,6 +514,10 @@ export function timesheetDay(
     }
     if (slots.ot_start && !slots.ot_end) issues.push("Lembur started and never finished");
   }
+
+  /* Keluar / kembali kantor: said, not read, not deducted (D367). */
+  const away = scansIn(state, employee.id, window_from, window_to).filter((r) => isAwayTap(r.kind));
+  notes.push(...awayNotes(away));
 
   let day_value = 0;
   let state_: DayState;
@@ -483,10 +557,12 @@ export function timesheetDay(
     employee_no: employee.employee_no,
     full_name: employee.full_name,
     work_date: workDate,
-    scans: taps.map((t) => ({
-      at: t.at, verify: t.verify, slot: assigned.get(t.id) ?? null, source: t.source,
-      where: tapWhere(t.source, t.reason ?? null, readingOf(state, t.id), state.work_sites),
-    })),
+    scans: [...taps, ...away]
+      .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
+      .map((t) => ({
+        at: t.at, verify: t.verify, slot: assigned.get(t.id) ?? null, source: t.source, kind: t.kind ?? null,
+        where: tapWhere(t.source, t.reason ?? null, readingOf(state, t.id), state.work_sites),
+      })),
     slots,
     state: state_,
     mark,

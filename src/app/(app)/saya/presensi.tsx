@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import { Badge, Card } from "@/components/ui/primitives";
 import { Loaded, useLoad } from "@/components/ui/loaded";
 import { hr } from "@/demo/api";
-import { LocatedTap } from "@/components/attendance/located-tap";
-import type { TimesheetDay } from "@/services/hr/contracts";
+import { LocatedTap, type TapAction } from "@/components/attendance/located-tap";
+import {
+  SLOT_LABEL, TAP_KINDS, TAP_KIND_LABEL, isAwayTap, type TapKind, type TimesheetDay,
+} from "@/services/hr/contracts";
 import { OFFICE_TZ, officeClock, officeDay, officeToday, shiftDay } from "@/lib/office";
 import { formatNumber } from "@/lib/format";
 import { useTr } from "@/lib/i18n";
@@ -17,20 +19,70 @@ function at(v: string | undefined): string | null {
   return v ? officeClock(new Date(v)) : null;
 }
 
-/** What today looks like, read from today's taps — and what the button says.
+/** A day's masuk and pulang, for the list of the last fourteen days.
  *
- *  D307: the tap writes nothing about *masuk* or *pulang*; the button reads
- *  the day first, the way somebody glances at the machine's light. So the
- *  label follows the reading: nothing yet → MASUK; in but not out → PULANG;
- *  out already → one more tap is overtime, and the button says so. Where the
- *  reading has not placed a tap in a slot, the first tap stands for *masuk*,
- *  which is what the reader at the door would show too. */
+ *  Read off the reading's slots. Where the reading has not placed a tap in a
+ *  slot, the first tap stands for *masuk*, which is what the reader at the
+ *  door would show too (D307). Keluar / kembali kantor are neither (D367). */
 export function readToday(day: TimesheetDay | undefined) {
-  const scans = day?.scans ?? [];
+  const scans = (day?.scans ?? []).filter((s) => !isAwayTap(s.kind));
   const inAt = at(day?.slots.in) ?? (scans[0] ? at(scans[0].at) : null);
   const outAt = at(day?.slots.out) ?? (scans.length >= 2 && !day?.slots.in ? at(scans[scans.length - 1]!.at) : null);
-  const next: "masuk" | "pulang" | "lagi" = !inAt ? "masuk" : !outAt ? "pulang" : "lagi";
-  return { inAt, outAt, next, taps: scans.length };
+  return { inAt, outAt, taps: scans.length };
+}
+
+/** Where somebody is in their day, from today's taps in order (D367).
+ *
+ *  Each tap is what it said it was, or — for the reader's taps and old phone
+ *  taps, which say only when — the slot the reading put it in. A tap the
+ *  reading could not place changes nothing, except that the first tap of the
+ *  day stands for masuk (D307). */
+export type DayStage = "none" | "working" | "break" | "away" | "out" | "overtime" | "ot_done";
+
+export function stageOf(day: TimesheetDay | undefined): { stage: DayStage; since: string | null } {
+  let stage: DayStage = "none";
+  let since: string | null = null;
+  for (const s of day?.scans ?? []) {
+    const k: TapKind | null = s.kind ?? s.slot ?? null;
+    const was: DayStage = stage;
+    switch (k) {
+      case "in": stage = "working"; break;
+      case "break_out": stage = "break"; break;
+      case "break_in": stage = "working"; break;
+      case "away_out": stage = "away"; break;
+      case "away_back": stage = stage === "away" || stage === "none" ? "working" : stage; break;
+      case "out": stage = "out"; break;
+      case "ot_start": stage = "overtime"; break;
+      case "ot_end": stage = "ot_done"; break;
+      default: if (stage === "none") stage = "working";
+    }
+    if (stage !== was) since = s.at;
+  }
+  return { stage, since };
+}
+
+/** The taps that make sense next: one large, the rest under it. */
+const NEXT: Record<DayStage, { primary: TapAction | null; secondary: TapAction[] }> = {
+  none: { primary: { kind: "in" }, secondary: [] },
+  working: {
+    primary: { kind: "out", tone: "amber" },
+    secondary: [{ kind: "break_out" }, { kind: "away_out" }],
+  },
+  break: { primary: { kind: "break_in" }, secondary: [] },
+  away: { primary: { kind: "away_back" }, secondary: [{ kind: "out" }] },
+  out: { primary: { kind: "ot_start", tone: "slate" }, secondary: [] },
+  overtime: { primary: { kind: "ot_end", tone: "slate" }, secondary: [] },
+  ot_done: { primary: null, secondary: [] },
+};
+
+/** The buttons for a day: what is due next, and every other kind behind
+ *  *Tap lain*. One answer for `/saya` and `/profil`. */
+export function tapActionsFor(day: TimesheetDay | undefined) {
+  const { stage, since } = stageOf(day);
+  const next = NEXT[stage];
+  const offered = new Set<TapKind>([...(next.primary ? [next.primary.kind] : []), ...next.secondary.map((a) => a.kind)]);
+  const more: TapAction[] = TAP_KINDS.filter((k) => !offered.has(k)).map((kind) => ({ kind }));
+  return { stage, since, primary: next.primary, secondary: next.secondary, more };
 }
 
 export function PresensiTab({ employeeNo }: { employeeNo: string }) {
@@ -51,12 +103,20 @@ export function PresensiTab({ employeeNo }: { employeeNo: string }) {
     [employeeNo, from, today],
   );
   const todayRow = days.status === "ready" ? days.data.find((d) => d.work_date === today) : undefined;
-  const reading = readToday(todayRow);
+  const { stage, since, primary, secondary, more } = tapActionsFor(todayRow);
+  const sinceAt = at(since ?? undefined);
+  const todayTaps = todayRow?.scans ?? [];
 
   const secs = String(new Date(now).getUTCSeconds()).padStart(2, "0");
-  const label = reading.next === "masuk" ? tr("CLOCK IN", "MASUK")
-    : reading.next === "pulang" ? tr("CLOCK OUT", "PULANG")
-    : tr("TAP AGAIN", "TAP LAGI");
+  const stageLine: Record<DayStage, string> = {
+    none: tr("Not in yet", "Belum masuk"),
+    working: tr(`Working since ${sinceAt}`, `Bekerja sejak ${sinceAt}`),
+    break: tr(`On a break since ${sinceAt}`, `Istirahat sejak ${sinceAt}`),
+    away: tr(`Out of the office since ${sinceAt}`, `Di luar kantor sejak ${sinceAt}`),
+    out: tr(`Clocked out ${sinceAt}`, `Pulang ${sinceAt}`),
+    overtime: tr(`On overtime since ${sinceAt}`, `Lembur sejak ${sinceAt}`),
+    ot_done: tr(`Overtime ended ${sinceAt}`, `Lembur selesai ${sinceAt}`),
+  };
 
   return (
     <div className="space-y-4">
@@ -68,30 +128,56 @@ export function PresensiTab({ employeeNo }: { employeeNo: string }) {
         <p className="mt-1 text-[12px] text-slate-400">{OFFICE_TZ.short}</p>
 
         <p className="mt-4 text-[17px] font-medium text-slate-800" data-testid="today-state">
-          {days.status === "loading" ? "…"
-            : reading.outAt ? tr(`Out ${reading.outAt}`, `Pulang ${reading.outAt}`)
-            : reading.inAt ? tr(`In ${reading.inAt}`, `Masuk ${reading.inAt}`)
-            : tr("Not in yet", "Belum masuk")}
+          {days.status === "loading" ? "…" : stageLine[stage]}
         </p>
-        {reading.outAt && reading.inAt && (
-          <p className="text-[13px] text-slate-500">{tr(`In ${reading.inAt}`, `Masuk ${reading.inAt}`)}</p>
-        )}
 
         {/* D332: the tap reads where the phone is, once, at the press, and is
-            judged against the warehouse. Off-site opens the form (location,
-            optional photo, required note) and is recorded and flagged. */}
+            judged against the warehouse. D367: each button says what the tap
+            is — the next one large, the others that make sense now under it,
+            and every other kind behind *Tap lain* for the one somebody forgot.
+            Nothing is refused for its order; the reading says what is missing. */}
         <LocatedTap
           className="mt-5"
           size="lg"
-          label={label}
-          tone={reading.next === "pulang" ? "amber" : "brand"}
+          primary={primary}
+          secondary={secondary}
+          more={more}
+          idle={
+            <p className="rounded-2xl bg-slate-50 px-4 py-5 text-[15px] font-medium text-slate-600">
+              {tr("Done for today.", "Selesai untuk hari ini.")}
+            </p>
+          }
           disabled={days.status === "loading"}
           onTapped={() => reload()}
         />
-        {reading.next === "lagi" && (
+        {(stage === "out" || stage === "overtime") && (
           <p className="mt-2 text-[12px] text-slate-500">
-            {tr("Overtime? Tap when it starts and when it ends.", "Lembur? Tap saat mulai dan saat selesai.")}
+            {tr(
+              "Overtime taps show the hours; pay comes from an approved overtime request (Requests → Overtime).",
+              "Tap lembur mencatat jamnya; bayarannya dari pengajuan lembur yang disetujui (Pengajuan → Lembur).",
+            )}
           </p>
+        )}
+
+        {todayTaps.length > 0 && (
+          <ol className="mt-4 space-y-1 border-t border-slate-100 pt-3 text-left" data-testid="today-taps">
+            {todayTaps.map((t) => {
+              const k = t.kind ?? null;
+              const what = k ? TAP_KIND_LABEL[k] : t.slot ? SLOT_LABEL[t.slot] : tr("Tap", "Tap");
+              return (
+                <li key={t.at} className="flex items-baseline gap-3 text-[14px]">
+                  <span className="w-12 shrink-0 font-mono tabular-nums text-slate-800">{at(t.at)}</span>
+                  <span className="flex-1 text-slate-700">{what}</span>
+                  {!k && <span className="text-[11px] text-slate-400">{t.source === "self" ? tr("phone", "HP") : tr("reader", "mesin")}</span>}
+                </li>
+              );
+            })}
+          </ol>
+        )}
+        {todayRow && todayRow.notes.length > 0 && (
+          <ul className="mt-2 space-y-0.5 text-left text-[12px] text-slate-500" data-testid="today-notes">
+            {todayRow.notes.map((n) => <li key={n}>{n}</li>)}
+          </ul>
         )}
 
       </Card>
