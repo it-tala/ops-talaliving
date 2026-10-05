@@ -154,20 +154,38 @@ begin
     'and the sentence names the run in the way, got ' || coalesce(a -> 'error' ->> 'message','(null)');
 end $$;
 
-/* ── REFUSAL: the table refuses the overlap too ────────────────────────── */
+/* ── REFUSAL: the table refuses paying a person twice ─────────────────── */
 --
 -- Not the seam saying no — the seam is one road and a policy grants the table
 -- directly. If only the function knew the rule, the rule would hold only for
 -- callers who used it.
+--
+-- Since 0211 (D369) the rule is about **a person**: a weekly and a monthly run
+-- may cover the same September, and nobody may be on both. A run inserted
+-- straight into the table over the same days is born with everybody it would
+-- have paid twice written *not included*, the run that pays them named — and
+-- putting one of them back on is refused by the table.
 do $$
-declare failed boolean := false;
+declare failed boolean := false; v_new text; v_old text;
 begin
+  select run_no into v_old from ops_hr.payroll_runs where period_start = '2026-09-14';
+  insert into ops_hr.payroll_runs (period_start, period_end, created_by)
+  values ('2026-09-16','2026-09-20','ffffffff-0000-0000-0000-000000005201')
+  returning run_no into v_new;
+  assert not exists (select 1 from ops_hr.payroll_run_members
+                      where run_no = v_new and included),
+    'everybody on the new run is already paid by the old one';
+  assert (select m.note from ops_hr.payroll_run_members m
+            join ops_hr.employees e on e.id = m.employee_id
+           where m.run_no = v_new and e.employee_no = 'B-0007') like '%' || v_old || '%',
+    'and the row names the run that pays them';
   begin
-    insert into ops_hr.payroll_runs (period_start, period_end, created_by)
-    values ('2026-09-16','2026-09-22','ffffffff-0000-0000-0000-000000005201');
+    update ops_hr.payroll_run_members m set included = true, note = null
+      from ops_hr.employees e
+     where e.id = m.employee_id and m.run_no = v_new and e.employee_no = 'B-0007';
   exception when exclusion_violation then failed := true;
   end;
-  assert failed, 'two runs over one day is refused by the table, not only by the seam';
+  assert failed, 'one person on two runs over one day is refused by the table, not only by the seam';
 end $$;
 
 /* ── REFUSAL and DERIVATION: what people move by hand ──────────────────── */

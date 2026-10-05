@@ -45,6 +45,7 @@ import type {
   ContractView, ContractDetail, ContractClause, ClauseCoverage, ClauseConflict,
   PayRules, PayRuleSetView, TimesheetTotal, EffectiveDaysCalendar,
   PayrollRun, PayrollView, PayrollLine, PayrollAdjustmentView,
+  PayGroup, PayComponents, PayrollRunMember,
   AdjustmentKind, ContributionScheme,
   LeaveKind, LeaveStatus, LeaveRequestView, LeaveBalance,
   TaskStatus, TaskRefKind, TaskView, TaskCadence, TaskRoutineView,
@@ -561,6 +562,10 @@ export async function decideLeave(
 // and a `scheme` into Indonesian. That is presentation, not arithmetic, and
 // keeping it here is why the database does not store the same string twice.
 
+/** Every column `PayrollRun` reads, in one place for the three selects. */
+const RUN_COLUMNS = "id, run_no, period_start, period_end, status, created_at, created_by, "
+  + "approved_at, approved_by, paid_trx_no, note, pay_group, components, components_note";
+
 /** One row of `run_lines`/`period_lines`, with the labels the contract wants
  *  put back on. The shape the database returns is deliberately label-free. */
 function toPayrollLine(row: Record<string, unknown>): PayrollLine {
@@ -579,14 +584,15 @@ function toPayrollLine(row: Record<string, unknown>): PayrollLine {
     days_open: (row.days_open ?? row.open_days) as number,
     adjustments,
     contributions,
+    proration: (row.proration as PayrollLine["proration"] | null) ?? [],
+    components_off: (row.components_off as PayrollLine["components_off"] | null) ?? [],
   };
 }
 
 export async function listPayrollRuns(): Promise<Result<PayrollRun[]>> {
   const { data, error } = await db()
     .from("payroll_runs")
-    .select("id, run_no, period_start, period_end, status, created_at, created_by, "
-          + "approved_at, approved_by, paid_trx_no, note")
+    .select(RUN_COLUMNS)
     .order("period_end", { ascending: false });
   return fromRows<PayrollRun[]>(SERVICE, data as never, error);
 }
@@ -606,12 +612,14 @@ async function periodView(
     ? await db().rpc("run_lines", { p_run_no: run.run_no })
     : await db().rpc("period_lines", {
         p_from: run.period_start, p_to: run.period_end, p_run_no: null,
+        p_group: run.pay_group,
       });
   if (lines.error) return fromRows<PayrollView>(SERVICE, null as never, lines.error);
 
   const totals = await db().rpc("payroll_totals", {
     p_from: run.period_start, p_to: run.period_end,
-    p_run_no: run.run_no === "" ? null : run.run_no,
+    p_run_no: useRunLines ? run.run_no : null,
+    p_group: useRunLines ? null : run.pay_group,
   });
   if (totals.error) return fromRows<PayrollView>(SERVICE, null as never, totals.error);
 
@@ -637,8 +645,7 @@ async function periodView(
 async function runByNo(runNo: string): Promise<PayrollRun | null> {
   const { data } = await db()
     .from("payroll_runs")
-    .select("id, run_no, period_start, period_end, status, created_at, created_by, "
-          + "approved_at, approved_by, paid_trx_no, note")
+    .select(RUN_COLUMNS)
     .eq("run_no", runNo).maybeSingle();
   return (data as PayrollRun | null) ?? null;
 }
@@ -688,17 +695,21 @@ export async function myPayslip(runNo: string): Promise<Result<PayrollLine>> {
  *  make a payslip printable for a run that does not exist.
  */
 export async function previewPayroll(
-  input: { period_start: string; period_end: string },
+  input: { period_start: string; period_end: string; pay_group?: PayGroup },
 ): Promise<Result<PayrollView & { opened: boolean }>> {
   if (input.period_end < input.period_start) {
     return invalid(SERVICE, "period_invalid", "Periodenya berakhir sebelum dimulai.",
                    { field: "period_end" });
   }
+  /* The run for this period **and group** (0211): a weekly run and a monthly
+     run may cover the same days. */
+  const group: PayGroup = input.pay_group ?? "all";
   const { data } = await db()
     .from("payroll_runs")
-    .select("id, run_no, period_start, period_end, status, created_at, created_by, "
-          + "approved_at, approved_by, paid_trx_no, note")
+    .select(RUN_COLUMNS)
     .eq("period_start", input.period_start).eq("period_end", input.period_end)
+    .eq("pay_group", group)
+    .order("created_at", { ascending: false }).limit(1)
     .maybeSingle();
 
   const existing = data as PayrollRun | null;
@@ -707,6 +718,7 @@ export async function previewPayroll(
     period_start: input.period_start, period_end: input.period_end,
     status: "DRAFT", created_at: new Date().toISOString(), created_by: "",
     approved_at: null, approved_by: null, paid_trx_no: null, note: null,
+    pay_group: group, components: {}, components_note: null,
   };
   const res = await periodView(run, existing !== null);
   if (res.error) return res as unknown as Result<PayrollView & { opened: boolean }>;
@@ -714,12 +726,18 @@ export async function previewPayroll(
 }
 
 export async function openPayroll(
-  input: { period_start: string; period_end: string; note?: string | null },
+  input: {
+    period_start: string; period_end: string; note?: string | null;
+    pay_group?: PayGroup; components?: PayComponents; components_note?: string | null;
+  },
   idempotencyKey?: string,
 ): Promise<Result<PayrollView>> {
   const { data, error } = await db().rpc("open_payroll_run", {
     p_period_start: input.period_start, p_period_end: input.period_end,
     p_note: input.note ?? null, p_key: idempotencyKey ?? null,
+    p_group: input.pay_group ?? "all",
+    p_components: input.components ?? {},
+    p_components_note: input.components_note ?? null,
   });
   const opened = fromSeam<{ run_no: string }>(SERVICE, data, error);
   if (opened.error) return opened as unknown as Result<PayrollView>;
@@ -731,6 +749,48 @@ export async function approvePayroll(runNo: string): Promise<Result<PayrollView>
   const done = fromSeam<{ run_no: string }>(SERVICE, data, error);
   if (done.error) return done as unknown as Result<PayrollView>;
   return getPayroll(runNo);
+}
+
+/* ── who is on a run, and what it pays (0211, D369) ──────────────────── */
+
+/** Everybody the run was opened for, on it or not, with their switches. */
+export async function listRunMembers(runNo: string): Promise<Result<PayrollRunMember[]>> {
+  const { data, error } = await db().rpc("run_members", { p_run_no: runNo });
+  return fromRows<PayrollRunMember[]>(SERVICE, data as never, error);
+}
+
+/** Putting somebody on a run or taking them off, and their own switches. A
+ *  sentence is required to take somebody off or switch anything off for them
+ *  — the database refuses without one. */
+export async function setRunMember(
+  input: {
+    run_no: string; employee_no: string; included: boolean;
+    components?: PayComponents; note?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<PayrollRunMember[]>> {
+  const { data, error } = await db().rpc("set_payroll_member", {
+    p_run_no: input.run_no, p_employee_no: input.employee_no,
+    p_included: input.included, p_components: input.components ?? {},
+    p_note: input.note ?? null, p_key: idempotencyKey ?? null,
+  });
+  const done = fromSeam<unknown>(SERVICE, data, error);
+  if (done.error) return done as unknown as Result<PayrollRunMember[]>;
+  return listRunMembers(input.run_no);
+}
+
+/** The run's own switches. */
+export async function setRunComponents(
+  input: { run_no: string; components: PayComponents; note?: string | null },
+  idempotencyKey?: string,
+): Promise<Result<PayrollView>> {
+  const { data, error } = await db().rpc("set_payroll_components", {
+    p_run_no: input.run_no, p_components: input.components,
+    p_note: input.note ?? null, p_key: idempotencyKey ?? null,
+  });
+  const done = fromSeam<unknown>(SERVICE, data, error);
+  if (done.error) return done as unknown as Result<PayrollView>;
+  return getPayroll(input.run_no);
 }
 
 /* ── adjustments ──────────────────────────────────────────────────────── */

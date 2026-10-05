@@ -9102,3 +9102,52 @@ link. A ledger row carries no dollars, so a linked billing shows no real rate.
 once: sequences are not rolled back with the transaction, so a second run
 fails. Assert the shape and the order, never the value. (Found by the file's own
 second run.)
+
+## F219 · 2026-10-05 · A salary was a month whatever the run, and a run was everybody
+
+The owner asked why monthly staff were getting a full salary for a few days'
+work. One line of `payroll_line_for` answered it: `when 'monthly' then
+emp.base_rate`. The pokok of anybody on `pay_basis = 'monthly'` was the month,
+whatever the run's length, the person's start date, or the days HRD had marked
+alpa. In production, `pyr-26-10-01_01` covers 28–30 September (three days) and
+put Rp 30,9 juta of pokok on eleven salaries, including Rp 4.500.000 for
+somebody who starts on 1 October.
+
+The comment above that line said why, and it had been true when it was
+written: *monthly staff are paid the month whatever the machine says*. It was
+a sentence about **taps** (the office does not use the reader, F72), and it was
+read as a sentence about **days**. Both are about not docking a salary for
+missing data, but only one of them means "not docking it for days outside the
+person's employment or the period." So a rule meant to protect a salary from
+the reader also protected it from the calendar. That is F68's shape again: one
+value doing two jobs.
+
+Two things made it worse, and neither was the arithmetic:
+
+- **A run was everybody.** `period_lines` took every employee in the period, so
+  the workshop's weekly run carried the office's salaries, and there was no way
+  to say *this person is not paid in this run*.
+- **Runs could not overlap at all.** `periods_do_not_overlap` (0055) guarded
+  "the same day is never paid twice" at the grain of the calendar. D243 says
+  weekly and monthly payrolls both run. Under the calendar rule, a September
+  monthly run and a September weekly run could not both exist, so in practice
+  everyone landed in one run, salaries included. The rule was right; the grain
+  was wrong. It is about **a person**, and that is where `0211` puts it: a
+  trigger on `payroll_run_members` refuses anybody already on an overlapping
+  run, whichever road the row comes by.
+
+**Rule:** when a comment explains why a figure ignores some input, check which
+input it means. *Whatever the machine says* and *whatever the calendar says*
+are different exemptions, and a salary needs only the first.
+
+**Rule:** a constraint that keeps money from being paid twice belongs on the
+thing that is paid, not on the document that pays it. A run is a document; a
+person is the thing paid.
+
+A smaller one from the build: three old smokes inserted runs straight into
+`payroll_runs`, and run-scoped lines came back empty once a run *was* its
+members. The fix was not to change the smokes but to put the membership in an
+`after insert` trigger, so a run is born with its people whichever road it
+came by (the seam, a direct insert, an import). The members guard lets those
+birth rows in whatever the run's status, and refuses a person's change to
+anything that is not a draft.

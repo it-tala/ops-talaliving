@@ -4,6 +4,7 @@ import type {
   Employee, RosterEntry, AttendanceScan, TimesheetDay, DayMark, DayMarkKind,
   OvertimeSheet, OvertimeLine, OvertimeSheetView, OvertimeKind, OvertimeDecider, SelfOvertimeView,
   PayrollRun, PayrollView, PayrollLine, PayBasis,
+  PayGroup, PayComponents, PayrollRunMember,
   AdjustmentKind, PayrollAdjustmentView,
   PayRules, PayRuleSet, PayRuleSetView, WorkSchedule, ScheduleHours, UnitScheduleDefault,
   EmployeeDocKind, EmployeeFileView, DocNoSource, LeaveBalance, LeaveKind, LeaveRequestView, LeaveStatus,
@@ -20,11 +21,12 @@ import type {
 } from "@/services/hr/contracts";
 import {
   SENSITIVE_DOC_KINDS, SCHEME_LABELS, maskDocNo, clauseValueOk, scheduleProblem, OFF_SITE_VERDICTS,
+  PAY_GROUPS,
 } from "@/services/hr/contracts";
 import { addDayKey } from "@/services/hr/shift-reading";
 import { instantInDay, isOvernight, dayBoundaryMinutes, type ScheduleDay, type ScheduleShift, type ScheduleWeekDay, scheduleWeek } from "@/services/hr/schedule-rules";
 import type { DocKind } from "@/services/documents/contracts";
-import type { DemoState } from "../state";
+import type { DemoState, DemoRunMember } from "../state";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
 import {
   timesheet, timesheetDay, payrollView, overtimeStage, overtimePayable, sheetEvidence,
@@ -33,6 +35,7 @@ import {
   contributionRoll, allRolls,
   taskView, taskViews, taskRoutineView, taskRoutineViews, kpiView, kpiViews, weekdayOf,
   employeeIdentityViews, wlkpRecap,
+  membersOf, groupPeople, paidElsewhere,
 } from "../hr-derive";
 import { latency, actingUser, requireModule, requireLevel, requireAuthority, conflict, replayed, remember } from "./_kit";
 import { OFFICE_TZ, officeClock, officeToday as sharedOfficeToday, officeStamp } from "@/lib/office";
@@ -4136,15 +4139,18 @@ export async function myPayslip(runNo: string): Promise<Result<PayrollLine>> {
  *  number, and the screen says plainly that nothing has been opened yet.
  */
 export async function previewPayroll(
-  input: { period_start: string; period_end: string },
+  input: { period_start: string; period_end: string; pay_group?: PayGroup },
 ): Promise<Result<PayrollView & { opened: boolean }>> {
   await latency();
   if (input.period_end < input.period_start) {
     return invalid(SERVICE, "period_invalid", "The period ends before it starts.", { field: "period_end" });
   }
   const state = getState();
+  /* The run for this period **and group** (0211). */
+  const group: PayGroup = input.pay_group ?? "all";
   const run = state.payroll_runs.find(
-    (r) => r.period_start === input.period_start && r.period_end === input.period_end,
+    (r) => r.period_start === input.period_start && r.period_end === input.period_end
+      && (r.pay_group ?? "all") === group,
   );
   if (run) return ok(SERVICE, { ...payrollView(state, run), opened: true });
 
@@ -4157,7 +4163,7 @@ export async function previewPayroll(
     status: "DRAFT",
     created_at: new Date().toISOString(), created_by: "",
     approved_at: null, approved_by: null, paid_trx_no: null,
-    note: null,
+    note: null, pay_group: group, components: {}, components_note: null,
   };
   return ok(SERVICE, { ...payrollView(state, virtual), opened: false });
 }
@@ -4165,7 +4171,10 @@ export async function previewPayroll(
 /** Opening a run for a period. It computes immediately — there is nothing to
  *  "generate", because the figures are derived from the days (A3). */
 export async function openPayroll(
-  input: { period_start: string; period_end: string; note?: string | null },
+  input: {
+    period_start: string; period_end: string; note?: string | null;
+    pay_group?: PayGroup; components?: PayComponents; components_note?: string | null;
+  },
   idempotencyKey?: string,
 ): Promise<Result<PayrollView>> {
   await latency();
@@ -4178,26 +4187,57 @@ export async function openPayroll(
   if (input.period_end < input.period_start) {
     return invalid(SERVICE, "period_invalid", "The period ends before it starts.", { field: "period_end" });
   }
+  const group: PayGroup = input.pay_group ?? "all";
+  const comps: PayComponents = input.components ?? {};
+  const compsNote = input.components_note?.trim() || null;
+  if (!PAY_GROUPS.includes(group)) {
+    return invalid(SERVICE, "group_invalid", "Kelompoknya mingguan, bulanan, semua, atau pilih sendiri.", { field: "pay_group" });
+  }
+  if (Object.values(comps).some((v) => v === false) && !compsNote) {
+    return invalid(SERVICE, "reason_required", "Komponen yang tidak dibayar di run ini perlu alasan — tercetak di slip.", { field: "components_note" });
+  }
   const state = getState();
+  /* The same group over overlapping days is still refused; across groups
+     the rule is the person's (0211, same as `open_payroll_run`). */
   const clash = state.payroll_runs.find(
-    (r) => r.period_start === input.period_start && r.period_end === input.period_end,
+    (r) => r.period_start <= input.period_end && r.period_end >= input.period_start
+      && group !== "custom" && (r.pay_group ?? "all") === group,
   );
   if (clash) {
-    return conflict(SERVICE, "period_already_run", `${clash.run_no} already covers that period.`);
+    return conflict(SERVICE, "period_overlaps",
+      `${clash.run_no} sudah mencakup ${clash.period_start} sampai ${clash.period_end}. Hari yang sama tidak dibayar dua kali.`);
+  }
+  /* Who it is born with: the group, less anybody another run already pays for
+     one of these days — written off with that run named. */
+  const born = group === "custom" ? [] : groupPeople(state, input.period_start, input.period_end, group)
+    .map((e) => ({ e, other: paidElsewhere(state, e.id, input.period_start, input.period_end, "") }));
+  if (born.length > 0 && born.every((b) => b.other)) {
+    return conflict(SERVICE, "period_overlaps",
+      "Semua orang di kelompok ini sudah dibayar untuk hari-hari itu di run lain. Hari yang sama tidak dibayar dua kali.");
   }
 
   const user = actingUser();
   let runNo = "";
   apply((draft) => {
     runNo = nextDocNumber(draft, "pyr");
+    const now = new Date().toISOString();
     draft.payroll_runs.unshift({
       id: newId("pay"), run_no: runNo,
       period_start: input.period_start, period_end: input.period_end,
       status: "DRAFT",
-      created_at: new Date().toISOString(), created_by: user.id,
+      created_at: now, created_by: user.id,
       approved_at: null, approved_by: null, paid_trx_no: null,
       note: input.note?.trim() || null,
+      pay_group: group, components: comps, components_note: compsNote,
     });
+    draft.payroll_run_members = [
+      ...(draft.payroll_run_members ?? []),
+      ...born.map(({ e, other }) => ({
+        run_no: runNo, employee_id: e.id, included: !other, components: {},
+        note: other ? `Sudah dibayar di ${other.run_no} (${other.period_start} – ${other.period_end})` : null,
+        auto: true, set_by: user.id, set_at: now,
+      })),
+    ];
     writeAudit(draft, {
       service: SERVICE, entity: "payroll", entity_no: runNo,
       action: "open", outcome: "ok", reason: null,
@@ -4207,6 +4247,128 @@ export async function openPayroll(
   const view = await getPayroll(runNo);
   if (view.data) remember(SERVICE, "openPayroll", idempotencyKey, view.data);
   return view;
+}
+
+/* ── who is on a run, and what it pays (0211, D369) ──────────────────── */
+
+function memberView(state: ReturnType<typeof getState>, m: DemoRunMember): PayrollRunMember | null {
+  const e = state.employees.find((x) => x.id === m.employee_id);
+  if (!e) return null;
+  return {
+    employee_id: e.id, employee_no: e.employee_no, full_name: e.full_name,
+    position: e.position, pay_basis: e.pay_basis,
+    included: m.included, components: m.components, note: m.note, auto: m.auto,
+    set_by_name: m.set_by ? state.users.find((u) => u.id === m.set_by)?.full_name ?? null : null,
+    set_at: m.set_at,
+  };
+}
+
+export async function listRunMembers(runNo: string): Promise<Result<PayrollRunMember[]>> {
+  await latency();
+  const state = getState();
+  const run = state.payroll_runs.find((r) => r.run_no === runNo);
+  if (!run) return notFound(SERVICE, "run_not_found", `No payroll run ${runNo}.`);
+  const rows = membersOf(state, run)
+    .map((m) => memberView(state, m))
+    .filter((m): m is PayrollRunMember => m !== null)
+    .sort((a, b) => Number(b.included) - Number(a.included) || a.employee_no.localeCompare(b.employee_no));
+  return ok(SERVICE, rows);
+}
+
+export async function setRunMember(
+  input: {
+    run_no: string; employee_no: string; included: boolean;
+    components?: PayComponents; note?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<PayrollRunMember[]>> {
+  await latency();
+  const cached = replayed<PayrollRunMember[]>(SERVICE, "setRunMember", idempotencyKey);
+  if (cached) return cached;
+  const denied = requireLevel(SERVICE, "payroll", "write");
+  if (denied) return denied;
+
+  const state = getState();
+  const run = state.payroll_runs.find((r) => r.run_no === input.run_no);
+  if (!run) return notFound(SERVICE, "run_not_found", `No payroll run ${input.run_no}.`);
+  if (run.status !== "DRAFT") {
+    return conflict(SERVICE, "run_not_draft",
+      `${run.run_no} sudah ${run.status}. Yang sudah ditandatangani tidak diubah — perubahannya masuk run berikutnya.`);
+  }
+  const emp = state.employees.find((e) => e.employee_no === input.employee_no);
+  if (!emp) return notFound(SERVICE, "not_found", `No employee ${input.employee_no}.`);
+  const comps = input.components ?? {};
+  const note = input.note?.trim() || null;
+  if ((!input.included || Object.values(comps).some((v) => v === false)) && !note) {
+    return invalid(SERVICE, "reason_required",
+      "Mengeluarkan orang dari run, atau tidak membayar satu komponennya, perlu alasan — tercetak di slip.",
+      { field: "note" });
+  }
+  if (input.included) {
+    const other = paidElsewhere(state, emp.id, run.period_start, run.period_end, run.run_no);
+    if (other) {
+      return conflict(SERVICE, "paid_elsewhere",
+        `${emp.full_name} sudah dibayar untuk sebagian hari ini di ${other.run_no}. Keluarkan dari sana dulu — hari yang sama tidak dibayar dua kali.`);
+    }
+  }
+
+  const user = actingUser();
+  /* A run still read as its group gets its rows written first, so the change
+     lands on a list and not on nothing. */
+  const current = membersOf(state, run);
+  apply((draft) => {
+    const others = (draft.payroll_run_members ?? []).filter((m) => m.run_no !== run.run_no);
+    const mine = current.filter((m) => m.employee_id !== emp.id);
+    draft.payroll_run_members = [...others, ...mine, {
+      run_no: run.run_no, employee_id: emp.id, included: input.included,
+      components: comps, note, auto: false, set_by: user.id, set_at: new Date().toISOString(),
+    }];
+    writeAudit(draft, {
+      service: SERVICE, entity: "payroll", entity_no: run.run_no,
+      action: "set_member", outcome: "ok", reason: note,
+      detail: { employee_no: emp.employee_no, included: input.included, components: comps, by: user.email },
+    });
+  });
+  const res = await listRunMembers(run.run_no);
+  if (res.data) remember(SERVICE, "setRunMember", idempotencyKey, res.data);
+  return res;
+}
+
+export async function setRunComponents(
+  input: { run_no: string; components: PayComponents; note?: string | null },
+  idempotencyKey?: string,
+): Promise<Result<PayrollView>> {
+  await latency();
+  const cached = replayed<PayrollView>(SERVICE, "setRunComponents", idempotencyKey);
+  if (cached) return cached;
+  const denied = requireLevel(SERVICE, "payroll", "write");
+  if (denied) return denied;
+
+  const state = getState();
+  const run = state.payroll_runs.find((r) => r.run_no === input.run_no);
+  if (!run) return notFound(SERVICE, "run_not_found", `No payroll run ${input.run_no}.`);
+  if (run.status !== "DRAFT") {
+    return conflict(SERVICE, "run_not_draft", `${run.run_no} sudah ${run.status}. Yang sudah ditandatangani tidak diubah.`);
+  }
+  const note = input.note?.trim() || null;
+  if (Object.values(input.components).some((v) => v === false) && !note) {
+    return invalid(SERVICE, "reason_required", "Komponen yang tidak dibayar di run ini perlu alasan — tercetak di slip.", { field: "note" });
+  }
+  const user = actingUser();
+  apply((draft) => {
+    const row = draft.payroll_runs.find((r) => r.run_no === run.run_no);
+    if (!row) return;
+    row.components = input.components;
+    row.components_note = note;
+    writeAudit(draft, {
+      service: SERVICE, entity: "payroll", entity_no: run.run_no,
+      action: "set_components", outcome: "ok", reason: note,
+      detail: { components: input.components, by: user.email },
+    });
+  });
+  const res = await getPayroll(run.run_no);
+  if (res.data) remember(SERVICE, "setRunComponents", idempotencyKey, res.data);
+  return res;
 }
 
 /** Approving a run.

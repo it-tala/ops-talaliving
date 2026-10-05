@@ -1294,6 +1294,11 @@ export const PAYROLL_RUNS: PayrollRun[] = [
     approved_at: null, approved_by: null,
     paid_trx_no: null,
     note: "Minggu pertama September.",
+    /* Opened before runs had groups, as production's two drafts were (0211):
+       everybody employed in the week. */
+    pay_group: "all",
+    components: {},
+    components_note: null,
   },
 ];
 
