@@ -836,7 +836,7 @@ begin
          goal_id = pl.o_goal, waits_on = pl.o_waits,
          chase_date = p_chase_date,
          -- A chase recorded against the old date or the old person was about
-         -- a different plan; the new one is asked for afresh.
+         -- a different plan — the new one is asked for afresh.
          chased_at = case when v_moved_person or p_chase_date is distinct from t.chase_date
                           then null else chased_at end,
          chased_by = case when v_moved_person or p_chase_date is distinct from t.chase_date

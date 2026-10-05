@@ -9158,3 +9158,15 @@ What the build taught:
   handed over the count, the hotel order vanished from Made's page, and with
   it the view of whether the result Made contributed to ever assembled. A goal now
   stays while the reader has any part in it.
+- **Applying to production: the tool's "destructive statement" check reads
+  comments.** The whole file timed out at 60 s, and so did every later part
+  holding `drop function ops_hr.assign_task` (a real `DROP`, held for the
+  owner's confirmation) — and so did `edit_task`, which drops nothing. The
+  database was never the problem: the same `create function` ran in
+  milliseconds inside a rolled-back probe, and no lock or session was ever
+  waiting. The cause was a comment inside `edit_task`'s `UPDATE … SET` that
+  contained a semicolon (`-- a different plan; the new one …`): a splitter
+  that cuts on `;` sees an `UPDATE` with no `WHERE` and asks for confirmation
+  nobody is there to give. The comment now uses a dash, in the repo file too,
+  so production and the ladder stay md5-identical. Keep semicolons out of
+  comments inside DML in function bodies.
