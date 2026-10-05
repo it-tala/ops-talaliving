@@ -1562,6 +1562,17 @@ erDiagram
         uuid approved_by FK
         text paid_trx_no "the ledger row that paid it"
         text note
+        text pay_group "weekly|monthly|all|custom (0212)"
+        jsonb components "switches off for the run (0212)"
+        text components_note
+    }
+    payroll_run_members {
+        text run_no PK "0212: who a run pays"
+        uuid employee_id PK
+        boolean included "false = another run pays them, or HRD took them off"
+        jsonb components "this person's switches, over the run's"
+        text note "required to take off or switch off"
+        boolean auto "written by opening the run"
     }
     payroll_adjustments {
         uuid id PK
@@ -1596,7 +1607,7 @@ slots are computed, never stored.
 | `overtime_lines` CHECK `wo_no IS NULL OR (stage IS NOT NULL)` | a production line names the stage it advanced (D147) |
 | `employees.paid_leave_days` NOT NULL, default 0 | per person, because length of service and what was agreed at hiring both move it (D144) |
 | `employees` no DELETE | a payslip from March is still a fact in June (A5). `left_on` retires somebody |
-| `payroll_runs` UNIQUE `(period_start, period_end)` | the same week is not run twice by accident |
+| ~~`payroll_runs` UNIQUE `(period_start, period_end)`~~ | dropped in `0212` with `periods_do_not_overlap`: the rule is now per person — `run_member_guard` refuses anybody on two runs that share a day, so a weekly and a monthly run can cover the same September (D370) |
 | `payroll_adjustments.reason` NOT NULL, non-empty | a deduction an employee cannot read is one they cannot dispute (D155) |
 | `payroll_adjustments` CHECK `amount <> 0` | a zero adjustment is a row that says nothing and prints a line on a payslip |
 | `payroll_adjustments` writable only while the run is `DRAFT` | an approved run is a figure somebody signed; moving money inside it afterwards is a new run, not an edit (D155) |

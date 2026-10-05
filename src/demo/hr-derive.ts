@@ -7,7 +7,7 @@
  *  stores only the period, the status and who said yes.
  */
 import { tapWhere, type TapReadingRow } from "@/services/hr/tap-where";
-import type { DemoState } from "./state";
+import type { DemoState, DemoRunMember } from "./state";
 import { settingNumber } from "./settings";
 import { officeClock, officeDay, officeStamp, officeToday } from "@/lib/office";
 import { personWork, workAttribution } from "./production-derive";
@@ -15,6 +15,7 @@ import type {
   Employee, TimesheetDay, DayState, ScanSlot, DayPay, DayMark,
   OvertimeSheet, OvertimeStage, PayrollLine, PayrollView, PayrollRun,
   PayslipDay, AdjustmentKind,
+  PayComponent, PayComponents, PayrollComponentOff, PayrollProration, PayGroup,
   PayRules, PayRuleSet, WorkSchedule, ScheduleHours, OvertimeTier, OvertimePart, HourlyBasis,
   AllowanceWithholding, AllowanceWithholdingView,
   ContributionScheme, ContributionRate, Enrolment, ContributionLine, ContributionRoll,
@@ -27,7 +28,8 @@ import type {
 import {
   ADJUSTMENT_LABEL, DAY_MARK_SHORT, PAY_WEEK_STARTS_DEFAULT,
   EMPLOYEE_DOC_CHECKLIST, EMPLOYEE_DOC_LABEL, SENSITIVE_DOC_KINDS, DOC_NO_DIGITS, maskDocNo,
-  SCHEME_LABEL, COMPUTED_SCHEMES, isAwayTap,
+  SCHEME_LABEL, COMPUTED_SCHEMES,
+  PAY_COMPONENTS, componentOn, inPayGroup, isAwayTap,
 } from "@/services/hr/contracts";
 import {
   scheduleHoursOf, isOvernight, dayBoundaryMinutes, shiftMinutes, nextOfficeDay, scheduleDay,
@@ -730,11 +732,32 @@ export function payrollLine(
   /* Monthly staff are paid the month whatever the machine says; a daily or
      hourly person is paid for what they were here for. That difference is the
      only place `pay_basis` is used, and it is why it exists. */
-  const base_pay = employee.pay_basis === "monthly"
+  const base_full = employee.pay_basis === "monthly"
     ? employee.base_rate
     : employee.pay_basis === "daily"
       ? Math.round(worked_days * employee.base_rate)
       : Math.round(normal_hours * employee.base_rate);
+
+  /* 0212 (D370): the run's switches, and this person's own over them. A
+     period nobody opened has none, and everything is paid. */
+  const run = runNo ? state.payroll_runs.find((r) => r.run_no === runNo) : undefined;
+  const member = run ? membersOf(state, run).find((m) => m.employee_id === employee.id) : undefined;
+  const cRun: PayComponents = run?.components ?? {};
+  const cPerson: PayComponents = member?.components ?? {};
+  const on = (c: PayComponent) => componentOn(cRun, cPerson, c);
+
+  /* 0212 (D370): a salary is the month only when the month was worked —
+     the share of each month's working days, inside employment, less the
+     days HRD marked unpaid (alpa, izin, sakit tanpa surat, cuti di luar
+     jatah; not a half day, Q63). Same rule as `ops_hr.monthly_base`. */
+  const unpaidDates = new Set(days
+    .filter((d) => d.mark && d.mark.kind !== "holiday" && d.day_value === 0)
+    .map((d) => d.work_date));
+  const sched = scheduleFor(rules, employee);
+  const monthly = employee.pay_basis === "monthly"
+    ? monthlyBase(state, rules, sched, employee, from, to, unpaidDates, on("absence"))
+    : null;
+  let base_pay = monthly ? monthly.amount : base_full;
 
   /* What an ordinary hour of this person's time is worth, and then the ladder
      the active rule book says to multiply it by (D173). Both come out of the
@@ -743,7 +766,7 @@ export function payrollLine(
   const rate = hourlyRate(employee, rules);
   const hourly = rate.hourly;
   const overtime_parts = overtimeParts(state, employee, otFrom, otTo, rules, hourly);
-  const overtime_pay = overtime_parts.reduce((s, p) => s + p.amount, 0);
+  let overtime_pay = overtime_parts.reduce((s, p) => s + p.amount, 0);
 
   /* Hours short of the contracted day. Off by default: what a short hour costs
      here has not been stated, and a deduction invented by software reaches
@@ -831,7 +854,7 @@ export function payrollLine(
      a payslip can show what is not being deducted rather than leaving the
      minutes looking free (D174). */
   const late_priced = Math.round((late_minutes / 60) * hourly);
-  const late_deduction = rules.late_mode === "pro_rata" ? late_priced : 0;
+  let late_deduction = rules.late_mode === "pro_rata" ? late_priced : 0;
 
   /* Tunjangan: one day's worth for every day the person was actually here,
      less the days HRD took it off with a reason (D250). Marked days — sakit,
@@ -860,14 +883,17 @@ export function payrollLine(
      tanggal merah are not presence. */
   const earnsAllowance = (d: (typeof days)[number]): boolean =>
     d.mark ? d.mark.kind === "half_day" : d.day_value > 0;
+  /* 0212: never a day before somebody started or after they left. */
+  const employed = (key: string) => key >= employee.joined_on
+    && (employee.left_on === null || key <= employee.left_on);
   const presentDays = employee.pay_basis === "monthly"
-    ? days.filter((d) => (d.mark
+    ? days.filter((d) => employed(d.work_date) && (d.mark
       ? d.mark.kind === "half_day"
       : !isRestDay(state, rules, d.work_date)))
     : days.filter(earnsAllowance);
   const allowance_days = presentDays.filter((d) => !withheldDates.has(d.work_date)).length;
   const allowance_withheld_days = presentDays.filter((d) => withheldDates.has(d.work_date)).length;
-  const allowance_pay = Math.round(allowance_days * employee.allowance_rate);
+  let allowance_pay = Math.round(allowance_days * employee.allowance_rate);
   const allowance_withheld_amount = Math.round(allowance_withheld_days * employee.allowance_rate);
   const nameOf = (id: string) => state.users.find((u) => u.id === id)?.full_name ?? id;
   const allowance_withheld = withheldRows
@@ -899,14 +925,54 @@ export function payrollLine(
     open: d.state === "review",
   }));
 
-  const gross = base_pay + allowance_pay + overtime_pay - under.amount - late_deduction;
+  /* 0212 (D370): the switches. Each component off is zero here, and listed
+     with what it would have been and whose decision it was. */
+  let undertime_amount = under.amount;
+  const components_off: PayrollComponentOff[] = [];
+  for (const c of PAY_COMPONENTS) {
+    if (on(c)) continue;
+    let amount = 0;
+    if (c === "base") { amount = base_pay; base_pay = 0; }
+    if (c === "allowance") { amount = allowance_pay; allowance_pay = 0; }
+    if (c === "overtime") { amount = overtime_pay; overtime_pay = 0; }
+    if (c === "late") { amount = late_deduction; late_deduction = 0; }
+    if (c === "undertime") { amount = undertime_amount; undertime_amount = 0; }
+    if (c === "absence" && monthly) {
+      amount = monthly.amount - monthlyBase(state, rules, sched, employee, from, to, unpaidDates, true).amount;
+    }
+    const personal = cPerson[c] !== undefined;
+    components_off.push({
+      component: c, amount, scope: personal ? "person" : "run",
+      reason: (personal ? member?.note : run?.components_note) ?? "",
+    });
+  }
+
+  const gross = base_pay + allowance_pay + overtime_pay - undertime_amount - late_deduction;
 
   /* The statutory half, and **only where HRD has entered an enrolment** (D259).
      No enrolment, no deduction — the data is the switch, so nobody is short a
      rupiah because software was updated. PPh 21 is never in here: it is
      recorded as an enrolment and not computed (D140). */
-  const contributions = contributionsForPerson(state, employee, from.slice(0, 7));
-  const contribution_total = contributions.reduce((a, c) => a + c.employee, 0);
+  let contributions = contributionsForPerson(state, employee, from.slice(0, 7));
+  let contribution_total = contributions.reduce((a, c) => a + c.employee, 0);
+  if (!on("contributions")) {
+    const off = components_off.find((o) => o.component === "contributions");
+    if (off) off.amount = contribution_total;
+    contributions = [];
+    contribution_total = 0;
+  }
+  if (monthly && base_full !== monthly.amount && monthly.months.length > 0) {
+    warnings.push(`Gaji bulanan diprorata: ${monthly.months.map((m) =>
+      `${m.paid_days} dari ${m.workdays} hari kerja ${m.month}`
+      + (m.outside_days > 0 ? ` (${m.outside_days} hari di luar masa kerja)` : "")
+      + (m.absent_days > 0 ? ` (−${m.absent_days} hari tidak dibayar)` : "")).join("; ")}`);
+  }
+  /* Only what moves money here, or the person's own switch. */
+  const offShown = components_off.filter((o) => o.amount !== 0 || o.scope === "person");
+  if (offShown.length > 0) {
+    warnings.push(`Tidak dibayar/dipotong di run ini: ${offShown.map((o) =>
+      o.component + (o.reason ? ` — ${o.reason}` : "")).join(", ")}`);
+  }
   if (contributions.length === 0 && state.enrolments.some((en) => en.employee_id === employee.id)) {
     warnings.push("Terdaftar di iuran wajib tapi tidak ada tarif yang berlaku untuk periode ini — tidak dipotong apa pun.");
   }
@@ -947,6 +1013,9 @@ export function payrollLine(
     overtime_hours: approvedOt,
     overtime_pending_hours: pendingOt,
     base_pay,
+    base_full,
+    proration: monthly?.months ?? [],
+    components_off,
     allowance_days,
     allowance_pay,
     allowance_withheld_days,
@@ -960,7 +1029,7 @@ export function payrollLine(
     overtime_pay,
     overtime_parts,
     undertime_hours: under.hours,
-    undertime_amount: under.amount,
+    undertime_amount,
     /* Undertime is part of the gross, not an adjustment: it is arithmetic over
        recorded hours under a stated rule, while an adjustment is one person's
        decision about another (D155). */
@@ -1949,12 +2018,98 @@ export function payrollLineWith(
   return payrollLine(state, employee, from, to, "", rules);
 }
 
+/** Employed at some point in the period, in the group (0212): the scope of a
+ *  period nobody opened, and who a run is born with. */
+export function groupPeople(state: DemoState, from: string, to: string, group: PayGroup): Employee[] {
+  return state.employees.filter((e) => e.joined_on <= to
+    && (e.left_on === null || e.left_on >= from)
+    && inPayGroup(e.pay_basis, group));
+}
+
+/** Who a run was opened for, on it or not (0212, D370). A run with no rows —
+ *  a fixture from before runs had people — is read as its group. */
+export function membersOf(state: DemoState, run: PayrollRun): DemoRunMember[] {
+  const rows = (state.payroll_run_members ?? []).filter((m) => m.run_no === run.run_no);
+  if (rows.length > 0 || run.pay_group === "custom") return rows;
+  return groupPeople(state, run.period_start, run.period_end, run.pay_group ?? "all").map((e) => ({
+    run_no: run.run_no, employee_id: e.id, included: true, components: {},
+    note: null, auto: true, set_by: run.created_by || null, set_at: run.created_at,
+  }));
+}
+
+/** The run that already pays somebody for one of these days, if any. */
+export function paidElsewhere(
+  state: DemoState, employeeId: string, from: string, to: string, exceptRun: string,
+): PayrollRun | undefined {
+  return state.payroll_runs.find((r) => r.run_no !== exceptRun
+    && r.period_start <= to && r.period_end >= from
+    && membersOf(state, r).some((m) => m.employee_id === employeeId && m.included));
+}
+
+/** A working day for one person — the same rule as `ops_hr.is_workday_for`:
+ *  not a tanggal merah, and a day their pattern works. A pattern with its own
+ *  weekdays says so (off, or a premium day, is not part of the month); a
+ *  weekday it does not mention is worked; a pattern with none follows the rule
+ *  book's week. */
+export function isWorkdayFor(
+  state: DemoState, rules: PayRules, sc: WorkSchedule | null, date: string,
+): boolean {
+  const closed = state.day_marks.some((m) => m.work_date === date && m.employee_id === null && m.kind === "holiday");
+  if (closed) return false;
+  const days = sc?.days ?? null;
+  const dv = days?.[String(weekdayOf(date))];
+  if (dv) return !dv.off && (dv.pay_multiplier ?? 1) <= 1;
+  if (days && Object.keys(days).length > 0) return true;
+  return !isRestDay(state, rules, date);
+}
+
+/** A salary over a period, month by month — `ops_hr.monthly_base`. */
+export function monthlyBase(
+  state: DemoState, rules: PayRules, sc: WorkSchedule | null, employee: Employee,
+  from: string, to: string, unpaid: Set<string>, absence: boolean,
+): { amount: number; months: PayrollProration[] } {
+  const months: PayrollProration[] = [];
+  let amount = 0;
+  for (let m = `${from.slice(0, 7)}-01`; m <= to; m = addMonth(m)) {
+    const mEnd = addDays(addMonth(m), -1);
+    const s = from > m ? from : m;
+    const e = to < mEnd ? to : mEnd;
+    let workdays = 0; let inPeriod = 0; let outside = 0; let absent = 0;
+    for (let d = m; d <= mEnd; d = addDays(d, 1)) {
+      if (!isWorkdayFor(state, rules, sc, d)) continue;
+      workdays += 1;
+      if (d < s || d > e) continue;
+      inPeriod += 1;
+      if (d < employee.joined_on || (employee.left_on !== null && d > employee.left_on)) outside += 1;
+      else if (absence && unpaid.has(d)) absent += 1;
+    }
+    const paid = inPeriod - outside - absent;
+    const amt = workdays === 0 ? 0
+      : paid === workdays ? Math.round(employee.base_rate)
+        : Math.round((employee.base_rate * paid) / workdays);
+    amount += amt;
+    months.push({
+      month: m.slice(0, 7), workdays, period_days: inPeriod,
+      outside_days: outside, absent_days: absent, paid_days: paid, amount: amt,
+    });
+  }
+  return { amount, months };
+}
+
+function addMonth(key: string): string {
+  const [y, m] = key.split("-").map(Number);
+  return new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
+}
+
 export function payrollView(state: DemoState, run: PayrollRun): PayrollView {
-  /* Anybody employed during the period, including somebody who left inside
-     it — their last week is still owed. */
-  const people = state.employees.filter(
-    (e) => e.joined_on <= run.period_end && (e.left_on === null || e.left_on >= run.period_start),
-  );
+  /* A run is its members (0212); a period nobody opened is everybody employed
+     in it in the group asked for — including somebody who left inside it,
+     because their last week is still owed. */
+  const people = run.run_no
+    ? membersOf(state, run).filter((m) => m.included)
+      .map((m) => state.employees.find((e) => e.id === m.employee_id))
+      .filter((e): e is Employee => e !== undefined)
+    : groupPeople(state, run.period_start, run.period_end, run.pay_group ?? "all");
   const lines = people.map((e) => payrollLine(state, e, run.period_start, run.period_end, run.run_no));
 
   return {

@@ -24,7 +24,7 @@ import type {
   ProductMove, ProductSetting,
 } from "@/services/inventory/contracts";
 import type {
-  Employee, AttendanceScan, WorkSite, LocationVerdict, DayMark, OvertimeSheet, OvertimeLine, PayrollRun,
+  Employee, AttendanceScan, WorkSite, LocationVerdict, DayMark, OvertimeSheet, OvertimeLine, PayrollRun, PayComponents,
   PayrollAdjustment, PayRuleSet, EmployeeDocument, LeaveRequest,
   AllowanceWithholding, ContributionRate, Enrolment, Task,
   EmploymentContract, ContractClause, ClauseChecklistItem, TaskRoutine, Goal,
@@ -110,6 +110,18 @@ export interface DemoShiftPick {
   reason: string | null;
   picked_by: string;
   picked_at: string;
+}
+
+/** One row of `ops_hr.payroll_run_members`. */
+export interface DemoRunMember {
+  run_no: string;
+  employee_id: string;
+  included: boolean;
+  components: PayComponents;
+  note: string | null;
+  auto: boolean;
+  set_by: string | null;
+  set_at: string;
 }
 
 export interface DemoState {
@@ -212,6 +224,9 @@ export interface DemoState {
   overtime_sheets: OvertimeSheet[];
   overtime_lines: OvertimeLine[];
   payroll_runs: PayrollRun[];
+  /** Who each run was opened for, on it or not (0212, D370). Optional so a
+   *  saved demo from before it loads; a run with no rows is read as its group. */
+  payroll_run_members?: DemoRunMember[];
   /** Berkas 201: somebody's own file, and what is missing from it (D177). */
   employee_documents: EmployeeDocument[];
   /* Kontrak kerja, klausulnya, dan daftar poin wajibnya — yang terakhir adalah

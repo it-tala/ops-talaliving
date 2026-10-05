@@ -10,7 +10,9 @@ import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { hr } from "@/demo/api";
 import type { PayrollLine } from "@/services/hr/contracts";
+import { PAY_COMPONENT_LABEL, DEDUCTION_COMPONENTS } from "@/services/hr/contracts";
 import { Adjustments } from "./Adjustments";
+import { Members } from "./Members";
 import { PayRun } from "./PayRun";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
@@ -92,7 +94,39 @@ export default function PayrollRunPage({ params }: { params: Promise<{ run: stri
     },
     {
       key: "base", header: tr("Base", "Pokok"), align: "right",
-      render: (l) => <span className="whitespace-nowrap tabular-nums text-slate-800">{formatIDR(l.base_pay)}</span>,
+      render: (l) => (
+        <div className="whitespace-nowrap text-right">
+          <span className="tabular-nums text-slate-800">{formatIDR(l.base_pay)}</span>
+          {/* A salary less than a month, and why: the working days it is
+              paid for, month by month (0212, D370). */}
+          {l.pay_basis === "monthly" && (l.proration ?? []).some((m) => m.paid_days !== m.workdays) && (
+            <>
+              {(l.proration ?? []).map((m) => (
+                <p key={m.month} className="text-[11px] text-slate-500">
+                  {tr(`${m.paid_days}/${m.workdays} working days ${m.month}`, `${m.paid_days}/${m.workdays} hari kerja ${m.month}`)}
+                </p>
+              ))}
+              {(l.proration ?? []).some((m) => m.absent_days > 0) && (
+                <p className="text-[11px] text-rose-700">
+                  {tr(
+                    `−${(l.proration ?? []).reduce((a, m) => a + m.absent_days, 0)} unpaid day(s)`,
+                    `−${(l.proration ?? []).reduce((a, m) => a + m.absent_days, 0)} hari tidak dibayar`,
+                  )}
+                </p>
+              )}
+            </>
+          )}
+          {/* Components switched off for this line, by the run or for the
+              person, and what they would have been. */}
+          {(l.components_off ?? []).filter((o) => o.amount !== 0 || o.scope === "person").map((o) => (
+            <p key={o.component} className="text-[11px] text-amber-700">
+              {PAY_COMPONENT_LABEL[o.component]}: {DEDUCTION_COMPONENTS.has(o.component)
+                ? tr("not deducted", "tidak dipotong") : tr("not paid", "tidak dibayar")}
+              {o.amount !== 0 ? ` (${formatIDR(Math.abs(o.amount))})` : ""}
+            </p>
+          ))}
+        </div>
+      ),
     },
     {
       key: "allowance", header: tr("Allowance", "Tunjangan"), align: "right",
@@ -188,7 +222,7 @@ export default function PayrollRunPage({ params }: { params: Promise<{ run: stri
             <PageHeader
               breadcrumb={tr("Payroll", "Penggajian")}
               title={d.run_no}
-              description={tr(`${d.period_start} → ${d.period_end} · ${d.lines.length} people`, `${d.period_start} → ${d.period_end} · ${d.lines.length} orang`)}
+              description={tr(`${d.period_start} → ${d.period_end} · ${d.lines.length} people on this run`, `${d.period_start} → ${d.period_end} · ${d.lines.length} orang di run ini`)}
               actions={
                 <div className="flex flex-wrap items-center gap-2">
                   <SourceBadge state={detail} />
@@ -228,7 +262,7 @@ export default function PayrollRunPage({ params }: { params: Promise<{ run: stri
                         `${d.adjustment_total < 0 ? "−" : "+"}${formatIDR(Math.abs(d.adjustment_total))} manual adjustments`,
                         `${d.adjustment_total < 0 ? "−" : "+"}${formatIDR(Math.abs(d.adjustment_total))} penyesuaian tangan`,
                       ), false],
-                  [tr("People", "Orang"), String(d.lines.length), tr("employed during the period", "bekerja selama periode ini"), false],
+                  [tr("People", "Orang"), String(d.lines.length), tr("on this run", "ikut run ini"), false],
                   [tr("Days unread", "Hari belum dibaca"), String(d.open_days), d.open_days > 0
                     ? tr("must be read before approval", "harus dibaca sebelum disetujui")
                     : tr("every day has been read", "semua hari sudah dibaca"), d.open_days > 0],
@@ -287,6 +321,13 @@ export default function PayrollRunPage({ params }: { params: Promise<{ run: stri
             )}
 
             <PayRun run={d} onPosted={reload} />
+
+            <Members
+              key={`${d.run_no}:${JSON.stringify(d.components ?? {})}:${d.components_note ?? ""}`}
+              run={d}
+              editable={d.status === "DRAFT"}
+              onChanged={reload}
+            />
 
             <Adjustments
               runNo={d.run_no}

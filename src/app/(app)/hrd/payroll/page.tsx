@@ -8,10 +8,11 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { formatIDR } from "@/lib/format";
 import { hr } from "@/demo/api";
-import type { PayrollRun } from "@/services/hr/contracts";
+import type { PayGroup, PayrollRun } from "@/services/hr/contracts";
+import { PAY_GROUPS, PAY_GROUP_LABELS } from "@/services/hr/contracts";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
-import { useTr } from "@/lib/i18n";
+import { useTr, useLang } from "@/lib/i18n";
 
 /** Payroll runs, and the one thing this screen refuses to pretend.
  *
@@ -28,6 +29,10 @@ export default function PayrollPage() {
   const [runs, reload] = useLoad(() => hr.listPayrollRuns(), []);
   const [from, setFrom] = useState("2026-09-07");
   const [to, setTo] = useState("2026-09-11");
+  /* Who the run is for (0212, D370): opening it writes its people, and HRD
+     takes them off or puts them on from the run's own page. */
+  const [group, setGroup] = useState<PayGroup>("monthly");
+  const lang = useLang();
   const [busy, setBusy] = useState(false);
   /* The module has one verb of its own — `run` — and it is the right one:
      opening and approving a payroll are the same permission. */
@@ -35,7 +40,7 @@ export default function PayrollPage() {
 
   async function open() {
     setBusy(true);
-    const res = await hr.openPayroll({ period_start: from, period_end: to });
+    const res = await hr.openPayroll({ period_start: from, period_end: to, pay_group: group });
     setBusy(false);
     if (res.error) {
       toast(res.error.status === 409 ? "warning" : "critical", tr("Not opened", "Tidak dibuka"), res.error.message);
@@ -46,7 +51,7 @@ export default function PayrollPage() {
       tr(`${res.data.run_no} opened`, `${res.data.run_no} dibuka`),
       tr(`${res.data.lines.length} people · ${formatIDR(res.data.gross_total)} gross`, `${res.data.lines.length} orang · ${formatIDR(res.data.gross_total)} bruto`),
     );
-    reload();
+    window.location.href = `/hrd/payroll/${encodeURIComponent(res.data.run_no)}`;
   }
 
   const columns: Column<PayrollRun>[] = [
@@ -57,6 +62,14 @@ export default function PayrollPage() {
           <p className="font-mono text-[13px] font-medium text-slate-800">{r.run_no}</p>
           <p className="text-[11px] text-slate-500">{r.period_start} → {r.period_end}</p>
         </div>
+      ),
+    },
+    {
+      key: "group", header: tr("For", "Untuk"),
+      render: (r) => (
+        <span className="whitespace-nowrap text-[12px] text-slate-600">
+          {PAY_GROUP_LABELS[r.pay_group ?? "all"][lang]}
+        </span>
       ),
     },
     {
@@ -103,13 +116,22 @@ export default function PayrollPage() {
             className="mt-1 h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
           />
         </div>
+        <div>
+          <label htmlFor="p-group" className="block text-xs text-slate-500">{tr("For", "Untuk")}</label>
+          <select
+            id="p-group" value={group} onChange={(e) => setGroup(e.target.value as PayGroup)}
+            className="mt-1 h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none"
+          >
+            {PAY_GROUPS.map((g) => <option key={g} value={g}>{PAY_GROUP_LABELS[g][lang]}</option>)}
+          </select>
+        </div>
         <Button icon={Plus} disabled={busy || !mayRun} onClick={open}>
           {busy ? tr("Opening…", "Membuka…") : tr("Open a run", "Buka periode gaji")}
         </Button>
         <p className="text-[12px] text-slate-500">
           {tr(
-            "Weekly for the workshop, monthly for staff — the period is on the run, not assumed.",
-            "Mingguan untuk workshop, bulanan untuk staff — periodenya tercatat di run, bukan diasumsikan.",
+            "Weekly for day and hourly wages, monthly for salaries. A salary is prorated by working days when the run is shorter than the month, or the person joined or left inside it.",
+            "Mingguan untuk upah harian dan per jam, bulanan untuk gaji. Gaji bulanan diprorata per hari kerja kalau run lebih pendek dari sebulan, atau orangnya masuk/keluar di tengah bulan.",
           )}
         </p>
         {/* The workshop's week is looked at far more often than the list of

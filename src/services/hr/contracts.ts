@@ -1296,6 +1296,108 @@ export interface SelfOvertimeView {
 
 export type PayrollStatus = "DRAFT" | "APPROVED" | "PAID";
 
+/** Who a run is opened for (0212, D370). Weekly is the workshop's day and hour
+ *  wage, monthly the salary; `all` is both, and `custom` starts empty for HRD
+ *  to fill. Opening a run writes its people; HRD then takes them off or puts
+ *  them on. */
+export type PayGroup = "weekly" | "monthly" | "all" | "custom";
+
+export const PAY_GROUPS: PayGroup[] = ["weekly", "monthly", "all", "custom"];
+
+export const PAY_GROUP_LABELS: Record<PayGroup, Message> = {
+  weekly: { en: "Weekly (daily & hourly wages)", id: "Mingguan (upah harian & per jam)" },
+  monthly: { en: "Monthly (salaries)", id: "Bulanan (gaji bulanan)" },
+  all: { en: "Everybody", id: "Semua karyawan" },
+  custom: { en: "Pick people", id: "Pilih sendiri" },
+};
+
+/** Whether a pay basis belongs to a group — the same rule as
+ *  `ops_hr.in_pay_group`. */
+export function inPayGroup(basis: PayBasis, group: PayGroup): boolean {
+  if (group === "all") return true;
+  if (group === "weekly") return basis !== "monthly";
+  if (group === "monthly") return basis === "monthly";
+  return false;
+}
+
+/** The seven things a run can pay or take off, each switchable for the run
+ *  and, over that, for one person (0212, D370). `absence` is the alpa taken
+ *  off a monthly salary; `late`, `undertime` and `contributions` are
+ *  deductions, so switching one off means *not deducted*. */
+export type PayComponent =
+  | "base" | "allowance" | "overtime" | "absence" | "late" | "undertime" | "contributions";
+
+export const PAY_COMPONENTS: PayComponent[] =
+  ["base", "allowance", "overtime", "absence", "late", "undertime", "contributions"];
+
+/** Deductions: off means the money is *not taken*, rather than *not paid*. */
+export const DEDUCTION_COMPONENTS: ReadonlySet<PayComponent> =
+  new Set<PayComponent>(["absence", "late", "undertime", "contributions"]);
+
+export const PAY_COMPONENT_LABELS: Record<PayComponent, Message> = {
+  base: { en: "Base pay", id: "Gaji pokok / upah" },
+  allowance: { en: "Allowance", id: "Tunjangan" },
+  overtime: { en: "Overtime", id: "Lembur" },
+  absence: { en: "Alpa deduction (monthly)", id: "Potongan alpa (bulanan)" },
+  late: { en: "Lateness deduction", id: "Potongan terlambat" },
+  undertime: { en: "Short-hours deduction", id: "Potongan jam kurang" },
+  contributions: { en: "BPJS (employee share)", id: "BPJS (bagian karyawan)" },
+};
+export const PAY_COMPONENT_LABEL = bilingual(PAY_COMPONENT_LABELS);
+
+/** `{ overtime: false }` — a key that is absent is on. */
+export type PayComponents = Partial<Record<PayComponent, boolean>>;
+
+/** Is a component paid, for a run's switches and a person's over them. */
+export function componentOn(run: PayComponents, person: PayComponents, c: PayComponent): boolean {
+  return person[c] ?? run[c] ?? true;
+}
+
+/** Somebody a run was opened for, on it or not (0212, D370). */
+export interface PayrollRunMember {
+  employee_id: string;
+  employee_no: string;
+  full_name: string;
+  position: string;
+  pay_basis: PayBasis;
+  /** Paid by this run. `false` is somebody the group would have put here and
+   *  who is not — another run already pays them, or HRD took them off. */
+  included: boolean;
+  /** This person's switches, over the run's. */
+  components: PayComponents;
+  /** Why they are off, or why a component is — printed on the slip. */
+  note: string | null;
+  /** Written by opening the run rather than decided by a person. */
+  auto: boolean;
+  set_by_name: string | null;
+  set_at: string;
+}
+
+/** One month of a salary's proration: `amount = base × paid ÷ workdays`. */
+export interface PayrollProration {
+  /** `YYYY-MM`. */
+  month: string;
+  /** The month's working days for this person's pattern, holidays out. */
+  workdays: number;
+  /** Of them, inside the period. */
+  period_days: number;
+  /** Before they started or after they left. */
+  outside_days: number;
+  /** Marked unpaid by HRD — alpa, izin, sakit tanpa surat, cuti di luar jatah. */
+  absent_days: number;
+  paid_days: number;
+  amount: number;
+}
+
+/** A component switched off on one line, and what it would have been. */
+export interface PayrollComponentOff {
+  component: PayComponent;
+  /** For a pay component, what is not paid; for a deduction, what is not taken. */
+  amount: number;
+  scope: "run" | "person";
+  reason: string;
+}
+
 export interface PayrollRun {
   id: string;
   run_no: string;
@@ -1311,6 +1413,12 @@ export interface PayrollRun {
   /** The ledger row that paid it, once it has been paid. */
   paid_trx_no: string | null;
   note: string | null;
+  /** Who it was opened for (0212). Runs from before it are `all`. */
+  pay_group: PayGroup;
+  /** The run's switches; a person's own override them. */
+  components: PayComponents;
+  /** Why something is off for the whole run. */
+  components_note: string | null;
 }
 
 /* ── Berkas 201: somebody's own file ──────────────────────────────────────
@@ -2203,6 +2311,14 @@ export interface PayrollLine {
    *  slip: a total that silently contains both is one nobody can check against
    *  what they were told they earn (D250). */
   base_pay: number;
+  /** The pokok before proration and switches: a month's salary, or what the
+   *  days came to (0212). */
+  base_full: number;
+  /** A salary, month by month: why `base_pay` is less than `base_full`. Empty
+   *  for anybody paid by the day or hour. */
+  proration: PayrollProration[];
+  /** Components switched off for this line, by the run or for the person. */
+  components_off: PayrollComponentOff[];
   /** Days that earned the tunjangan — present days, less whatever HRD
    *  withheld. */
   allowance_days: number;

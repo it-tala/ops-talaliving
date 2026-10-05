@@ -6,6 +6,7 @@ import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { hr } from "@/demo/api";
 import type { PayrollLine, PayslipDay } from "@/services/hr/contracts";
+import { PAY_COMPONENT_LABEL, DEDUCTION_COMPONENTS } from "@/services/hr/contracts";
 import { useBrand } from "@/lib/brand";
 import { useTr } from "@/lib/i18n";
 
@@ -281,9 +282,38 @@ function Slip({
                   ].filter(Boolean).join(" · ")}
                 </span>
               )}
+              {/* A salary for less than the month says what it was paid for
+                  (0212, D370): days worked of the month's working days. */}
+              {l.pay_basis === "monthly" && (l.proration ?? []).some((m) => m.paid_days !== m.workdays) && (
+                <span className="block text-[8px] leading-snug text-slate-500">
+                  {formatIDR(l.base_full ?? l.base_rate)} × {(l.proration ?? []).map((m, i) => (
+                    <span key={m.month}>
+                      {i > 0 ? " + " : ""}
+                      {tr(`${m.paid_days}/${m.workdays} working days ${m.month}`, `${m.paid_days}/${m.workdays} hari kerja ${m.month}`)}
+                      {m.outside_days > 0 ? tr(` (${m.outside_days} outside employment)`, ` (${m.outside_days} di luar masa kerja)`) : ""}
+                      {m.absent_days > 0 ? tr(` (−${m.absent_days} unpaid)`, ` (−${m.absent_days} tidak dibayar)`) : ""}
+                    </span>
+                  ))}
+                </span>
+              )}
             </td>
             <td className="py-0.5 text-right tabular-nums">{formatIDR(l.base_pay)}</td>
           </tr>
+          {/* What this run does not pay or deduct for this person, and why —
+              a missing line with no sentence is the one people ask about. */}
+          {(l.components_off ?? []).filter((o) => o.amount !== 0 || o.scope === "person").map((o) => (
+            <tr key={o.component}>
+              <td className="py-0.5 text-slate-500" colSpan={2}>
+                <span className="block text-[8px] leading-snug">
+                  {PAY_COMPONENT_LABEL[o.component]}: {DEDUCTION_COMPONENTS.has(o.component)
+                    ? tr("not deducted in this period", "tidak dipotong di periode ini")
+                    : tr("not paid in this period", "tidak dibayar di periode ini")}
+                  {o.amount !== 0 ? ` (${formatIDR(Math.abs(o.amount))})` : ""}
+                  {o.reason ? ` — ${o.reason}` : ""}
+                </span>
+              </td>
+            </tr>
+          ))}
           {/* Tunjangan is its own line, never folded into the pokok (D250). A
               person knows what they were told they earn; a single total that
               silently contains both is one they cannot check it against. */}

@@ -120,7 +120,9 @@ export default function PayrollWeekPage() {
     window.history.replaceState(null, "", url.toString());
   }, [weekStart]);
   const [view, reload] = useLoad(
-    () => hr.previewPayroll({ period_start: weekStart, period_end: weekEnd }),
+    /* The workshop's week is the day and hour wages (0212, D370): monthly
+       salaries are paid by their own run and are not on this screen. */
+    () => hr.previewPayroll({ period_start: weekStart, period_end: weekEnd, pay_group: "weekly" }),
     [weekStart, weekEnd],
   );
   const [busy, setBusy] = useState(false);
@@ -128,7 +130,7 @@ export default function PayrollWeekPage() {
 
   async function open() {
     setBusy(true);
-    const res = await hr.openPayroll({ period_start: weekStart, period_end: weekEnd });
+    const res = await hr.openPayroll({ period_start: weekStart, period_end: weekEnd, pay_group: "weekly" });
     setBusy(false);
     if (res.error) {
       toast(res.error.status === 409 ? "warning" : "critical", tr("Not opened", "Tidak dibuka"), res.error.message);
@@ -199,8 +201,8 @@ export default function PayrollWeekPage() {
         breadcrumb={tr("HRD · Payroll", "HRD · Penggajian")}
         title={tr("Weekly payroll", "Gajian mingguan")}
         description={tr(
-          "One pay week, starting on the weekday the rule book sets. The figures are computed from attendance and approved overtime each time this screen opens — a week with no run yet can still be seen.",
-          "Satu minggu gaji, mulai hari yang ditetapkan buku aturan. Angkanya dihitung dari absensi dan lembur yang disetujui setiap kali layar ini dibuka — minggu yang belum dibuatkan run pun tetap bisa dilihat.",
+          "One pay week for daily and hourly wages, starting on the weekday the rule book sets. Monthly salaries are paid by their own monthly run. The figures are computed from attendance and approved overtime each time this screen opens — a week with no run yet can still be seen.",
+          "Satu minggu gaji untuk upah harian dan per jam, mulai hari yang ditetapkan buku aturan. Gaji bulanan dibayar lewat run bulanan sendiri. Angkanya dihitung dari absensi dan lembur yang disetujui setiap kali layar ini dibuka — minggu yang belum dibuatkan run pun tetap bisa dilihat.",
         )}
         actions={<SourceBadge state={view} />}
       />
