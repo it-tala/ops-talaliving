@@ -283,7 +283,7 @@ function Slip({
                 </span>
               )}
               {/* A salary for less than the month says what it was paid for
-                  (0211, D369): days worked of the month's working days. */}
+                  (0212, D370): days worked of the month's working days. */}
               {l.pay_basis === "monthly" && (l.proration ?? []).some((m) => m.paid_days !== m.workdays) && (
                 <span className="block text-[8px] leading-snug text-slate-500">
                   {formatIDR(l.base_full ?? l.base_rate)} × {(l.proration ?? []).map((m, i) => (

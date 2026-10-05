@@ -1,7 +1,13 @@
--- 0211 — payroll you can steer: who is on a run, which components it pays,
+-- 0212 — payroll you can steer: who is on a run, which components it pays,
 -- and a monthly salary that is a month only when somebody worked the month.
 --
--- ── what was wrong (F219) ─────────────────────────────────────────────────
+-- Numbered 0211 when it was written and applied: production carries it as
+-- `0211_hr_payroll_flexible_*` (2026-10-05), in parts, with the three
+-- superseded overloads renamed `*_retired_0211` rather than dropped (see the
+-- README board, D370). Renumbered 0212 because `0211_hr_tap_kind` reached main
+-- first under the same number; the two touch disjoint functions.
+--
+-- ── what was wrong (F220) ─────────────────────────────────────────────────
 --
 -- Owner, 2026-10-05: *kenapa monthly dapat full gaji padahal cuma masuk
 -- beberapa hari*. `payroll_line_for` paid `base_rate` to anybody on
@@ -19,7 +25,7 @@
 --     September monthly run and a September weekly run could not both exist —
 --     although D243 says both periods run.
 --
--- ── the owner's answers (D369) ────────────────────────────────────────────
+-- ── the owner's answers (D370) ────────────────────────────────────────────
 --
 --   1. *Prorata hari kerja.* Pokok × paid working days ÷ the month's working
 --      days, month by month, where a working day is the person's pattern and
@@ -376,7 +382,7 @@ alter type ops_hr.payroll_figures
 
 /* ── one person's line — restated from 0206 ──────────────────────────────
 
-   Four changes, each marked 0211: the run's and the person's switches are
+   Four changes, each marked 0212: the run's and the person's switches are
    read; unpaid marked days are collected as the loop already walks them; a
    salary is prorated by `monthly_base`; and the monthly tunjangan stops at the
    edges of employment. Everything else is 0206's, word for word. */
@@ -425,7 +431,7 @@ declare
   v_ot_to    date;
   v_assumed  boolean;
   n_assumed  int := 0;
-  -- 0211 (D369)
+  -- 0212 (D370)
   v_run      ops_hr.payroll_runs%rowtype;
   c_run      jsonb := '{}'::jsonb;
   c_person   jsonb := '{}'::jsonb;
@@ -463,7 +469,7 @@ begin
   v_ot_from := case when v_proj then p_from - 1 else p_from end;
   v_ot_to   := case when v_proj then p_to - 1 else p_to end;
 
-  /* 0211 (D369): the run's switches, and this person's own over them. A run
+  /* 0212 (D370): the run's switches, and this person's own over them. A run
      nobody opened has none, and every component is paid. */
   if p_run_no is not null then
     select * into v_run from ops_hr.payroll_runs where run_no = p_run_no;
@@ -564,7 +570,7 @@ begin
       end case;
       if d.day_value = 0 and d.mark_kind <> 'holiday' then
         out_row.days_unpaid := out_row.days_unpaid + 1;
-        -- 0211: what a salary loses — alpa, izin, sakit tanpa surat, cuti di
+        -- 0212: what a salary loses — alpa, izin, sakit tanpa surat, cuti di
         -- luar jatah. A half day is not on the list (Q63).
         v_unpaid := v_unpaid || d.work_date;
       end if;
@@ -581,7 +587,7 @@ begin
     if emp.pay_basis = 'monthly' then
       is_present := case when d.mark_kind is not null then d.mark_kind = 'half_day'
                          else not ops_hr.is_rest_day(v_rules, d.work_date) end;
-      /* 0211: never a day before somebody started or after they left — the
+      /* 0212: never a day before somebody started or after they left — the
          business working that day is not this person coming in. */
       v_employed := (emp.joined_on is null or d.work_date >= emp.joined_on)
                 and (emp.left_on is null or d.work_date <= emp.left_on);
@@ -660,7 +666,7 @@ begin
   /* Monthly staff are paid the month whatever the machine says; a daily or
      hourly person is paid for what they were here for. That difference is the
      only place `pay_basis` is used, and it is why it exists. */
-  /* 0211 (D369): a salary is the month only when the month was worked. The
+  /* 0212 (D370): a salary is the month only when the month was worked. The
      share of each month's working days the period covers, inside employment,
      less the days HRD marked unpaid — unless the run or the person has the
      `absence` switch off. */
@@ -748,7 +754,7 @@ begin
    where a.run_no = p_run_no and a.employee_id = emp.id
      and a.withdrawn_at is null;
 
-  /* 0211 (D369): the switches. Each component that is off is zero on this
+  /* 0212 (D370): the switches. Each component that is off is zero on this
      line, and listed with what it would have been and whose decision it was —
      the person's own switch over the run's. */
   foreach v_k in array ops_hr.pay_components() loop
@@ -879,7 +885,7 @@ begin
   if emp.pay_basis <> 'monthly' and out_row.worked_days = 0 then
     w := w || 'Tidak ada hari yang terhitung pada periode ini'::text;
   end if;
-  /* 0211 (D369) */
+  /* 0212 (D370) */
   if emp.pay_basis = 'monthly' and (v_mb ->> 'amount')::bigint <> emp.base_rate
      and jsonb_array_length(coalesce(out_row.proration, '[]'::jsonb)) > 0 then
     w := w || (select format('Gaji bulanan diprorata: %s', string_agg(
@@ -911,7 +917,7 @@ end $$;
 
    A run is its members. A period with no run is everybody employed during it
    in the group asked for — the weekly screen asks for `weekly`, and stops
-   showing the office a month's salary for a week (D369). Employed means
+   showing the office a month's salary for a week (D370). Employed means
    started by the period's end as well as not gone before its start: somebody
    who joins on 1 October is not on 28–30 September.
 

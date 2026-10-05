@@ -29,7 +29,7 @@ export default function PayrollPage() {
   const [runs, reload] = useLoad(() => hr.listPayrollRuns(), []);
   const [from, setFrom] = useState("2026-09-07");
   const [to, setTo] = useState("2026-09-11");
-  /* Who the run is for (0211, D369): opening it writes its people, and HRD
+  /* Who the run is for (0212, D370): opening it writes its people, and HRD
      takes them off or puts them on from the run's own page. */
   const [group, setGroup] = useState<PayGroup>("monthly");
   const lang = useLang();

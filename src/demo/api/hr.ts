@@ -21,7 +21,7 @@ import type {
   TapReading, TapSelfResult, LocationJudgement, LocationVerdict, WorkSite, LocatedTapView, TapKind,
 } from "@/services/hr/contracts";
 import {
-  TAP_KINDS, TAP_KIND_LABELS, SENSITIVE_DOC_KINDS, SCHEME_LABELS, maskDocNo, clauseValueOk, scheduleProblem, OFF_SITE_VERDICTS, PAY_GROUP
+  TAP_KINDS, TAP_KIND_LABELS, SENSITIVE_DOC_KINDS, SCHEME_LABELS, maskDocNo, clauseValueOk, scheduleProblem, OFF_SITE_VERDICTS, PAY_GROUPS,
 } from "@/services/hr/contracts";
 import { addDayKey } from "@/services/hr/shift-reading";
 import { instantInDay, isOvernight, dayBoundaryMinutes, type ScheduleDay, type ScheduleShift, type ScheduleWeekDay, scheduleWeek } from "@/services/hr/schedule-rules";
@@ -4587,7 +4587,7 @@ export async function previewPayroll(
     return invalid(SERVICE, "period_invalid", "The period ends before it starts.", { field: "period_end" });
   }
   const state = getState();
-  /* The run for this period **and group** (0211). */
+  /* The run for this period **and group** (0212). */
   const group: PayGroup = input.pay_group ?? "all";
   const run = state.payroll_runs.find(
     (r) => r.period_start === input.period_start && r.period_end === input.period_end
@@ -4639,7 +4639,7 @@ export async function openPayroll(
   }
   const state = getState();
   /* The same group over overlapping days is still refused; across groups
-     the rule is the person's (0211, same as `open_payroll_run`). */
+     the rule is the person's (0212, same as `open_payroll_run`). */
   const clash = state.payroll_runs.find(
     (r) => r.period_start <= input.period_end && r.period_end >= input.period_start
       && group !== "custom" && (r.pay_group ?? "all") === group,
@@ -4690,7 +4690,7 @@ export async function openPayroll(
   return view;
 }
 
-/* ── who is on a run, and what it pays (0211, D369) ──────────────────── */
+/* ── who is on a run, and what it pays (0212, D370) ──────────────────── */
 
 function memberView(state: ReturnType<typeof getState>, m: DemoRunMember): PayrollRunMember | null {
   const e = state.employees.find((x) => x.id === m.employee_id);

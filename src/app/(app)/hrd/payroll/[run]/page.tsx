@@ -98,7 +98,7 @@ export default function PayrollRunPage({ params }: { params: Promise<{ run: stri
         <div className="whitespace-nowrap text-right">
           <span className="tabular-nums text-slate-800">{formatIDR(l.base_pay)}</span>
           {/* A salary less than a month, and why: the working days it is
-              paid for, month by month (0211, D369). */}
+              paid for, month by month (0212, D370). */}
           {l.pay_basis === "monthly" && (l.proration ?? []).some((m) => m.paid_days !== m.workdays) && (
             <>
               {(l.proration ?? []).map((m) => (

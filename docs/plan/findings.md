@@ -9170,73 +9170,6 @@ What the build taught:
   nobody is there to give. The comment now uses a dash, in the repo file too,
   so production and the ladder stay md5-identical. Keep semicolons out of
   comments inside DML in function bodies.
-## F219 · 2026-10-05 · A salary was a month whatever the run, and a run was everybody
-
-The owner asked why monthly staff were getting a full salary for a few days'
-work. One line of `payroll_line_for` answered it: `when 'monthly' then
-emp.base_rate`. The pokok of anybody on `pay_basis = 'monthly'` was the month,
-whatever the run's length, the person's start date, or the days HRD had marked
-alpa. In production, `pyr-26-10-01_01` covers 28–30 September (three days) and
-put Rp 30,9 juta of pokok on eleven salaries, including Rp 4.500.000 for
-somebody who starts on 1 October.
-
-The comment above that line said why, and it had been true when it was
-written: *monthly staff are paid the month whatever the machine says*. It was
-a sentence about **taps** (the office does not use the reader, F72), and it was
-read as a sentence about **days**. Both are about not docking a salary for
-missing data, but only one of them means "not docking it for days outside the
-person's employment or the period." So a rule meant to protect a salary from
-the reader also protected it from the calendar. That is F68's shape again: one
-value doing two jobs.
-
-Two things made it worse, and neither was the arithmetic:
-
-- **A run was everybody.** `period_lines` took every employee in the period, so
-  the workshop's weekly run carried the office's salaries, and there was no way
-  to say *this person is not paid in this run*.
-- **Runs could not overlap at all.** `periods_do_not_overlap` (0055) guarded
-  "the same day is never paid twice" at the grain of the calendar. D243 says
-  weekly and monthly payrolls both run. Under the calendar rule, a September
-  monthly run and a September weekly run could not both exist, so in practice
-  everyone landed in one run, salaries included. The rule was right; the grain
-  was wrong. It is about **a person**, and that is where `0211` puts it: a
-  trigger on `payroll_run_members` refuses anybody already on an overlapping
-  run, whichever road the row comes by.
-
-**Rule:** when a comment explains why a figure ignores some input, check which
-input it means. *Whatever the machine says* and *whatever the calendar says*
-are different exemptions, and a salary needs only the first.
-
-**Rule:** a constraint that keeps money from being paid twice belongs on the
-thing that is paid, not on the document that pays it. A run is a document; a
-person is the thing paid.
-
-A smaller one from the build: three old smokes inserted runs straight into
-`payroll_runs`, and run-scoped lines came back empty once a run *was* its
-members. The fix was not to change the smokes but to put the membership in an
-`after insert` trigger, so a run is born with its people whichever road it
-came by (the seam, a direct insert, an import). The members guard lets those
-birth rows in whatever the run's status, and refuses a person's change to
-anything that is not a draft.
-
-**Applying it** (same day): `DROP FUNCTION` through the Supabase tool never
-reached Postgres — not a lock (`lock_timeout` 3 s did not fire), not a slow
-statement (`statement_timeout` 15 s did not fire); a probe that created and
-dropped an empty function inside a rolled-back block hung the same way. The tool
-holds destructive statements for a confirmation this session cannot show, and
-times out at 60 s. D367 met the same wall with 0210. The way round was to
-**rename and close** the three superseded overloads (`*_retired_0211`, execute
-revoked) — an old name then resolves only to the new function — and to apply
-the rest in parts with no `DROP` in them. **Rule:** a migration meant for this
-road should replace by `create or replace` or rename-and-revoke, and keep its
-`DROP`s for a person to run.
-
-And the data said one more thing: four monthly staff (RAMLAN, PUTRI,
-MUSLIKHIN, DEWI) have fingerprint taps on 7–11 September and a `joined_on` of
-28 September. The proration is only as true as `joined_on`, and F154 already
-showed that HRD-typed start dates drift. That is HRD's to correct, not ours to
-infer from taps.
-
 ## F219 · 2026-10-05 · A two-minute "same tap" rule is about fingers, not about buttons
 
 D369 lets a phone tap say what it is. The reading already folded taps less
@@ -9279,3 +9212,70 @@ Two smaller things the same work settled:
   Apply in parts so the non-destructive ones land first, and check
   production with `execute_sql` after every timeout: the apply is atomic,
   so a timeout means nothing ran.
+
+## F220 · 2026-10-05 · A salary was a month whatever the run, and a run was everybody
+
+The owner asked why monthly staff were getting a full salary for a few days'
+work. One line of `payroll_line_for` answered it: `when 'monthly' then
+emp.base_rate`. The pokok of anybody on `pay_basis = 'monthly'` was the month,
+whatever the run's length, the person's start date, or the days HRD had marked
+alpa. In production, `pyr-26-10-01_01` covers 28–30 September (three days) and
+put Rp 30,9 juta of pokok on eleven salaries, including Rp 4.500.000 for
+somebody who starts on 1 October.
+
+The comment above that line said why, and it had been true when it was
+written: *monthly staff are paid the month whatever the machine says*. It was
+a sentence about **taps** (the office does not use the reader, F72), and it was
+read as a sentence about **days**. Both are about not docking a salary for
+missing data, but only one of them means "not docking it for days outside the
+person's employment or the period." So a rule meant to protect a salary from
+the reader also protected it from the calendar. That is F68's shape again: one
+value doing two jobs.
+
+Two things made it worse, and neither was the arithmetic:
+
+- **A run was everybody.** `period_lines` took every employee in the period, so
+  the workshop's weekly run carried the office's salaries, and there was no way
+  to say *this person is not paid in this run*.
+- **Runs could not overlap at all.** `periods_do_not_overlap` (0055) guarded
+  "the same day is never paid twice" at the grain of the calendar. D243 says
+  weekly and monthly payrolls both run. Under the calendar rule, a September
+  monthly run and a September weekly run could not both exist, so in practice
+  everyone landed in one run, salaries included. The rule was right; the grain
+  was wrong. It is about **a person**, and that is where `0212` puts it: a
+  trigger on `payroll_run_members` refuses anybody already on an overlapping
+  run, whichever road the row comes by.
+
+**Rule:** when a comment explains why a figure ignores some input, check which
+input it means. *Whatever the machine says* and *whatever the calendar says*
+are different exemptions, and a salary needs only the first.
+
+**Rule:** a constraint that keeps money from being paid twice belongs on the
+thing that is paid, not on the document that pays it. A run is a document; a
+person is the thing paid.
+
+A smaller one from the build: three old smokes inserted runs straight into
+`payroll_runs`, and run-scoped lines came back empty once a run *was* its
+members. The fix was not to change the smokes but to put the membership in an
+`after insert` trigger, so a run is born with its people whichever road it
+came by (the seam, a direct insert, an import). The members guard lets those
+birth rows in whatever the run's status, and refuses a person's change to
+anything that is not a draft.
+
+**Applying it** (same day): `DROP FUNCTION` through the Supabase tool never
+reached Postgres — not a lock (`lock_timeout` 3 s did not fire), not a slow
+statement (`statement_timeout` 15 s did not fire); a probe that created and
+dropped an empty function inside a rolled-back block hung the same way. The tool
+holds destructive statements for a confirmation this session cannot show, and
+times out at 60 s. D367 met the same wall with 0210. The way round was to
+**rename and close** the three superseded overloads (`*_retired_0211`, execute
+revoked) — an old name then resolves only to the new function — and to apply
+the rest in parts with no `DROP` in them. **Rule:** a migration meant for this
+road should replace by `create or replace` or rename-and-revoke, and keep its
+`DROP`s for a person to run.
+
+And the data said one more thing: four monthly staff (RAMLAN, PUTRI,
+MUSLIKHIN, DEWI) have fingerprint taps on 7–11 September and a `joined_on` of
+28 September. The proration is only as true as `joined_on`, and F154 already
+showed that HRD-typed start dates drift. That is HRD's to correct, not ours to
+infer from taps.

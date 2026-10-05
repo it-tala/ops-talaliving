@@ -1,5 +1,5 @@
--- 211_hr_payroll_flexible.sql — who is on a run, what it pays, and a salary
--- that is a month only when the month was worked (0211, D369).
+-- 212_hr_payroll_flexible.sql — who is on a run, what it pays, and a salary
+-- that is a month only when the month was worked (0212, D370).
 --
 -- September and October 2026 both have 22 working days on a five-day week.
 --
@@ -35,7 +35,7 @@ insert into ops_core.user_authorities (user_id, authority) values
   ('ffffffff-0000-0000-0000-000000021003','approve_funds');
 
 insert into ops_hr.pay_rule_sets (version, effective_from, note, rules, created_by) values
- (1, '2026-08-01', 'uji D369', '{
+ (1, '2026-08-01', 'uji D370', '{
    "week_pattern":"5day","late_grace_minutes":15,"late_mode":"manual","undertime_mode":"off",
    "day_reading":"in_out","hours_rounding_minutes":15,
    "overtime_mode":"tiered","workday_tiers":[{"after_hours":0,"multiplier":1.5}],
@@ -70,7 +70,7 @@ values ('2026-09-15','aaaa2100-0000-0000-0000-000000000004','absent','Tidak masu
 
 -- The day worker: Monday 28 and Tuesday 29 September, in and out.
 insert into ops_hr.attendance_scans (employee_id, work_date, at, verify, source, reason)
-select 'aaaa2100-0000-0000-0000-000000000005', ops_core.office_day(t), t, 'FP', 'manual', 'uji D369'
+select 'aaaa2100-0000-0000-0000-000000000005', ops_core.office_day(t), t, 'FP', 'manual', 'uji D370'
   from unnest(array['2026-09-28 07:55','2026-09-28 17:05',
                     '2026-09-29 07:55','2026-09-29 17:05']::timestamp[]) s(ts)
   cross join lateral (select s.ts at time zone ops_core.office_tz() as t) x;

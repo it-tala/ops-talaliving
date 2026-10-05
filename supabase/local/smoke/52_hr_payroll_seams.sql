@@ -160,7 +160,7 @@ end $$;
 -- directly. If only the function knew the rule, the rule would hold only for
 -- callers who used it.
 --
--- Since 0211 (D369) the rule is about **a person**: a weekly and a monthly run
+-- Since 0212 (D370) the rule is about **a person**: a weekly and a monthly run
 -- may cover the same September, and nobody may be on both. A run inserted
 -- straight into the table over the same days is born with everybody it would
 -- have paid twice written *not included*, the run that pays them named — and

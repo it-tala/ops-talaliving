@@ -120,7 +120,7 @@ export default function PayrollWeekPage() {
     window.history.replaceState(null, "", url.toString());
   }, [weekStart]);
   const [view, reload] = useLoad(
-    /* The workshop's week is the day and hour wages (0211, D369): monthly
+    /* The workshop's week is the day and hour wages (0212, D370): monthly
        salaries are paid by their own run and are not on this screen. */
     () => hr.previewPayroll({ period_start: weekStart, period_end: weekEnd, pay_group: "weekly" }),
     [weekStart, weekEnd],

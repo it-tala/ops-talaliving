@@ -1296,7 +1296,7 @@ export interface SelfOvertimeView {
 
 export type PayrollStatus = "DRAFT" | "APPROVED" | "PAID";
 
-/** Who a run is opened for (0211, D369). Weekly is the workshop's day and hour
+/** Who a run is opened for (0212, D370). Weekly is the workshop's day and hour
  *  wage, monthly the salary; `all` is both, and `custom` starts empty for HRD
  *  to fill. Opening a run writes its people; HRD then takes them off or puts
  *  them on. */
@@ -1321,7 +1321,7 @@ export function inPayGroup(basis: PayBasis, group: PayGroup): boolean {
 }
 
 /** The seven things a run can pay or take off, each switchable for the run
- *  and, over that, for one person (0211, D369). `absence` is the alpa taken
+ *  and, over that, for one person (0212, D370). `absence` is the alpa taken
  *  off a monthly salary; `late`, `undertime` and `contributions` are
  *  deductions, so switching one off means *not deducted*. */
 export type PayComponent =
@@ -1353,7 +1353,7 @@ export function componentOn(run: PayComponents, person: PayComponents, c: PayCom
   return person[c] ?? run[c] ?? true;
 }
 
-/** Somebody a run was opened for, on it or not (0211, D369). */
+/** Somebody a run was opened for, on it or not (0212, D370). */
 export interface PayrollRunMember {
   employee_id: string;
   employee_no: string;
@@ -1413,7 +1413,7 @@ export interface PayrollRun {
   /** The ledger row that paid it, once it has been paid. */
   paid_trx_no: string | null;
   note: string | null;
-  /** Who it was opened for (0211). Runs from before it are `all`. */
+  /** Who it was opened for (0212). Runs from before it are `all`. */
   pay_group: PayGroup;
   /** The run's switches; a person's own override them. */
   components: PayComponents;
@@ -2312,7 +2312,7 @@ export interface PayrollLine {
    *  what they were told they earn (D250). */
   base_pay: number;
   /** The pokok before proration and switches: a month's salary, or what the
-   *  days came to (0211). */
+   *  days came to (0212). */
   base_full: number;
   /** A salary, month by month: why `base_pay` is less than `base_full`. Empty
    *  for anybody paid by the day or hour. */

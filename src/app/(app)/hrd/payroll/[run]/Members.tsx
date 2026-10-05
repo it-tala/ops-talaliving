@@ -15,7 +15,7 @@ import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useLang, useTr } from "@/lib/i18n";
 
-/** Who this run pays, and what it pays them (0211, D369).
+/** Who this run pays, and what it pays them (0212, D370).
  *
  *  Owner: *saya ingin payroll nya lebih fleksibel, mana yang dibayar mana yang
  *  tidak, karyawan mana yang ikut payroll, komponen apa yang dikurangi*. Three

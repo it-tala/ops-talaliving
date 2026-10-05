@@ -224,7 +224,7 @@ export interface DemoState {
   overtime_sheets: OvertimeSheet[];
   overtime_lines: OvertimeLine[];
   payroll_runs: PayrollRun[];
-  /** Who each run was opened for, on it or not (0211, D369). Optional so a
+  /** Who each run was opened for, on it or not (0212, D370). Optional so a
    *  saved demo from before it loads; a run with no rows is read as its group. */
   payroll_run_members?: DemoRunMember[];
   /** Berkas 201: somebody's own file, and what is missing from it (D177). */

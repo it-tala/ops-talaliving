@@ -702,7 +702,7 @@ export async function previewPayroll(
     return invalid(SERVICE, "period_invalid", "Periodenya berakhir sebelum dimulai.",
                    { field: "period_end" });
   }
-  /* The run for this period **and group** (0211): a weekly run and a monthly
+  /* The run for this period **and group** (0212): a weekly run and a monthly
      run may cover the same days. */
   const group: PayGroup = input.pay_group ?? "all";
   const { data } = await db()
@@ -752,7 +752,7 @@ export async function approvePayroll(runNo: string): Promise<Result<PayrollView>
   return getPayroll(runNo);
 }
 
-/* ── who is on a run, and what it pays (0211, D369) ──────────────────── */
+/* ── who is on a run, and what it pays (0212, D370) ──────────────────── */
 
 /** Everybody the run was opened for, on it or not, with their switches. */
 export async function listRunMembers(runNo: string): Promise<Result<PayrollRunMember[]>> {

@@ -738,7 +738,7 @@ export function payrollLine(
       ? Math.round(worked_days * employee.base_rate)
       : Math.round(normal_hours * employee.base_rate);
 
-  /* 0211 (D369): the run's switches, and this person's own over them. A
+  /* 0212 (D370): the run's switches, and this person's own over them. A
      period nobody opened has none, and everything is paid. */
   const run = runNo ? state.payroll_runs.find((r) => r.run_no === runNo) : undefined;
   const member = run ? membersOf(state, run).find((m) => m.employee_id === employee.id) : undefined;
@@ -746,7 +746,7 @@ export function payrollLine(
   const cPerson: PayComponents = member?.components ?? {};
   const on = (c: PayComponent) => componentOn(cRun, cPerson, c);
 
-  /* 0211 (D369): a salary is the month only when the month was worked —
+  /* 0212 (D370): a salary is the month only when the month was worked —
      the share of each month's working days, inside employment, less the
      days HRD marked unpaid (alpa, izin, sakit tanpa surat, cuti di luar
      jatah; not a half day, Q63). Same rule as `ops_hr.monthly_base`. */
@@ -883,7 +883,7 @@ export function payrollLine(
      tanggal merah are not presence. */
   const earnsAllowance = (d: (typeof days)[number]): boolean =>
     d.mark ? d.mark.kind === "half_day" : d.day_value > 0;
-  /* 0211: never a day before somebody started or after they left. */
+  /* 0212: never a day before somebody started or after they left. */
   const employed = (key: string) => key >= employee.joined_on
     && (employee.left_on === null || key <= employee.left_on);
   const presentDays = employee.pay_basis === "monthly"
@@ -925,7 +925,7 @@ export function payrollLine(
     open: d.state === "review",
   }));
 
-  /* 0211 (D369): the switches. Each component off is zero here, and listed
+  /* 0212 (D370): the switches. Each component off is zero here, and listed
      with what it would have been and whose decision it was. */
   let undertime_amount = under.amount;
   const components_off: PayrollComponentOff[] = [];
@@ -2018,7 +2018,7 @@ export function payrollLineWith(
   return payrollLine(state, employee, from, to, "", rules);
 }
 
-/** Employed at some point in the period, in the group (0211): the scope of a
+/** Employed at some point in the period, in the group (0212): the scope of a
  *  period nobody opened, and who a run is born with. */
 export function groupPeople(state: DemoState, from: string, to: string, group: PayGroup): Employee[] {
   return state.employees.filter((e) => e.joined_on <= to
@@ -2026,7 +2026,7 @@ export function groupPeople(state: DemoState, from: string, to: string, group: P
     && inPayGroup(e.pay_basis, group));
 }
 
-/** Who a run was opened for, on it or not (0211, D369). A run with no rows —
+/** Who a run was opened for, on it or not (0212, D370). A run with no rows —
  *  a fixture from before runs had people — is read as its group. */
 export function membersOf(state: DemoState, run: PayrollRun): DemoRunMember[] {
   const rows = (state.payroll_run_members ?? []).filter((m) => m.run_no === run.run_no);
@@ -2102,7 +2102,7 @@ function addMonth(key: string): string {
 }
 
 export function payrollView(state: DemoState, run: PayrollRun): PayrollView {
-  /* A run is its members (0211); a period nobody opened is everybody employed
+  /* A run is its members (0212); a period nobody opened is everybody employed
      in it in the group asked for — including somebody who left inside it,
      because their last week is still owed. */
   const people = run.run_no
