@@ -3,7 +3,7 @@
 import { useState } from "react";
 import {
   AlarmClock, CalendarRange, Check, ListChecks, PauseCircle, PlayCircle,
-  Plus, Repeat, Ban, PackageCheck, BellRing, MailCheck,
+  Plus, Repeat, Ban, PackageCheck, BellRing, MailCheck, Target, Link2, SlidersHorizontal, RotateCcw,
 } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
@@ -15,6 +15,7 @@ import { CADENCE_LABEL, type TaskView } from "@/services/hr/contracts";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
+import { GoalsPanel } from "./goals-panel";
 
 /** Pemantauan tugas — the module built against a failure the owner described
  *  in one sentence (D303):
@@ -44,6 +45,12 @@ import { useTr } from "@/lib/i18n";
  *    waiting on a third party is how a tracker teaches people to stop reporting
  *    blockers, and then it measures nothing at all (D261).
  *
+ *  Since D367 the page opens on **Sasaran & prioritas**: the ranked results the
+ *  tasks are parts of. The leader's 2026-10-05 message — *allocate work by
+ *  priorities which are changing rapidly … a lot of parts but no result* — is
+ *  answered there and in `goals-panel.tsx`. Tasks gain a goal, a part they
+ *  start from, and **Atur** to move their plan without cancelling them.
+ *
  *  What is deliberately **not** here: none of this feeds anybody's score. A
  *  missed chase, an unacknowledged task and an empty hand-over note are each at
  *  least as much the leader's failure as the assignee's, and a number that
@@ -59,7 +66,7 @@ export default function TasksPage() {
   const [routines, reloadRoutines] = useLoad(() => hr.listTaskRoutines(), []);
   const [employees] = useLoad(() => hr.listEmployees(), []);
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<"open" | "all" | "routines">("open");
+  const [tab, setTab] = useState<"goals" | "open" | "all" | "routines">("goals");
 
   const mayCreate = can("hrd.create");
   const mayEdit = can("hrd.update");
@@ -70,7 +77,16 @@ export default function TasksPage() {
   const [draft, setDraft] = useState({
     assignee_no: "", title: "", due_date: "", deliverable: "",
     period_start: "", period_end: "", chase_date: "",
+    goal_no: "", waits_on_no: "",
   });
+  /* The plan of one open task, being moved (D368). Full state, as `edit_task`
+     takes it: every field is sent as it should now be. */
+  const [planning, setPlanning] = useState<string | null>(null);
+  const [plan, setPlan] = useState({
+    due_date: "", assignee_no: "", goal_no: "", waits_on_no: "", chase_date: "",
+  });
+  const [goalList] = useLoad(() => hr.listGoals(), [tasks]);
+  const openGoals = goalList.status === "ready" ? goalList.data : [];
   const [rDraft, setRDraft] = useState({
     title: "", deliverable: "", assignee_no: "",
     cadence: "MONTHLY" as Cadence, due_offset_days: 4, chase_lead_days: 2,
@@ -95,6 +111,8 @@ export default function TasksPage() {
       period_start: draft.period_start || null,
       period_end: draft.period_end || null,
       chase_date: draft.chase_date || null,
+      goal_no: draft.goal_no || null,
+      waits_on_no: draft.waits_on_no || null,
     });
     setBusy(false);
     if (res.error) {
@@ -105,7 +123,8 @@ export default function TasksPage() {
       tr(`${res.data.assignee_name} · due ${res.data.due_date}`, `${res.data.assignee_name} · jatuh tempo ${res.data.due_date}`)
       + (res.data.chase_date ? tr(` · chased ${res.data.chase_date}`, ` · ditagih ${res.data.chase_date}`) : ""));
     setDraft({ assignee_no: draft.assignee_no, title: "", due_date: "", deliverable: "",
-               period_start: "", period_end: "", chase_date: "" });
+               period_start: "", period_end: "", chase_date: "",
+               goal_no: draft.goal_no, waits_on_no: "" });
     setAdding(false);
     reloadTasks();
   }
@@ -139,7 +158,45 @@ export default function TasksPage() {
     reloadTasks();
   }
 
-  async function act(t: TaskView, action: "done" | "block" | "unblock" | "cancel") {
+  /** The parts of one goal a task could start from — never itself, never a
+   *  cancelled one. */
+  function partsOf(goalNo: string, except?: string) {
+    return rows.filter((x) => x.goal_no === goalNo && x.status !== "CANCELLED" && x.task_no !== except);
+  }
+
+  function addPart(goalNo: string) {
+    setDraft({ ...draft, goal_no: goalNo, waits_on_no: "" });
+    setAdding(true);
+    setAddingRoutine(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function startPlanning(t: TaskView) {
+    setPlanning(t.task_no);
+    setPlan({
+      due_date: t.due_date, assignee_no: t.assignee_no,
+      goal_no: t.goal_no ?? "", waits_on_no: t.waits_on_no ?? "", chase_date: t.chase_date ?? "",
+    });
+  }
+
+  async function savePlan(t: TaskView) {
+    setBusy(true);
+    const res = await hr.editTask({
+      task_no: t.task_no, due_date: plan.due_date, assignee_no: plan.assignee_no,
+      goal_no: plan.goal_no || null, waits_on_no: plan.waits_on_no || null,
+      chase_date: plan.chase_date || null,
+    });
+    setBusy(false);
+    if (res.error) { toast("warning", tr("Plan not changed", "Rencana tidak berubah"), res.error.message); return; }
+    toast("success", t.task_no,
+      res.data.assignee_no !== t.assignee_no
+        ? tr(`Now with ${res.data.assignee_name} — not yet read by them.`, `Sekarang dipegang ${res.data.assignee_name} — belum dibaca olehnya.`)
+        : tr("Plan changed.", "Rencana diubah."));
+    setPlanning(null);
+    reloadTasks();
+  }
+
+  async function act(t: TaskView, action: "done" | "block" | "unblock" | "cancel" | "reopen") {
     let reason: string | null = null;
     let delivered: string | null = null;
     if (action === "block") {
@@ -151,6 +208,13 @@ export default function TasksPage() {
     }
     if (action === "cancel") {
       reason = window.prompt(tr("Why is it cancelled?", "Kenapa dibatalkan?"));
+      if (!reason?.trim()) return;
+    }
+    if (action === "reopen") {
+      reason = window.prompt(tr(
+        "Why is it reopened? What is missing from what was handed over? The person reads this sentence.",
+        "Kenapa dibuka lagi? Yang diserahkan kurang apa? Kalimat ini yang dibaca orangnya.",
+      ));
       if (!reason?.trim()) return;
     }
     if (action === "done") {
@@ -173,7 +237,8 @@ export default function TasksPage() {
     if (res.error) { toast("warning", "Tidak berubah", res.error.message); return; }
     toast("success", t.task_no,
       action === "done" ? tr("Done", "Selesai") : action === "block" ? tr("Marked blocked", "Ditandai tertahan")
-      : action === "unblock" ? tr("No longer blocked", "Tidak lagi tertahan") : tr("Cancelled", "Dibatalkan"));
+      : action === "unblock" ? tr("No longer blocked", "Tidak lagi tertahan")
+      : action === "reopen" ? tr("Reopened", "Dibuka lagi") : tr("Cancelled", "Dibatalkan"));
     reloadTasks();
   }
 
@@ -334,7 +399,7 @@ export default function TasksPage() {
       )}
 
       <div className="mb-3 flex gap-1.5">
-        {([["open", tr("Open", "Terbuka")], ["all", tr("All", "Semua")], ["routines", tr("Routine tasks", "Tugas rutin")]] as const).map(([k, label]) => (
+        {([["goals", tr("Goals & priority", "Sasaran & prioritas")], ["open", tr("Open", "Terbuka")], ["all", tr("All", "Semua")], ["routines", tr("Routine tasks", "Tugas rutin")]] as const).map(([k, label]) => (
           <button
             key={k}
             onClick={() => setTab(k)}
@@ -383,6 +448,39 @@ export default function TasksPage() {
                 value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })}
                 className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm"
               />
+            </label>
+            <label className="text-[12px] text-slate-600">
+              <Target className="mr-1 inline h-3.5 w-3.5" />
+              {tr("Part of goal", "Bagian dari sasaran")}
+              <select
+                value={draft.goal_no}
+                onChange={(e) => setDraft({ ...draft, goal_no: e.target.value, waits_on_no: "" })}
+                className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm"
+              >
+                <option value="">{tr("— none (stands on its own) —", "— tidak ada (berdiri sendiri) —")}</option>
+                {openGoals.map((g) => (
+                  <option key={g.goal_no} value={g.goal_no}>#{g.rank} · {g.title}</option>
+                ))}
+              </select>
+            </label>
+            <label className="text-[12px] text-slate-600">
+              <Link2 className="mr-1 inline h-3.5 w-3.5" />
+              {tr("Starts after", "Mulai setelah")}
+              <select
+                value={draft.waits_on_no}
+                disabled={!draft.goal_no}
+                onChange={(e) => setDraft({ ...draft, waits_on_no: e.target.value })}
+                className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm disabled:bg-slate-50"
+              >
+                <option value="">{tr("— nothing, can start now —", "— tidak ada, bisa langsung mulai —")}</option>
+                {draft.goal_no && partsOf(draft.goal_no).map((x) => (
+                  <option key={x.task_no} value={x.task_no}>{x.title} · {x.assignee_name}</option>
+                ))}
+              </select>
+              <span className="mt-0.5 block text-[11px] text-slate-400">
+                {tr("Only between parts of the same goal: the drawing before the BOM, the BOM before the PR.",
+                    "Hanya antar bagian sasaran yang sama: gambar sebelum BOM, BOM sebelum PR.")}
+              </span>
             </label>
             <label className="text-[12px] text-slate-600 sm:col-span-2">
               {tr("What must be handed over", "Yang harus diserahkan")}
@@ -437,7 +535,18 @@ export default function TasksPage() {
         </Card>
       )}
 
-      {tab !== "routines" && (
+      {tab === "goals" && (
+        <GoalsPanel
+          employees={employees.status === "ready" ? employees.data : []}
+          mayCreate={mayCreate}
+          mayEdit={mayEdit}
+          onAddPart={addPart}
+          stamp={tasks.status === "ready" ? tasks.data : null}
+          onChanged={reloadTasks}
+        />
+      )}
+
+      {(tab === "open" || tab === "all") && (
         <Loaded state={tasks} onRetry={reloadTasks}>
           {(all) => {
             const list = tab === "open" ? all.filter((t) => t.status === "OPEN") : all;
@@ -469,6 +578,21 @@ export default function TasksPage() {
                             {t.period_label && <> · {t.period_label}</>}
                             {" · "}{t.due_date}
                           </p>
+                          {t.goal_no && (
+                            <p className="mt-0.5 text-[12px] text-slate-600">
+                              <Target className="mr-1 inline h-3.5 w-3.5 text-slate-400" />
+                              {t.goal_rank !== null && <strong className="font-semibold">#{t.goal_rank} </strong>}
+                              {t.goal_title}
+                            </p>
+                          )}
+                          {t.waits_on_no && (
+                            <p className={cn("mt-0.5 text-[12px]", t.waiting ? "text-slate-700" : "text-slate-400")}>
+                              <Link2 className="mr-1 inline h-3.5 w-3.5" />
+                              {t.waiting
+                                ? tr(`Waiting on: ${t.waits_on_title} (${t.waits_on_assignee})`, `Menunggu: ${t.waits_on_title} (${t.waits_on_assignee})`)
+                                : tr(`Started from: ${t.waits_on_title}`, `Mulai dari: ${t.waits_on_title}`)}
+                            </p>
+                          )}
                           {t.deliverable && (
                             <p className="mt-0.5 text-[12px] text-slate-600">
                               <span className="text-slate-400">{tr("asked for:", "diminta:")}</span> {t.deliverable}
@@ -513,6 +637,9 @@ export default function TasksPage() {
                             {t.status === "OPEN" && !t.acknowledged && (
                               <Badge tone="slate">{tr("not yet read", "belum dibaca")}</Badge>
                             )}
+                            {t.status === "OPEN" && t.has_started && !t.blocked_reason && (
+                              <Badge tone="brand">{tr("in progress", "sedang dikerjakan")}</Badge>
+                            )}
                           </div>
                           {mayEdit && t.status === "OPEN" && (
                             <div className="flex flex-wrap items-center justify-end gap-1">
@@ -538,13 +665,85 @@ export default function TasksPage() {
                                   <PauseCircle className="h-4 w-4" /> {tr("Blocked", "Tertahan")}
                                 </Button>
                               )}
+                              <Button size="sm" variant="ghost" onClick={() => startPlanning(t)} disabled={busy}>
+                                <SlidersHorizontal className="h-4 w-4" /> {tr("Plan", "Atur")}
+                              </Button>
                               <Button size="sm" variant="ghost" onClick={() => act(t, "cancel")} disabled={busy}>
                                 <Ban className="h-4 w-4" /> {tr("Cancel", "Batal")}
                               </Button>
                             </div>
                           )}
+                          {mayEdit && t.status === "DONE" && (
+                            <Button size="sm" variant="ghost" onClick={() => act(t, "reopen")} disabled={busy}>
+                              <RotateCcw className="h-4 w-4" /> {tr("Reopen", "Buka lagi")}
+                            </Button>
+                          )}
                         </div>
                       </div>
+                      {planning === t.task_no && (
+                        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+                          <p className="mb-2 text-[12px] text-slate-600">
+                            {tr(
+                              "Move the plan without cancelling the work. A due date cannot move into the past — that would make the person late by somebody else's hand. A new person starts as not yet read.",
+                              "Geser rencananya tanpa membatalkan pekerjaannya. Jatuh tempo tidak bisa dipindah ke masa lalu — itu membuat orangnya terlambat oleh tangan orang lain. Orang baru mulai dari belum dibaca.",
+                            )}
+                          </p>
+                          <div className="grid gap-2 sm:grid-cols-3">
+                            <label className="text-[12px] text-slate-600">
+                              {tr("Due date", "Jatuh tempo")}
+                              <input type="date" value={plan.due_date}
+                                onChange={(e) => setPlan({ ...plan, due_date: e.target.value })}
+                                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm" />
+                            </label>
+                            <label className="text-[12px] text-slate-600">
+                              {tr("Held by", "Dipegang oleh")}
+                              <select value={plan.assignee_no}
+                                onChange={(e) => setPlan({ ...plan, assignee_no: e.target.value })}
+                                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm">
+                                {employees.status === "ready" && employees.data
+                                  .filter((e) => e.active || e.employee_no === t.assignee_no)
+                                  .map((e) => (
+                                    <option key={e.employee_no} value={e.employee_no}>{e.full_name} · {e.employee_no}</option>
+                                  ))}
+                              </select>
+                            </label>
+                            <label className="text-[12px] text-slate-600">
+                              {tr("Chase on", "Ditagih tanggal")}
+                              <input type="date" value={plan.chase_date}
+                                onChange={(e) => setPlan({ ...plan, chase_date: e.target.value })}
+                                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm" />
+                            </label>
+                            <label className="text-[12px] text-slate-600">
+                              {tr("Part of goal", "Bagian dari sasaran")}
+                              <select value={plan.goal_no}
+                                onChange={(e) => setPlan({ ...plan, goal_no: e.target.value, waits_on_no: "" })}
+                                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm">
+                                <option value="">{tr("— none —", "— tidak ada —")}</option>
+                                {openGoals.map((g) => (
+                                  <option key={g.goal_no} value={g.goal_no}>#{g.rank} · {g.title}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="text-[12px] text-slate-600 sm:col-span-2">
+                              {tr("Starts after", "Mulai setelah")}
+                              <select value={plan.waits_on_no} disabled={!plan.goal_no}
+                                onChange={(e) => setPlan({ ...plan, waits_on_no: e.target.value })}
+                                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm disabled:bg-slate-50">
+                                <option value="">{tr("— nothing —", "— tidak ada —")}</option>
+                                {plan.goal_no && partsOf(plan.goal_no, t.task_no).map((x) => (
+                                  <option key={x.task_no} value={x.task_no}>{x.title} · {x.assignee_name}</option>
+                                ))}
+                              </select>
+                            </label>
+                          </div>
+                          <div className="mt-2 flex justify-end gap-2">
+                            <Button size="sm" variant="ghost" onClick={() => setPlanning(null)}>{tr("Cancel", "Batal")}</Button>
+                            <Button size="sm" onClick={() => savePlan(t)} disabled={busy || !plan.due_date || !plan.assignee_no}>
+                              {tr("Save plan", "Simpan rencana")}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>

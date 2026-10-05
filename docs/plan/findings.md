@@ -9102,3 +9102,59 @@ link. A ledger row carries no dollars, so a linked billing shows no real rate.
 once: sequences are not rolled back with the transaction, so a second run
 fails. Assert the shape and the order, never the value. (Found by the file's own
 second run.)
+
+## F218 · 2026-10-05 · A tracker can account for every task and still deliver nothing: the missing level was the result
+
+The leader's message was not a feature request: *we end up with a lot of parts
+but no result. we have to put the parts together.* Read against the D303
+tracker it described exactly what that module could not see. Every row in
+`ops_hr.tasks` answered *who, what, by when, received, chased, handed over* —
+and none of them answered *part of what*. Five things followed from that one
+gap, found by evaluating the module before building anything:
+
+- **No priority at all.** The order was overdue → chase → blocked → date. When
+  priorities move weekly, a list ordered by due date tells people to do the
+  oldest thing, not the most important one.
+- **No level above the task.** Three people in three departments can each
+  finish their part on time while the result — the hotel order ready for the
+  floor — never assembles, because nobody owned the assembly and nobody could
+  see the chain.
+- **Staff saw only their own rows.** The drafter could not see that IT was
+  waiting on the drawing to update the BOM; coordination needed a person to
+  relay it.
+- **Only HRD could move a status.** The assignee could press *Terima* and
+  nothing else, so D261's rule — *blocked work is not held against you* — had
+  no road for the blocked person to say so, and HRD became everybody's
+  operator.
+- **Production: 0 tasks, 9 of 25 employees with accounts.** The other 16 are
+  floor workers; the owner put them out of scope (they get a supervisor).
+
+What the build taught:
+
+- **Rank is an order, not a level, and the order must be replaced whole.** A
+  `rank` column that can tie lets five things be *#1*. Making it unique needs a
+  *deferred* constraint — any re-order passes through a moment where two rows
+  share a number — and a partial unique index cannot be deferred; a btree
+  exclusion on `=` with a `where` can. Sending one goal's new number would let a
+  screen holding last week's order silently undo this week's; sending the whole
+  list lets the database see staleness (`order_stale`).
+- **"See the whole goal" is a column choice, not an RLS policy.** The obvious
+  way — let a staff member read tasks in their goals — opens whole rows through
+  PostgREST, and a task row carries HRD's chase note about its holder. Worse,
+  any view that counts a goal's progress under the reader's RLS counts only the
+  reader's own rows: a six-part goal reads as a one-part goal to the drafter.
+  Both were solved by definer functions with chosen columns that decide
+  visibility inside (`list_goals`, `goal_board`, `task_waits`), so HRD and
+  staff read the **same numbers** through the same road.
+- **A view column can trip the shadowing check of an unrelated function.**
+  Naming the new `v_task` column `started` made `check_shadowing.sh` flag
+  `0156`'s PL/pgSQL local `started`. Renamed `has_started`; the check is about
+  every column name in the schema, views included.
+- **A boolean over a left join is three-valued.** `waiting = (t.status = 'OPEN'
+  and w.status = 'OPEN')` was `null`, not `false`, for a task waiting on
+  nothing; the smoke caught it (`assert not v.waiting`). `coalesce(..., false)`.
+- **The walk found what the types could not.** The first profile filter showed
+  a goal only while the reader had an *open* part in it — so the moment Made
+  handed over the count, the hotel order vanished from Made's page, and with
+  it the view of whether the result Made contributed to ever assembled. A goal now
+  stays while the reader has any part in it.

@@ -27,7 +27,7 @@ import type {
   Employee, AttendanceScan, WorkSite, LocationVerdict, DayMark, OvertimeSheet, OvertimeLine, PayrollRun,
   PayrollAdjustment, PayRuleSet, EmployeeDocument, LeaveRequest,
   AllowanceWithholding, ContributionRate, Enrolment, Task,
-  EmploymentContract, ContractClause, ClauseChecklistItem, TaskRoutine,
+  EmploymentContract, ContractClause, ClauseChecklistItem, TaskRoutine, Goal,
   EmployeeIdentity,
 } from "@/services/hr/contracts";
 import type {
@@ -243,6 +243,8 @@ export interface DemoState {
    *  what has to be handed over, and how many days before it is due somebody
    *  should ask for it (D303). */
   task_routines: TaskRoutine[];
+  /** The results tasks are parts of, ranked among the open ones (D367). */
+  goals: Goal[];
   /** The dimensions WLKP counts people by — date of birth, sex, education,
    *  citizenship, disability, marital status (D304). Its own table, not columns
    *  on `employees`, because `employees` is readable by every payroll account
