@@ -16,7 +16,7 @@
  */
 import type {
   AttachmentView, AttachmentLink, DocKind, LinkEntity,
-  DriveCheckReport, DriveSetUp,
+  DriveCheckReport, DriveSetUp, FileOrigin, FilingPreview,
 } from "@/services/documents/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fail, fromSeam, notFound, ok, type Result } from "./_kit";
@@ -71,6 +71,7 @@ interface AttachmentRow {
   covers_count: number;
   web_view_link: string | null;
   filed_in: string | null;
+  origin: FileOrigin | null;
 }
 
 interface LinkRow {
@@ -98,6 +99,7 @@ function toView(a: AttachmentRow, links: AttachmentLink[]): AttachmentView {
     duplicate_suspect: a.duplicate_suspect,
     web_view_link: a.web_view_link,
     filed_in: a.filed_in,
+    origin: a.origin,
     links,
     /* The view's count, not `links.length`. They agree today and would stop
        agreeing the moment a caller passed a filtered subset — and the number
@@ -226,7 +228,14 @@ export async function listAttachments(): Promise<Result<AttachmentView[]>> {
  *  in the least visible place in the system.
  */
 export async function upload(
-  input: { file: File; kind: DocKind; sha256?: string; entity?: LinkEntity },
+  input: {
+    file: File; kind: DocKind; sha256?: string; entity?: LinkEntity;
+    /** The record's number: a project's files go in its client's and its own
+     *  folder (0214). Optional — without it the kind's folder is used. */
+    entity_no?: string;
+    /** Who made the file (0214). Left out, nothing is claimed. */
+    origin?: FileOrigin | null;
+  },
   idempotencyKey?: string,
 ): Promise<Result<AttachmentView>> {
   const body = new FormData();
@@ -234,6 +243,8 @@ export async function upload(
   body.append("kind", input.kind);
   /* Picks the task folder under the drive's OPS folder (0172, D313). */
   if (input.entity) body.append("entity", input.entity);
+  if (input.entity_no) body.append("entity_no", input.entity_no);
+  if (input.origin) body.append("origin", input.origin);
 
   let res: Response;
   try {
@@ -281,6 +292,26 @@ export async function upload(
      Drive (D359). Said on the result so the screen can say so. */
   if (!filed.error && envelope.data!.reused) filed.data.reused = true;
   return filed;
+}
+
+/** Where a file of this kind, filed against this record, would go — asked
+ *  before anything is sent, so the person sees the folder first. The same
+ *  question the upload route asks, answered by the same function. */
+export async function filingPreview(
+  input: { kind: DocKind; entity?: LinkEntity; entity_no?: string },
+): Promise<Result<FilingPreview>> {
+  const { data, error } = await db().rpc("drive_folder_for", {
+    p_kind: input.kind,
+    p_entity: input.entity ?? null,
+    p_entity_no: input.entity_no ?? null,
+  });
+  const res = fromSeam<{ label: string; path: string }>(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, {
+    drive: res.data.label,
+    path: res.data.path,
+    filed_in: `${res.data.label} / ops-talaliving / ${res.data.path}`,
+  });
 }
 
 /** Filing an address as evidence (D125).

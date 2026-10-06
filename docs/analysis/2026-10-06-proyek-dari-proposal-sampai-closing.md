@@ -323,7 +323,8 @@ permintaan revisi dari meeting menunjuk ke item desain. Nomor tahap tidak
 diubah. Setiap tahap berjalan dalam empat langkah:
 1. preview disetujui owner;
 2. layar dibangun di aplikasi dengan data demo, lalu dicoba lewat link
-   preview Vercel;
+   preview branch (versi preview Cloudflare Workers; repo ini tidak memakai
+   Vercel);
 3. migrasi dan backend;
 4. diterapkan ke produksi.
 

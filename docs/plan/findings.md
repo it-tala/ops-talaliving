@@ -9317,3 +9317,46 @@ A render exists before the product does, so it cannot be filed against the
 product. That is why the kajian proposes a per-project design item as the
 spine, which becomes a quotation line, an order line, a product and a Job
 Order in turn.
+
+## F222 · 2026-10-06 · A folder per record needs the record, and a file says who made it
+
+P1 (kajian F221) gave a sale's files a place: ten kinds, a folder per client
+and project, and who made each file. Three things the build taught.
+
+**A path that names a record has to be told which record.** Since `0172` the
+upload route told the database the *type* of the record a file is filed
+against (`entity = 'item'`), which is enough to pick a task folder
+(`INVENTORY/ITEMS`) and never enough to pick *this client's* folder. The owner's
+rule, one folder per task (D313), had quietly stopped at the type. `0214` adds
+the number beside the type, on both questions the upload asks
+(`drive_folder_for` before Drive, `attach_file` after), so the route and the
+row cannot disagree about the folder. A record the database cannot place still
+lands somewhere a person can find it (`TANPA KLIEN/TANPA PROYEK`), never loose.
+
+**Who made a file is a property of the file, not of the link.** A render drawn
+by the client's designer is the client's designer's wherever it is attached,
+so `origin` sits on `attachments`, null for every file filed before and for
+anything nobody said. A default of `tala` would have been the system claiming
+authorship of drawings it has never seen.
+
+**A refusal after the side effect leaves an orphan.** `attach_file` refuses an
+unknown origin, but it runs after the bytes are in Drive, so a typo would have
+left a file nobody recorded. The route now asks the same question first. The
+database stays the authority; the route only stops a request it already knows
+will be refused from doing anything irreversible on the way.
+
+Two smaller ones:
+
+- **The demo has one persona who may write projects** (`IT / Shared`); the
+  leadership persona reads. The files tab correctly shows no Upload button to
+  Evin, which looked like a bug in the walk until the grants were read. A walk
+  should start by checking who it is walking as.
+- **The repository ladder drops; production renames.** `0210`–`0212` drop
+  superseded functions in the file and were renamed by hand on production
+  (F220). `0214` does the same and says so in its header, so whoever applies
+  it does not rediscover the hang.
+
+**Rule:** a task folder that names a record is fed the record's number, not
+only its type.
+
+**Rule:** a property nobody stated is null, not the most likely answer.

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import {
-  Check, FileSignature, Hammer, History, ListTree, Package, Pencil, Plus, Save, Trash2, UserPlus, X,
+  Check, ExternalLink, FileSignature, Hammer, History, ListTree, Package, Pencil, Plus, Save, Trash2, UserPlus, X,
 } from "lucide-react";
 import { Drawer } from "@/components/ui/drawer";
 import { Badge, Button } from "@/components/ui/primitives";
@@ -175,6 +175,29 @@ function NewProject({ onClose, onChanged }: { onClose: () => void; onChanged: ()
 
 function ExistingProject({ code, onClose, onChanged }: { code: string; onClose: () => void; onChanged: () => void }) {
   const tr = useTr();
+  const [project, reloadProject] = useLoad(() => procurement.getProject(code), [code]);
+  return (
+    <Drawer
+      open onClose={onClose} width="max-w-5xl"
+      title={project.status === "ready" ? project.data.name : code}
+      subtitle={project.status === "ready"
+        ? `${code}${project.data.client_display ? ` · ${project.data.client_display}` : ` · ${tr("internal", "internal")}`}`
+        : code}
+    >
+      <div className="mb-4 flex justify-end">
+        <Link href={`/proyek/order/${encodeURIComponent(code)}`}>
+          <Button size="sm" variant="outline" icon={ExternalLink}>{tr("Open project page · files & contact log", "Buka halaman proyek · file & log kontak")}</Button>
+        </Link>
+      </div>
+      <ProjectOverview code={code} onChanged={() => { reloadProject(); onChanged(); }} />
+    </Drawer>
+  );
+}
+
+/** A project's own facts, status, quotations, order lines and status history:
+ *  the drawer's content, and the project page's first tab (P1). */
+export function ProjectOverview({ code, onChanged }: { code: string; onChanged: () => void }) {
+  const tr = useTr();
   const { can } = useSession();
   const { toast } = useToast();
   const [project, reloadProject] = useLoad(() => procurement.getProject(code), [code]);
@@ -203,84 +226,76 @@ function ExistingProject({ code, onClose, onChanged }: { code: string; onClose: 
   }
 
   return (
-    <Drawer
-      open onClose={onClose} width="max-w-5xl"
-      title={project.status === "ready" ? project.data.name : code}
-      subtitle={project.status === "ready"
-        ? `${code}${project.data.client_display ? ` · ${project.data.client_display}` : ` · ${tr("internal", "internal")}`}`
-        : code}
-    >
       <Loaded state={project} onRetry={reloadProject}>
-        {(p) => (
-          <div className="space-y-5">
-            <StatusBar p={p} mayEdit={mayEdit} onChanged={reloadAll} />
+      {(p) => (
+        <div className="space-y-5">
+          <StatusBar p={p} mayEdit={mayEdit} onChanged={reloadAll} />
 
-            <div className="rounded-xl border border-slate-200 px-4 py-3">
-              {editing ? (
-                <>
-                  <FactsForm f={f} set={(patch) => setF((x) => ({ ...x, ...patch }))} isNew={false} disabled={busy} />
-                  <div className="mt-3 flex justify-end gap-2">
-                    <Button size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={busy}>{tr("Cancel", "Batal")}</Button>
-                    <Button size="sm" icon={Save} onClick={saveFacts} disabled={busy || !f.name.trim()}>{tr("Save", "Simpan")}</Button>
-                  </div>
-                </>
-              ) : (
-                <div className="flex flex-wrap items-start gap-x-8 gap-y-2 text-[13px]">
-                  {([
-                    [tr("Client", "Klien"), p.client_display ?? tr("internal / stock", "internal / stok")],
-                    [tr("Contact", "Kontak"), [p.client_contact, p.client_phone].filter(Boolean).join(" · ") || "—"],
-                    [tr("Location", "Lokasi"), p.location ?? "—"],
-                    ["PIC", p.pic ?? "—"],
-                    [tr("Start", "Mulai"), p.started_on ?? "—"],
-                    [tr("Delivery date", "Jadwal kirim"), p.target_date ?? "—"],
-                    [tr("Contract value", "Nilai kontrak"), p.contract_value == null ? "—" : formatIDR(p.contract_value)],
-                  ] as [string, string][]).map(([k, v]) => (
-                    <div key={k}>
-                      <span className="block text-[11px] uppercase tracking-wide text-slate-400">{k}</span>
-                      <span className="text-slate-800">{v}</span>
-                    </div>
-                  ))}
-                  {mayEdit && (
-                    <Button size="sm" variant="ghost" icon={Pencil} className="ml-auto"
-                      onClick={() => { setF(factsOf(p)); setEditing(true); }}>
-                      {tr("Edit", "Ubah")}
-                    </Button>
-                  )}
-                  {p.note && <p className="w-full text-[12px] text-slate-500">{p.note}</p>}
+          <div className="rounded-xl border border-slate-200 px-4 py-3">
+            {editing ? (
+              <>
+                <FactsForm f={f} set={(patch) => setF((x) => ({ ...x, ...patch }))} isNew={false} disabled={busy} />
+                <div className="mt-3 flex justify-end gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={busy}>{tr("Cancel", "Batal")}</Button>
+                  <Button size="sm" icon={Save} onClick={saveFacts} disabled={busy || !f.name.trim()}>{tr("Save", "Simpan")}</Button>
                 </div>
-              )}
-            </div>
-
-            <Quotations code={code} />
-
-            <Loaded state={lines} onRetry={reloadLines} skeletonRows={3}>
-              {(rows) => <OrderLines p={p} rows={rows} mayEdit={mayEdit} onChanged={() => { reloadLines(); reloadProject(); onChanged(); }} />}
-            </Loaded>
-
-            <Loaded state={history} skeletonRows={1}>
-              {(h) => h.length === 0 ? null : (
-                <details className="rounded-xl border border-slate-200 px-4 py-2.5 text-[12px] text-slate-600">
-                  <summary className="flex cursor-pointer select-none items-center gap-1.5 text-slate-700">
-                    <History className="h-3.5 w-3.5 text-slate-400" /> {tr(`Status history (${h.length})`, `Riwayat status (${h.length})`)}
-                  </summary>
-                  <ul className="mt-2 space-y-1">
-                    {h.map((c, i) => (
-                      <li key={i}>
-                        <span className="text-slate-400">{c.changed_at.slice(0, 16).replace("T", " ")}</span>{" · "}
-                        {c.from_status ? `${PROJECT_STATUS_LABEL(c.from_status)} → ` : ""}
-                        <strong className="font-medium text-slate-800">{PROJECT_STATUS_LABEL(c.to_status)}</strong>
-                        {c.changed_by && <span className="text-slate-400"> · {c.changed_by}</span>}
-                        {c.reason && <span className="block pl-4 text-slate-500">“{c.reason}”</span>}
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              )}
-            </Loaded>
+              </>
+            ) : (
+              <div className="flex flex-wrap items-start gap-x-8 gap-y-2 text-[13px]">
+                {([
+                  [tr("Client", "Klien"), p.client_display ?? tr("internal / stock", "internal / stok")],
+                  [tr("Contact", "Kontak"), [p.client_contact, p.client_phone].filter(Boolean).join(" · ") || "—"],
+                  [tr("Location", "Lokasi"), p.location ?? "—"],
+                  ["PIC", p.pic ?? "—"],
+                  [tr("Start", "Mulai"), p.started_on ?? "—"],
+                  [tr("Delivery date", "Jadwal kirim"), p.target_date ?? "—"],
+                  [tr("Contract value", "Nilai kontrak"), p.contract_value == null ? "—" : formatIDR(p.contract_value)],
+                ] as [string, string][]).map(([k, v]) => (
+                  <div key={k}>
+                    <span className="block text-[11px] uppercase tracking-wide text-slate-400">{k}</span>
+                    <span className="text-slate-800">{v}</span>
+                  </div>
+                ))}
+                {mayEdit && (
+                  <Button size="sm" variant="ghost" icon={Pencil} className="ml-auto"
+                    onClick={() => { setF(factsOf(p)); setEditing(true); }}>
+                    {tr("Edit", "Ubah")}
+                  </Button>
+                )}
+                {p.note && <p className="w-full text-[12px] text-slate-500">{p.note}</p>}
+              </div>
+            )}
           </div>
-        )}
-      </Loaded>
-    </Drawer>
+
+          <Quotations code={code} />
+
+          <Loaded state={lines} onRetry={reloadLines} skeletonRows={3}>
+            {(rows) => <OrderLines p={p} rows={rows} mayEdit={mayEdit} onChanged={() => { reloadLines(); reloadProject(); onChanged(); }} />}
+          </Loaded>
+
+          <Loaded state={history} skeletonRows={1}>
+            {(h) => h.length === 0 ? null : (
+              <details className="rounded-xl border border-slate-200 px-4 py-2.5 text-[12px] text-slate-600">
+                <summary className="flex cursor-pointer select-none items-center gap-1.5 text-slate-700">
+                  <History className="h-3.5 w-3.5 text-slate-400" /> {tr(`Status history (${h.length})`, `Riwayat status (${h.length})`)}
+                </summary>
+                <ul className="mt-2 space-y-1">
+                  {h.map((c, i) => (
+                    <li key={i}>
+                      <span className="text-slate-400">{c.changed_at.slice(0, 16).replace("T", " ")}</span>{" · "}
+                      {c.from_status ? `${PROJECT_STATUS_LABEL(c.from_status)} → ` : ""}
+                      <strong className="font-medium text-slate-800">{PROJECT_STATUS_LABEL(c.to_status)}</strong>
+                      {c.changed_by && <span className="text-slate-400"> · {c.changed_by}</span>}
+                      {c.reason && <span className="block pl-4 text-slate-500">“{c.reason}”</span>}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </Loaded>
+        </div>
+      )}
+    </Loaded>
   );
 }
 
