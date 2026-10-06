@@ -231,9 +231,9 @@ export async function upload(
   input: {
     file: File; kind: DocKind; sha256?: string; entity?: LinkEntity;
     /** The record's number: a project's files go in its client's and its own
-     *  folder (0214). Optional — without it the kind's folder is used. */
+     *  folder (0217). Optional — without it the kind's folder is used. */
     entity_no?: string;
-    /** Who made the file (0214). Left out, nothing is claimed. */
+    /** Who made the file (0217). Left out, nothing is claimed. */
     origin?: FileOrigin | null;
   },
   idempotencyKey?: string,

@@ -303,10 +303,10 @@ Payment calendar:
 | POST | `/links` | link an attachment to an entity with a `kind` |
 | GET | `/{id}` | signed URL, short TTL |
 | GET | `/{id}/thumb?size=220\|400\|800` | server-side, cached |
-| GET | `/by-entity/{entity}/{entity_no}` | everything attached to a thing. Since `0214` the entities include `project`, `client` and `quotation` |
+| GET | `/by-entity/{entity}/{entity_no}` | everything attached to a thing. Since `0217` the entities include `project`, `client` and `quotation` |
 | GET | `/filing-preview?kind=&entity=&entity_no=` | `filingPreview` — where a file of this kind, filed against this record, would go: `{drive, path, filed_in}`, from `ops_core.drive_folder_for` (the same answer the upload route gets). **422 `drive_not_configured`** while the kind's shared drive is not recorded — said before anything is uploaded |
 
-**A sale's files (0214, P1).** `upload` also takes `entity_no` (the record's
+**A sale's files (0217, P1).** `upload` also takes `entity_no` (the record's
 number: a project's files go to `<client>/<project>/<task>` under the drive's
 `ops-talaliving`, a quotation's to its project's, a client's to
 `<client>/00 UMUM`) and `origin` (`tala` · `client` · `third_party`, who made

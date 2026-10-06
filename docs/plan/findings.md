@@ -9280,7 +9280,7 @@ MUSLIKHIN, DEWI) have fingerprint taps on 7–11 September and a `joined_on` of
 showed that HRD-typed start dates drift. That is HRD's to correct, not ours to
 infer from taps.
 
-## F221 · 2026-10-06 · The sales road was built and never walked, and the half the owner now asks for was never built
+## F224 · 2026-10-06 · The sales road was built and never walked, and the half the owner now asks for was never built
 
 The owner asked for the whole business to be recorded from the first proposal
 to closing or not, with the design items, drawings and renders from both TALA
@@ -9318,16 +9318,16 @@ product. That is why the kajian proposes a per-project design item as the
 spine, which becomes a quotation line, an order line, a product and a Job
 Order in turn.
 
-## F222 · 2026-10-06 · A folder per record needs the record, and a file says who made it
+## F225 · 2026-10-06 · A folder per record needs the record, and a file says who made it
 
-P1 (kajian F221) gave a sale's files a place: ten kinds, a folder per client
+P1 (kajian F224) gave a sale's files a place: ten kinds, a folder per client
 and project, and who made each file. Three things the build taught.
 
 **A path that names a record has to be told which record.** Since `0172` the
 upload route told the database the *type* of the record a file is filed
 against (`entity = 'item'`), which is enough to pick a task folder
 (`INVENTORY/ITEMS`) and never enough to pick *this client's* folder. The owner's
-rule, one folder per task (D313), had quietly stopped at the type. `0214` adds
+rule, one folder per task (D313), had quietly stopped at the type. `0217` adds
 the number beside the type, on both questions the upload asks
 (`drive_folder_for` before Drive, `attach_file` after), so the route and the
 row cannot disagree about the folder. A record the database cannot place still
@@ -9353,7 +9353,7 @@ Two smaller ones:
   should start by checking who it is walking as.
 - **The repository ladder drops; production renames.** `0210`–`0212` drop
   superseded functions in the file and were renamed by hand on production
-  (F220). `0214` does the same and says so in its header, so whoever applies
+  (F220). `0217` does the same and says so in its header, so whoever applies
   it does not rediscover the hang.
 
 **Rule:** a task folder that names a record is fed the record's number, not

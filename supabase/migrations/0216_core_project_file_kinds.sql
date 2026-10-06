@@ -1,5 +1,5 @@
--- 0213_core_project_file_kinds.sql — the kinds of file a sale and a design are
--- made of, and the records they are filed against (P1, kajian F221).
+-- 0216_core_project_file_kinds.sql — the kinds of file a sale and a design are
+-- made of, and the records they are filed against (P1, kajian F224).
 --
 -- The owner (2026-10-06): *mulai dari mengirim proposal, penawaran, meeting
 -- dengan client sampai closing atau tidak jadi, semuanya ingin kita track …
@@ -11,7 +11,7 @@
 --
 -- Enum values only, in a file of their own: a value added by `alter type …
 -- add value` cannot be used in the same transaction (F161). Labels, drives,
--- folders and the seams that use them are `0214`.
+-- folders and the seams that use them are `0217`.
 --
 -- `client_activity` (a meeting's notes as a file on the meeting itself) waits
 -- for P3, which gives a contact a number of its own; an attachment link names

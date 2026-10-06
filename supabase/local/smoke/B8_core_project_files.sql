@@ -1,5 +1,5 @@
 -- core — a project's files: ten kinds, who made the file, a folder per client
--- and project (0213, 0214, P1).
+-- and project (0216, 0217, P1).
 --
 -- DERIVATIONS  every new kind has a label and a drive (designs to DRAFTING, the
 --              paper of a sale to PROJECT MANAGER); a project's file goes to

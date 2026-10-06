@@ -114,7 +114,7 @@ export async function upload(
   return ok(SERVICE, result);
 }
 
-/* ── where a file would go (0214, P1) ──────────────────────────────────────
+/* ── where a file would go (0217, P1) ──────────────────────────────────────
  *
  * The sandbox's copy of `doc_kind_drive` and `drive_paths` for the kinds of a
  * sale and a design — the live answer is the database's (`drive_folder_for`).

@@ -1,5 +1,5 @@
--- 0214_core_project_files.sql — a project's files: what they are, who made
--- them, and a folder per client and project (P1, kajian F221, D313).
+-- 0217_core_project_files.sql — a project's files: what they are, who made
+-- them, and a folder per client and project (P1, kajian F224, D313).
 --
 -- ── What the owner asked ──────────────────────────────────────────────────
 --
@@ -11,10 +11,10 @@
 --
 -- ── What changes ──────────────────────────────────────────────────────────
 --
--- 1. **Ten kinds get a label and a drive** (`0213` added them). The client's
+-- 1. **Ten kinds get a label and a drive** (`0216` added them). The client's
 --    and the designer's pictures go to DRAFTING; the paper of the sale (brief,
 --    survey, proposal, notes, contract) to PROJECT MANAGER, beside the BAST
---    that closes it (Q68's default).
+--    that closes it (Q69's default).
 -- 2. **A file says who made it.** `attachments.origin`: `tala`, `client`, or
 --    `third_party` (the client's architect or designer). A property of the
 --    file, not of the link: a render is the client's designer's wherever it is
@@ -36,7 +36,7 @@
 -- dropped here, as 0210–0212 drop theirs. **Applying this to production:** a
 -- `DROP` does not get through the Supabase migration tool (F220). There, run
 -- the two `drop function` lines as `alter function … rename to
--- …_retired_0214` plus `revoke all … from public, authenticated`, and apply
+-- …_retired_0217` plus `revoke all … from public, authenticated`, and apply
 -- the rest in the same order.
 
 -- ── 1. labels and drives ──────────────────────────────────────────────────
@@ -75,7 +75,7 @@ alter table ops_core.attachments
 
 comment on column ops_core.attachments.origin is
   'Who made the file: tala (us), client, or third_party (the client''s architect or designer). '
-  'Null where nobody said, including every file filed before 0214. (0214, P1)';
+  'Null where nobody said, including every file filed before 0217. (0217, P1)';
 
 -- Appended at the end, so `create or replace` keeps every column a screen reads.
 create or replace view ops_core.v_attachment as
@@ -150,7 +150,7 @@ grant execute on function ops_procure.drive_context(text, text) to authenticated
 
 comment on function ops_procure.drive_context(text, text) is
   'The client and project folder names for a record a file is filed against: a project, a '
-  'quotation (its project) or a client (00 UMUM). No row for anything else. (0214)';
+  'quotation (its project) or a client (00 UMUM). No row for anything else. (0217)';
 
 -- The folder for a kind **and a particular record**: `drive_path_for`, with
 -- `{CLIENT}` and `{PROJECT}` read from that record. Where the record says
@@ -179,7 +179,7 @@ grant execute on function ops_core.drive_path_for_record(ops_core.doc_kind_t, te
 
 comment on function ops_core.drive_path_for_record(ops_core.doc_kind_t, text, text, date) is
   'drive_path_for, with {CLIENT} and {PROJECT} read from the record the file is filed against '
-  '(TANPA KLIEN / TANPA PROYEK where it says nothing). (0214)';
+  '(TANPA KLIEN / TANPA PROYEK where it says nothing). (0217)';
 
 insert into ops_core.drive_paths (kind, entity, path, note) values
   -- PROJECT MANAGER / ops-talaliving
@@ -189,7 +189,7 @@ insert into ops_core.drive_paths (kind, entity, path, note) values
   ('notulen',         null, '{CLIENT}/{PROJECT}/04 MEETING',               null),
   ('kontrak',         null, '{CLIENT}/{PROJECT}/05 KONTRAK',               null),
   -- DRAFTING / ops-talaliving. P4 adds the collection, room and item levels.
-  ('gambar_klien',    null, '{CLIENT}/{PROJECT}/00 DARI KLIEN',            'What the client brought, by client and project (P1, D375).'),
+  ('gambar_klien',    null, '{CLIENT}/{PROJECT}/00 DARI KLIEN',            'What the client brought, by client and project (P1, D379).'),
   ('referensi_klien', null, '{CLIENT}/{PROJECT}/00 DARI KLIEN',            null),
   ('moodboard',       null, '{CLIENT}/{PROJECT}/00 KONSEP',                null),
   ('layout',          null, '{CLIENT}/{PROJECT}/00 KONSEP',                null),
@@ -358,4 +358,4 @@ grant execute on function ops_core.attach_file(text, text, text, bigint, text, t
 
 comment on function ops_core.attach_file(text, text, text, bigint, text, text, text, text, text, text, text, text, text) is
   'Records an uploaded file: where it went (decided here from the kind and the record) and who made it '
-  '(origin). The arguments of 0177, in the same order, then p_entity_no and p_origin. (0214)';
+  '(origin). The arguments of 0177, in the same order, then p_entity_no and p_origin. (0217)';

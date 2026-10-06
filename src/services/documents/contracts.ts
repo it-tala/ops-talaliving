@@ -63,7 +63,7 @@ export const DOC_KINDS = [
   /** A photo taken at a clock-in away from the warehouse (D332). A face and a
    *  place, so it is filed in the HRD drive, not with `Foto` in PROCUREMENT. */
   "Foto Presensi",
-  /** What a sale and a design are made of (0213, P1). The paper of the sale
+  /** What a sale and a design are made of (0216, P1). The paper of the sale
    *  goes to PROJECT MANAGER beside the BAST that closes it; the pictures the
    *  drafters work from and draw go to DRAFTING. Each file also says who made
    *  it (`origin`), because a render can be ours or the client's designer's. */
@@ -187,7 +187,7 @@ export type LinkEntity =
   /** A quotation, by its `qt-…` number — the proposal sent with it, the signed copy. */
   | "quotation";
 
-/** Who made a file (0214): us, the client, or somebody the client brought —
+/** Who made a file (0217): us, the client, or somebody the client brought —
  *  their architect or designer. A property of the file, wherever it is
  *  attached. Null where nobody said, and never guessed. */
 export type FileOrigin = "tala" | "client" | "third_party";
@@ -300,7 +300,7 @@ export interface Attachment {
   /** Where the file sits, in words: `PROCUREMENT / OPS / INVENTORY/ITEMS`.
    *  Decided by the database from the kind, never by the screen (0175). */
   filed_in?: string | null;
-  /** Who made it (0214). Null for files filed before, or where nobody said. */
+  /** Who made it (0217). Null for files filed before, or where nobody said. */
   origin?: FileOrigin | null;
 }
 

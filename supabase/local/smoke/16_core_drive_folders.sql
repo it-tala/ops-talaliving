@@ -49,7 +49,7 @@ begin
   -- 26 since `0101` added the receiving report; 29 since `0132` added the
   -- BAST, our own surat jalan and the site photo, all in PROJECT MANAGER;
   -- 30 since `0188` added the off-site clock-in photo, in HRD (D332);
-  -- 40 since `0214` added the ten kinds of a sale and a design (P1): five in
+  -- 40 since `0217` added the ten kinds of a sale and a design (P1): five in
   -- PROJECT MANAGER, five in DRAFTING.
   assert n = 40, format('every kind is mapped, got %s', n);
 end $$;

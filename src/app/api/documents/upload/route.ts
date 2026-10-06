@@ -105,7 +105,7 @@ export async function POST(request: Request): Promise<Response> {
      picks the task folder under ops-talaliving (a photo of an item is not a photo of a
      finished product). Optional — without it the kind's own folder is used. */
   const entity = String(form.get("entity") ?? "").trim() || null;
-  /* The record's number, which names the client and project folders (0214).
+  /* The record's number, which names the client and project folders (0217).
      And who made the file — said by the person, checked by the database. */
   const entityNo = String(form.get("entity_no") ?? "").trim() || null;
   const origin = String(form.get("origin") ?? "").trim() || null;
