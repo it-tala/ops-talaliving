@@ -56,7 +56,7 @@ insert into ops_hr.employees (id, employee_no, full_name, unit, schedule_code, p
                               base_rate, allowance_rate, paid_leave_days)
 values
   -- Linked by name: a decision somebody took.
-  -- Tunjangan 650.000 a month (0215, D378): 25.000 a day over September's 26.
+  -- Tunjangan 650.000 a month (0230, D386): 25.000 a day over September's 26.
   ('aaaa5700-0000-0000-0000-0000000000e1','B-0012','Joko','Produksi','PRODUKSI','monthly', 4500000, 650000, 12),
   -- On a pattern only because the unit defaults to it: an assumption.
   ('aaaa5700-0000-0000-0000-0000000000e2','B-0007','Siti','Kantor', null,'daily', 180000, 20000, 12),

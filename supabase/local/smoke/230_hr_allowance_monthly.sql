@@ -1,4 +1,4 @@
--- 215_hr_allowance_monthly.sql — a monthly allowance is a month (0215, D378).
+-- 215_hr_allowance_monthly.sql — a monthly allowance is a month (0230, D386).
 --
 --   • HR types pokok and tunjangan a month, as agreed; a month with nothing
 --     marked pays exactly both;
@@ -18,7 +18,7 @@ insert into ops_core.user_modules (user_id, module, level) values
   ('ffffffff-0000-0000-0000-000000021501','hrd','admin');
 
 insert into ops_hr.pay_rule_sets (version, effective_from, note, rules, created_by) values
- (1, '2026-08-01', 'uji D378', '{
+ (1, '2026-08-01', 'uji D386', '{
    "week_pattern":"5day","late_grace_minutes":15,"late_mode":"manual","undertime_mode":"off",
    "day_reading":"in_out","hours_rounding_minutes":15,
    "overtime_mode":"tiered","workday_tiers":[{"after_hours":0,"multiplier":1.5}],
@@ -83,7 +83,7 @@ do $$
 declare p ops_hr.payroll_figures;
 begin
   insert into ops_hr.attendance_scans (employee_id, work_date, at, verify, source, reason)
-  select 'aaaa2150-0000-0000-0000-000000000002', ops_core.office_day(t), t, 'FP', 'manual', 'uji D378'
+  select 'aaaa2150-0000-0000-0000-000000000002', ops_core.office_day(t), t, 'FP', 'manual', 'uji D386'
     from (values ('2026-09-28 07:55'::timestamp), ('2026-09-28 17:05'),
                  ('2026-09-29 07:55'), ('2026-09-29 17:05')) x(ts)
     cross join lateral (select x.ts at time zone ops_core.office_tz() as t) y;

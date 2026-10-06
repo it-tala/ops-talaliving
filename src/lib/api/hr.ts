@@ -49,7 +49,7 @@ import type {
   AdjustmentKind, ContributionScheme,
   LeaveKind, LeaveStatus, LeaveRequestView, LeaveBalance,
   TaskStatus, TaskRefKind, TaskView, TaskCadence, TaskRoutineView,
-  TaskAction, GoalView, GoalBoardTask,
+  TaskAction, GoalView, GoalBoardTask, BacklogItem,
   WorkLogEntry, WorkLogRosterRow, WorkEvidence, WorkProgress, KpiView,
   Sex, Education, Citizenship, MaritalStatus, EmployeeIdentityView, WlkpRecap,
   TapReading, TapSelfResult, LocationJudgement, WorkSite, LocatedTapView, TapKind,
@@ -816,7 +816,7 @@ export async function paidElsewhere(
 }
 
 /** What the employee form shows once pokok and tunjangan are typed, before
- *  anything is saved (0215, D378). */
+ *  anything is saved (0230, D386). */
 export async function payPreview(input: PayPreviewInput): Promise<Result<PayPreview>> {
   const { data, error } = await db().rpc("pay_preview", {
     p_pay_basis: input.pay_basis, p_base_rate: Math.round(input.base_rate),
@@ -2466,6 +2466,98 @@ export async function closeGoal(
   const said = fromSeam<{ goal_no: string }>(SERVICE, data, error);
   if (said.error) return said as unknown as Result<GoalView>;
   return goalByNo(input.goal_no);
+}
+
+/* ------------------------------------------------------------------ */
+/* Daftar tunggu (D381)                                                 */
+/* ------------------------------------------------------------------ */
+
+/** Proposals first, then the open list in order, then (with
+ *  `include_closed`) what left it. HRD reads all; anybody with an employee
+ *  link reads the open list and their own proposals; 403 otherwise. */
+export async function listBacklog(
+  input: { include_closed?: boolean } = {},
+): Promise<Result<BacklogItem[]>> {
+  const { data, error } = await db().rpc("list_backlog", {
+    p_include_closed: input.include_closed ?? false,
+  });
+  return fromRows<BacklogItem[]>(SERVICE, (data ?? []) as BacklogItem[], error);
+}
+
+async function backlogByNo(itemNo: string): Promise<Result<BacklogItem>> {
+  const { data, error } = await db().rpc("list_backlog", { p_include_closed: true });
+  if (error) return fromRows<BacklogItem>(SERVICE, null, error);
+  const row = ((data ?? []) as BacklogItem[]).find((b) => b.item_no === itemNo);
+  if (!row) return notFound(SERVICE, "backlog_not_found", `Item ${itemNo} tersimpan tapi tidak terbaca kembali.`);
+  return ok(SERVICE, row);
+}
+
+/** New (`item_no` absent) or changed. HRD's new item joins the bottom of the
+ *  list; anybody else's is a proposal and HRD is told. */
+export async function saveBacklogItem(
+  input: {
+    item_no?: string | null;
+    title: string;
+    deliverable?: string | null;
+    detail?: string | null;
+    unit?: string | null;
+    goal_no?: string | null;
+  },
+): Promise<Result<BacklogItem>> {
+  const { data, error } = await db().rpc("save_backlog_item", {
+    p_item_no: input.item_no ?? null,
+    p_title: input.title,
+    p_deliverable: input.deliverable ?? null,
+    p_detail: input.detail ?? null,
+    p_unit: input.unit ?? null,
+    p_goal_no: input.goal_no ?? null,
+  });
+  const made = fromSeam<{ item_no: string }>(SERVICE, data, error);
+  if (made.error) return made as unknown as Result<BacklogItem>;
+  return backlogByNo(made.data.item_no);
+}
+
+/** HRD: a proposal joins the bottom of the list; its author is told. */
+export async function acceptBacklogItem(input: { item_no: string }): Promise<Result<BacklogItem>> {
+  const { data, error } = await db().rpc("accept_backlog_item", { p_item_no: input.item_no });
+  const said = fromSeam<unknown>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<BacklogItem>;
+  return backlogByNo(input.item_no);
+}
+
+/** Out of the list. HRD gives a reason; an author may withdraw their own
+ *  proposal without one. */
+export async function dropBacklogItem(
+  input: { item_no: string; reason?: string | null },
+): Promise<Result<BacklogItem>> {
+  const { data, error } = await db().rpc("drop_backlog_item", {
+    p_item_no: input.item_no, p_reason: input.reason ?? null,
+  });
+  const said = fromSeam<unknown>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<BacklogItem>;
+  return backlogByNo(input.item_no);
+}
+
+/** The open list's order, sent whole. 409 `order_stale` if it changed. */
+export async function rankBacklog(input: { item_nos: string[] }): Promise<Result<BacklogItem[]>> {
+  const { data, error } = await db().rpc("rank_backlog", { p_item_nos: input.item_nos });
+  const said = fromSeam<unknown>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<BacklogItem[]>;
+  return listBacklog();
+}
+
+/** *Tugaskan*: one person and a due date make it a task (through
+ *  `assign_task`, so the person is notified). */
+export async function assignBacklogItem(
+  input: { item_no: string; assignee_no: string; due_date: string; chase_date?: string | null },
+): Promise<Result<{ item_no: string; task_no: string; assignee_name: string }>> {
+  const { data, error } = await db().rpc("assign_backlog_item", {
+    p_item_no: input.item_no,
+    p_assignee_no: input.assignee_no,
+    p_due: input.due_date,
+    p_chase_date: input.chase_date ?? null,
+  });
+  return fromSeam<{ item_no: string; task_no: string; assignee_name: string }>(SERVICE, data, error);
 }
 
 /* ------------------------------------------------------------------ */

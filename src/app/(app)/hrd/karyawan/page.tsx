@@ -214,7 +214,7 @@ export default function EmployeesPage() {
              they are kept apart on the slip: one is owed whatever happens and
              the other is earned by turning up, and a single total would hide
              which of the two a month's wage bill actually is (D250). A salary's
-             tunjangan is a month (D378), so it adds up as one. */
+             tunjangan is a month (D386), so it adds up as one. */
           const monthlyCost = monthly.reduce((s, e) => s + e.base_rate, 0);
           const monthlyAllowance = monthly.reduce((s, e) => s + e.allowance_rate, 0);
           /* A full day of the workshop **does** include the allowance: everybody

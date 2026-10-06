@@ -1,4 +1,4 @@
--- 0215 — a monthly allowance is a month (D378).
+-- 0230 — a monthly allowance is a month (D386).
 --
 -- ── the owner's ask (2026-10-06) ──────────────────────────────────────────
 --
@@ -34,7 +34,7 @@
 --
 -- No data is converted here: the two salaries that still carried a per-day
 -- figure in production (5.000) are restated by hand, with the decision
--- (D378). No DROP, so it applies through the tool (F220).
+-- (D386). No DROP, so it applies through the tool (F220).
 
 /* ── a month's working days, for one person ─────────────────────────────── */
 create or replace function ops_hr.month_workdays(p_rules jsonb, p_sc jsonb, p_date date)
@@ -83,7 +83,7 @@ language sql stable set search_path = ops_hr, pg_temp as $$
       coalesce(p_rules->>'hourly_basis', 'company')                               as basis
   ),
   a as (
-    -- In the pay's own unit (D378): a month for a salary, a day otherwise.
+    -- In the pay's own unit (D386): a month for a salary, a day otherwise.
     select r.*,
       case when r.with_allow then p_employee.allowance_rate else 0 end as allow
     from r
@@ -121,7 +121,7 @@ returns bigint
 language sql stable set search_path = ops_hr, pg_temp as $$
   select round(
     case p_employee.pay_basis
-      -- Pokok + tunjangan, both a month (D378).
+      -- Pokok + tunjangan, both a month (D386).
       when 'monthly' then p_employee.base_rate + p_employee.allowance_rate
       when 'daily'   then (p_employee.base_rate + p_employee.allowance_rate) * d
       else                p_employee.base_rate * p_employee.daily_hours * d + p_employee.allowance_rate * d
@@ -138,7 +138,7 @@ alter type ops_hr.payroll_figures
 
 /* ── one person's line — restated from 0213 ──────────────────────────────
 
-   Three changes, each marked 0215: a monthly person is present on the days
+   Three changes, each marked 0230: a monthly person is present on the days
    their pattern works (`is_workday_for`, as their salary is), each present
    day earns its own share of the allowance, and the line says what a day of
    the allowance is. Everything else is 0213's, word for word. */
@@ -203,7 +203,7 @@ declare
   v_mb_full  jsonb;
   v_adj_pos  numeric := 0;
   v_adj_neg  numeric := 0;
-  -- 0215 (D378)
+  -- 0230 (D386)
   v_aday         numeric := 0;
   v_amonth       date;
   v_amonth_days  int := 0;
@@ -353,7 +353,7 @@ begin
        A half day is presence, and since Q46 that is the owner's ruling rather
        than our reading of one (D272). Sakit, cuti and tanggal merah are not. */
     if emp.pay_basis = 'monthly' then
-      /* 0215 (D378): a day the person's pattern works — the same days the
+      /* 0230 (D386): a day the person's pattern works — the same days the
          monthly allowance is divided by, so a month with nothing marked pays
          exactly the month's allowance. */
       is_present := case when d.mark_kind is not null then d.mark_kind = 'half_day'
@@ -370,7 +370,7 @@ begin
     end if;
 
     if is_present then
-      /* 0215 (D378): what this day's allowance is worth. A monthly allowance
+      /* 0230 (D386): what this day's allowance is worth. A monthly allowance
          is a month, divided by that month's working days for this person; a
          day wage's allowance is already a day. Kept unrounded and rounded
          once, so 22 days of 1.350.000 ÷ 22 is 1.350.000, not 1.349.998. */
@@ -501,14 +501,14 @@ begin
 
   out_row.allowance_days := n_present;
   out_row.allowance_withheld_days := n_withheld;
-  /* 0215 (D378): the sum of each day's worth, above — for a day wage the
+  /* 0230 (D386): the sum of each day's worth, above — for a day wage the
      same figure as before, for a salary the month's allowance shared over its
      working days. */
   out_row.allowance_pay := round(v_allow_amt)::bigint;
   -- What the withheld days would have paid, and **who decided each one**. A
   -- deduction with no name against it is the kind a payslip cannot defend.
   out_row.allowance_withheld_amount := round(v_withheld_amt)::bigint;
-  /* 0215 (D378): a day of the allowance, beside a day of the pay — for a
+  /* 0230 (D386): a day of the allowance, beside a day of the pay — for a
      salary, the allowance over the first month's working days. */
   out_row.allowance_daily := case
     when emp.pay_basis <> 'monthly' then emp.allowance_rate
@@ -769,7 +769,7 @@ select
   -- What it costs that day. The rate is the person's, read now: a copy stored
   -- at the moment of withholding would be a second figure to keep in step
   -- (A3), and the decision is about a day, not about an amount.
-  -- 0215 (D378): a day of it — for a salary, the month's share for that day.
+  -- 0230 (D386): a day of it — for a salary, the month's share for that day.
   ops_hr.allowance_day(e, w.work_date) as amount,
   w.restored_at is null            as live
 from ops_hr.allowance_withholdings w
@@ -819,7 +819,7 @@ language sql stable set search_path = ops_hr, pg_temp as $$
                                   (case s.pay_basis when 'monthly' then 'month'
                                                     when 'daily'   then 'day'
                                                     else 'hour' end)
-        -- 0215 (D378): a month for a salary, a day otherwise.
+        -- 0230 (D386): a month for a salary, a day otherwise.
         when 'tunjangan'     then s.allowance_rate::text || ' / ' ||
                                   (case s.pay_basis when 'monthly' then 'month' else 'day' end)
         when 'cuti'          then s.paid_leave_days::text || ' hari'
@@ -896,4 +896,4 @@ end $$;
 grant execute on function ops_hr.pay_preview(ops_hr.pay_basis_t, bigint, bigint, numeric, text, text, date) to authenticated;
 
 comment on column ops_hr.employees.allowance_rate is
-  'Tunjangan, in the unit of the pay (D378): per month for a monthly salary, per day present for a day or hour wage. A day of a monthly allowance is derived: ÷ the month''s working days (month_workdays).';
+  'Tunjangan, in the unit of the pay (D386): per month for a monthly salary, per day present for a day or hour wage. A day of a monthly allowance is derived: ÷ the month''s working days (month_workdays).';

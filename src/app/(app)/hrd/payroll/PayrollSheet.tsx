@@ -303,7 +303,7 @@ function PersonBreakdown({ line: l, onClose, onPersonSettings }: {
               note={l.pay_basis === "monthly" ? tr("salary ÷ the month's working days", "gaji ÷ hari kerja bulan itu") : l.pay_basis === "hourly" ? tr("hour wage × contracted day", "upah per jam × jam kerja sehari") : undefined} />
             <Row k={tr("Hourly rate", "Rate per jam")} v={formatIDR(l.hourly)}
               note={tr(`the hour overtime is priced at (${l.hourly_basis})`, `jam yang dipakai menghitung lembur (${l.hourly_basis})`)} />
-            {/* A salary's tunjangan is a month, and the day is derived (D378). */}
+            {/* A salary's tunjangan is a month, and the day is derived (D386). */}
             {l.pay_basis === "monthly" && (
               <Row k={tr("Monthly allowance", "Tunjangan bulanan")} v={l.allowance_rate > 0 ? formatIDR(l.allowance_rate) : "—"} tone={l.allowance_rate > 0 ? undefined : "muted"} />
             )}

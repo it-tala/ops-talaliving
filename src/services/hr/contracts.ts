@@ -45,7 +45,7 @@ export interface Employee {
   /** **Pokok only**, per month, per day or per hour, matching `pay_basis`.
    *  Whole rupiah. */
   base_rate: number;
-  /** **Tunjangan, in the unit of the pay** (D378): **per month** for a
+  /** **Tunjangan, in the unit of the pay** (D386): **per month** for a
    *  monthly salary — typed as agreed at hiring, beside the pokok — and per
    *  day present for a day or hour wage. A day of a monthly allowance is
    *  derived, never typed: the month's allowance ÷ that month's working days,
@@ -846,6 +846,45 @@ export interface GoalView {
   /** The reader's own open parts in it. */
   my_open: number;
   is_owner: boolean;
+}
+
+/** Where an item of the daftar tunggu is (D381). `PROPOSED` waits for HRD;
+ *  `OPEN` is on the ordered list; `ASSIGNED` became a task; `DROPPED` left
+ *  the list with a reason. */
+export type BacklogStatus = "PROPOSED" | "OPEN" | "ASSIGNED" | "DROPPED";
+
+/** One item of the daftar tunggu — `ops_hr.list_backlog()` (0220, D381).
+ *
+ *  Known work with **no person and no due date yet**, so nobody is late on it
+ *  and it is in nobody's score. `unit` (bidang) is a label to filter by when
+ *  somebody in that field comes free, never an assignee: one task, one person.
+ *  *Tugaskan* turns it into a task through `assign_task`. */
+export interface BacklogItem {
+  id: string;
+  item_no: string;
+  title: string;
+  detail: string | null;
+  deliverable: string | null;
+  unit: string | null;
+  goal_no: string | null;
+  goal_title: string | null;
+  goal_rank: number | null;
+  goal_open: boolean | null;
+  status: BacklogStatus;
+  /** 1 = next. Only an OPEN item has one. */
+  position: number | null;
+  /** Came from a staff proposal, not from HRD. */
+  proposed: boolean;
+  created_by_name: string;
+  created_at: string;
+  accepted_at: string | null;
+  task_no: string | null;
+  assignee_name: string | null;
+  assigned_at: string | null;
+  dropped_reason: string | null;
+  dropped_at: string | null;
+  /** The reader wrote it. */
+  is_mine: boolean;
 }
 
 /** One part of a goal, as anybody in that goal may read it (D367).
@@ -2414,10 +2453,10 @@ export interface PayrollLine {
   position: string;
   pay_basis: PayBasis;
   base_rate: number;
-  /** As stored: a month for a salary, a day otherwise (D378). */
+  /** As stored: a month for a salary, a day otherwise (D386). */
   allowance_rate: number;
   /** A day of the allowance — for a salary, the month's ÷ the first month's
-   *  working days (0215, D378). Null where there are no working days. */
+   *  working days (0230, D386). Null where there are no working days. */
   allowance_daily: number | null;
   /** Days present, and of those, how many are still open. */
   days_worked: number;
@@ -2575,7 +2614,7 @@ export interface PayrollView extends PayrollRun {
 
 /** Somebody another run already pays for days of a period (0213). */
 /** What the employee form shows once pokok and tunjangan are typed, before
- *  anything is saved (0215, D378): the month it is read for, its working
+ *  anything is saved (0230, D386): the month it is read for, its working
  *  days, a day of the pay, a day of the allowance, the hour overtime is
  *  priced at, and the month in total. Payroll's own arithmetic. */
 export interface PayPreview {

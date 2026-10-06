@@ -27,7 +27,7 @@ insert into ops_core.user_modules (user_id, module, level) values
   ('ffffffff-0000-0000-0000-00000000aa02','payroll','read');
 
 insert into ops_hr.employees (id, employee_no, full_name, pay_basis, base_rate, allowance_rate, daily_hours)
--- A salary's tunjangan is a month since 0215 (D378): 625.000 is what 25.000 a
+-- A salary's tunjangan is a month since 0230 (D386): 625.000 is what 25.000 a
 -- day over 25 days used to be, so every figure below stays as it was.
 values ('aaaa0000-0000-0000-0000-00000000c001','B-501','Sari Utami','monthly',5000000,625000,8),
        ('aaaa0000-0000-0000-0000-00000000c002','B-502','Bima Saputra','monthly',9000000,625000,8);

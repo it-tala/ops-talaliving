@@ -61,7 +61,7 @@ export function EmployeeDrawer({
 
   const [sched] = useLoad(() => hr.listSchedules(), []);
 
-  /* 0215 (D378): pokok and tunjangan are typed as agreed, then the screen
+  /* 0230 (D386): pokok and tunjangan are typed as agreed, then the screen
      says what they come to — a day of each, the hour overtime is priced at —
      with payroll's own arithmetic, a moment after the typing stops. */
   const [terms, setTerms] = useState({ basis, rate, allowance, hours, schedule, unit });
@@ -335,7 +335,7 @@ export function EmployeeDrawer({
             )}
           </div>
           <div>
-            {/* In the pay's own unit, as it is agreed at hiring (D378): a month
+            {/* In the pay's own unit, as it is agreed at hiring (D386): a month
                 for a salary — the screen works out the day — and a day for a
                 day or hour wage. It was per day for everybody (D250), and HR
                 typed monthly figures into it. */}
@@ -363,7 +363,7 @@ export function EmployeeDrawer({
               </p>
             )}
           </div>
-          {/* What the terms come to (0215, D378). */}
+          {/* What the terms come to (0230, D386). */}
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 sm:col-span-2">
             <p className="text-xs font-medium text-slate-600">{tr("What this comes to", "Perhitungannya")}</p>
             {preview.status === "ready" ? (

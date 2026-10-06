@@ -197,7 +197,7 @@ export default function GeneratePayrollPage() {
             className="mt-1 h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none" />
         </div>
         {/* Walking the period: by the pay week for wages, by the month for
-            salaries — a salary is compared month by month (D378). */}
+            salaries — a salary is compared month by month (D386). */}
         <div className="flex gap-1.5">
           {group === "monthly" ? (
             <>

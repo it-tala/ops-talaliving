@@ -11,7 +11,7 @@ import { PAY_GROUP_LABELS } from "@/services/hr/contracts";
 import { useSession } from "@/store/session";
 import { useTr, useLang } from "@/lib/i18n";
 
-/** Payroll: the runs, and one way to make one (D378).
+/** Payroll: the runs, and one way to make one (D386).
  *
  *  There were three — *Buka periode gaji* here, *Buat payroll*, and *Gajian
  *  mingguan* — each opening a run its own way. The owner: *buang yang tidak

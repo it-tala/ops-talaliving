@@ -889,13 +889,13 @@ export function payrollLine(
   const presentDays = employee.pay_basis === "monthly"
     ? days.filter((d) => employed(d.work_date) && (d.mark
       ? d.mark.kind === "half_day"
-      /* 0215 (D378): the days the pattern works — the ones the month's
+      /* 0230 (D386): the days the pattern works — the ones the month's
          allowance is divided by. */
       : isWorkdayFor(state, rules, sched, d.work_date)))
     : days.filter(earnsAllowance);
   const allowance_days = presentDays.filter((d) => !withheldDates.has(d.work_date)).length;
   const allowance_withheld_days = presentDays.filter((d) => withheldDates.has(d.work_date)).length;
-  /* 0215 (D378): each day's worth — a salary's allowance is a month shared
+  /* 0230 (D386): each day's worth — a salary's allowance is a month shared
      over that month's working days, a day wage's is a day. Summed unrounded,
      rounded once, as the database does. */
   const dayWorth = (key: string) => allowanceDayExact(state, rules, sched, employee, key);
@@ -1903,7 +1903,7 @@ function contributionBase(state: DemoState, employee: Employee, month: string, e
   const rules = activePayRules(state, `${month}-01`).rules;
   const days = Math.max(rules.effective_days_per_year, 1) / 12;
   const monthly = employee.pay_basis === "monthly"
-    /* Pokok + tunjangan, both a month (D378). */
+    /* Pokok + tunjangan, both a month (D386). */
     ? employee.base_rate + employee.allowance_rate
     : employee.pay_basis === "daily"
       ? (employee.base_rate + employee.allowance_rate) * days
@@ -2044,7 +2044,7 @@ export function hourlyRate(employee: Employee, rules: PayRules): HourlyRate {
   const days = Math.max(rules.effective_days_per_year, 1);
   const hoursPerDay = Math.max(employee.daily_hours, 1);
   const withAllowance = rules.hourly_includes_allowance;
-  /* In the pay's own unit (D378): a month for a salary, a day otherwise. */
+  /* In the pay's own unit (D386): a month for a salary, a day otherwise. */
   const allowance = withAllowance ? employee.allowance_rate : 0;
 
   /* A year of this person's pay, however their pokok is quoted. */
@@ -2265,7 +2265,7 @@ export function monthWorkdays(
   return n;
 }
 
-/** A day of somebody's allowance on a date, unrounded (0215, D378): a
+/** A day of somebody's allowance on a date, unrounded (0230, D386): a
  *  salary's month over that month's working days; a day wage's day. */
 export function allowanceDayExact(
   state: DemoState, rules: PayRules, sc: WorkSchedule | null, employee: Employee, date: string,

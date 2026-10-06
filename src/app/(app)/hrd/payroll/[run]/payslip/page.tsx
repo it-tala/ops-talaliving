@@ -320,7 +320,7 @@ function Slip({
           {l.allowance_rate > 0 && (
             <tr>
               <td className="py-0.5">
-                {/* A day of it: for a salary, the month's ÷ its working days (D378). */}
+                {/* A day of it: for a salary, the month's ÷ its working days (D386). */}
                 {tr(
                   `Allowance — ${formatNumber(l.allowance_days)} days × ${formatIDR(l.allowance_daily ?? 0)}`,
                   `Tunjangan — ${formatNumber(l.allowance_days)} hari × ${formatIDR(l.allowance_daily ?? 0)}`,

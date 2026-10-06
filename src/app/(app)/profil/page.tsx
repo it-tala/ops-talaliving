@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   KeyRound, Activity, Fingerprint, Clock, CalendarClock, ClipboardList, Wallet,
   Check, Plus, AlertTriangle, ShieldAlert, PlayCircle, PauseCircle, PackageCheck, Users,
@@ -23,6 +24,7 @@ import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 import { GoalBoardList, GoalProgress } from "@/components/hr/goal-parts";
 import { DailyLogTab } from "./daily-log";
+import { StaffBacklog } from "@/components/hr/backlog-staff";
 import { OvertimeForm } from "../saya/overtime-form";
 import { OvertimeAskDetails, useOvertimeStatus } from "../saya/overtime-ask";
 import { useDayLabel } from "../saya/shared";
@@ -45,7 +47,19 @@ import { tapActionsFor } from "../saya/presensi";
  *  the page has nothing to show, said plainly rather than as an empty table.
  */
 export default function ProfilePage() {
+  return (
+    <Suspense fallback={null}>
+      <Profile />
+    </Suspense>
+  );
+}
+
+function Profile() {
   const { session } = useSession();
+  /* `?tab=tugas` is where the bell sends somebody with a new task (D374).
+     Keyed on it, so a notification clicked while already here still moves
+     the tabs. */
+  const asked = useSearchParams().get("tab");
   const [me] = useLoad(() => hr.myProfile(), []);
   const tr = useTr();
 
@@ -59,7 +73,8 @@ export default function ProfilePage() {
 
       <Card>
         <Tabs
-          defaultId="keamanan"
+          key={asked ?? ""}
+          defaultId={asked ?? "keamanan"}
           items={[
             { id: "keamanan", label: tr("Security", "Keamanan"), content: <SecurityTab /> },
             { id: "aktivitas", label: tr("Activity", "Aktivitas"), content: <ActivityTab /> },
@@ -715,6 +730,7 @@ function TasksTab({ me }: { me: ReturnType<typeof useLoad<Awaited<ReturnType<typ
             {goals.status === "failed" && (
               <Button size="sm" variant="ghost" onClick={reloadGoals}>{tr("Reload goals", "Muat ulang sasaran")}</Button>
             )}
+            <StaffBacklog />
           </div>
         );
       }}
