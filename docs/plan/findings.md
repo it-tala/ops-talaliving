@@ -9587,3 +9587,39 @@ in the same file.
 
 **Rule:** a seam that writes a parent and its lines checks the lines against
 the parent inside one block, and a refused line rolls the parent back.
+
+## F229 · 2026-10-06 · Until there are revisions, the drawing a price rests on is a file, and it is frozen like the cost
+
+P5 (kajian F224 G9, G14) linked a quotation line to the design item it
+offers. The kajian named the column `frozen_design_rev`; there is no design
+revision yet — the drafters' numbered revisions are P6. What a price rests on
+today is a **file**: the item's newest render, layout, working drawing, or the
+client's own drawing (a moodboard is not something a price rests on). So the
+line carries `design_file_id` (a drawing the PM pins, or none for the
+latest), and sending freezes `frozen_design_file_id` beside the cost and the
+BOM revision. A drawing filed after the offer leaves the offer naming its
+drawing and says `design_changed`; a revision prices the latest again. When P6
+numbers revisions, the frozen file is the one a revision points at.
+
+**The newest of rows written together is chance.** The smoke filed two renders
+in one transaction and read the first as the latest: `attachment_links.linked_at`
+is `now()`, the transaction's start, the same tie F227 found for approvals.
+Real uploads are separate transactions, so the smoke backdates the first file
+rather than the code inventing an order that does not exist. The rule from
+F227 stands for tables this work owns; `attachment_links` is not one of them.
+
+**A status that moves on must not lose what it counted.** The item's status
+gained QUOTED and ORDERED (read from quotation and order lines, A3), ahead of
+APPROVED. The collection's *approved* count read `status = 'APPROVED'`, so
+quoting an approved item would have made it uncounted. It now reads the
+approval itself.
+
+**A marketing-only seller prices by the selling price.** Cost and margin stay
+with `project.update` (0133); walking as Rina, the quotation could only be
+sent with fixed selling prices, which is the rule working — not a gap.
+
+**Rule:** a figure frozen at send is frozen with the evidence it rests on —
+the BOM revision for the cost, the drawing for the design.
+
+**Rule:** a count over a status reads the fact it means (an approval), not
+the status that happens to show it today.

@@ -3,7 +3,7 @@
 import { use, useState } from "react";
 import Link from "next/link";
 import {
-  ArrowLeft, Check, CopyPlus, FileSignature, Pencil, Plus, Printer, Save, Send, ThumbsDown, ThumbsUp, Trash2, X,
+  ArrowLeft, Check, CopyPlus, FileSignature, Layers, Pencil, Plus, Printer, Save, Send, ThumbsDown, ThumbsUp, Trash2, X,
 } from "lucide-react";
 import { Badge, Button, Card, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
@@ -20,6 +20,9 @@ import {
 import { pctOk, quotePrice } from "@/services/quotation/pricing";
 import { ActivityLog } from "@/components/crm/activity-log";
 import { SaleFiles } from "@/components/files/sale-files";
+import {
+  LineDesignNote, LineDesignPicker, QuoteFromDesign, groupLines, isHeading, useOfferableItems,
+} from "@/components/sales/quote-design";
 import { useSession } from "@/store/session";
 import { useCanSell } from "@/lib/sell";
 import { useToast } from "@/store/toast";
@@ -361,6 +364,8 @@ const termsOf = (q: QuotationView) => ({
 interface LineDraft {
   product_code: string; description: string; qty: number; uom: string; lead: string;
   manual_cost: string; mkt: string; ovh: string; mrg: string; price: string; note: string;
+  /** The design item and the pinned drawing (0224); empty for none / latest. */
+  item_no: string; file_id: string;
 }
 
 const str = (v: number | null | undefined) => (v == null ? "" : String(v));
@@ -371,6 +376,7 @@ const draftOf = (l: QuotationLineView | null): LineDraft => ({
   lead: str(l?.line_lead_time_days), manual_cost: str(l?.manual_unit_cost),
   mkt: str(l?.line_marketing_pct), ovh: str(l?.line_overhead_pct), mrg: str(l?.line_margin_pct),
   price: str(l?.unit_price_override), note: l?.note ?? "",
+  item_no: l?.design_item_no ?? "", file_id: l?.line_design_file_id ?? "",
 });
 
 function Lines({
@@ -384,16 +390,26 @@ function Lines({
   const [editing, setEditing] = useState<string | "new" | null>(null);
   const [d, setD] = useState<LineDraft>(draftOf(null));
   const [busy, setBusy] = useState(false);
+  const [fromDesign, setFromDesign] = useState(false);
   const known = products.status === "ready" ? products.data : [];
+  const items = useOfferableItems(editable ? q.project_code : null);
 
   async function save(id: string | null) {
     setBusy(true);
-    const res = await quotation.saveQuotationLine(q.quote_no, {
+    let res = await quotation.saveQuotationLine(q.quote_no, {
       id, product_code: d.product_code || null, description: d.description || null, qty: d.qty, uom: d.uom,
       lead_time_days: num(d.lead), manual_unit_cost: num(d.manual_cost),
       marketing_pct: num(d.mkt), overhead_pct: num(d.ovh), margin_pct: num(d.mrg),
       unit_price_override: num(d.price), note: d.note || null,
     });
+    /* The design item goes through its own seam (0224), so the line's own
+       save keeps the signature the running app calls. */
+    const before = id ? rows.find((l) => l.id === id) : undefined;
+    if (!res.error && ((before?.design_item_no ?? "") !== d.item_no || (before?.line_design_file_id ?? "") !== d.file_id)) {
+      const linked = await quotation.setQuotationLineDesign(q.quote_no, res.data.id, d.item_no || null, d.file_id || null);
+      if (linked.error) { setBusy(false); onChanged(); toast("warning", tr("Line saved, design item not linked", "Baris tersimpan, item desain tidak terhubung"), linked.error.message); return; }
+      res = linked;
+    }
     setBusy(false);
     if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", tr("Not saved", "Tidak tersimpan"), res.error.message); return; }
     toast("success", id ? tr("Line updated", "Baris diperbarui") : tr("Item added", "Item ditambahkan"),
@@ -442,6 +458,8 @@ function Lines({
           placeholder={picked ? picked.name : tr("item name for the client", "nama item untuk klien")} aria-label={tr("Description", "Deskripsi")} className={cn(inputCls, "mt-1")} />
         <input value={d.note} onChange={(e) => setD({ ...d, note: e.target.value })}
           placeholder={tr("details (optional) — size, finishing", "keterangan (opsional) — ukuran, finishing")} aria-label={tr("Details", "Keterangan")} className={cn(inputCls, "mt-1 h-7 text-[12px]")} />
+        <LineDesignPicker items={items} itemNo={d.item_no} fileId={d.file_id}
+          onChange={(item_no, file_id) => setD({ ...d, item_no, file_id })} />
       </td>
       <td className="px-3 py-2">
         <div className="flex justify-end gap-1">
@@ -508,12 +526,23 @@ function Lines({
           {tr(`${rows.length} lines`, `${rows.length} baris`)}
           {q.lines_without_cost > 0 && draftCount(q, tr)}
         </span>
-        {editable && editing === null && (
-          <Button size="sm" icon={Plus} className="ml-auto" onClick={() => { setD(draftOf(null)); setEditing("new"); }}>
-            {tr("Add item", "Tambah item")}
-          </Button>
+        {editable && editing === null && !fromDesign && (
+          <div className="ml-auto flex gap-1.5">
+            {items.length > 0 && (
+              <Button size="sm" variant="outline" icon={Layers} onClick={() => setFromDesign(true)}>
+                {tr("From design", "Dari desain")}
+              </Button>
+            )}
+            <Button size="sm" icon={Plus} onClick={() => { setD(draftOf(null)); setEditing("new"); }}>
+              {tr("Add item", "Tambah item")}
+            </Button>
+          </div>
         )}
       </div>
+      {fromDesign && (
+        <QuoteFromDesign quoteNo={q.quote_no} items={items} onLines={rows}
+          onDone={() => { setFromDesign(false); onChanged(); }} onCancel={() => setFromDesign(false)} />
+      )}
       <div className="overflow-x-auto">
         <table className="w-full min-w-[980px] border-collapse text-[13px]">
           <thead>
@@ -529,7 +558,13 @@ function Lines({
             </tr>
           </thead>
           <tbody>
-            {rows.map((l) => editing === l.id ? <Frag key={l.id}>{editRow(l.id)}</Frag> : (
+            {groupLines(rows).map((l) => isHeading(l) ? (
+              <tr key={`h-${l.key}`} className="border-b border-slate-100 bg-slate-50/50">
+                <td colSpan={cols} className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  {l.heading || tr("Other items", "Item lain")}
+                </td>
+              </tr>
+            ) : editing === l.id ? <Frag key={l.id}>{editRow(l.id)}</Frag> : (
               <tr key={l.id} className="border-b border-slate-100 align-top last:border-0">
                 <td className="px-3 py-2">
                   <span className="block text-slate-800">{l.line_no}. {l.description}</span>
@@ -541,6 +576,7 @@ function Lines({
                   )}
                   {l.product_code && !l.product_exists && <span className="block text-[11px] text-amber-700">{tr("not in the catalog", "tidak ada di katalog")}</span>}
                   {l.note && <span className="block text-[11px] text-slate-500">{l.note}</span>}
+                  <LineDesignNote l={l} />
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-700">{formatNumber(l.qty)} {l.uom}</td>
                 <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-600">

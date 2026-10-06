@@ -20,6 +20,7 @@ import { getState, apply, newId, nextDocNumber, writeAudit } from "../store";
 import { bomCost, currentBomRev } from "../production-derive";
 import { latency, actingUser, requireSeller, conflict, replayed, remember } from "./_kit";
 import { officeToday } from "@/lib/office";
+import { latestDesignFile } from "../design-files";
 import type { DemoState } from "../state";
 
 const SERVICE = "procurement" as const;
@@ -84,6 +85,30 @@ function lineView(state: DemoState, q: Quotation, l: QuotationLine, see: boolean
     line_marketing_pct: see ? l.marketing_pct : null,
     line_overhead_pct: see ? l.overhead_pct : null,
     line_margin_pct: see ? l.margin_pct : null,
+    ...designOf(state, q, l),
+  };
+}
+
+/** The design item a line offers and the drawing it rests on (0224). */
+function designOf(state: DemoState, q: Quotation, l: QuotationLine) {
+  const item = l.design_item_id ? state.design_items.find((i) => i.id === l.design_item_id) : undefined;
+  const room = item ? state.design_rooms.find((r) => r.id === item.room_id) : undefined;
+  const col = room ? state.design_collections.find((c) => c.id === room.collection_id) : undefined;
+  const latest = latestDesignFile(state, l.design_item_id);
+  const eff = q.status === "DRAFT" ? (l.design_file_id ?? latest) : (l.frozen_design_file_id ?? null);
+  return {
+    design_item_no: item?.item_no ?? null,
+    design_item_name: item?.name ?? null,
+    collection_code: col?.code ?? null,
+    collection_name: col?.name ?? null,
+    room_code: room?.code ?? null,
+    room_name: room?.name ?? null,
+    room_sort: room?.sort ?? null,
+    line_design_file_id: l.design_file_id ?? null,
+    design_file_id: eff,
+    design_file_name: eff ? state.attachments.find((a) => a.id === eff)?.filename ?? null : null,
+    latest_design_file_id: latest,
+    design_changed: !!eff && !!latest && latest !== eff,
   };
 }
 
@@ -315,6 +340,7 @@ export async function saveQuotationLine(quoteNo: string, input: QuotationLineInp
         id, quotation_id: q.id, line_no: next, ...fields,
         frozen_unit_cost: null, frozen_cost_source: null, frozen_bom_rev: null,
         frozen_marketing_pct: null, frozen_overhead_pct: null, frozen_margin_pct: null, frozen_unit_price: null,
+        frozen_design_file_id: null,
       });
     }
   });
@@ -376,6 +402,7 @@ export async function sendQuotation(quoteNo: string): Promise<Result<QuotationVi
       l.frozen_overhead_pct = v.overhead_pct;
       l.frozen_margin_pct = v.margin_pct;
       l.frozen_unit_price = v.unit_price;
+      l.frozen_design_file_id = l.design_file_id ?? latestDesignFile(draft, l.design_item_id);
     }
     const row = draft.quotations.find((x) => x.id === q.id)!;
     row.status = "SENT";
@@ -424,6 +451,7 @@ export async function reviseQuotation(quoteNo: string): Promise<Result<Quotation
         ...l, id: newId("ql"), quotation_id: id,
         frozen_unit_cost: null, frozen_cost_source: null, frozen_bom_rev: null,
         frozen_marketing_pct: null, frozen_overhead_pct: null, frozen_margin_pct: null, frozen_unit_price: null,
+        frozen_design_file_id: null,
       });
     }
     if (q.status === "SENT") draft.quotations.find((x) => x.id === q.id)!.status = "SUPERSEDED";
@@ -469,6 +497,7 @@ export async function decideQuotation(
           id: newId("pl"), project_id: q.project_id, line_no: ++next, product_code: l.product_code,
           description: l.description, qty: l.qty, uom: l.uom, unit_price: l.frozen_unit_price,
           note: `dari ${q.quote_no}`, delivery_date: null, quotation_line_id: l.id,
+          design_item_id: l.design_item_id ?? null, design_file_id: l.frozen_design_file_id ?? null,
         });
         added++;
       }
@@ -480,4 +509,106 @@ export async function decideQuotation(
     });
   });
   return ok(SERVICE, { quotation: view(q.quote_no)!, order_lines_added: added });
+}
+
+/* ── the design a line offers (0224, P5) ─────────────────────────────── */
+
+function designInvalid(state: DemoState, q: Quotation, itemNo: string, fileId?: string | null): Result<never> | null {
+  const item = state.design_items.find((i) => i.item_no === itemNo.trim());
+  if (!item) return invalid(SERVICE, "item_unknown", `Tidak ada item ${itemNo}.`, { field: "item_no" });
+  const room = state.design_rooms.find((r) => r.id === item.room_id);
+  const col = state.design_collections.find((c) => c.id === room?.collection_id);
+  if (col?.project_id !== q.project_id) {
+    return invalid(SERVICE, "item_other_project", `Item ${item.item_no} bukan item desain proyek quotation ini.`, { field: "item_no" });
+  }
+  if (item.dropped_at) return invalid(SERVICE, "item_dropped", `Item ${item.item_no} sudah dikeluarkan dari desain.`, { field: "item_no" });
+  if (fileId && !state.attachment_links.some((l) => l.attachment_id === fileId && l.entity === "design_item" && l.entity_no === item.item_no)) {
+    return invalid(SERVICE, "file_not_on_item", "Gambar yang dipakai harus file item itu.", { field: "design_file_id" });
+  }
+  return null;
+}
+
+/** One line per design item, named and sized from it; items already on the
+ *  quotation are left as they are. */
+export async function addQuotationLinesFromDesign(
+  quoteNo: string, itemNos: string[],
+): Promise<Result<{ quote_no: string; added: number }>> {
+  await latency();
+  const denied = requireSeller(SERVICE);
+  if (denied) return denied;
+  const state = getState();
+  const q = state.quotations.find((x) => x.quote_no === quoteNo);
+  if (!q) return notFound(SERVICE, "quotation_not_found", `Tidak ada quotation ${quoteNo}.`);
+  if (q.status !== "DRAFT") return conflict(SERVICE, "not_draft", `${q.quote_no} sudah ${q.status}. Buat revisi untuk mengubah isinya.`);
+  if (!itemNos.length) return invalid(SERVICE, "no_items", "Pilih item desain yang ditawarkan.", { field: "item_nos" });
+  for (const no of itemNos) {
+    const bad = designInvalid(state, q, no);
+    if (bad) return bad;
+  }
+  let added = 0;
+  apply((draft) => {
+    let n = Math.max(0, ...draft.quotation_lines.filter((l) => l.quotation_id === q.id).map((l) => l.line_no));
+    for (const no of itemNos) {
+      const i = draft.design_items.find((x) => x.item_no === no.trim())!;
+      if (draft.quotation_lines.some((l) => l.quotation_id === q.id && l.design_item_id === i.id)) continue;
+      const size = i.length_mm != null || i.width_mm != null || i.height_mm != null
+        ? ` — ${i.length_mm ?? "–"} × ${i.width_mm ?? "–"} × ${i.height_mm ?? "–"} mm` : "";
+      draft.quotation_lines.push({
+        id: newId("ql"), quotation_id: q.id, line_no: ++n,
+        product_code: i.product_code && draft.products.some((p) => p.product_code === i.product_code) ? i.product_code : null,
+        description: `${i.name}${size}`, qty: i.qty, uom: "unit", lead_time_days: null,
+        manual_unit_cost: null, marketing_pct: null, overhead_pct: null, margin_pct: null,
+        unit_price_override: null, note: null,
+        frozen_unit_cost: null, frozen_cost_source: null, frozen_bom_rev: null,
+        frozen_marketing_pct: null, frozen_overhead_pct: null, frozen_margin_pct: null, frozen_unit_price: null,
+        design_item_id: i.id, design_file_id: null, frozen_design_file_id: null,
+      });
+      added++;
+    }
+  });
+  return ok(SERVICE, { quote_no: q.quote_no, added });
+}
+
+/** Which design item a draft line offers, and the drawing its price rests on
+ *  (null: the item's latest). No item: the line offers none. */
+export async function setQuotationLineDesign(
+  quoteNo: string, lineId: string, itemNo: string | null, designFileId?: string | null,
+): Promise<Result<QuotationLineView>> {
+  await latency();
+  const denied = requireSeller(SERVICE);
+  if (denied) return denied;
+  const state = getState();
+  const q = state.quotations.find((x) => x.quote_no === quoteNo);
+  if (!q) return notFound(SERVICE, "quotation_not_found", `Tidak ada quotation ${quoteNo}.`);
+  if (q.status !== "DRAFT") return conflict(SERVICE, "not_draft", `${q.quote_no} sudah ${q.status}. Buat revisi untuk mengubah isinya.`);
+  if (!itemNo?.trim() && designFileId) {
+    return invalid(SERVICE, "file_without_item", "Gambar dipilih dari item desainnya — pilih itemnya dulu.", { field: "design_file_id" });
+  }
+  if (itemNo?.trim()) {
+    const bad = designInvalid(state, q, itemNo, designFileId);
+    if (bad) return bad;
+  }
+  if (!state.quotation_lines.some((l) => l.id === lineId && l.quotation_id === q.id)) {
+    return notFound(SERVICE, "line_not_found", "Baris itu tidak ada.");
+  }
+  apply((draft) => {
+    const l = draft.quotation_lines.find((x) => x.id === lineId)!;
+    l.design_item_id = itemNo?.trim() ? draft.design_items.find((i) => i.item_no === itemNo.trim())!.id : null;
+    l.design_file_id = itemNo?.trim() ? designFileId ?? null : null;
+  });
+  const s = getState();
+  return ok(SERVICE, lineView(s, q, s.quotation_lines.find((l) => l.id === lineId)!, seesCost()));
+}
+
+/** Every quotation line that offered a design item, newest quotation first. */
+export async function listQuotationLinesForItem(itemNo: string): Promise<Result<QuotationLineView[]>> {
+  await latency();
+  const state = getState();
+  const item = state.design_items.find((i) => i.item_no === itemNo);
+  if (!item || requireSeller(SERVICE, "read")) return ok(SERVICE, []);
+  const see = seesCost();
+  return ok(SERVICE, state.quotation_lines
+    .filter((l) => l.design_item_id === item.id)
+    .map((l) => lineView(state, state.quotations.find((q) => q.id === l.quotation_id)!, l, see))
+    .sort((a, b) => b.quote_no.localeCompare(a.quote_no)));
 }

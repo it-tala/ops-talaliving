@@ -268,6 +268,25 @@ drawing/reference), and are filed in DRAFTING under
 `…/KOLEKSI <code> <name>/00 KOLEKSI` (tokens `{COLLECTION}` `{ROOM}` `{ITEM}`,
 0221). A collection's `entity_no` is `<project code>-<collection code>`.
 
+### Projects — quotation ↔ design (P5, 0224)
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/quotations/{no}/lines/from-design` | `{item_nos}` — `add_quotation_lines_from_design`: one line per design item, named and sized from it (`Sofa — 2100 × 900 × 780 mm`), its qty, and its product where it is one; items already on the quotation are skipped. Every item checked before one line is written. Draft only (409 `not_draft`). 422 `no_items`, `item_unknown`, `item_other_project`, `item_dropped` |
+| POST | `/quotations/{no}/lines/{id}/design` | `{item_no, design_file_id?}` — `set_quotation_line_design`: the item a draft line offers and the drawing its price rests on (null: the item's latest); `item_no` null unlinks. 422 `file_not_on_item`, `file_without_item`, `item_*` as above |
+| GET | `/design/items/{item_no}/quotation-lines` | `v_quotation_line` where `design_item_no` — every offer of the item |
+
+`v_quotation_line` appends `design_item_no`, `design_item_name`,
+`collection_code`/`_name`, `room_code`/`_name`/`_sort`, `line_design_file_id`
+(the pinned drawing), `design_file_id`/`design_file_name` (effective: pinned or
+latest while a draft, **frozen at send**), `latest_design_file_id` and
+`design_changed`. `send_quotation` freezes the drawing; `revise_quotation`
+carries item and pin; `decide_quotation` (accepted) gives the order line
+`design_item_id` and the frozen `design_file_id`. `v_design_item` adds
+statuses `QUOTED` and `ORDERED` and columns `quote_no`, `quote_status`,
+`quoted_unit_price`, `ordered`; its `product_code` falls back to the order
+line's.
+
 ### Projects — meetings (P3, 0223)
 
 The client log (0134) stays the one log of contact. Any entry can carry
