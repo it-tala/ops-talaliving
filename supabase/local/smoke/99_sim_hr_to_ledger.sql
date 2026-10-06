@@ -302,8 +302,8 @@ begin
   r := ops_hr.open_payroll_run(mon, mon + 6, 'minggu lalu');
   assert ops_core.said_ok(r), format('open run: %s', r);
   v_no := r -> 'data' ->> 'run_no';
-  perform pg_temp.log('8. Gajian','Buka run minggu ini dari "Gajian mingguan" ("Buka run minggu ini")','Sari',
-    '/hrd/payroll/minggu','ops_hr.open_payroll_run','OK','DRAFT',
+  perform pg_temp.log('8. Gajian','Buat run minggu lalu dari "Buat payroll"','Sari',
+    '/hrd/payroll/buat','ops_hr.open_payroll_run','OK','DRAFT',
     'Baris gaji dihitung dari absensi saat dibaca; tidak ada tombol hitung.');
 
   r := ops_hr.open_payroll_run(mon + 3, mon + 9, 'tumpang tindih');

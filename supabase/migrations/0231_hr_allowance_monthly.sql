@@ -902,3 +902,31 @@ grant execute on function ops_hr.pay_preview(ops_hr.pay_basis_t, bigint, bigint,
 
 comment on column ops_hr.employees.allowance_rate is
   'Tunjangan, in the unit of the pay (D386): per month for a monthly salary, per day present for a day or hour wage. A day of a monthly allowance is derived: ÷ the month''s working days (month_workdays).';
+
+/* ── what the assistant says about making a run (D386) ────────────────────
+
+   *Gajian mingguan* and the *Open a run* form are gone; a run is made from the
+   sheet. The process and its first two steps said otherwise, and a route the
+   knowledge names is a link the assistant hands out (F64). */
+update ops_asst.processes set
+  title   = 'Membuat run gaji dan menambah penyesuaian',
+  purpose = 'Run gaji dibuat dari lembar "Buat payroll": pilih kelompok (mingguan, bulanan, semua) dan periodenya, periksa absensi, rate dan rincian tiap orang, centang siapa yang dibayar, lalu generate. Baris gaji tidak disimpan: dihitung dari absensi dan lembur yang disetujui setiap kali dibaca. Penyesuaian (bonus, potongan, kasbon) ditambahkan tangan dengan alasan.',
+  route   = '/hrd/payroll/buat'
+ where key = 'hr.payroll_run';
+
+update ops_asst.process_steps set
+  route  = '/hrd/payroll/buat',
+  action = 'Buka HRD → Penggajian, tekan "Buat payroll". Pilih "Untuk" (Mingguan, Bulanan atau Semua) dan periodenya; pindah dengan "‹ Minggu / Minggu ›" atau, untuk gaji bulanan, "‹ Bulan / Bulan ›".',
+  rule   = 'Lembar dan run membaca angka yang sama dari absensi, rate dan lembur. Klik baris untuk rincian per orang.',
+  screenshot = null
+ where process_key = 'hr.payroll_run' and seq = 1;
+
+update ops_asst.process_steps set
+  route  = '/hrd/payroll/buat',
+  action = 'Centang siapa yang dibayar. Yang tidak dicentang ditahan — tulis alasannya. Lalu tekan "Generate N orang".',
+  rule   = 'Orang yang absensinya belum lengkap tidak bisa dicentang. Hari yang sudah dibayar run lain tidak dibayar dua kali; run yang tidak membayar siapa pun ditolak (period_overlaps).',
+  writes = '{ops_hr.generate_payroll}'
+ where process_key = 'hr.payroll_run' and seq = 2;
+
+analyze ops_asst.processes;
+analyze ops_asst.process_steps;
