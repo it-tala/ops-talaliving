@@ -86,6 +86,19 @@ export interface OutboxRow {
   delivered_at: string | null;
 }
 
+/** One row of `ops_core.notifications` — the bell (0215, D374). */
+export interface DemoNotification {
+  id: number;
+  user_id: string;
+  kind: string;
+  title: string;
+  data: Record<string, unknown>;
+  link: string | null;
+  entity_no: string | null;
+  created_at: string;
+  read_at: string | null;
+}
+
 /** `ops_hr.scan_locations` (0188). */
 export interface DemoScanLocation {
   scan_id: string;
@@ -378,6 +391,9 @@ export interface DemoState {
   activity_events: ActivityEvent[];
   activity_daily: ActivityDaily[];
   outbox: OutboxRow[];
+  /** The bell, written only by `notifyTasks` (the trigger's mirror). Optional
+   *  so a saved demo from before it loads. */
+  notifications?: DemoNotification[];
 
   /** The `core.doc_numbers` table: prefix + office day -> sequence.
    *  The database mints every identifier (ADR-005), and here the store is the
