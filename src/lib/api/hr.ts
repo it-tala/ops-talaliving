@@ -45,7 +45,7 @@ import type {
   ContractView, ContractDetail, ContractClause, ClauseCoverage, ClauseConflict,
   PayRules, PayRuleSetView, TimesheetTotal, EffectiveDaysCalendar,
   PayrollRun, PayrollView, PayrollLine, PayrollAdjustmentView,
-  PayGroup, PayComponents, PayrollRunMember,
+  PayGroup, PayComponents, PayrollRunMember, PaidElsewhere, PayrollHold,
   AdjustmentKind, ContributionScheme,
   LeaveKind, LeaveStatus, LeaveRequestView, LeaveBalance,
   TaskStatus, TaskRefKind, TaskView, TaskCadence, TaskRoutineView,
@@ -630,6 +630,7 @@ async function periodView(
   const t = (Array.isArray(totals.data) ? totals.data[0] : totals.data) as {
     people: number; gross_total: number; adjustment_total: number;
     net_total: number; open_days: number; pending_overtime_hours: number;
+    additions_total: number; deductions_total: number; take_home_total: number;
   } | null;
 
   return ok(SERVICE, {
@@ -640,6 +641,9 @@ async function periodView(
     adjustment_total: t?.adjustment_total ?? 0,
     open_days: t?.open_days ?? 0,
     pending_overtime_hours: t?.pending_overtime_hours ?? 0,
+    additions_total: t?.additions_total ?? 0,
+    deductions_total: t?.deductions_total ?? 0,
+    take_home_total: t?.take_home_total ?? 0,
   });
 }
 
@@ -696,7 +700,7 @@ export async function myPayslip(runNo: string): Promise<Result<PayrollLine>> {
  *  make a payslip printable for a run that does not exist.
  */
 export async function previewPayroll(
-  input: { period_start: string; period_end: string; pay_group?: PayGroup },
+  input: { period_start: string; period_end: string; pay_group?: PayGroup; fresh?: boolean },
 ): Promise<Result<PayrollView & { opened: boolean }>> {
   if (input.period_end < input.period_start) {
     return invalid(SERVICE, "period_invalid", "Periodenya berakhir sebelum dimulai.",
@@ -713,7 +717,9 @@ export async function previewPayroll(
     .order("created_at", { ascending: false }).limit(1)
     .maybeSingle();
 
-  const existing = data as PayrollRun | null;
+  /* `fresh`: the generate sheet wants everybody the group holds, computed from
+     the days, even where a run already covers the period (0213). */
+  const existing = input.fresh ? null : (data as PayrollRun | null);
   const run: PayrollRun = existing ?? {
     id: "", run_no: "",
     period_start: input.period_start, period_end: input.period_end,
@@ -792,6 +798,38 @@ export async function setRunComponents(
   const done = fromSeam<unknown>(SERVICE, data, error);
   if (done.error) return done as unknown as Result<PayrollView>;
   return getPayroll(input.run_no);
+}
+
+/* ── the sheet (0213, D371) ──────────────────────────────────────────── */
+
+/** Who another run already pays for days of this period — the sheet greys
+ *  them out and names the run before anything is generated. */
+export async function paidElsewhere(
+  input: { period_start: string; period_end: string; except_run?: string | null },
+): Promise<Result<PaidElsewhere[]>> {
+  const { data, error } = await db().rpc("paid_elsewhere", {
+    p_from: input.period_start, p_to: input.period_end, p_except: input.except_run ?? null,
+  });
+  return fromRows<PaidElsewhere[]>(SERVICE, data as never, error);
+}
+
+/** The sheet's one button: open the run for the group and hold everybody left
+ *  unticked, each with a sentence — all of it or none of it. */
+export async function generatePayroll(
+  input: {
+    period_start: string; period_end: string; pay_group: PayGroup;
+    hold: PayrollHold[]; note?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<PayrollView>> {
+  const { data, error } = await db().rpc("generate_payroll", {
+    p_period_start: input.period_start, p_period_end: input.period_end,
+    p_group: input.pay_group, p_hold: input.hold, p_note: input.note ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const made = fromSeam<{ run_no: string }>(SERVICE, data, error);
+  if (made.error) return made as unknown as Result<PayrollView>;
+  return getPayroll(made.data.run_no);
 }
 
 /* ── adjustments ──────────────────────────────────────────────────────── */

@@ -4,7 +4,7 @@ import type {
   Employee, RosterEntry, AttendanceScan, TimesheetDay, DayMark, DayMarkKind,
   OvertimeSheet, OvertimeLine, OvertimeSheetView, OvertimeKind, OvertimeDecider, SelfOvertimeView,
   PayrollRun, PayrollView, PayrollLine, PayBasis,
-  PayGroup, PayComponents, PayrollRunMember,
+  PayGroup, PayComponents, PayrollRunMember, PaidElsewhere, PayrollHold,
   AdjustmentKind, PayrollAdjustmentView,
   PayRules, PayRuleSet, PayRuleSetView, WorkSchedule, ScheduleHours, UnitScheduleDefault,
   EmployeeDocKind, EmployeeFileView, DocNoSource, LeaveBalance, LeaveKind, LeaveRequestView, LeaveStatus,
@@ -36,7 +36,7 @@ import {
   taskView, taskViews, taskRoutineView, taskRoutineViews, kpiView, kpiViews, weekdayOf,
   goalViews, goalBoardRows,
   employeeIdentityViews, wlkpRecap,
-  membersOf, groupPeople, paidElsewhere,
+  membersOf, groupPeople, paidElsewhere as paidElsewhereRun,
 } from "../hr-derive";
 import { latency, actingUser, requireModule, requireLevel, requireAuthority, conflict, replayed, remember } from "./_kit";
 import { OFFICE_TZ, officeClock, officeToday as sharedOfficeToday, officeStamp } from "@/lib/office";
@@ -4580,7 +4580,7 @@ export async function myPayslip(runNo: string): Promise<Result<PayrollLine>> {
  *  number, and the screen says plainly that nothing has been opened yet.
  */
 export async function previewPayroll(
-  input: { period_start: string; period_end: string; pay_group?: PayGroup },
+  input: { period_start: string; period_end: string; pay_group?: PayGroup; fresh?: boolean },
 ): Promise<Result<PayrollView & { opened: boolean }>> {
   await latency();
   if (input.period_end < input.period_start) {
@@ -4593,7 +4593,8 @@ export async function previewPayroll(
     (r) => r.period_start === input.period_start && r.period_end === input.period_end
       && (r.pay_group ?? "all") === group,
   );
-  if (run) return ok(SERVICE, { ...payrollView(state, run), opened: true });
+  /* `fresh`: the generate sheet wants everybody, computed from the days (0213). */
+  if (run && !input.fresh) return ok(SERVICE, { ...payrollView(state, run), opened: true });
 
   /* A period nobody has opened. The run number is empty on purpose: there is
      no document, and inventing one here would make a payslip printable for a
@@ -4638,23 +4639,16 @@ export async function openPayroll(
     return invalid(SERVICE, "reason_required", "Komponen yang tidak dibayar di run ini perlu alasan — tercetak di slip.", { field: "components_note" });
   }
   const state = getState();
-  /* The same group over overlapping days is still refused; across groups
-     the rule is the person's (0212, same as `open_payroll_run`). */
-  const clash = state.payroll_runs.find(
-    (r) => r.period_start <= input.period_end && r.period_end >= input.period_start
-      && group !== "custom" && (r.pay_group ?? "all") === group,
-  );
-  if (clash) {
-    return conflict(SERVICE, "period_overlaps",
-      `${clash.run_no} sudah mencakup ${clash.period_start} sampai ${clash.period_end}. Hari yang sama tidak dibayar dua kali.`);
-  }
   /* Who it is born with: the group, less anybody another run already pays for
-     one of these days — written off with that run named. */
+     one of these days — written off with that run named. The rule is the
+     person's (0212); a second run of the same group over the same days opens
+     when it pays somebody the first does not (0213), and one that would pay
+     nobody is the overlap, naming the run in the way. */
   const born = group === "custom" ? [] : groupPeople(state, input.period_start, input.period_end, group)
-    .map((e) => ({ e, other: paidElsewhere(state, e.id, input.period_start, input.period_end, "") }));
+    .map((e) => ({ e, other: paidElsewhereRun(state, e.id, input.period_start, input.period_end, "") }));
   if (born.length > 0 && born.every((b) => b.other)) {
     return conflict(SERVICE, "period_overlaps",
-      "Semua orang di kelompok ini sudah dibayar untuk hari-hari itu di run lain. Hari yang sama tidak dibayar dua kali.");
+      `Semua orang di kelompok ini sudah dibayar untuk hari-hari itu di ${born[0].other!.run_no}. Hari yang sama tidak dibayar dua kali.`);
   }
 
   const user = actingUser();
@@ -4687,6 +4681,88 @@ export async function openPayroll(
   });
   const view = await getPayroll(runNo);
   if (view.data) remember(SERVICE, "openPayroll", idempotencyKey, view.data);
+  return view;
+}
+
+/* ── the sheet (0213, D371) ──────────────────────────────────────────── */
+
+/** Who another run already pays for days of this period. */
+export async function paidElsewhere(
+  input: { period_start: string; period_end: string; except_run?: string | null },
+): Promise<Result<PaidElsewhere[]>> {
+  await latency();
+  const state = getState();
+  const rows: PaidElsewhere[] = [];
+  for (const e of state.employees) {
+    const r = paidElsewhereRun(state, e.id, input.period_start, input.period_end, input.except_run ?? "");
+    if (r) rows.push({ employee_id: e.id, employee_no: e.employee_no, run_no: r.run_no, period_start: r.period_start, period_end: r.period_end });
+  }
+  return ok(SERVICE, rows);
+}
+
+/** Open the run for the group and hold everybody left unticked, each with a
+ *  sentence — all or nothing, as `ops_hr.generate_payroll`. */
+export async function generatePayroll(
+  input: {
+    period_start: string; period_end: string; pay_group: PayGroup;
+    hold: PayrollHold[]; note?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<PayrollView>> {
+  await latency();
+  const cached = replayed<PayrollView>(SERVICE, "generatePayroll", idempotencyKey);
+  if (cached) return cached;
+  const denied = requireLevel(SERVICE, "payroll", "write");
+  if (denied) return denied;
+  const missing = input.hold.find((h) => !h.note?.trim());
+  if (missing) {
+    return invalid(SERVICE, "reason_required",
+      `Menahan gaji ${missing.employee_no} perlu alasan — tercetak di daftar run.`, { field: "hold" });
+  }
+  const state = getState();
+  const unknown = input.hold.find((h) => !state.employees.some((e) => e.employee_no === h.employee_no));
+  if (unknown) return notFound(SERVICE, "not_found", "Ada karyawan di daftar tahan yang tidak dikenal.");
+  /* Nobody left once the holds are applied: refused before anything opens. */
+  const held = new Set(input.hold.map((h) => h.employee_no));
+  const born = input.pay_group === "custom" ? []
+    : groupPeople(state, input.period_start, input.period_end, input.pay_group)
+      .filter((e) => !paidElsewhereRun(state, e.id, input.period_start, input.period_end, ""));
+  if (born.length > 0 && born.every((e) => held.has(e.employee_no))) {
+    return invalid(SERVICE, "nobody_selected", "Tidak ada yang dicentang — run tanpa orang bukan run.", { field: "hold" });
+  }
+
+  const opened = await openPayroll({
+    period_start: input.period_start, period_end: input.period_end,
+    note: input.note ?? null, pay_group: input.pay_group,
+  });
+  if (opened.error) return opened;
+  const runNo = opened.data.run_no;
+  const user = actingUser();
+  apply((draft) => {
+    for (const h of input.hold) {
+      const emp = draft.employees.find((e) => e.employee_no === h.employee_no);
+      if (!emp) continue;
+      const rows = draft.payroll_run_members ?? [];
+      const row = rows.find((m) => m.run_no === runNo && m.employee_id === emp.id);
+      if (row) {
+        row.included = false; row.note = h.note.trim(); row.auto = false;
+        row.set_by = user.id; row.set_at = new Date().toISOString();
+      } else {
+        rows.push({
+          run_no: runNo, employee_id: emp.id, included: false, components: {},
+          note: h.note.trim(), auto: false, set_by: user.id, set_at: new Date().toISOString(),
+        });
+      }
+      draft.payroll_run_members = rows;
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "payroll", entity_no: runNo,
+      action: "generate", outcome: "ok", reason: null,
+      detail: { held: input.hold.map((h) => h.employee_no), by: user.email },
+    });
+  });
+  const view = await getPayroll(runNo);
+  if (view.data) remember(SERVICE, "generatePayroll", idempotencyKey, view.data);
   return view;
 }
 
@@ -4746,7 +4822,7 @@ export async function setRunMember(
       { field: "note" });
   }
   if (input.included) {
-    const other = paidElsewhere(state, emp.id, run.period_start, run.period_end, run.run_no);
+    const other = paidElsewhereRun(state, emp.id, run.period_start, run.period_end, run.run_no);
     if (other) {
       return conflict(SERVICE, "paid_elsewhere",
         `${emp.full_name} sudah dibayar untuk sebagian hari ini di ${other.run_no}. Keluarkan dari sana dulu — hari yang sama tidak dibayar dua kali.`);

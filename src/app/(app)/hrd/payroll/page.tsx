@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Wallet, Plus, AlertTriangle, CalendarRange } from "lucide-react";
+import { Wallet, Plus, AlertTriangle, CalendarRange, ClipboardList } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
@@ -125,7 +125,7 @@ export default function PayrollPage() {
             {PAY_GROUPS.map((g) => <option key={g} value={g}>{PAY_GROUP_LABELS[g][lang]}</option>)}
           </select>
         </div>
-        <Button icon={Plus} disabled={busy || !mayRun} onClick={open}>
+        <Button variant="outline" icon={Plus} disabled={busy || !mayRun} onClick={open}>
           {busy ? tr("Opening…", "Membuka…") : tr("Open a run", "Buka periode gaji")}
         </Button>
         <p className="text-[12px] text-slate-500">
@@ -136,9 +136,18 @@ export default function PayrollPage() {
         </p>
         {/* The workshop's week is looked at far more often than the list of
             runs is, and it can be walked without opening anything (D158). */}
-        <Link href="/hrd/payroll/minggu" className="ml-auto">
-          <Button variant="outline" icon={CalendarRange}>{tr("Weekly payroll", "Gajian mingguan")}</Button>
-        </Link>
+        <div className="ml-auto flex flex-wrap gap-2">
+          <Link href="/hrd/payroll/minggu">
+            <Button variant="outline" icon={CalendarRange}>{tr("Weekly payroll", "Gajian mingguan")}</Button>
+          </Link>
+          {/* The sheet: attendance, rates, every breakdown and a box per
+              person, before anything is opened (0213, D371). */}
+          {mayRun && (
+            <Link href="/hrd/payroll/buat">
+              <Button icon={ClipboardList}>{tr("Generate payroll", "Buat payroll")}</Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       <div className="mb-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-[13px] text-amber-900">
