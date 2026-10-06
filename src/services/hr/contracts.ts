@@ -845,6 +845,45 @@ export interface GoalView {
   is_owner: boolean;
 }
 
+/** Where an item of the daftar tunggu is (D381). `PROPOSED` waits for HRD;
+ *  `OPEN` is on the ordered list; `ASSIGNED` became a task; `DROPPED` left
+ *  the list with a reason. */
+export type BacklogStatus = "PROPOSED" | "OPEN" | "ASSIGNED" | "DROPPED";
+
+/** One item of the daftar tunggu — `ops_hr.list_backlog()` (0220, D381).
+ *
+ *  Known work with **no person and no due date yet**, so nobody is late on it
+ *  and it is in nobody's score. `unit` (bidang) is a label to filter by when
+ *  somebody in that field comes free, never an assignee: one task, one person.
+ *  *Tugaskan* turns it into a task through `assign_task`. */
+export interface BacklogItem {
+  id: string;
+  item_no: string;
+  title: string;
+  detail: string | null;
+  deliverable: string | null;
+  unit: string | null;
+  goal_no: string | null;
+  goal_title: string | null;
+  goal_rank: number | null;
+  goal_open: boolean | null;
+  status: BacklogStatus;
+  /** 1 = next. Only an OPEN item has one. */
+  position: number | null;
+  /** Came from a staff proposal, not from HRD. */
+  proposed: boolean;
+  created_by_name: string;
+  created_at: string;
+  accepted_at: string | null;
+  task_no: string | null;
+  assignee_name: string | null;
+  assigned_at: string | null;
+  dropped_reason: string | null;
+  dropped_at: string | null;
+  /** The reader wrote it. */
+  is_mine: boolean;
+}
+
 /** One part of a goal, as anybody in that goal may read it (D367).
  *
  *  Chosen columns, not a `TaskView`: a colleague in the same goal reads what
