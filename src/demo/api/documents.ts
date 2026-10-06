@@ -131,16 +131,46 @@ const SALE_KINDS: Partial<Record<DocKind, [drive: string, task: string]>> = {
   "Moodboard": ["DRAFTING", "00 KONSEP"],
   "Layout / Floor Plan": ["DRAFTING", "00 KONSEP"],
   "Render": ["DRAFTING", "00 KONSEP"],
+  "Client Approval": ["DRAFTING", "00 PERSETUJUAN"],
 };
+
+/** The kinds a design item files in its own folder (0221). */
+const ITEM_FOLDER_KINDS: readonly DocKind[] = [
+  "Render", "Moodboard", "Layout / Floor Plan", "Client Drawing", "Client Reference",
+  "Gambar Kerja", "Gambar Jadi", "Client Approval",
+];
+const COLLECTION_FOLDER_KINDS: readonly DocKind[] = [
+  "Render", "Moodboard", "Layout / Floor Plan", "Client Drawing", "Client Reference",
+];
 
 /** One name as one folder, as `ops_core.drive_segment` makes it. */
 const segment = (s: string | null | undefined) =>
   (s ?? "").toUpperCase().replace(/[/\\]+/g, "-").replace(/\s+/g, " ").trim().slice(0, 90) || null;
 
 function filingPlace(kind: DocKind, entity?: LinkEntity, entityNo?: string): FilingPreview | null {
+  const st = getState();
+  /* A design item's or collection's files, in their own folder (0221). */
+  if ((entity === "design_item" && ITEM_FOLDER_KINDS.includes(kind))
+      || (entity === "design_collection" && COLLECTION_FOLDER_KINDS.includes(kind))) {
+    const no = entityNo?.trim() ?? "";
+    const item = entity === "design_item" ? st.design_items.find((i) => i.item_no === no) : undefined;
+    const room = item ? st.design_rooms.find((r) => r.id === item.room_id) : undefined;
+    const col = room
+      ? st.design_collections.find((c) => c.id === room.collection_id)
+      : st.design_collections.find((c) => `${st.projects.find((x) => x.id === c.project_id)?.code}-${c.code}` === no);
+    const p = col ? st.projects.find((x) => x.id === col.project_id) : undefined;
+    const cl = p?.client_id ? st.clients.find((x) => x.id === p.client_id) : undefined;
+    const client = cl ? segment(`${cl.code} ${cl.name}`) : segment(p?.client_name) ?? "TANPA KLIEN";
+    const project = p ? segment(`${p.code} ${p.name}`) : "TANPA PROYEK";
+    const collection = col ? segment(`KOLEKSI ${col.code} ${col.name}`) : "TANPA KOLEKSI";
+    const tail = entity === "design_item"
+      ? `${room ? segment(room.name) : "TANPA RUANGAN"}/${item ? segment(`${item.item_no} ${item.name}`) : "TANPA ITEM"}`
+      : "00 KOLEKSI";
+    const path = `${client}/${project}/${collection}/${tail}`;
+    return { drive: "DRAFTING", path, filed_in: `DRAFTING / ops-talaliving / ${path}` };
+  }
   const sale = SALE_KINDS[kind];
   if (!sale) return null;
-  const st = getState();
   let client: string | null = null;
   let project: string | null = null;
   const no = entityNo?.trim();

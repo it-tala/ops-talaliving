@@ -15,6 +15,7 @@ import type {
   Subscription, SubscriptionPayment,
 } from "@/services/accounting/contracts";
 import type { Attachment, AttachmentLink } from "@/services/documents/contracts";
+import type { ApprovalChannel, DesignOrigin } from "@/services/design/contracts";
 import type {
   Market, Property, PropertyAgent, SalesRep, Referral, ScrapeRow,
 } from "@/services/marketing/contracts";
@@ -151,6 +152,11 @@ export interface DemoState {
   quotation_lines: QuotationLine[];
   /** What was said to each client, and what to do next (0134). */
   client_activities: ClientActivity[];
+  /** A project's design (0221, P4): collections, rooms, items, approvals. */
+  design_collections: DemoDesignCollection[];
+  design_rooms: DemoDesignRoom[];
+  design_items: DemoDesignItem[];
+  design_approvals: DemoDesignApproval[];
 
   pr_documents: PrDocument[];
   pr_lines: PrLine[];
@@ -420,3 +426,23 @@ export type DemoReceivingInbox = Omit<ReceivingInboxRow, "files" | "resolved_by_
   /** Copies filed into ops-talaliving (0204): copy id → the capture it came from. */
   archived_from?: Record<string, string>;
 };
+
+
+/* ── a project's design (0221) — the tables, as the demo stores them ── */
+export interface DemoDesignCollection {
+  id: string; project_id: string; code: string; name: string; note: string | null; created_at: string;
+}
+export interface DemoDesignRoom {
+  id: string; collection_id: string; code: string; name: string; sort: number;
+}
+export interface DemoDesignItem {
+  id: string; item_no: string; room_id: string; seq: number; name: string; qty: number;
+  length_mm: number | null; width_mm: number | null; height_mm: number | null;
+  origin: DesignOrigin; product_code: string | null; note: string | null;
+  dropped_at: string | null; drop_reason: string | null; created_at: string; updated_at: string;
+}
+export interface DemoDesignApproval {
+  id: string; item_id: string; decision: "approved" | "withdrawn"; decided_on: string;
+  channel: ApprovalChannel; client_person: string; attachment_id: string | null;
+  evidence_attachment_id: string | null; note: string | null; recorded_by: string; recorded_at: string;
+}

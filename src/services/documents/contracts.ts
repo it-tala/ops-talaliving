@@ -77,6 +77,8 @@ export const DOC_KINDS = [
   "Proposal",
   "Meeting Notes",
   "Contract / SPK",
+  /** The client's yes to a design — a screenshot, a signed print (0221, D378). */
+  "Client Approval",
   "Others",
 ] as const;
 export type DocKind = (typeof DOC_KINDS)[number];
@@ -129,6 +131,7 @@ export const SUPPORTING_DOC_KINDS: DocKind[] = [
   "Proposal",
   "Meeting Notes",
   "Contract / SPK",
+  "Client Approval",
   "Others",
 ];
 
@@ -185,7 +188,12 @@ export type LinkEntity =
   /** A client, by `CL-…` — what belongs to the client rather than one project. */
   | "client"
   /** A quotation, by its `qt-…` number — the proposal sent with it, the signed copy. */
-  | "quotation";
+  | "quotation"
+  /** A design item, by its number `26007-A-LR-01` — its renders, the client's
+   *  drawing, the approval (0221, P4). */
+  | "design_item"
+  /** A collection, by `<project>-<code>` (`26007-A`) — its moodboard. */
+  | "design_collection";
 
 /** Who made a file (0217): us, the client, or somebody the client brought —
  *  their architect or designer. A property of the file, wherever it is
@@ -219,7 +227,15 @@ export const USUAL_ORIGIN: Partial<Record<DocKind, FileOrigin>> = {
   "Proposal": "tala",
   "Meeting Notes": "tala",
   "Contract / SPK": "client",
+  "Client Approval": "client",
 };
+
+/** What a design item is filed with (P4): what we drew, what the client
+ *  brought, and their approval. */
+export const DESIGN_DOC_KINDS: readonly DocKind[] = [
+  "Render", "Client Drawing", "Client Reference", "Moodboard", "Layout / Floor Plan",
+  "Gambar Kerja", "Gambar Jadi", "Client Approval",
+];
 
 /** Where a file of this kind, filed against this record, would go — the
  *  database's answer (`drive_folder_for`), shown before anything is sent. */
@@ -265,6 +281,8 @@ export const DOC_KINDS_FOR: Partial<Record<LinkEntity, readonly DocKind[]>> = {
   project: PROJECT_DOC_KINDS,
   client: PROJECT_DOC_KINDS,
   quotation: ["Proposal", "Contract / SPK", "Render", "Layout / Floor Plan", "Others"],
+  design_item: DESIGN_DOC_KINDS,
+  design_collection: ["Moodboard", "Layout / Floor Plan", "Render", "Client Reference", "Client Drawing"],
 };
 
 /** The photos an item carries (`0168`): at least one, at most four. */

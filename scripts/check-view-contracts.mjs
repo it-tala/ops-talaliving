@@ -132,6 +132,10 @@ const VIEW_CONTRACTS = {
   v_quotation_line:    "QuotationLineView",
   /* The client log (0134), converted field by field in `src/lib/api/crm.ts`. */
   v_client_activity:   "ClientActivityView",
+  v_design_item:       "DesignItemView",
+  v_design_room:       "DesignRoom",
+  v_design_collection: "DesignCollection",
+  v_design_approval:   "DesignApproval",
 
   /* ── core ────────────────────────────────────────────────────────────── */
   v_user_access:     "DirectoryRow",

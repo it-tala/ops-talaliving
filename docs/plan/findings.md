@@ -9503,3 +9503,45 @@ marketing-only account cannot remove a line from a draft quotation until then.
 **Rule:** a migration for the production tool keeps any function whose body
 says `delete` (or `drop`, `truncate`) in a part of its own, so the rest is not
 held with it.
+
+## F227 · 2026-10-06 · An item's status is its files, and the newest row needs a clock that moves
+
+P4 (kajian F224) built the drafters' order (D379): collection → room → design
+item, with the item's files and the client's approval (D378). Three things the
+build taught.
+
+**"Drawn" is a file, not a checkbox.** The kajian's status list (Concept,
+Drawn, Client approved, Dropped) could have been a column the drafter sets.
+It is read instead (A3): `v_design_item` counts the files filed against the
+item — a render, layout, moodboard, working or finished drawing makes it
+DRAWN; a recorded approval makes it APPROVED; a drop with a reason makes it
+DROPPED. So nobody can mark an item drawn that has no drawing, and the count
+of *our* files and *the client's* (from `attachments.origin`, F225) sits next
+to the status on the board. The approval points at one of the item's own
+files and its proof (a WhatsApp screenshot is a *Client Approval* file on the
+item), and the database refuses any other file (`file_not_on_item`): an
+approval that names a drawing from somewhere else is no record of what was
+approved.
+
+**The newest row needs a clock that moves within a transaction.**
+Approvals are append-only — a withdrawal is a new row — and the item reads
+the latest. The smoke recorded an approval and its withdrawal in one
+transaction and read the approval back as current: `now()` is the
+transaction's start, so both rows had the same `recorded_at` and the order
+between them was chance. `recorded_at` defaults to `clock_timestamp()`. The
+same tie is possible wherever a view picks "the latest" of rows a single
+call can write twice.
+
+**A folder is found from the public number, so a record without one cannot
+have files.** `attachment_links.entity_no` is what people read (D125), and
+`drive_context` resolves the folder from it. A collection's identity was its
+uuid; its files are filed against `<project>-<collection>` (`26003-A`)
+instead, which is also what a person would type. Every level of the path is a
+segment of its own (`KOLEKSI A TYPE 2BR / LIVING ROOM / 26003-A-LR-01 SOFA 3
+SEATER`), and an unresolved one falls back to `TANPA KOLEKSI` / `TANPA
+RUANGAN` / `TANPA ITEM` rather than filing loose in the project.
+
+**Rule:** a status a file can prove is read from the file.
+
+**Rule:** a column that orders append-only rows defaults to
+`clock_timestamp()`, not `now()`.

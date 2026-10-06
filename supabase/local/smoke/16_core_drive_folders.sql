@@ -50,8 +50,9 @@ begin
   -- BAST, our own surat jalan and the site photo, all in PROJECT MANAGER;
   -- 30 since `0188` added the off-site clock-in photo, in HRD (D332);
   -- 40 since `0217` added the ten kinds of a sale and a design (P1): five in
-  -- PROJECT MANAGER, five in DRAFTING.
-  assert n = 40, format('every kind is mapped, got %s', n);
+  -- PROJECT MANAGER, five in DRAFTING; 41 since `0221` added the client's
+  -- approval of a design, in DRAFTING (D378).
+  assert n = 41, format('every kind is mapped, got %s', n);
 end $$;
 
 /* ── the boundary that had to survive the move ─────────────────────────── */

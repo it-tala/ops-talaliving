@@ -241,6 +241,33 @@ Order lines stay `project.update`; cost and margin on a quotation stay with
 `expected_value`, `expected_close_on`, `days_in_status`, `current_quote_*` and,
 while LOST or CANCELLED, `closing_reason_code`, `closing_reason`, `closed_at`.
 
+### Projects — design (P4, 0221)
+
+The drafters' order (D379): a project's **collections** (a unit type, a
+catalogue, a floor), their **rooms**, and the **design items** in them.
+Service `design` in the app, stamped `procurement`. Read and write with
+`ops_procure.may_design(level)` = whoever sells (`may_sell`, D375) **or**
+`production.*` (the drafters).
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/projects/{code}/design` | `getProjectDesign` — `v_design_collection` (rooms, items not dropped, approved), `v_design_room`, `v_design_item`, in three reads |
+| GET | `/design/items/{item_no}` | `v_design_item`: the item, its room/collection/project/client, file counts (`design_files` ours, `client_files` the client's), the latest approval, and `status` — `DROPPED` · `APPROVED` · `DRAWN` (a render, layout, moodboard or drawing is filed against it) · `CONCEPT`. Read, never typed (A3) |
+| GET | `/design/items/{item_no}/approvals` | `v_design_approval`, newest first — append-only; a withdrawal is a row, not an edit |
+| POST | `/projects/{code}/design/collections` | `{code, name, note?}` — `save_design_collection`. Code `^[A-Z0-9]{1,6}$`, fixed once (it is inside every item number); same code again corrects the name/note. 422 `bad_code`, `name_required` |
+| POST | `/projects/{code}/design/rooms` | `{collection_code, code, name, sort?}` — `save_design_room`. Same code rules |
+| POST | `/projects/{code}/design/items` | `{collection_code, room_code, name, qty, origin, length_mm?, width_mm?, height_mm?, note?, item_no?}` — `save_design_item`. New items are numbered `<project>-<collection>-<room>-NN`; with `item_no` it corrects that item, which never moves room. `origin` `tala` · `client` · `adapted`. 422 `name_required`, `qty_required`, `bad_size`, `unknown_origin` |
+| POST | `/design/items/{item_no}/drop` | `{dropped, reason?}` — `set_design_item_dropped`: out of the design with a sentence (**422 `reason_required`**), or back in |
+| POST | `/design/items/{item_no}/approvals` | `{decision, decided_on, channel, client_person, attachment_id?, evidence_attachment_id?, note?}` — `record_design_approval`. **Not required** (D378): the screen warns while none is recorded. `decision` `approved` · `withdrawn`; `channel` `whatsapp` · `meeting` · `email` · `signed` · `other`; the approved file and the proof must be the item's own files (**422 `file_not_on_item`**). 422 `bad_date` (future), `client_person_required`, `unknown_channel`, `unknown_decision` |
+
+**Files** go through `documents.upload` with `entity: design_item` (render,
+moodboard, layout, client drawing/reference, working and finished drawing,
+**Client Approval**) or `design_collection` (render, moodboard, layout, client
+drawing/reference), and are filed in DRAFTING under
+`<client>/<project>/KOLEKSI <code> <name>/<room>/<item_no> <name>` or
+`…/KOLEKSI <code> <name>/00 KOLEKSI` (tokens `{COLLECTION}` `{ROOM}` `{ITEM}`,
+0221). A collection's `entity_no` is `<project code>-<collection code>`.
+
 `POST /pr` accepts `project_code` as well as `project_id`: another service
 knows the public code, never the internal id (ADR-004). A request created from
 a bill of material arrives as a **draft** with `source_wo_no` on every line —
