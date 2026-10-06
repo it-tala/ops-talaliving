@@ -7,6 +7,8 @@ import { Button, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { formatNumber } from "@/lib/format";
 import { hr } from "@/demo/api";
+import { ok } from "@/services/_shared/envelope";
+import type { PaidElsewhere } from "@/services/hr/contracts";
 import { Adjustments } from "./Adjustments";
 import { Members } from "./Members";
 import { PayRun } from "./PayRun";
@@ -44,11 +46,27 @@ export default function PayrollRunPage({ params }: { params: Promise<{ run: stri
   /* Who the run was opened for and is not paying: held, or paid by another
      run. They keep a row on the sheet, with the reason (0213). */
   const [members, reloadMembers] = useLoad(() => hr.listRunMembers(runNo), [runNo]);
+  /* Locked is *another run pays them now* — read live, not the note written
+     when this run opened: once that run lets them go, they can be ticked
+     here (0213). */
+  const period = detail.status === "ready" ? detail.data : null;
+  const [paid, reloadPaid] = useLoad(
+    () => period
+      ? hr.paidElsewhere({ period_start: period.period_start, period_end: period.period_end, except_run: runNo })
+      : Promise.resolve(ok<PaidElsewhere[]>("hr", [])),
+    [runNo, period?.period_start, period?.period_end],
+  );
+  const paidBy = new Map<string, string>(
+    paid.status === "ready" ? paid.data.map((p) => [p.employee_no, p.run_no]) : []);
   const asides: SheetAside[] = members.status === "ready"
-    ? members.data.filter((m) => !m.included).map((m) => ({
-      employee_no: m.employee_no, full_name: m.full_name, pay_basis: m.pay_basis,
-      reason: m.note ?? "", locked: m.auto,
-    }))
+    ? members.data.filter((m) => !m.included).map((m) => {
+      const other = paidBy.get(m.employee_no);
+      return {
+        employee_no: m.employee_no, full_name: m.full_name, pay_basis: m.pay_basis,
+        reason: other ? `Sudah dibayar untuk sebagian hari ini di ${other}` : m.note ?? "",
+        locked: other !== undefined,
+      };
+    })
     : [];
   const [holdReason, setHoldReason] = useState("");
   const [focusNo, setFocusNo] = useState<string | null>(null);
@@ -66,7 +84,7 @@ export default function PayrollRunPage({ params }: { params: Promise<{ run: stri
       return;
     }
     toast("success", on ? tr("Paid by this run", "Ikut dibayar run ini") : tr("Held", "Ditahan"), employeeNo);
-    reload(); reloadMembers();
+    reload(); reloadMembers(); reloadPaid();
   }
   const mayApprove = hasAuthority("approve_funds");
 
