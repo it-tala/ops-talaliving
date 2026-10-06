@@ -268,6 +268,30 @@ drawing/reference), and are filed in DRAFTING under
 `…/KOLEKSI <code> <name>/00 KOLEKSI` (tokens `{COLLECTION}` `{ROOM}` `{ITEM}`,
 0221). A collection's `entity_no` is `<project code>-<collection code>`.
 
+### Projects — meetings (P3, 0223)
+
+The client log (0134) stays the one log of contact. Any entry can carry
+**attendees** (meetings and visits only), **minutes as lines**, and **files**.
+Service `crm` in the app, stamped `procurement`. The log is the sellers'
+(`may_sell`, D375); a meeting's lines are also read and closed by the drafters
+(`may_design`), who do not read the log.
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/clients/activities/meeting` | `{…ActivityInput, attendees?: [{side, user_id?, name?, role?}], points?: [{kind, body, item_no?, owner_id?, due_on?}]}` — `log_meeting`: the entry by `log_client_activity`'s rules, then its lines; **a refused line writes nothing**. `side` `tala` (an active account) · `client` · `third_party` (a name). `kind` `decision` · `revision` · `action` · `note`. 422 `attendees_meeting_only`, `attendee_unknown`, `attendee_name_required`, `unknown_side`, `unknown_point_kind`, `point_body_required`, `item_unknown`, `item_other_project` (an item of the entry's project only), `owner_unknown`, `due_before_meeting`. Idempotent by key |
+| POST | `/clients/activities/{id}/lines` | `{attendees?, points?}` — `add_meeting_lines`: more minutes after the meeting, numbered after the last; nothing written changes. Noop when empty |
+| POST | `/meeting-points/{id}/close` | `{note?}` — `close_meeting_point`: a revision request or an action done, once (noop after). 422 `not_closable` for a decision or a note. Sellers and drafters |
+| GET | `/clients/activities/{id}/attendees` | `v_meeting_attendee` in order — an account's name read from the account |
+| GET | `/meeting-points?activity_id=&project_code=&item_no=&open=` | `v_meeting_point`: the line, its item, who does it, by when, and `state` — `noted` (decision, note) · `open` · `overdue` · `done` |
+| GET | `/meeting-people` | `meeting_people()` — every active account, for TALA's side |
+
+`v_client_activity` adds `attendee_count`, `point_count`, `open_points` and
+`file_count` at its end. Files go through `documents.upload` with `entity:
+client_activity` and the entry's id (minutes, survey photo, brief → PROJECT
+MANAGER `<client>/<project>/04 MEETING/<date> <KIND>`; client drawing and
+reference → DRAFTING `<client>/<project>/00 DARI KLIEN/<date> <KIND>`; no
+project → `<client>/00 UMUM/…`). Token `{MEETING}`.
+
 `POST /pr` accepts `project_code` as well as `project_id`: another service
 knows the public code, never the internal id (ADR-004). A request created from
 a bill of material arrives as a **draft** with `source_wo_no` on every line —

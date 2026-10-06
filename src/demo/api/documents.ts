@@ -143,6 +143,11 @@ const COLLECTION_FOLDER_KINDS: readonly DocKind[] = [
   "Render", "Moodboard", "Layout / Floor Plan", "Client Drawing", "Client Reference",
 ];
 
+/** The kinds a meeting files in a folder of its own, under the kind's (0223). */
+const MEETING_FOLDER_KINDS: readonly DocKind[] = [
+  "Meeting Notes", "Site Survey Photo", "Client Brief", "Client Drawing", "Client Reference",
+];
+
 /** One name as one folder, as `ops_core.drive_segment` makes it. */
 const segment = (s: string | null | undefined) =>
   (s ?? "").toUpperCase().replace(/[/\\]+/g, "-").replace(/\s+/g, " ").trim().slice(0, 90) || null;
@@ -171,6 +176,18 @@ function filingPlace(kind: DocKind, entity?: LinkEntity, entityNo?: string): Fil
   }
   const sale = SALE_KINDS[kind];
   if (!sale) return null;
+  /* A meeting's files, in a folder of the meeting (0223). */
+  if (entity === "client_activity" && MEETING_FOLDER_KINDS.includes(kind)) {
+    const a = st.client_activities.find((x) => x.id === entityNo?.trim());
+    const p = a?.project_id ? st.projects.find((x) => x.id === a.project_id) : undefined;
+    const c = a ? st.clients.find((x) => x.id === a.client_id) : undefined;
+    const client = c ? segment(`${c.code} ${c.name}`) : "TANPA KLIEN";
+    const project = p ? segment(`${p.code} ${p.name}`) : a ? "00 UMUM" : "TANPA PROYEK";
+    const meeting = a ? segment(`${a.happened_on} ${a.kind}`) : "TANPA MEETING";
+    const task = sale[0] === "DRAFTING" ? "00 DARI KLIEN" : "04 MEETING";
+    const path = `${client}/${project}/${task}/${meeting}`;
+    return { drive: sale[0], path, filed_in: `${sale[0]} / ops-talaliving / ${path}` };
+  }
   let client: string | null = null;
   let project: string | null = null;
   const no = entityNo?.trim();

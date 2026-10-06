@@ -39,7 +39,7 @@ import type {
   Delivery, DeliveryLine, PackingBox, BoxLine, Installation, InstallationLine, Snag, Handover,
 } from "@/services/delivery/contracts";
 import type { Quotation, QuotationLine } from "@/services/quotation/contracts";
-import type { ClientActivity } from "@/services/crm/contracts";
+import type { ClientActivity, MeetingAttendeeRow, MeetingPointRow } from "@/services/crm/contracts";
 
 export interface DemoUser extends User {
   modules: ModuleGrant[];
@@ -152,6 +152,9 @@ export interface DemoState {
   quotation_lines: QuotationLine[];
   /** What was said to each client, and what to do next (0134). */
   client_activities: ClientActivity[];
+  /** A meeting in full (0223, P3): who was there, and the minutes as lines. */
+  meeting_attendees: MeetingAttendeeRow[];
+  meeting_points: MeetingPointRow[];
   /** A project's design (0221, P4): collections, rooms, items, approvals. */
   design_collections: DemoDesignCollection[];
   design_rooms: DemoDesignRoom[];

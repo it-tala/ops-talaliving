@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { BellRing, Check, MessageSquarePlus, X } from "lucide-react";
+import { BellRing, Check, ChevronDown, ChevronRight, ListPlus, MessageSquarePlus, X } from "lucide-react";
 import { Badge, Button } from "@/components/ui/primitives";
 import { Loaded, useLoad } from "@/components/ui/loaded";
 import { cn } from "@/lib/cn";
@@ -15,6 +15,10 @@ import {
 import { useCanSell } from "@/lib/sell";
 import { useToast } from "@/store/toast";
 import { useTr, type Message } from "@/lib/i18n";
+import type { MeetingAttendeeInput, MeetingPointInput } from "@/services/crm/contracts";
+import {
+  AttendeesEditor, MeetingDetail, PointsEditor, takesAttendees, useMeetingPickers,
+} from "./meeting-lines";
 
 /** The client log, wherever it is shown: on a client's page, on a quotation,
  *  in a project. `filter` picks what is listed; `fixed` is what a new entry is
@@ -94,7 +98,11 @@ export function ActivityRow({
   const [closing, setClosing] = useState(false);
   const [result, setResult] = useState("");
   const [busy, setBusy] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const open = a.follow_up_state === "overdue" || a.follow_up_state === "today" || a.follow_up_state === "upcoming";
+  /* A meeting always opens — its minutes may be written after it; any other
+     contact opens once it carries something. */
+  const opens = takesAttendees(a.kind) || a.point_count > 0 || a.file_count > 0 || mayWrite;
 
   async function close() {
     setBusy(true);
@@ -125,6 +133,19 @@ export function ActivityRow({
         <span className="ml-auto text-[11px] text-slate-400">{a.created_by_name}</span>
       </div>
       <p className="mt-1 whitespace-pre-line text-slate-800">{a.summary}</p>
+      {opens && (
+        <button onClick={() => setExpanded(!expanded)}
+          className="mt-1 inline-flex items-center gap-1 rounded px-1 py-0.5 text-[12px] text-slate-500 hover:bg-slate-100 hover:text-slate-800">
+          {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          {[
+            a.attendee_count > 0 && tr(`${a.attendee_count} ${a.attendee_count === 1 ? "attendee" : "attendees"}`, `${a.attendee_count} peserta`),
+            a.point_count > 0 && tr(`${a.point_count} ${a.point_count === 1 ? "minute line" : "minute lines"}`, `${a.point_count} butir notulen`),
+            a.open_points > 0 && tr(`${a.open_points} open`, `${a.open_points} terbuka`),
+            a.file_count > 0 && tr(`${a.file_count} ${a.file_count === 1 ? "file" : "files"}`, `${a.file_count} file`),
+          ].filter(Boolean).join(" · ") || tr("Minutes & files", "Notulen & file")}
+        </button>
+      )}
+      {expanded && <MeetingDetail a={a} mayWrite={mayWrite} onChanged={onChanged} />}
       {a.follow_up_on && (
         <div className={cn("mt-1.5 flex flex-wrap items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12px]",
           a.follow_up_state === "overdue" ? "bg-rose-50" : a.follow_up_state === "today" ? "bg-amber-50" : "bg-slate-50")}>
@@ -170,15 +191,28 @@ function NewActivity({
   });
   const [key] = useState(() => `act:${Date.now()}:${Math.random().toString(36).slice(2)}`);
   const [busy, setBusy] = useState(false);
+  const [attendees, setAttendees] = useState<MeetingAttendeeInput[]>([]);
+  const [points, setPoints] = useState<MeetingPointInput[]>([]);
+  const [minutes, setMinutes] = useState(false);
+  const { people, items } = useMeetingPickers(f.project_code || null);
   const cls = "h-8 rounded-lg border border-slate-200 bg-white px-2 text-[13px]";
+  const isMeeting = takesAttendees(f.kind);
 
   async function save() {
     setBusy(true);
-    const res = await crm.logActivity({
+    const base = {
       client_code: fixed.client_code ?? null, project_code: f.project_code || null, quote_no: fixed.quote_no ?? null,
       kind: f.kind, summary: f.summary, happened_on: f.happened_on,
       follow_up_on: f.follow_up_on || null, next_action: f.next_action || null,
-    }, key);
+    };
+    /* With attendees or minutes it is one call that writes all or nothing
+       (0223); without, the log's own seam as before. A line left half
+       filled is sent as it is, and refused by name — never dropped. */
+    const who = isMeeting ? attendees : [];
+    const lines = points;
+    const res = who.length || lines.length
+      ? await crm.logMeeting({ ...base, attendees: who, points: lines }, key)
+      : await crm.logActivity(base, key);
     setBusy(false);
     if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", tr("Not logged", "Tidak tercatat"), res.error.message); return; }
     toast("success", tr("Logged", "Tercatat"), res.data.follow_up_on ? `Follow-up ${res.data.follow_up_on}` : res.data.client_name);
@@ -206,6 +240,15 @@ function NewActivity({
           "Apa yang dibicarakan? mis. klien minta revisi ukuran meja, harga masih dipertimbangkan",
         )}
         aria-label={tr("Summary", "Ringkasan")} className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[13px]" />
+      {isMeeting && <AttendeesEditor value={attendees} onChange={setAttendees} people={people} />}
+      {minutes || isMeeting ? (
+        <PointsEditor value={points} onChange={setPoints} people={people} items={items} />
+      ) : (
+        <button type="button" onClick={() => setMinutes(true)}
+          className="inline-flex items-center gap-1 text-[12px] text-brand-700 hover:underline">
+          <ListPlus className="h-3.5 w-3.5" /> {tr("Add a decision, revision request or action", "Tambah keputusan, permintaan revisi, atau tindakan")}
+        </button>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-[12px] text-slate-500">Follow-up</span>
         <input type="date" value={f.follow_up_on} min={f.happened_on} onChange={(e) => setF({ ...f, follow_up_on: e.target.value })}

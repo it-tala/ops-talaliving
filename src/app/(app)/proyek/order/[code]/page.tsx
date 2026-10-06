@@ -1,12 +1,13 @@
 "use client";
 
-import { use } from "react";
+import { use, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/ui/primitives";
 import { Loaded, useLoad } from "@/components/ui/loaded";
 import { Tabs } from "@/components/ui/tabs";
 import { ActivityLog } from "@/components/crm/activity-log";
+import { OpenPoints } from "@/components/crm/meeting-lines";
 import { SaleFiles, type FileTarget } from "@/components/files/sale-files";
 import { procurement, quotation } from "@/demo/api";
 import { DesignBoard } from "@/components/design/design-board";
@@ -28,6 +29,7 @@ export default function ProjectPage({ params }: { params: Promise<{ code: string
   const tr = useTr();
   const canSell = useCanSell();
   const canDesign = useCanDesign();
+  const [logTick, setLogTick] = useState(0);
   const [project, reloadProject] = useLoad(() => procurement.getProject(code), [code]);
   const [quotes] = useLoad(() => quotation.listQuotations({ project_code: code }), [code]);
 
@@ -82,13 +84,18 @@ export default function ProjectPage({ params }: { params: Promise<{ code: string
                     ),
                   },
                   {
-                    id: "contact", label: tr("Contact log", "Log kontak"),
+                    id: "contact", label: tr("Meetings & contact", "Meeting & kontak"),
                     content: p.client_code ? (
-                      <ActivityLog
-                        title={tr("Calls, messages, meetings and visits", "Telepon, pesan, meeting, dan kunjungan")}
-                        filter={{ project_code: p.code }}
-                        fixed={{ client_code: p.client_code, project_code: p.code }}
-                      />
+                      <div className="space-y-3">
+                        <OpenPoints filter={{ project_code: p.code }} refresh={logTick}
+                          title={tr("Still to be done from meetings", "Yang belum selesai dari meeting")} />
+                        <ActivityLog
+                          onChanged={() => setLogTick((n) => n + 1)}
+                          title={tr("Calls, messages, meetings and visits", "Telepon, pesan, meeting, dan kunjungan")}
+                          filter={{ project_code: p.code }}
+                          fixed={{ client_code: p.client_code, project_code: p.code }}
+                        />
+                      </div>
                     ) : (
                       <p className="rounded-xl border border-slate-200 bg-white px-4 py-6 text-center text-[13px] text-slate-500">
                         {tr("This project has no client in the client list, so there is nobody to log a contact against. Pick a client on the Order tab first.",
