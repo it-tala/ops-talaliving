@@ -231,6 +231,95 @@ PO and receiving:
 | POST | `/projects/{code}/lines` | add or change a line: `{product_code?, description, qty, uom, unit_price?}`. The product code is **not** validated against the catalogue — an order is typed the day it is signed, often before anybody has drawn the thing (A6, D150) |
 | DELETE | `/projects/{code}/lines/{id}` | |
 | POST | `/projects` | create or update: `{code, name, client_name?, location?, pic?, started_on?, target_date?, contract_value?, is_active?}`. The **code is never edited** — request lines, work orders and ledger rows all reference it as text at the seam (D149). 422 when the target date is before the start |
+| POST | `/projects/{code}/status` | `{status, reason?, reason_code?}` — `set_project_status` (0111, 0219). Any status may follow any other and every move is logged, **except closing**: `LOST` only from INQUIRY or QUOTATION_SENT (**422 `lost_after_deal`**), `CANCELLED` only after the deal (**422 `cancel_before_deal`**), and both need a `reason_code` — `PRICE` · `TIMELINE` · `DESIGN` · `COMPETITOR` · `CLIENT POSTPONED` · `NO RESPONSE` · `OTHER` (D377; **422 `reason_code_required`** / `unknown_reason_code`) — **and** a sentence (**422 `reason_required`**). Project **or marketing** `update` (D375) |
+| POST | `/projects/{code}/sales` | `{sales_pic, source_note, expected_value, expected_close_on}` — `set_project_sales` (0219): who sells it (an active account), where the lead came from (free text, D376), what it may be worth and when it may close. Its own seam, so saving the project's facts never blanks it. 422 `negative_value`, `sales_pic_unknown`. Project or marketing `update` |
+| GET | `/sales-people` | `sales_people()` — active accounts with project or marketing write access; empty for anybody who may not read sales |
+
+**Who sells (0219, D375).** Every sales seam — clients, the contact log,
+quotations, a project's facts and status, its sale — asks
+`ops_procure.may_sell(level)`: project **or** marketing access. Quotations,
+their lines, the contact log and clients are readable with `marketing.read`.
+Order lines stay `project.update`; cost and margin on a quotation stay with
+`project.update` (0133). `v_project` adds `sales_pic_name`, `source_note`,
+`expected_value`, `expected_close_on`, `days_in_status`, `current_quote_*` and,
+while LOST or CANCELLED, `closing_reason_code`, `closing_reason`, `closed_at`.
+
+### Projects — design (P4, 0222)
+
+The drafters' order (D379): a project's **collections** (a unit type, a
+catalogue, a floor), their **rooms**, and the **design items** in them.
+Service `design` in the app, stamped `procurement`. Read and write with
+`ops_procure.may_design(level)` = whoever sells (`may_sell`, D375) **or**
+`production.*` (the drafters).
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/projects/{code}/design` | `getProjectDesign` — `v_design_collection` (rooms, items not dropped, approved), `v_design_room`, `v_design_item`, in three reads |
+| GET | `/design/items/{item_no}` | `v_design_item`: the item, its room/collection/project/client, file counts (`design_files` ours, `client_files` the client's), the latest approval, and `status` — `DROPPED` · `APPROVED` · `DRAWN` (a render, layout, moodboard or drawing is filed against it) · `CONCEPT`. Read, never typed (A3) |
+| GET | `/design/items/{item_no}/approvals` | `v_design_approval`, newest first — append-only; a withdrawal is a row, not an edit |
+| POST | `/projects/{code}/design/collections` | `{code, name, note?}` — `save_design_collection`. Code `^[A-Z0-9]{1,6}$`, fixed once (it is inside every item number); same code again corrects the name/note. 422 `bad_code`, `name_required` |
+| POST | `/projects/{code}/design/rooms` | `{collection_code, code, name, sort?}` — `save_design_room`. Same code rules |
+| POST | `/projects/{code}/design/items` | `{collection_code, room_code, name, qty, origin, length_mm?, width_mm?, height_mm?, note?, item_no?}` — `save_design_item`. New items are numbered `<project>-<collection>-<room>-NN`; with `item_no` it corrects that item, which never moves room. `origin` `tala` · `client` · `adapted`. 422 `name_required`, `qty_required`, `bad_size`, `unknown_origin` |
+| POST | `/design/items/{item_no}/drop` | `{dropped, reason?}` — `set_design_item_dropped`: out of the design with a sentence (**422 `reason_required`**), or back in |
+| POST | `/design/items/{item_no}/approvals` | `{decision, decided_on, channel, client_person, attachment_id?, evidence_attachment_id?, note?}` — `record_design_approval`. **Not required** (D378): the screen warns while none is recorded. `decision` `approved` · `withdrawn`; `channel` `whatsapp` · `meeting` · `email` · `signed` · `other`; the approved file and the proof must be the item's own files (**422 `file_not_on_item`**). 422 `bad_date` (future), `client_person_required`, `unknown_channel`, `unknown_decision` |
+
+**Files** go through `documents.upload` with `entity: design_item` (render,
+moodboard, layout, client drawing/reference, working and finished drawing,
+**Client Approval**) or `design_collection` (render, moodboard, layout, client
+drawing/reference), and are filed in DRAFTING under
+`<client>/<project>/KOLEKSI <code> <name>/<room>/<item_no> <name>` or
+`…/KOLEKSI <code> <name>/00 KOLEKSI` (tokens `{COLLECTION}` `{ROOM}` `{ITEM}`,
+0222). A collection's `entity_no` is `<project code>-<collection code>`.
+
+### Projects — timeline and the pipeline's numbers (P7, 0229)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/projects/{code}/timeline` | `v_project_timeline`, newest first: `day`, `at`, `kind` (`status` · `contact` · `meeting` · `point_closed` · `quote_sent` · `quote_accepted` · `quote_rejected` · `file` · `design_item` · `design_dropped` · `approval` · `drawing_released` · `job_order` · `delivery` · `delivery_received` · `installation` · `handover`), `title`, `detail`, `ref` (a public code), `actor_name`. `security_invoker`: each reader sees what their access reads |
+| GET | `/pipeline/outcomes` | `v_project_outcome` (sellers): `outcome` won/lost/open, `opened_on`, `deal_on` (logged, else the day it reached its current status), `days_to_deal` (logged only), `days_in_status`, `value` (accepted offer › offer in play › estimate › contract; D164: never profit), `sales_pic_name`, `source_note`, `closing_reason_code` |
+
+### Projects — quotation ↔ design (P5, 0225)
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/quotations/{no}/lines/from-design` | `{item_nos}` — `add_quotation_lines_from_design`: one line per design item, named and sized from it (`Sofa — 2100 × 900 × 780 mm`), its qty, and its product where it is one; items already on the quotation are skipped. Every item checked before one line is written. Draft only (409 `not_draft`). 422 `no_items`, `item_unknown`, `item_other_project`, `item_dropped` |
+| POST | `/quotations/{no}/lines/{id}/design` | `{item_no, design_file_id?}` — `set_quotation_line_design`: the item a draft line offers and the drawing its price rests on (null: the item's latest); `item_no` null unlinks. 422 `file_not_on_item`, `file_without_item`, `item_*` as above |
+| GET | `/design/items/{item_no}/quotation-lines` | `v_quotation_line` where `design_item_no` — every offer of the item |
+
+`v_quotation_line` appends `design_item_no`, `design_item_name`,
+`collection_code`/`_name`, `room_code`/`_name`/`_sort`, `line_design_file_id`
+(the pinned drawing), `design_file_id`/`design_file_name` (effective: pinned or
+latest while a draft, **frozen at send**), `latest_design_file_id` and
+`design_changed`. `send_quotation` freezes the drawing; `revise_quotation`
+carries item and pin; `decide_quotation` (accepted) gives the order line
+`design_item_id` and the frozen `design_file_id`. `v_design_item` adds
+statuses `QUOTED` and `ORDERED` and columns `quote_no`, `quote_status`,
+`quoted_unit_price`, `ordered`; its `product_code` falls back to the order
+line's.
+
+### Projects — meetings (P3, 0224)
+
+The client log (0134) stays the one log of contact. Any entry can carry
+**attendees** (meetings and visits only), **minutes as lines**, and **files**.
+Service `crm` in the app, stamped `procurement`. The log is the sellers'
+(`may_sell`, D375); a meeting's lines are also read and closed by the drafters
+(`may_design`), who do not read the log.
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/clients/activities/meeting` | `{…ActivityInput, attendees?: [{side, user_id?, name?, role?}], points?: [{kind, body, item_no?, owner_id?, due_on?}]}` — `log_meeting`: the entry by `log_client_activity`'s rules, then its lines; **a refused line writes nothing**. `side` `tala` (an active account) · `client` · `third_party` (a name). `kind` `decision` · `revision` · `action` · `note`. 422 `attendees_meeting_only`, `attendee_unknown`, `attendee_name_required`, `unknown_side`, `unknown_point_kind`, `point_body_required`, `item_unknown`, `item_other_project` (an item of the entry's project only), `owner_unknown`, `due_before_meeting`. Idempotent by key |
+| POST | `/clients/activities/{id}/lines` | `{attendees?, points?}` — `add_meeting_lines`: more minutes after the meeting, numbered after the last; nothing written changes. Noop when empty |
+| POST | `/meeting-points/{id}/close` | `{note?}` — `close_meeting_point`: a revision request or an action done, once (noop after). 422 `not_closable` for a decision or a note. Sellers and drafters |
+| GET | `/clients/activities/{id}/attendees` | `v_meeting_attendee` in order — an account's name read from the account |
+| GET | `/meeting-points?activity_id=&project_code=&item_no=&open=` | `v_meeting_point`: the line, its item, who does it, by when, and `state` — `noted` (decision, note) · `open` · `overdue` · `done` |
+| GET | `/meeting-people` | `meeting_people()` — every active account, for TALA's side |
+
+`v_client_activity` adds `attendee_count`, `point_count`, `open_points` and
+`file_count` at its end. Files go through `documents.upload` with `entity:
+client_activity` and the entry's id (minutes, survey photo, brief → PROJECT
+MANAGER `<client>/<project>/04 MEETING/<date> <KIND>`; client drawing and
+reference → DRAFTING `<client>/<project>/00 DARI KLIEN/<date> <KIND>`; no
+project → `<client>/00 UMUM/…`). Token `{MEETING}`.
 
 `POST /pr` accepts `project_code` as well as `project_id`: another service
 knows the public code, never the internal id (ADR-004). A request created from
@@ -306,7 +395,18 @@ Payment calendar:
 | POST | `/links` | link an attachment to an entity with a `kind` |
 | GET | `/{id}` | signed URL, short TTL |
 | GET | `/{id}/thumb?size=220\|400\|800` | server-side, cached |
-| GET | `/by-entity/{entity}/{entity_no}` | everything attached to a thing |
+| GET | `/by-entity/{entity}/{entity_no}` | everything attached to a thing. Since `0217` the entities include `project`, `client` and `quotation` |
+| GET | `/filing-preview?kind=&entity=&entity_no=` | `filingPreview` — where a file of this kind, filed against this record, would go: `{drive, path, filed_in}`, from `ops_core.drive_folder_for` (the same answer the upload route gets). **422 `drive_not_configured`** while the kind's shared drive is not recorded — said before anything is uploaded |
+
+**A sale's files (0217, P1).** `upload` also takes `entity_no` (the record's
+number: a project's files go to `<client>/<project>/<task>` under the drive's
+`ops-talaliving`, a quotation's to its project's, a client's to
+`<client>/00 UMUM`) and `origin` (`tala` · `client` · `third_party`, who made
+the file; stored on the file, read back on every attachment, never guessed).
+**422 `unknown_origin`**, refused by the route before Drive and again by
+`attach_file`. Ten kinds: Client Brief, Site Survey Photo, Proposal, Meeting
+Notes and Contract / SPK to PROJECT MANAGER; Client Drawing, Client
+Reference, Moodboard, Layout / Floor Plan and Render to DRAFTING.
 
 The size limit sits **below** the framework's body limit deliberately, so a
 too-large file gets a 413 that names the limit instead of a connection that
@@ -354,6 +454,9 @@ dies — the same reason `john-lau` set 15 MB under Next's 16 MB.
 | POST | `/backlog/{item_no}/drop` | `drop_backlog_item` — `{reason}`. HRD for any waiting item (**422 `reason_required`**); the author may withdraw their own proposal without one. A dropped proposal tells its author why |
 | PUT | `/backlog/order` | `rank_backlog` — `{item_nos[]}`, **every open item, next first**. 409 `order_stale`, `noop` when unchanged — the `rank_goals` rule |
 | POST | `/backlog/{item_no}/assign` | `assign_backlog_item` — HRD (`hrd.create`): `{assignee_no, due_date, chase_date?}` — **one person** — writes the task through `assign_task` (goal, deliverable and detail carried; the person is notified by the 0215 trigger). 409 `not_open` for a proposal or an item already assigned/removed; 422 `due_required`; any `assign_task` refusal passes through |
+| GET | `/tasks/{task_no}/plan` | **Rencana per hari (0230, D384).** `task_plan()`: every day from today (or the first planned day) to the due date — `plan_date`, `target`, `works` (a working day for the holder, `works_on`), `editable` (holder, open task, today..due). A closed task returns only days with a target. The holder and HRD read it; anybody else 404 |
+| PUT | `/tasks/{task_no}/plan/{date}` | `save_task_plan` — `{target}`; empty clears (target null, no DELETE). **Holder only** (403 `not_yours`); 422 `past_day`, `after_due`, `target_too_long` (500); 409 `task_closed`; `noop` when unchanged |
+| GET | `/me/plan?date=` | `my_plan()`: the reader's targets for a day (today by default) across their tasks — what *Hari ini* logs against |
 | GET | `/contributions/rolls?month=` | every computed scheme for a month, name by name — **readable by HRD, payroll and accounting**, because auditing the invoice against the roll is accounting's job (owner, D259). Member numbers come back **masked**; revealing one is a separate, logged act (D196) |
 | GET | `/contributions/rolls/{scheme}?month=` | one scheme: the roll, the rate in force, last month's total, and who joined or left. `rate: null` where no version covers the month — and the screens print no figure rather than an invoice of nil |
 | GET | `/enrolments` | `?employee_no=&scheme=`. Ended rows included: *was he covered in July* is the question the register exists to answer |
@@ -512,6 +615,25 @@ that posting is the consequence of the signature on the sheet and the signature
 is its authority (D147).
 
 Events: `production.work_order.closed`.
+
+### Desain — the drafters' queue, live (P6, 0226)
+
+M30's queue (D179) on the database. A task is for a **design item** (by
+`item_no`, D379) or a **catalogue product** with no project (by
+`product_code`), one per drawing kind. Read by whoever works on a design
+(`may_design`); taken on, uploaded and released by the drafters
+(`production.update`); raised, asked and answered by either.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/design-tasks` | `v_design_task` + `v_design_revision` + `v_design_question`: status **read** (TANYA · RILIS · DIGAMBAR · BELUM), `released_rev`, `latest_rev`, `ahead_of_release`, `is_blocked`, the item's client/project/collection/room, `needed_by` (task date, open work orders, the live project's target — F51) and `days_left`. Queue order: blocked → ahead of release → undrawn → by date |
+| GET | `/design-gaps` | `v_design_gap`: products on an open work order or a live order line with no task (per kind), and design items approved, quoted or ordered with no working-drawing task |
+| POST | `/design-tasks` | `{kind, item_no?, product_code?, assignee?, due_date?, note?}` — `create_design_task`. 422 `nothing_to_draw`, `bad_kind`, `item_dropped`; 404 item/product; 409 `task_exists`. Idempotent by key |
+| POST | `/design-tasks/{no}/assign` | `{assignee, due_date?}` — free text: a freelance drafter is an answer (D264). Drafters only |
+| POST | `/design-tasks/{no}/revisions` | `{rev, attachment_id, note?, release?}` — `add_design_revision`: **a revision is a file** already filed on the item (`design_item`) or the product (`product`); 422 `file_required`, `file_not_on_task`, `rev_required`; 409 `rev_exists`; `release` refused while a question is open (403 `question_open`) |
+| POST | `/design-tasks/{no}/revisions/{rev}/release` | `release_design_revision`. 409 `already_released`; 403 `question_open` |
+| POST | `/design-tasks/{no}/questions` | `{asked_of, question}` — holds the release until answered |
+| POST | `/design-questions/{id}/answer` | `{answer}` — once (409 `already_answered`) |
 
 ## `inventory` — stock and timber
 

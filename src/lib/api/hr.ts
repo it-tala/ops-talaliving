@@ -49,7 +49,7 @@ import type {
   AdjustmentKind, ContributionScheme,
   LeaveKind, LeaveStatus, LeaveRequestView, LeaveBalance,
   TaskStatus, TaskRefKind, TaskView, TaskCadence, TaskRoutineView,
-  TaskAction, GoalView, GoalBoardTask, BacklogItem,
+  TaskAction, GoalView, GoalBoardTask, BacklogItem, TaskPlanDay, MyPlanLine,
   WorkLogEntry, WorkLogRosterRow, WorkEvidence, WorkProgress, KpiView,
   Sex, Education, Citizenship, MaritalStatus, EmployeeIdentityView, WlkpRecap,
   TapReading, TapSelfResult, LocationJudgement, WorkSite, LocatedTapView, TapKind,
@@ -816,7 +816,7 @@ export async function paidElsewhere(
 }
 
 /** What the employee form shows once pokok and tunjangan are typed, before
- *  anything is saved (0230, D386). */
+ *  anything is saved (0231, D386). */
 export async function payPreview(input: PayPreviewInput): Promise<Result<PayPreview>> {
   const { data, error } = await db().rpc("pay_preview", {
     p_pay_basis: input.pay_basis, p_base_rate: Math.round(input.base_rate),
@@ -2466,6 +2466,34 @@ export async function closeGoal(
   const said = fromSeam<{ goal_no: string }>(SERVICE, data, error);
   if (said.error) return said as unknown as Result<GoalView>;
   return goalByNo(input.goal_no);
+}
+
+/* ------------------------------------------------------------------ */
+/* Rencana per hari (D384)                                              */
+/* ------------------------------------------------------------------ */
+
+/** Every day of one task up to its due date, with the holder's target for
+ *  each. The holder and HRD read it; anybody else is answered 404. */
+export async function getTaskPlan(input: { task_no: string }): Promise<Result<TaskPlanDay[]>> {
+  const { data, error } = await db().rpc("task_plan", { p_task_no: input.task_no });
+  return fromRows<TaskPlanDay[]>(SERVICE, (data ?? []) as TaskPlanDay[], error);
+}
+
+/** The holder sets (or, with an empty target, clears) one day's target —
+ *  today onwards, up to the due date. */
+export async function saveTaskPlan(
+  input: { task_no: string; plan_date: string; target: string | null },
+): Promise<Result<{ task_no: string; plan_date: string; target: string | null }>> {
+  const { data, error } = await db().rpc("save_task_plan", {
+    p_task_no: input.task_no, p_date: input.plan_date, p_target: input.target ?? "",
+  });
+  return fromSeam<{ task_no: string; plan_date: string; target: string | null }>(SERVICE, data, error);
+}
+
+/** The reader's targets for a day (today by default), across their tasks. */
+export async function getMyPlan(input: { date?: string | null } = {}): Promise<Result<MyPlanLine[]>> {
+  const { data, error } = await db().rpc("my_plan", { p_date: input.date ?? null });
+  return fromRows<MyPlanLine[]>(SERVICE, (data ?? []) as MyPlanLine[], error);
 }
 
 /* ------------------------------------------------------------------ */

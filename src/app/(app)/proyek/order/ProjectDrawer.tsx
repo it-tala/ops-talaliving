@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import {
-  Check, FileSignature, Hammer, History, ListTree, Package, Pencil, Plus, Save, Trash2, UserPlus, X,
+  Check, ExternalLink, FileSignature, Hammer, History, ListTree, Package, Pencil, Plus, Save, Trash2, UserPlus, X,
 } from "lucide-react";
 import { Drawer } from "@/components/ui/drawer";
 import { Badge, Button } from "@/components/ui/primitives";
@@ -20,7 +20,10 @@ import {
   type ClientView, type ProjectLineView, type ProjectStatus, type ProjectView,
 } from "@/services/procurement/contracts";
 import { ClientDrawer } from "../../master-data/clients/ClientDrawer";
+import { ClosingForm } from "@/components/sales/closing-form";
+import { SalesCard } from "@/components/sales/sales-card";
 import { useSession } from "@/store/session";
+import { useCanSell } from "@/lib/sell";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 
@@ -69,7 +72,7 @@ function FactsForm({
   disabled: boolean;
 }) {
   const tr = useTr();
-  const { can } = useSession();
+  const canSell = useCanSell();
   const [clients, reloadClients] = useLoad(() => procurement.listClients(), []);
   const [adding, setAdding] = useState(false);
 
@@ -106,7 +109,7 @@ function FactsForm({
               <option key={c.code} value={c.code}>{c.name} · {c.code}</option>
             ))}
           </select>
-          {!disabled && can("project.create") && (
+          {!disabled && canSell("create") && (
             <Button variant="outline" icon={UserPlus} onClick={() => setAdding(true)}>{tr("New client", "Klien baru")}</Button>
           )}
         </div>
@@ -132,7 +135,7 @@ function FactsForm({
 
 function NewProject({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
   const tr = useTr();
-  const { can } = useSession();
+  const canSell = useCanSell();
   const { toast } = useToast();
   const [f, setF] = useState<Facts>(factsOf(null));
   const [busy, setBusy] = useState(false);
@@ -159,11 +162,11 @@ function NewProject({ onClose, onChanged }: { onClose: () => void; onChanged: ()
       footer={
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose} disabled={busy}>{tr("Cancel", "Batal")}</Button>
-          <Button icon={Save} onClick={create} disabled={busy || !f.name.trim() || !can("project.create")}>{tr("Save", "Simpan")}</Button>
+          <Button icon={Save} onClick={create} disabled={busy || !f.name.trim() || !canSell("create")}>{tr("Save", "Simpan")}</Button>
         </div>
       }
     >
-      <FactsForm f={f} set={(patch) => setF((x) => ({ ...x, ...patch }))} isNew disabled={!can("project.create")} />
+      <FactsForm f={f} set={(patch) => setF((x) => ({ ...x, ...patch }))} isNew disabled={!canSell("create")} />
       <p className="mt-3 text-[11px] text-slate-500">
         {tr("Ordered items are added after the project is saved. Its initial status is", "Item yang dipesan ditambahkan setelah proyek tersimpan. Status awalnya")} <strong>Inquiry</strong>.
       </p>
@@ -175,12 +178,40 @@ function NewProject({ onClose, onChanged }: { onClose: () => void; onChanged: ()
 
 function ExistingProject({ code, onClose, onChanged }: { code: string; onClose: () => void; onChanged: () => void }) {
   const tr = useTr();
+  const [project, reloadProject] = useLoad(() => procurement.getProject(code), [code]);
+  return (
+    <Drawer
+      open onClose={onClose} width="max-w-5xl"
+      title={project.status === "ready" ? project.data.name : code}
+      subtitle={project.status === "ready"
+        ? `${code}${project.data.client_display ? ` · ${project.data.client_display}` : ` · ${tr("internal", "internal")}`}`
+        : code}
+    >
+      <div className="mb-4 flex justify-end">
+        <Link href={`/proyek/order/${encodeURIComponent(code)}`}>
+          <Button size="sm" variant="outline" icon={ExternalLink}>{tr("Open project page · files & contact log", "Buka halaman proyek · file & log kontak")}</Button>
+        </Link>
+      </div>
+      <ProjectOverview code={code} onChanged={() => { reloadProject(); onChanged(); }} />
+    </Drawer>
+  );
+}
+
+/** A project's own facts, status, quotations, order lines and status history:
+ *  the drawer's content, and the project page's first tab (P1). */
+export function ProjectOverview({ code, onChanged }: { code: string; onChanged: () => void }) {
+  const tr = useTr();
   const { can } = useSession();
   const { toast } = useToast();
   const [project, reloadProject] = useLoad(() => procurement.getProject(code), [code]);
   const [lines, reloadLines] = useLoad(() => procurement.listProjectLines(code), [code]);
   const [history, reloadHistory] = useLoad(() => procurement.listProjectHistory(code), [code]);
-  const mayEdit = can("project.update");
+  const canSell = useCanSell();
+  /* The sale — facts, status, the salesperson — is leadership's and
+     marketing's too (D375); the order lines are what production makes and
+     stay with project access. */
+  const maySell = canSell();
+  const mayEditLines = can("project.update");
   const [editing, setEditing] = useState(false);
   const [f, setF] = useState<Facts>(factsOf(null));
   const [busy, setBusy] = useState(false);
@@ -203,84 +234,78 @@ function ExistingProject({ code, onClose, onChanged }: { code: string; onClose: 
   }
 
   return (
-    <Drawer
-      open onClose={onClose} width="max-w-5xl"
-      title={project.status === "ready" ? project.data.name : code}
-      subtitle={project.status === "ready"
-        ? `${code}${project.data.client_display ? ` · ${project.data.client_display}` : ` · ${tr("internal", "internal")}`}`
-        : code}
-    >
       <Loaded state={project} onRetry={reloadProject}>
-        {(p) => (
-          <div className="space-y-5">
-            <StatusBar p={p} mayEdit={mayEdit} onChanged={reloadAll} />
+      {(p) => (
+        <div className="space-y-5">
+          <StatusBar p={p} mayEdit={maySell} onChanged={reloadAll} />
 
-            <div className="rounded-xl border border-slate-200 px-4 py-3">
-              {editing ? (
-                <>
-                  <FactsForm f={f} set={(patch) => setF((x) => ({ ...x, ...patch }))} isNew={false} disabled={busy} />
-                  <div className="mt-3 flex justify-end gap-2">
-                    <Button size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={busy}>{tr("Cancel", "Batal")}</Button>
-                    <Button size="sm" icon={Save} onClick={saveFacts} disabled={busy || !f.name.trim()}>{tr("Save", "Simpan")}</Button>
-                  </div>
-                </>
-              ) : (
-                <div className="flex flex-wrap items-start gap-x-8 gap-y-2 text-[13px]">
-                  {([
-                    [tr("Client", "Klien"), p.client_display ?? tr("internal / stock", "internal / stok")],
-                    [tr("Contact", "Kontak"), [p.client_contact, p.client_phone].filter(Boolean).join(" · ") || "—"],
-                    [tr("Location", "Lokasi"), p.location ?? "—"],
-                    ["PIC", p.pic ?? "—"],
-                    [tr("Start", "Mulai"), p.started_on ?? "—"],
-                    [tr("Delivery date", "Jadwal kirim"), p.target_date ?? "—"],
-                    [tr("Contract value", "Nilai kontrak"), p.contract_value == null ? "—" : formatIDR(p.contract_value)],
-                  ] as [string, string][]).map(([k, v]) => (
-                    <div key={k}>
-                      <span className="block text-[11px] uppercase tracking-wide text-slate-400">{k}</span>
-                      <span className="text-slate-800">{v}</span>
-                    </div>
-                  ))}
-                  {mayEdit && (
-                    <Button size="sm" variant="ghost" icon={Pencil} className="ml-auto"
-                      onClick={() => { setF(factsOf(p)); setEditing(true); }}>
-                      {tr("Edit", "Ubah")}
-                    </Button>
-                  )}
-                  {p.note && <p className="w-full text-[12px] text-slate-500">{p.note}</p>}
+          <div className="rounded-xl border border-slate-200 px-4 py-3">
+            {editing ? (
+              <>
+                <FactsForm f={f} set={(patch) => setF((x) => ({ ...x, ...patch }))} isNew={false} disabled={busy} />
+                <div className="mt-3 flex justify-end gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={busy}>{tr("Cancel", "Batal")}</Button>
+                  <Button size="sm" icon={Save} onClick={saveFacts} disabled={busy || !f.name.trim()}>{tr("Save", "Simpan")}</Button>
                 </div>
-              )}
-            </div>
-
-            <Quotations code={code} />
-
-            <Loaded state={lines} onRetry={reloadLines} skeletonRows={3}>
-              {(rows) => <OrderLines p={p} rows={rows} mayEdit={mayEdit} onChanged={() => { reloadLines(); reloadProject(); onChanged(); }} />}
-            </Loaded>
-
-            <Loaded state={history} skeletonRows={1}>
-              {(h) => h.length === 0 ? null : (
-                <details className="rounded-xl border border-slate-200 px-4 py-2.5 text-[12px] text-slate-600">
-                  <summary className="flex cursor-pointer select-none items-center gap-1.5 text-slate-700">
-                    <History className="h-3.5 w-3.5 text-slate-400" /> {tr(`Status history (${h.length})`, `Riwayat status (${h.length})`)}
-                  </summary>
-                  <ul className="mt-2 space-y-1">
-                    {h.map((c, i) => (
-                      <li key={i}>
-                        <span className="text-slate-400">{c.changed_at.slice(0, 16).replace("T", " ")}</span>{" · "}
-                        {c.from_status ? `${PROJECT_STATUS_LABEL(c.from_status)} → ` : ""}
-                        <strong className="font-medium text-slate-800">{PROJECT_STATUS_LABEL(c.to_status)}</strong>
-                        {c.changed_by && <span className="text-slate-400"> · {c.changed_by}</span>}
-                        {c.reason && <span className="block pl-4 text-slate-500">“{c.reason}”</span>}
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              )}
-            </Loaded>
+              </>
+            ) : (
+              <div className="flex flex-wrap items-start gap-x-8 gap-y-2 text-[13px]">
+                {([
+                  [tr("Client", "Klien"), p.client_display ?? tr("internal / stock", "internal / stok")],
+                  [tr("Contact", "Kontak"), [p.client_contact, p.client_phone].filter(Boolean).join(" · ") || "—"],
+                  [tr("Location", "Lokasi"), p.location ?? "—"],
+                  ["PIC", p.pic ?? "—"],
+                  [tr("Start", "Mulai"), p.started_on ?? "—"],
+                  [tr("Delivery date", "Jadwal kirim"), p.target_date ?? "—"],
+                  [tr("Contract value", "Nilai kontrak"), p.contract_value == null ? "—" : formatIDR(p.contract_value)],
+                ] as [string, string][]).map(([k, v]) => (
+                  <div key={k}>
+                    <span className="block text-[11px] uppercase tracking-wide text-slate-400">{k}</span>
+                    <span className="text-slate-800">{v}</span>
+                  </div>
+                ))}
+                {maySell && (
+                  <Button size="sm" variant="ghost" icon={Pencil} className="ml-auto"
+                    onClick={() => { setF(factsOf(p)); setEditing(true); }}>
+                    {tr("Edit", "Ubah")}
+                  </Button>
+                )}
+                {p.note && <p className="w-full text-[12px] text-slate-500">{p.note}</p>}
+              </div>
+            )}
           </div>
-        )}
-      </Loaded>
-    </Drawer>
+
+          <SalesCard p={p} canEdit={maySell} onChanged={reloadAll} />
+
+          <Quotations code={code} />
+
+          <Loaded state={lines} onRetry={reloadLines} skeletonRows={3}>
+            {(rows) => <OrderLines p={p} rows={rows} mayEdit={mayEditLines} onChanged={() => { reloadLines(); reloadProject(); onChanged(); }} />}
+          </Loaded>
+
+          <Loaded state={history} skeletonRows={1}>
+            {(h) => h.length === 0 ? null : (
+              <details className="rounded-xl border border-slate-200 px-4 py-2.5 text-[12px] text-slate-600">
+                <summary className="flex cursor-pointer select-none items-center gap-1.5 text-slate-700">
+                  <History className="h-3.5 w-3.5 text-slate-400" /> {tr(`Status history (${h.length})`, `Riwayat status (${h.length})`)}
+                </summary>
+                <ul className="mt-2 space-y-1">
+                  {h.map((c, i) => (
+                    <li key={i}>
+                      <span className="text-slate-400">{c.changed_at.slice(0, 16).replace("T", " ")}</span>{" · "}
+                      {c.from_status ? `${PROJECT_STATUS_LABEL(c.from_status)} → ` : ""}
+                      <strong className="font-medium text-slate-800">{PROJECT_STATUS_LABEL(c.to_status)}</strong>
+                      {c.changed_by && <span className="text-slate-400"> · {c.changed_by}</span>}
+                      {(c.reason || c.reason_code) && <span className="block pl-4 text-slate-500">{c.reason_code && <strong className="font-medium text-rose-700">{c.reason_code} · </strong>}{c.reason && `“${c.reason}”`}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </Loaded>
+        </div>
+      )}
+    </Loaded>
   );
 }
 
@@ -291,7 +316,7 @@ function ExistingProject({ code, onClose, onChanged }: { code: string; onClose: 
  *  below (0133). */
 function Quotations({ code }: { code: string }) {
   const tr = useTr();
-  const { can } = useSession();
+  const canSell = useCanSell();
   const [rows] = useLoad(() => quotation.listQuotations({ project_code: code }), [code]);
   const list = rows.status === "ready" ? rows.data : [];
   const draft = list.find((x) => x.status === "DRAFT");
@@ -312,7 +337,7 @@ function Quotations({ code }: { code: string }) {
           </Link>
         );
       })}
-      {can("project.create") && (
+      {canSell("create") && (
         <Link href={draft ? `/proyek/quotation/${encodeURIComponent(draft.quote_no)}` : `/proyek/quotation?project=${encodeURIComponent(code)}`}
           className="ml-auto">
           <Button size="sm" variant="outline" icon={draft ? Pencil : Plus}>{draft ? tr("Continue draft", "Lanjutkan draft") : tr("Create quotation", "Buat quotation")}</Button>
@@ -328,25 +353,26 @@ function StatusBar({ p, mayEdit, onChanged }: { p: ProjectView; mayEdit: boolean
   const tr = useTr();
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
-  const [cancelling, setCancelling] = useState(false);
-  const [reason, setReason] = useState("");
+  const [closing, setClosing] = useState(false);
   const current = p.status ?? "INQUIRY";
+  const closed = current === "CANCELLED" || current === "LOST";
 
-  async function move(status: ProjectStatus, why?: string) {
+  async function move(status: ProjectStatus) {
     setBusy(true);
-    const res = await procurement.setProjectStatus({ code: p.code, status, reason: why ?? null });
+    const res = await procurement.setProjectStatus({ code: p.code, status });
     setBusy(false);
     if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", tr("Status not changed", "Status tidak berubah"), res.error.message); return; }
     toast("success", tr("Status updated", "Status diperbarui"), PROJECT_STATUS_LABEL(status));
-    setCancelling(false); setReason("");
     onChanged();
   }
 
-  const flow = PROJECT_STATUSES.filter((s) => s.code !== "CANCELLED");
+  /* LOST and CANCELLED are not steps on the road: they are where it ends
+     badly, reached from the button on the right and left by clicking a step. */
+  const flow = PROJECT_STATUSES.filter((s) => s.code !== "CANCELLED" && s.code !== "LOST");
   const at = flow.findIndex((s) => s.code === current);
 
   return (
-    <div className={cn("rounded-xl border px-4 py-3", current === "CANCELLED" ? "border-rose-200 bg-rose-50/50" : "border-slate-200")}>
+    <div className={cn("rounded-xl border px-4 py-3", closed ? "border-rose-200 bg-rose-50/50" : "border-slate-200")}>
       <div className="flex flex-wrap items-center gap-1.5">
         {flow.map((s, i) => (
           <button
@@ -356,36 +382,38 @@ function StatusBar({ p, mayEdit, onChanged }: { p: ProjectView; mayEdit: boolean
             className={cn(
               "inline-flex items-center gap-1 rounded-full px-3 py-1 text-[12px] font-medium ring-1 ring-inset transition-colors",
               s.code === current ? "bg-brand-600 text-white ring-brand-600"
-                : current !== "CANCELLED" && i < at ? "bg-brand-50 text-brand-700 ring-brand-200"
+                : !closed && i < at ? "bg-brand-50 text-brand-700 ring-brand-200"
                   : "bg-white text-slate-500 ring-slate-200",
               mayEdit && s.code !== current && "hover:bg-slate-50",
             )}
           >
-            {current !== "CANCELLED" && i < at && <Check className="h-3 w-3" />}
+            {!closed && i < at && <Check className="h-3 w-3" />}
             {s.label}
           </button>
         ))}
         <span className="flex-1" />
-        {current === "CANCELLED" ? (
-          <Badge tone="red">{tr("Cancelled", "Batal")}</Badge>
-        ) : mayEdit && (
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => setCancelling((v) => !v)}>{tr("Cancel…", "Batalkan…")}</Button>
+        {closed ? (
+          <Badge tone="red">{PROJECT_STATUS_LABEL(current)}{p.closing_reason_code ? ` · ${p.closing_reason_code}` : ""}</Badge>
+        ) : mayEdit && current !== "DONE" && !closing && (
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => setClosing(true)}>
+            {current === "INQUIRY" || current === "QUOTATION_SENT" ? tr("Mark as lost…", "Tandai tidak jadi…") : tr("Cancel…", "Batalkan…")}
+          </Button>
         )}
       </div>
-      {cancelling && (
-        <div className="mt-2 flex gap-1.5">
-          <input
-            autoFocus value={reason} onChange={(e) => setReason(e.target.value)}
-            placeholder={tr("Why was it cancelled? — read by whoever asks later", "Kenapa dibatalkan? — dibaca orang yang nanti bertanya")}
-            aria-label={tr("Cancellation reason", "Alasan pembatalan")} className={inputCls}
-          />
-          <Button size="sm" variant="danger" disabled={busy || !reason.trim()} onClick={() => move("CANCELLED", reason)}>
-            {tr("Cancel project", "Batalkan proyek")}
-          </Button>
+      {closed && p.closing_reason && (
+        <p className="mt-1.5 text-[12px] text-rose-800">
+          “{p.closing_reason}”{p.closed_at && <span className="text-rose-700/70"> · {p.closed_at.slice(0, 10)}</span>}
+        </p>
+      )}
+      {closing && (
+        <div className="mt-2">
+          <ClosingForm p={p} onCancel={() => setClosing(false)} onDone={() => { setClosing(false); onChanged(); }} />
         </div>
       )}
       <p className="mt-1.5 text-[11px] text-slate-500">
-        {tr("Click a status to move there — forward or back. Every move is recorded in the history.", "Klik status untuk memindahkan — maju atau mundur. Setiap perpindahan tercatat di riwayat.")}
+        {closed
+          ? tr("Click a status to reopen it. Every move is recorded in the history.", "Klik status untuk membukanya lagi. Setiap perpindahan tercatat di riwayat.")
+          : tr("Click a status to move there — forward or back. Every move is recorded in the history.", "Klik status untuk memindahkan — maju atau mundur. Setiap perpindahan tercatat di riwayat.")}
       </p>
     </div>
   );

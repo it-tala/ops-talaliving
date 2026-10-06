@@ -10,8 +10,11 @@ import type {
   ProjectView, ProjectLineView, ProjectStatus, ProjectStatusChange, Client, ClientView,
   ReceivingInboxRow, ReceivingInboxStatus, ReceivingCandidates, ReceivingLineInput,
   ReceivingMatchResult, PoPaymentRequest, ReceivingTrxCandidate, ReceivingPoCandidate,
-  ReceivingArchiveResult,
+  ReceivingArchiveResult, ClosingReason, SalesPerson, TimelineEvent, TimelineKind, ProjectOutcome,
 } from "@/services/procurement/contracts";
+import { CLOSING_REASONS } from "@/services/procurement/contracts";
+import { acceptedQuotationTotal, currentQuotation } from "./quotation";
+import { officeToday } from "@/lib/office";
 import { RECEIPT_CONDITIONS } from "@/services/procurement/contracts";
 import type { DemoState, DemoReceivingInbox } from "../state";
 import { productView, workOrderView, joReferenceProblem } from "../production-derive";
@@ -35,7 +38,7 @@ import {
   varianceOf, currentApproval, lineEvidenceKinds, orderOfLine,
 } from "../derive";
 import {
-  latency, actingUser, requireAuthority, requireModule, requireLevel, conflict, replayed, remember, paged,
+  latency, actingUser, canDesign, requireSeller, requireAuthority, requireModule, requireLevel, conflict, replayed, remember, paged,
 } from "./_kit";
 
 const SERVICE = "procurement" as const;
@@ -258,6 +261,36 @@ function projectView(state: DemoState, p: Project): ProjectView {
     order_value: priced.length ? priced.reduce((a, l) => a + l.qty * (l.unit_price ?? 0), 0) : null,
     unpriced_lines: lines.length - priced.length,
     next_delivery: dates[0] ?? null,
+    ...saleOf(state, p),
+  };
+}
+
+/** The sale on a project, as 0219's `v_project` reads it. */
+function saleOf(state: DemoState, p: Project) {
+  const pic = p.sales_pic ? state.users.find((u) => u.id === p.sales_pic) : undefined;
+  const status = p.status ?? (p.is_active ? "IN_PRODUCTION" : "DONE");
+  const since = (p.status_changed_at ?? new Date().toISOString()).slice(0, 10);
+  const days = Math.max(0, Math.round((Date.parse(officeToday()) - Date.parse(since)) / 86_400_000));
+  const q = currentQuotation(state, p.id);
+  const closing = status === "LOST" || status === "CANCELLED"
+    ? state.project_status_log
+      .filter((l) => l.project_id === p.id && l.to_status === status)
+      .sort((a, b) => b.changed_at.localeCompare(a.changed_at))[0]
+    : undefined;
+  return {
+    sales_pic: p.sales_pic ?? null,
+    sales_pic_name: pic?.full_name ?? null,
+    sales_pic_email: pic?.email ?? null,
+    source_note: p.source_note ?? null,
+    expected_value: p.expected_value ?? null,
+    expected_close_on: p.expected_close_on ?? null,
+    days_in_status: days,
+    current_quote_no: q?.quote_no ?? null,
+    current_quote_status: q?.status ?? null,
+    current_quote_total: q?.grand_total ?? null,
+    closing_reason_code: closing?.reason_code ?? null,
+    closing_reason: closing?.reason ?? null,
+    closed_at: closing?.changed_at ?? null,
   };
 }
 
@@ -311,7 +344,7 @@ export async function saveProject(
   const cached = replayed<ProjectView>(SERVICE, "saveProject", idempotencyKey);
   if (cached) return cached;
 
-  const denied = requireModule(SERVICE, "project");
+  const denied = requireSeller(SERVICE);
   if (denied) return denied;
 
   if (!input.name.trim()) {
@@ -388,37 +421,106 @@ export async function saveProject(
 /** Where the order stands. Any status may follow any other, every move is
  *  logged, and cancelling says why (0111). */
 export async function setProjectStatus(
-  input: { code: string; status: ProjectStatus; reason?: string | null },
+  input: { code: string; status: ProjectStatus; reason?: string | null; reason_code?: ClosingReason | null },
 ): Promise<Result<ProjectView>> {
   await latency();
-  const denied = requireModule(SERVICE, "project");
+  const denied = requireSeller(SERVICE);
   if (denied) return denied;
   const state = getState();
   const p = state.projects.find((x) => x.code === input.code);
   if (!p) return notFound(SERVICE, "project_not_found", `No project ${input.code}.`);
   const from = p.status ?? (p.is_active ? "IN_PRODUCTION" : "DONE");
   if (from === input.status) return noop(SERVICE, projectView(state, p));
-  if (input.status === "CANCELLED" && !input.reason?.trim()) {
-    return invalid(SERVICE, "reason_required", "Kenapa dibatalkan? Satu kalimat — pertanyaan ini pasti datang lagi.", { field: "reason" });
+  /* Closing says why: LOST before the deal, CANCELLED after it (0219, D377). */
+  const code = input.reason_code?.trim().toUpperCase() as ClosingReason | undefined;
+  if (input.status === "LOST" && from !== "INQUIRY" && from !== "QUOTATION_SENT") {
+    return invalid(SERVICE, "lost_after_deal", "Proyek ini sudah deal. Kalau tidak jadi, catat sebagai CANCELLED (batal setelah deal), bukan LOST.", { field: "status", from });
+  }
+  if (input.status === "CANCELLED" && (from === "INQUIRY" || from === "QUOTATION_SENT" || from === "LOST")) {
+    return invalid(SERVICE, "cancel_before_deal", "Proyek ini belum deal. Kalau tidak jadi, catat sebagai LOST (tidak jadi), bukan CANCELLED.", { field: "status", from });
+  }
+  if (input.status === "LOST" || input.status === "CANCELLED") {
+    if (!code) {
+      return invalid(SERVICE, "reason_code_required", "Pilih alasannya: PRICE, TIMELINE, DESIGN, COMPETITOR, CLIENT POSTPONED, NO RESPONSE atau OTHER.", { field: "reason_code" });
+    }
+    if (!CLOSING_REASONS.some((r) => r.code === code)) {
+      return invalid(SERVICE, "unknown_reason_code", `"${input.reason_code}" bukan kategori alasan.`, { field: "reason_code" });
+    }
+    if (!input.reason?.trim()) {
+      return invalid(SERVICE, "reason_required", "Tulis satu kalimat: apa yang dikatakan klien. Kategori menjawab berapa banyak, kalimat menjawab kenapa yang ini.", { field: "reason" });
+    }
   }
   const user = actingUser();
+  const closing = input.status === "LOST" || input.status === "CANCELLED";
   apply((draft) => {
     const row = draft.projects.find((x) => x.code === input.code);
     if (!row) return;
     row.status = input.status;
     row.status_changed_at = new Date().toISOString();
-    row.is_active = input.status !== "DONE" && input.status !== "CANCELLED";
+    row.is_active = !["DONE", "CANCELLED", "LOST"].includes(input.status);
     draft.project_status_log.push({
       project_id: row.id, from_status: from, to_status: input.status,
-      reason: input.reason?.trim() || null, changed_by: user.email, changed_at: new Date().toISOString(),
+      reason: input.reason?.trim() || null, reason_code: closing ? code ?? null : null,
+      changed_by: user.email, changed_at: new Date().toISOString(),
     });
     writeAudit(draft, {
       service: SERVICE, entity: "project", entity_no: row.code,
       action: "set_status", outcome: "ok", reason: input.reason?.trim() || null,
-      detail: { from, to: input.status, by: user.email },
+      detail: { from, to: input.status, reason_code: closing ? code : null, by: user.email },
     });
   });
   return getProject(input.code);
+}
+
+/** The sale on a project (0219's `set_project_sales`). */
+export async function setProjectSales(
+  input: {
+    code: string;
+    sales_pic: string | null;
+    source_note: string | null;
+    expected_value: number | null;
+    expected_close_on: string | null;
+  },
+): Promise<Result<ProjectView>> {
+  await latency();
+  const denied = requireSeller(SERVICE);
+  if (denied) return denied;
+  const state = getState();
+  const p = state.projects.find((x) => x.code === input.code);
+  if (!p) return notFound(SERVICE, "project_not_found", `Tidak ada proyek ${input.code}.`);
+  if (input.expected_value != null && input.expected_value < 0) {
+    return invalid(SERVICE, "negative_value", "Perkiraan nilai tidak bisa negatif.", { field: "expected_value" });
+  }
+  if (input.sales_pic && !state.users.some((u) => u.id === input.sales_pic && u.is_active)) {
+    return invalid(SERVICE, "sales_pic_unknown", "PIC sales harus akun yang aktif.", { field: "sales_pic" });
+  }
+  const user = actingUser();
+  apply((draft) => {
+    const row = draft.projects.find((x) => x.code === input.code);
+    if (!row) return;
+    row.sales_pic = input.sales_pic;
+    row.source_note = input.source_note?.trim() || null;
+    row.expected_value = input.expected_value;
+    row.expected_close_on = input.expected_close_on || null;
+    writeAudit(draft, {
+      service: SERVICE, entity: "project", entity_no: row.code,
+      action: "set_sales", outcome: "ok", reason: null, detail: { by: user.email },
+    });
+  });
+  return getProject(input.code);
+}
+
+/** Who can be named as the salesperson (`sales_people()`): active accounts
+ *  with project or marketing write access. */
+export async function listSalesPeople(): Promise<Result<SalesPerson[]>> {
+  await latency();
+  const denied = requireSeller(SERVICE, "read");
+  if (denied) return ok(SERVICE, []);
+  return ok(SERVICE, getState().users
+    .filter((u) => u.is_active && u.modules.some((m) =>
+      (m.module === "project" || m.module === "marketing") && (m.level === "write" || m.level === "admin")))
+    .map((u) => ({ id: u.id, full_name: u.full_name, email: u.email }))
+    .sort((a, b) => a.full_name.localeCompare(b.full_name)));
 }
 
 function lineView(state: DemoState, project: Project, l: ProjectLine): ProjectLineView {
@@ -596,7 +698,7 @@ export async function saveClient(
   },
 ): Promise<Result<ClientView>> {
   await latency();
-  const denied = requireModule(SERVICE, "project");
+  const denied = requireSeller(SERVICE);
   if (denied) return denied;
   const name = input.name.trim();
   if (!name) return invalid(SERVICE, "name_required", "Nama kliennya siapa?", { field: "name" });
@@ -638,7 +740,7 @@ export async function archiveClient(
   input: { code: string; archived: boolean },
 ): Promise<Result<ClientView>> {
   await latency();
-  const denied = requireModule(SERVICE, "project");
+  const denied = requireSeller(SERVICE);
   if (denied) return denied;
   const state = getState();
   const c = state.clients.find((x) => x.code === input.code);
@@ -4119,4 +4221,148 @@ export async function archiveReceiving(rrNo: string): Promise<Result<ReceivingAr
     }
   });
   return ok(SERVICE, { rr_no: rrNo, archived, failed: [] });
+}
+
+/* ── a project from first contact to handover (0229, P7) ──────────────────
+ *
+ * The sandbox's `v_project_timeline`: every record a project is made of, side
+ * by side in time, each read only by whoever's access reads it — the sale by
+ * the sellers (D375), the design by whoever works on it, the site by project
+ * and delivery. */
+
+const office = (iso: string) => {
+  const d = new Date(new Date(iso).getTime() + 8 * 3_600_000);
+  return d.toISOString().slice(0, 10);
+};
+
+export async function getProjectTimeline(projectCode: string): Promise<Result<TimelineEvent[]>> {
+  await latency();
+  if (!canDesign("read")) return ok(SERVICE, []);
+  const st = getState();
+  const p = st.projects.find((x) => x.code === projectCode);
+  if (!p) return ok(SERVICE, []);
+  const sells = !requireSeller(SERVICE, "read");
+  const site = actingUser().modules.some((m) => m.module === "project" || m.module === "delivery");
+  const who = (idOrEmail: string | null | undefined) => {
+    const u = idOrEmail ? st.users.find((x) => x.id === idOrEmail || x.email === idOrEmail) : undefined;
+    return u ? (u.full_name || u.email) : null;
+  };
+  const out: TimelineEvent[] = [];
+  const push = (at: string, day: string, kind: TimelineKind, title: string, detail: string | null, ref: string | null, actor: string | null) =>
+    out.push({ project_code: projectCode, at, day, kind, title, detail, ref, actor_name: actor });
+
+  const items = st.design_items.filter((i) => {
+    const room = st.design_rooms.find((r) => r.id === i.room_id);
+    return st.design_collections.find((c) => c.id === room?.collection_id)?.project_id === p.id;
+  });
+  const quotes = st.quotations.filter((q) => q.project_id === p.id);
+  const acts = st.client_activities.filter((a) => a.project_id === p.id);
+
+  if (sells) {
+    for (const l of st.project_status_log.filter((x) => x.project_id === p.id)) {
+      push(l.changed_at, office(l.changed_at), "status", l.to_status,
+        [l.reason_code, l.reason].filter(Boolean).join(" — ") || null, null, who(l.changed_by));
+    }
+    for (const a of acts) {
+      push(a.created_at, a.happened_on, a.kind === "meeting" || a.kind === "visit" ? "meeting" : "contact",
+        a.kind, a.summary, a.id, who(a.created_by));
+    }
+    for (const q of quotes) {
+      if (q.sent_at) push(q.sent_at, office(q.sent_at), "quote_sent", `${q.quote_no} · rev ${q.rev}`, null, q.quote_no, null);
+      if (q.decided_at && (q.status === "ACCEPTED" || q.status === "REJECTED")) {
+        push(q.decided_at, office(q.decided_at), q.status === "ACCEPTED" ? "quote_accepted" : "quote_rejected",
+          `${q.quote_no} · rev ${q.rev}`, q.decision_reason, q.quote_no, null);
+      }
+    }
+  }
+  for (const m of st.meeting_points.filter((x) => x.project_id === p.id && x.closed_at)) {
+    push(m.closed_at!, office(m.closed_at!), "point_closed", m.kind, [m.body, m.closed_note].filter(Boolean).join(" → "),
+      st.design_items.find((i) => i.id === m.design_item_id)?.item_no ?? null, who(m.closed_by));
+  }
+  /* Files, against the project and everything it is made of. */
+  const mine = (l: { entity: string; entity_no: string }) =>
+    (l.entity === "project" && l.entity_no === p.code)
+    || (sells && l.entity === "quotation" && quotes.some((q) => q.quote_no === l.entity_no))
+    || (sells && l.entity === "client_activity" && acts.some((a) => a.id === l.entity_no))
+    || (l.entity === "design_item" && items.some((i) => i.item_no === l.entity_no))
+    || (l.entity === "design_collection" && st.design_collections.some((c) => c.project_id === p.id && `${p.code}-${c.code}` === l.entity_no));
+  for (const l of st.attachment_links.filter(mine)) {
+    push(l.linked_at, office(l.linked_at), "file", l.kind,
+      st.attachments.find((a) => a.id === l.attachment_id)?.filename ?? null, l.entity_no, who(l.linked_by));
+  }
+  for (const i of items) {
+    push(i.created_at, office(i.created_at), "design_item", i.name, null, i.item_no, null);
+    if (i.dropped_at) push(i.dropped_at, office(i.dropped_at), "design_dropped", i.name, i.drop_reason, i.item_no, null);
+    for (const a of st.design_approvals.filter((x) => x.item_id === i.id)) {
+      push(a.recorded_at, a.decided_on, "approval", a.decision,
+        [a.client_person, a.channel, a.note].filter(Boolean).join(" · "), i.item_no, who(a.recorded_by));
+    }
+    for (const t of st.design_tasks.filter((x) => x.item_no === i.item_no)) {
+      for (const r of st.design_revisions.filter((x) => x.task_id === t.id && x.released_at)) {
+        push(r.released_at!, office(r.released_at!), "drawing_released", `${t.kind} rev ${r.rev}`, r.note, i.item_no, who(r.released_by));
+      }
+    }
+  }
+  for (const w of st.work_orders.filter((x) => x.project_code === p.code)) {
+    push(w.created_at, office(w.created_at), "job_order", w.wo_no, w.item_name, w.wo_no, who(w.created_by));
+  }
+  if (site) {
+    for (const d of st.deliveries.filter((x) => x.project_code === p.code)) {
+      push(d.created_at, d.dispatched_on, "delivery", d.delivery_no, d.status, d.delivery_no, who(d.created_by));
+      if (d.received_at) push(d.received_at, office(d.received_at), "delivery_received", d.delivery_no, d.received_by, d.delivery_no, null);
+    }
+    for (const i of st.installations.filter((x) => x.project_code === p.code)) {
+      push(i.created_at, i.visit_date, "installation", i.install_no, [i.crew, i.note].filter(Boolean).join(" · ") || null, i.install_no, who(i.created_by));
+    }
+    for (const h of st.handovers.filter((x) => x.project_code === p.code)) {
+      push(h.created_at, h.handed_on, "handover", h.handover_no, h.client_rep, h.handover_no, who(h.created_by));
+    }
+  }
+  out.sort((a, b) => b.day.localeCompare(a.day) || b.at.localeCompare(a.at));
+  return ok(SERVICE, out);
+}
+
+/** Every project as the pipeline counts it (0229). */
+export async function listProjectOutcomes(): Promise<Result<ProjectOutcome[]>> {
+  await latency();
+  if (requireSeller(SERVICE, "read")) return ok(SERVICE, []);
+  const st = getState();
+  const today = officeToday();
+  const daysBetween = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 86_400_000);
+  return ok(SERVICE, st.projects.map((p) => {
+    const won = st.project_status_log
+      .filter((l) => l.project_id === p.id && ["DEAL", "IN_PRODUCTION", "SHIPPED", "DONE"].includes(l.to_status))
+      .sort((a, b) => a.changed_at.localeCompare(b.changed_at))[0];
+    const lostLog = st.project_status_log
+      .filter((l) => l.project_id === p.id && l.to_status === "LOST")
+      .sort((a, b) => b.changed_at.localeCompare(a.changed_at))[0];
+    const status = (p.status ?? "INQUIRY") as ProjectStatus;
+    const outcome = won || ["DEAL", "IN_PRODUCTION", "SHIPPED", "DONE", "CANCELLED"].includes(status) ? "won"
+      : status === "LOST" ? "lost" : "open";
+    /* The sandbox's projects carry no creation time: the first logged move,
+       else the current status's, is when it opened. */
+    const firstLog = st.project_status_log.filter((l) => l.project_id === p.id)
+      .sort((a, b) => a.changed_at.localeCompare(b.changed_at))[0];
+    const opened = office(firstLog?.changed_at ?? p.status_changed_at ?? new Date().toISOString());
+    /* The logged deal, else — for a project past it before moves were logged —
+       the day it reached its current status. Days to the deal only from a
+       logged one: an approximate date is not a duration (0229). */
+    const dealLogged = won ? office(won.changed_at) : null;
+    const dealOn = dealLogged ?? (outcome === "won" && p.status_changed_at ? office(p.status_changed_at) : null);
+    const client = p.client_id ? st.clients.find((c) => c.id === p.client_id) : undefined;
+    const pic = p.sales_pic ? st.users.find((u) => u.id === p.sales_pic) : undefined;
+    const current = currentQuotation(st, p.id);
+    return {
+      project_code: p.code, project_name: p.name, client_display: client?.name ?? p.client_name ?? null,
+      status, sales_pic: p.sales_pic ?? null, sales_pic_name: pic ? (pic.full_name || pic.email) : null,
+      source_note: p.source_note ?? null,
+      value: acceptedQuotationTotal(st, p.id) ?? current?.grand_total ?? p.expected_value ?? p.contract_value ?? null,
+      opened_on: opened, deal_on: dealOn,
+      lost_on: status === "LOST" && lostLog ? office(lostLog.changed_at) : null,
+      outcome,
+      days_to_deal: dealLogged ? daysBetween(opened, dealLogged) : null,
+      days_in_status: p.status_changed_at ? daysBetween(office(p.status_changed_at), today) : null,
+      closing_reason_code: status === "LOST" || status === "CANCELLED" ? (lostLog?.reason_code ?? null) : null,
+    } as ProjectOutcome;
+  }));
 }

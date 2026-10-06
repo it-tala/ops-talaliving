@@ -34,6 +34,7 @@ import type {
   ReceivingMatchResult, PoPaymentRequest, ReceivingArchiveResult,
   UomCode, PrCategory, PrDocument,
   ProjectView, ProjectLineView, ProjectStatus, ProjectStatusChange, Client, ClientView,
+  ClosingReason, SalesPerson, TimelineEvent, ProjectOutcome,
 } from "@/services/procurement/contracts";
 import type { DocKind } from "@/services/documents/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -1320,9 +1321,11 @@ export async function listProjects(): Promise<Result<Project[]>> {
  *  is a view. `contract_value`, `order_value` and line prices are `numeric`,
  *  which PostgREST may hand back as strings, so each row is shaped by hand. */
 
-interface ProjectRow extends Omit<ProjectView, "contract_value" | "order_value"> {
+interface ProjectRow extends Omit<ProjectView, "contract_value" | "order_value" | "expected_value" | "current_quote_total"> {
   contract_value: number | string | null;
   order_value: number | string | null;
+  expected_value?: number | string | null;
+  current_quote_total: number | string | null;
 }
 
 interface ProjectLineRow extends Omit<ProjectLineView, "qty" | "unit_price" | "product_production_cost" | "job_order_qty" | "job_order_completed"> {
@@ -1336,7 +1339,13 @@ interface ProjectLineRow extends Omit<ProjectLineView, "qty" | "unit_price" | "p
 const numOrNull = (v: number | string | null | undefined): number | null => (v == null ? null : Number(v));
 
 function toProjectView(r: ProjectRow): ProjectView {
-  return { ...r, contract_value: numOrNull(r.contract_value), order_value: numOrNull(r.order_value) };
+  return {
+    ...r,
+    contract_value: numOrNull(r.contract_value),
+    order_value: numOrNull(r.order_value),
+    expected_value: numOrNull(r.expected_value ?? null),
+    current_quote_total: numOrNull(r.current_quote_total),
+  };
 }
 
 function toProjectLineView(r: ProjectLineRow): ProjectLineView {
@@ -1367,7 +1376,7 @@ export async function listProjectHistory(code: string): Promise<Result<ProjectSt
   const project = await getProject(code);
   if (project.error) return project;
   const { data, error } = await db().from("project_status_log")
-    .select("from_status, to_status, reason, changed_by, changed_at")
+    .select("from_status, to_status, reason, reason_code, changed_by, changed_at")
     .eq("project_id", project.data.id).order("changed_at", { ascending: false });
   if (error) return fail(SERVICE, error);
   const rows = (data ?? []) as ProjectStatusChange[];
@@ -1411,14 +1420,46 @@ export async function saveProject(
 }
 
 export async function setProjectStatus(
-  input: { code: string; status: ProjectStatus; reason?: string | null },
+  input: { code: string; status: ProjectStatus; reason?: string | null; reason_code?: ClosingReason | null },
 ): Promise<Result<ProjectView>> {
   const { data, error } = await db().rpc("set_project_status", {
     p_code: input.code, p_status: input.status, p_reason: input.reason ?? null,
+    p_reason_code: input.reason_code ?? null,
   });
   const res = fromSeam(SERVICE, data, error);
   if (res.error) return res;
   return getProject(input.code);
+}
+
+/** The sale on a project: who sells it, where it came from, what it may be
+ *  worth and when it may close (0219). Its own seam, so saving the project's
+ *  facts can never blank it. */
+export async function setProjectSales(
+  input: {
+    code: string;
+    sales_pic: string | null;
+    source_note: string | null;
+    expected_value: number | null;
+    expected_close_on: string | null;
+  },
+): Promise<Result<ProjectView>> {
+  const { data, error } = await db().rpc("set_project_sales", {
+    p_code: input.code,
+    p_sales_pic: input.sales_pic,
+    p_source_note: input.source_note,
+    p_expected_value: input.expected_value,
+    p_expected_close_on: input.expected_close_on || null,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return getProject(input.code);
+}
+
+/** Who can be named as the salesperson: active accounts that may write sales. */
+export async function listSalesPeople(): Promise<Result<SalesPerson[]>> {
+  const { data, error } = await db().rpc("sales_people");
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, (data ?? []) as SalesPerson[]);
 }
 
 export async function listProjectLines(code: string): Promise<Result<ProjectLineView[]>> {
@@ -2270,4 +2311,29 @@ export async function archiveReceiving(rrNo: string): Promise<Result<ReceivingAr
     };
   }
   return ok(SERVICE, envelope.data);
+}
+
+/* ── a project from first contact to handover (0229, P7) ──────────────── */
+
+/** Everything recorded about a project, newest first — read with the
+ *  reader's own access, so a drafter sees the design and the floor. */
+export async function getProjectTimeline(projectCode: string): Promise<Result<TimelineEvent[]>> {
+  const { data, error } = await db().from("v_project_timeline").select("*")
+    .eq("project_code", projectCode)
+    .order("day", { ascending: false }).order("at", { ascending: false });
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, (data ?? []) as TimelineEvent[]);
+}
+
+/** Every project as the pipeline counts it: won, lost or open, its days to
+ *  the deal and the offer's value (D164: never profit). */
+export async function listProjectOutcomes(): Promise<Result<ProjectOutcome[]>> {
+  const { data, error } = await db().from("v_project_outcome").select("*").order("opened_on", { ascending: false });
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+    ...(r as unknown as ProjectOutcome),
+    value: r.value == null ? null : Number(r.value),
+    days_to_deal: r.days_to_deal == null ? null : Number(r.days_to_deal),
+    days_in_status: r.days_in_status == null ? null : Number(r.days_in_status),
+  })));
 }

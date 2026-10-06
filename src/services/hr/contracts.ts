@@ -848,6 +848,27 @@ export interface GoalView {
   is_owner: boolean;
 }
 
+/** One day of a task's plan — `ops_hr.task_plan()` (0230, D384). Every day
+ *  from today (or the first planned day) to the due date; `works` says
+ *  whether it is a working day for the holder; `editable` is true only for
+ *  the holder, on an open task, from today on. */
+export interface TaskPlanDay {
+  plan_date: string;
+  target: string | null;
+  works: boolean;
+  editable: boolean;
+  updated_at: string | null;
+}
+
+/** One of the reader's targets for a day, across their tasks (`my_plan`). */
+export interface MyPlanLine {
+  task_no: string;
+  title: string;
+  due_date: string;
+  goal_rank: number | null;
+  target: string;
+}
+
 /** Where an item of the daftar tunggu is (D381). `PROPOSED` waits for HRD;
  *  `OPEN` is on the ordered list; `ASSIGNED` became a task; `DROPPED` left
  *  the list with a reason. */
@@ -925,7 +946,7 @@ export type TaskAction = "start" | "done" | "block" | "unblock" | "cancel" | "re
  *  An enum and not a cron string, because every value here has an obvious first
  *  and last day and a cron field does not — and the period's edges are what the
  *  whole module is keyed on. */
-export type TaskCadence = "WEEKLY" | "MONTHLY" | "QUARTERLY" | "SEMESTER" | "ANNUAL";
+export type TaskCadence = "DAILY" | "WEEKLY" | "MONTHLY" | "QUARTERLY" | "SEMESTER" | "ANNUAL";
 
 /** A standing expectation — *tugas rutin*.
  *
@@ -2456,7 +2477,7 @@ export interface PayrollLine {
   /** As stored: a month for a salary, a day otherwise (D386). */
   allowance_rate: number;
   /** A day of the allowance — for a salary, the month's ÷ the first month's
-   *  working days (0230, D386). Null where there are no working days. */
+   *  working days (0231, D386). Null where there are no working days. */
   allowance_daily: number | null;
   /** Days present, and of those, how many are still open. */
   days_worked: number;
@@ -2614,7 +2635,7 @@ export interface PayrollView extends PayrollRun {
 
 /** Somebody another run already pays for days of a period (0213). */
 /** What the employee form shows once pokok and tunjangan are typed, before
- *  anything is saved (0230, D386): the month it is read for, its working
+ *  anything is saved (0231, D386): the month it is read for, its working
  *  days, a day of the pay, a day of the allowance, the hour overtime is
  *  priced at, and the month in total. Payroll's own arithmetic. */
 export interface PayPreview {

@@ -63,6 +63,22 @@ export const DOC_KINDS = [
   /** A photo taken at a clock-in away from the warehouse (D332). A face and a
    *  place, so it is filed in the HRD drive, not with `Foto` in PROCUREMENT. */
   "Foto Presensi",
+  /** What a sale and a design are made of (0216, P1). The paper of the sale
+   *  goes to PROJECT MANAGER beside the BAST that closes it; the pictures the
+   *  drafters work from and draw go to DRAFTING. Each file also says who made
+   *  it (`origin`), because a render can be ours or the client's designer's. */
+  "Client Brief",
+  "Site Survey Photo",
+  "Client Drawing",
+  "Client Reference",
+  "Moodboard",
+  "Layout / Floor Plan",
+  "Render",
+  "Proposal",
+  "Meeting Notes",
+  "Contract / SPK",
+  /** The client's yes to a design — a screenshot, a signed print (0222, D378). */
+  "Client Approval",
   "Others",
 ] as const;
 export type DocKind = (typeof DOC_KINDS)[number];
@@ -105,6 +121,17 @@ export const SUPPORTING_DOC_KINDS: DocKind[] = [
   "BAST",
   "Foto Lokasi",
   "Foto Presensi",
+  "Client Brief",
+  "Site Survey Photo",
+  "Client Drawing",
+  "Client Reference",
+  "Moodboard",
+  "Layout / Floor Plan",
+  "Render",
+  "Proposal",
+  "Meeting Notes",
+  "Contract / SPK",
+  "Client Approval",
   "Others",
 ];
 
@@ -155,7 +182,80 @@ export type LinkEntity =
    *  from the phone it was photographed on (`0187`, D331). */
   | "leave_request"
   /** One phone tap, by its `tap_no` — the off-site photo (D332, `0188`). */
-  | "attendance_scan";
+  | "attendance_scan"
+  /** A project, by its code — the files of a sale and its design (P1). */
+  | "project"
+  /** A client, by `CL-…` — what belongs to the client rather than one project. */
+  | "client"
+  /** A quotation, by its `qt-…` number — the proposal sent with it, the signed copy. */
+  | "quotation"
+  /** A design item, by its number `26007-A-LR-01` — its renders, the client's
+   *  drawing, the approval (0222, P4). */
+  | "design_item"
+  /** A collection, by `<project>-<code>` (`26007-A`) — its moodboard. */
+  | "design_collection"
+  /** An entry of the client log, by its id — a meeting's minutes, the
+   *  whiteboard photo, the sketch the client handed over (0224, P3). */
+  | "client_activity";
+
+/** Who made a file (0217): us, the client, or somebody the client brought —
+ *  their architect or designer. A property of the file, wherever it is
+ *  attached. Null where nobody said, and never guessed. */
+export type FileOrigin = "tala" | "client" | "third_party";
+
+export const FILE_ORIGINS: { code: FileOrigin; label: string; label_id: string }[] = [
+  { code: "tala", label: "TALA", label_id: "TALA" },
+  { code: "client", label: "Client", label_id: "Klien" },
+  { code: "third_party", label: "Third party", label_id: "Pihak ketiga" },
+];
+
+/** The kinds a sale's own record offers: what the client gave us, what we
+ *  drew, what we sent, what was said and signed (P1). */
+export const PROJECT_DOC_KINDS: readonly DocKind[] = [
+  "Client Brief", "Site Survey Photo", "Client Drawing", "Client Reference",
+  "Moodboard", "Layout / Floor Plan", "Render",
+  "Proposal", "Meeting Notes", "Contract / SPK", "Others",
+];
+
+/** Which origin a kind usually has — the picker's starting point, never the
+ *  answer: a client can send a render, and we can photograph their reference. */
+export const USUAL_ORIGIN: Partial<Record<DocKind, FileOrigin>> = {
+  "Client Brief": "client",
+  "Client Drawing": "client",
+  "Client Reference": "client",
+  "Site Survey Photo": "tala",
+  "Moodboard": "tala",
+  "Layout / Floor Plan": "tala",
+  "Render": "tala",
+  "Proposal": "tala",
+  "Meeting Notes": "tala",
+  "Contract / SPK": "client",
+  "Client Approval": "client",
+};
+
+/** What a design item is filed with (P4): what we drew, what the client
+ *  brought, and their approval. */
+export const DESIGN_DOC_KINDS: readonly DocKind[] = [
+  "Render", "Client Drawing", "Client Reference", "Moodboard", "Layout / Floor Plan",
+  "Gambar Kerja", "Gambar Jadi", "Client Approval",
+];
+
+/** What a meeting or a visit is filed with (P3): the minutes, the photos, and
+ *  what the client brought to it. */
+export const MEETING_DOC_KINDS: readonly DocKind[] = [
+  "Meeting Notes", "Site Survey Photo", "Client Brief", "Client Drawing", "Client Reference",
+];
+
+/** Where a file of this kind, filed against this record, would go — the
+ *  database's answer (`drive_folder_for`), shown before anything is sent. */
+export interface FilingPreview {
+  /** The shared drive, as people know it: `DRAFTING`. */
+  drive: string;
+  /** The folder under the drive's `ops-talaliving`, `/`-separated. */
+  path: string;
+  /** Both, as one line: `DRAFTING / ops-talaliving / CL-0001 …/00 KONSEP`. */
+  filed_in: string;
+}
 
 /** Which kinds make sense where. The full list is thirty kinds across HR,
  *  production and money, and a ledger row offered "Ijazah" or "KTP" is a
@@ -187,6 +287,12 @@ export const DOC_KINDS_FOR: Partial<Record<LinkEntity, readonly DocKind[]>> = {
      reached through the item rather than filed on it. */
   item: ["Foto", "Others"],
   leave_request: ["Surat Dokter", "Others"],
+  project: PROJECT_DOC_KINDS,
+  client: PROJECT_DOC_KINDS,
+  quotation: ["Proposal", "Contract / SPK", "Render", "Layout / Floor Plan", "Others"],
+  design_item: DESIGN_DOC_KINDS,
+  design_collection: ["Moodboard", "Layout / Floor Plan", "Render", "Client Reference", "Client Drawing"],
+  client_activity: MEETING_DOC_KINDS,
 };
 
 /** The photos an item carries (`0168`): at least one, at most four. */
@@ -222,6 +328,8 @@ export interface Attachment {
   /** Where the file sits, in words: `PROCUREMENT / OPS / INVENTORY/ITEMS`.
    *  Decided by the database from the kind, never by the screen (0175). */
   filed_in?: string | null;
+  /** Who made it (0217). Null for files filed before, or where nobody said. */
+  origin?: FileOrigin | null;
 }
 
 export interface AttachmentLink {

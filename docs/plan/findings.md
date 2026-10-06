@@ -9396,6 +9396,146 @@ deployed in john-lau burns its five attempts in under half an hour and stops
 (`outbox_due` skips rows at five). Deploy john-lau's `pipeline-cycle` job
 first, then apply the `delivery_rules` part of 0215.
 
+## F224 · 2026-10-06 · The sales road was built and never walked, and the half the owner now asks for was never built
+
+The owner asked for the whole business to be recorded from the first proposal
+to closing or not, with the design items, drawings and renders from both TALA
+and the client. Reading the code and production side by side (kajian:
+`docs/analysis/2026-10-06-proyek-dari-proposal-sampai-closing.md`) gave two
+answers that point in opposite directions.
+
+**The road exists and is empty.** Clients (`0111`), project status with its
+log, quotations with revisions and a printed offer (`0133`), the client contact
+log with follow-ups (`0134`), and the automatic moves `QUOTATION_SENT → DEAL →
+IN_PRODUCTION → SHIPPED → DONE` are all live. Production holds **0 clients, 0
+quotations, 0 contact rows, 0 order lines**, and five projects with no client
+and no contract value. Nothing here is waiting on code; it is waiting on use.
+
+**The design half was never there.** Drawings belong to a *product* (D150),
+and a product exists only after an order, so a proposal has no place for its
+items, a render has no kind of its own (`gambar_jadi` is labelled *Finished
+drawing* on one screen and *Finished photo* on another), a client's drawing has
+no kind, no origin and no record to hang on, and nothing says the client
+approved a design. The drafters' queue (M30, D179) is DONE on the board and
+demo-only in fact: no table, no live function. And the PROJECT MANAGER drive
+has no `drive_id` in production, so even BAST and site photos cannot reach
+Drive today.
+
+**Rule:** a milestone that is DONE on demo data is not DONE for the owner until
+the board says which half is live. M30 read as finished for three weeks.
+
+**Rule:** before building more of a road, check whether anyone has driven the
+part that exists. A quotation module with zero quotations is a question for
+the owner (who enters them, from when), not a missing feature.
+
+**Rule:** files belong to the thing they describe *at the time they exist*.
+A render exists before the product does, so it cannot be filed against the
+product. That is why the kajian proposes a per-project design item as the
+spine, which becomes a quotation line, an order line, a product and a Job
+Order in turn.
+
+## F225 · 2026-10-06 · A folder per record needs the record, and a file says who made it
+
+P1 (kajian F224) gave a sale's files a place: ten kinds, a folder per client
+and project, and who made each file. Three things the build taught.
+
+**A path that names a record has to be told which record.** Since `0172` the
+upload route told the database the *type* of the record a file is filed
+against (`entity = 'item'`), which is enough to pick a task folder
+(`INVENTORY/ITEMS`) and never enough to pick *this client's* folder. The owner's
+rule, one folder per task (D313), had quietly stopped at the type. `0217` adds
+the number beside the type, on both questions the upload asks
+(`drive_folder_for` before Drive, `attach_file` after), so the route and the
+row cannot disagree about the folder. A record the database cannot place still
+lands somewhere a person can find it (`TANPA KLIEN/TANPA PROYEK`), never loose.
+
+**Who made a file is a property of the file, not of the link.** A render drawn
+by the client's designer is the client's designer's wherever it is attached,
+so `origin` sits on `attachments`, null for every file filed before and for
+anything nobody said. A default of `tala` would have been the system claiming
+authorship of drawings it has never seen.
+
+**A refusal after the side effect leaves an orphan.** `attach_file` refuses an
+unknown origin, but it runs after the bytes are in Drive, so a typo would have
+left a file nobody recorded. The route now asks the same question first. The
+database stays the authority; the route only stops a request it already knows
+will be refused from doing anything irreversible on the way.
+
+Two smaller ones:
+
+- **The demo has one persona who may write projects** (`IT / Shared`); the
+  leadership persona reads. The files tab correctly shows no Upload button to
+  Evin, which looked like a bug in the walk until the grants were read. A walk
+  should start by checking who it is walking as.
+- **The repository ladder drops; production renames.** `0210`–`0212` drop
+  superseded functions in the file and were renamed by hand on production
+  (F220). `0217` does the same and says so in its header, so whoever applies
+  it does not rediscover the hang.
+
+**Rule:** a task folder that names a record is fed the record's number, not
+only its type.
+
+**Rule:** a property nobody stated is null, not the most likely answer.
+
+## F226 · 2026-10-06 · Who may sell was written in twelve places, and a sale that did not happen had no word
+
+P2 (kajian F224) turned the owner's three answers into the pipeline. Three
+things the build taught.
+
+**The permission was the sale's shape, and it was copied twelve times.** D375
+says sales belong to leadership *and everybody with marketing access*. Every
+sales seam — clients, the contact log, six quotation seams, a project's facts
+and status — asked `has_permission('project.update')` itself, so the rule had
+twelve homes and changing it meant twelve edits that could drift. `0219` gives
+it one, `ops_procure.may_sell(level)`, and the twelve bodies were regenerated
+from the ladder with only the gate changed, so the rest of each body is
+byte-for-byte what was tested before. The same split showed in the screens:
+`ProjectDrawer` had one `mayEdit` for the project's facts, its status **and**
+its order lines. Only the first two are selling; order lines are what
+production makes. One flag became two.
+
+**A lost sale and a cancelled order are different questions.** `CANCELLED`
+answered both *why do we lose sales* and *why do orders fall through*, so it
+could answer neither. `LOST` is only reachable before the deal and
+`CANCELLED` only after it; the database refuses the wrong one with a sentence
+that names the right one. The old smoke cancelled a project at
+QUOTATION_SENT — the exact move that is now refused — which is the clearest
+proof the word was missing.
+
+**A seam that saves everything blanks what an older screen does not send.**
+The sale's facts could have been four more arguments on `save_project`. But
+the screen already in production calls `save_project` without them, and every
+save of a project's name would have wiped its salesperson and estimate. They
+got their own seam, `set_project_sales`, which only the new card calls.
+
+A smaller one: the demo had no persona with marketing access alone, so the
+case D375 is about could not be walked. *Rina Sales* (marketing write only)
+now is, and walking as her showed the menu, the pipeline, closing and the sale
+card open, and order lines closed, as intended.
+
+**Rule:** a permission a business rule names gets one function, and every
+seam asks it.
+
+**Rule:** new fields on a record that an older screen saves go through their
+own seam, not as optional arguments on the old one.
+
+**Applying it** (same day): before replacing eleven seams in production, each
+production body was hashed against the ladder's. Four differed, and the
+difference was only comment lines — production keeps function bodies applied
+without their `--` lines — so nothing production-only was overwritten. Then
+the Supabase tool held one more statement the way F220's `DROP` was held: the
+body of `remove_quotation_line`, because it contains `delete from`. A group of
+six timed out at 60 s with nothing applied (the apply is one transaction); the
+five without the word went through at once; the one with it timed out alone.
+So the tool's destructive-statement check reads **function bodies**, not only
+top-level statements. `remove_quotation_line` keeps its `project.update` gate
+in production until a person runs that part of `0219` in the SQL Editor; a
+marketing-only account cannot remove a line from a draft quotation until then.
+
+**Rule:** a migration for the production tool keeps any function whose body
+says `delete` (or `drop`, `truncate`) in a part of its own, so the rest is not
+held with it.
+
 ## F227 · 2026-10-06 · Work with nobody yet is its own table, and a number is not free until every branch says so
 
 **Not a task with two columns made optional.** The ask was a list of work
@@ -9417,6 +9557,202 @@ procurement pipeline) and D375–D380, none merged to `main`. Renumbered to
 `0220` / D381 / F227 locally before the first push. F221 said the same about
 production; it holds for every open branch too, and for decision and finding
 numbers as much as migration numbers.
+
+## F228 · 2026-10-06 · An item's status is its files, and the newest row needs a clock that moves
+
+P4 (kajian F224) built the drafters' order (D379): collection → room → design
+item, with the item's files and the client's approval (D378). Three things the
+build taught.
+
+**"Drawn" is a file, not a checkbox.** The kajian's status list (Concept,
+Drawn, Client approved, Dropped) could have been a column the drafter sets.
+It is read instead (A3): `v_design_item` counts the files filed against the
+item — a render, layout, moodboard, working or finished drawing makes it
+DRAWN; a recorded approval makes it APPROVED; a drop with a reason makes it
+DROPPED. So nobody can mark an item drawn that has no drawing, and the count
+of *our* files and *the client's* (from `attachments.origin`, F225) sits next
+to the status on the board. The approval points at one of the item's own
+files and its proof (a WhatsApp screenshot is a *Client Approval* file on the
+item), and the database refuses any other file (`file_not_on_item`): an
+approval that names a drawing from somewhere else is no record of what was
+approved.
+
+**The newest row needs a clock that moves within a transaction.**
+Approvals are append-only — a withdrawal is a new row — and the item reads
+the latest. The smoke recorded an approval and its withdrawal in one
+transaction and read the approval back as current: `now()` is the
+transaction's start, so both rows had the same `recorded_at` and the order
+between them was chance. `recorded_at` defaults to `clock_timestamp()`. The
+same tie is possible wherever a view picks "the latest" of rows a single
+call can write twice.
+
+**A folder is found from the public number, so a record without one cannot
+have files.** `attachment_links.entity_no` is what people read (D125), and
+`drive_context` resolves the folder from it. A collection's identity was its
+uuid; its files are filed against `<project>-<collection>` (`26003-A`)
+instead, which is also what a person would type. Every level of the path is a
+segment of its own (`KOLEKSI A TYPE 2BR / LIVING ROOM / 26003-A-LR-01 SOFA 3
+SEATER`), and an unresolved one falls back to `TANPA KOLEKSI` / `TANPA
+RUANGAN` / `TANPA ITEM` rather than filing loose in the project.
+
+**Rule:** a status a file can prove is read from the file.
+
+**Rule:** a column that orders append-only rows defaults to
+`clock_timestamp()`, not `now()`.
+
+*Renumbered the same day:* this work was written as `0220`/`0221` and F227.
+Another branch's `0220` (the task backlog, D381) and its F227 reached
+production and the plan first, so this became `0221`/`0222` and F228 before
+anything of it was applied.
+
+## F229 · 2026-10-06 · Replacing a view drops what it was told, and a meeting is lines, not a paragraph
+
+P3 (kajian F224 §4.2, G5) turned the meeting from one `summary` into who was
+there, the minutes as lines, and its files. Three things the build taught.
+
+**`create or replace view` forgets `security_invoker`.** The log's view got
+four columns at its end (attendees, minute lines, open lines, files). The
+smoke then found a drafter reading the whole sales log: replacing the view had
+dropped its options, so it read with its owner's rights and RLS on
+`client_activities` no longer applied. `0224` sets `security_invoker` again
+right after the replacement. Nothing in production was exposed — `0224` was
+never applied without it — and the `create or replace view`s of `0210`–`0224`
+were checked the same way (each sets it again, or says it inline).
+
+**A refused line must take its meeting with it.** A meeting with attendees and
+minutes is one call (`log_meeting`). The entry is written by the log's own
+seam, with its own rules and refusals, and only then can the lines be checked
+against it (an item must be of the project the entry is about). So the entry
+and its lines are written in a block that a refused line raises out of: the
+entry is rolled back with it, and the refusal names the line (`Butir 2: …`).
+The two helpers that check and write lines are **not** security definer: from
+the seam they run with its rights, and a signed-in account calling them
+directly has select only — the smoke proves the direct call is refused.
+
+**A line half filled is refused, never dropped.** The first form quietly
+dropped an attendee row left without a name, and saved the meeting without
+that person. It now sends every row as it is and the database refuses the
+empty one by its number; the form stays open with what was typed.
+
+The drafters read the minutes' lines — a revision request is their work — but
+not the sales log (D375). So each line carries the project and the date of
+its meeting, copied once (the log is append-only, so they cannot drift), and
+`v_meeting_point` needs nothing from the log to say where and when it was
+asked. The demo's `listActivities` read every row for everybody; it now
+answers a non-seller with none, as RLS does.
+
+**Rule:** a migration that replaces a view sets its `security_invoker` again
+in the same file.
+
+**Rule:** a seam that writes a parent and its lines checks the lines against
+the parent inside one block, and a refused line rolls the parent back.
+
+## F230 · 2026-10-06 · Until there are revisions, the drawing a price rests on is a file, and it is frozen like the cost
+
+P5 (kajian F224 G9, G14) linked a quotation line to the design item it
+offers. The kajian named the column `frozen_design_rev`; there is no design
+revision yet — the drafters' numbered revisions are P6. What a price rests on
+today is a **file**: the item's newest render, layout, working drawing, or the
+client's own drawing (a moodboard is not something a price rests on). So the
+line carries `design_file_id` (a drawing the PM pins, or none for the
+latest), and sending freezes `frozen_design_file_id` beside the cost and the
+BOM revision. A drawing filed after the offer leaves the offer naming its
+drawing and says `design_changed`; a revision prices the latest again. When P6
+numbers revisions, the frozen file is the one a revision points at.
+
+**The newest of rows written together is chance.** The smoke filed two renders
+in one transaction and read the first as the latest: `attachment_links.linked_at`
+is `now()`, the transaction's start, the same tie F228 found for approvals.
+Real uploads are separate transactions, so the smoke backdates the first file
+rather than the code inventing an order that does not exist. The rule from
+F228 stands for tables this work owns; `attachment_links` is not one of them.
+
+**A status that moves on must not lose what it counted.** The item's status
+gained QUOTED and ORDERED (read from quotation and order lines, A3), ahead of
+APPROVED. The collection's *approved* count read `status = 'APPROVED'`, so
+quoting an approved item would have made it uncounted. It now reads the
+approval itself.
+
+**A marketing-only seller prices by the selling price.** Cost and margin stay
+with `project.update` (0133); walking as Rina, the quotation could only be
+sent with fixed selling prices, which is the rule working — not a gap.
+
+**Rule:** a figure frozen at send is frozen with the evidence it rests on —
+the BOM revision for the cost, the drawing for the design.
+
+**Rule:** a count over a status reads the fact it means (an approval), not
+the status that happens to show it today.
+
+## F231 · 2026-10-06 · A queue built in the sandbox stored what it should have read, and a revision was a name
+
+P6 (kajian F224 G15) took M30's drafting queue (D179) to the database. M30 was
+sandbox-only, and two of its choices did not survive the move.
+
+**The status was a column somebody set.** Every action wrote `status` —
+BELUM, DIGAMBAR, TANYA, RILIS — and answering the last question had to
+remember to set it back. On the database it is read (A3): TANYA while a
+question is open, RILIS once a revision is released, DIGAMBAR once somebody
+holds the task or a revision exists. Nothing can forget to update it, and the
+sandbox now derives it the same way, ignoring what its fixtures stored.
+
+**A revision was a typed filename.** "Revision C" with a name in a box is a
+claim, not a drawing. A revision is now a file filed on the item (or the
+product) — in the item's own DRAFTING folder (0222) — and the seam refuses one
+that is not (`file_required`, `file_not_on_task`). The drawer uploads, files
+and records the revision in one press.
+
+**The task points at the item, not the product.** The drafters' order is
+client → project → collection → room → item (D379), and an item has no product
+until it is ordered. So a task carries `item_no` (or, for a catalogue product
+with no project, `product_code`); the view reads the item's place and, once
+ordered, the product the order line made of it (0225). The queue can be read
+by priority (D179) or grouped in the drafters' own order, and design items the
+client approved, or that were quoted or ordered, with no working drawing show
+as gaps beside the products on the floor.
+
+**A smoke check reads every column name.** `check_shadowing` refuses a
+PL/pgSQL local that shares a name with any column — and a new view column
+`blocked` made `0027`'s old local `blocked` ambiguous. The view says
+`is_blocked`; the screen's contract still says `blocked`, mapped in one place.
+
+**Rule:** what a queue shows about work — its status, whether it is held —
+is read from the work's own rows, never stored beside them.
+
+**Rule:** a revision is the file; a record that names a file it does not hold
+is not a revision.
+
+## F232 · 2026-10-06 · A timeline is every record side by side, read with the reader's own eyes
+
+P7 (kajian F224 §4.6) closed the plan: one view, `v_project_timeline`, puts a
+project's status moves, calls and meetings, closed meeting lines, quotations
+sent and answered, files, design items, approvals, released drawings, Job
+Orders, deliveries, installations and the BAST side by side in time — nothing
+copied (A3). Three things the build taught.
+
+**`security_invoker` turns a union into a per-reader view, which is right.**
+The first smoke asserted that a seller sees every kind of event, and failed:
+deliveries and the BAST are readable with `project` or `delivery` access, and a
+marketing-only seller has neither. Rather than lift those rows past their own
+policies, the timeline is read with each reader's access: leadership sees the
+whole road, the seller the sale and the design, the drafter the design and the
+floor. The smoke now asserts all three.
+
+**A won project's value is the accepted offer.** `v_project` reads the
+*current* quotation — a draft or a sent one — so a deal read its old estimate.
+`v_project_outcome` reads the accepted quotation first.
+
+**A deal before moves were logged has a date, not a duration.** Projects that
+reached production before the status log existed have no logged move to DEAL.
+Their deal is dated by the day they reached their current status (it was no
+later than that) so the twelve-month win rate counts them; *days to the deal*
+is read only from a logged move, because an approximate date is not a
+duration.
+
+And again (F221, F227): another branch held `0227` and `0228`, so this is
+`0229`.
+
+**Rule:** a view that gathers many modules' rows keeps each row behind its own
+policy; who sees what follows from access, not from the view.
 
 ## F233 · 2026-10-06 · The ledger knows what was paid, not what the salary is — THR is the one row that says the base
 

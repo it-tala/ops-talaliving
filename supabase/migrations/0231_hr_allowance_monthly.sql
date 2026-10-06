@@ -1,4 +1,9 @@
--- 0230 — a monthly allowance is a month (D386).
+-- 0231 — a monthly allowance is a month (D386).
+--
+-- Written and applied to production (2026-10-06, three parts named
+-- `0230_hr_allowance_monthly_*`) as 0230; renumbered 0231 because the daily
+-- task plan reached main first under 0230. The function bodies carry the old
+-- number in their comments, nothing else, so they stay hash-identical.
 --
 -- ── the owner's ask (2026-10-06) ──────────────────────────────────────────
 --

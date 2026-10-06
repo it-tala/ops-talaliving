@@ -1414,10 +1414,17 @@ export const DESIGN_STATUS_LABEL = bilingual(DESIGN_STATUS_LABELS);
 export interface DesignTask {
   id: string;
   task_no: string;
-  /** `prod.products.product_code`. A task belongs to a product, not to an
-   *  order: the same table is drawn once and used by every order after. */
-  product_code: string;
+  /** The design item it draws, by its number (`26003-A-LR-01`, P6, D379) —
+   *  the drafters' order is client → project → collection → room → item. */
+  item_no: string | null;
+  /** `prod.products.product_code`: the product drawn, for a catalogue product
+   *  with no project behind it — or, for an item, the product it became once
+   *  ordered. A task belongs to the thing drawn, not to an order: the same
+   *  table is drawn once and used by every order after. */
+  product_code: string | null;
   kind: DesignKind;
+  /** Read from the task's facts, never set (A3, 0226): TANYA while a question
+   *  is open, RILIS once a revision is released, DIGAMBAR once held or drawn. */
   status: DesignStatus;
   /** Who is drawing it, as it was written down. Null is honest — an unassigned
    *  task is the queue's most useful row. */
@@ -1486,7 +1493,19 @@ export interface DesignQuestionView extends DesignQuestion {
 }
 
 export interface DesignTaskView extends DesignTask {
+  /** What is drawn: the product's name, or the design item's. */
   product_name: string;
+  /* Where an item task sits (P6, D379); null for a catalogue product. */
+  item_name: string | null;
+  collection_code: string | null;
+  collection_name: string | null;
+  room_code: string | null;
+  room_name: string | null;
+  room_sort: number | null;
+  project_code: string | null;
+  project_name: string | null;
+  client_code: string | null;
+  client_display: string | null;
   category: string;
   /** Millimetres, or null — a drawing for a product with no size is the
    *  drafter's first question, not their last (D150). */
@@ -1510,4 +1529,21 @@ export interface DesignTaskView extends DesignTask {
   needed_by: string | null;
   /** Days until `needed_by`, negative when it is already late. */
   days_left: number | null;
+  /** The client approved the design item (D378) — a release without it is
+   *  allowed and warned. Null for a catalogue product. */
+  item_approved?: boolean | null;
+}
+
+/** What should have a drawing task and has none (D179, P6): a product ordered
+ *  or on the floor, or a design item the client approved, or that was quoted
+ *  or ordered, with no working drawing. Computed, never tracked. */
+export interface DesignGap {
+  item_no: string | null;
+  product_code: string | null;
+  product_name: string;
+  kind: DesignKind;
+  why: string;
+  project_code: string | null;
+  collection_code: string | null;
+  room_name: string | null;
 }

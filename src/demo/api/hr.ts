@@ -14,7 +14,7 @@ import type {
   AllowanceWithholding, AllowanceWithholdingView,
   ContributionScheme, ContributionRate, ContributionRoll, Enrolment,
   Task, TaskView, TaskRefKind, KpiView,
-  TaskAction, Goal, GoalView, GoalBoardTask, BacklogItem,
+  TaskAction, Goal, GoalView, GoalBoardTask, BacklogItem, TaskPlanDay, MyPlanLine,
   WorkLog, WorkLogEntry, WorkLogRosterRow, WorkEvidence, WorkProgress,
   ContractKind, ClauseKind, ClauseChecklistItem, EmploymentContract,
   ContractView, ContractDetail, ContractClause, ClauseConflict, TimesheetTotal, DayState,
@@ -1217,7 +1217,7 @@ function viewWithholding(state: DemoState, w: AllowanceWithholding): AllowanceWi
     /* The person's rate **as it stands**, not as it stood. Said in the contract
        and worth repeating: this is context for the decision, not a stored
        amount, and a rate that has since changed will move it. */
-    /* 0230 (D386): a day of it — for a salary, the month's share of that day. */
+    /* 0231 (D386): a day of it — for a salary, the month's share of that day. */
     amount: emp ? Math.round(allowanceDayExact(state, activePayRules(state, w.work_date).rules,
       scheduleFor(activePayRules(state, w.work_date).rules, emp), emp, w.work_date)) : 0,
   };
@@ -4077,6 +4077,15 @@ export async function endTaskRoutine(
  *  September, and a board that opens with thirty-five red rows is one nobody
  *  reads again.
  */
+/** `ops_hr.works_on` (0228): not a Sunday (the demo's week is six days), not
+ *  an office holiday, not a day marked off for this person — a half day
+ *  still works. */
+function worksOn(state: DemoState, employeeId: string, day: string): boolean {
+  if (new Date(`${day}T00:00:00Z`).getUTCDay() === 0) return false;
+  return !state.day_marks.some((m) => m.work_date === day && m.kind !== "half_day"
+    && (m.employee_id === null || m.employee_id === employeeId));
+}
+
 export async function rollTaskRoutines(
   input: { through?: string | null; backfill_days?: number } = {},
 ): Promise<Result<{ through: string; created: number; already_there: number; tasks: TaskView[] }>> {
@@ -4095,13 +4104,18 @@ export async function rollTaskRoutines(
   const user = actingUser();
   const made: string[] = [];
   let had = 0;
+  let skipped = 0;
 
   apply((draft) => {
     for (const r of [...draft.task_routines].sort((a, b) => a.routine_no.localeCompare(b.routine_no))) {
       if (r.starts_on > through) continue;
       if (r.ends_on !== null && r.ends_on < from) continue;
-      const windowFrom = from > r.starts_on ? from : r.starts_on;
+      /* A daily routine is never backfilled (D383): yesterday's task raised
+         today would be late on arrival. */
+      const back = r.cadence === "DAILY" ? through : from;
+      const windowFrom = back > r.starts_on ? back : r.starts_on;
       for (const p of taskPeriodsBetween(r.cadence, windowFrom, through)) {
+        if (r.cadence === "DAILY" && !worksOn(draft, r.assignee_id, p.start)) { skipped += 1; continue; }
         /* A routine that started mid-period does not owe the part before it
            existed, and one that ended mid-period does not owe the part after. */
         if (p.end < r.starts_on) continue;
@@ -4142,7 +4156,8 @@ export async function rollTaskRoutines(
          the individual tasks each carry their own creation in the same log. */
       service: SERVICE, entity: "task_routine", entity_no: `roll:${through}`,
       action: "roll", outcome: "ok", reason: null,
-      detail: { through, backfill_days: backfill, created: made.length, already_there: had, by: user.email },
+      detail: { through, backfill_days: backfill, created: made.length, already_there: had,
+                not_a_working_day: skipped, by: user.email },
     });
   });
 
@@ -4915,7 +4930,7 @@ export async function paidElsewhere(
 }
 
 /** What the employee form shows once pokok and tunjangan are typed — the
- *  arithmetic payroll uses, as `ops_hr.pay_preview` (0230, D386). */
+ *  arithmetic payroll uses, as `ops_hr.pay_preview` (0231, D386). */
 export async function payPreview(input: PayPreviewInput): Promise<Result<PayPreview>> {
   await latency();
   const state = getState();
@@ -6280,5 +6295,95 @@ export async function assignBacklogItem(
       outcome: "ok", reason: null, detail: { by: user.email, task_no: t.task_no, assignee: input.assignee_no } });
   });
   return ok(SERVICE, { item_no: b.item_no, task_no: made.data.task_no, assignee_name: made.data.assignee_name });
+}
+
+
+/* ── rencana per hari (D384) ──────────────────────────────────────────── */
+
+export async function getTaskPlan(input: { task_no: string }): Promise<Result<TaskPlanDay[]>> {
+  await latency();
+  const state = getState();
+  const t = state.tasks.find((x) => x.task_no === input.task_no);
+  const mine = Boolean(t) && myEmployee(state)?.id === t!.assignee_id;
+  if (!t || (!mine && requireModule(SERVICE, "hrd"))) {
+    return notFound(SERVICE, "task_not_found", `Tidak ada tugas ${input.task_no}.`);
+  }
+  const today = officeToday();
+  const plans = (state.task_plans ?? []).filter((p) => p.task_id === t.id);
+  const first = plans.reduce((m, p) => (p.plan_date < m ? p.plan_date : m), today);
+  const from = first < today ? first : today;
+  const to = t.due_date > from ? t.due_date : from;
+  const days: TaskPlanDay[] = [];
+  for (let d = from; d <= to; d = addDays(d, 1)) {
+    const p = plans.find((x) => x.plan_date === d);
+    if (t.status !== "OPEN" && !p?.target) continue;
+    days.push({
+      plan_date: d, target: p?.target ?? null, works: worksOn(state, t.assignee_id, d),
+      editable: mine && t.status === "OPEN" && d >= today && d <= t.due_date, updated_at: p?.updated_at ?? null,
+    });
+  }
+  return ok(SERVICE, days);
+}
+
+export async function saveTaskPlan(
+  input: { task_no: string; plan_date: string; target: string | null },
+): Promise<Result<{ task_no: string; plan_date: string; target: string | null }>> {
+  await latency();
+  const state = getState();
+  const t = state.tasks.find((x) => x.task_no === input.task_no);
+  if (!t) return notFound(SERVICE, "task_not_found", `Tidak ada tugas ${input.task_no}.`);
+  if (myEmployee(state)?.id !== t.assignee_id) {
+    return refused(SERVICE, "not_yours", "Rencana harian ditulis oleh pemegang tugasnya sendiri.");
+  }
+  if (t.status !== "OPEN") {
+    return conflict(SERVICE, "task_closed", `${t.task_no} sudah ${t.status.toLowerCase()} — rencananya tidak diubah lagi.`);
+  }
+  const today = officeToday();
+  if (!input.plan_date || input.plan_date < today) {
+    return invalid(SERVICE, "past_day", "Rencana untuk hari ini dan seterusnya. Yang sudah lewat dicatat di laporan harian.",
+      { field: "plan_date" });
+  }
+  if (input.plan_date > t.due_date) {
+    return invalid(SERVICE, "after_due",
+      `Jatuh tempo ${t.due_date}. Rencana sesudahnya berarti tugasnya terlambat — bicarakan dengan HRD lewat Tertahan atau minta tanggal baru.`,
+      { field: "plan_date" });
+  }
+  const target = input.target?.trim() || null;
+  if (target && target.length > 500) {
+    return invalid(SERVICE, "target_too_long", "Satu hari, paling banyak 500 huruf.", { field: "target" });
+  }
+  const before = (state.task_plans ?? []).find((p) => p.task_id === t.id && p.plan_date === input.plan_date);
+  if ((before?.target ?? null) === target) {
+    return noop(SERVICE, { task_no: t.task_no, plan_date: input.plan_date, target });
+  }
+  const user = actingUser();
+  apply((draft) => {
+    draft.task_plans = draft.task_plans ?? [];
+    const row = draft.task_plans.find((p) => p.task_id === t.id && p.plan_date === input.plan_date);
+    const now = new Date().toISOString();
+    if (row) { row.target = target; row.updated_by = user.id; row.updated_at = now; }
+    else draft.task_plans.push({ task_id: t.id, plan_date: input.plan_date, target, updated_by: user.id, updated_at: now });
+    writeAudit(draft, { service: SERVICE, entity: "task_plan", entity_no: t.task_no, action: "save",
+      outcome: "ok", reason: null, detail: { plan_date: input.plan_date, target, by: user.email } });
+  });
+  return ok(SERVICE, { task_no: t.task_no, plan_date: input.plan_date, target });
+}
+
+export async function getMyPlan(input: { date?: string | null } = {}): Promise<Result<MyPlanLine[]>> {
+  await latency();
+  const state = getState();
+  const me = myEmployee(state);
+  if (!me) return ok(SERVICE, []);
+  const day = input.date || officeToday();
+  const lines = (state.task_plans ?? [])
+    .filter((p) => p.plan_date === day && p.target)
+    .map((p) => ({ p, t: state.tasks.find((x) => x.id === p.task_id) }))
+    .filter((x) => x.t && x.t.assignee_id === me.id)
+    .map(({ p, t }) => {
+      const g = t!.goal_id ? state.goals.find((x) => x.id === t!.goal_id) : undefined;
+      return { task_no: t!.task_no, title: t!.title, due_date: t!.due_date, goal_rank: g?.rank ?? null, target: p.target! };
+    })
+    .sort((a, b) => (a.goal_rank ?? 1e6) - (b.goal_rank ?? 1e6) || a.due_date.localeCompare(b.due_date));
+  return ok(SERVICE, lines);
 }
 

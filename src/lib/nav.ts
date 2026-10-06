@@ -147,7 +147,7 @@ export const NAV: NavSection[] = [
       { label: "Accounts", labelKey: "accounts", href: "/master-data/accounts", icon: Landmark, permission: "accounting.read", badge: "new" },
       { label: "Transaction types", labelKey: "transactionTypes", href: "/master-data/transaction-types", icon: Tags, permission: "accounting.read", badge: "new" },
       { label: "Asset categories", labelKey: "assetCategories", href: "/master-data/asset-categories", icon: MonitorSmartphone, permission: "inventory.read", badge: "new" },
-      { label: "Clients", labelKey: "clients", href: "/master-data/clients", icon: Building2, permission: "project.read", badge: "new" },
+      { label: "Clients", labelKey: "clients", href: "/master-data/clients", icon: Building2, permission: "project.read", orPermission: "marketing.read", badge: "new" },
     ],
   },
   {
@@ -164,9 +164,12 @@ export const NAV: NavSection[] = [
     titleKey: "projects",
     icon: FolderKanban,
     items: [
-      { label: "Projects", labelKey: "orders", href: "/proyek/order", icon: FolderKanban, permission: "project.read", badge: "core" },
-      { label: "Quotations", labelKey: "quotations", href: "/proyek/quotation", icon: FileSignature, permission: "project.read", badge: "new" },
-      { label: "Client follow-ups", labelKey: "followUps", href: "/proyek/follow-up", icon: BellRing, permission: "project.read", badge: "new" },
+      /* The sale is leadership's and marketing's as well as the project
+       * people's (D375): these four open with either. */
+      { label: "Sales pipeline", labelKey: "salesPipeline", href: "/proyek/pipeline", icon: Target, permission: "project.read", orPermission: "marketing.read", badge: "new" },
+      { label: "Projects", labelKey: "orders", href: "/proyek/order", icon: FolderKanban, permission: "project.read", orPermission: "marketing.read", badge: "core" },
+      { label: "Quotations", labelKey: "quotations", href: "/proyek/quotation", icon: FileSignature, permission: "project.read", orPermission: "marketing.read", badge: "new" },
+      { label: "Client follow-ups", labelKey: "followUps", href: "/proyek/follow-up", icon: BellRing, permission: "project.read", orPermission: "marketing.read", badge: "new" },
       { label: "Cost vs projection", labelKey: "costVsPlan", href: "/proyek/produksi", icon: Scale, permission: "project.read", badge: "new" },
       { label: "Delivery", labelKey: "delivery", href: "/proyek/pengiriman", icon: Truck, permission: "project.read", orPermission: "delivery.read", badge: "new" },
       { label: "Packing boxes & labels", labelKey: "boxes", href: "/proyek/peti", icon: Package, permission: "project.read", orPermission: "delivery.read", badge: "new" },

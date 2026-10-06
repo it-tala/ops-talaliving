@@ -59,6 +59,7 @@ export const MESSAGES = {
     reps: m("Representatives & commission", "Representative & komisi"),
 
     projects: m("Projects", "Proyek"),
+    salesPipeline: m("Sales pipeline", "Pipeline penjualan"),
     orders: m("Client orders", "Pesanan klien"),
     quotations: m("Quotations", "Quotation"),
     followUps: m("Client follow-ups", "Follow-up klien"),

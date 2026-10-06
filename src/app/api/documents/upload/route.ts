@@ -105,8 +105,18 @@ export async function POST(request: Request): Promise<Response> {
      picks the task folder under ops-talaliving (a photo of an item is not a photo of a
      finished product). Optional — without it the kind's own folder is used. */
   const entity = String(form.get("entity") ?? "").trim() || null;
+  /* The record's number, which names the client and project folders (0217).
+     And who made the file — said by the person, checked by the database. */
+  const entityNo = String(form.get("entity_no") ?? "").trim() || null;
+  const origin = String(form.get("origin") ?? "").trim() || null;
   if (!(file instanceof File)) {
     return refuse(400, "file_required", "No file was sent.", { field: "file" });
+  }
+  if (origin && !["tala", "client", "third_party"].includes(origin)) {
+    /* `attach_file` refuses it too, but only after the bytes are in Drive;
+       asked here first so a typo does not leave a file nobody recorded. */
+    return refuse(422, "unknown_origin",
+      `"${origin}" is not who made a file: say tala, client or third_party.`, { field: "origin" });
   }
   if (!kind) {
     /* The kind is what decides the drive, so it is not optional and cannot be
@@ -122,7 +132,7 @@ export async function POST(request: Request): Promise<Response> {
      obeys. The refusal is relayed whole, because it names the thing to do —
      *nothing records which shared drive is HRD*. */
   const { data: where, error: whereErr } = await sb
-    .schema("ops_core").rpc("drive_folder_for", { p_kind: kind, p_entity: entity });
+    .schema("ops_core").rpc("drive_folder_for", { p_kind: kind, p_entity: entity, p_entity_no: entityNo });
   if (whereErr) {
     return refuse(500, "database_error", whereErr.message);
   }
@@ -291,6 +301,8 @@ export async function POST(request: Request): Promise<Response> {
       p_entity: entity,
       p_web_view_link: uploaded.webViewLink,
       p_folder_id: targetId,
+      p_entity_no: entityNo,
+      p_origin: origin,
     });
   if (fileErr) {
     return refuse(500, "database_error",

@@ -889,13 +889,13 @@ export function payrollLine(
   const presentDays = employee.pay_basis === "monthly"
     ? days.filter((d) => employed(d.work_date) && (d.mark
       ? d.mark.kind === "half_day"
-      /* 0230 (D386): the days the pattern works — the ones the month's
+      /* 0231 (D386): the days the pattern works — the ones the month's
          allowance is divided by. */
       : isWorkdayFor(state, rules, sched, d.work_date)))
     : days.filter(earnsAllowance);
   const allowance_days = presentDays.filter((d) => !withheldDates.has(d.work_date)).length;
   const allowance_withheld_days = presentDays.filter((d) => withheldDates.has(d.work_date)).length;
-  /* 0230 (D386): each day's worth — a salary's allowance is a month shared
+  /* 0231 (D386): each day's worth — a salary's allowance is a month shared
      over that month's working days, a day wage's is a day. Summed unrounded,
      rounded once, as the database does. */
   const dayWorth = (key: string) => allowanceDayExact(state, rules, sched, employee, key);
@@ -2265,7 +2265,7 @@ export function monthWorkdays(
   return n;
 }
 
-/** A day of somebody's allowance on a date, unrounded (0230, D386): a
+/** A day of somebody's allowance on a date, unrounded (0231, D386): a
  *  salary's month over that month's working days; a day wage's day. */
 export function allowanceDayExact(
   state: DemoState, rules: PayRules, sc: WorkSchedule | null, employee: Employee, date: string,

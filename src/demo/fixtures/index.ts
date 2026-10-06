@@ -95,10 +95,58 @@ export function initialState(): DemoState {
       contact_name: null, phone: null, email: null, address: p.location, npwp: null, note: null,
       archived_at: null,
     })),
-    project_status_log: [],
+    project_status_log: [{
+      project_id: "prj_26004", from_status: "QUOTATION_SENT", to_status: "LOST",
+      reason: "Klien memilih vendor lokal, sekitar 15% lebih murah", reason_code: "PRICE",
+      changed_by: "rina@talaliving.com", changed_at: "2026-09-24T03:00:00Z",
+    }],
     quotations: [],
     quotation_lines: [],
-    client_activities: [],
+    /* One design meeting on 26003 (P3): who went, what was decided, and the
+       coffee table the client wants lower — a revision request on the item. */
+    client_activities: [{
+      id: "act_26003_m1", client_id: "cl_26003", project_id: "prj_26003", quotation_id: null,
+      kind: "meeting", happened_on: "2026-10-01", summary: "Review render tipe 2BR dan 3BR di lokasi",
+      follow_up_on: "2026-10-08", next_action: "Kirim render revisi coffee table",
+      follow_up_done_at: null, follow_up_done_by: null, follow_up_result: null,
+      created_by: "usr_rina", created_at: "2026-10-01T08:00:00Z",
+    }],
+    meeting_attendees: [
+      { id: "ma_1", activity_id: "act_26003_m1", seq: 1, side: "tala", user_id: "usr_rina", name: null, role: null },
+      { id: "ma_2", activity_id: "act_26003_m1", seq: 2, side: "tala", user_id: "usr_made", name: null, role: "Workshop" },
+      { id: "ma_3", activity_id: "act_26003_m1", seq: 3, side: "client", user_id: null, name: "Bp. Agus", role: "Owner" },
+    ],
+    meeting_points: [
+      { id: "mp_1", activity_id: "act_26003_m1", project_id: "prj_26003", happened_on: "2026-10-01", seq: 1, kind: "decision",
+        body: "Meja makan 6 kursi tipe 3BR disetujui", design_item_id: "di_4", owner_id: null, due_on: null,
+        closed_at: null, closed_by: null, closed_note: null, created_by: "usr_rina", created_at: "2026-10-01T08:00:00Z" },
+      { id: "mp_2", activity_id: "act_26003_m1", project_id: "prj_26003", happened_on: "2026-10-01", seq: 2, kind: "revision",
+        body: "Coffee table lebih rendah, 380 mm", design_item_id: "di_2", owner_id: "usr_made", due_on: "2026-10-05",
+        closed_at: null, closed_by: null, closed_note: null, created_by: "usr_rina", created_at: "2026-10-01T08:00:01Z" },
+      { id: "mp_3", activity_id: "act_26003_m1", project_id: "prj_26003", happened_on: "2026-10-01", seq: 3, kind: "action",
+        body: "Kirim sampel finishing walnut", design_item_id: null, owner_id: "usr_rina", due_on: "2026-10-10",
+        closed_at: null, closed_by: null, closed_note: null, created_by: "usr_rina", created_at: "2026-10-01T08:00:02Z" },
+    ],
+    /* One project's design to open (P4): 26003 RESIDENCE KUTA, two
+       collections, the tree the drafters work in (D379). */
+    design_collections: [
+      { id: "dc_26003_A", project_id: "prj_26003", code: "A", name: "TYPE 2BR", note: "24 unit", created_at: "2026-09-26T02:00:00Z" },
+      { id: "dc_26003_B", project_id: "prj_26003", code: "B", name: "TYPE 3BR", note: "12 unit", created_at: "2026-09-26T02:00:00Z" },
+    ],
+    design_rooms: [
+      { id: "dr_A_LR", collection_id: "dc_26003_A", code: "LR", name: "Living room", sort: 1 },
+      { id: "dr_A_MB", collection_id: "dc_26003_A", code: "MB", name: "Master bedroom", sort: 2 },
+      { id: "dr_B_DN", collection_id: "dc_26003_B", code: "DN", name: "Dining", sort: 1 },
+    ],
+    design_items: [
+      { id: "di_1", item_no: "26003-A-LR-01", room_id: "dr_A_LR", seq: 1, name: "Sofa 3 seater", qty: 24, length_mm: 2100, width_mm: 900, height_mm: 780, origin: "tala", product_code: null, note: null, dropped_at: null, drop_reason: null, created_at: "2026-09-26T02:00:00Z", updated_at: "2026-09-26T02:00:00Z" },
+      { id: "di_2", item_no: "26003-A-LR-02", room_id: "dr_A_LR", seq: 2, name: "Coffee table", qty: 24, length_mm: 1100, width_mm: 600, height_mm: 420, origin: "adapted", product_code: null, note: "Klien minta lebih rendah, 380 mm", dropped_at: null, drop_reason: null, created_at: "2026-09-26T02:00:00Z", updated_at: "2026-09-26T02:00:00Z" },
+      { id: "di_3", item_no: "26003-A-MB-01", room_id: "dr_A_MB", seq: 1, name: "Bed 160 + headboard", qty: 24, length_mm: 1700, width_mm: 2150, height_mm: 1100, origin: "client", product_code: null, note: null, dropped_at: null, drop_reason: null, created_at: "2026-09-26T02:00:00Z", updated_at: "2026-09-26T02:00:00Z" },
+      { id: "di_4", item_no: "26003-B-DN-01", room_id: "dr_B_DN", seq: 1, name: "Dining table 6 seats", qty: 12, length_mm: 1800, width_mm: 900, height_mm: 750, origin: "tala", product_code: null, note: null, dropped_at: null, drop_reason: null, created_at: "2026-09-26T02:00:00Z", updated_at: "2026-09-26T02:00:00Z" },
+    ],
+    design_approvals: [
+      { id: "da_1", item_id: "di_4", decision: "approved", decided_on: "2026-10-01", channel: "meeting", client_person: "Bp. Agus", attachment_id: null, evidence_attachment_id: null, note: "Disetujui di meeting lokasi", recorded_by: "usr_rina", recorded_at: "2026-10-01T06:00:00Z" },
+    ],
 
     pr_documents: PR_DOCUMENTS,
     pr_lines: PR_LINES,

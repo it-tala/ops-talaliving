@@ -19,6 +19,7 @@ import { useTr } from "@/lib/i18n";
 import { GoalsPanel } from "./goals-panel";
 import { DailyPanel } from "./daily-panel";
 import { BacklogPanel } from "./backlog-panel";
+import { RoadmapPanel } from "./roadmap-panel";
 
 /** Pemantauan tugas — the module built against a failure the owner described
  *  in one sentence (D303):
@@ -67,7 +68,7 @@ export default function TasksPage() {
   );
 }
 
-const TABS = ["goals", "backlog", "daily", "open", "all", "routines"] as const;
+const TABS = ["goals", "roadmap", "backlog", "daily", "open", "all", "routines"] as const;
 type TabKey = (typeof TABS)[number];
 
 function Tasks() {
@@ -421,7 +422,7 @@ function Tasks() {
       )}
 
       <div className="mb-3 flex flex-wrap gap-1.5">
-        {([["goals", tr("Goals & priority", "Sasaran & prioritas")], ["backlog", tr("Waiting list", "Daftar tunggu")], ["daily", tr("Daily log", "Laporan harian")], ["open", tr("Open", "Terbuka")], ["all", tr("All", "Semua")], ["routines", tr("Routine tasks", "Tugas rutin")]] as const).map(([k, label]) => (
+        {([["goals", tr("Goals & priority", "Sasaran & prioritas")], ["roadmap", tr("Roadmap", "Roadmap")], ["backlog", tr("Waiting list", "Daftar tunggu")], ["daily", tr("Daily log", "Laporan harian")], ["open", tr("Open", "Terbuka")], ["all", tr("All", "Semua")], ["routines", tr("Routine tasks", "Tugas rutin")]] as const).map(([k, label]) => (
           <button
             key={k}
             onClick={() => setTab(k)}
@@ -566,6 +567,12 @@ function Tasks() {
           stamp={tasks.status === "ready" ? tasks.data : null}
           onChanged={reloadTasks}
         />
+      )}
+
+      {tab === "roadmap" && (
+        <Loaded state={tasks} onRetry={reloadTasks}>
+          {(list) => <RoadmapPanel tasks={list} stamp={tasks} />}
+        </Loaded>
       )}
 
       {tab === "backlog" && (
@@ -841,13 +848,27 @@ function Tasks() {
                   {tr("Cadence", "Irama")}
                   <select
                     value={rDraft.cadence}
-                    onChange={(e) => setRDraft({ ...rDraft, cadence: e.target.value as Cadence })}
+                    onChange={(e) => {
+                      const cadence = e.target.value as Cadence;
+                      /* Daily work is due the same day and asked about on it (D383). */
+                      setRDraft(cadence === "DAILY"
+                        ? { ...rDraft, cadence, due_offset_days: 0, chase_lead_days: 0 }
+                        : { ...rDraft, cadence });
+                    }}
                     className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm"
                   >
                     {(Object.keys(CADENCE_LABEL) as Cadence[]).map((c) => (
                       <option key={c} value={c}>{CADENCE_LABEL[c]}</option>
                     ))}
                   </select>
+                  {rDraft.cadence === "DAILY" && (
+                    <span className="mt-0.5 block text-[11px] text-slate-400">
+                      {tr(
+                        "Raised every morning automatically, on the person's working days only — not on rest days, holidays, leave or sick days. Never backfilled. The bell rings; Chat does not.",
+                        "Terbit otomatis setiap pagi, hanya di hari kerja orangnya — tidak di hari libur, tanggal merah, cuti, atau sakit. Tidak ditarik mundur. Lonceng berbunyi; Chat tidak.",
+                      )}
+                    </span>
+                  )}
                 </label>
                 <label className="text-[12px] text-slate-600">
                   {tr("What is the task", "Tugasnya apa")}

@@ -25,9 +25,11 @@ function nextId(state: DemoState): number {
 }
 
 function push(draft: DemoState, row: Omit<DemoNotification, "id" | "created_at" | "read_at">,
-              event: string, payload: Record<string, unknown>, to: string, toName: string) {
+              event: string, payload: Record<string, unknown>, to: string, toName: string,
+              chat = true) {
   draft.notifications = draft.notifications ?? [];
   draft.notifications.unshift({ id: nextId(draft), created_at: new Date().toISOString(), read_at: null, ...row });
+  if (!chat) return;
   draft.outbox.unshift({
     id: `evt_${Date.now().toString(36)}${draft.notifications.length.toString(36)}`,
     service: "hr", event_type: event, occurred_at: new Date().toISOString(), delivered_at: null,
@@ -58,6 +60,10 @@ export function notifyTasks(before: DemoState, draft: DemoState) {
     const { emp, user } = accountOf(t.assignee_id);
     const goal = t.goal_id ? draft.goals.find((g) => g.id === t.goal_id) : undefined;
     const wait = t.waits_on ? draft.tasks.find((w) => w.id === t.waits_on) : undefined;
+    /* A daily routine's task rings the bell only, and its hand-over is not
+       announced (D383, the 0228 trigger). */
+    const daily = t.routine_id !== null
+      && draft.task_routines.find((r) => r.id === t.routine_id)?.cadence === "DAILY";
 
     if (t.status === "OPEN" && (!old || old.assignee_id !== t.assignee_id)
         && user && user.id !== actor) {
@@ -67,16 +73,16 @@ export function notifyTasks(before: DemoState, draft: DemoState) {
         deliverable: t.deliverable, assigned_by: by,
         goal_no: goal?.goal_no ?? null, goal_title: goal?.title ?? null, goal_rank: goal?.rank ?? null,
         waits_on_no: wait?.task_no ?? null, waits_on_title: wait?.title ?? null,
-        routine: t.routine_id !== null, moved: Boolean(old),
+        routine: t.routine_id !== null, daily, moved: Boolean(old),
       };
       push(draft, {
         user_id: user.id, kind: "task.assigned",
         title: `Tugas baru dari ${by}: ${t.title} — jatuh tempo ${fmtDate(t.due_date)}`,
         data, link: "/profil?tab=tugas", entity_no: t.task_no,
-      }, "hr.task.assigned", data, user.email, user.full_name);
+      }, "hr.task.assigned", data, user.email, user.full_name, !daily);
     }
 
-    if (old && old.status !== "DONE" && t.status === "DONE") {
+    if (old && old.status !== "DONE" && t.status === "DONE" && !daily) {
       deliver(draft, t, emp?.full_name ?? "", emp?.employee_no ?? "", user?.id ?? null, actor, goal);
     }
   }

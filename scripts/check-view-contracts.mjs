@@ -132,6 +132,23 @@ const VIEW_CONTRACTS = {
   v_quotation_line:    "QuotationLineView",
   /* The client log (0134), converted field by field in `src/lib/api/crm.ts`. */
   v_client_activity:   "ClientActivityView",
+  v_design_item:       "DesignItemView",
+  v_design_room:       "DesignRoom",
+  v_design_collection: "DesignCollection",
+  v_design_approval:   "DesignApproval",
+  /* A project from first contact to handover, and the pipeline's numbers
+     (0229, P7). */
+  v_project_timeline:  "TimelineEvent",
+  v_project_outcome:   "ProjectOutcome",
+  /* The drafters' queue, live (0226, P6): tasks, revisions and questions
+     put together field by field in `src/lib/api/production.ts`. */
+  v_design_task:       null,
+  v_design_revision:   null,
+  v_design_question:   null,
+  v_design_gap:        "DesignGap",
+  /* A meeting in full (0224, P3). */
+  v_meeting_attendee:  "MeetingAttendee",
+  v_meeting_point:     "MeetingPointView",
 
   /* ── core ────────────────────────────────────────────────────────────── */
   v_user_access:     "DirectoryRow",
