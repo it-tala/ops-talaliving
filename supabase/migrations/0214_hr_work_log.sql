@@ -1,4 +1,4 @@
--- 0213 — laporan harian: apa yang dikerjakan hari ini, dan dasar penilaian (D371, D372).
+-- 0214 — laporan harian: apa yang dikerjakan hari ini, dan dasar penilaian (D371, D372).
 --
 -- ── the ask ────────────────────────────────────────────────────────────────
 --
@@ -346,7 +346,7 @@ begin
   end if;
   return next m;
 
-  -- ── Laporan harian terisi (0213, D371) ─────────────────────────────────
+  -- ── Laporan harian terisi (0214, D371) ─────────────────────────────────
   --
   -- Over the days the person was **expected at work**: a scheduled day, not a
   -- rest day, not covered by a mark (cuti, sakit, izin, libur, mangkir), from

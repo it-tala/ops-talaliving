@@ -1,4 +1,4 @@
--- 213_hr_work_log.sql — laporan harian, dan ukuran yang dibangun di atasnya.
+-- 214_hr_work_log.sql — laporan harian, dan ukuran yang dibangun di atasnya.
 --
 -- Yang dibuktikan:
 --   • hanya orangnya sendiri yang menulis lognya, hanya untuk hari ini;

@@ -9322,3 +9322,10 @@ Three more things the build taught:
   the seam takes the day from the office clock and the person from the
   account link, and there is no argument for either. There is no write
   policy on the table at all, so the seam is the only road in.
+- **A free number on `main` is not a free number.** This migration was
+  written as `0213` because `main` ended at `0212` — and production already
+  carried `0213_hr_payroll_sheet_types_totals`, applied from another
+  session's branch (`claude/vigilant-gates-fnfxz9`, `0213_hr_payroll_sheet.sql`)
+  that had not merged yet. Renamed `0214` before applying. Before choosing a
+  number, read `supabase_migrations.schema_migrations` in production and the
+  migration folders of the open branches, not only `main`.

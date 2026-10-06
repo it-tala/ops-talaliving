@@ -3682,7 +3682,7 @@ export async function acknowledgeTask(
 /* ── laporan harian (D371, D372) ──────────────────────────────────────── */
 
 /** HRD and payroll read everybody's lines; anybody else their own — the
- *  `work_log_read` policy (0213), forced here the way the database forces it,
+ *  `work_log_read` policy (0214), forced here the way the database forces it,
  *  whatever the filter asked for. */
 export async function listWorkLog(
   input: { from: string; to: string; employee_no?: string },
