@@ -9364,3 +9364,20 @@ ticked (Q64), because the run could never be approved over that day (D139).
 The sheet holds them with that sentence instead of letting the approval fail
 later on somebody else's screen.
 
+## F223 · 2026-10-06 · The ledger knows what was paid, not what the salary is — THR is the one row that says the base
+
+Filling the monthly staff from the ledger for the backtest (D377): every
+payroll row is take-home, with overtime, allowance and absences already folded
+in, so no month on its own says the salary. Searching each amount for
+*base × days ÷ month* found an exact fit only where the month had nothing else
+in it — ADZKIA and RIZKY in September (4.500.000 × 2/22 = 409.091), DANISH in
+August (4.300.000 × 15/19). The row that does say the base is the **THR**: a
+full THR is one month's base by law, and the two salaries HR had already
+entered match theirs to the rupiah. A prorated THR (DILA, 2.041.667) leaves two
+candidates, and only a later month can choose between them.
+
+**Rule:** to recover a rate from payments, look for the payment that has no
+other component in it (THR, a first partial month, a flat month), never the
+typical month. When the ledger only bounds a date — it starts in January 2026 —
+store the bound and say it is a bound, in the record, not a guessed day.
+
