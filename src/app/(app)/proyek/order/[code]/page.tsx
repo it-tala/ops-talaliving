@@ -9,7 +9,7 @@ import { Tabs } from "@/components/ui/tabs";
 import { ActivityLog } from "@/components/crm/activity-log";
 import { SaleFiles, type FileTarget } from "@/components/files/sale-files";
 import { procurement, quotation } from "@/demo/api";
-import { useSession } from "@/store/session";
+import { useCanSell } from "@/lib/sell";
 import { useTr } from "@/lib/i18n";
 import { ProjectOverview } from "../ProjectDrawer";
 
@@ -25,7 +25,7 @@ export default function ProjectPage({ params }: { params: Promise<{ code: string
   const { code: raw } = use(params);
   const code = decodeURIComponent(raw);
   const tr = useTr();
-  const { can } = useSession();
+  const canSell = useCanSell();
   const [project, reloadProject] = useLoad(() => procurement.getProject(code), [code]);
   const [quotes] = useLoad(() => quotation.listQuotations({ project_code: code }), [code]);
 
@@ -65,7 +65,7 @@ export default function ProjectPage({ params }: { params: Promise<{ code: string
                     id: "files", label: tr("Files", "File"),
                     content: (
                       <div className="space-y-2">
-                        <SaleFiles targets={targets} canEdit={can("project.update")} />
+                        <SaleFiles targets={targets} canEdit={canSell()} />
                         <p className="text-[11px] text-slate-500">
                           {tr(
                             "Files from the project, its quotations and the client, together. Each goes to the folder the database names for its kind and record — the client's drawings and our renders to DRAFTING, the brief, proposal, notes and contract to PROJECT MANAGER — under the client and project.",

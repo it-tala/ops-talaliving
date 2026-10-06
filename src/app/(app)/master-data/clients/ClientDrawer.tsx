@@ -7,7 +7,7 @@ import { Drawer } from "@/components/ui/drawer";
 import { cn } from "@/lib/cn";
 import { procurement } from "@/demo/api";
 import type { ClientView } from "@/services/procurement/contracts";
-import { useSession } from "@/store/session";
+import { useCanSell } from "@/lib/sell";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 
@@ -23,9 +23,9 @@ export function ClientDrawer({
   onSaved: (c: ClientView) => void;
 }) {
   const tr = useTr();
-  const { can } = useSession();
+  const canSell = useCanSell();
   const { toast } = useToast();
-  const mayEdit = client ? can("project.update") : can("project.create");
+  const mayEdit = client ? canSell() : canSell("create");
   const [f, setF] = useState({
     name: client?.name ?? "", contact_name: client?.contact_name ?? "", phone: client?.phone ?? "",
     email: client?.email ?? "", address: client?.address ?? "", npwp: client?.npwp ?? "", note: client?.note ?? "",

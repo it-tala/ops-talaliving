@@ -45,6 +45,16 @@ export const USERS: DemoUser[] = [
     authorities: ["approve_funds", "post_ledger", "resolve_inbox"],
   },
   {
+    /* Sales, with marketing access only: sells — clients, inquiries,
+     * quotations, the pipeline — without the project module (D375). */
+    id: "usr_rina", email: "rina@talaliving.com", full_name: "Rina Sales", is_active: true,
+    modules: [
+      { module: "dashboard", level: "read" },
+      { module: "marketing", level: "write" },
+    ],
+    authorities: [],
+  },
+  {
     id: "usr_anggun", email: "anggun@talaliving.com", full_name: "Anggun Lestari", is_active: true,
     modules: [
       { module: "dashboard", level: "read" },
@@ -331,6 +341,35 @@ export const PROJECTS: Project[] = [
      * phase was agreed by telephone and never written down as a line. That
      * gap is what the drawer's "beda dari nilai kontrak" is for (D150). */
     note: "Selesai dan diserahterimakan Juni 2026. Tahap kedua belum pernah dicatat sebagai baris.",
+  },
+  /* The pipeline (P2): sales that are not orders yet, and one that was lost. */
+  {
+    id: "prj_26001", code: "26001", name: "VILLA UMALAS", is_active: true, status: "INQUIRY",
+    status_changed_at: "2026-09-30T02:00:00Z",
+    client_name: "Bp. Hendra", location: "Umalas", pic: null,
+    started_on: null, target_date: null, contract_value: null, note: null,
+    sales_pic: "usr_rina", source_note: "Instagram DM", expected_value: 420_000_000, expected_close_on: "2026-11-15",
+  },
+  {
+    id: "prj_26002", code: "26002", name: "KANTOR RENON", is_active: true, status: "INQUIRY",
+    status_changed_at: "2026-09-14T02:00:00Z",
+    client_name: "PT Contoh Abadi", location: "Renon", pic: null,
+    started_on: null, target_date: null, contract_value: null, note: null,
+    sales_pic: null, source_note: "Repeat client", expected_value: 180_000_000, expected_close_on: null,
+  },
+  {
+    id: "prj_26003", code: "26003", name: "RESIDENCE KUTA", is_active: true, status: "QUOTATION_SENT",
+    status_changed_at: "2026-10-03T02:00:00Z",
+    client_name: "PT Contoh Residence", location: "Kuta", pic: null,
+    started_on: null, target_date: null, contract_value: null, note: null,
+    sales_pic: "usr_rina", source_note: "Referral Package – agen Made", expected_value: 612_400_000, expected_close_on: "2026-10-31",
+  },
+  {
+    id: "prj_26004", code: "26004", name: "RESTO UBUD", is_active: false, status: "LOST",
+    status_changed_at: "2026-09-24T03:00:00Z",
+    client_name: "CV Contoh Rasa", location: "Ubud", pic: null,
+    started_on: null, target_date: null, contract_value: null, note: null,
+    sales_pic: "usr_rina", source_note: null, expected_value: 150_000_000, expected_close_on: null,
   },
 ];
 

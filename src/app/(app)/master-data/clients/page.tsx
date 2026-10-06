@@ -9,7 +9,7 @@ import { Paged } from "@/components/ui/pager";
 import { crm, procurement } from "@/demo/api";
 import type { ClientView } from "@/services/procurement/contracts";
 import { ClientDrawer } from "./ClientDrawer";
-import { useSession } from "@/store/session";
+import { useCanSell } from "@/lib/sell";
 import { useTr } from "@/lib/i18n";
 
 /** The client master (0111).
@@ -21,14 +21,14 @@ import { useTr } from "@/lib/i18n";
  */
 export default function ClientsPage() {
   const tr = useTr();
-  const { can } = useSession();
+  const canSell = useCanSell();
   const [showArchived, setShowArchived] = useState(false);
   const [clients, reload] = useLoad(() => procurement.listClients({ include_archived: showArchived }), [showArchived]);
   const [followUps] = useLoad(() => crm.listActivities({ open_follow_ups: true }), []);
   const router = useRouter();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<ClientView | "new" | null>(null);
-  const mayCreate = can("project.create");
+  const mayCreate = canSell("create");
   const fu = followUps.status === "ready" ? followUps.data : [];
   const due = (code: string) => fu.filter((a) => a.client_code === code).length;
   const late = (code: string) => fu.filter((a) => a.client_code === code && a.follow_up_state === "overdue").length;

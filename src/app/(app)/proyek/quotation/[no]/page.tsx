@@ -11,7 +11,8 @@ import { NumberInput } from "@/components/ui/number-input";
 import { UomOptions } from "@/components/ui/uom-options";
 import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
-import { production, quotation } from "@/demo/api";
+import { procurement, production, quotation } from "@/demo/api";
+import { ClosingForm } from "@/components/sales/closing-form";
 import {
   QUOTATION_STATUSES, QUOTATION_STATUS_LABEL,
   type QuotationDetail, type QuotationLineView, type QuotationView,
@@ -20,6 +21,7 @@ import { pctOk, quotePrice } from "@/services/quotation/pricing";
 import { ActivityLog } from "@/components/crm/activity-log";
 import { SaleFiles } from "@/components/files/sale-files";
 import { useSession } from "@/store/session";
+import { useCanSell } from "@/lib/sell";
 import { useToast } from "@/store/toast";
 import { useTr, type Tr } from "@/lib/i18n";
 
@@ -57,12 +59,17 @@ const inputCls = "h-8 w-full rounded-lg border border-slate-200 px-2 text-[13px]
 function Editor({ d, reload, source }: { d: QuotationDetail; reload: () => void; source: React.ReactNode }) {
   const tr = useTr();
   const { can } = useSession();
+  const canSell = useCanSell();
   const { toast } = useToast();
   const q = d.quotation;
-  const mayEdit = can("project.update");
+  /* Selling is leadership's and marketing's too (D375); cost and margin stay
+     with project access (0133). */
+  const mayEdit = canSell();
   const draft = q.status === "DRAFT";
   const editable = mayEdit && draft;
-  const seeCost = d.lines.some((l) => l.cost_visible) || (d.lines.length === 0 && mayEdit);
+  const seeCost = d.lines.some((l) => l.cost_visible) || (d.lines.length === 0 && can("project.update"));
+  const [project, reloadProject] = useLoad(() => procurement.getProject(q.project_code), [q.project_code]);
+  const [closingProject, setClosingProject] = useState(false);
   const st = QUOTATION_STATUSES.find((s) => s.code === q.status)!;
   const [busy, setBusy] = useState(false);
   const [rejecting, setRejecting] = useState(false);
@@ -137,10 +144,39 @@ function Editor({ d, reload, source }: { d: QuotationDetail; reload: () => void;
         </Card>
       )}
 
-      {q.status === "REJECTED" && q.decision_reason && (
-        <p className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-[13px] text-rose-800">
-          {tr("Rejected by the client:", "Ditolak klien:")} “{q.decision_reason}”. {tr("Create a revision to offer again.", "Buat revisi untuk menawarkan ulang.")}
-        </p>
+      {q.status === "REJECTED" && (
+        <div className="mb-4 space-y-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2.5 text-[13px] text-rose-800">
+          <p>
+            {tr("Rejected by the client", "Ditolak klien")}{q.decision_reason ? `: “${q.decision_reason}”` : ""}.{" "}
+            {project.status === "ready" && (project.data.status === "INQUIRY" || project.data.status === "QUOTATION_SENT") && q.is_current !== false
+              ? tr("This was the quotation in play. Revise it to offer again — or, if the client will not go on, mark the project lost so the pipeline says so.",
+                "Ini quotation yang berlaku. Revisi untuk menawarkan ulang — atau, kalau klien tidak lanjut, tandai proyek tidak jadi supaya pipeline mencatatnya.")
+              : tr("Create a revision to offer again.", "Buat revisi untuk menawarkan ulang.")}
+          </p>
+          {mayEdit && q.is_current !== false && project.status === "ready"
+            && (project.data.status === "INQUIRY" || project.data.status === "QUOTATION_SENT") && (
+            closingProject ? (
+              <ClosingForm
+                p={project.data}
+                onCancel={() => setClosingProject(false)}
+                onDone={() => { setClosingProject(false); reloadProject(); reload(); }}
+              />
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" icon={CopyPlus} disabled={busy} onClick={revise}>{tr("Revise", "Revisi")}</Button>
+                <Button size="sm" variant="danger" onClick={() => setClosingProject(true)}>
+                  {tr(`Mark project ${q.project_code} as lost`, `Tandai proyek ${q.project_code} tidak jadi`)}
+                </Button>
+              </div>
+            )
+          )}
+          {project.status === "ready" && project.data.status === "LOST" && (
+            <p className="text-[12px]">
+              {tr(`Project ${q.project_code} is closed as lost`, `Proyek ${q.project_code} ditutup sebagai tidak jadi`)}
+              {project.data.closing_reason_code ? ` · ${project.data.closing_reason_code}` : ""}.
+            </p>
+          )}
+        </div>
       )}
       {q.status === "ACCEPTED" && (
         <p className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-[13px] text-emerald-800">
@@ -177,7 +213,7 @@ function Editor({ d, reload, source }: { d: QuotationDetail; reload: () => void;
       <div className="mt-4">
         <SaleFiles
           targets={[{ entity: "quotation", entity_no: q.quote_no, label: `Quotation ${q.quote_no}` }]}
-          canEdit={can("project.update")}
+          canEdit={canSell()}
         />
       </div>
 
