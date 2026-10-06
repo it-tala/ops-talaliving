@@ -2,8 +2,11 @@
 
 Ini kajian, bukan keputusan. Dokumen ini tidak melahirkan nomor D. Apa pun
 yang diputuskan owner setelah membacanya dicatat di `docs/plan/06-decisions.md`.
-Pertanyaan di §7 diberi nomor Q64 sampai Q71. Masing-masing punya default yang
-dipakai sampai owner menjawab.
+Pertanyaan di §7 diberi nomor Q64 sampai Q71.
+
+**Dijawab owner pada hari yang sama:** D371–D376. Bagian §4 dan §6 di bawah
+sudah disesuaikan dengan jawaban itu. Q67, Q68, dan Q72 (baru) masih terbuka
+dengan default.
 
 **Permintaan owner (6 Okt):** *mulai merekam aktivitas perusahaan dari
 mengirim proposal, penawaran, meeting dengan klien, sampai closing atau tidak
@@ -144,15 +147,18 @@ pengiriman, BAST) sudah memakai `project_id` atau `project_code`, jadi
 memecahnya justru memaksa pemindahan data saat closing. Yang ditambahkan ke
 `projects`:
 
-- `source`: enum sumber lead (Q65). Kalau sumbernya referral Package,
-  `referral_id` menunjuk ke `ops_mkt.referrals` (menutup G7).
+- `source_note`: catatan sumber lead berupa teks bebas yang opsional. **Belum
+  berupa daftar (D372)** karena model bisnis barunya belum tervalidasi. Kalau
+  sumbernya referral Package, `referral_id` menunjuk ke `ops_mkt.referrals`
+  (menutup G7).
 - `sales_pic`: FK ke user/karyawan, menggantikan teks `pic` (menutup G2).
 - `expected_value` dan `expected_close_on`: perkiraan sebelum ada quotation
   (G6). Setelah quotation terkirim, nilai pipeline dibaca dari quotation
   yang berlaku.
 - Status baru **`LOST`**: tidak jadi sebelum deal. `CANCELLED` dipakai untuk
-  batal setelah deal (G3). Keduanya wajib `reason_code` (kategori, Q66) dan
-  catatan bebas. Ingat F161: nilai enum baru tidak bisa dipakai di migrasi
+  batal setelah deal (G3). Keduanya wajib `reason_code` dan catatan bebas.
+  Kategorinya **dalam bahasa Inggris (D373)**: `PRICE` · `TIMELINE` · `DESIGN`
+  · `COMPETITOR` · `CLIENT POSTPONED` · `NO RESPONSE` · `OTHER`. Ingat F161: nilai enum baru tidak bisa dipakai di migrasi
   yang menambahkannya.
 - Menolak quotation yang **terakhir berlaku** memunculkan pilihan di layar:
   *buat revisi* atau *tandai proyek tidak jadi*. Sistem tidak memutuskan
@@ -175,14 +181,36 @@ Log tetap append-only (`0134`). Koreksi ditulis sebagai catatan baru.
 
 ### 4.3 Item desain: tulang punggung yang hilang
 
-Tabel baru `design_items` per proyek. Satu baris adalah satu benda yang
-ditawarkan atau digambar untuk proyek itu (misalnya *Kitchen set unit 12A*,
-*Meja makan 8 kursi*).
+**Urutannya ditetapkan owner (D375): klien → proyek → koleksi / katalog →
+ruangan → item/produk.** Drafter bekerja, mencari, dan menyimpan file menurut
+urutan itu.
 
-| Kolom | Isi |
+```
+CL-0007  (klien)
+└── 25008 PACKAGE - SKYLINE           proyek
+    ├── KOLEKSI A · TYPE 2BR           koleksi / katalog
+    │   ├── LIVING ROOM                ruangan
+    │   │   ├── 25008-A-LR-01  Sofa 3 seater      item → produk saat dipesan
+    │   │   └── 25008-A-LR-02  Coffee table
+    │   └── MASTER BEDROOM
+    │       └── 25008-A-MB-01  Bed 180 + headboard
+    └── KOLEKSI B · TYPE 3BR
+        └── …
+```
+
+Dua tabel kecil dan satu tabel item:
+
+- `design_collections`: proyek, kode, nama, catatan. Satu koleksi milik satu
+  proyek (default Q72). Katalog milik TALA sendiri dicatat sebagai proyek
+  dengan klien internal TALA.
+- `design_rooms`: koleksi, nama ruangan, urutan.
+- `design_items`: satu baris adalah satu benda yang ditawarkan atau digambar
+  di ruangan itu.
+
+| Kolom `design_items` | Isi |
 |---|---|
-| `project_id`, `item_no` | `<kode proyek>-D01`, dan seterusnya |
-| `room` / area, `name`, `qty`, ukuran L × W × H | |
+| `room_id`, `item_no` | `<proyek>-<koleksi>-<ruangan>-NN`, dicetak oleh Postgres |
+| `name`, `qty`, ukuran L × W × H | |
 | `origin` | `TALA` (desain kita) · `KLIEN` (klien membawa desainnya, kita produksi) · `ADAPTASI` (dari referensi klien, digambar ulang oleh kita) |
 | `product_code` | kosong sampai item menjadi produk. Diisi lewat jalur yang sudah ada, `product_from_order_line` |
 | `status` (view) | `KONSEP` → `RENDER` → `DISETUJUI KLIEN` → `GAMBAR KERJA RILIS` → `DI-QUOTE` → `DIPESAN`, atau `DIBATALKAN`. **Dihitung dari file, persetujuan, dan baris quotation, bukan disimpan** (A3) |
@@ -194,15 +222,17 @@ Yang terhubung ke item desain:
 - `project_lines` mewarisi `design_item_id` saat quotation diterima, jadi
   rantainya utuh: item desain → baris quotation → baris order → produk → Job
   Order.
-- Antrian drafter (D179) dibuat live dengan tugas yang menunjuk **item desain
-  atau produk** (G15). Revisinya adalah file sungguhan (`attachment_id`
-  wajib).
+- Antrian drafter (D179) dibuat live dengan tugas yang menunjuk **item
+  desain** (G15), dikelompokkan dan disaring per klien, proyek, koleksi, dan
+  ruangan (D375). Tugas untuk produk yang sudah ada (tanpa proyek baru) tetap
+  bisa dibuat. Revisinya adalah file sungguhan (`attachment_id` wajib).
 - **Persetujuan klien** (G13) dicatat sebagai baris append-only
   `design_approvals`: item, revisi/file yang disetujui, tanggal, saluran (WA,
   meeting, email, tanda tangan), nama di pihak klien, dan bukti (file).
-  Pencatatnya orang TALA. Ini bukan alur tanda tangan elektronik. Aturan D179
-  tetap berlaku: rilis gambar kerja tetap keputusan drafter, sedangkan
-  persetujuan klien adalah fakta yang dicatat.
+  Pencatatnya orang TALA. Ini bukan alur tanda tangan elektronik.
+  **Persetujuan tidak wajib (D374):** rilis gambar kerja tanpa persetujuan
+  tetap boleh, tetapi layar memperingatkan. Satu-satunya penolakan rilis
+  tetap aturan D179, yaitu masih ada pertanyaan yang belum dijawab.
 
 ### 4.4 Jenis file dan asal file
 
@@ -243,12 +273,18 @@ PROJECT MANAGER / ops-talaliving
         ├── 05 KONTRAK               (kontrak)
         └── 06 SERAH TERIMA          (bast, foto_lokasi, surat_jalan_keluar)
 
-DRAFTING / ops-talaliving
-└── PROYEK
+DRAFTING / ops-talaliving                    (urutan D375)
+└── <KODE KLIEN> <NAMA KLIEN>
     └── 25008 PACKAGE - SKYLINE
-        ├── KLIEN                    (gambar_klien, referensi_klien)
-        └── DESAIN                   (moodboard, layout, render, gambar kerja per item)
+        ├── 00 DARI KLIEN            (gambar_klien, referensi_klien untuk seluruh proyek)
+        └── KOLEKSI A · TYPE 2BR
+            ├── 00 KONSEP            (moodboard, layout koleksi)
+            └── LIVING ROOM
+                └── 25008-A-LR-01 Sofa 3 seater   (render, gambar_klien, gambar kerja item ini)
 ```
+
+Untuk ini `drive_paths` butuh token `{CLIENT}`, `{PROJECT}`, `{COLLECTION}`,
+`{ROOM}`, dan `{ITEM}`, yang dibaca dari record tempat file diarsipkan.
 
 Drive tetap ditentukan oleh `doc_kind_drive` saja, karena itu batas data
 pribadi (0035). Path hanya memilih folder di dalam drive tersebut. **Syarat
@@ -283,14 +319,14 @@ pertama: IT mengonfigurasi drive PROJECT MANAGER** di `/it/drive` (G16).
 
 | # | Sesi | Isi | Butuh jawaban owner? |
 |---|---|---|---|
-| P1 | **Fondasi file proyek** | Drive PROJECT MANAGER dikonfigurasi (IT). Entity `client`/`quotation`/`client_activity` dan `project` di TS. Jenis file baru dengan kolom `origin`. Token `{PROJECT}` di `drive_paths`. Unggah file dari halaman proyek, quotation, dan catatan kontak | Q68 (daftar jenis). Bisa jalan dengan default |
-| P2 | **Pipeline: sumber, PIC, tidak jadi** | `source`, `sales_pic`, `expected_value`/`expected_close_on`, `LOST` dengan kategori alasan, pilihan setelah quotation terakhir ditolak, papan `/proyek/pipeline` | Q65, Q66, Q67 |
+| P1 | **Fondasi file proyek** | Drive PROJECT MANAGER dikonfigurasi (IT). Entity `client`/`quotation`/`client_activity` dan `project` di TS. Jenis file baru dengan kolom `origin`. Token `{CLIENT}`/`{PROJECT}` di `drive_paths`. Unggah file dari halaman proyek, quotation, dan catatan kontak | Q68 masih terbuka, jalan dengan default |
+| P2 | **Pipeline: sumber, PIC, tidak jadi** | `source_note` teks bebas (D372), `sales_pic`, `expected_value`/`expected_close_on`, `LOST` dengan kategori alasan berbahasa Inggris (D373), pilihan setelah quotation terakhir ditolak, papan `/proyek/pipeline`, akses pimpinan + marketing (D371) | Q67 masih terbuka, jalan dengan default |
 | P3 | **Meeting lengkap** | Peserta, notulen, baris keputusan/permintaan revisi, file meeting | — |
-| P4 | **Daftar item desain per proyek** | `design_items`, file per item dari dua pihak, status turunan, persetujuan klien | Q69 |
-| P5 | **Quotation ↔ item desain** | `design_item_id` dan `frozen_design_rev` di quotation_lines, diwariskan ke project_lines | — |
-| P6 | **Antrian drafter live** (M30 ke backend) | Tabel dan fungsi untuk tugas, revisi (file sungguhan), dan pertanyaan, per item desain atau produk | Q70 |
+| P4 | **Koleksi → ruangan → item desain** (D375) | `design_collections`, `design_rooms`, `design_items`, file per item dari dua pihak, token `{COLLECTION}`/`{ROOM}`/`{ITEM}`, status turunan, persetujuan klien yang tidak wajib (D374) | Q72 masih terbuka, jalan dengan default |
+| P5 | **Quotation ↔ item desain** | `design_item_id` dan `frozen_design_rev` di quotation_lines, diwariskan ke project_lines; quotation dicetak per koleksi/ruangan | — |
+| P6 | **Antrian drafter live** (M30 ke backend) | Tabel dan fungsi untuk tugas, revisi (file sungguhan), dan pertanyaan per item desain, disaring per klien → proyek → koleksi → ruangan (D375) | — |
 | P7 | **Timeline dan dashboard** | `v_project_timeline` di halaman proyek, metrik pipeline | — |
-| P8 | **Mulai dipakai** | Klien dan nilai untuk proyek 25004–25008 diisi, proyek baru dicatat dari tahap inquiry, sumber dari sheet lama kalau ada | Q71 |
+| P8 | **Mulai dipakai** | Klien dan nilai untuk proyek 25004–25008 diisi, proyek baru dicatat dari tahap inquiry. Tidak ada impor (D376) | — |
 
 P1 tidak bergantung pada jawaban apa pun dan langsung berguna. Hari ini
 pun file klien sudah punya tempat. **Penggunaan bisa dimulai sebelum P2–P7
@@ -299,6 +335,21 @@ kontak sudah live dan kosong. Data yang dicatat sejak hari ini akan terbaca
 oleh timeline dan dashboard yang dibangun belakangan.
 
 ## 7. Pertanyaan untuk owner
+
+**Jawaban owner, 6 Okt:**
+
+| Q | Jawaban | Keputusan |
+|---|---|---|
+| Q64 | *pimpinan dan semua yang punya akses ke marketing* | D371 |
+| Q65 | *belum terpikirkan, karena kita masih belum menemukan model bisnis baru yang tervalidasi* | D372: teks bebas opsional, belum berupa daftar |
+| Q66 | *ikut saranmu, pakai english* | D373 |
+| Q69 | *tidak wajib* | D374: diperingatkan, tidak diblokir |
+| Q70 | *drafter bekerja berdasarkan client - project - koleksi / catalog - ruangan - item/produk* | D375 |
+| Q71 | *tidak ada catatan penjualan lama* | D376 |
+| Q67, Q68 | belum dijawab | default di bawah tetap berlaku |
+| Q72 (baru) | apakah satu koleksi bisa dipakai di lebih dari satu proyek? | default: tidak, koleksi milik satu proyek; yang dipakai bersama adalah produk |
+
+Daftar pertanyaan aslinya:
 
 | Q | Pertanyaan | Default sampai dijawab |
 |---|---|---|
