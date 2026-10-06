@@ -8,6 +8,7 @@ import { officeToday } from "@/lib/office";
 import { addDays } from "@/services/hr/task-periods";
 import type { BacklogItem, GoalView, TaskView } from "@/services/hr/contracts";
 import { useTr } from "@/lib/i18n";
+import { TaskPlanDays } from "./task-plan";
 
 /** Roadmap — the task board as a timeline (Gantt), the way Asana's Timeline,
  *  Jira's Timeline, ClickUp's Gantt and GitHub Projects' Roadmap draw it.
@@ -449,6 +450,13 @@ export function TaskRoadmap({
               {sel.t.waits_on_title && <p className="text-[12px] text-slate-500">{tr("Starts after:", "Mulai setelah:")} {sel.t.waits_on_title} ({sel.t.waits_on_assignee})</p>}
               {sel.t.blocked_reason && <p className="text-[12px] text-amber-700">{tr("Blocked:", "Tertahan:")} {sel.t.blocked_reason}</p>}
               {sel.t.delivered_note && <p className="text-[12px] text-emerald-800">{sel.t.delivered_note}</p>}
+              {/* The holder's own plan for the days up to the due date (D384). */}
+              <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2">
+                <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                  {tr("Daily plan", "Rencana per hari")}
+                </p>
+                <TaskPlanDays taskNo={sel.t.task_no} />
+              </div>
             </div>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[12px] text-slate-600 sm:grid-cols-4">
               <dt className="text-slate-400">{tr("Holder", "Pemegang")}</dt><dd>{sel.t.assignee_name}</dd>

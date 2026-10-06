@@ -845,6 +845,27 @@ export interface GoalView {
   is_owner: boolean;
 }
 
+/** One day of a task's plan — `ops_hr.task_plan()` (0230, D384). Every day
+ *  from today (or the first planned day) to the due date; `works` says
+ *  whether it is a working day for the holder; `editable` is true only for
+ *  the holder, on an open task, from today on. */
+export interface TaskPlanDay {
+  plan_date: string;
+  target: string | null;
+  works: boolean;
+  editable: boolean;
+  updated_at: string | null;
+}
+
+/** One of the reader's targets for a day, across their tasks (`my_plan`). */
+export interface MyPlanLine {
+  task_no: string;
+  title: string;
+  due_date: string;
+  goal_rank: number | null;
+  target: string;
+}
+
 /** Where an item of the daftar tunggu is (D381). `PROPOSED` waits for HRD;
  *  `OPEN` is on the ordered list; `ASSIGNED` became a task; `DROPPED` left
  *  the list with a reason. */

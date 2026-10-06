@@ -4,7 +4,7 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   KeyRound, Activity, Fingerprint, Clock, CalendarClock, ClipboardList, Wallet,
-  Check, Plus, AlertTriangle, ShieldAlert, PlayCircle, PauseCircle, PackageCheck, Users,
+  Check, Plus, AlertTriangle, ShieldAlert, PlayCircle, PauseCircle, PackageCheck, Users, CalendarDays,
 } from "lucide-react";
 import {
   Badge, Button, Card, CardHeader, PageHeader, EmptyState,
@@ -25,6 +25,7 @@ import { useTr } from "@/lib/i18n";
 import { GoalBoardList, GoalProgress } from "@/components/hr/goal-parts";
 import { DailyLogTab } from "./daily-log";
 import { StaffBacklog } from "@/components/hr/backlog-staff";
+import { TaskPlanDays } from "@/components/hr/task-plan";
 import { OvertimeForm } from "../saya/overtime-form";
 import { OvertimeAskDetails, useOvertimeStatus } from "../saya/overtime-ask";
 import { useDayLabel } from "../saya/shared";
@@ -615,6 +616,17 @@ function TasksTab({ me }: { me: ReturnType<typeof useLoad<Awaited<ReturnType<typ
                 {tr("Blocked", "Tertahan")}
               </Button>
             )}
+          </div>
+        )}
+        {/* Rencana per hari (D384): how the days up to the due date will be
+            used, in the holder's own words. A daily routine is one day long
+            and needs none. */}
+        {t.status === "OPEN" && t.routine_cadence !== "DAILY" && (
+          <div className="mt-2.5 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2">
+            <p className="mb-1 flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+              <CalendarDays className="h-3.5 w-3.5" />{tr("Daily plan", "Rencana per hari")}
+            </p>
+            <TaskPlanDays taskNo={t.task_no} />
           </div>
         )}
       </li>

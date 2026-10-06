@@ -434,6 +434,8 @@ export interface DemoState {
   notifications?: DemoNotification[];
   /** The daftar tunggu (D381). Optional so a saved demo from before it loads. */
   backlog?: DemoBacklog[];
+  /** Rencana per hari (D384): `ops_hr.task_plans`. Optional, like the above. */
+  task_plans?: { task_id: string; plan_date: string; target: string | null; updated_by: string; updated_at: string }[];
 
   /** The `core.doc_numbers` table: prefix + office day -> sequence.
    *  The database mints every identifier (ADR-005), and here the store is the
