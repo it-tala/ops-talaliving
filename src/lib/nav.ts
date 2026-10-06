@@ -6,7 +6,7 @@ import {
   Landmark, BookOpen, TrendingUp, PiggyBank, Receipt, Repeat,
   Megaphone, UserRound, Target, HandCoins, MessageSquare,
   FolderKanban, Hammer, Truck, Wrench, Stamp, Package,
-  PencilRuler, ListTree, ListChecks, CalendarClock, CalendarRange, Link2,
+  PencilRuler, ListTree, ListChecks, CalendarClock, Link2,
   Cpu, ScrollText, Activity, UserCog, KeyRound, HardDrive, Clock, Scale, Factory,
   Settings, FlaskConical, MessagesSquare, Route, ShieldCheck, Gauge, MessageSquareOff, Database, Ruler, FolderTree, Tags, MonitorSmartphone, Building2, type LucideIcon,
 } from "lucide-react";
@@ -74,8 +74,6 @@ export const NAV: NavSection[] = [
       { label: "Employment contracts", labelKey: "contracts", href: "/hrd/kontrak", icon: ScrollText, permission: "hrd.read", badge: "new" },
       { label: "Leave & Permits", labelKey: "leave", href: "/hrd/cuti", icon: CalendarClock, permission: "hrd.read", badge: "new" },
       { label: "Payroll", labelKey: "payroll", href: "/hrd/payroll", icon: Wallet, permission: "payroll.read" },
-      { label: "Buat payroll", labelKey: "payrollGenerate", href: "/hrd/payroll/buat", icon: ClipboardList, permission: "payroll.run", badge: "new" },
-      { label: "Gajian mingguan", labelKey: "payrollWeek", href: "/hrd/payroll/minggu", icon: CalendarRange, permission: "payroll.read", badge: "new" },
       { label: "Statutory contributions", labelKey: "contributions", href: "/hrd/iuran", icon: ShieldCheck, permission: "payroll.read", orPermission: "accounting.read", badge: "new" },
       { label: "Task monitoring", labelKey: "taskMonitoring", href: "/hrd/tugas", icon: ListChecks, permission: "hrd.read", badge: "new" },
       { label: "Wajib Lapor (WLKP)", labelKey: "wlkp", href: "/hrd/wlkp", icon: ClipboardList, permission: "hrd.read", orPermission: "payroll.read", badge: "new" },

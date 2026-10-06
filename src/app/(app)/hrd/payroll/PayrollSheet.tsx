@@ -192,7 +192,7 @@ export function PayrollSheet({
                       {l.pay_basis === "monthly" && <p>{tr("month", "bulan")} {formatIDR(l.base_rate)}</p>}
                       <p>{tr("day", "hari")} {l.daily_rate != null ? formatIDR(l.daily_rate) : "—"}</p>
                       <p>{tr("hour", "jam")} {formatIDR(l.hourly)}</p>
-                      {l.allowance_rate > 0 && <p className="text-slate-400">{tr("allow.", "tunj.")} {formatIDR(l.allowance_rate)}/{tr("d", "hr")}</p>}
+                      {l.allowance_rate > 0 && <p className="text-slate-400">{tr("allow.", "tunj.")} {l.allowance_daily != null ? formatIDR(l.allowance_daily) : "—"}/{tr("d", "hr")}</p>}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-emerald-700">{formatIDR(l.additions_total)}</td>
                     <td className={cn("whitespace-nowrap px-3 py-2.5 text-right tabular-nums", l.deductions_total > 0 ? "text-rose-700" : "text-slate-300")}>
@@ -303,7 +303,13 @@ function PersonBreakdown({ line: l, onClose, onPersonSettings }: {
               note={l.pay_basis === "monthly" ? tr("salary ÷ the month's working days", "gaji ÷ hari kerja bulan itu") : l.pay_basis === "hourly" ? tr("hour wage × contracted day", "upah per jam × jam kerja sehari") : undefined} />
             <Row k={tr("Hourly rate", "Rate per jam")} v={formatIDR(l.hourly)}
               note={tr(`the hour overtime is priced at (${l.hourly_basis})`, `jam yang dipakai menghitung lembur (${l.hourly_basis})`)} />
-            <Row k={tr("Allowance", "Tunjangan")} v={l.allowance_rate > 0 ? `${formatIDR(l.allowance_rate)} / ${tr("day", "hari")}` : "—"} tone={l.allowance_rate > 0 ? undefined : "muted"} />
+            {/* A salary's tunjangan is a month, and the day is derived (D378). */}
+            {l.pay_basis === "monthly" && (
+              <Row k={tr("Monthly allowance", "Tunjangan bulanan")} v={l.allowance_rate > 0 ? formatIDR(l.allowance_rate) : "—"} tone={l.allowance_rate > 0 ? undefined : "muted"} />
+            )}
+            <Row k={tr("Allowance, per day", "Tunjangan per hari")} v={l.allowance_rate > 0 && l.allowance_daily != null ? formatIDR(l.allowance_daily) : "—"}
+              tone={l.allowance_rate > 0 ? undefined : "muted"}
+              note={l.pay_basis === "monthly" && l.allowance_rate > 0 ? tr("allowance ÷ the month's working days", "tunjangan ÷ hari kerja bulan itu") : undefined} />
           </div>
         </section>
 

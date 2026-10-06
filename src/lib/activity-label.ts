@@ -33,7 +33,7 @@ import { NAV } from "./nav";
  */
 const ENTRIES: { href: string; label: string }[] = NAV
   .flatMap((section) => section.items.map((i) => ({ href: i.href, label: i.label })))
-  /* Longest first, so `/hrd/payroll/minggu` wins over `/hrd/payroll`. */
+  /* Longest first, so `/hrd/kontrak/…` resolves to its own entry before a shorter one. */
   .sort((a, b) => b.href.length - a.href.length);
 
 /** Does `path` sit at or under `href`, on a segment boundary? */

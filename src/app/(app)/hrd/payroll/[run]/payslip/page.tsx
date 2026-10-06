@@ -320,9 +320,15 @@ function Slip({
           {l.allowance_rate > 0 && (
             <tr>
               <td className="py-0.5">
+                {/* A day of it: for a salary, the month's ÷ its working days (D378). */}
                 {tr(
-                  `Allowance — ${formatNumber(l.allowance_days)} days × ${formatIDR(l.allowance_rate)}`,
-                  `Tunjangan — ${formatNumber(l.allowance_days)} hari × ${formatIDR(l.allowance_rate)}`,
+                  `Allowance — ${formatNumber(l.allowance_days)} days × ${formatIDR(l.allowance_daily ?? 0)}`,
+                  `Tunjangan — ${formatNumber(l.allowance_days)} hari × ${formatIDR(l.allowance_daily ?? 0)}`,
+                )}
+                {l.pay_basis === "monthly" && (
+                  <span className="block text-[8px] leading-snug text-slate-500">
+                    {tr(`${formatIDR(l.allowance_rate)} a month`, `${formatIDR(l.allowance_rate)} sebulan`)}
+                  </span>
                 )}
                 {l.allowance_withheld_days > 0 && (
                   <span className="block text-[8px] leading-snug text-slate-500">

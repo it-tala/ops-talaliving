@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Save, UserMinus, UserCheck } from "lucide-react";
 import { Drawer } from "@/components/ui/drawer";
 import { officeToday } from "@/lib/office";
 import { Button } from "@/components/ui/primitives";
 import { MoneyInput } from "@/components/ui/money-input";
 import { NumberInput } from "@/components/ui/number-input";
-import { formatIDR } from "@/lib/format";
+import { formatIDR, formatNumber } from "@/lib/format";
 import { hr } from "@/demo/api";
 import { useLoad } from "@/components/ui/loaded";
 import type { Employee, EmployeeAccount, PayBasis } from "@/services/hr/contracts";
@@ -60,6 +60,22 @@ export function EmployeeDrawer({
   const [why, setWhy] = useState("");
 
   const [sched] = useLoad(() => hr.listSchedules(), []);
+
+  /* 0215 (D378): pokok and tunjangan are typed as agreed, then the screen
+     says what they come to — a day of each, the hour overtime is priced at —
+     with payroll's own arithmetic, a moment after the typing stops. */
+  const [terms, setTerms] = useState({ basis, rate, allowance, hours, schedule, unit });
+  useEffect(() => {
+    const t = setTimeout(() => setTerms({ basis, rate, allowance, hours, schedule, unit }), 300);
+    return () => clearTimeout(t);
+  }, [basis, rate, allowance, hours, schedule, unit]);
+  const [preview] = useLoad(
+    () => hr.payPreview({
+      pay_basis: terms.basis, base_rate: terms.rate, allowance_rate: terms.allowance,
+      daily_hours: terms.hours, schedule_code: terms.schedule || null, unit: terms.unit,
+    }),
+    [terms],
+  );
   const schedules = sched.status === "ready" ? sched.data.schedules : [];
   /* What this person's unit falls back to, named rather than implied: *ikut
      bawaan unit* is only a usable option if the screen says what that is. */
@@ -319,10 +335,14 @@ export function EmployeeDrawer({
             )}
           </div>
           <div>
-            {/* Per day for everybody, whatever the pokok is quoted in — that is
-                how the owner described it, and how it is paid (D250). */}
+            {/* In the pay's own unit, as it is agreed at hiring (D378): a month
+                for a salary — the screen works out the day — and a day for a
+                day or hour wage. It was per day for everybody (D250), and HR
+                typed monthly figures into it. */}
             <label htmlFor="e-allowance" className="block text-xs text-slate-500">
-              {tr("Allowance, per day present", "Tunjangan, per hari hadir")}
+              {basis === "monthly"
+                ? tr("Allowance, per month", "Tunjangan, per bulan")
+                : tr("Allowance, per day present", "Tunjangan, per hari hadir")}
             </label>
             <MoneyInput id="e-allowance" value={allowance} onChange={setAllowance} className="mt-1" />
             {allowanceChanged ? (
@@ -331,12 +351,55 @@ export function EmployeeDrawer({
               </p>
             ) : (
               <p className="mt-1 text-[11px] text-slate-500">
-                {tr(
-                  "Paid per day the person is present. Zero means the pay has not been split yet — and while it is zero, none of this person's figures change.",
-                  "Dibayar per hari orangnya hadir. Nol berarti gajinya memang belum dipisah — dan selama nol, tidak ada angka orang ini yang berubah.",
-                )}
+                {basis === "monthly"
+                  ? tr(
+                    "The month's allowance as agreed. Paid per day present: the month ÷ that month's working days, so a full month pays exactly this.",
+                    "Tunjangan sebulan sesuai kesepakatan. Dibayar per hari hadir: sebulan ÷ hari kerja bulan itu, jadi sebulan penuh dibayar persis angka ini.",
+                  )
+                  : tr(
+                    "Paid per day the person is present. Zero means the pay has not been split yet.",
+                    "Dibayar per hari orangnya hadir. Nol berarti gajinya memang belum dipisah.",
+                  )}
               </p>
             )}
+          </div>
+          {/* What the terms come to (0215, D378). */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 sm:col-span-2">
+            <p className="text-xs font-medium text-slate-600">{tr("What this comes to", "Perhitungannya")}</p>
+            {preview.status === "ready" ? (
+              <dl className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-1 text-[12px] sm:grid-cols-3">
+                <div>
+                  <dt className="text-slate-500">{tr("A full month", "Sebulan penuh")}</dt>
+                  <dd className="font-medium text-slate-800">{formatIDR(preview.data.monthly_total)}</dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">{tr(`Working days, ${preview.data.month}`, `Hari kerja ${preview.data.month}`)}</dt>
+                  <dd className="font-medium text-slate-800">{formatNumber(preview.data.workdays)}</dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">{tr("Base, per day", "Pokok per hari")}</dt>
+                  <dd className="font-medium text-slate-800">{preview.data.daily_rate == null ? "—" : formatIDR(preview.data.daily_rate)}</dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">{tr("Allowance, per day", "Tunjangan per hari")}</dt>
+                  <dd className="font-medium text-slate-800">{preview.data.allowance_daily == null ? "—" : formatIDR(preview.data.allowance_daily)}</dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">{tr("Per hour (overtime basis)", "Per jam (dasar lembur)")}</dt>
+                  <dd className="font-medium text-slate-800">{formatIDR(preview.data.hourly)}</dd>
+                </div>
+              </dl>
+            ) : (
+              <p className="mt-1 text-[12px] text-slate-400">{tr("Working it out…", "Menghitung…")}</p>
+            )}
+            <p className="mt-1.5 text-[11px] text-slate-500">
+              {basis === "monthly"
+                ? tr(
+                  "A day = the month ÷ this month's working days, and changes with the month. The hour follows the pay rules.",
+                  "Per hari = sebulan ÷ hari kerja bulan ini, jadi berubah tiap bulan. Per jam mengikuti aturan penggajian.",
+                )
+                : tr("The hour follows the pay rules.", "Per jam mengikuti aturan penggajian.")}
+            </p>
           </div>
           <div>
             <label htmlFor="e-hours" className="block text-xs text-slate-500">{tr("Hours in a standard day", "Jam dalam sehari standar")}</label>
