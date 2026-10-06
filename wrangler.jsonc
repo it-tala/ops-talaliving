@@ -57,7 +57,15 @@
   // between a local stack and the project.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "ops-talaliving",
-  "main": ".open-next/worker.js",
+  // `cf-worker.mjs` wraps `.open-next/worker.js` (which it imports) to add a
+  // `scheduled` handler — the GitHub Projects board sync (D382). Requests are
+  // answered by the OpenNext worker exactly as before.
+  "main": "cf-worker.mjs",
+
+  // Every ten minutes: write the IT tasks that changed onto the GitHub
+  // Projects board. Free on every Workers plan, ignored by preview versions,
+  // and a no-op until GITHUB_PROJECTS_TOKEN and GITHUB_WEBHOOK_SECRET exist.
+  "triggers": { "crons": ["*/10 * * * *"] },
 
   // `nodejs_compat` is required by the adapter — Next's server runtime reaches
   // for node builtins regardless of how little of it this app uses.
@@ -96,6 +104,12 @@
   // so that a deploy cannot touch them. `SUPABASE_SERVICE_ROLE_KEY` is the
   // same kind of thing, for the same reason: IT → Users & access needs it to
   // invite people and block a sign-in (D325).
+  //
+  // GitHub (D382) adds four more, all Secrets for the same reason, set as
+  // described in docs/plan/phase-2/github.md: GITHUB_WEBHOOK_SECRET,
+  // GITHUB_PROJECTS_TOKEN, GITHUB_PROJECT_OWNER, GITHUB_PROJECT_NUMBER. The
+  // last two are not secret, but a plain variable set in the dashboard does
+  // not survive a deploy and the number is not known until the board exists.
   "vars": {
     "GOOGLE_SERVICE_ACCOUNT_EMAIL": "capture-worker@john-lau-v01.iam.gserviceaccount.com"
   }

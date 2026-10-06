@@ -20,6 +20,7 @@ import type {
   ContractView, ContractDetail, ContractClause, ClauseConflict, TimesheetTotal, DayState,
   EffectiveDaysCalendar, EmployeeAccount, ScanImportResult,
   TapReading, TapSelfResult, LocationJudgement, LocationVerdict, WorkSite, LocatedTapView, TapKind,
+  TaskPullRequest,
 } from "@/services/hr/contracts";
 import {
   TAP_KINDS, TAP_KIND_LABELS, SENSITIVE_DOC_KINDS, SCHEME_LABELS, maskDocNo, clauseValueOk, scheduleProblem, OFF_SITE_VERDICTS, PAY_GROUPS,
@@ -6249,3 +6250,22 @@ export async function assignBacklogItem(
   return ok(SERVICE, { item_no: b.item_no, task_no: made.data.task_no, assignee_name: made.data.assignee_name });
 }
 
+
+/** The GitHub PRs that named tasks the reader can see (0226, D382). The same
+ *  scope as `listTasks`: HRD reads every task, anybody else their own. */
+export async function listTaskPullRequests(
+  filter: { task_nos?: string[] } = {},
+): Promise<Result<TaskPullRequest[]>> {
+  await latency();
+  const state = getState();
+  const hrd = requireModule(SERVICE, "hrd") === null;
+  const mine = myEmployee(state);
+  const visible = new Set(state.tasks
+    .filter((t) => hrd || (mine && t.assignee_id === mine.id))
+    .map((t) => t.id));
+  const rows = (state.task_pull_requests ?? [])
+    .filter((p) => visible.has(p.task_id) && (!filter.task_nos || filter.task_nos.includes(p.task_no)))
+    .sort((a, b) => b.first_seen_at.localeCompare(a.first_seen_at) || b.id - a.id)
+    .map(({ id: _i, task_id: _t, author_user_id: _a, ...p }) => p as TaskPullRequest);
+  return ok(SERVICE, rows);
+}

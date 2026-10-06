@@ -276,7 +276,7 @@ export interface MyActivityEvent {
  *  screen: a task given to them, or a task handed over to HRD. `data` carries
  *  what the bell needs to say it in either language; `title` is the Indonesian
  *  sentence for a kind this screen does not know yet. */
-export type NotificationKind = "task.assigned" | "task.delivered";
+export type NotificationKind = "task.assigned" | "task.delivered" | "task.github_pr";
 
 export interface AppNotification {
   id: number;
@@ -413,4 +413,72 @@ export interface AppSetting {
   affects: string[];
   updated_by: string | null;
   updated_at: string | null;
+}
+
+/* ── GitHub (0226, D382) ──────────────────────────────────────────────── */
+
+/** One line of IT's map: which GitHub login is which ops account. A PR moves
+ *  a task only when its author's login is mapped to the task holder. */
+export interface GithubAccount {
+  /** Lower case, no `@`. */
+  github_login: string;
+  user_id: string;
+  email: string;
+  full_name: string;
+  employee_no: string | null;
+  linked_at: string;
+  linked_by_name: string | null;
+}
+
+/** What one webhook delivery did, per task it named. `did` is one of
+ *  `started` · `delivered` · `recorded` · `held_not_holder` · `held_unmapped`
+ *  · `merged_not_default` · `task_already_done` · `task_already_cancelled`. */
+export interface GithubPrOutcome {
+  tasks: { task_no: string; did: string }[];
+  /** Task numbers the PR named that do not exist. */
+  unknown: string[];
+}
+
+export interface GithubDelivery {
+  delivery_id: string;
+  event: string;
+  action: string | null;
+  repo: string | null;
+  pr_number: number | null;
+  received_at: string;
+  result: Partial<GithubPrOutcome> & { ignored?: string; author?: string; mapped?: boolean };
+}
+
+export interface GithubSyncError {
+  task_no: string;
+  title: string;
+  error: string;
+  attempts: number;
+  at: string;
+}
+
+/** `/it/github`: is GitHub talking to us, and is the board up to date. */
+export interface GithubStatus {
+  accounts: number;
+  last_delivery_at: string | null;
+  deliveries: GithubDelivery[];
+  linked_prs: number;
+  items_synced: number;
+  last_synced_at: string | null;
+  sync_errors: GithubSyncError[];
+}
+
+/** A pretend `pull_request` webhook — the demo's way to walk the flow
+ *  without GitHub. The live client refuses it: there, only GitHub's signed
+ *  webhook reaches the seam. */
+export interface GithubPrSimulation {
+  action: "opened" | "closed";
+  merged: boolean;
+  repo: string;
+  number: number;
+  title: string;
+  body: string;
+  author: string;
+  base: string;
+  default_branch: string;
 }

@@ -9418,3 +9418,43 @@ procurement pipeline) and D375–D380, none merged to `main`. Renumbered to
 production; it holds for every open branch too, and for decision and finding
 numbers as much as migration numbers.
 
+## F231 · 2026-10-06 · A machine that finishes a task needs a key nobody else holds, and a board is a reading, not a queue
+
+**Who may say "GitHub says so".** The webhook route has no person behind it,
+so `update_task` (which reads `auth.uid()`) could not be reused, and a seam
+that finishes a task on its caller's word must not be reachable from a
+browser — a signed-in account could otherwise hand over anybody's task by
+claiming to be GitHub. The seam is `service_role`-only, like the chat worker's
+`answer_request` (0157), and the route earns the key by checking GitHub's
+HMAC first. A2 §4 names the new three by name; the count went from nine to
+twelve in the same commit as the reason. The trigger from 0215 still sends
+the hand-over notice: `auth.uid()` is null in the webhook, so nobody is
+skipped as "the one who did it" except the holder, which is right.
+
+**Out of order is normal.** GitHub does not promise delivery order, and
+*Redeliver* can replay a day-old `opened` after the merge. So nothing in the
+seam moves backwards (merged stays merged, a done task is never started) and
+every delivery id is stored: a replay is `noop`, not a second hand-over.
+
+**The board is state, not events.** The first shape was an outbox event per
+task change. It fails quietly in exactly the cases that matter — a token that
+expired for a day burns the five attempts and the events age out
+(`max_age`), and an item somebody deleted on GitHub stays deleted. Asking
+*which IT tasks differ from what the board last said* (an md5 of what the
+item shows) heals all three on the next run with nothing to replay. A task
+that fails five times on the same content waits until it changes, so a bad
+token costs five calls per task, not one per ten minutes forever.
+
+**A cron in a Next app on Workers.** OpenNext's `.open-next/worker.js` only
+has `fetch`. `cf-worker.mjs` wraps it and adds `scheduled`, which calls the
+app's own sync route **in-process** through the same handler — no second
+deployment, no network hop, no GitHub Actions minutes. Walked with
+`wrangler dev --test-scheduled`: the cron reached the route and answered.
+
+**Checking GraphQL without a token.** The eight Projects queries and
+mutations were validated against GitHub's published schema
+(`@octokit/graphql-schema`) before anything ran against GitHub. The schema
+does not build cleanly with `graphql`'s own validator (deprecation
+mismatches in GitHub's SDL); skipping schema self-validation and validating
+the documents against it is enough to catch a wrong field or argument.
+

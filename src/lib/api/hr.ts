@@ -53,7 +53,7 @@ import type {
   WorkLogEntry, WorkLogRosterRow, WorkEvidence, WorkProgress, KpiView,
   Sex, Education, Citizenship, MaritalStatus, EmployeeIdentityView, WlkpRecap,
   TapReading, TapSelfResult, LocationJudgement, WorkSite, LocatedTapView, TapKind,
-  EmployeeAccount, ScanImportResult,
+  EmployeeAccount, ScanImportResult, TaskPullRequest,
 } from "@/services/hr/contracts";
 import {
   EMPLOYEE_DOC_CHECKLIST, EMPLOYEE_DOC_LABEL, SENSITIVE_DOC_KINDS,
@@ -2843,4 +2843,15 @@ export async function getWlkpRecap(
 ): Promise<Result<WlkpRecap | null>> {
   const { data, error } = await db().rpc("wlkp_recap", { p_asof: input.asof ?? null });
   return fromRows<WlkpRecap | null>(SERVICE, data as never, error);
+}
+
+/** The GitHub PRs that named tasks the reader can see (0226, D382). Invoker
+ *  in the database: the reader's own policies on tasks decide. */
+export async function listTaskPullRequests(
+  filter: { task_nos?: string[] } = {},
+): Promise<Result<TaskPullRequest[]>> {
+  const { data, error } = await db().rpc("list_task_pull_requests", {
+    p_task_nos: filter.task_nos ?? null,
+  });
+  return fromRows<TaskPullRequest[]>(SERVICE, (data ?? []) as TaskPullRequest[], error);
 }

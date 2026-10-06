@@ -19,6 +19,7 @@ import { useTr } from "@/lib/i18n";
 import { GoalsPanel } from "./goals-panel";
 import { DailyPanel } from "./daily-panel";
 import { BacklogPanel } from "./backlog-panel";
+import { TaskPrs, prsByTask } from "@/components/hr/task-prs";
 
 /** Pemantauan tugas — the module built against a failure the owner described
  *  in one sentence (D303):
@@ -78,6 +79,10 @@ function Tasks() {
   const today = officeToday();
 
   const [tasks, reloadTasks] = useLoad(() => hr.listTasks(), []);
+  /* GitHub PRs that named a task (D382) — read with the tasks, so a PR that
+     just closed one shows beside it. */
+  const [prList] = useLoad(() => hr.listTaskPullRequests(), [tasks]);
+  const prs = prsByTask(prList.status === "ready" ? prList.data : undefined);
   const [routines, reloadRoutines] = useLoad(() => hr.listTaskRoutines(), []);
   const [employees] = useLoad(() => hr.listEmployees(), []);
   const [busy, setBusy] = useState(false);
@@ -640,6 +645,7 @@ function Tasks() {
                               {t.delivered_note}
                             </p>
                           )}
+                          <TaskPrs prs={prs.get(t.task_no)} open={t.status === "OPEN"} />
                           {t.blocked_reason && (
                             <p className="mt-0.5 text-[12px] text-amber-800">
                               <PauseCircle className="mr-1 inline h-3.5 w-3.5" />

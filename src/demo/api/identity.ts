@@ -4,7 +4,7 @@ import type {
   Session, Authority, ModuleName, ModuleLevel,
   ActivityEvent, ActivityDaily, RetentionStatus, AuditRowView, AppSetting, Approver,
   MyActivityEvent, UserDirectoryRow, UserLinkSent, UserActiveChange, UserPasswordIssued,
-  AppNotification,
+  AppNotification, GithubAccount, GithubStatus, GithubPrOutcome, GithubPrSimulation, GithubDelivery,
 } from "@/services/identity/contracts";
 import { expandPermissions } from "@/lib/roles";
 import { getState, apply, newId, writeAudit } from "../store";
@@ -895,3 +895,205 @@ export async function setPassword(_password: string): Promise<Result<null>> {
     "Mode demo tidak memeriksa kata sandi, jadi tidak ada yang bisa diganti. "
     + "Pilih orang di halaman masuk untuk melihat aplikasi dari sudut pandangnya.");
 }
+
+/* ── GitHub (0226, D382) ──────────────────────────────────────────────────
+ *
+ *  The sandbox's `github_accounts`, `github_status()` and — since there is no
+ *  GitHub here — `simulateGithubPullRequest`, which runs the webhook seam's
+ *  rules on a pretend `pull_request` delivery. Rules, line for line, as
+ *  `ops_hr.github_pull_request`:
+ *   • the holder's PR (author login mapped to the holder's account) opened →
+ *     the task is started. Merged into the default branch → done and handed
+ *     over, the note is the PR, title and link. The bell to HRD and the
+ *     assigner comes from `notifyTasks`, as the 0215 trigger does.
+ *   • anybody else's, or an unmapped login → the task stays open, the PR is
+ *     recorded, HRD (write/admin) is told once when the PR first names the
+ *     task and once when it is merged. */
+
+const GITHUB_LOGIN = /^[a-z0-9]([a-z0-9]|-[a-z0-9]){0,38}$/;
+const TASK_NO = /tgs-[0-9]{2}-[0-9]{2}-[0-9]{2}_[0-9]+/g;
+
+function githubRows(state: DemoState): GithubAccount[] {
+  return (state.github_accounts ?? []).map((g) => {
+    const u = state.users.find((x) => x.id === g.user_id);
+    return {
+      github_login: g.github_login,
+      user_id: g.user_id,
+      email: u?.email ?? "",
+      full_name: u?.full_name ?? "",
+      employee_no: state.employee_accounts?.find((a) => a.user_id === g.user_id)?.employee_no ?? null,
+      linked_at: g.linked_at,
+      linked_by_name: state.users.find((x) => x.id === g.linked_by)?.full_name ?? null,
+    };
+  }).sort((a, b) => a.full_name.localeCompare(b.full_name));
+}
+
+export async function listGithubAccounts(): Promise<Result<GithubAccount[]>> {
+  await latency();
+  if (requireModule(SERVICE, "it")) return ok(SERVICE, []);
+  return ok(SERVICE, githubRows(getState()));
+}
+
+export async function saveGithubAccount(
+  input: { user_id: string; github_login: string | null },
+): Promise<Result<GithubAccount[]>> {
+  await latency();
+  if (requireLevel(SERVICE, "it", "admin")) {
+    return refused(SERVICE, "not_permitted", "Memetakan akun GitHub adalah tugas IT (kelola pengguna).");
+  }
+  const state = getState();
+  const user = state.users.find((u) => u.id === input.user_id);
+  if (!user) return notFound(SERVICE, "not_found", "Akun ops itu tidak ada.");
+  const old = (state.github_accounts ?? []).find((g) => g.user_id === input.user_id);
+  const login = (input.github_login ?? "").trim().toLowerCase().replace(/^@/, "");
+
+  if (!login) {
+    if (!old) return noop(SERVICE, githubRows(state));
+    apply((d) => {
+      d.github_accounts = (d.github_accounts ?? []).filter((g) => g.user_id !== input.user_id);
+      writeAudit(d, { service: SERVICE, entity: "github_account", entity_no: old.github_login, action: "remove", outcome: "ok", reason: null });
+    });
+    return ok(SERVICE, githubRows(getState()));
+  }
+  if (!GITHUB_LOGIN.test(login)) {
+    return invalid(SERVICE, "bad_login",
+      "Login GitHub hanya huruf, angka, dan tanda hubung tunggal (maks. 39), tanpa @ dan tanpa alamat lengkap.",
+      { field: "github_login" });
+  }
+  if (!user.is_active) return conflict(SERVICE, "user_inactive", `${user.full_name} sudah tidak aktif.`);
+  const other = (state.github_accounts ?? []).find((g) => g.github_login === login);
+  if (other && other.user_id !== input.user_id) {
+    const holder = state.users.find((u) => u.id === other.user_id)?.full_name ?? "";
+    return conflict(SERVICE, "login_taken", `${login} sudah dipetakan ke ${holder}. Lepas dulu dari akun itu.`);
+  }
+  if (old?.github_login === login) return noop(SERVICE, githubRows(state));
+
+  const by = actingUser().id;
+  apply((d) => {
+    d.github_accounts = (d.github_accounts ?? []).filter((g) => g.user_id !== input.user_id);
+    d.github_accounts.push({ github_login: login, user_id: input.user_id, linked_by: by, linked_at: new Date().toISOString() });
+    writeAudit(d, { service: SERVICE, entity: "github_account", entity_no: login, action: "save", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, githubRows(getState()));
+}
+
+export async function getGithubStatus(): Promise<Result<GithubStatus>> {
+  await latency();
+  if (requireModule(SERVICE, "it")) return refused(SERVICE, "not_permitted", "Status GitHub dibaca oleh IT.");
+  const state = getState();
+  const deliveries = [...(state.github_deliveries ?? [])]
+    .sort((a, b) => b.received_at.localeCompare(a.received_at));
+  return ok(SERVICE, {
+    accounts: (state.github_accounts ?? []).length,
+    last_delivery_at: deliveries[0]?.received_at ?? null,
+    deliveries: deliveries.slice(0, 20),
+    linked_prs: (state.task_pull_requests ?? []).length,
+    // The sandbox has no board to write to.
+    items_synced: 0,
+    last_synced_at: null,
+    sync_errors: [],
+  });
+}
+
+export async function simulateGithubPullRequest(
+  input: GithubPrSimulation,
+): Promise<Result<GithubPrOutcome>> {
+  await latency();
+  if (requireModule(SERVICE, "it")) {
+    return refused(SERVICE, "not_permitted", "Simulasi PR ada di layar IT.");
+  }
+  const repo = input.repo.trim();
+  const login = input.author.trim().toLowerCase().replace(/^@/, "");
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo) || !(input.number > 0) || !login) {
+    return invalid(SERVICE, "incomplete", "Kiriman PR tidak lengkap (repo, nomor, atau penulis kosong).");
+  }
+  const url = `https://github.com/${repo}/pull/${input.number}`;
+  const deliveryId = `sim-${Date.now().toString(36)}`;
+  const state0 = getState();
+  const nos = [...new Set(`${input.title}\n${input.body}`.toLowerCase().match(TASK_NO) ?? [])].slice(0, 10);
+  const delivery: GithubDelivery = {
+    delivery_id: deliveryId, event: "pull_request", action: input.action, repo, pr_number: input.number,
+    received_at: new Date().toISOString(), result: {},
+  };
+  if (nos.length === 0) {
+    delivery.result = { tasks: [] };
+    apply((d) => { d.github_deliveries = [delivery, ...(d.github_deliveries ?? [])]; });
+    return noop(SERVICE, { tasks: [], unknown: [] });
+  }
+
+  const mapped = (state0.github_accounts ?? []).find((g) => g.github_login === login);
+  const author = mapped ? state0.users.find((u) => u.id === mapped.user_id) : undefined;
+  const st: TaskPullRequestState = input.action === "closed" ? (input.merged ? "merged" : "closed") : "open";
+  const outcome: GithubPrOutcome = { tasks: [], unknown: [] };
+
+  apply((d) => {
+    d.task_pull_requests = d.task_pull_requests ?? [];
+    const now = new Date().toISOString();
+    for (const no of nos) {
+      const t = d.tasks.find((x) => x.task_no === no);
+      if (!t) { outcome.unknown.push(no); continue; }
+      const emp = d.employees.find((e) => e.id === t.assignee_id);
+      const holder = emp ? d.employee_accounts?.find((a) => a.employee_no === emp.employee_no)?.user_id ?? null : null;
+      const mine = !!author && author.id === holder;
+      const prev = d.task_pull_requests.find((p) => p.task_id === t.id && p.repo === repo && p.pr_number === input.number);
+      let effect = prev?.effect ?? "none";
+      let did = "recorded";
+
+      if (mine) {
+        if (st === "open" && t.status === "OPEN" && !t.started_at) {
+          t.started_at = now; effect = "started"; did = "started";
+        } else if (st === "merged" && t.status === "OPEN" && input.base === input.default_branch) {
+          t.status = "DONE"; t.done_at = now; t.done_by = author!.id;
+          t.started_at = t.started_at ?? now;
+          t.delivered_note = `PR ${repo}#${input.number} ${input.title.trim()} — ${url}`.slice(0, 2000);
+          t.blocked_reason = null; t.blocked_at = null;
+          effect = "delivered"; did = "delivered";
+        } else if (st === "merged" && t.status === "OPEN") {
+          did = "merged_not_default";
+        } else if (st === "merged") {
+          did = `task_already_${t.status.toLowerCase()}`;
+        }
+      } else {
+        did = author ? "held_not_holder" : "held_unmapped";
+      }
+
+      const row = {
+        task_no: t.task_no, repo, pr_number: input.number, url, title: input.title.trim() || url,
+        author_login: login, by_assignee: mine,
+        state: prev?.state === "merged" ? "merged" as const : st,
+        draft: false, base_ref: input.base || null, effect,
+        first_seen_at: prev?.first_seen_at ?? now, updated_at: now,
+        merged_at: prev?.merged_at ?? (st === "merged" ? now : null),
+        task_id: t.id, author_user_id: author?.id ?? null,
+      };
+      if (prev) Object.assign(prev, row);
+      else d.task_pull_requests.unshift({ id: d.task_pull_requests.length + 1, ...row });
+
+      if (!mine && t.status === "OPEN" && (!prev || (st === "merged" && prev.state !== "merged"))) {
+        const data = {
+          task_no: t.task_no, title: t.title, assignee: emp?.full_name ?? "",
+          repo, number: input.number, url, pr_title: input.title,
+          author_login: login, author_name: author?.full_name ?? null,
+          reason: author ? "not_holder" : "unmapped", merged: st === "merged",
+        };
+        d.notifications = d.notifications ?? [];
+        let top = d.notifications.reduce((m, n) => Math.max(m, n.id), 0);
+        for (const u of d.users) {
+          if (!u.is_active || !u.modules.some((m) => m.module === "hrd" && (m.level === "write" || m.level === "admin"))) continue;
+          d.notifications.unshift({
+            id: ++top, user_id: u.id, kind: "task.github_pr", data,
+            title: `${st === "merged" ? "PR yang di-merge" : "PR"} ${repo}#${input.number} menyebut tugas ${t.task_no} (${t.title}), tapi bukan dari pemegang tugasnya — tugas tetap terbuka`,
+            link: "/hrd/tugas?tab=all", entity_no: t.task_no, created_at: now, read_at: null,
+          });
+        }
+      }
+      outcome.tasks.push({ task_no: t.task_no, did });
+    }
+    delivery.result = { ...outcome, author: login, mapped: !!author };
+    d.github_deliveries = [delivery, ...(d.github_deliveries ?? [])];
+    writeAudit(d, { service: SERVICE, entity: "github_pr", entity_no: `${repo}#${input.number}`, action: input.action, outcome: "ok", reason: "demo: a simulated pull_request delivery" });
+  });
+  return ok(SERVICE, outcome);
+}
+
+type TaskPullRequestState = "open" | "merged" | "closed";

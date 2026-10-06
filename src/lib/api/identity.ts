@@ -14,10 +14,10 @@ import type {
   Session, Authority, ModuleName, ModuleLevel, ModuleGrant, AuditRowView,
   ActivityEvent, ActivityDaily, RetentionStatus, Approver, MyActivityEvent,
   UserDirectoryRow, AccountStatus, UserLinkSent, UserActiveChange, UserPasswordIssued,
-  AppNotification,
+  AppNotification, GithubAccount, GithubStatus, GithubPrOutcome, GithubPrSimulation,
 } from "@/services/identity/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { fail, fromRows, fromSeam, invalid, notFound, ok, type Result } from "./_kit";
+import { fail, fromRows, fromSeam, invalid, notFound, ok, refused, type Result } from "./_kit";
 import { officeStamp } from "@/lib/office";
 
 const SERVICE = "identity" as const;
@@ -697,4 +697,45 @@ export async function setPassword(password: string): Promise<Result<null>> {
     p_kind: "update", p_target: "session", p_label: "Mengganti kata sandi",
   });
   return ok(SERVICE, null);
+}
+
+/* ── GitHub (0226, D382) ──────────────────────────────────────────────────
+ *
+ *  IT keeps the map of who is who on GitHub. The webhook itself never comes
+ *  through here: GitHub posts to `/api/github/webhook`, which checks the
+ *  signature and calls the service-role seam. */
+
+export async function listGithubAccounts(): Promise<Result<GithubAccount[]>> {
+  const { data, error } = await db().rpc("list_github_accounts");
+  return fromRows<GithubAccount[]>(SERVICE, (data ?? []) as GithubAccount[], error);
+}
+
+/** Map an account to a login, or (`github_login` empty) remove its mapping.
+ *  Answers the whole map again, read back from the database. */
+export async function saveGithubAccount(
+  input: { user_id: string; github_login: string | null },
+): Promise<Result<GithubAccount[]>> {
+  const { data, error } = await db().rpc("save_github_account", {
+    p_user_id: input.user_id, p_login: input.github_login ?? null,
+  });
+  const said = fromSeam<unknown>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<GithubAccount[]>;
+  return listGithubAccounts();
+}
+
+export async function getGithubStatus(): Promise<Result<GithubStatus>> {
+  const { data, error } = await db().rpc("github_status");
+  if (error) return fail(SERVICE, error);
+  if (!data) return refused(SERVICE, "not_permitted", "Status GitHub dibaca oleh IT.");
+  return ok(SERVICE, data as GithubStatus);
+}
+
+/** Demo only. Against the real database only GitHub's signed webhook reaches
+ *  the seam — a screen that could pretend to be GitHub could finish anybody's
+ *  task. */
+export async function simulateGithubPullRequest(
+  _input: GithubPrSimulation,
+): Promise<Result<GithubPrOutcome>> {
+  return refused(SERVICE, "demo_only",
+    "Simulasi PR hanya ada di mode demo. Di produksi, tugas bergerak lewat webhook GitHub yang ditandatangani.");
 }

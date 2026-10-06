@@ -139,7 +139,10 @@ begin
           'ops_procure.approval_card',
           -- the notification worker's, below (§4). Not seams: a person never
           -- "delivers an event", a machine does.
-          'ops_core.outbox_due','ops_core.outbox_delivered','ops_core.outbox_failed')
+          'ops_core.outbox_due','ops_core.outbox_delivered','ops_core.outbox_failed',
+          -- GitHub's, below (§4): the webhook and the project board (0226).
+          'ops_hr.github_pull_request','ops_hr.github_project_due',
+          'ops_hr.github_project_synced')
      and not has_function_privilege('authenticated', p.oid, 'EXECUTE');
 
   assert n = 0,
@@ -184,6 +187,13 @@ end $$;
 -- `ops_core.delivery_rules`, so a row that is absent or not live is never
 -- returned, and the worker's *reach* grew without what it can *say* growing.
 --
+-- Three more are GitHub's (0226, D382): `github_pull_request` is what the
+-- signed webhook route calls when a PR names a task, and it can start and
+-- finish a task with nobody signed in — so it is shut to people for the same
+-- reason `answer_request` is. `github_project_due` and `github_project_synced`
+-- are the board sync's read and write-back, and they read tasks with their
+-- holders' GitHub logins.
+--
 -- The list is spelled out rather than counted, because a count passes when one
 -- verb is swapped for another — which is exactly the change that would matter.
 do $$
@@ -201,11 +211,13 @@ begin
      and has_function_privilege('service_role', p.oid, 'EXECUTE');
 
   assert reach = 'answer_batch, answer_po_approval, answer_request, approval_card, '
-               || 'file_evidence, outbox_delivered, outbox_due, outbox_failed, po_approval_card',
+               || 'file_evidence, github_project_due, github_project_synced, github_pull_request, '
+               || 'outbox_delivered, outbox_due, outbox_failed, po_approval_card',
     'The service_role key can execute ' || n || ' seam(s): ' || coalesce(reach, '(none)')
     || '. 0038 (capture), D299 (PO approval by Chat), 0155 (outbox to Chat), 0157 (a request '
     || 'line answered from Chat) and 0159 (the meeting''s whole list, and the card that carries '
-    || 'its money) name exactly these nine, and that sentence is the reason a service_role key '
+    || 'its money) and 0226 (a GitHub PR hands over a task, IT tasks on the Projects board) '
+    || 'name exactly these twelve, and that sentence is the reason a service_role key '
     || 'is allowed to exist here at all. Widening it is a decision to write down — in the '
     || 'migration and in this list — not a grant to add in passing.';
 
@@ -217,7 +229,9 @@ begin
                                   'ops_procure.answer_request','ops_procure.answer_batch',
                                   'ops_procure.approval_card',
                                   'ops_core.outbox_due','ops_core.outbox_delivered',
-                                  'ops_core.outbox_failed')
+                                  'ops_core.outbox_failed',
+                                  'ops_hr.github_pull_request','ops_hr.github_project_due',
+                                  'ops_hr.github_project_synced')
      and (has_function_privilege('authenticated', p.oid, 'EXECUTE')
        or has_function_privilege('anon', p.oid, 'EXECUTE'));
   assert n = 0,
@@ -227,7 +241,9 @@ begin
     || 'browser (0155). `answer_request` is the one that bit: it trusts its caller for the '
     || 'answerer''s address, so a browser caller could approve as anybody the card was sent to. '
     || '`answer_batch` and `approval_card` (0159) are the same trust over a whole meeting''s '
-    || 'list, and the card hands out the tokens as well.';
+    || 'list, and the card hands out the tokens as well. `github_pull_request` (0226) finishes '
+    || 'a task on the word of whoever calls it, so a browser caller could hand over anybody''s '
+    || 'task by claiming to be GitHub.';
 
   -- The other half: shut to people is only half the rule, and on its own it is
   -- satisfied by a deliverer nobody granted anything to.

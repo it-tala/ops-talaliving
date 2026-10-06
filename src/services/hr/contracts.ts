@@ -2774,3 +2774,27 @@ export interface LocatedTapView {
  *  payroll, the attendance week and the rule-book form all read this one
  *  constant. */
 export const PAY_WEEK_STARTS_DEFAULT = 5;
+
+/** A GitHub PR that named a task (0226, D382). Recorded whoever wrote it:
+ *  the holder's PR starts the task when opened and hands it over when merged
+ *  into the default branch. Anybody else's leaves the task open and HRD
+ *  decides. */
+export interface TaskPullRequest {
+  task_no: string;
+  /** `it-tala/ops-talaliving`. */
+  repo: string;
+  pr_number: number;
+  url: string;
+  title: string;
+  author_login: string;
+  /** The author's login is mapped to the task holder's account. */
+  by_assignee: boolean;
+  state: "open" | "merged" | "closed";
+  draft: boolean;
+  base_ref: string | null;
+  /** What it did to the task. */
+  effect: "none" | "started" | "delivered";
+  first_seen_at: string;
+  updated_at: string;
+  merged_at: string | null;
+}

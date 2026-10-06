@@ -22,6 +22,7 @@ import {
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
+import { TaskPrs, prsByTask } from "@/components/hr/task-prs";
 import { GoalBoardList, GoalProgress } from "@/components/hr/goal-parts";
 import { DailyLogTab } from "./daily-log";
 import { StaffBacklog } from "@/components/hr/backlog-staff";
@@ -498,6 +499,11 @@ function TasksTab({ me }: { me: ReturnType<typeof useLoad<Awaited<ReturnType<typ
     () => (linked ? hr.listGoals() : Promise.resolve({ data: [] })),
     [linked?.employee_no, tasks],
   );
+  const [prList] = useLoad(
+    () => (linked ? hr.listTaskPullRequests() : Promise.resolve({ data: [] })),
+    [linked?.employee_no, tasks],
+  );
+  const prs = prsByTask(prList.status === "ready" ? prList.data : undefined);
   const [busy, setBusy] = useState<string | null>(null);
   const [team, setTeam] = useState<string | null>(null);
 
@@ -591,6 +597,7 @@ function TasksTab({ me }: { me: ReturnType<typeof useLoad<Awaited<ReturnType<typ
         {t.deliverable && <p className="mt-0.5 text-[12px] text-slate-500">{tr("Deliverable:", "Diserahkan:")} {t.deliverable}</p>}
         {t.blocked_reason && t.status === "OPEN" && <p className="mt-0.5 text-[12px] text-amber-700">{tr("Blocked:", "Tertahan:")} {t.blocked_reason}</p>}
         {t.delivered_note && t.status === "DONE" && <p className="mt-0.5 text-[12px] text-emerald-800">{t.delivered_note}</p>}
+        <TaskPrs prs={prs.get(t.task_no)} open={t.status === "OPEN"} />
         {t.status === "OPEN" && (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {!t.acknowledged && (

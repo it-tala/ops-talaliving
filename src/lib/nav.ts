@@ -8,7 +8,7 @@ import {
   FolderKanban, Hammer, Truck, Wrench, Stamp, Package,
   PencilRuler, ListTree, ListChecks, CalendarClock, CalendarRange, Link2,
   Cpu, ScrollText, Activity, UserCog, KeyRound, HardDrive, Clock, Scale, Factory,
-  Settings, FlaskConical, MessagesSquare, Route, ShieldCheck, Gauge, MessageSquareOff, Database, Ruler, FolderTree, Tags, MonitorSmartphone, Building2, type LucideIcon,
+  Settings, FlaskConical, MessagesSquare, Route, ShieldCheck, Gauge, MessageSquareOff, Database, Ruler, FolderTree, Tags, MonitorSmartphone, Building2, GitPullRequest, type LucideIcon,
 } from "lucide-react";
 
 /** Menu sebagai DATA, bukan JSX.
@@ -218,6 +218,9 @@ export const NAV: NavSection[] = [
       /* Whether uploads can reach each shared drive's OPS folder (F173).
          `it.read` to look; the one write on it asks `it.manage_drives`. */
       { label: "Google Drive", labelKey: "googleDrive", href: "/it/drive", icon: HardDrive, permission: "it.read", badge: "new" },
+      /* Who is who on GitHub, what the PR webhook did, and the Projects board
+         (D382). `it.read` to look; mapping a login asks `it.manage_users`. */
+      { label: "GitHub", href: "/it/github", icon: GitPullRequest, permission: "it.read", badge: "new" },
     ],
   },
   {

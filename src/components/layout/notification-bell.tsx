@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Bell, CheckCheck, ClipboardList, Inbox, PackageCheck } from "lucide-react";
+import { Bell, CheckCheck, ClipboardList, GitPullRequest, Inbox, PackageCheck } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { identity } from "@/demo/api";
 import { subscribe } from "@/demo/store";
@@ -59,6 +59,24 @@ function Line({ n }: { n: AppNotification }) {
         {d.delivered_note ? (
           <span className="mt-0.5 block line-clamp-2 text-[12px] text-slate-600">“{String(d.delivered_note)}”</span>
         ) : null}
+      </>
+    );
+  }
+  if (n.kind === "task.github_pr") {
+    return (
+      <>
+        <span className="font-medium text-slate-800">{String(d.title ?? "")}</span>
+        <span className="block text-[12px] text-slate-500">
+          {d.merged ? tr("Merged PR", "PR di-merge") : "PR"} {String(d.repo ?? "")}#{String(d.number ?? "")}{" "}
+          {tr("by", "oleh")} @{String(d.author_login ?? "")}
+          {d.reason === "unmapped"
+            ? tr(" (login not mapped)", " (login belum dipetakan)")
+            : <> ({String(d.author_name ?? "")})</>}
+        </span>
+        <span className="block text-[12px] text-amber-700">
+          {tr(`Not from the holder (${String(d.assignee ?? "")}) — the task stays open. Decide: close it, or move it.`,
+              `Bukan dari pemegang tugas (${String(d.assignee ?? "")}) — tugas tetap terbuka. Putuskan: tutup, atau pindahkan.`)}
+        </span>
       </>
     );
   }
@@ -190,7 +208,7 @@ export function NotificationBell() {
             ) : (
               <ul className="divide-y divide-slate-100">
                 {rows.map((n) => {
-                  const Icon = n.kind === "task.delivered" ? PackageCheck : n.kind.startsWith("backlog.") ? Inbox : ClipboardList;
+                  const Icon = n.kind === "task.delivered" ? PackageCheck : n.kind === "task.github_pr" ? GitPullRequest : n.kind.startsWith("backlog.") ? Inbox : ClipboardList;
                   return (
                     <li key={n.id}>
                       <button type="button" onClick={() => void go(n)}

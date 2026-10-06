@@ -1,5 +1,6 @@
 import type {
   Session, User, ModuleGrant, Authority, ActivityEvent, ActivityDaily, AppSetting,
+  GithubDelivery,
 } from "@/services/identity/contracts";
 import type { AssistantTurn } from "@/services/assistant/contracts";
 import type {
@@ -28,7 +29,7 @@ import type {
   PayrollAdjustment, PayRuleSet, EmployeeDocument, LeaveRequest,
   AllowanceWithholding, ContributionRate, Enrolment, Task,
   EmploymentContract, ContractClause, ClauseChecklistItem, TaskRoutine, Goal, WorkLog,
-  EmployeeIdentity,
+  EmployeeIdentity, TaskPullRequest,
 } from "@/services/hr/contracts";
 import type {
   WorkOrder, ProgressEntry, WorkSlot, DailyTarget, VendorLeg, Product, BomComponent, BomRevision, BomRate, BomNorm,
@@ -108,6 +109,21 @@ export interface DemoBacklog {
   dropped_reason: string | null;
   dropped_by: string | null;
   dropped_at: string | null;
+}
+
+/** `ops_core.github_accounts` (0226). */
+export interface DemoGithubAccount {
+  github_login: string;
+  user_id: string;
+  linked_by: string | null;
+  linked_at: string;
+}
+
+/** `ops_hr.task_pull_requests` (0226), keyed by the task's id. */
+export interface DemoTaskPullRequest extends TaskPullRequest {
+  id: number;
+  task_id: string;
+  author_user_id: string | null;
 }
 
 /** One row of `ops_core.notifications` — the bell (0215, D374). */
@@ -420,6 +436,12 @@ export interface DemoState {
   notifications?: DemoNotification[];
   /** The daftar tunggu (D381). Optional so a saved demo from before it loads. */
   backlog?: DemoBacklog[];
+  /** GitHub (0226, D382): IT's login map, the deliveries the (simulated)
+   *  webhook took, and the PRs recorded on tasks. Optional so a saved demo
+   *  from before it loads. */
+  github_accounts?: DemoGithubAccount[];
+  github_deliveries?: GithubDelivery[];
+  task_pull_requests?: DemoTaskPullRequest[];
 
   /** The `core.doc_numbers` table: prefix + office day -> sequence.
    *  The database mints every identifier (ADR-005), and here the store is the
