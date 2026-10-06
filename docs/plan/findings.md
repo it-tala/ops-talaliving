@@ -9280,7 +9280,7 @@ MUSLIKHIN, DEWI) have fingerprint taps on 7–11 September and a `joined_on` of
 showed that HRD-typed start dates drift. That is HRD's to correct, not ours to
 infer from taps.
 
-## F221 · 2026-10-06 · The sales road was built and never walked, and the half the owner now asks for was never built
+## F224 · 2026-10-06 · The sales road was built and never walked, and the half the owner now asks for was never built
 
 The owner asked for the whole business to be recorded from the first proposal
 to closing or not, with the design items, drawings and renders from both TALA
