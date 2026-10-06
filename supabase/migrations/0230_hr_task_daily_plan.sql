@@ -1,4 +1,4 @@
--- 0229_hr_task_daily_plan.sql — rencana per hari, per tugas (D384).
+-- 0230_hr_task_daily_plan.sql — rencana per hari, per tugas (D384).
 --
 -- The owner, 2026-10-06: *"di setiap orang, jadikan tampilan task nya bukan
 -- hanya berisi daftar tugas — tapi isian free text per hari supaya mereka

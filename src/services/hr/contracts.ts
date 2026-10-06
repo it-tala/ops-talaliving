@@ -845,7 +845,7 @@ export interface GoalView {
   is_owner: boolean;
 }
 
-/** One day of a task's plan — `ops_hr.task_plan()` (0229, D384). Every day
+/** One day of a task's plan — `ops_hr.task_plan()` (0230, D384). Every day
  *  from today (or the first planned day) to the due date; `works` says
  *  whether it is a working day for the holder; `editable` is true only for
  *  the holder, on an open task, from today on. */

@@ -1,4 +1,4 @@
--- 229_hr_task_daily_plan.sql — rencana per hari, per tugas (D384).
+-- 230_hr_task_daily_plan.sql — rencana per hari, per tugas (D384).
 --
 -- Yang dibuktikan:
 --   • pemegang tugas menulis target per hari, dari hari ini sampai jatuh tempo;
