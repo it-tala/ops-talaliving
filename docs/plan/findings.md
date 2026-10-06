@@ -9279,3 +9279,53 @@ MUSLIKHIN, DEWI) have fingerprint taps on 7–11 September and a `joined_on` of
 28 September. The proration is only as true as `joined_on`, and F154 already
 showed that HRD-typed start dates drift. That is HRD's to correct, not ours to
 infer from taps.
+
+## F221 · 2026-10-06 · A day with no taps is not a day off, and a measure that cannot tell them apart scores nobody
+
+The daily log needed one fact the system did not obviously have: **on which
+days was this person expected to log?** The first answer reached for
+`timesheet().state` and counted every day not `off`. On the local ladder that
+returned zero working days for an office employee — every day of the month,
+Monday to Friday included, was `off`. `read_day` sets `state = 'off'` when
+there are **no taps at all**, which says nothing about whether the day was a
+working day. Used raw, it would have made every office account that does not
+tap unmeasurable forever, and quietly — the measure would have read *baru 0
+hari kerja* instead of failing.
+
+`scheduled_hours` was the second candidate and is wrong the other way: in
+production it reads 8,25 on Saturday and Sunday too, because the KANTOR
+pattern never marks its weekend days `off`. What payroll actually uses is
+`is_rest_day(rules_on(d), d)` — the week pattern (`5day` in production) and
+tanggal merah — so the measure uses exactly that, plus the person's own
+pattern's `off` flag, minus any day HRD marked. **One definition of a working
+day for pay and for assessment**: a person cannot be paid for a day as a
+working day and excused from it as a holiday, or the other way round.
+
+Three more things the build taught:
+
+- **"Has an account" is not "is staff".** The first roster listed everybody
+  with a login, and the walk showed Karjo — a floor worker whose whole app is
+  `/saya` (D331) — as *belum mengisi* every day, for a screen that account
+  cannot open. Production has the same shape: of nine linked logins, eight
+  hold modules and one (999, HELPER, daily) holds none. The line is
+  `owes_daily_log()`: a linked login **with at least one module**. The
+  owner's scope (*16 karyawan itu bukan staff*) turned out to have a precise
+  definition in the data.
+- **The assessment screen was never live.** `/hrd/kinerja` called `getKpi`,
+  which existed only in the demo; the real client had no such function and
+  the route stayed dark in production. *Pastikan ini bisa jadi dasar
+  penilaian* would have shipped a measure into a page nobody could open.
+  `kpi_board()` assembles the card from `kpi()` and `kpi_measures()` so the
+  arithmetic is not written a second time.
+- **A self-written record is only evidence if it cannot be backfilled.** The
+  rules that make the log fit for a review are structural, not advisory:
+  the seam takes the day from the office clock and the person from the
+  account link, and there is no argument for either. There is no write
+  policy on the table at all, so the seam is the only road in.
+- **A free number on `main` is not a free number.** This migration was
+  written as `0213` because `main` ended at `0212` — and production already
+  carried `0213_hr_payroll_sheet_types_totals`, applied from another
+  session's branch (`claude/vigilant-gates-fnfxz9`, `0213_hr_payroll_sheet.sql`)
+  that had not merged yet. Renamed `0214` before applying. Before choosing a
+  number, read `supabase_migrations.schema_migrations` in production and the
+  migration folders of the open branches, not only `main`.

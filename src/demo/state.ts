@@ -27,7 +27,7 @@ import type {
   Employee, AttendanceScan, WorkSite, LocationVerdict, DayMark, OvertimeSheet, OvertimeLine, PayrollRun, PayComponents,
   PayrollAdjustment, PayRuleSet, EmployeeDocument, LeaveRequest,
   AllowanceWithholding, ContributionRate, Enrolment, Task,
-  EmploymentContract, ContractClause, ClauseChecklistItem, TaskRoutine, Goal,
+  EmploymentContract, ContractClause, ClauseChecklistItem, TaskRoutine, Goal, WorkLog,
   EmployeeIdentity,
 } from "@/services/hr/contracts";
 import type {
@@ -260,6 +260,9 @@ export interface DemoState {
   task_routines: TaskRoutine[];
   /** The results tasks are parts of, ranked among the open ones (D367). */
   goals: Goal[];
+  /** What each person actually did, day by day — written by them, today only
+   *  (D371). */
+  work_log: WorkLog[];
   /** The dimensions WLKP counts people by — date of birth, sex, education,
    *  citizenship, disability, marital status (D304). Its own table, not columns
    *  on `employees`, because `employees` is readable by every payroll account

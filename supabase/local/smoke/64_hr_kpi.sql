@@ -8,7 +8,7 @@
 --          (67x25 + 88x25 + 67x50) / 100      -> 72
 --
 --   Satpam jam masuknya belum ditetapkan      -> null, BUKAN 100% (F109)
---          1 dari 3 ukuran                    -> tidak ada nilai gabungan
+--          1 dari 4 ukuran                    -> tidak ada nilai gabungan
 --
 -- The whole file is D261: a figure nobody can check is worse than no figure,
 -- so every measure carries its basis, a thin one is null rather than
@@ -137,7 +137,7 @@ begin
                   ops_core.office_day() - 10, ops_core.office_day());
   assert c.measured_count = 1, 'only attendance, got ' || c.measured_count;
   assert c.score is null,      'so no score, got ' || c.score;
-  assert c.score_reason like '%Baru 1 dari 3 ukuran%', 'and it explains itself: ' || c.score_reason;
+  assert c.score_reason like '%Baru 1 dari 4 ukuran%', 'and it explains itself: ' || c.score_reason;
 end $$;
 
 /* ── DERIVATION: production work is shown, attributed, never scored ────── */
