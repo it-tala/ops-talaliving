@@ -1,5 +1,5 @@
 /** Design contracts — a project's collections, rooms and design items, their
- *  files and the client's approval (`ops_procure`, 0221, P4).
+ *  files and the client's approval (`ops_procure`, 0222, P4).
  *
  *  The order is the drafters' own: client → project → collection / catalogue →
  *  room → item (D379). An item is what is drawn and offered before anything is
@@ -107,7 +107,7 @@ export interface DesignItemView {
   approval_by: string | null;
   status: DesignItemStatus;
   /** The latest quotation sent with the item, and what it was offered at
-   *  (0224). */
+   *  (0225). */
   quote_no: string | null;
   quote_status: string | null;
   quoted_unit_price: number | null;

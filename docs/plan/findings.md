@@ -9504,7 +9504,7 @@ marketing-only account cannot remove a line from a draft quotation until then.
 says `delete` (or `drop`, `truncate`) in a part of its own, so the rest is not
 held with it.
 
-## F227 · 2026-10-06 · An item's status is its files, and the newest row needs a clock that moves
+## F228 · 2026-10-06 · An item's status is its files, and the newest row needs a clock that moves
 
 P4 (kajian F224) built the drafters' order (D379): collection → room → design
 item, with the item's files and the client's approval (D378). Three things the
@@ -9546,7 +9546,12 @@ RUANGAN` / `TANPA ITEM` rather than filing loose in the project.
 **Rule:** a column that orders append-only rows defaults to
 `clock_timestamp()`, not `now()`.
 
-## F228 · 2026-10-06 · Replacing a view drops what it was told, and a meeting is lines, not a paragraph
+*Renumbered the same day:* this work was written as `0220`/`0221` and F227.
+Another branch's `0220` (the task backlog, D381) and its F227 reached
+production and the plan first, so this became `0221`/`0222` and F228 before
+anything of it was applied.
+
+## F229 · 2026-10-06 · Replacing a view drops what it was told, and a meeting is lines, not a paragraph
 
 P3 (kajian F224 §4.2, G5) turned the meeting from one `summary` into who was
 there, the minutes as lines, and its files. Three things the build taught.
@@ -9555,9 +9560,9 @@ there, the minutes as lines, and its files. Three things the build taught.
 four columns at its end (attendees, minute lines, open lines, files). The
 smoke then found a drafter reading the whole sales log: replacing the view had
 dropped its options, so it read with its owner's rights and RLS on
-`client_activities` no longer applied. `0223` sets `security_invoker` again
-right after the replacement. Nothing in production was exposed — `0223` was
-never applied without it — and the `create or replace view`s of `0210`–`0223`
+`client_activities` no longer applied. `0224` sets `security_invoker` again
+right after the replacement. Nothing in production was exposed — `0224` was
+never applied without it — and the `create or replace view`s of `0210`–`0224`
 were checked the same way (each sets it again, or says it inline).
 
 **A refused line must take its meeting with it.** A meeting with attendees and
@@ -9588,7 +9593,7 @@ in the same file.
 **Rule:** a seam that writes a parent and its lines checks the lines against
 the parent inside one block, and a refused line rolls the parent back.
 
-## F229 · 2026-10-06 · Until there are revisions, the drawing a price rests on is a file, and it is frozen like the cost
+## F230 · 2026-10-06 · Until there are revisions, the drawing a price rests on is a file, and it is frozen like the cost
 
 P5 (kajian F224 G9, G14) linked a quotation line to the design item it
 offers. The kajian named the column `frozen_design_rev`; there is no design
@@ -9603,10 +9608,10 @@ numbers revisions, the frozen file is the one a revision points at.
 
 **The newest of rows written together is chance.** The smoke filed two renders
 in one transaction and read the first as the latest: `attachment_links.linked_at`
-is `now()`, the transaction's start, the same tie F227 found for approvals.
+is `now()`, the transaction's start, the same tie F228 found for approvals.
 Real uploads are separate transactions, so the smoke backdates the first file
 rather than the code inventing an order that does not exist. The rule from
-F227 stands for tables this work owns; `attachment_links` is not one of them.
+F228 stands for tables this work owns; `attachment_links` is not one of them.
 
 **A status that moves on must not lose what it counted.** The item's status
 gained QUOTED and ORDERED (read from quotation and order lines, A3), ahead of

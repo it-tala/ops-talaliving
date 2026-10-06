@@ -206,7 +206,7 @@ function NewActivity({
       follow_up_on: f.follow_up_on || null, next_action: f.next_action || null,
     };
     /* With attendees or minutes it is one call that writes all or nothing
-       (0223); without, the log's own seam as before. A line left half
+       (0224); without, the log's own seam as before. A line left half
        filled is sent as it is, and refused by name — never dropped. */
     const who = isMeeting ? attendees : [];
     const lines = points;

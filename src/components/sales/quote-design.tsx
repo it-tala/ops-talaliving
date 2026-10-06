@@ -11,7 +11,7 @@ import type { QuotationLineView } from "@/services/quotation/contracts";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 
-/** The drawings a price can rest on (0224): ours, or the client's own. */
+/** The drawings a price can rest on (0225): ours, or the client's own. */
 const PRICED_DRAWING_KINDS = ["Render", "Layout / Floor Plan", "Gambar Kerja", "Client Drawing"];
 
 /** A project's design items that can still be offered: not dropped. */
@@ -29,7 +29,7 @@ export function useOfferableItems(projectCode: string | null | undefined) {
 }
 
 /** Pick design items to offer; one line each, named and sized from the item
- *  (0224). Items already on the quotation are shown, not offered twice. */
+ *  (0225). Items already on the quotation are shown, not offered twice. */
 export function QuoteFromDesign({
   quoteNo, items, onLines, onDone, onCancel,
 }: {

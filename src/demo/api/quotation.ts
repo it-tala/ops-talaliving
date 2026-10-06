@@ -89,7 +89,7 @@ function lineView(state: DemoState, q: Quotation, l: QuotationLine, see: boolean
   };
 }
 
-/** The design item a line offers and the drawing it rests on (0224). */
+/** The design item a line offers and the drawing it rests on (0225). */
 function designOf(state: DemoState, q: Quotation, l: QuotationLine) {
   const item = l.design_item_id ? state.design_items.find((i) => i.id === l.design_item_id) : undefined;
   const room = item ? state.design_rooms.find((r) => r.id === item.room_id) : undefined;
@@ -511,7 +511,7 @@ export async function decideQuotation(
   return ok(SERVICE, { quotation: view(q.quote_no)!, order_lines_added: added });
 }
 
-/* ── the design a line offers (0224, P5) ─────────────────────────────── */
+/* ── the design a line offers (0225, P5) ─────────────────────────────── */
 
 function designInvalid(state: DemoState, q: Quotation, itemNo: string, fileId?: string | null): Result<never> | null {
   const item = state.design_items.find((i) => i.item_no === itemNo.trim());

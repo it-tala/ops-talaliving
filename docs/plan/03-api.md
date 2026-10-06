@@ -241,7 +241,7 @@ Order lines stay `project.update`; cost and margin on a quotation stay with
 `expected_value`, `expected_close_on`, `days_in_status`, `current_quote_*` and,
 while LOST or CANCELLED, `closing_reason_code`, `closing_reason`, `closed_at`.
 
-### Projects — design (P4, 0221)
+### Projects — design (P4, 0222)
 
 The drafters' order (D379): a project's **collections** (a unit type, a
 catalogue, a floor), their **rooms**, and the **design items** in them.
@@ -266,9 +266,9 @@ moodboard, layout, client drawing/reference, working and finished drawing,
 drawing/reference), and are filed in DRAFTING under
 `<client>/<project>/KOLEKSI <code> <name>/<room>/<item_no> <name>` or
 `…/KOLEKSI <code> <name>/00 KOLEKSI` (tokens `{COLLECTION}` `{ROOM}` `{ITEM}`,
-0221). A collection's `entity_no` is `<project code>-<collection code>`.
+0222). A collection's `entity_no` is `<project code>-<collection code>`.
 
-### Projects — quotation ↔ design (P5, 0224)
+### Projects — quotation ↔ design (P5, 0225)
 
 | Method | Path | Notes |
 |---|---|---|
@@ -287,7 +287,7 @@ statuses `QUOTED` and `ORDERED` and columns `quote_no`, `quote_status`,
 `quoted_unit_price`, `ordered`; its `product_code` falls back to the order
 line's.
 
-### Projects — meetings (P3, 0223)
+### Projects — meetings (P3, 0224)
 
 The client log (0134) stays the one log of contact. Any entry can carry
 **attendees** (meetings and visits only), **minutes as lines**, and **files**.

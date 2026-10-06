@@ -1,4 +1,4 @@
--- 0223_procure_meetings.sql — a meeting recorded in full: who was there, what
+-- 0224_procure_meetings.sql — a meeting recorded in full: who was there, what
 -- was decided, what the client asked to change, who does what next, and its
 -- files (P3, kajian F224 §4.2, G5, G12).
 --
@@ -15,7 +15,7 @@
 --                      (P4) and at the person who does it, by a date; closed
 --                      once done, with what came of it
 --
--- and files filed against the entry (0222), in a folder of the meeting:
+-- and files filed against the entry (0223), in a folder of the meeting:
 -- `<client>/<project>/04 MEETING/<date> <kind>` in PROJECT MANAGER for the
 -- minutes, survey photos and brief; `<client>/<project>/00 DARI KLIEN/<date>
 -- <kind>` in DRAFTING for the client's drawings and references.
@@ -25,7 +25,7 @@
 -- Closing a point is the one change, once, with who and when.
 --
 -- Who: the log is the sellers' (`may_sell`, D375). Points are also read and
--- closed by the drafters (`may_design`, 0221): a revision request is their
+-- closed by the drafters (`may_design`, 0222): a revision request is their
 -- work. They read the point and its item, not the rest of the sales log.
 --
 -- For the production tool (F226): no drops, and no function body here removes
@@ -68,7 +68,7 @@ create table ops_procure.meeting_points (
   closed_note     text,
   created_by      uuid references ops_core.users(id),
   -- clock_timestamp, not now(): points written in one call keep their order
-  -- (F227).
+  -- (F228).
   created_at      timestamptz not null default clock_timestamp(),
   constraint only_work_closes check (closed_at is null or kind in ('revision','action')),
   constraint due_after_meeting check (due_on is null or due_on >= happened_on),
@@ -481,7 +481,7 @@ end $$;
 
 comment on function ops_core.drive_path_for_record(ops_core.doc_kind_t, text, text, date) is
   'drive_path_for, with {CLIENT}, {PROJECT}, {COLLECTION}, {ROOM}, {ITEM} and {MEETING} read from the record '
-  'the file is filed against (TANPA … where it says nothing). (0217, 0221, 0223)';
+  'the file is filed against (TANPA … where it says nothing). (0217, 0222, 0224)';
 
 insert into ops_core.drive_paths (kind, entity, path, note) values
   -- PROJECT MANAGER: the meeting's own paper.

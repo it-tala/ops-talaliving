@@ -92,7 +92,7 @@ export async function completeFollowUp(activityId: string, result?: string | nul
   return one(activityId);
 }
 
-/* ── a meeting in full (0223, P3) ─────────────────────────────────────────── */
+/* ── a meeting in full (0224, P3) ─────────────────────────────────────────── */
 
 const attendeesArg = (xs?: MeetingAttendeeInput[]) => (xs && xs.length ? xs : null);
 const pointsArg = (xs?: MeetingPointInput[]) => (xs && xs.length ? xs : null);

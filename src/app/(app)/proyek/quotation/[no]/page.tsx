@@ -364,7 +364,7 @@ const termsOf = (q: QuotationView) => ({
 interface LineDraft {
   product_code: string; description: string; qty: number; uom: string; lead: string;
   manual_cost: string; mkt: string; ovh: string; mrg: string; price: string; note: string;
-  /** The design item and the pinned drawing (0224); empty for none / latest. */
+  /** The design item and the pinned drawing (0225); empty for none / latest. */
   item_no: string; file_id: string;
 }
 
@@ -402,7 +402,7 @@ function Lines({
       marketing_pct: num(d.mkt), overhead_pct: num(d.ovh), margin_pct: num(d.mrg),
       unit_price_override: num(d.price), note: d.note || null,
     });
-    /* The design item goes through its own seam (0224), so the line's own
+    /* The design item goes through its own seam (0225), so the line's own
        save keeps the signature the running app calls. */
     const before = id ? rows.find((l) => l.id === id) : undefined;
     if (!res.error && ((before?.design_item_no ?? "") !== d.item_no || (before?.line_design_file_id ?? "") !== d.file_id)) {

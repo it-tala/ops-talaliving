@@ -306,7 +306,7 @@ function ApprovalForm({
 }
 
 /** Every quotation that offered the item, and the drawing each was priced
- *  on (0224, P5). */
+ *  on (0225, P5). */
 function ItemQuotes({ itemNo, refresh }: { itemNo: string; refresh: string }) {
   const tr = useTr();
   const [state, reload] = useLoad(() => quotation.listQuotationLinesForItem(itemNo), [itemNo, refresh]);

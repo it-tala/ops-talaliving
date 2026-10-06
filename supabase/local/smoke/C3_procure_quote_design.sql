@@ -1,5 +1,5 @@
 -- procure — a quotation line offers a design item, priced on a drawing that
--- is frozen when it goes out (0224, P5, kajian F224 G9, G14).
+-- is frozen when it goes out (0225, P5, kajian F224 G9, G14).
 --
 -- DERIVATIONS  design items become lines named and sized from the item, once
 --              each; a draft line prices the item's latest drawing unless one

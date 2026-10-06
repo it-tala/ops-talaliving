@@ -1,4 +1,4 @@
-/** A project's design in the demo — the same rules as 0221's seams, over the
+/** A project's design in the demo — the same rules as 0222's seams, over the
  *  store. Stamped `procurement`; checked like `may_design`: project or
  *  marketing (who sells, D375) or production (the drafters).
  */
@@ -35,7 +35,7 @@ function itemView(state: DemoState, i: DemoDesignItem): DesignItemView {
     .filter((a) => a.item_id === i.id)
     .sort((a, b) => b.recorded_at.localeCompare(a.recorded_at))[0];
   const drawn = links.some((l) => DRAWN_KINDS.includes(l.kind));
-  /* P5 (0224): the latest quotation that went out with it, and the order. */
+  /* P5 (0225): the latest quotation that went out with it, and the order. */
   const quoted = state.quotation_lines
     .filter((l) => l.design_item_id === i.id)
     .map((l) => ({ l, q: state.quotations.find((x) => x.id === l.quotation_id)! }))

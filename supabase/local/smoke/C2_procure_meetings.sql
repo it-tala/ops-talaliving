@@ -1,5 +1,5 @@
 -- procure — a meeting recorded in full: attendees, minutes as lines, and its
--- files (0222, 0223, P3, kajian F224 §4.2).
+-- files (0223, 0224, P3, kajian F224 §4.2).
 --
 -- DERIVATIONS  a meeting carries TALA's people as accounts and the client's
 --              as names; its minutes are numbered lines, a revision request

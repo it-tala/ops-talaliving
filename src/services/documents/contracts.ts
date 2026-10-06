@@ -77,7 +77,7 @@ export const DOC_KINDS = [
   "Proposal",
   "Meeting Notes",
   "Contract / SPK",
-  /** The client's yes to a design — a screenshot, a signed print (0221, D378). */
+  /** The client's yes to a design — a screenshot, a signed print (0222, D378). */
   "Client Approval",
   "Others",
 ] as const;
@@ -190,12 +190,12 @@ export type LinkEntity =
   /** A quotation, by its `qt-…` number — the proposal sent with it, the signed copy. */
   | "quotation"
   /** A design item, by its number `26007-A-LR-01` — its renders, the client's
-   *  drawing, the approval (0221, P4). */
+   *  drawing, the approval (0222, P4). */
   | "design_item"
   /** A collection, by `<project>-<code>` (`26007-A`) — its moodboard. */
   | "design_collection"
   /** An entry of the client log, by its id — a meeting's minutes, the
-   *  whiteboard photo, the sketch the client handed over (0223, P3). */
+   *  whiteboard photo, the sketch the client handed over (0224, P3). */
   | "client_activity";
 
 /** Who made a file (0217): us, the client, or somebody the client brought —

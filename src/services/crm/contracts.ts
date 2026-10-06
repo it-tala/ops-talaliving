@@ -53,7 +53,7 @@ export interface ClientActivityView {
   created_by_name: string | null;
   follow_up_done_by_name: string | null;
   created_at: string;
-  /** What the entry carries (0223, P3): who was there, the minutes as lines,
+  /** What the entry carries (0224, P3): who was there, the minutes as lines,
    *  how many of those are still to be done, and its files. */
   attendee_count: number;
   point_count: number;
@@ -117,7 +117,7 @@ export interface ClientActivity {
   created_at: string;
 }
 
-/* ── a meeting in full (0223, P3) ─────────────────────────────────────────── */
+/* ── a meeting in full (0224, P3) ─────────────────────────────────────────── */
 
 /** Whose side an attendee was on. TALA's people are accounts; everybody else
  *  is a name. */

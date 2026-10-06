@@ -19,7 +19,7 @@ const inputCls = "h-8 w-full rounded-lg border border-slate-200 bg-white px-2 te
 
 /** A project's design, in the order the drafters work (D379): collection →
  *  room → item. Every item carries its own files and the client's approval;
- *  its status is read from them (0221). */
+ *  its status is read from them (0222). */
 export function DesignBoard({ projectCode, canEdit }: { projectCode: string; canEdit: boolean }) {
   const tr = useTr();
   const [state, reload] = useLoad(() => design.getProjectDesign(projectCode), [projectCode]);

@@ -1,4 +1,4 @@
--- 0224_procure_quote_design.sql — a quotation line offers a design item, and
+-- 0225_procure_quote_design.sql — a quotation line offers a design item, and
 -- its price is locked to the drawing it was based on (P5, kajian F224 §4.3,
 -- G9, G14).
 --
@@ -137,7 +137,7 @@ select
        then coalesce(x.unit_price_override,
                      ops_procure.quote_price(x.unit_cost_x, x.eff_marketing_pct, x.eff_overhead_pct, x.eff_margin_pct))
        else x.frozen_unit_price end                          as unit_price,
-  -- P5 (0224): the design item the line offers, and the drawing its price is
+  -- P5 (0225): the design item the line offers, and the drawing its price is
   -- based on — the line's choice or the item's latest while a draft, frozen
   -- once sent. `design_changed`: the item has been drawn again since.
   di.item_no                                                 as design_item_no,
@@ -162,7 +162,7 @@ left join ops_procure.design_items di on di.id = x.design_item_id
 left join ops_procure.design_rooms dr on dr.id = di.room_id
 left join ops_procure.design_collections dc on dc.id = dr.collection_id
 left join ops_core.attachments fa on fa.id = d.eff_file;
--- `create or replace view` drops the view's options (F228).
+-- `create or replace view` drops the view's options (F229).
 alter view ops_procure.v_quotation_line set (security_invoker = on);
 
 
@@ -170,7 +170,7 @@ create or replace view ops_procure.v_design_item as
 select
   i.id, i.item_no, i.seq, i.name, i.qty, i.length_mm, i.width_mm, i.height_mm,
   i.origin,
-  -- The product it became: set on the item, or the order line's (0224).
+  -- The product it became: set on the item, or the order line's (0225).
   coalesce(i.product_code, od.product_code) as product_code,
   i.note, i.dropped_at, i.drop_reason, i.created_at, i.updated_at,
   r.code  as room_code,  r.name as room_name, r.sort as room_sort,
@@ -192,7 +192,7 @@ select
     when coalesce(f.drawn, 0) > 0       then 'DRAWN'
     else 'CONCEPT'
   end as status,
-  -- P5 (0224): the latest quotation sent with the item, and whether an order
+  -- P5 (0225): the latest quotation sent with the item, and whether an order
   -- line carries it.
   qt.quote_no      as quote_no,
   qt.quote_status  as quote_status,
@@ -230,7 +230,7 @@ left join lateral (
    where pl.design_item_id = i.id
   having count(*) > 0
 ) od on true;
--- `create or replace view` drops the view's options (F228).
+-- `create or replace view` drops the view's options (F229).
 alter view ops_procure.v_design_item set (security_invoker = on);
 
 
@@ -390,7 +390,7 @@ grant execute on function ops_procure.set_quotation_line_design(text, uuid, text
 
 -- ── 5. send freezes the drawing; a revision and the order carry the item ──
 --
--- The three bodies are 0219's, with only the lines marked (0224) added.
+-- The three bodies are 0219's, with only the lines marked (0225) added.
 
 CREATE OR REPLACE FUNCTION ops_procure.send_quotation(p_quote_no text)
  RETURNS jsonb
@@ -434,7 +434,7 @@ begin
     frozen_unit_cost = v.unit_cost_raw, frozen_cost_source = v.cost_source_raw, frozen_bom_rev = v.bom_rev,
     frozen_marketing_pct = v.mkt, frozen_overhead_pct = v.ovh, frozen_margin_pct = v.mrg,
     frozen_unit_price = coalesce(l.unit_price_override, ops_procure.quote_price(v.unit_cost_raw, v.mkt, v.ovh, v.mrg)),
-    -- The drawing goes with the price (0224, G14).
+    -- The drawing goes with the price (0225, G14).
     frozen_design_file_id = coalesce(l.design_file_id, ops_procure.latest_design_file(l.design_item_id))
   from (
     select l2.id,
@@ -547,7 +547,7 @@ begin
   select * into pr from ops_procure.projects where id = q.project_id;
   if p_accepted then
     select coalesce(max(line_no), 0) into v_next from ops_procure.project_lines where project_id = pr.id;
-    -- The design item and the drawing it was priced on go to the order (0224).
+    -- The design item and the drawing it was priced on go to the order (0225).
     insert into ops_procure.project_lines (project_id, line_no, product_code, description, qty, uom, unit_price,
                                            note, quotation_line_id, design_item_id, design_file_id)
     select pr.id, v_next + row_number() over (order by l.line_no), l.product_code, l.description, l.qty, l.uom,

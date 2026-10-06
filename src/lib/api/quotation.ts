@@ -223,7 +223,7 @@ export async function decideQuotation(
   return ok(SERVICE, { quotation: head.data, order_lines_added: n(res.data.order_lines_added) });
 }
 
-/* ── the design a line offers (0224, P5) ─────────────────────────────── */
+/* ── the design a line offers (0225, P5) ─────────────────────────────── */
 
 /** One line per design item, named and sized from it; items already on the
  *  quotation are left as they are. */

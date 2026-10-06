@@ -147,7 +147,7 @@ export interface QuotationLineView {
   line_marketing_pct: number | null;
   line_overhead_pct: number | null;
   line_margin_pct: number | null;
-  /* P5 (0224): the design item the line offers, where it sits, and the
+  /* P5 (0225): the design item the line offers, where it sits, and the
      drawing its price rests on — the line's pick or the item's latest while a
      draft, frozen once sent. */
   design_item_no: string | null;
@@ -239,7 +239,7 @@ export interface QuotationLine {
   frozen_margin_pct: number | null;
   frozen_unit_price: number | null;
   /** The design item it offers, the drawing pinned, and the one frozen at
-   *  send (0224). */
+   *  send (0225). */
   design_item_id?: string | null;
   design_file_id?: string | null;
   frozen_design_file_id?: string | null;

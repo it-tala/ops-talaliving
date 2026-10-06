@@ -143,7 +143,7 @@ export interface DemoState {
      *  it is what stops an accepted quotation being ordered twice. */
     quotation_line_id?: string | null;
     /** The design item it was ordered as and the drawing it was priced on,
-     *  carried from the accepted quotation line (0224) — read through the
+     *  carried from the accepted quotation line (0225) — read through the
      *  item's status, not shown on the order. */
     design_item_id?: string | null;
     design_file_id?: string | null;
@@ -157,10 +157,10 @@ export interface DemoState {
   quotation_lines: QuotationLine[];
   /** What was said to each client, and what to do next (0134). */
   client_activities: ClientActivity[];
-  /** A meeting in full (0223, P3): who was there, and the minutes as lines. */
+  /** A meeting in full (0224, P3): who was there, and the minutes as lines. */
   meeting_attendees: MeetingAttendeeRow[];
   meeting_points: MeetingPointRow[];
-  /** A project's design (0221, P4): collections, rooms, items, approvals. */
+  /** A project's design (0222, P4): collections, rooms, items, approvals. */
   design_collections: DemoDesignCollection[];
   design_rooms: DemoDesignRoom[];
   design_items: DemoDesignItem[];
@@ -436,7 +436,7 @@ export type DemoReceivingInbox = Omit<ReceivingInboxRow, "files" | "resolved_by_
 };
 
 
-/* ── a project's design (0221) — the tables, as the demo stores them ── */
+/* ── a project's design (0222) — the tables, as the demo stores them ── */
 export interface DemoDesignCollection {
   id: string; project_id: string; code: string; name: string; note: string | null; created_at: string;
 }

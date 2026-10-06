@@ -1,4 +1,4 @@
-/** The sandbox's copy of `ops_procure.latest_design_file` (0224): the newest
+/** The sandbox's copy of `ops_procure.latest_design_file` (0225): the newest
  *  drawing filed on a design item — ours or the client's own — that a price
  *  can rest on. A moodboard is not one. */
 import type { DemoState } from "./state";
