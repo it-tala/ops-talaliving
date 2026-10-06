@@ -9279,3 +9279,41 @@ MUSLIKHIN, DEWI) have fingerprint taps on 7–11 September and a `joined_on` of
 28 September. The proration is only as true as `joined_on`, and F154 already
 showed that HRD-typed start dates drift. That is HRD's to correct, not ours to
 infer from taps.
+
+## F221 · 2026-10-06 · The sales road was built and never walked, and the half the owner now asks for was never built
+
+The owner asked for the whole business to be recorded from the first proposal
+to closing or not, with the design items, drawings and renders from both TALA
+and the client. Reading the code and production side by side (kajian:
+`docs/analysis/2026-10-06-proyek-dari-proposal-sampai-closing.md`) gave two
+answers that point in opposite directions.
+
+**The road exists and is empty.** Clients (`0111`), project status with its
+log, quotations with revisions and a printed offer (`0133`), the client contact
+log with follow-ups (`0134`), and the automatic moves `QUOTATION_SENT → DEAL →
+IN_PRODUCTION → SHIPPED → DONE` are all live. Production holds **0 clients, 0
+quotations, 0 contact rows, 0 order lines**, and five projects with no client
+and no contract value. Nothing here is waiting on code; it is waiting on use.
+
+**The design half was never there.** Drawings belong to a *product* (D150),
+and a product exists only after an order, so a proposal has no place for its
+items, a render has no kind of its own (`gambar_jadi` is labelled *Finished
+drawing* on one screen and *Finished photo* on another), a client's drawing has
+no kind, no origin and no record to hang on, and nothing says the client
+approved a design. The drafters' queue (M30, D179) is DONE on the board and
+demo-only in fact: no table, no live function. And the PROJECT MANAGER drive
+has no `drive_id` in production, so even BAST and site photos cannot reach
+Drive today.
+
+**Rule:** a milestone that is DONE on demo data is not DONE for the owner until
+the board says which half is live. M30 read as finished for three weeks.
+
+**Rule:** before building more of a road, check whether anyone has driven the
+part that exists. A quotation module with zero quotations is a question for
+the owner (who enters them, from when), not a missing feature.
+
+**Rule:** files belong to the thing they describe *at the time they exist*.
+A render exists before the product does, so it cannot be filed against the
+product. That is why the kajian proposes a per-project design item as the
+spine, which becomes a quotation line, an order line, a product and a Job
+Order in turn.
