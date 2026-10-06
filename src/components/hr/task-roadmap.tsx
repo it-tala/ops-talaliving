@@ -96,9 +96,14 @@ function cascade(bars: Bar[], today: string): Bar[] {
   return [...map.values()];
 }
 
+const isDaily = (t: TaskView) => t.routine_cadence === "DAILY";
+
 type Row =
   | { kind: "lane"; key: string; title: string; sub: string; target: string | null; rank: number | null; late: boolean }
-  | { kind: "task"; key: string; bar: Bar };
+  | { kind: "task"; key: string; bar: Bar }
+  /* One row per daily routine, one cell per day (D383): a bar per morning
+     would bury every other line on the chart. */
+  | { kind: "daily"; key: string; title: string; person: string; cells: TaskView[] };
 
 export function TaskRoadmap({
   tasks, goals, backlog,
@@ -115,8 +120,20 @@ export function TaskRoadmap({
   const [picked, setPicked] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
+  const dailyRows = useMemo(() => {
+    const by = new Map<string, TaskView[]>();
+    for (const t of tasks) {
+      if (!isDaily(t) || t.status === "CANCELLED" || !t.routine_no) continue;
+      by.set(t.routine_no, [...(by.get(t.routine_no) ?? []), t]);
+    }
+    return [...by.entries()].map(([no, cells]) => ({
+      kind: "daily" as const, key: `d:${no}`, title: cells[0].title,
+      person: cells[0].assignee_name, cells,
+    })).sort((a, b) => a.person.localeCompare(b.person) || a.title.localeCompare(b.title));
+  }, [tasks]);
+
   const bars = useMemo(() => cascade(tasks
-    .filter((t) => t.status !== "CANCELLED")
+    .filter((t) => t.status !== "CANCELLED" && !isDaily(t))
     .filter((t) => showDone || t.status === "OPEN"
       || (t.done_at !== null && diff(dayOf(t.done_at)!, today) <= 14))
     .map(barOf), today), [tasks, showDone, today]);
@@ -152,24 +169,33 @@ export function TaskRoadmap({
                    target: null, rank: null, late: false });
         for (const b of loose.sort(sortBars)) out.push({ kind: "task", key: b.t.task_no, bar: b });
       }
+      if (dailyRows.length > 0) {
+        out.push({ kind: "lane", key: "g:daily", title: tr("Daily routines", "Tugas rutin harian"),
+                   sub: tr("one row per routine, one cell per working day", "satu baris per rutin, satu kotak per hari kerja"),
+                   target: null, rank: null, late: false });
+        out.push(...dailyRows);
+      }
     } else {
       const byPerson = new Map<string, Bar[]>();
       for (const b of bars) byPerson.set(b.t.assignee_name, [...(byPerson.get(b.t.assignee_name) ?? []), b]);
+      for (const d of dailyRows) if (!byPerson.has(d.person)) byPerson.set(d.person, []);
       for (const [name, list] of [...byPerson.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
         const open = list.filter((b) => b.t.status === "OPEN").length;
         out.push({ kind: "lane", key: `p:${name}`, title: name,
                    sub: tr(`${open} open`, `${open} terbuka`), target: null, rank: null, late: false });
+        out.push(...dailyRows.filter((d) => d.person === name));
         for (const b of [...list].sort(sortBars)) out.push({ kind: "task", key: b.t.task_no, bar: b });
       }
     }
     return out;
-  }, [bars, goals, group, tr]);
+  }, [bars, dailyRows, goals, group, tr]);
 
   /* The window: everything drawn, plus a margin, never less than eight weeks
      around today and never more than a year. */
   const [from, to] = useMemo(() => {
     const dates = [today, ...bars.flatMap((b) => [b.start, b.end]),
-      ...rows.flatMap((r) => (r.kind === "lane" && r.target ? [r.target] : []))];
+      ...rows.flatMap((r) => (r.kind === "lane" && r.target ? [r.target] : [])),
+      ...dailyRows.flatMap((d) => d.cells.map((c) => c.due_date)).filter((d) => diff(d, today) <= 30)];
     let lo = dates.reduce((m, d) => (d < m ? d : m), today);
     let hi = dates.reduce((m, d) => (d > m ? d : m), today);
     lo = addDays(lo, -3); hi = addDays(hi, 10);
@@ -178,7 +204,7 @@ export function TaskRoadmap({
     if (diff(lo, hi) > 366) lo = addDays(hi, -366);
     if (zoom === "quarter") lo = `${lo.slice(0, 7)}-01`;
     return [lo, hi];
-  }, [bars, rows, today, zoom]);
+  }, [bars, rows, dailyRows, today, zoom]);
 
   const px = PX[zoom];
   const days = diff(from, to) + 1;
@@ -291,6 +317,12 @@ export function TaskRoadmap({
                   <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-slate-800" title={`${r.title} — ${r.sub}`}>{r.title}</span>
                   {r.late && <Badge tone="red">{tr("late", "lewat")}</Badge>}
                 </div>
+              ) : r.kind === "daily" ? (
+                <div key={r.key} className="flex items-center gap-1.5 border-b border-slate-100 px-3 pl-5" style={{ height: ROW }}>
+                  <span className="min-w-0 flex-1 truncate text-[12px] text-slate-700" title={r.title}>{r.title}</span>
+                  <span className="shrink-0 rounded bg-slate-100 px-1 text-[10px] text-slate-500">{tr("daily", "harian")}</span>
+                  {group === "goal" && <span className="shrink-0 truncate text-[11px] text-slate-400" style={{ maxWidth: 64 }}>{r.person.split(" ")[0]}</span>}
+                </div>
               ) : (
                 <button key={r.key} onClick={() => setPicked(picked === r.key ? null : r.key)}
                   className={cn("flex w-full items-center gap-1.5 border-b border-slate-100 px-3 pl-5 text-left hover:bg-slate-50",
@@ -354,6 +386,19 @@ export function TaskRoadmap({
                     title={tr(`Target ${r.target}`, `Target ${r.target}`)}
                     style={{ left: x(r.target) + px / 2 - 6, top: rowY.get(r.key)! + ROW / 2 - 6 }} />
                 ))}
+
+                {/* daily routines: one cell per day */}
+                {rows.map((r) => r.kind === "daily" && r.cells.map((c) => {
+                  const day = c.period_start ?? c.due_date;
+                  const st = stateOf(c);
+                  const tone = st === "done" ? (c.late ? "bg-emerald-300" : "bg-emerald-500")
+                    : st === "late" ? "bg-red-500" : st === "blocked" ? "bg-amber-400" : "bg-brand-600";
+                  return (
+                    <div key={`c${c.task_no}`} className={cn("absolute z-10 rounded-sm", tone)}
+                      title={`${c.title} · ${day} · ${st === "done" ? tr("done", "selesai") : st === "late" ? tr("missed", "terlewat") : tr("open", "terbuka")}`}
+                      style={{ left: x(day) + 1, width: Math.max(3, px - 2), top: rowY.get(r.key)! + 9, height: ROW - 18 }} />
+                  );
+                }))}
 
                 {/* bars */}
                 {rows.map((r) => {

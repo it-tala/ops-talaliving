@@ -184,8 +184,8 @@ for (const b of ["di_bawah_18", "18_24", "25_34", "35_44", "45_54", "55_ke_atas"
   if (!seenBands.has(b)) problems.push(`no case lands in ${b} — it is unchecked, not agreed`);
 }
 
-/* A battery that has quietly lost a cadence checks the other four forever. */
-for (const c of ["WEEKLY", "MONTHLY", "QUARTERLY", "SEMESTER", "ANNUAL"]) {
+/* A battery that has quietly lost a cadence checks the others forever. */
+for (const c of ["DAILY", "WEEKLY", "MONTHLY", "QUARTERLY", "SEMESTER", "ANNUAL"]) {
   if (!seenCadences.has(c)) problems.push(`no case exercises ${c} — it is unchecked, not agreed`);
 }
 
