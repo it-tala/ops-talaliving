@@ -136,6 +136,12 @@ const VIEW_CONTRACTS = {
   v_design_room:       "DesignRoom",
   v_design_collection: "DesignCollection",
   v_design_approval:   "DesignApproval",
+  /* The drafters' queue, live (0226, P6): tasks, revisions and questions
+     put together field by field in `src/lib/api/production.ts`. */
+  v_design_task:       null,
+  v_design_revision:   null,
+  v_design_question:   null,
+  v_design_gap:        "DesignGap",
   /* A meeting in full (0224, P3). */
   v_meeting_attendee:  "MeetingAttendee",
   v_meeting_point:     "MeetingPointView",

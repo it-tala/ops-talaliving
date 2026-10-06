@@ -18,22 +18,31 @@ import type { DesignTask, DesignRevision, DesignQuestion } from "@/services/prod
  *  - **Finished properly.** The meja makan: revision B released, nothing open.
  */
 export const DESIGN_TASKS: DesignTask[] = [
+  /* A design item's working drawing (P6): the coffee table for 26003, asked
+     lower in the meeting of 1 October — the client's order of things (D379). */
   {
-    id: "dsg_01", task_no: "dsn-26-08-20_01", product_code: "PRD-MJ-220",
+    id: "dsg_item_01", item_no: "26003-A-LR-02", task_no: "dsn-26-10-02_01", product_code: null,
+    kind: "gambar_kerja", status: "DIGAMBAR", assignee: "Wayan (drafter)",
+    assignee_employee_id: null, assignee_not_a_person: false,
+    due_date: null, note: "Tinggi 380 mm sesuai meeting",
+    created_by: "usr_rina", created_at: "2026-10-02T09:00:00+07:00",
+  },
+  {
+    id: "dsg_01", item_no: null, task_no: "dsn-26-08-20_01", product_code: "PRD-MJ-220",
     kind: "gambar_kerja", status: "RILIS", assignee: "Rizal",
     assignee_employee_id: null, assignee_not_a_person: false,
     due_date: "2026-08-24", note: null,
     created_by: "usr_shared", created_at: "2026-08-20T09:00:00+07:00",
   },
   {
-    id: "dsg_02", task_no: "dsn-26-08-20_02", product_code: "PRD-MJ-220",
+    id: "dsg_02", item_no: null, task_no: "dsn-26-08-20_02", product_code: "PRD-MJ-220",
     kind: "gambar_jadi", status: "RILIS", assignee: "Rizal",
     assignee_employee_id: null, assignee_not_a_person: false,
     due_date: "2026-08-24", note: null,
     created_by: "usr_shared", created_at: "2026-08-20T09:02:00+07:00",
   },
   {
-    id: "dsg_03", task_no: "dsn-26-08-22_01", product_code: "PRD-LM-3P",
+    id: "dsg_03", item_no: null, task_no: "dsn-26-08-22_01", product_code: "PRD-LM-3P",
     kind: "gambar_kerja", status: "DIGAMBAR", assignee: "Rizal",
     assignee_employee_id: null, assignee_not_a_person: false,
     due_date: "2026-09-02",
@@ -41,21 +50,21 @@ export const DESIGN_TASKS: DesignTask[] = [
     created_by: "usr_shared", created_at: "2026-08-22T10:15:00+07:00",
   },
   {
-    id: "dsg_04", task_no: "dsn-26-08-25_01", product_code: "PRD-PT-90",
+    id: "dsg_04", item_no: null, task_no: "dsn-26-08-25_01", product_code: "PRD-PT-90",
     kind: "gambar_kerja", status: "TANYA", assignee: "Ayu",
     assignee_employee_id: null, assignee_not_a_person: false,
     due_date: "2026-09-05", note: null,
     created_by: "usr_shared", created_at: "2026-08-25T08:40:00+07:00",
   },
   {
-    id: "dsg_05", task_no: "dsn-26-09-01_01", product_code: "PRD-RK-DSP",
+    id: "dsg_05", item_no: null, task_no: "dsn-26-09-01_01", product_code: "PRD-RK-DSP",
     kind: "gambar_kerja", status: "BELUM", assignee: null,
     assignee_employee_id: null, assignee_not_a_person: false,
     due_date: null, note: null,
     created_by: "usr_shared", created_at: "2026-09-01T09:00:00+07:00",
   },
   {
-    id: "dsg_06", task_no: "dsn-26-09-01_02", product_code: "PRD-NK-KCL",
+    id: "dsg_06", item_no: null, task_no: "dsn-26-09-01_02", product_code: "PRD-NK-KCL",
     kind: "gambar_jadi", status: "BELUM", assignee: null,
     assignee_employee_id: null, assignee_not_a_person: false,
     due_date: null, note: null,

@@ -6,7 +6,7 @@ import { Drawer } from "@/components/ui/drawer";
 import { Badge, Button } from "@/components/ui/primitives";
 import { Loaded, useLoad } from "@/components/ui/loaded";
 import { cn } from "@/lib/cn";
-import { production } from "@/demo/api";
+import { documents, production } from "@/demo/api";
 import { DESIGN_KIND_LABEL, DESIGN_STATUS_LABEL, type DesignTaskView } from "@/services/production/contracts";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
@@ -19,10 +19,14 @@ import { useTr } from "@/lib/i18n";
  *  being assumed from the first.
  */
 export function DesignDrawer({
-  taskNo, mayEdit, onClose, onChanged,
+  taskNo, mayEdit, mayAsk = mayEdit, onClose, onChanged,
 }: {
   taskNo: string;
+  /** The drafters: take it on, upload, release. */
   mayEdit: boolean;
+  /** Whoever works on the design — the seller included — asks and answers
+   *  (0226): the client's answer usually comes through them. */
+  mayAsk?: boolean;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -30,7 +34,8 @@ export function DesignDrawer({
   const { toast } = useToast();
   const [task, reload] = useLoad(() => production.getDesignTask(taskNo), [taskNo]);
   const [busy, setBusy] = useState(false);
-  const [rev, setRev] = useState({ rev: "", filename: "", note: "" });
+  const [rev, setRev] = useState({ rev: "", note: "" });
+  const [file, setFile] = useState<File | null>(null);
   const [ask, setAsk] = useState({ asked_of: "klien", question: "" });
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [assignee, setAssignee] = useState("");
@@ -40,17 +45,30 @@ export function DesignDrawer({
     reload(); onChanged();
   }
 
-  async function upload(release: boolean) {
+  /* A revision is a file (0226): it is filed on the design item — or the
+     product — first, in its own folder, and the revision points at it. */
+  async function upload(t: DesignTaskView, release: boolean) {
+    if (!file) return;
     setBusy(true);
+    const entity = t.item_no ? "design_item" as const : "product" as const;
+    const entity_no = (t.item_no ?? t.product_code)!;
+    const kind = t.kind === "gambar_kerja" ? "Gambar Kerja" as const : "Gambar Jadi" as const;
+    const up = await documents.upload({ file, kind, entity, entity_no, origin: "tala" });
+    if (up.error) { setBusy(false); toast("warning", tr("File not uploaded", "File tidak terunggah"), up.error.message); return; }
+    const link = await documents.link({ attachment_id: up.data.id, entity, entity_no, kind });
+    if (link.error && link.error.status !== 409) {
+      setBusy(false); toast("warning", tr("File not filed on the item", "File tidak terarsip di item"), link.error.message); return;
+    }
     const res = await production.addDesignRevision({
-      task_no: taskNo, rev: rev.rev, filename: rev.filename || null, note: rev.note || null, release,
+      task_no: taskNo, rev: rev.rev, attachment_id: up.data.id, note: rev.note || null, release,
     });
     setBusy(false);
     if (res.error) {
       toast(res.error.status === 403 ? "critical" : "warning", release ? tr("Not released", "Tidak dirilis") : tr("Not saved", "Tidak tersimpan"), res.error.message);
       return;
     }
-    setRev({ rev: "", filename: "", note: "" });
+    setRev({ rev: "", note: "" });
+    setFile(null);
     after(release ? tr(`Revision ${res.data.released_rev} released`, `Revisi ${res.data.released_rev} dirilis`) : tr("Revision saved", "Revisi tersimpan"),
       release
         ? tr("The workshop may cut from this drawing.", "Bengkel boleh memotong dari gambar ini.")
@@ -99,7 +117,13 @@ export function DesignDrawer({
           title={t.product_name}
           subtitle={
             <span className="font-mono text-[11px]">
-              {t.task_no} · {t.product_code} · {DESIGN_KIND_LABEL[t.kind]}
+              {t.task_no} · {t.item_no ?? t.product_code} · {DESIGN_KIND_LABEL[t.kind]}
+              {t.project_code && (
+                <span className="block font-sans text-[12px] text-slate-500">
+                  {[t.client_display, `${t.project_code} ${t.project_name ?? ""}`.trim(),
+                    t.collection_code && `${t.collection_code} · ${t.collection_name}`, t.room_name].filter(Boolean).join(" › ")}
+                </span>
+              )}
             </span>
           }
         >
@@ -111,7 +135,8 @@ export function DesignDrawer({
                 [tr("Needed by", "Dibutuhkan"), t.needed_by ?? "—",
                   t.days_left == null ? tr("nobody waiting yet", "belum ada yang menunggu")
                     : t.days_left < 0 ? tr(`${Math.abs(t.days_left)} days over`, `lewat ${Math.abs(t.days_left)} hari`) : tr(`${t.days_left} days left`, `${t.days_left} hari lagi`)],
-                [tr("Size", "Ukuran"), t.dimension ?? tr("none yet", "belum ada"), t.dimension ? tr("from the product master", "dari master produk") : tr("fill it in on the product master first", "isi dulu di master produk")],
+                [tr("Size", "Ukuran"), t.dimension ?? tr("none yet", "belum ada"), t.dimension ? (t.item_no && t.category === "—" ? tr("from the design item", "dari item desain") : tr("from the product master", "dari master produk"))
+                  : t.item_no ? tr("fill it in on the design item first", "isi dulu di item desain") : tr("fill it in on the product master first", "isi dulu di master produk")],
               ] as [string, string, string][]).map(([k, v, note]) => (
                 <div key={k}>
                   <dt className="text-[10px] uppercase tracking-wide text-slate-400">{k}</dt>
@@ -129,7 +154,11 @@ export function DesignDrawer({
                     {tr("In production:", "Dikerjakan:")} {t.work_orders.map((w) => `${w.wo_no} (${w.due_date})`).join(" · ")}
                   </span>
                 )}
-                {t.ordered_by.length > 0 && <span>{tr("Ordered by project:", "Dipesan proyek:")} {t.ordered_by.join(", ")}</span>}
+                {t.ordered_by.length > 0 && (
+                  <span>
+                    {t.item_no ? tr("For project:", "Untuk proyek:") : tr("Ordered by project:", "Dipesan proyek:")} {t.ordered_by.join(", ")}
+                  </span>
+                )}
               </p>
             )}
 
@@ -155,7 +184,7 @@ export function DesignDrawer({
                         {q.answer}
                         <span className="ml-2 text-[11px] text-slate-400">— {q.answered_by_name}</span>
                       </p>
-                    ) : mayEdit ? (
+                    ) : mayAsk ? (
                       <div className="mt-1 grid gap-2 sm:grid-cols-[1fr_auto]">
                         <input
                           value={answers[q.id] ?? ""}
@@ -171,7 +200,7 @@ export function DesignDrawer({
                   </li>
                 ))}
               </ul>
-              {mayEdit && (
+              {mayAsk && (
                 <div className="mt-2 grid gap-2 sm:grid-cols-[120px_1fr_auto]">
                   <select
                     value={ask.asked_of} onChange={(e) => setAsk({ ...ask, asked_of: e.target.value })}
@@ -229,6 +258,14 @@ export function DesignDrawer({
                 ))}
               </ul>
 
+              {t.item_no && t.item_approved === false && (
+                <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-[12px] text-amber-800">
+                  {tr(
+                    "No client approval is recorded for this item. Releasing is allowed (D378) — but the workshop will cut from a drawing the client has not said yes to.",
+                    "Belum ada persetujuan klien untuk item ini. Rilis tetap boleh (D378) — tetapi bengkel akan memotong dari gambar yang belum disetujui klien.",
+                  )}
+                </p>
+              )}
               {mayEdit && (
                 <div className="mt-2 space-y-2 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
                   <div className="grid gap-2 sm:grid-cols-[80px_1fr]">
@@ -238,9 +275,9 @@ export function DesignDrawer({
                       className="h-9 rounded-lg border border-slate-200 px-2 text-sm uppercase focus:border-brand-400 focus:outline-none"
                     />
                     <input
-                      value={rev.filename} onChange={(e) => setRev({ ...rev, filename: e.target.value })}
-                      placeholder={tr("File name — e.g. PRD-LM-3P_kerja_revD.pdf", "Nama berkas — mis. PRD-LM-3P_kerja_revD.pdf")}
-                      className="h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                      type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                      aria-label={tr("Drawing file", "File gambar")}
+                      className="h-9 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[12px] file:mr-2 file:rounded file:border-0 file:bg-slate-100 file:px-2 file:py-0.5"
                     />
                   </div>
                   <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
@@ -249,17 +286,17 @@ export function DesignDrawer({
                       placeholder={tr("What changed in this revision", "Apa yang berubah di revisi ini")}
                       className="h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
                     />
-                    <Button size="sm" variant="outline" icon={Upload} disabled={busy || !rev.rev.trim()} onClick={() => upload(false)}>
+                    <Button size="sm" variant="outline" icon={Upload} disabled={busy || !rev.rev.trim() || !file} onClick={() => upload(t, false)}>
                       {tr("Save", "Simpan")}
                     </Button>
-                    <Button size="sm" disabled={busy || !rev.rev.trim()} onClick={() => upload(true)}>
+                    <Button size="sm" disabled={busy || !rev.rev.trim() || !file} onClick={() => upload(t, true)}>
                       {tr("Save & release", "Simpan & rilis")}
                     </Button>
                   </div>
                   <p className="text-[11px] text-slate-500">
                     {tr(
-                      "Saving is not releasing. The production floor only sees released revisions — and a release is refused while any question is unanswered.",
-                      "Menyimpan bukan merilis. Lantai produksi hanya melihat revisi yang dirilis — dan rilis ditolak selama masih ada pertanyaan yang belum dijawab.",
+                      "The file is filed on the item (or the product) in its own folder, and the revision points at it. Saving is not releasing: the production floor only sees released revisions — and a release is refused while any question is unanswered.",
+                      "File diarsipkan di item (atau produk) dalam foldernya sendiri, dan revisi menunjuk ke file itu. Menyimpan bukan merilis: lantai produksi hanya melihat revisi yang dirilis — dan rilis ditolak selama masih ada pertanyaan yang belum dijawab.",
                     )}
                   </p>
                 </div>

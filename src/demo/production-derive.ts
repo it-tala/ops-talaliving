@@ -8,6 +8,7 @@
  */
 import { trNow } from "@/lib/i18n";
 import { officeDay } from "@/lib/office";
+import { designItemProgress } from "./design-files";
 import type { DemoState } from "./state";
 import {
   PROCESS_STAGES, STAGE_SOURCES, STAGE_NAME, RETIRED_STAGES, ROUTE, goodsOnSite,
@@ -17,7 +18,7 @@ import {
   type BomRevision, type BomRevisionView, type BomDiff, type BomDiffLine,
   type BomExplosion, type BomExplodedLine,
   type BomComponent, type BomDiffShape, type RateSource,
-  type DesignTask, type DesignTaskView, type DesignKind,
+  type DesignTask, type DesignTaskView, type DesignKind, type DesignGap,
   type WorkAttribution, type MaterialPlan, type MaterialLine,
   type VendorLeg, type VendorLegView, type VendorRecord,
 } from "@/services/production/contracts";
@@ -715,13 +716,25 @@ export function productViews(state: DemoState): ProductView[] {
  *    from a list of dates.
  */
 export function designTaskView(state: DemoState, task: DesignTask, today: string): DesignTaskView {
-  const product = state.products.find((p) => p.product_code === task.product_code);
+  /* An item task (P6) reads its place in the drafters' order — client →
+     project → collection → room → item (D379) — and the product the item
+     became once ordered. */
+  const item = task.item_no ? state.design_items.find((i) => i.item_no === task.item_no) : undefined;
+  const room = item ? state.design_rooms.find((r) => r.id === item.room_id) : undefined;
+  const col = room ? state.design_collections.find((c) => c.id === room.collection_id) : undefined;
+  const project = col ? state.projects.find((p) => p.id === col.project_id) : undefined;
+  const client = project?.client_id ? state.clients.find((c) => c.id === project.client_id) : undefined;
+  const productCode = task.product_code ?? item?.product_code
+    ?? (item ? designItemProgress(state, item.id).product_code : null);
+  const product = productCode ? state.products.find((p) => p.product_code === productCode) : undefined;
+  const projectLive = !!project && project.is_active && !["LOST", "CANCELLED", "DONE"].includes(project.status ?? "");
 
   const revisions = state.design_revisions
     .filter((r) => r.task_id === task.id)
     .sort((a, b) => a.uploaded_at.localeCompare(b.uploaded_at))
     .map((r) => ({
       ...r,
+      filename: r.attachment_id ? state.attachments.find((a) => a.id === r.attachment_id)?.filename ?? r.filename : r.filename,
       uploaded_by_name: state.users.find((u) => u.id === r.uploaded_by)?.full_name ?? "—",
       released_by_name: r.released_by
         ? state.users.find((u) => u.id === r.released_by)?.full_name ?? null
@@ -742,18 +755,23 @@ export function designTaskView(state: DemoState, task: DesignTask, today: string
 
   const released = [...revisions].reverse().find((r) => r.released_at);
   const latest = revisions[revisions.length - 1];
+  const blocked = questions.some((q) => !q.answer);
 
   /* Who is waiting. Work orders name the product directly; a project line names
      it too, and both are by code across the seam (ADR-004). */
-  const workOrders = state.work_orders
-    .filter((w) => w.product_code === task.product_code && w.status !== "CANCELLED")
-    .map((w) => ({ wo_no: w.wo_no, due_date: w.due_date, status: w.status }));
+  const workOrders = productCode
+    ? state.work_orders
+      .filter((w) => w.product_code === productCode && w.status !== "CANCELLED")
+      .map((w) => ({ wo_no: w.wo_no, due_date: w.due_date, status: w.status }))
+    : [];
 
-  const orderedBy = state.project_lines
-    .filter((l) => l.product_code === task.product_code)
-    .map((l) => state.projects.find((p) => p.id === l.project_id))
-    .filter((p): p is NonNullable<typeof p> => !!p && p.is_active)
-    .map((p) => p.code);
+  const orderedBy = item
+    ? (projectLive ? [project!.code] : [])
+    : state.project_lines
+      .filter((l) => l.product_code === productCode)
+      .map((l) => state.projects.find((p) => p.id === l.project_id))
+      .filter((p): p is NonNullable<typeof p> => !!p && p.is_active)
+      .map((p) => p.code);
 
   /* Only jobs that are still live. A finished project's target date is not a
      deadline — counting one made a released drawing read *lewat 74 hari*
@@ -762,33 +780,52 @@ export function designTaskView(state: DemoState, task: DesignTask, today: string
      it moves a real one down the queue. */
   const dates = [
     ...workOrders.filter((w) => w.status !== "DONE").map((w) => w.due_date),
-    ...state.project_lines
-      .filter((l) => l.product_code === task.product_code)
-      .map((l) => state.projects.find((p) => p.id === l.project_id))
-      .filter((p): p is NonNullable<typeof p> => !!p && p.is_active)
-      .map((p) => p.target_date)
-      .filter((d): d is string => !!d),
+    ...(item
+      ? (projectLive && project!.target_date ? [project!.target_date] : [])
+      : state.project_lines
+        .filter((l) => l.product_code === productCode)
+        .map((l) => state.projects.find((p) => p.id === l.project_id))
+        .filter((p): p is NonNullable<typeof p> => !!p && p.is_active)
+        .map((p) => p.target_date)
+        .filter((d): d is string => !!d)),
     ...(task.due_date ? [task.due_date] : []),
   ].sort();
   const needed_by = dates[0] ?? null;
 
+  const itemDims = item && (item.length_mm || item.width_mm || item.height_mm)
+    ? `${item.length_mm ?? "–"} × ${item.width_mm ?? "–"} × ${item.height_mm ?? "–"} mm` : null;
+
   return {
     ...task,
-    product_name: product?.name ?? task.product_code,
+    product_code: productCode ?? null,
+    /* Read, never set (A3, 0226). */
+    status: blocked ? "TANYA" : released ? "RILIS" : task.assignee || latest ? "DIGAMBAR" : "BELUM",
+    product_name: product?.name ?? item?.name ?? productCode ?? "—",
     category: product?.category ?? "—",
     dimension: product && product.length_mm && product.width_mm && product.height_mm
       ? `${product.length_mm} × ${product.width_mm} × ${product.height_mm} mm`
-      : null,
+      : itemDims,
+    item_name: item?.name ?? null,
+    collection_code: col?.code ?? null,
+    collection_name: col?.name ?? null,
+    room_code: room?.code ?? null,
+    room_name: room?.name ?? null,
+    room_sort: room?.sort ?? null,
+    project_code: project?.code ?? null,
+    project_name: project?.name ?? null,
+    client_code: client?.code ?? null,
+    client_display: client?.name ?? project?.client_name ?? null,
     revisions,
     questions,
     released_rev: released?.rev ?? null,
     latest_rev: latest?.rev ?? null,
     ahead_of_release: !!released && !!latest && latest.rev !== released.rev,
-    blocked: questions.some((q) => !q.answer),
+    blocked,
     ordered_by: [...new Set(orderedBy)],
     work_orders: workOrders,
     needed_by,
     days_left: needed_by ? daysApart(today, needed_by) : null,
+    item_approved: item ? designItemProgress(state, item.id).approved : null,
   };
 }
 
@@ -826,8 +863,8 @@ export function designQueue(state: DemoState, today: string): DesignTaskView[] {
  *  drawing kind. The queue's blind spot, and the reason it is computed rather
  *  than typed: adding a product to an order makes its missing drawings appear
  *  the same day, without anybody remembering to raise a task (D179). */
-export function designGaps(state: DemoState): { product_code: string; product_name: string; kind: DesignKind; why: string }[] {
-  const out: { product_code: string; product_name: string; kind: DesignKind; why: string }[] = [];
+export function designGaps(state: DemoState): DesignGap[] {
+  const out: DesignGap[] = [];
   const wanted = new Map<string, string>();
 
   for (const w of state.work_orders) {
@@ -835,7 +872,7 @@ export function designGaps(state: DemoState): { product_code: string; product_na
     wanted.set(w.product_code, `sedang dikerjakan · ${w.wo_no}`);
   }
   for (const l of state.project_lines) {
-    if (!l.product_code || wanted.has(l.product_code)) continue;
+    if (!l.product_code || wanted.has(l.product_code) || l.design_item_id) continue;
     const project = state.projects.find((p) => p.id === l.project_id);
     if (project?.is_active) wanted.set(l.product_code, `dipesan · ${project.code}`);
   }
@@ -843,9 +880,28 @@ export function designGaps(state: DemoState): { product_code: string; product_na
   for (const [code, why] of wanted) {
     const product = state.products.find((p) => p.product_code === code);
     for (const kind of ["gambar_kerja", "gambar_jadi"] as DesignKind[]) {
-      if (state.design_tasks.some((t) => t.product_code === code && t.kind === kind)) continue;
-      out.push({ product_code: code, product_name: product?.name ?? code, kind, why });
+      if (state.design_tasks.some((t) => t.kind === kind && (t.product_code === code
+        || (t.item_no && state.design_items.find((i) => i.item_no === t.item_no)?.product_code === code)))) continue;
+      out.push({ item_no: null, product_code: code, product_name: product?.name ?? code, kind, why,
+        project_code: null, collection_code: null, room_name: null });
     }
+  }
+
+  /* Design items the client approved, or that were quoted or ordered, with no
+     working drawing (P6). */
+  for (const i of state.design_items) {
+    if (i.dropped_at) continue;
+    if (state.design_tasks.some((t) => t.item_no === i.item_no && t.kind === "gambar_kerja")) continue;
+    const p = designItemProgress(state, i.id);
+    if (!p.approved && !p.quote_no && !p.ordered) continue;
+    const room = state.design_rooms.find((r) => r.id === i.room_id);
+    const col = state.design_collections.find((c) => c.id === room?.collection_id);
+    out.push({
+      item_no: i.item_no, product_code: i.product_code, product_name: i.name, kind: "gambar_kerja",
+      why: p.ordered ? "dipesan" : p.quote_no ? `ditawarkan · ${p.quote_no}` : "disetujui klien",
+      project_code: state.projects.find((x) => x.id === col?.project_id)?.code ?? null,
+      collection_code: col?.code ?? null, room_name: room?.name ?? null,
+    });
   }
   return out;
 }
