@@ -228,7 +228,11 @@ export interface ItemPurchase {
  *  any can follow any other — a deal does go back to a quotation when the
  *  client changes the brief — and every move is logged. */
 export type ProjectStatus =
-  | "INQUIRY" | "QUOTATION_SENT" | "DEAL" | "IN_PRODUCTION" | "SHIPPED" | "DONE" | "CANCELLED";
+  | "INQUIRY" | "QUOTATION_SENT" | "DEAL" | "IN_PRODUCTION" | "SHIPPED" | "DONE"
+  /** Did not happen: closed before the deal (0218, D377). */
+  | "LOST"
+  /** Called off after the deal. */
+  | "CANCELLED";
 
 export const PROJECT_STATUSES: { code: ProjectStatus; label: string; tone: "slate" | "brand" | "violet" | "amber" | "green" | "red" }[] = [
   { code: "INQUIRY", get label() { return trNow("Inquiry", "Inquiry"); }, tone: "slate" },
@@ -237,7 +241,30 @@ export const PROJECT_STATUSES: { code: ProjectStatus; label: string; tone: "slat
   { code: "IN_PRODUCTION", get label() { return trNow("In production", "Produksi"); }, tone: "amber" },
   { code: "SHIPPED", get label() { return trNow("Shipped", "Dikirim"); }, tone: "brand" },
   { code: "DONE", get label() { return trNow("Done", "Selesai"); }, tone: "green" },
+  { code: "LOST", get label() { return trNow("Lost", "Tidak jadi"); }, tone: "red" },
   { code: "CANCELLED", get label() { return trNow("Cancelled", "Batal"); }, tone: "red" },
+];
+
+/** A project that is over, for better or worse. */
+export const CLOSED_PROJECT_STATUSES: readonly ProjectStatus[] = ["DONE", "LOST", "CANCELLED"];
+
+/** Before the deal: a sale that can still be won, or lost (P2). */
+export const PIPELINE_STATUSES: readonly ProjectStatus[] = ["INQUIRY", "QUOTATION_SENT"];
+
+/** Why a sale did not happen, or an order was called off — a category in
+ *  English and always a sentence beside it (D377). The category says how
+ *  many; the sentence says why this one. */
+export type ClosingReason =
+  | "PRICE" | "TIMELINE" | "DESIGN" | "COMPETITOR" | "CLIENT POSTPONED" | "NO RESPONSE" | "OTHER";
+
+export const CLOSING_REASONS: { code: ClosingReason; hint: string; hint_id: string }[] = [
+  { code: "PRICE", hint: "Our price was too high, or over their budget", hint_id: "Harga kita terlalu tinggi atau di atas anggaran" },
+  { code: "TIMELINE", hint: "We could not deliver when they needed it", hint_id: "Kita tidak bisa kirim sesuai waktu yang dibutuhkan" },
+  { code: "DESIGN", hint: "The design did not suit them", hint_id: "Desainnya tidak cocok" },
+  { code: "COMPETITOR", hint: "They chose another supplier", hint_id: "Klien memilih vendor lain" },
+  { code: "CLIENT POSTPONED", hint: "The project itself was put off", hint_id: "Proyeknya sendiri ditunda" },
+  { code: "NO RESPONSE", hint: "The client stopped answering", hint_id: "Klien tidak menjawab lagi" },
+  { code: "OTHER", hint: "Anything else — the sentence says what", hint_id: "Lainnya — kalimatnya menjelaskan" },
 ];
 
 export const PROJECT_STATUS_LABEL = (s: ProjectStatus | null | undefined): string =>
@@ -269,6 +296,8 @@ export interface ProjectStatusChange {
   from_status: ProjectStatus | null;
   to_status: ProjectStatus;
   reason: string | null;
+  /** The category of a LOST or CANCELLED move (0219). */
+  reason_code?: ClosingReason | null;
   changed_by: string | null;
   changed_at: string;
 }
@@ -298,6 +327,15 @@ export interface Project {
    *  Null where nothing has been agreed yet (Q37). */
   contract_value: number | null;
   note: string | null;
+  /** Who sells it: an account, not a typed name — `pic` stays the project's
+   *  own person in charge (0219, D375). */
+  sales_pic?: string | null;
+  /** Where the lead came from, in words; no list yet (D376). */
+  source_note?: string | null;
+  /** What it may be worth before a quotation says so. */
+  expected_value?: number | null;
+  /** When the sale is expected to close. */
+  expected_close_on?: string | null;
 }
 
 /** One line of the customer's order: what they bought, and how many.
@@ -347,6 +385,26 @@ export interface ProjectView extends Project {
   unpriced_lines: number;
   /** The earliest delivery date on any line. */
   next_delivery: string | null;
+  /* ── the sale (0219) ── */
+  sales_pic_name: string | null;
+  sales_pic_email: string | null;
+  /** Whole office days since the status last changed. */
+  days_in_status: number;
+  /** The quotation in play: a draft, or sent and not revised. */
+  current_quote_no: string | null;
+  current_quote_status: string | null;
+  current_quote_total: number | null;
+  /** Why it closed, while it is LOST or CANCELLED. */
+  closing_reason_code: ClosingReason | null;
+  closing_reason: string | null;
+  closed_at: string | null;
+}
+
+/** Somebody who can be named as the salesperson (`sales_people()`). */
+export interface SalesPerson {
+  id: string;
+  full_name: string;
+  email: string;
 }
 
 /** An order line with its item code resolved — whether the catalogue has it,

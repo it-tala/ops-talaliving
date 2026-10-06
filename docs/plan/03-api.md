@@ -228,6 +228,18 @@ PO and receiving:
 | POST | `/projects/{code}/lines` | add or change a line: `{product_code?, description, qty, uom, unit_price?}`. The product code is **not** validated against the catalogue — an order is typed the day it is signed, often before anybody has drawn the thing (A6, D150) |
 | DELETE | `/projects/{code}/lines/{id}` | |
 | POST | `/projects` | create or update: `{code, name, client_name?, location?, pic?, started_on?, target_date?, contract_value?, is_active?}`. The **code is never edited** — request lines, work orders and ledger rows all reference it as text at the seam (D149). 422 when the target date is before the start |
+| POST | `/projects/{code}/status` | `{status, reason?, reason_code?}` — `set_project_status` (0111, 0219). Any status may follow any other and every move is logged, **except closing**: `LOST` only from INQUIRY or QUOTATION_SENT (**422 `lost_after_deal`**), `CANCELLED` only after the deal (**422 `cancel_before_deal`**), and both need a `reason_code` — `PRICE` · `TIMELINE` · `DESIGN` · `COMPETITOR` · `CLIENT POSTPONED` · `NO RESPONSE` · `OTHER` (D377; **422 `reason_code_required`** / `unknown_reason_code`) — **and** a sentence (**422 `reason_required`**). Project **or marketing** `update` (D375) |
+| POST | `/projects/{code}/sales` | `{sales_pic, source_note, expected_value, expected_close_on}` — `set_project_sales` (0219): who sells it (an active account), where the lead came from (free text, D376), what it may be worth and when it may close. Its own seam, so saving the project's facts never blanks it. 422 `negative_value`, `sales_pic_unknown`. Project or marketing `update` |
+| GET | `/sales-people` | `sales_people()` — active accounts with project or marketing write access; empty for anybody who may not read sales |
+
+**Who sells (0219, D375).** Every sales seam — clients, the contact log,
+quotations, a project's facts and status, its sale — asks
+`ops_procure.may_sell(level)`: project **or** marketing access. Quotations,
+their lines, the contact log and clients are readable with `marketing.read`.
+Order lines stay `project.update`; cost and margin on a quotation stay with
+`project.update` (0133). `v_project` adds `sales_pic_name`, `source_note`,
+`expected_value`, `expected_close_on`, `days_in_status`, `current_quote_*` and,
+while LOST or CANCELLED, `closing_reason_code`, `closing_reason`, `closed_at`.
 
 `POST /pr` accepts `project_code` as well as `project_id`: another service
 knows the public code, never the internal id (ADR-004). A request created from

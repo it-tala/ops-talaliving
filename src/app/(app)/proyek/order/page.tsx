@@ -9,8 +9,8 @@ import { Paged } from "@/components/ui/pager";
 import { formatIDR } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { procurement } from "@/demo/api";
-import { PROJECT_STATUSES, type ProjectStatus } from "@/services/procurement/contracts";
-import { useSession } from "@/store/session";
+import { CLOSED_PROJECT_STATUSES, PROJECT_STATUSES, type ProjectStatus } from "@/services/procurement/contracts";
+import { useCanSell } from "@/lib/sell";
 import { useTr } from "@/lib/i18n";
 import { ProjectDrawer } from "./ProjectDrawer";
 
@@ -27,7 +27,7 @@ import { ProjectDrawer } from "./ProjectDrawer";
  */
 export default function ProjectsPage() {
   const tr = useTr();
-  const { can } = useSession();
+  const canSell = useCanSell();
   const [projects, reload] = useLoad(() => procurement.listProjectViews(), []);
   const [open, setOpen] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -46,7 +46,7 @@ export default function ProjectsPage() {
         breadcrumb={tr("Projects", "Proyek")}
         title={tr("Projects & orders", "Proyek & pesanan")}
         description={tr("Who the client is, where it stands, what was ordered and when it ships. Each order line can become an item code for its BOM.", "Siapa kliennya, di mana statusnya, apa saja yang dipesan dan kapan dikirim. Tiap item pesanan bisa dijadikan item code untuk disusun BOM-nya.")}
-        actions={can("project.create") ? (
+        actions={canSell("create") ? (
           <Button icon={Plus} onClick={() => { setCreating(true); setOpen(null); }}>{tr("New project", "Proyek baru")}</Button>
         ) : undefined}
       />
@@ -57,7 +57,7 @@ export default function ProjectsPage() {
           const count = (s: ProjectStatus) => all.filter((p) => statusOf(p) === s).length;
           const rows = all
             .filter((p) => status === "ALL" ? true
-              : status === "OPEN" ? !["DONE", "CANCELLED"].includes(statusOf(p))
+              : status === "OPEN" ? !CLOSED_PROJECT_STATUSES.includes(statusOf(p))
                 : statusOf(p) === status)
             .filter((p) => `${p.code} ${p.name} ${p.client_display ?? ""} ${p.location ?? ""}`
               .toLowerCase().includes(q.toLowerCase()));
@@ -72,7 +72,7 @@ export default function ProjectsPage() {
               />
               <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-100 px-4 py-2">
                 {([
-                  ["OPEN", tr("Ongoing", "Berjalan"), all.filter((p) => !["DONE", "CANCELLED"].includes(statusOf(p))).length],
+                  ["OPEN", tr("Ongoing", "Berjalan"), all.filter((p) => !CLOSED_PROJECT_STATUSES.includes(statusOf(p))).length],
                   ...PROJECT_STATUSES.map((s) => [s.code, s.label, count(s.code)] as const),
                   ["ALL", tr("All", "Semua"), all.length],
                 ] as [ProjectStatus | "OPEN" | "ALL", string, number][]).map(([k, label, n]) => (

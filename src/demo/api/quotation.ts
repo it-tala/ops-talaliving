@@ -18,7 +18,7 @@ import { pctOk, quotePrice, roundHalfAway } from "@/services/quotation/pricing";
 import type { ProjectStatus } from "@/services/procurement/contracts";
 import { getState, apply, newId, nextDocNumber, writeAudit } from "../store";
 import { bomCost, currentBomRev } from "../production-derive";
-import { latency, actingUser, requireLevel, conflict, replayed, remember } from "./_kit";
+import { latency, actingUser, requireSeller, conflict, replayed, remember } from "./_kit";
 import { officeToday } from "@/lib/office";
 import type { DemoState } from "../state";
 
@@ -126,6 +126,18 @@ function quotationView(state: DemoState, q: Quotation, see: boolean, today: stri
   };
 }
 
+/** The quotation in play on a project — a draft, or sent and not revised —
+ *  for the project view (0219's `v_project.current_quote_*`). */
+export function currentQuotation(state: DemoState, projectId: string): QuotationView | null {
+  const today = officeToday();
+  const views = state.quotations
+    .filter((q) => q.project_id === projectId)
+    .map((q) => quotationView(state, q, false, today))
+    .filter((q) => q.is_current)
+    .sort((a, b) => b.rev - a.rev);
+  return views[0] ?? null;
+}
+
 function view(quoteNo: string): QuotationView | null {
   const state = getState();
   const q = state.quotations.find((x) => x.quote_no === quoteNo);
@@ -196,7 +208,7 @@ export async function saveQuotation(input: QuotationInput, idempotencyKey?: stri
   if (![input.marketing_pct, input.overhead_pct, input.margin_pct].every(pctOk)) {
     return invalid(SERVICE, "bad_percent", "Persentase harus 0 sampai di bawah 100.", { field: "margin_pct" });
   }
-  const denied = requireLevel(SERVICE, "project", "write");
+  const denied = requireSeller(SERVICE);
   if (denied) return denied;
   const state = getState();
   const user = actingUser();
@@ -256,7 +268,7 @@ export async function saveQuotation(input: QuotationInput, idempotencyKey?: stri
  *  catalogue when the item code is known and the line does not say. */
 export async function saveQuotationLine(quoteNo: string, input: QuotationLineInput): Promise<Result<QuotationLineView>> {
   await latency();
-  const denied = requireLevel(SERVICE, "project", "write");
+  const denied = requireSeller(SERVICE);
   if (denied) return denied;
   const state = getState();
   const q = state.quotations.find((x) => x.quote_no === quoteNo);
@@ -313,7 +325,7 @@ export async function saveQuotationLine(quoteNo: string, input: QuotationLineInp
 
 export async function removeQuotationLine(quoteNo: string, lineId: string): Promise<Result<{ quote_no: string }>> {
   await latency();
-  const denied = requireLevel(SERVICE, "project", "write");
+  const denied = requireSeller(SERVICE);
   if (denied) return denied;
   const state = getState();
   const q = state.quotations.find((x) => x.quote_no === quoteNo);
@@ -335,7 +347,7 @@ export async function removeQuotationLine(quoteNo: string, lineId: string): Prom
 /** Freeze every figure and hand it to the client. INQUIRY → QUOTATION_SENT. */
 export async function sendQuotation(quoteNo: string): Promise<Result<QuotationView>> {
   await latency();
-  const denied = requireLevel(SERVICE, "project", "write");
+  const denied = requireSeller(SERVICE);
   if (denied) return denied;
   const state = getState();
   const q = state.quotations.find((x) => x.quote_no === quoteNo);
@@ -380,7 +392,7 @@ export async function sendQuotation(quoteNo: string): Promise<Result<QuotationVi
 /** A new draft from a sent or rejected one; a sent one is superseded. */
 export async function reviseQuotation(quoteNo: string): Promise<Result<QuotationView>> {
   await latency();
-  const denied = requireLevel(SERVICE, "project", "write");
+  const denied = requireSeller(SERVICE);
   if (denied) return denied;
   const state = getState();
   const q = state.quotations.find((x) => x.quote_no === quoteNo);
@@ -429,7 +441,7 @@ export async function decideQuotation(
   quoteNo: string, accepted: boolean, reason?: string | null,
 ): Promise<Result<{ quotation: QuotationView; order_lines_added: number }>> {
   await latency();
-  const denied = requireLevel(SERVICE, "project", "write");
+  const denied = requireSeller(SERVICE);
   if (denied) return denied;
   const state = getState();
   const q = state.quotations.find((x) => x.quote_no === quoteNo);

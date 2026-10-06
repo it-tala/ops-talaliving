@@ -9444,3 +9444,45 @@ Two smaller ones:
 only its type.
 
 **Rule:** a property nobody stated is null, not the most likely answer.
+
+## F226 · 2026-10-06 · Who may sell was written in twelve places, and a sale that did not happen had no word
+
+P2 (kajian F224) turned the owner's three answers into the pipeline. Three
+things the build taught.
+
+**The permission was the sale's shape, and it was copied twelve times.** D375
+says sales belong to leadership *and everybody with marketing access*. Every
+sales seam — clients, the contact log, six quotation seams, a project's facts
+and status — asked `has_permission('project.update')` itself, so the rule had
+twelve homes and changing it meant twelve edits that could drift. `0219` gives
+it one, `ops_procure.may_sell(level)`, and the twelve bodies were regenerated
+from the ladder with only the gate changed, so the rest of each body is
+byte-for-byte what was tested before. The same split showed in the screens:
+`ProjectDrawer` had one `mayEdit` for the project's facts, its status **and**
+its order lines. Only the first two are selling; order lines are what
+production makes. One flag became two.
+
+**A lost sale and a cancelled order are different questions.** `CANCELLED`
+answered both *why do we lose sales* and *why do orders fall through*, so it
+could answer neither. `LOST` is only reachable before the deal and
+`CANCELLED` only after it; the database refuses the wrong one with a sentence
+that names the right one. The old smoke cancelled a project at
+QUOTATION_SENT — the exact move that is now refused — which is the clearest
+proof the word was missing.
+
+**A seam that saves everything blanks what an older screen does not send.**
+The sale's facts could have been four more arguments on `save_project`. But
+the screen already in production calls `save_project` without them, and every
+save of a project's name would have wiped its salesperson and estimate. They
+got their own seam, `set_project_sales`, which only the new card calls.
+
+A smaller one: the demo had no persona with marketing access alone, so the
+case D375 is about could not be walked. *Rina Sales* (marketing write only)
+now is, and walking as her showed the menu, the pipeline, closing and the sale
+card open, and order lines closed, as intended.
+
+**Rule:** a permission a business rule names gets one function, and every
+seam asks it.
+
+**Rule:** new fields on a record that an older screen saves go through their
+own seam, not as optional arguments on the old one.

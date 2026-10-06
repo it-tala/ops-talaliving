@@ -10,8 +10,9 @@ import { formatIDR } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { procurement, quotation } from "@/demo/api";
 import { QUOTATION_STATUSES, type QuotationStatus } from "@/services/quotation/contracts";
+import { CLOSED_PROJECT_STATUSES } from "@/services/procurement/contracts";
 import { SalesSummaryStrip } from "@/components/crm/sales-summary";
-import { useSession } from "@/store/session";
+import { useCanSell } from "@/lib/sell";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 
@@ -24,7 +25,7 @@ import { useTr } from "@/lib/i18n";
  */
 export default function QuotationsPage() {
   const tr = useTr();
-  const { can } = useSession();
+  const canSell = useCanSell();
   const { toast } = useToast();
   const router = useRouter();
   const params = useSearchParams();
@@ -67,7 +68,7 @@ export default function QuotationsPage() {
         breadcrumb={tr("Projects", "Proyek")}
         title={tr("Quotations", "Quotation")}
         description={tr("Price offers to clients. Production cost from the released BOM, plus marketing and overhead, then margin — that makes the selling price. Fill in items, quantities and the production estimate.", "Penawaran harga ke klien. Ongkos produksi dari BOM yang sudah dirilis, ditambah marketing dan overhead, lalu margin — jadilah harga jual. Isi item, jumlah, dan estimasi produksi.")}
-        actions={can("project.create") ? (
+        actions={canSell("create") ? (
           <Button icon={Plus} onClick={() => setCreating((v) => !v)}>{tr("New quotation", "Quotation baru")}</Button>
         ) : undefined}
       />
@@ -82,7 +83,7 @@ export default function QuotationsPage() {
               >
                 <option value="">{tr("— choose a project —", "— pilih proyek —")}</option>
                 {(projects.status === "ready" ? projects.data : [])
-                  .filter((p) => p.status !== "CANCELLED" && p.status !== "DONE")
+                  .filter((p) => !CLOSED_PROJECT_STATUSES.includes(p.status ?? "INQUIRY"))
                   .map((p) => (
                     <option key={p.code} value={p.code}>
                       {p.name} · {p.code}{p.client_display ? ` · ${p.client_display}` : ""}

@@ -6,7 +6,7 @@ import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { ActivityRow } from "@/components/crm/activity-log";
 import { crm } from "@/demo/api";
 import type { ClientActivityView, FollowUpState } from "@/services/crm/contracts";
-import { useSession } from "@/store/session";
+import { useCanSell } from "@/lib/sell";
 import { useTr } from "@/lib/i18n";
 
 /** Who to contact, and when (0134).
@@ -17,7 +17,7 @@ import { useTr } from "@/lib/i18n";
  */
 export default function FollowUpPage() {
   const tr = useTr();
-  const { can } = useSession();
+  const canSell = useCanSell();
   const [rows, reload] = useLoad(() => crm.listActivities({ open_follow_ups: true }), []);
 
   const groups: { state: FollowUpState; title: string; empty: string }[] = [
@@ -47,7 +47,7 @@ export default function FollowUpPage() {
                   ) : (
                     <ul className="divide-y divide-slate-100">
                       {list.map((a) => (
-                        <ActivityRow key={a.id} a={a} mayWrite={can("project.update")} onChanged={reload} showClient />
+                        <ActivityRow key={a.id} a={a} mayWrite={canSell()} onChanged={reload} showClient />
                       ))}
                     </ul>
                   )}

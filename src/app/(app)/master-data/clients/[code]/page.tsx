@@ -12,7 +12,7 @@ import { cn } from "@/lib/cn";
 import { procurement, quotation } from "@/demo/api";
 import { PROJECT_STATUSES, type ClientView } from "@/services/procurement/contracts";
 import { QUOTATION_STATUSES } from "@/services/quotation/contracts";
-import { useSession } from "@/store/session";
+import { useCanSell } from "@/lib/sell";
 import { ClientDrawer } from "../ClientDrawer";
 import { useTr } from "@/lib/i18n";
 
@@ -26,7 +26,7 @@ export default function ClientPage({ params }: { params: Promise<{ code: string 
   const tr = useTr();
   const { code: raw } = use(params);
   const code = decodeURIComponent(raw);
-  const { can } = useSession();
+  const canSell = useCanSell();
   const [clients, reloadClients] = useLoad(() => procurement.listClients({ include_archived: true }), []);
   const [projects] = useLoad(() => procurement.listProjectViews(), []);
   const [quotes, reloadQuotes] = useLoad(() => quotation.listQuotations(), []);
@@ -53,7 +53,7 @@ export default function ClientPage({ params }: { params: Promise<{ code: string 
                   <div className="flex items-center gap-2">
                     <SourceBadge state={clients} />
                     {c.archived_at && <Badge tone="slate">{tr("Archived", "Diarsipkan")}</Badge>}
-                    {can("project.update") && <Button variant="outline" icon={Pencil} onClick={() => setEditing(c)}>{tr("Edit contact", "Ubah kontak")}</Button>}
+                    {canSell() && <Button variant="outline" icon={Pencil} onClick={() => setEditing(c)}>{tr("Edit contact", "Ubah kontak")}</Button>}
                   </div>
                 )}
               />

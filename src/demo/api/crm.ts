@@ -9,7 +9,7 @@ import type {
 } from "@/services/crm/contracts";
 import { ACTIVITY_KINDS } from "@/services/crm/contracts";
 import { getState, apply, newId, writeAudit } from "../store";
-import { latency, actingUser, requireLevel, replayed, remember } from "./_kit";
+import { latency, actingUser, requireSeller, replayed, remember } from "./_kit";
 import { officeToday } from "@/lib/office";
 import type { DemoState } from "../state";
 
@@ -65,7 +65,7 @@ export async function logActivity(input: ActivityInput, idempotencyKey?: string)
   await latency();
   const cached = replayed<ClientActivityView>(SERVICE, "logActivity", idempotencyKey);
   if (cached) return cached;
-  const denied = requireLevel(SERVICE, "project", "write");
+  const denied = requireSeller(SERVICE);
   if (denied) return denied;
 
   const state = getState();
@@ -129,7 +129,7 @@ export async function logActivity(input: ActivityInput, idempotencyKey?: string)
 
 export async function completeFollowUp(activityId: string, result?: string | null): Promise<Result<ClientActivityView>> {
   await latency();
-  const denied = requireLevel(SERVICE, "project", "write");
+  const denied = requireSeller(SERVICE);
   if (denied) return denied;
   const state = getState();
   const a = state.client_activities.find((x) => x.id === activityId);

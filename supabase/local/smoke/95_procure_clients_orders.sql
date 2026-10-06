@@ -1,7 +1,7 @@
 -- procure — the customer's order: clients, status, lines, and the item code (0111).
 --
---   REFUSALS     a second client with the same name; cancelling with no
---                reason; an order line of zero; a line in a unit that does
+--   REFUSALS     a second client with the same name; closing with no
+--                category or reason, or as CANCELLED before the deal (0219); an order line of zero; a line in a unit that does
 --                not exist; somebody without project access; making an item
 --                code without production access
 --   DERIVATIONS  a project code minted after the highest numeric one; every
@@ -69,11 +69,16 @@ begin
   /* status: logged, and is_active follows */
   r := ops_procure.set_project_status('25008', 'QUOTATION_SENT');
   assert ops_core.said_ok(r), 'quotation: ' || r::text;
-  r := ops_procure.set_project_status('25008', 'CANCELLED');
-  assert r->'error'->>'code' = 'reason_required', 'cancel needs a reason: ' || r::text;
-  r := ops_procure.set_project_status('25008', 'CANCELLED', 'klien menunda ke tahun depan');
-  assert ops_core.said_ok(r), 'cancel: ' || r::text;
-  assert not (select is_active from ops_procure.projects where code = '25008'), 'cancelled is not active';
+  /* before the deal it is LOST, not CANCELLED, and it says why (0219, D377) */
+  r := ops_procure.set_project_status('25008', 'CANCELLED', 'klien menunda', 'CLIENT POSTPONED');
+  assert r->'error'->>'code' = 'cancel_before_deal', 'not cancelled before the deal: ' || r::text;
+  r := ops_procure.set_project_status('25008', 'LOST');
+  assert r->'error'->>'code' = 'reason_code_required', 'lost needs a category: ' || r::text;
+  r := ops_procure.set_project_status('25008', 'LOST', null, 'CLIENT POSTPONED');
+  assert r->'error'->>'code' = 'reason_required', 'lost needs a sentence: ' || r::text;
+  r := ops_procure.set_project_status('25008', 'LOST', 'klien menunda ke tahun depan', 'client postponed');
+  assert ops_core.said_ok(r), 'lost: ' || r::text;
+  assert not (select is_active from ops_procure.projects where code = '25008'), 'lost is not active';
   r := ops_procure.set_project_status('25008', 'DEAL');
   assert (select is_active from ops_procure.projects where code = '25008'), 'back to deal is active again';
   assert (select count(*) from ops_procure.project_status_log l

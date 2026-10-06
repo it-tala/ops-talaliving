@@ -94,7 +94,11 @@ export function initialState(): DemoState {
       contact_name: null, phone: null, email: null, address: p.location, npwp: null, note: null,
       archived_at: null,
     })),
-    project_status_log: [],
+    project_status_log: [{
+      project_id: "prj_26004", from_status: "QUOTATION_SENT", to_status: "LOST",
+      reason: "Klien memilih vendor lokal, sekitar 15% lebih murah", reason_code: "PRICE",
+      changed_by: "rina@talaliving.com", changed_at: "2026-09-24T03:00:00Z",
+    }],
     quotations: [],
     quotation_lines: [],
     client_activities: [],

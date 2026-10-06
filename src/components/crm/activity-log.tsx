@@ -12,7 +12,7 @@ import {
   ACTIVITY_KINDS, ACTIVITY_KIND_LABEL,
   type ActivityFilter, type ActivityKind, type ClientActivityView, type FollowUpState,
 } from "@/services/crm/contracts";
-import { useSession } from "@/store/session";
+import { useCanSell } from "@/lib/sell";
 import { useToast } from "@/store/toast";
 import { useTr, type Message } from "@/lib/i18n";
 
@@ -30,9 +30,9 @@ export function ActivityLog({
   title?: string;
   onChanged?: () => void;
 }) {
-  const { can } = useSession();
+  const canSell = useCanSell();
   const tr = useTr();
-  const mayWrite = can("project.update");
+  const mayWrite = canSell();
   const [rows, reload] = useLoad(() => crm.listActivities(filter), [JSON.stringify(filter)]);
   const [adding, setAdding] = useState(false);
   const changed = () => { reload(); onChanged?.(); };
