@@ -317,6 +317,20 @@ pertama: IT mengonfigurasi drive PROJECT MANAGER** di `/it/drive` (G16).
 
 ## 6. Urutan kerja: satu sesi, satu fitur
 
+**Diperbarui 6 Okt sore (P0):** urutannya kini **P1 → P2 → P4 → P3 → P5 → P6 →
+P7**. Item desain (P4) dikerjakan sebelum meeting (P3), karena keputusan dan
+permintaan revisi dari meeting menunjuk ke item desain. Nomor tahap tidak
+diubah. Setiap tahap berjalan dalam empat langkah:
+1. preview disetujui owner;
+2. layar dibangun di aplikasi dengan data demo, lalu dicoba lewat link
+   preview Vercel;
+3. migrasi dan backend;
+4. diterapkan ke produksi.
+
+Preview yang bisa diklik (data contoh) ada di
+`docs/analysis/2026-10-06-proyek-preview.html`. Layar-layar tahap 2 dibangun
+dari preview itu.
+
 | # | Sesi | Isi | Butuh jawaban owner? |
 |---|---|---|---|
 | P1 | **Fondasi file proyek** | Drive PROJECT MANAGER dikonfigurasi (IT). Entity `client`/`quotation`/`client_activity` dan `project` di TS. Jenis file baru dengan kolom `origin`. Token `{CLIENT}`/`{PROJECT}` di `drive_paths`. Unggah file dari halaman proyek, quotation, dan catatan kontak | Q68 masih terbuka, jalan dengan default |
