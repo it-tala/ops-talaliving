@@ -9486,3 +9486,20 @@ seam asks it.
 
 **Rule:** new fields on a record that an older screen saves go through their
 own seam, not as optional arguments on the old one.
+
+**Applying it** (same day): before replacing eleven seams in production, each
+production body was hashed against the ladder's. Four differed, and the
+difference was only comment lines — production keeps function bodies applied
+without their `--` lines — so nothing production-only was overwritten. Then
+the Supabase tool held one more statement the way F220's `DROP` was held: the
+body of `remove_quotation_line`, because it contains `delete from`. A group of
+six timed out at 60 s with nothing applied (the apply is one transaction); the
+five without the word went through at once; the one with it timed out alone.
+So the tool's destructive-statement check reads **function bodies**, not only
+top-level statements. `remove_quotation_line` keeps its `project.update` gate
+in production until a person runs that part of `0219` in the SQL Editor; a
+marketing-only account cannot remove a line from a draft quotation until then.
+
+**Rule:** a migration for the production tool keeps any function whose body
+says `delete` (or `drop`, `truncate`) in a part of its own, so the rest is not
+held with it.
