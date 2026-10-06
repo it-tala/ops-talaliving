@@ -9329,3 +9329,38 @@ Three more things the build taught:
   that had not merged yet. Renamed `0214` before applying. Before choosing a
   number, read `supabase_migrations.schema_migrations` in production and the
   migration folders of the open branches, not only `main`.
+## F222 · 2026-10-06 · A payroll is read before it is generated, and the calendar rule was in the way of generating part of one
+
+The owner asked for payroll to be generated from a sheet: attendance complete
+first, every rate in view, each person's breakdown a click away, the totals
+of what is added and what is taken on one page, and a box per person to hold
+somebody or to generate only one or two of the weekly people.
+
+Most of it was already computed and never shown together. Each line already
+carried every day, every overtime rung and every adjustment; what was missing
+was **where the money goes in two columns**. A payslip read *gross, net,
+take-home* and left the reader to work out which deductions sat between them.
+The sheet needs *additions* and *deductions*, and the database now returns
+them per line (`additions_total`, `deductions_total`, their difference being
+`take_home` by construction), so the browser sums only what the person ticked.
+
+One figure needed care: the alpa on a salary. Since 0212 it is taken out of
+the pokok by proration, so listing it again as a deduction would take it
+twice. It is shown beside the pokok (`absence_deduction`) and not counted in
+the deductions column. That is the same rule as the rest of this ledger: a
+number may appear twice, but it may only be counted once.
+
+*Generate one or two now, the rest later* collided with the last calendar
+rule left from 0055: a run of the same group over the same days was refused
+outright. Once the overlap rule is the person's (0212), that refusal protects
+nothing: the second run's people are written off it, named, if another run
+pays them. A run that pays nobody is still refused, as the overlap it is, and
+now names the run in the way. **Rule:** when a constraint has moved to the
+grain it was always about, delete the coarse copy of it. The leftover is not a
+second safety net; it blocks legitimate work.
+
+Attendance first, literally: a person with a day nobody has read cannot be
+ticked (Q64), because the run could never be approved over that day (D139).
+The sheet holds them with that sentence instead of letting the approval fail
+later on somebody else's screen.
+

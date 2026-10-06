@@ -920,6 +920,7 @@ export function payrollLine(
     overtime_hours: d.overtime_hours,
     mark: d.mark ? DAY_MARK_SHORT[d.mark.kind] : null,
     assumed: assumedDates.has(d.work_date),
+    late_minutes: lateBy(d),
     shift: d.shift_code ?? null,
     day_value: d.day_value,
     open: d.state === "review",
@@ -995,7 +996,28 @@ export function payrollLine(
     warnings.push(`${adjustments.filter((a) => a.amount < 0).length} potongan dicatat tangan — lihat rinciannya di slip`);
   }
 
+  /* 0213 (D373): a day's rate, what the alpa took from a salary (already
+     inside the pokok), and the sheet's two columns — the same arithmetic as
+     `ops_hr.payroll_line_for`. */
+  const firstMonthDays = monthly?.months[0]?.workdays ?? 0;
+  const daily_rate = employee.pay_basis === "monthly"
+    ? (firstMonthDays > 0 ? Math.round(employee.base_rate / firstMonthDays) : null)
+    : employee.pay_basis === "daily"
+      ? employee.base_rate
+      : Math.round(employee.base_rate * (employee.daily_hours ?? 0));
+  const absence_deduction = monthly && on("absence")
+    ? monthlyBase(state, rules, sched, employee, from, to, unpaidDates, false).amount - monthly.amount
+    : 0;
+  const adjPos = adjustments.filter((a) => a.amount > 0).reduce((t, a) => t + a.amount, 0);
+  const adjNeg = adjustments.filter((a) => a.amount < 0).reduce((t, a) => t - a.amount, 0);
+  const additions_total = base_pay + allowance_pay + overtime_pay + adjPos;
+  const deductions_total = late_deduction + undertime_amount + contribution_total + adjNeg;
+
   return {
+    daily_rate,
+    absence_deduction,
+    additions_total,
+    deductions_total,
     employee_id: employee.id,
     employee_no: employee.employee_no,
     full_name: employee.full_name,
@@ -2277,6 +2299,9 @@ export function payrollView(state: DemoState, run: PayrollRun): PayrollView {
     adjustment_total: lines.reduce((s, l) => s + l.adjustment_total, 0),
     open_days: lines.reduce((s, l) => s + l.days_open, 0),
     pending_overtime_hours: lines.reduce((s, l) => s + l.overtime_pending_hours, 0),
+    additions_total: lines.reduce((s, l) => s + l.additions_total, 0),
+    deductions_total: lines.reduce((s, l) => s + l.deductions_total, 0),
+    take_home_total: lines.reduce((s, l) => s + l.take_home, 0),
   };
 }
 

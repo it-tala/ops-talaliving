@@ -2439,6 +2439,18 @@ export interface PayrollLine {
   proration: PayrollProration[];
   /** Components switched off for this line, by the run or for the person. */
   components_off: PayrollComponentOff[];
+  /** A day of this person's pay (0213): the salary over the first month's
+   *  working days, the day wage, or the hour wage over a contracted day. Null
+   *  where a month has no working day to divide by. */
+  daily_rate: number | null;
+  /** What the alpa took from a salary, apart from what the calendar did. It
+   *  is already inside `base_pay` — shown beside it, never taken twice. */
+  absence_deduction: number;
+  /** The sheet's two columns (0213): pokok + tunjangan + lembur + additions
+   *  typed by hand, and lateness + short hours + BPJS + deductions typed by
+   *  hand. `take_home` is their difference. */
+  additions_total: number;
+  deductions_total: number;
   /** Days that earned the tunjangan — present days, less whatever HRD
    *  withheld. */
   allowance_days: number;
@@ -2530,6 +2542,8 @@ export interface PayslipDay {
   assumed?: boolean;
   /** The shift worked, on a pattern with shifts (D364). */
   shift?: string | null;
+  /** Minutes late past the grace on this day (0213). */
+  late_minutes?: number;
   /** The machine's record of this day is incomplete and nobody has read it, so
    *  it counts for nothing yet. Printed on the slip rather than hidden: a day
    *  with hours beside it that adds nothing to the total is the one an
@@ -2547,6 +2561,25 @@ export interface PayrollView extends PayrollRun {
    *  computable and not trustworthy, and the screen says which. */
   open_days: number;
   pending_overtime_hours: number;
+  /** The sheet's sums (0213), from the database rather than the browser. */
+  additions_total: number;
+  deductions_total: number;
+  take_home_total: number;
+}
+
+/** Somebody another run already pays for days of a period (0213). */
+export interface PaidElsewhere {
+  employee_id: string;
+  employee_no: string;
+  run_no: string;
+  period_start: string;
+  period_end: string;
+}
+
+/** One person the sheet leaves unticked, and why (0213). */
+export interface PayrollHold {
+  employee_no: string;
+  note: string;
 }
 
 /** The year's working days, counted from the calendar the business already
