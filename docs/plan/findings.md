@@ -9280,6 +9280,90 @@ MUSLIKHIN, DEWI) have fingerprint taps on 7–11 September and a `joined_on` of
 showed that HRD-typed start dates drift. That is HRD's to correct, not ours to
 infer from taps.
 
+## F221 · 2026-10-06 · A day with no taps is not a day off, and a measure that cannot tell them apart scores nobody
+
+The daily log needed one fact the system did not obviously have: **on which
+days was this person expected to log?** The first answer reached for
+`timesheet().state` and counted every day not `off`. On the local ladder that
+returned zero working days for an office employee — every day of the month,
+Monday to Friday included, was `off`. `read_day` sets `state = 'off'` when
+there are **no taps at all**, which says nothing about whether the day was a
+working day. Used raw, it would have made every office account that does not
+tap unmeasurable forever, and quietly — the measure would have read *baru 0
+hari kerja* instead of failing.
+
+`scheduled_hours` was the second candidate and is wrong the other way: in
+production it reads 8,25 on Saturday and Sunday too, because the KANTOR
+pattern never marks its weekend days `off`. What payroll actually uses is
+`is_rest_day(rules_on(d), d)` — the week pattern (`5day` in production) and
+tanggal merah — so the measure uses exactly that, plus the person's own
+pattern's `off` flag, minus any day HRD marked. **One definition of a working
+day for pay and for assessment**: a person cannot be paid for a day as a
+working day and excused from it as a holiday, or the other way round.
+
+Three more things the build taught:
+
+- **"Has an account" is not "is staff".** The first roster listed everybody
+  with a login, and the walk showed Karjo — a floor worker whose whole app is
+  `/saya` (D331) — as *belum mengisi* every day, for a screen that account
+  cannot open. Production has the same shape: of nine linked logins, eight
+  hold modules and one (999, HELPER, daily) holds none. The line is
+  `owes_daily_log()`: a linked login **with at least one module**. The
+  owner's scope (*16 karyawan itu bukan staff*) turned out to have a precise
+  definition in the data.
+- **The assessment screen was never live.** `/hrd/kinerja` called `getKpi`,
+  which existed only in the demo; the real client had no such function and
+  the route stayed dark in production. *Pastikan ini bisa jadi dasar
+  penilaian* would have shipped a measure into a page nobody could open.
+  `kpi_board()` assembles the card from `kpi()` and `kpi_measures()` so the
+  arithmetic is not written a second time.
+- **A self-written record is only evidence if it cannot be backfilled.** The
+  rules that make the log fit for a review are structural, not advisory:
+  the seam takes the day from the office clock and the person from the
+  account link, and there is no argument for either. There is no write
+  policy on the table at all, so the seam is the only road in.
+- **A free number on `main` is not a free number.** This migration was
+  written as `0213` because `main` ended at `0212` — and production already
+  carried `0213_hr_payroll_sheet_types_totals`, applied from another
+  session's branch (`claude/vigilant-gates-fnfxz9`, `0213_hr_payroll_sheet.sql`)
+  that had not merged yet. Renamed `0214` before applying. Before choosing a
+  number, read `supabase_migrations.schema_migrations` in production and the
+  migration folders of the open branches, not only `main`.
+## F222 · 2026-10-06 · A payroll is read before it is generated, and the calendar rule was in the way of generating part of one
+
+The owner asked for payroll to be generated from a sheet: attendance complete
+first, every rate in view, each person's breakdown a click away, the totals
+of what is added and what is taken on one page, and a box per person to hold
+somebody or to generate only one or two of the weekly people.
+
+Most of it was already computed and never shown together. Each line already
+carried every day, every overtime rung and every adjustment; what was missing
+was **where the money goes in two columns**. A payslip read *gross, net,
+take-home* and left the reader to work out which deductions sat between them.
+The sheet needs *additions* and *deductions*, and the database now returns
+them per line (`additions_total`, `deductions_total`, their difference being
+`take_home` by construction), so the browser sums only what the person ticked.
+
+One figure needed care: the alpa on a salary. Since 0212 it is taken out of
+the pokok by proration, so listing it again as a deduction would take it
+twice. It is shown beside the pokok (`absence_deduction`) and not counted in
+the deductions column. That is the same rule as the rest of this ledger: a
+number may appear twice, but it may only be counted once.
+
+*Generate one or two now, the rest later* collided with the last calendar
+rule left from 0055: a run of the same group over the same days was refused
+outright. Once the overlap rule is the person's (0212), that refusal protects
+nothing: the second run's people are written off it, named, if another run
+pays them. A run that pays nobody is still refused, as the overlap it is, and
+now names the run in the way. **Rule:** when a constraint has moved to the
+grain it was always about, delete the coarse copy of it. The leftover is not a
+second safety net; it blocks legitimate work.
+
+Attendance first, literally: a person with a day nobody has read cannot be
+ticked (Q64), because the run could never be approved over that day (D139).
+The sheet holds them with that sentence instead of letting the approval fail
+later on somebody else's screen.
+
 ## F224 · 2026-10-06 · The sales road was built and never walked, and the half the owner now asks for was never built
 
 The owner asked for the whole business to be recorded from the first proposal

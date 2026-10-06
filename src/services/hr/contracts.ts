@@ -938,7 +938,7 @@ export interface TaskRoutineView extends TaskRoutine {
  *  compliment nobody earned, and scoring them 0% would be a slander (D261).
  */
 export interface KpiMeasure {
-  key: "punctuality" | "attendance" | "task_delivery";
+  key: "punctuality" | "attendance" | "task_delivery" | "daily_log";
   label: string;
   /** 0–100, or null where it could not be measured. */
   value: number | null;
@@ -1012,6 +1012,126 @@ export interface KpiView {
   };
   /** Said plainly under the score, including what it could not see. */
   notes: string[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Laporan harian: what was actually done today (D371, D372)            */
+/* ------------------------------------------------------------------ */
+
+/** How far a piece of work got today. Words, not a percentage: *70%* is a
+ *  guess nobody can check, *tertahan* is a fact somebody can act on. */
+export type WorkProgress = "lanjut" | "selesai" | "tertahan";
+
+/** One line of somebody's day, as stored (`ops_hr.work_log`).
+ *
+ *  Written by the person only, for the office day it is written on, and
+ *  changeable only that day: a record that can be filled in the night before
+ *  a review is not evidence for one. `task_id` null is **dadakan** — work
+ *  nobody assigned through the board — and then `requested_by` is required,
+ *  because *dadakan* without a name excuses anything. */
+export interface WorkLog {
+  id: string;
+  employee_id: string;
+  work_date: string;
+  task_id: string | null;
+  summary: string;
+  progress: WorkProgress;
+  requested_by: string | null;
+  /** Optional. Where given, it is what lets a review say *how much* of a week
+   *  went to dadakan rather than only *how often*. */
+  hours: number | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string | null;
+  /** Set when HRD turned this dadakan entry into a task. The entry stays
+   *  dadakan — that it arrived unplanned is the fact the log keeps. */
+  promoted_task_id: string | null;
+  promoted_by: string | null;
+  promoted_at: string | null;
+}
+
+/** `v_work_log`: a log line with its task and goal named. */
+export interface WorkLogEntry {
+  id: string;
+  work_date: string;
+  employee_id: string;
+  employee_no: string;
+  employee_name: string;
+  kind: "tugas" | "dadakan";
+  task_no: string | null;
+  task_title: string | null;
+  task_status: TaskStatus | null;
+  goal_no: string | null;
+  goal_title: string | null;
+  goal_rank: number | null;
+  summary: string;
+  progress: WorkProgress;
+  requested_by: string | null;
+  hours: number | null;
+  created_at: string;
+  updated_at: string | null;
+  /** Today's, and not yet made a task — the only lines anybody can change. */
+  editable: boolean;
+  promoted_task_no: string | null;
+}
+
+/** One person's day, for HRD: who logged, and how much was dadakan. */
+export interface WorkLogRosterRow {
+  employee_no: string;
+  full_name: string;
+  unit: string;
+  position: string;
+  /** A working day for this person — not a rest day, not off on their
+   *  schedule. A day off with no log is not a missing log. */
+  scheduled: boolean;
+  /** Cuti, sakit, izin, libur, mangkir, setengah hari — or null. */
+  mark_kind: string | null;
+  entries: number;
+  task_entries: number;
+  dadakan_entries: number;
+  hours: number;
+  dadakan_hours: number;
+}
+
+/** What a performance advisory (PA) is written from, for one person over one
+ *  period (D372).
+ *
+ *  HRD and payroll read it about anybody; the person reads it about
+ *  themselves — the basis of an assessment is something the assessed can
+ *  read. The dadakan share is here as **context, never as a score**: being
+ *  interrupted is not a failure of the interrupted. */
+export interface WorkEvidence {
+  employee_no: string;
+  full_name: string;
+  period_start: string;
+  period_end: string;
+  /** Owes a daily log: an office account (a login with a module). A floor
+   *  worker's `/saya` account does not (D371). */
+  has_account: boolean;
+  /** Working days a log was owed: not a rest day, not off on the person's
+   *  schedule, not marked cuti/sakit/izin/libur/mangkir, from the day the log
+   *  existed, and never today. */
+  days_expected: number;
+  days_logged: number;
+  counted_from: string;
+  /** 0–100, or null where no day was owed yet. */
+  coverage: number | null;
+  entries: number;
+  task_entries: number;
+  dadakan_entries: number;
+  /** 0–100 of entries, or null with no entries. */
+  dadakan_share: number | null;
+  hours_task: number;
+  hours_dadakan: number;
+  entries_without_hours: number;
+  /** Dadakan entries HRD turned into tasks. */
+  promoted: number;
+  first_day: string | null;
+  last_day: string | null;
+  tasks: { task_no: string; title: string; status: TaskStatus; goal_title: string | null;
+           days: number; last_progress: WorkProgress }[];
+  requesters: { requested_by: string; entries: number }[];
+  goals: { goal_no: string; title: string; entries: number }[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -2319,6 +2439,18 @@ export interface PayrollLine {
   proration: PayrollProration[];
   /** Components switched off for this line, by the run or for the person. */
   components_off: PayrollComponentOff[];
+  /** A day of this person's pay (0213): the salary over the first month's
+   *  working days, the day wage, or the hour wage over a contracted day. Null
+   *  where a month has no working day to divide by. */
+  daily_rate: number | null;
+  /** What the alpa took from a salary, apart from what the calendar did. It
+   *  is already inside `base_pay` — shown beside it, never taken twice. */
+  absence_deduction: number;
+  /** The sheet's two columns (0213): pokok + tunjangan + lembur + additions
+   *  typed by hand, and lateness + short hours + BPJS + deductions typed by
+   *  hand. `take_home` is their difference. */
+  additions_total: number;
+  deductions_total: number;
   /** Days that earned the tunjangan — present days, less whatever HRD
    *  withheld. */
   allowance_days: number;
@@ -2410,6 +2542,8 @@ export interface PayslipDay {
   assumed?: boolean;
   /** The shift worked, on a pattern with shifts (D364). */
   shift?: string | null;
+  /** Minutes late past the grace on this day (0213). */
+  late_minutes?: number;
   /** The machine's record of this day is incomplete and nobody has read it, so
    *  it counts for nothing yet. Printed on the slip rather than hidden: a day
    *  with hours beside it that adds nothing to the total is the one an
@@ -2427,6 +2561,25 @@ export interface PayrollView extends PayrollRun {
    *  computable and not trustworthy, and the screen says which. */
   open_days: number;
   pending_overtime_hours: number;
+  /** The sheet's sums (0213), from the database rather than the browser. */
+  additions_total: number;
+  deductions_total: number;
+  take_home_total: number;
+}
+
+/** Somebody another run already pays for days of a period (0213). */
+export interface PaidElsewhere {
+  employee_id: string;
+  employee_no: string;
+  run_no: string;
+  period_start: string;
+  period_end: string;
+}
+
+/** One person the sheet leaves unticked, and why (0213). */
+export interface PayrollHold {
+  employee_no: string;
+  note: string;
 }
 
 /** The year's working days, counted from the calendar the business already

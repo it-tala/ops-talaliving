@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { SlidersHorizontal, UserMinus, UserPlus, Users } from "lucide-react";
 import { Badge, Button, Card, CardHeader } from "@/components/ui/primitives";
 import { Drawer } from "@/components/ui/drawer";
@@ -32,11 +32,14 @@ import { useLang, useTr } from "@/lib/i18n";
  *  run named — the same day is never paid twice.
  */
 export function Members({
-  run, editable, onChanged,
+  run, editable, onChanged, focusNo = null, onFocusDone,
 }: {
   run: PayrollRun;
   editable: boolean;
   onChanged: () => void;
+  /** The sheet asks for one person's switches (0213): open their drawer. */
+  focusNo?: string | null;
+  onFocusDone?: () => void;
 }) {
   const { can } = useSession();
   const { toast } = useToast();
@@ -70,6 +73,13 @@ export function Members({
     setPersonIncluded(m.included);
     setPersonNote(m.auto ? "" : m.note ?? "");
   }
+
+  useEffect(() => {
+    if (!focusNo || rows.status !== "ready") return;
+    const m = rows.data.find((x) => x.employee_no === focusNo);
+    if (m) openPerson(m);
+    onFocusDone?.();
+  }, [focusNo, rows, onFocusDone]);
 
   async function saveRun() {
     setBusy(true);
@@ -110,7 +120,7 @@ export function Members({
   return (
     <Card className="mb-4">
       <CardHeader
-        title={tr("Who is paid, and what", "Peserta & komponen")}
+        title={tr("Components, and per-person settings", "Komponen & pengaturan per orang")}
         subtitle={tr(
           `Opened for: ${PAY_GROUP_LABELS[run.pay_group ?? "all"].en}. Take people off, add them, or switch a component off for the run or for one person — each with a reason printed on the slip.`,
           `Dibuka untuk: ${PAY_GROUP_LABELS[run.pay_group ?? "all"].id}. Keluarkan atau tambahkan orang, atau matikan satu komponen untuk seluruh run atau untuk satu orang — masing-masing dengan alasan yang tercetak di slip.`,
@@ -214,10 +224,12 @@ export function Members({
                     {tr("Nobody yet — add people below.", "Belum ada — tambahkan orang di bawah.")}
                   </li>
                 )}
-                {(showAll ? onRun : onRun.filter((m, i) => i < 8
-                  || PAY_COMPONENTS.some((c) => m.components?.[c] !== undefined))).map(Row)}
+                {/* Who is on the run is the sheet's checkbox now (0213); here,
+                    folded, are only the people with switches of their own. */}
+                {(showAll ? onRun : onRun.filter((m) =>
+                  PAY_COMPONENTS.some((c) => m.components?.[c] !== undefined))).map(Row)}
               </ul>
-              {onRun.length > 8 && (
+              {onRun.length > 0 && (
                 <button
                   type="button" onClick={() => setShowAll(!showAll)}
                   className="w-full border-t border-slate-100 px-5 py-2 text-left text-[12px] font-medium text-brand-700 hover:bg-slate-50"
@@ -227,7 +239,7 @@ export function Members({
                     : tr(`Show all ${onRun.length}`, `Tampilkan semua ${onRun.length}`)}
                 </button>
               )}
-              {offRun.length > 0 && (
+              {showAll && offRun.length > 0 && (
                 <>
                   <p className="border-t border-slate-100 px-5 pt-3 text-[12px] font-medium text-slate-600">
                     {tr(`Not on this run · ${offRun.length}`, `Tidak ikut run ini · ${offRun.length}`)}
