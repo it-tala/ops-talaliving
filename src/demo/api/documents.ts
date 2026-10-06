@@ -134,7 +134,7 @@ const SALE_KINDS: Partial<Record<DocKind, [drive: string, task: string]>> = {
   "Client Approval": ["DRAFTING", "00 PERSETUJUAN"],
 };
 
-/** The kinds a design item files in its own folder (0221). */
+/** The kinds a design item files in its own folder (0222). */
 const ITEM_FOLDER_KINDS: readonly DocKind[] = [
   "Render", "Moodboard", "Layout / Floor Plan", "Client Drawing", "Client Reference",
   "Gambar Kerja", "Gambar Jadi", "Client Approval",
@@ -149,7 +149,7 @@ const segment = (s: string | null | undefined) =>
 
 function filingPlace(kind: DocKind, entity?: LinkEntity, entityNo?: string): FilingPreview | null {
   const st = getState();
-  /* A design item's or collection's files, in their own folder (0221). */
+  /* A design item's or collection's files, in their own folder (0222). */
   if ((entity === "design_item" && ITEM_FOLDER_KINDS.includes(kind))
       || (entity === "design_collection" && COLLECTION_FOLDER_KINDS.includes(kind))) {
     const no = entityNo?.trim() ?? "";

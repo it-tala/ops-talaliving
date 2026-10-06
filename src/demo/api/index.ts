@@ -79,7 +79,7 @@ export const delivery = swap("production", demoDelivery, liveDelivery);
 export const quotation = swap("procurement", demoQuotation, liveQuotation);
 /* The client log sits with the clients it is about. */
 export const crm = swap("procurement", demoCrm, liveCrm);
-/* A project's design (0221): collections, rooms, items, approvals. Stamped
+/* A project's design (0222): collections, rooms, items, approvals. Stamped
    `procurement`, where projects live. */
 export const design = swap("procurement", demoDesign, liveDesign);
 export const assistant = swap("procurement", demoAssistant, liveAssistant);

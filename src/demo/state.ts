@@ -152,7 +152,7 @@ export interface DemoState {
   quotation_lines: QuotationLine[];
   /** What was said to each client, and what to do next (0134). */
   client_activities: ClientActivity[];
-  /** A project's design (0221, P4): collections, rooms, items, approvals. */
+  /** A project's design (0222, P4): collections, rooms, items, approvals. */
   design_collections: DemoDesignCollection[];
   design_rooms: DemoDesignRoom[];
   design_items: DemoDesignItem[];
@@ -428,7 +428,7 @@ export type DemoReceivingInbox = Omit<ReceivingInboxRow, "files" | "resolved_by_
 };
 
 
-/* ── a project's design (0221) — the tables, as the demo stores them ── */
+/* ── a project's design (0222) — the tables, as the demo stores them ── */
 export interface DemoDesignCollection {
   id: string; project_id: string; code: string; name: string; note: string | null; created_at: string;
 }

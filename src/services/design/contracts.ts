@@ -1,5 +1,5 @@
 /** Design contracts — a project's collections, rooms and design items, their
- *  files and the client's approval (`ops_procure`, 0221, P4).
+ *  files and the client's approval (`ops_procure`, 0222, P4).
  *
  *  The order is the drafters' own: client → project → collection / catalogue →
  *  room → item (D379). An item is what is drawn and offered before anything is

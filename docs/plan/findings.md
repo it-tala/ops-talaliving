@@ -9504,7 +9504,7 @@ marketing-only account cannot remove a line from a draft quotation until then.
 says `delete` (or `drop`, `truncate`) in a part of its own, so the rest is not
 held with it.
 
-## F227 · 2026-10-06 · An item's status is its files, and the newest row needs a clock that moves
+## F228 · 2026-10-06 · An item's status is its files, and the newest row needs a clock that moves
 
 P4 (kajian F224) built the drafters' order (D379): collection → room → design
 item, with the item's files and the client's approval (D378). Three things the
@@ -9545,3 +9545,8 @@ RUANGAN` / `TANPA ITEM` rather than filing loose in the project.
 
 **Rule:** a column that orders append-only rows defaults to
 `clock_timestamp()`, not `now()`.
+
+*Renumbered the same day:* this work was written as `0220`/`0221` and F227.
+Another branch's `0220` (the task backlog, D381) and its F227 reached
+production and the plan first, so this became `0221`/`0222` and F228 before
+anything of it was applied.

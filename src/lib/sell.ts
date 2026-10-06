@@ -9,7 +9,7 @@ export function useCanSell(): (level?: "read" | "update" | "create") => boolean 
   return (level = "update") => can(`project.${level}`) || can(`marketing.${level}`);
 }
 
-/** Who works on a project's design (0221's `may_design`): whoever sells, and
+/** Who works on a project's design (0222's `may_design`): whoever sells, and
  *  the drafters, who hold the production module. */
 export function useCanDesign(): (level?: "read" | "update" | "create") => boolean {
   const { can } = useSession();

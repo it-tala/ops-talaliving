@@ -241,7 +241,7 @@ Order lines stay `project.update`; cost and margin on a quotation stay with
 `expected_value`, `expected_close_on`, `days_in_status`, `current_quote_*` and,
 while LOST or CANCELLED, `closing_reason_code`, `closing_reason`, `closed_at`.
 
-### Projects — design (P4, 0221)
+### Projects — design (P4, 0222)
 
 The drafters' order (D379): a project's **collections** (a unit type, a
 catalogue, a floor), their **rooms**, and the **design items** in them.
@@ -266,7 +266,7 @@ moodboard, layout, client drawing/reference, working and finished drawing,
 drawing/reference), and are filed in DRAFTING under
 `<client>/<project>/KOLEKSI <code> <name>/<room>/<item_no> <name>` or
 `…/KOLEKSI <code> <name>/00 KOLEKSI` (tokens `{COLLECTION}` `{ROOM}` `{ITEM}`,
-0221). A collection's `entity_no` is `<project code>-<collection code>`.
+0222). A collection's `entity_no` is `<project code>-<collection code>`.
 
 `POST /pr` accepts `project_code` as well as `project_id`: another service
 knows the public code, never the internal id (ADR-004). A request created from
