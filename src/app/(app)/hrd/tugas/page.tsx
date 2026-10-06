@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   AlarmClock, CalendarRange, Check, ListChecks, PauseCircle, PlayCircle,
   Plus, Repeat, Ban, PackageCheck, BellRing, MailCheck, Target, Link2, SlidersHorizontal, RotateCcw,
@@ -58,7 +59,19 @@ import { DailyPanel } from "./daily-panel";
  *  cannot tell the difference punishes the wrong person. They are printed.
  */
 export default function TasksPage() {
+  return (
+    <Suspense fallback={null}>
+      <Tasks />
+    </Suspense>
+  );
+}
+
+const TABS = ["goals", "daily", "open", "all", "routines"] as const;
+type TabKey = (typeof TABS)[number];
+
+function Tasks() {
   const { can } = useSession();
+  const params = useSearchParams();
   const { toast } = useToast();
   const tr = useTr();
   const today = officeToday();
@@ -67,7 +80,14 @@ export default function TasksPage() {
   const [routines, reloadRoutines] = useLoad(() => hr.listTaskRoutines(), []);
   const [employees] = useLoad(() => hr.listEmployees(), []);
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<"goals" | "daily" | "open" | "all" | "routines">("goals");
+  const [tab, setTab] = useState<TabKey>("goals");
+  /* `?tab=all` is where the bell sends HRD for a hand-over (D374). Followed
+     whenever it changes, so a second notification clicked while already here
+     still lands. */
+  const asked = params.get("tab");
+  useEffect(() => {
+    if (asked && (TABS as readonly string[]).includes(asked)) setTab(asked as TabKey);
+  }, [asked]);
 
   const mayCreate = can("hrd.create");
   const mayEdit = can("hrd.update");

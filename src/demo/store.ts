@@ -14,6 +14,7 @@ import type { DemoState, AuditRow, OutboxRow } from "./state";
 import { setActiveLocale } from "@/lib/format";
 import { setActiveLang } from "@/lib/i18n";
 import { officeDay as sharedOfficeDay } from "@/lib/office";
+import { notifyTasks } from "./notify";
 
 const STORAGE_KEY = "ops-v2-demo/v2";
 
@@ -122,6 +123,9 @@ export function resetDemo() {
 export function apply(mutator: (draft: DemoState) => void) {
   const draft = structuredClone(state);
   mutator(draft);
+  /* The database's triggers, run where the database would run them: after
+     the seam's own writes, inside the same step. */
+  notifyTasks(state, draft);
   state = draft;
   persist();
   emit();

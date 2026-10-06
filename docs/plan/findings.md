@@ -9364,3 +9364,35 @@ ticked (Q64), because the run could never be approved over that day (D139).
 The sheet holds them with that sentence instead of letting the approval fail
 later on somebody else's screen.
 
+## F223 · 2026-10-06 · A notification belongs on the row, and a poll must be named like a read
+
+**On the row, not in the seams.** A task reaches a person through four seams
+today — `assign_task`, `edit_task` (moving it), `roll_task_routines` and
+`promote_work_log` (through `assign_task`). Adding a notify call to each would
+have meant dropping and recreating `assign_task` again (an apply the Supabase
+tool cannot do, F218) and leaving the fifth door, whoever writes it, silent.
+An `after insert or update of assignee_id, status` trigger on `ops_hr.tasks`
+says *a task was given to you* whenever it becomes true. The demo mirrors it
+the same way: `apply()` hands every mutation's before/after to
+`src/demo/notify.ts`, so `api/hr.ts` did not change either. **Rule:** a
+notice about a row's state is a trigger on that row; a notice about a
+decision (an approval asked for) belongs to the seam that decides.
+
+**A poll named like a write empties the cache.** `src/lib/api-cache.ts` treats
+any function whose name does not start with `list/get/count/…` as a write and
+clears every cached answer around it. The bell's unread count was first
+written as `unreadNotifications()` and polled every minute — which would have
+thrown away every screen's cached reads once a minute, invisibly (nothing
+fails; pages just reload their skeletons). It is `countUnreadNotifications()`.
+**Rule:** name a read with a read verb; the cache decides by the name.
+
+**The "live rules" smoke is a decision register.** `A3_core_outbox_delivery`
+asserts exactly which event types are live, so turning two on failed the suite
+until the decision was written into it. That is the point of the test — keep
+it that way rather than loosening it to a count.
+
+**Deploy order across the two repos.** A live rule whose renderer is not yet
+deployed in john-lau burns its five attempts in under half an hour and stops
+(`outbox_due` skips rows at five). Deploy john-lau's `pipeline-cycle` job
+first, then apply the `delivery_rules` part of 0215.
+

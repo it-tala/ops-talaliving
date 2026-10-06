@@ -103,6 +103,9 @@ All three or none. Never a business row without its audit row.
 | PUT | `/users/{id}/modules` | grant or revoke a module and its level. **`it` at `admin`**; append-only history in audit. In Phase 1 this had no guard at all until M35 — anybody acting could grant themselves anything |
 | PUT | `/users/{id}/authorities` | grant or revoke `approve_goods` · `approve_funds` · `approve_overtime` · `post_ledger` · `resolve_inbox`. **Separate from modules, deliberately** (D24). **`it` at `admin`** |
 | GET | `/modules`, `/authorities` | the catalogs, read from the database |
+| GET | `/notifications?limit=` | **The reader's bell (0215, D374).** `my_notifications(p_limit)` — the caller's own, newest first, max 100; no parameter can name anybody else. Plain rows, not an envelope: reading a bell is not a decision and an envelope writes an audit row per poll. Rows carry `kind` (`task.assigned` · `task.delivered`), `title` (Indonesian fallback), `data` (what the bell needs to say it in either language), `link` (an app path), `entity_no` |
+| GET | `/notifications/unread` | `unread_notifications()` — an integer, polled every minute and on focus. The client calls it `countUnreadNotifications`: any other verb would be read by `api-cache.ts` as a write and empty the whole cache each poll (F223) |
+| POST | `/notifications/read` | `mark_notifications_read(p_ids bigint[] \| null)` — some or all of the caller's own; answers how many changed. Somebody else's id changes nothing (the predicate is the check). Rows are **written only by the `ops_hr.tasks` trigger** — no seam writes a notification |
 
 ### Settings
 
