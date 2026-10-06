@@ -1529,6 +1529,9 @@ export interface DesignTaskView extends DesignTask {
   needed_by: string | null;
   /** Days until `needed_by`, negative when it is already late. */
   days_left: number | null;
+  /** The client approved the design item (D378) — a release without it is
+   *  allowed and warned. Null for a catalogue product. */
+  item_approved?: boolean | null;
 }
 
 /** What should have a drawing task and has none (D179, P6): a product ordered

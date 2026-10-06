@@ -76,7 +76,9 @@ begin
   assert v->>'status' = 'BELUM' and v->>'client_code' = 'CL-0956' and v->>'room_name' = 'Living room'
      and v->>'collection_code' = 'A' and v->>'product_name' = 'Sofa 3 seater'
      and v->>'dimension' = '2100 × 900 × 780 mm' and (v->>'needed_by')::date = ops_core.office_day() + 20
-     and (v->>'days_left')::int = 20, 'an item task reads its place and its date: ' || v::text;
+     and (v->>'days_left')::int = 20 and not (v->>'item_approved')::boolean,
+    'an item task reads its place, its date, and that the client has not approved it: ' || v::text;
+  assert (select item_approved from ops_prod.v_design_task where item_no = '26956-A-LR-02'), 'the approved item reads approved';
 
   r := ops_prod.assign_design_task((v->>'task_no'), 'Ayu');
   assert r->'error'->>'code' = 'not_permitted', 'a seller does not take a task on: ' || r::text;

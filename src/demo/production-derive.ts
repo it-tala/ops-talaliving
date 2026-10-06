@@ -825,6 +825,7 @@ export function designTaskView(state: DemoState, task: DesignTask, today: string
     work_orders: workOrders,
     needed_by,
     days_left: needed_by ? daysApart(today, needed_by) : null,
+    item_approved: item ? designItemProgress(state, item.id).approved : null,
   };
 }
 

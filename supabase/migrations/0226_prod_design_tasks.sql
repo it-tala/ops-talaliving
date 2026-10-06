@@ -18,6 +18,9 @@
 --   design_questions  what the drafter cannot answer alone. An open one
 --                     refuses a release.
 --
+-- A release does not wait for the client's approval (D378): the view says
+-- whether the item is approved, and the screen warns.
+--
 -- DERIVED, never typed (A3): the status — TANYA while a question is open,
 -- RILIS once a revision is released, DIGAMBAR once somebody holds it or a
 -- revision exists, BELUM before; `ahead_of_release` (a newer revision than the
@@ -164,7 +167,10 @@ select
   coalesce(w.work_orders, '[]'::jsonb)                        as work_orders,
   case when t.project_code is not null and t.project_live then array[t.project_code] else array[]::text[] end as ordered_by,
   n.needed_by,
-  n.needed_by - ops_core.office_day()                         as days_left
+  n.needed_by - ops_core.office_day()                         as days_left,
+  -- The client's latest word on the item (D378): released without it is
+  -- allowed, and said. Null for a catalogue product.
+  case when t.item_id is not null then coalesce(ap.decision = 'approved', false) end as item_approved
 from t
 left join ops_prod.products p on p.product_code = t.eff_product
 left join revs r on r.task_id = t.id
@@ -172,7 +178,11 @@ left join qs q on q.task_id = t.id
 left join wos w on w.product_code = t.eff_product
 cross join lateral (
   select least(t.due_date, w.open_due, case when t.project_live then t.project_target end) as needed_by
-) n;
+) n
+left join lateral (
+  select a.decision from ops_procure.design_approvals a
+   where a.item_id = t.item_id order by a.recorded_at desc limit 1
+) ap on true;
 alter view ops_prod.v_design_task set (security_invoker = on);
 
 create or replace view ops_prod.v_design_revision as

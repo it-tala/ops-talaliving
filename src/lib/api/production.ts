@@ -1216,6 +1216,7 @@ function designViews(tasks: DRow[], revs: DRow[], qs: DRow[]): DesignTaskView[] 
       ordered_by: (t.ordered_by as string[] | null) ?? [],
       work_orders: (t.work_orders as DesignTaskView["work_orders"] | null) ?? [],
       needed_by: ds(t.needed_by), days_left: dn(t.days_left),
+      item_approved: t.item_approved == null ? null : !!t.item_approved,
     };
   });
 }

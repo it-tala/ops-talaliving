@@ -258,6 +258,14 @@ export function DesignDrawer({
                 ))}
               </ul>
 
+              {t.item_no && t.item_approved === false && (
+                <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-[12px] text-amber-800">
+                  {tr(
+                    "No client approval is recorded for this item. Releasing is allowed (D378) — but the workshop will cut from a drawing the client has not said yes to.",
+                    "Belum ada persetujuan klien untuk item ini. Rilis tetap boleh (D378) — tetapi bengkel akan memotong dari gambar yang belum disetujui klien.",
+                  )}
+                </p>
+              )}
               {mayEdit && (
                 <div className="mt-2 space-y-2 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
                   <div className="grid gap-2 sm:grid-cols-[80px_1fr]">
