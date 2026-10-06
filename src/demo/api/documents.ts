@@ -134,7 +134,7 @@ const SALE_KINDS: Partial<Record<DocKind, [drive: string, task: string]>> = {
   "Client Approval": ["DRAFTING", "00 PERSETUJUAN"],
 };
 
-/** The kinds a design item files in its own folder (0221). */
+/** The kinds a design item files in its own folder (0222). */
 const ITEM_FOLDER_KINDS: readonly DocKind[] = [
   "Render", "Moodboard", "Layout / Floor Plan", "Client Drawing", "Client Reference",
   "Gambar Kerja", "Gambar Jadi", "Client Approval",
@@ -143,7 +143,7 @@ const COLLECTION_FOLDER_KINDS: readonly DocKind[] = [
   "Render", "Moodboard", "Layout / Floor Plan", "Client Drawing", "Client Reference",
 ];
 
-/** The kinds a meeting files in a folder of its own, under the kind's (0223). */
+/** The kinds a meeting files in a folder of its own, under the kind's (0224). */
 const MEETING_FOLDER_KINDS: readonly DocKind[] = [
   "Meeting Notes", "Site Survey Photo", "Client Brief", "Client Drawing", "Client Reference",
 ];
@@ -154,7 +154,7 @@ const segment = (s: string | null | undefined) =>
 
 function filingPlace(kind: DocKind, entity?: LinkEntity, entityNo?: string): FilingPreview | null {
   const st = getState();
-  /* A design item's or collection's files, in their own folder (0221). */
+  /* A design item's or collection's files, in their own folder (0222). */
   if ((entity === "design_item" && ITEM_FOLDER_KINDS.includes(kind))
       || (entity === "design_collection" && COLLECTION_FOLDER_KINDS.includes(kind))) {
     const no = entityNo?.trim() ?? "";
@@ -176,7 +176,7 @@ function filingPlace(kind: DocKind, entity?: LinkEntity, entityNo?: string): Fil
   }
   const sale = SALE_KINDS[kind];
   if (!sale) return null;
-  /* A meeting's files, in a folder of the meeting (0223). */
+  /* A meeting's files, in a folder of the meeting (0224). */
   if (entity === "client_activity" && MEETING_FOLDER_KINDS.includes(kind)) {
     const a = st.client_activities.find((x) => x.id === entityNo?.trim());
     const p = a?.project_id ? st.projects.find((x) => x.id === a.project_id) : undefined;

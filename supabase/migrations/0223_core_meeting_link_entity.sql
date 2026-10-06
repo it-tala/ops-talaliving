@@ -1,9 +1,9 @@
--- 0222_core_meeting_link_entity.sql — a meeting's files are filed against the
+-- 0223_core_meeting_link_entity.sql — a meeting's files are filed against the
 -- meeting (P3, kajian F224 §4.2, G12).
 --
 -- The whiteboard photo, the signed minutes, the client's sketch handed over
 -- across the table, the WhatsApp screenshot from a site visit: each belongs to
--- the contact it came from, so `0223` lets a file be filed against an entry of
+-- the contact it came from, so `0224` lets a file be filed against an entry of
 -- the client log (`ops_procure.client_activities`). Its number is the entry's
 -- id: a contact has no public code, and nobody types one.
 --

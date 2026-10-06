@@ -1,7 +1,7 @@
--- 0220_core_design_link_entities.sql — the records a design is filed against,
+-- 0221_core_design_link_entities.sql — the records a design is filed against,
 -- and the proof a client approved it (P4, D378, D379, kajian F224).
 --
--- `0221` gives a project its design: collections, rooms and the items in them,
+-- `0222` gives a project its design: collections, rooms and the items in them,
 -- the order the drafters work in (D379). A render, a client's drawing or a
 -- moodboard belongs to one of those, so a file can be filed against a
 -- **design item** or a whole **collection**. And a client's approval is a fact

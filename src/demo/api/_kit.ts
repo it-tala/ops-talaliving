@@ -125,8 +125,8 @@ export function paged<T>(service: ServiceName, rows: T[], limit = 50, offset = 0
 export { ok, refused, conflict };
 
 /** Whoever sells, or the drafters (production): `ops_procure.may_design`
- *  (0221). Who builds a design, and who reads and closes a meeting's points
- *  (0223). */
+ *  (0222). Who builds a design, and who reads and closes a meeting's points
+ *  (0224). */
 export function canDesign(level: "read" | "write"): boolean {
   const rank = { read: 0, write: 1, admin: 2 } as const;
   return actingUser().modules.some((m) =>

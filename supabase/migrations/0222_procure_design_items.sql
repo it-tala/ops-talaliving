@@ -1,4 +1,4 @@
--- 0221_procure_design_items.sql — a project's design: collections, rooms and
+-- 0222_procure_design_items.sql — a project's design: collections, rooms and
 -- the items in them, each with its files and the client's approval (P4).
 --
 -- ── What the owner asked ──────────────────────────────────────────────────
@@ -60,7 +60,7 @@ revoke all on function ops_procure.may_design(text) from public;
 grant execute on function ops_procure.may_design(text) to authenticated;
 
 comment on function ops_procure.may_design(text) is
-  'Whoever sells (may_sell) and the drafters (production access), at this level. (0221)';
+  'Whoever sells (may_sell) and the drafters (production access), at this level. (0222)';
 
 -- ── 2. the tables ─────────────────────────────────────────────────────────
 
@@ -585,7 +585,7 @@ end $$;
 
 comment on function ops_core.drive_path_for_record(ops_core.doc_kind_t, text, text, date) is
   'drive_path_for, with {CLIENT}, {PROJECT}, {COLLECTION}, {ROOM} and {ITEM} read from the record the file '
-  'is filed against (TANPA … where it says nothing). (0217, 0221)';
+  'is filed against (TANPA … where it says nothing). (0217, 0222)';
 
 insert into ops_core.drive_paths (kind, entity, path, note) values
   -- On an item: everything about it in its own folder.

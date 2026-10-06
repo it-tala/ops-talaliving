@@ -1,5 +1,5 @@
 /** A project's design against the database — `ops_procure` design tables
- *  (0221, P4). Same names and signatures as `src/demo/api/design.ts`.
+ *  (0222, P4). Same names and signatures as `src/demo/api/design.ts`.
  *
  *  Stamped `procurement`, where projects live; checked against
  *  `may_design` — whoever sells (D375) and the drafters.

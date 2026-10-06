@@ -1,5 +1,5 @@
 -- procure — a project's design: collections, rooms, items, their files and
--- the client's approval (0220, 0221, P4, D378, D379).
+-- the client's approval (0221, 0222, P4, D378, D379).
 --
 -- DERIVATIONS  marketing and the drafters build the design; items are
 --              numbered <project>-<collection>-<room>-NN inside their room and

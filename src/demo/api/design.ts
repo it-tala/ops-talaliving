@@ -1,4 +1,4 @@
-/** A project's design in the demo — the same rules as 0221's seams, over the
+/** A project's design in the demo — the same rules as 0222's seams, over the
  *  store. Stamped `procurement`; checked like `may_design`: project or
  *  marketing (who sells, D375) or production (the drafters).
  */

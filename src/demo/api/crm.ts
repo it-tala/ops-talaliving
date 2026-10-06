@@ -55,7 +55,7 @@ function viewOf(state: DemoState, a: ClientActivity, today: string): ClientActiv
 export async function listActivities(filter: ActivityFilter = {}): Promise<Result<ClientActivityView[]>> {
   await latency();
   /* The log is the sellers' (0219, D375): anybody else reads no rows, as RLS
-     answers them — a drafter reads a meeting's points, not the log (0223). */
+     answers them — a drafter reads a meeting's points, not the log (0224). */
   if (requireSeller(SERVICE, "read")) return ok(SERVICE, []);
   const state = getState();
   const today = officeToday();
@@ -158,7 +158,7 @@ export async function completeFollowUp(activityId: string, result?: string | nul
   return ok(SERVICE, viewOf(s, s.client_activities.find((x) => x.id === activityId)!, today));
 }
 
-/* ── a meeting in full (0223, P3) ───────────────────────────────────────────
+/* ── a meeting in full (0224, P3) ───────────────────────────────────────────
  *
  * The same rules as `meeting_lines_invalid`: checked against the entry before
  * anything is written, so a refused meeting leaves nothing behind. */
