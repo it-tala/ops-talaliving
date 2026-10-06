@@ -4,6 +4,7 @@ import type {
   Session, Authority, ModuleName, ModuleLevel,
   ActivityEvent, ActivityDaily, RetentionStatus, AuditRowView, AppSetting, Approver,
   MyActivityEvent, UserDirectoryRow, UserLinkSent, UserActiveChange, UserPasswordIssued,
+  AppNotification,
 } from "@/services/identity/contracts";
 import { expandPermissions } from "@/lib/roles";
 import { getState, apply, newId, writeAudit } from "../store";
@@ -556,6 +557,48 @@ export async function listMyActivity(
     .slice(0, opts.limit ?? 100)
     .map((r) => ({ id: r.id, at: r.at, kind: r.kind, target: r.target, label: r.label }));
   return ok(SERVICE, rows);
+}
+
+/** The reader's bell, newest first — `ops_core.my_notifications` (0215).
+ *  Rows are written only by `notifyTasks`, the demo's copy of the trigger. */
+export async function listNotifications(
+  opts: { limit?: number } = {},
+): Promise<Result<AppNotification[]>> {
+  await latency();
+  const user = actingUser();
+  const limit = Math.max(1, Math.min(opts.limit ?? 30, 100));
+  const rows = (getState().notifications ?? [])
+    .filter((n) => n.user_id === user.id)
+    .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id)
+    .slice(0, limit)
+    .map(({ user_id: _u, ...n }) => n as AppNotification);
+  return ok(SERVICE, rows);
+}
+
+/** The number on the bell. */
+export async function countUnreadNotifications(): Promise<Result<number>> {
+  const user = actingUser();
+  return ok(SERVICE, (getState().notifications ?? [])
+    .filter((n) => n.user_id === user.id && n.read_at === null).length);
+}
+
+/** Mark some (`ids`) or all (`null`) of the reader's own as read. */
+export async function markNotificationsRead(
+  ids: number[] | null = null,
+): Promise<Result<number>> {
+  await latency();
+  const user = actingUser();
+  let n = 0;
+  apply((draft) => {
+    const now = new Date().toISOString();
+    for (const row of draft.notifications ?? []) {
+      if (row.user_id === user.id && row.read_at === null && (ids === null || ids.includes(row.id))) {
+        row.read_at = now;
+        n += 1;
+      }
+    }
+  });
+  return ok(SERVICE, n);
 }
 
 /** The recaps: one row per person per day, 120 rows per person (D283). */
