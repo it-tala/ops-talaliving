@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   AlarmClock, CalendarRange, Check, ListChecks, PauseCircle, PlayCircle,
   Plus, Repeat, Ban, PackageCheck, BellRing, MailCheck, Target, Link2, SlidersHorizontal, RotateCcw,
@@ -17,6 +18,7 @@ import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 import { GoalsPanel } from "./goals-panel";
 import { DailyPanel } from "./daily-panel";
+import { BacklogPanel } from "./backlog-panel";
 
 /** Pemantauan tugas — the module built against a failure the owner described
  *  in one sentence (D303):
@@ -58,7 +60,19 @@ import { DailyPanel } from "./daily-panel";
  *  cannot tell the difference punishes the wrong person. They are printed.
  */
 export default function TasksPage() {
+  return (
+    <Suspense fallback={null}>
+      <Tasks />
+    </Suspense>
+  );
+}
+
+const TABS = ["goals", "backlog", "daily", "open", "all", "routines"] as const;
+type TabKey = (typeof TABS)[number];
+
+function Tasks() {
   const { can } = useSession();
+  const params = useSearchParams();
   const { toast } = useToast();
   const tr = useTr();
   const today = officeToday();
@@ -67,7 +81,14 @@ export default function TasksPage() {
   const [routines, reloadRoutines] = useLoad(() => hr.listTaskRoutines(), []);
   const [employees] = useLoad(() => hr.listEmployees(), []);
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<"goals" | "daily" | "open" | "all" | "routines">("goals");
+  const [tab, setTab] = useState<TabKey>("goals");
+  /* `?tab=all` is where the bell sends HRD for a hand-over (D374). Followed
+     whenever it changes, so a second notification clicked while already here
+     still lands. */
+  const asked = params.get("tab");
+  useEffect(() => {
+    if (asked && (TABS as readonly string[]).includes(asked)) setTab(asked as TabKey);
+  }, [asked]);
 
   const mayCreate = can("hrd.create");
   const mayEdit = can("hrd.update");
@@ -399,8 +420,8 @@ export default function TasksPage() {
         </p>
       )}
 
-      <div className="mb-3 flex gap-1.5">
-        {([["goals", tr("Goals & priority", "Sasaran & prioritas")], ["daily", tr("Daily log", "Laporan harian")], ["open", tr("Open", "Terbuka")], ["all", tr("All", "Semua")], ["routines", tr("Routine tasks", "Tugas rutin")]] as const).map(([k, label]) => (
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        {([["goals", tr("Goals & priority", "Sasaran & prioritas")], ["backlog", tr("Waiting list", "Daftar tunggu")], ["daily", tr("Daily log", "Laporan harian")], ["open", tr("Open", "Terbuka")], ["all", tr("All", "Semua")], ["routines", tr("Routine tasks", "Tugas rutin")]] as const).map(([k, label]) => (
           <button
             key={k}
             onClick={() => setTab(k)}
@@ -543,6 +564,16 @@ export default function TasksPage() {
           mayEdit={mayEdit}
           onAddPart={addPart}
           stamp={tasks.status === "ready" ? tasks.data : null}
+          onChanged={reloadTasks}
+        />
+      )}
+
+      {tab === "backlog" && (
+        <BacklogPanel
+          employees={employees.status === "ready" ? employees.data : []}
+          goals={openGoals}
+          mayCreate={mayCreate}
+          mayEdit={mayEdit}
           onChanged={reloadTasks}
         />
       )}

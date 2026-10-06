@@ -87,6 +87,43 @@ export interface OutboxRow {
   delivered_at: string | null;
 }
 
+/** One row of `ops_hr.backlog` — the daftar tunggu (0220, D381). */
+export interface DemoBacklog {
+  id: string;
+  item_no: string;
+  title: string;
+  detail: string | null;
+  deliverable: string | null;
+  unit: string | null;
+  goal_id: string | null;
+  status: "PROPOSED" | "OPEN" | "ASSIGNED" | "DROPPED";
+  sort_key: number | null;
+  proposed: boolean;
+  created_by: string;
+  created_at: string;
+  accepted_by: string | null;
+  accepted_at: string | null;
+  task_id: string | null;
+  assigned_by: string | null;
+  assigned_at: string | null;
+  dropped_reason: string | null;
+  dropped_by: string | null;
+  dropped_at: string | null;
+}
+
+/** One row of `ops_core.notifications` — the bell (0215, D374). */
+export interface DemoNotification {
+  id: number;
+  user_id: string;
+  kind: string;
+  title: string;
+  data: Record<string, unknown>;
+  link: string | null;
+  entity_no: string | null;
+  created_at: string;
+  read_at: string | null;
+}
+
 /** `ops_hr.scan_locations` (0188). */
 export interface DemoScanLocation {
   scan_id: string;
@@ -392,6 +429,11 @@ export interface DemoState {
   activity_events: ActivityEvent[];
   activity_daily: ActivityDaily[];
   outbox: OutboxRow[];
+  /** The bell, written only by `notifyTasks` (the trigger's mirror). Optional
+   *  so a saved demo from before it loads. */
+  notifications?: DemoNotification[];
+  /** The daftar tunggu (D381). Optional so a saved demo from before it loads. */
+  backlog?: DemoBacklog[];
 
   /** The `core.doc_numbers` table: prefix + office day -> sequence.
    *  The database mints every identifier (ADR-005), and here the store is the
