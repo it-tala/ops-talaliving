@@ -1,0 +1,851 @@
+<title>Rancangan Modul Proyek</title>
+<style>
+/* Layout: an app frame (sidebar + main) that mirrors ops.talaliving, with a plan view beside it.
+   Tokens follow the app's own palette: slate ground, white cards, brand green #2f6b52. */
+:root {
+  --bg: #f1f5f9; --surface: #ffffff; --surface-2: #f8fafc; --fg: #0f172a; --muted: #64748b; --line: #e2e8f0;
+  --brand: #2f6b52; --brand-strong: #275544; --brand-soft: #e3f4ea; --on-brand: #ffffff;
+  --note-bg: #fff8e1; --note-fg: #6b4b00; --note-line: #f2d27a;
+  --warn: #a15c07; --warn-soft: #fef3c7; --bad: #b42318; --bad-soft: #fee4e2;
+  --info: #1d4ed8; --info-soft: #dbeafe; --violet: #6d28d9; --violet-soft: #ede9fe;
+  --shadow: 0 1px 2px rgb(15 23 42 / .04), 0 1px 3px rgb(15 23 42 / .06);
+  --font: "Segoe UI", "Inter", system-ui, -apple-system, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0b1220; --surface: #121b2c; --surface-2: #0f1727; --fg: #e2e8f0; --muted: #94a3b8; --line: #23304a;
+  --brand: #62b98c; --brand-strong: #9bd5b6; --brand-soft: #16302a; --on-brand: #0b1220;
+  --note-bg: #2a2208; --note-fg: #f3d58a; --note-line: #5c4a12;
+  --warn: #fbbf24; --warn-soft: #3a2a06; --bad: #f87171; --bad-soft: #3b1414;
+  --info: #93c5fd; --info-soft: #132a4d; --violet: #c4b5fd; --violet-soft: #2a1f4a;
+  --shadow: 0 1px 2px rgb(0 0 0 / .3); color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0b1220; --surface: #121b2c; --surface-2: #0f1727; --fg: #e2e8f0; --muted: #94a3b8; --line: #23304a;
+  --brand: #62b98c; --brand-strong: #9bd5b6; --brand-soft: #16302a; --on-brand: #0b1220;
+  --note-bg: #2a2208; --note-fg: #f3d58a; --note-line: #5c4a12;
+  --warn: #fbbf24; --warn-soft: #3a2a06; --bad: #f87171; --bad-soft: #3b1414;
+  --info: #93c5fd; --info-soft: #132a4d; --violet: #c4b5fd; --violet-soft: #2a1f4a;
+  --shadow: 0 1px 2px rgb(0 0 0 / .3); color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; line-height: 1.45; }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+button, select, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+.num { font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+
+/* top bar */
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--surface); border-bottom: 1px solid var(--line);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 16px; }
+.top .name { font-weight: 700; display: flex; gap: 8px; align-items: center; }
+.top .name .dot { width: 22px; height: 22px; border-radius: 6px; background: var(--brand); color: var(--on-brand); display: grid; place-items: center; font-size: 12px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; background: transparent; padding: 6px 12px; font-size: 13px; }
+.seg button[aria-pressed="true"] { background: var(--brand); color: var(--on-brand); font-weight: 600; }
+.spacer { flex: 1; }
+.chk { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
+.sample { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--warn); background: var(--warn-soft); padding: 2px 8px; border-radius: 99px; font-weight: 600; }
+
+/* plan view */
+.plan { max-width: 1040px; margin: 0 auto; padding: 24px 16px 64px; display: grid; gap: 24px; }
+.plan h1 { font-size: 26px; }
+.plan h2 { font-size: 18px; margin-bottom: 8px; }
+.plan p { margin: 0; max-width: 70ch; }
+.lede { display: grid; gap: 8px; }
+.howto { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+.howto div { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 4px; }
+.howto b { font-size: 13px; }
+.howto .step { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--brand); font-weight: 700; }
+.track { background: var(--brand-soft); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: grid; gap: 6px; }
+.track b { color: var(--brand-strong); }
+.seq { display: grid; gap: 10px; counter-reset: s; }
+.phase { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: grid; grid-template-columns: 40px 1fr; gap: 4px 14px; box-shadow: var(--shadow); }
+.phase .n { grid-row: span 3; width: 34px; height: 34px; border-radius: 50%; background: var(--brand); color: var(--on-brand); display: grid; place-items: center; font-weight: 700; }
+.phase .n.pre { background: var(--warn-soft); color: var(--warn); }
+.phase h3 { font-size: 16px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
+.phase h3 .id { font-family: var(--mono); font-size: 12px; color: var(--muted); font-weight: 500; }
+.phase h3 .est { font-size: 12px; color: var(--muted); font-weight: 500; }
+.phase .why { color: var(--muted); font-size: 13px; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 18px; margin-top: 6px; }
+.cols h4 { margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.cols ul { margin: 0; padding-left: 18px; display: grid; gap: 2px; font-size: 13px; }
+.linkbtn { border: 0; background: none; color: var(--brand); text-decoration: underline; padding: 0; font-size: 13px; }
+.deps { font-size: 12px; color: var(--muted); }
+table.qa { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+table.qa th, table.qa td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; font-size: 13px; }
+table.qa th { background: var(--surface-2); font-size: 12px; color: var(--muted); font-weight: 600; }
+.tablewrap { overflow-x: auto; }
+
+/* app frame */
+.app { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: calc(100% - 52px); }
+.side { background: var(--surface); border-right: 1px solid var(--line); padding: 14px 10px; display: grid; align-content: start; gap: 14px; }
+.side .grp { display: grid; gap: 2px; }
+.side .gt { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 0 8px 4px; font-weight: 600; }
+.side button { text-align: left; border: 0; background: transparent; padding: 7px 8px; border-radius: 8px; display: flex; gap: 8px; align-items: center; font-size: 13px; }
+.side button:hover { background: var(--surface-2); }
+.side button[aria-current="page"] { background: var(--brand-soft); color: var(--brand-strong); font-weight: 600; }
+.side .tag { margin-left: auto; font-size: 10px; padding: 1px 6px; border-radius: 99px; background: var(--violet-soft); color: var(--violet); font-weight: 600; }
+.side .tag.old { background: var(--surface-2); color: var(--muted); }
+.main > *, .coll, .room, .card { min-width: 0; }
+.main { min-width: 0; grid-template-columns: minmax(0, 1fr); padding: 20px 20px 80px; display: grid; gap: 16px; align-content: start; }
+.crumbs { font-size: 12px; color: var(--muted); }
+.ph { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; justify-content: space-between; }
+.ph h1 { font-size: 22px; }
+.ph .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn { border: 1px solid var(--line); background: var(--surface); padding: 7px 12px; border-radius: 8px; font-size: 13px; font-weight: 500; }
+.btn:hover { background: var(--surface-2); }
+.btn.pri { background: var(--brand); color: var(--on-brand); border-color: var(--brand); }
+.btn.pri:hover { background: var(--brand-strong); }
+.btn.danger { color: var(--bad); }
+.btn.sm { padding: 4px 9px; font-size: 12px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+.card.pad { padding: 14px 16px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 2px; }
+.kpi .l { font-size: 12px; color: var(--muted); }
+.kpi .v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kpi .s { font-size: 12px; color: var(--muted); }
+.kpi.alert .v { color: var(--bad); }
+
+/* pills */
+.pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; white-space: nowrap; background: var(--surface-2); color: var(--muted); border: 1px solid var(--line); }
+.pill.green { background: var(--brand-soft); color: var(--brand-strong); border-color: transparent; }
+.pill.amber { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.pill.red { background: var(--bad-soft); color: var(--bad); border-color: transparent; }
+.pill.blue { background: var(--info-soft); color: var(--info); border-color: transparent; }
+.pill.violet { background: var(--violet-soft); color: var(--violet); border-color: transparent; }
+
+/* design note */
+.note { background: var(--note-bg); color: var(--note-fg); border: 1px dashed var(--note-line); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; display: flex; gap: 8px; align-items: flex-start; }
+.note::before { content: "Rancangan"; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; background: var(--note-line); color: var(--note-fg); padding: 1px 6px; border-radius: 4px; flex: none; margin-top: 1px; }
+body.hide-notes .note { display: none; }
+
+/* pipeline board */
+.board { display: grid; grid-template-columns: repeat(4, minmax(230px, 1fr)); gap: 12px; overflow-x: auto; padding-bottom: 4px; }
+.lane { background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.lane h3 { font-size: 13px; display: flex; justify-content: space-between; gap: 6px; align-items: baseline; }
+.lane h3 .t { font-size: 12px; color: var(--muted); font-weight: 500; }
+.pc { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: grid; gap: 4px; text-align: left; width: 100%; }
+.pc:hover { border-color: var(--brand); }
+.pc .code { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.pc .nm { font-weight: 600; font-size: 13px; }
+.pc .row { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; font-size: 12px; color: var(--muted); }
+.pc .val { font-weight: 600; color: var(--fg); font-variant-numeric: tabular-nums; }
+.lane.lost { background: var(--surface); }
+.bars { display: grid; gap: 6px; }
+.bar { display: grid; grid-template-columns: 130px 1fr 24px; gap: 8px; align-items: center; font-size: 12px; }
+.bar .track2 { height: 10px; background: var(--surface-2); border-radius: 99px; overflow: hidden; border: 1px solid var(--line); }
+.bar .fill { height: 100%; background: var(--brand); border-radius: 99px; }
+
+/* project page */
+.stepper { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.st { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 4px 10px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); background: var(--surface); }
+.st.done { color: var(--brand-strong); background: var(--brand-soft); border-color: transparent; }
+.st.cur { color: var(--on-brand); background: var(--brand); border-color: var(--brand); font-weight: 600; }
+.arrow { color: var(--muted); font-size: 12px; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 16px; }
+.facts div { display: grid; gap: 1px; min-width: 0; }
+.facts .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.facts .v { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tabs button { border: 0; background: none; padding: 8px 12px; font-size: 13px; color: var(--muted); border-bottom: 2px solid transparent; white-space: nowrap; }
+.tabs button[aria-selected="true"] { color: var(--brand-strong); border-bottom-color: var(--brand); font-weight: 600; }
+.tabs .ph-tag { font-size: 10px; color: var(--violet); margin-left: 4px; }
+.tl { display: grid; gap: 0; }
+.tle { display: grid; grid-template-columns: 74px 22px 1fr; gap: 10px; padding: 8px 0; }
+.tle .d { font-size: 12px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.tle .ic { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--surface-2); color: var(--muted); border: 1px solid var(--line); }
+.tle .ic.g { background: var(--brand-soft); color: var(--brand-strong); border-color: transparent; }
+.tle .ic.b { background: var(--info-soft); color: var(--info); border-color: transparent; }
+.tle .ic.a { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.tle .ic.v { background: var(--violet-soft); color: var(--violet); border-color: transparent; }
+.tle .ic.r { background: var(--bad-soft); color: var(--bad); border-color: transparent; }
+.tle .t { font-size: 13px; }
+.tle .t .s { font-size: 12px; color: var(--muted); }
+
+.coll { display: grid; gap: 10px; }
+.coll > header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.coll > header h3 { font-size: 15px; }
+.room { padding: 0 14px 12px; }
+.room h4 { margin: 10px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+table.it { width: 100%; border-collapse: collapse; min-width: 720px; }
+table.it th, table.it td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); font-size: 13px; vertical-align: middle; }
+table.it th { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+table.it tr.click:hover td { background: var(--surface-2); cursor: pointer; }
+table.it td.r, table.it th.r { text-align: right; }
+
+.list { display: grid; }
+.li { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.li:last-child { border-bottom: 0; }
+.li .t { font-weight: 600; font-size: 13px; }
+.li .s { font-size: 12px; color: var(--muted); }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip { border: 1px solid var(--line); background: var(--surface); padding: 4px 10px; border-radius: 99px; font-size: 12px; }
+.chip[aria-pressed="true"] { background: var(--brand); color: var(--on-brand); border-color: var(--brand); }
+.path { font-family: var(--mono); font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
+.path b { color: var(--fg); font-weight: 600; }
+
+/* drawer + dialog */
+.scrim { position: fixed; inset: 0; background: rgb(15 23 42 / .35); z-index: 40; }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100%); background: var(--surface); z-index: 41; box-shadow: -8px 0 32px -12px rgb(15 23 42 / .25);
+  display: grid; grid-template-rows: auto 1fr auto; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+.drawer > header { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 10px; justify-content: space-between; align-items: flex-start; }
+.drawer > header h2 { font-size: 17px; }
+.drawer .body { overflow-y: auto; padding: 14px 16px; display: grid; gap: 16px; align-content: start; }
+.drawer > footer { padding: 12px 16px; border-top: 1px solid var(--line); display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.sec { display: grid; gap: 8px; }
+.sec h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.x { border: 0; background: none; font-size: 20px; line-height: 1; color: var(--muted); padding: 2px 6px; }
+.fld { display: grid; gap: 4px; }
+.fld label { font-size: 12px; font-weight: 600; }
+.fld .hint { font-size: 12px; color: var(--muted); }
+.fld input, .fld select, .fld textarea { border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; background: var(--surface); width: 100%; }
+.fld textarea { min-height: 70px; resize: vertical; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.radios { display: flex; flex-wrap: wrap; gap: 6px; }
+.radios label { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 13px; display: flex; gap: 6px; align-items: center; }
+.alert { border-radius: 8px; padding: 9px 11px; font-size: 13px; display: grid; gap: 6px; }
+.alert.amber { background: var(--warn-soft); color: var(--warn); }
+.alert.red { background: var(--bad-soft); color: var(--bad); }
+.alert.green { background: var(--brand-soft); color: var(--brand-strong); }
+.file { display: grid; grid-template-columns: 44px 1fr auto; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.file:last-child { border-bottom: 0; }
+.thumb { width: 44px; height: 44px; border-radius: 8px; border: 1px solid var(--line); display: grid; place-items: center; font-size: 10px; font-weight: 700; color: var(--muted);
+  background: repeating-linear-gradient(135deg, var(--surface-2) 0 6px, var(--surface) 6px 12px); }
+.file .t { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.file .s { font-size: 12px; color: var(--muted); }
+.req { display: grid; grid-template-columns: 1fr 160px 110px 28px; gap: 6px; align-items: center; }
+.req input, .req select { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: var(--surface); width: 100%; min-width: 0; }
+
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); background: var(--fg); color: var(--bg); padding: 9px 14px; border-radius: 10px; font-size: 13px; z-index: 60; max-width: calc(100% - 32px); }
+
+/* drafter queue */
+.qgrp { border-bottom: 1px solid var(--line); }
+.qgrp:last-child { border-bottom: 0; }
+.qh { padding: 9px 14px; background: var(--surface-2); font-size: 12px; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+.qh b { font-size: 12.5px; }
+.qh .sep { color: var(--muted); }
+.task { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; padding: 10px 14px; border-top: 1px solid var(--line); }
+.task .t { font-weight: 600; font-size: 13px; }
+.task .s { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+.task .msg { grid-column: 1 / -1; }
+.task .actions { align-self: start; }
+
+@media (max-width: 760px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .side { border-right: 0; border-bottom: 1px solid var(--line); display: flex; overflow-x: auto; gap: 4px; padding: 8px 12px; }
+  .side .grp { display: flex; gap: 4px; }
+  .side .gt { display: none; }
+  .side button { white-space: nowrap; }
+  .side .tag { display: none; }
+  .main { padding: 16px 16px 80px; }
+  .req { grid-template-columns: 1fr 1fr; }
+  .bar { grid-template-columns: 110px 1fr 20px; }
+  .tle { grid-template-columns: 52px 22px 1fr; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .drawer { animation: slide .22s cubic-bezier(.16,1,.3,1); }
+  @keyframes slide { from { transform: translateX(100%); } to { transform: none; } }
+}
+</style>
+
+<div class="top">
+  <div class="name"><span class="dot">ops</span> Rancangan Modul Proyek</div>
+  <div class="seg" role="group" aria-label="Tampilan">
+    <button id="v-plan" aria-pressed="true">Rencana &amp; urutan kerja</button>
+    <button id="v-prev" aria-pressed="false">Preview halaman</button>
+  </div>
+  <span class="spacer"></span>
+  <span class="sample">Data contoh</span>
+  <label class="chk"><input type="checkbox" id="shownotes" checked> Catatan rancangan</label>
+</div>
+
+<div id="plan" class="plan"></div>
+<div id="prev" class="app" hidden>
+  <nav class="side" id="side" aria-label="Menu"></nav>
+  <main class="main" id="main"></main>
+</div>
+<div id="overlay"></div>
+
+<script>
+(() => {
+/* ───────────────────────── data (all examples) ───────────────────────── */
+const PICS = ["Rina", "Dewa", "Putu"];
+const PROJECTS = [
+  { code: "26004", name: "Villa Umalas", client: "Bp. Hendra (contoh)", pic: "Rina", stage: "INQUIRY", value: 420e6, est: true, days: 6, fu: ["today", "Kirim moodboard"], src: "Instagram DM" },
+  { code: "26005", name: "Kantor Renon", client: "PT Contoh Abadi", pic: "Dewa", stage: "INQUIRY", value: 180e6, est: true, days: 12, fu: ["overdue", "Jadwalkan survei"], src: "Repeat client" },
+  { code: "26006", name: "Cafe Seminyak", client: "CV Kopi Contoh", pic: "Rina", stage: "INQUIRY", value: null, est: true, days: 2, fu: ["upcoming", "Minta denah"], src: "" },
+  { code: "26007", name: "Residence Kuta – Furnishing Package", client: "PT Contoh Residence", pic: "Rina", stage: "QUOTATION_SENT", value: 612.4e6, est: false, days: 3, fu: ["upcoming", "Tanya keputusan rev 2"], src: "Referral Package – agen Made", main: true },
+  { code: "26002", name: "Hotel Jimbaran – Lobby", client: "PT Contoh Hospitality", pic: "Dewa", stage: "QUOTATION_SENT", value: 395e6, est: false, days: 21, fu: ["overdue", "Telepon purchasing"], src: "Arsitek" },
+  { code: "26003", name: "Apartemen 12A", client: "Ibu Sari (contoh)", pic: "Putu", stage: "QUOTATION_SENT", value: 96e6, est: false, days: 4, fu: ["none", ""], src: "" },
+  { code: "26001", name: "Rumah Sanur", client: "Bp. Wayan (contoh)", pic: "Putu", stage: "DEAL", value: 158e6, est: false, days: 3, fu: ["none", ""], src: "Kenalan", noContract: true },
+];
+const LOST = [
+  { code: "25010", name: "Resto Ubud", client: "CV Contoh Rasa", reason: "PRICE", note: "Klien memilih vendor lokal, sekitar 15% lebih murah", when: "24 Sep" },
+  { code: "25011", name: "Villa Kerobokan", client: "Mr. J. (contoh)", reason: "CLIENT POSTPONED", note: "Renovasi ditunda ke 2027", when: "12 Sep" },
+];
+const REASONS = ["PRICE", "TIMELINE", "DESIGN", "COMPETITOR", "CLIENT POSTPONED", "NO RESPONSE", "OTHER"];
+const REASON_COUNTS = { "PRICE": 3, "CLIENT POSTPONED": 2, "TIMELINE": 1, "NO RESPONSE": 1, "DESIGN": 1, "COMPETITOR": 0, "OTHER": 0 };
+
+const STATUS = {
+  CONCEPT: ["Concept", ""], RENDER: ["Render", "blue"], APPROVED: ["Client approved", "green"],
+  RELEASED: ["Drawing released", "violet"], QUOTED: ["Quoted", "green"], QUESTION: ["Waiting answer", "red"],
+};
+const ORIGIN = { TALA: ["TALA", "green"], KLIEN: ["Client", "amber"], ADAPTASI: ["Adapted", "blue"], PIHAK3: ["Third party", ""] };
+
+const COLLECTIONS = [
+  { code: "A", name: "TYPE 2BR", units: 24, rooms: [
+    { code: "LR", name: "Living room", items: [
+      { no: "26007-A-LR-01", name: "Sofa 3 seater", qty: 24, size: "2100 × 900 × 780", origin: "TALA", status: "QUOTED", renders: 2, client: 1, appr: "2 Okt · WhatsApp · Ibu Lina", gk: "rev 1 released", qline: "rev 2 · line 1" },
+      { no: "26007-A-LR-02", name: "Coffee table", qty: 24, size: "1100 × 600 × 420", origin: "ADAPTASI", status: "RENDER", renders: 2, client: 2, appr: null, gk: "—", qline: "rev 2 · line 2" },
+    ]},
+    { code: "MB", name: "Master bedroom", items: [
+      { no: "26007-A-MB-01", name: "Bed 160 + headboard", qty: 24, size: "1700 × 2150 × 1100", origin: "KLIEN", status: "RELEASED", renders: 0, client: 3, appr: null, gk: "rev 2 released", qline: "rev 2 · line 3" },
+      { no: "26007-A-MB-02", name: "Nightstand", qty: 48, size: "450 × 400 × 500", origin: "TALA", status: "CONCEPT", renders: 0, client: 0, appr: null, gk: "—", qline: "—" },
+      { no: "26007-A-MB-03", name: "Wardrobe 2 doors", qty: 24, size: "1200 × 600 × 2400", origin: "TALA", status: "QUESTION", renders: 1, client: 0, appr: null, gk: "drawing", qline: "rev 2 · line 4", q: "Finishing HPL atau duco? (ditanyakan ke klien 29 Sep)" },
+    ]},
+  ]},
+  { code: "B", name: "TYPE 3BR", units: 12, rooms: [
+    { code: "LR", name: "Living room", items: [
+      { no: "26007-B-LR-01", name: "Sofa L", qty: 12, size: "2800 × 1700 × 780", origin: "TALA", status: "RENDER", renders: 1, client: 0, appr: null, gk: "—", qline: "rev 2 · line 5" },
+    ]},
+    { code: "DN", name: "Dining", items: [
+      { no: "26007-B-DN-01", name: "Dining table 6 seats", qty: 12, size: "1800 × 900 × 750", origin: "TALA", status: "APPROVED", renders: 2, client: 0, appr: "1 Okt · Meeting · Bp. Agus", gk: "drawing", qline: "rev 2 · line 6" },
+      { no: "26007-B-DN-02", name: "Dining chair", qty: 72, size: "460 × 520 × 820", origin: "KLIEN", status: "CONCEPT", renders: 0, client: 2, appr: null, gk: "—", qline: "—" },
+    ]},
+  ]},
+];
+const ALL_ITEMS = COLLECTIONS.flatMap(c => c.rooms.flatMap(r => r.items.map(i => ({ ...i, coll: c, room: r }))));
+
+const FILES = [
+  { name: "Brief furnishing 2BR-3BR.pdf", kind: "brief", origin: "KLIEN", on: "Project", by: "Rina", when: "20 Sep" },
+  { name: "Survey unit 2BR (18 photos)", kind: "foto_survei", origin: "TALA", on: "Project", by: "Putu", when: "22 Sep" },
+  { name: "Denah unit tipikal.dwg", kind: "gambar_klien", origin: "KLIEN", on: "Project", by: "Rina", when: "25 Sep" },
+  { name: "Bed headboard – drawing from client.pdf", kind: "gambar_klien", origin: "KLIEN", on: "26007-A-MB-01", by: "Rina", when: "25 Sep" },
+  { name: "Pinterest references (4)", kind: "referensi_klien", origin: "KLIEN", on: "26007-A-LR-02", by: "Rina", when: "25 Sep" },
+  { name: "Moodboard Type 2BR.pdf", kind: "moodboard", origin: "TALA", on: "Collection A", by: "Ayu (drafter)", when: "26 Sep" },
+  { name: "Sofa 3 seater – render rev B.jpg", kind: "render", origin: "TALA", on: "26007-A-LR-01", by: "Ayu (drafter)", when: "30 Sep" },
+  { name: "Proposal Residence Kuta v2.pdf", kind: "proposal", origin: "TALA", on: "Project", by: "Rina", when: "3 Okt" },
+  { name: "Notulen meeting 1 Okt.jpg", kind: "notulen", origin: "TALA", on: "Meeting 1 Okt", by: "Rina", when: "1 Okt" },
+  { name: "WA approval sofa render.png", kind: "bukti persetujuan", origin: "KLIEN", on: "26007-A-LR-01", by: "Rina", when: "2 Okt" },
+];
+const KINDS = [
+  ["brief", "Client brief", "PROJECT MANAGER", "01 BRIEF & SURVEI"],
+  ["foto_survei", "Site survey photos", "PROJECT MANAGER", "01 BRIEF & SURVEI"],
+  ["gambar_klien", "Client drawing", "DRAFTING", null],
+  ["referensi_klien", "Client reference", "DRAFTING", null],
+  ["moodboard", "Moodboard / concept", "DRAFTING", null],
+  ["layout", "Layout / floor plan", "DRAFTING", null],
+  ["render", "Render", "DRAFTING", null],
+  ["gambar_kerja", "Working drawing", "DRAFTING", null],
+  ["proposal", "Proposal deck", "PROJECT MANAGER", "03 PROPOSAL & PENAWARAN"],
+  ["notulen", "Meeting notes", "PROJECT MANAGER", "04 MEETING"],
+  ["kontrak", "Contract / SPK / client PO", "PROJECT MANAGER", "05 KONTRAK"],
+];
+
+/* ───────────────────────── helpers ───────────────────────── */
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const rp = n => n == null ? "—" : "Rp " + Math.round(n).toLocaleString("id-ID");
+const jt = n => n == null ? "—" : "Rp " + (n / 1e6).toLocaleString("id-ID", { maximumFractionDigits: 1 }) + " jt";
+const pill = (t, c = "") => `<span class="pill ${c}">${esc(t)}</span>`;
+const note = t => `<div class="note"><span>${t}</span></div>`;
+const st = k => pill(STATUS[k][0], STATUS[k][1]);
+const og = k => pill(ORIGIN[k][0], ORIGIN[k][1]);
+let toastTimer;
+function toast(msg) {
+  let t = $("#toast"); if (!t) { t = document.createElement("div"); t.id = "toast"; t.className = "toast"; t.setAttribute("role", "status"); document.body.appendChild(t); }
+  t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 2600);
+}
+function store(k, v) { try { v === undefined ? null : localStorage.setItem(k, v); return localStorage.getItem(k); } catch { return null; } }
+
+/* ───────────────────────── plan view ───────────────────────── */
+const PHASES = [
+  { id: "P1", n: 1, title: "Fondasi file proyek dan halaman proyek", est: "1–2 sesi",
+    why: "Semua tahap sesudahnya menempelkan file (render, gambar klien, notulen, kontrak). Jadi tempat dan foldernya dibuat dulu.",
+    screens: [["Halaman proyek, tab Files", "project", "files"], ["Dialog unggah file", "upload"]],
+    db: ["10 jenis file baru (brief, foto_survei, gambar_klien, referensi_klien, moodboard, layout, render, proposal, notulen, kontrak)", "Kolom asal file: TALA / Client / Third party", "File bisa ditempel ke klien, quotation, dan catatan kontak", "Token folder {CLIENT} dan {PROJECT} di drive_paths"],
+    pre: "IT menghubungkan drive PROJECT MANAGER di /it/drive (hari ini belum terhubung).",
+    check: "Unggah satu gambar dari klien. File itu harus muncul di DRAFTING / ops-talaliving / <klien> / <proyek> / 00 DARI KLIEN dan bisa dibuka dari halaman proyek." },
+  { id: "P2", n: 2, title: "Pipeline, PIC sales, dan proyek tidak jadi", est: "1–2 sesi",
+    why: "Tim penjualan bisa langsung mencatat setiap peluang dari inquiry sampai closing. Alasan tidak jadi mulai terkumpul sejak hari pertama.",
+    screens: [["Pipeline", "pipeline"], ["Dialog Mark as lost", "lost"]],
+    db: ["Status LOST (migrasi terpisah, F161), dibedakan dari CANCELLED", "reason_code dalam bahasa Inggris (D377) dan catatan wajib", "source_note teks bebas (D376), sales_pic, expected_value, expected_close_on, referral_id", "Akses: pimpinan dan pemegang akses marketing (D375)"],
+    check: "Tandai satu proyek LOST tanpa catatan: harus ditolak. Isi catatannya: proyek pindah ke kolom Lost dan alasannya terhitung di grafik." },
+  { id: "P4", n: 3, title: "Koleksi, ruangan, dan item desain", est: "2 sesi",
+    why: "Ini inti permintaan: daftar item desain per proyek, dengan file dari kita dan dari klien, sebelum ada harga. Dikerjakan sebelum meeting karena keputusan meeting menunjuk ke item.",
+    screens: [["Halaman proyek, tab Design", "project", "design"], ["Drawer item desain", "item"]],
+    db: ["design_collections, design_rooms, design_items (urutan D379)", "design_approvals: persetujuan klien append-only beserta bukti (tidak wajib, D378)", "Status item sebagai view, bukan kolom tersimpan", "Token folder {COLLECTION}, {ROOM}, {ITEM}"],
+    check: "Buat koleksi Type 2BR, ruangan Living room, dan item Sofa. Unggah render dan catat persetujuan klien. Status item harus berubah sendiri menjadi Client approved." },
+  { id: "P3", n: 4, title: "Meeting lengkap", est: "1 sesi",
+    why: "Isi meeting (siapa hadir, apa diputuskan, revisi apa yang diminta) tersimpan dan bisa ditelusuri sampai ke item yang direvisi.",
+    screens: [["Form Log meeting", "meeting"], ["Halaman proyek, tab Meetings", "project", "meetings"]],
+    db: ["Peserta TALA (akun) dan peserta klien (teks)", "Baris keputusan / permintaan revisi, masing-masing bisa menunjuk satu item desain", "Lampiran meeting (entity client_activity dari P1)"],
+    check: "Catat meeting dengan satu permintaan revisi untuk Coffee table. Permintaan itu harus terlihat di drawer item Coffee table." },
+  { id: "P5", n: 5, title: "Quotation terhubung ke item desain", est: "1 sesi",
+    why: "Harga dan gambar terkunci bersama, jadi selalu jelas penawaran mana memakai gambar revisi berapa.",
+    screens: [["Halaman proyek, tab Quotations", "project", "quotes"]],
+    db: ["quotation_lines.design_item_id dan frozen_design_rev", "Diwariskan ke project_lines saat quotation diterima", "Quotation dikelompokkan dan dicetak per koleksi dan ruangan"],
+    check: "Kirim quotation rev 2. Lalu ganti render item: baris quotation harus tetap menyebut revisi lama." },
+  { id: "P6", n: 6, title: "Antrian drafter berjalan sungguhan", est: "2 sesi",
+    why: "Hari ini antrian desain hanya ada di demo. Drafter bekerja menurut klien, proyek, koleksi, ruangan, lalu item (D379).",
+    screens: [["Design queue", "queue"]],
+    db: ["design_tasks, design_revisions (file wajib), design_questions", "Rilis ditolak bila ada pertanyaan terbuka (D179). Tanpa persetujuan klien hanya diperingatkan (D378)", "Logika demo dipindah ke view"],
+    check: "Coba rilis Wardrobe yang masih punya pertanyaan: harus ditolak. Rilis Coffee table tanpa persetujuan: muncul peringatan, tetapi bisa dilanjutkan." },
+  { id: "P7", n: 7, title: "Timeline proyek dan angka pipeline", est: "1 sesi",
+    why: "Seluruh perjalanan proyek terbaca di satu tempat, dari inquiry sampai serah terima. Angka penjualan dihitung dari catatan yang sudah ada.",
+    screens: [["Halaman proyek, tab Timeline", "project", "timeline"], ["Angka di atas Pipeline", "pipeline"]],
+    db: ["v_project_timeline: gabungan status, kontak, meeting, quotation, file, persetujuan, revisi, Job Order, kirim, BAST", "Metrik: nilai per tahap, win rate, umur per tahap, alasan tidak jadi"],
+    check: "Timeline 26007 harus menampilkan setiap kejadian yang dicatat di P1 sampai P6, dengan tanggal dan nama orangnya." },
+];
+function renderPlan() {
+  $("#plan").innerHTML = `
+  <section class="lede">
+    <h1>Proyek dari proposal sampai closing: rancangan kerja</h1>
+    <p>Halaman ini punya dua bagian. <b>Rencana &amp; urutan kerja</b> (di sini) berisi tahap pengerjaan dan urutannya. <b>Preview halaman</b> berisi layar yang bisa diklik, dengan data contoh. Belum ada perubahan database atau backend; semua yang diklik di preview tidak menyimpan apa pun.</p>
+    <p class="muted small">Dasar: kajian F224 dan keputusan D375–D380 (6 Okt 2026). Kotak kuning <i>Rancangan</i> di preview menjelaskan dari mana setiap bagian berasal; bisa disembunyikan lewat “Catatan rancangan”.</p>
+  </section>
+
+  <section>
+    <h2>Cara kerja setiap tahap</h2>
+    <div class="howto">
+      <div><span class="step">Langkah 1</span><b>Preview disetujui</b><span class="muted small">Anda cek layarnya di halaman ini dan beri koreksi.</span></div>
+      <div><span class="step">Langkah 2</span><b>Layar di aplikasi, data demo</b><span class="muted small">Layar dibangun di ops dengan data demo, lalu Anda coba di link preview Vercel.</span></div>
+      <div><span class="step">Langkah 3</span><b>Database dan backend</b><span class="muted small">Migrasi, fungsi, dan uji smoke. Layar yang sama tersambung ke data sungguhan.</span></div>
+      <div><span class="step">Langkah 4</span><b>Produksi</b><span class="muted small">Migrasi diterapkan ke produksi, PR di-merge, branch dihapus.</span></div>
+    </div>
+  </section>
+
+  <section class="track">
+    <b>Bisa dimulai hari ini, sejajar dengan semua tahap</b>
+    <span class="small">Daftar klien, status proyek, quotation, dan catatan kontak sudah berjalan di produksi tetapi masih kosong. Tim bisa mulai mengisi klien dan nilai untuk proyek 25004–25008 serta mencatat proyek baru sejak inquiry (D380). Data yang dicatat sekarang ikut terbaca oleh timeline dan pipeline nanti.</span>
+  </section>
+
+  <section>
+    <h2>Urutan kerja</h2>
+    <div class="seq">
+      <div class="phase"><span class="n pre">0</span>
+        <h3>Rancangan dan preview ini <span class="id">P0</span> <span class="est">sekarang</span></h3>
+        <p class="why">Anda cek alur dan layarnya. Koreksi masuk ke rancangan sebelum satu baris database pun ditulis.</p>
+        <p class="deps">Masih terbuka dengan default: Q68 (INQUIRY tidak dipecah), Q69 (daftar jenis file di P1), Q73 (satu koleksi milik satu proyek).</p>
+      </div>
+      ${PHASES.map(p => `
+      <div class="phase"><span class="n">${p.n}</span>
+        <h3>${esc(p.title)} <span class="id">${p.id}</span> <span class="est">${p.est}</span></h3>
+        <p class="why">${esc(p.why)}</p>
+        <div class="cols">
+          <div><h4>Layar (lihat preview)</h4><ul>${p.screens.map(s => `<li><button class="linkbtn" data-go="${s[1]}" data-tab="${s[2] || ""}">${esc(s[0])}</button></li>`).join("")}</ul></div>
+          <div><h4>Database dan backend</h4><ul>${p.db.map(d => `<li>${esc(d)}</li>`).join("")}</ul></div>
+          <div><h4>Yang Anda cek</h4><ul><li>${esc(p.check)}</li>${p.pre ? `<li><b>Prasyarat:</b> ${esc(p.pre)}</li>` : ""}</ul></div>
+        </div>
+      </div>`).join("")}
+    </div>
+  </section>
+
+  <section>
+    <h2>Kenapa urutannya begini</h2>
+    <div class="tablewrap"><table class="qa">
+      <thead><tr><th>Tahap</th><th>Bergantung pada</th><th>Alasan</th></tr></thead>
+      <tbody>
+        <tr><td>P1 file</td><td>—</td><td>Semua tahap lain menempelkan file. Tidak menunggu keputusan apa pun.</td></tr>
+        <tr><td>P2 pipeline</td><td>—</td><td>Penjualan bisa dicatat secepatnya, jadi data menang/kalah mulai terkumpul.</td></tr>
+        <tr><td>P4 item desain</td><td>P1</td><td>File render dan gambar klien ditempel per item.</td></tr>
+        <tr><td>P3 meeting</td><td>P1, P4</td><td>Permintaan revisi di meeting menunjuk ke item desain.</td></tr>
+        <tr><td>P5 quotation</td><td>P4</td><td>Baris penawaran mengunci revisi gambar item.</td></tr>
+        <tr><td>P6 drafter</td><td>P1, P4</td><td>Tugas drafter menunjuk item, revisinya berupa file sungguhan.</td></tr>
+        <tr><td>P7 timeline</td><td>semua</td><td>Timeline hanya membaca apa yang sudah dicatat tahap lain.</td></tr>
+      </tbody>
+    </table></div>
+    <p class="muted small" style="margin-top:8px">Total sekitar 9–11 sesi. Satu sesi satu tahap, masing-masing dengan PR sendiri. Nomor P3/P4 dari kajian dipertahankan, hanya urutannya yang ditukar.</p>
+  </section>`;
+}
+
+/* ───────────────────────── preview: shell ───────────────────────── */
+const NAV = [
+  ["Projects", [["pipeline", "Pipeline", "new"], ["projects", "Projects", "old"], ["quotations", "Quotations", "old"], ["followups", "Client follow-ups", "old"]]],
+  ["Production", [["queue", "Design queue", "live"]]],
+];
+let route = { page: "pipeline", tab: "design" };
+function renderSide() {
+  $("#side").innerHTML = NAV.map(([g, items]) => `<div class="grp"><div class="gt">${g}</div>${items.map(([k, l, tag]) =>
+    `<button data-nav="${k}" ${route.page === k || (k === "projects" && route.page === "project") ? 'aria-current="page"' : ""}>${l}${tag === "new" ? '<span class="tag">baru</span>' : tag === "live" ? '<span class="tag">jadi live</span>' : '<span class="tag old">sudah ada</span>'}</button>`).join("")}</div>`).join("");
+}
+function go(page, tab) {
+  route.page = page; if (tab) route.tab = tab;
+  renderSide(); renderMain(); window.scrollTo(0, 0);
+  try { history.replaceState(null, "", "#" + page); } catch {}
+}
+function renderMain() {
+  const m = $("#main");
+  if (route.page === "pipeline") m.innerHTML = pagePipeline();
+  else if (route.page === "project") m.innerHTML = pageProject();
+  else if (route.page === "queue") m.innerHTML = pageQueue();
+  else if (route.page === "projects") m.innerHTML = pageProjects();
+  else m.innerHTML = pageExisting(route.page);
+}
+
+/* ───────────────────────── pipeline ───────────────────────── */
+let picFilter = "All";
+function pagePipeline() {
+  const ps = PROJECTS.filter(p => picFilter === "All" || p.pic === picFilter);
+  const open = ps.filter(p => p.stage !== "DEAL");
+  const lane = (stage, label) => {
+    const xs = ps.filter(p => p.stage === stage);
+    const total = xs.reduce((a, p) => a + (p.value || 0), 0);
+    return `<section class="lane"><h3>${label} <span class="t num">${xs.length} · ${jt(total)}</span></h3>${xs.map(card).join("") || '<p class="muted small">Tidak ada proyek di tahap ini.</p>'}</section>`;
+  };
+  const max = Math.max(...Object.values(REASON_COUNTS));
+  return `
+  <div class="crumbs">Projects › Pipeline</div>
+  <div class="ph"><div><h1>Pipeline</h1><div class="sub">Setiap peluang dari inquiry sampai closing. Satu kartu = satu proyek.</div></div>
+    <div class="actions"><button class="btn pri" data-act="newproject">New inquiry</button></div></div>
+  ${note("Halaman baru (P2). Tahap dibaca dari status proyek yang sudah ada: INQUIRY → QUOTATION_SENT → DEAL. Nilai: perkiraan sebelum ada quotation, lalu nilai quotation yang berlaku. Dibuka untuk pimpinan dan pemegang akses marketing (D375).")}
+  <div class="kpis">
+    <div class="kpi"><span class="l">Open pipeline</span><span class="v">${jt(open.reduce((a, p) => a + (p.value || 0), 0))}</span><span class="s">${open.length} proyek belum closing</span></div>
+    <div class="kpi"><span class="l">Win rate, 90 hari</span><span class="v">3 / 8</span><span class="s">3 deal, 5 lost</span></div>
+    <div class="kpi"><span class="l">Inquiry → deal</span><span class="v">34 hari</span><span class="s">rata-rata, 90 hari terakhir</span></div>
+    <div class="kpi alert"><span class="l">Follow-up terlambat</span><span class="v">${ps.filter(p => p.fu[0] === "overdue").length}</span><span class="s">buka Client follow-ups</span></div>
+  </div>
+  ${note("Angka di atas dihitung dari catatan yang ada (P7), tidak diketik. Tidak ada kolom laba: D164.")}
+  <div class="filters"><span class="small muted">PIC sales</span>${["All", ...PICS].map(p => `<button class="chip" data-pic="${p}" aria-pressed="${picFilter === p}">${p}</button>`).join("")}</div>
+  <div class="board">
+    ${lane("INQUIRY", "Inquiry")}
+    ${lane("QUOTATION_SENT", "Quotation sent")}
+    ${lane("DEAL", "Deal")}
+    <section class="lane lost"><h3>Lost <span class="t">90 hari terakhir</span></h3>
+      ${LOST.map(l => `<div class="pc"><span class="code">${l.code} · ${l.when}</span><span class="nm">${esc(l.name)}</span><span class="row">${esc(l.client)}</span><span class="row">${pill(l.reason, "red")}</span><span class="row">${esc(l.note)}</span></div>`).join("")}
+    </section>
+  </div>
+  <div class="card pad" style="display:grid;gap:10px">
+    <h2 style="font-size:15px">Kenapa tidak jadi <span class="muted small" style="font-weight:400">· 12 bulan terakhir</span></h2>
+    <div class="bars">${REASONS.map(r => `<div class="bar"><span>${r}</span><span class="track2"><span class="fill" style="display:block;width:${max ? (REASON_COUNTS[r] / max * 100) : 0}%"></span></span><span class="num">${REASON_COUNTS[r]}</span></div>`).join("")}</div>
+    ${note("Kategori dalam bahasa Inggris dan catatan bebas selalu wajib (D377). Dipakai untuk LOST (sebelum deal) maupun CANCELLED (setelah deal).")}
+  </div>`;
+}
+function card(p) {
+  const fu = { overdue: pill("Follow-up terlambat", "red"), today: pill("Follow-up hari ini", "amber"), upcoming: pill("Follow-up " + (p.fu[1] ? "terjadwal" : ""), "blue"), none: "" }[p.fu[0]];
+  return `<button class="pc" data-open="${p.code}">
+    <span class="code">${p.code}${p.est && p.value ? " · perkiraan" : ""}</span>
+    <span class="nm">${esc(p.name)}</span>
+    <span class="row">${esc(p.client)}</span>
+    <span class="row"><span class="val">${p.value ? jt(p.value) : "nilai belum ada"}</span> · PIC ${p.pic} · ${p.days} hari di tahap ini</span>
+    <span class="row">${fu}${p.days > 14 ? pill("Lama tanpa gerak", "amber") : ""}${p.noContract ? pill("Kontrak belum diunggah", "amber") : ""}</span>
+    ${p.src ? `<span class="row">Sumber: ${esc(p.src)}</span>` : ""}
+  </button>`;
+}
+
+/* ───────────────────────── projects list (existing, extended) ───────────────────────── */
+function pageProjects() {
+  return `<div class="crumbs">Projects</div>
+  <div class="ph"><div><h1>Projects</h1><div class="sub">Layar yang sudah ada di /proyek/order. Hari ini proyek dibuka sebagai drawer.</div></div></div>
+  ${note("Usulan P1: klik proyek membuka <b>halaman proyek</b> penuh (/proyek/order/26007) dengan tab-tab di bawah, karena isi proyek sekarang terlalu banyak untuk sebuah drawer.")}
+  <div class="card"><div class="list">${PROJECTS.map(p => `<div class="li"><div><div class="t">${p.code} · ${esc(p.name)}</div><div class="s">${esc(p.client)} · PIC ${p.pic}</div></div><div>${pill(p.stage.replace("_", " "), p.stage === "DEAL" ? "green" : p.stage === "INQUIRY" ? "" : "blue")} <button class="btn sm" data-open="${p.code}">Buka</button></div></div>`).join("")}</div></div>`;
+}
+function pageExisting(k) {
+  const t = { quotations: ["Quotations", "/proyek/quotation sudah ada dan berjalan. Di P5 setiap baris quotation menunjuk ke item desain dan mengunci revisi gambarnya."], followups: ["Client follow-ups", "/proyek/follow-up sudah ada dan berjalan. Tidak berubah; follow-up dari form meeting (P3) muncul di sini."] }[k];
+  return `<div class="crumbs">Projects › ${t[0]}</div><div class="ph"><div><h1>${t[0]}</h1></div></div>${note(t[1])}<div class="card pad"><button class="btn" data-open="26007">Lihat contohnya di halaman proyek 26007</button></div>`;
+}
+
+/* ───────────────────────── project page ───────────────────────── */
+function pageProject() {
+  const p = PROJECTS.find(x => x.main);
+  const steps = ["Inquiry", "Quotation sent", "Deal", "In production", "Shipped", "Done"];
+  const cur = 1;
+  const tabs = [["timeline", "Timeline", "P7"], ["design", "Design", "P4"], ["quotes", "Quotations", "P5"], ["meetings", "Meetings & contact", "P3"], ["files", "Files", "P1"], ["prod", "Production & delivery", "ada"]];
+  return `
+  <div class="crumbs">Projects › 26007</div>
+  <div class="ph"><div><h1>${p.code} · ${esc(p.name)}</h1><div class="sub">${esc(p.client)} · CL-0012</div></div>
+    <div class="actions"><button class="btn" data-act="meeting">Log meeting</button><button class="btn" data-act="upload">Upload file</button><button class="btn danger" data-act="lost">Mark as lost</button></div></div>
+  <div class="stepper">${steps.map((s, i) => `<span class="st ${i < cur ? "done" : i === cur ? "cur" : ""}">${i < cur ? "✓ " : ""}${s}</span>${i < steps.length - 1 ? '<span class="arrow">›</span>' : ""}`).join("")}</div>
+  <div class="card pad facts">
+    <div><span class="l">PIC sales</span><span class="v">Rina</span></div>
+    <div><span class="l">Sumber</span><span class="v">${esc(p.src)}</span></div>
+    <div><span class="l">Quotation berlaku</span><span class="v num">rev 2 · ${rp(p.value)}</span></div>
+    <div><span class="l">Perkiraan closing</span><span class="v">31 Okt 2026</span></div>
+    <div><span class="l">Follow-up berikut</span><span class="v">8 Okt · Tanya keputusan rev 2</span></div>
+    <div><span class="l">Desain</span><span class="v">2 koleksi · 4 ruangan · 8 item</span></div>
+  </div>
+  ${note("Kolom baru di P2: PIC sales (akun, bukan teks), sumber (teks bebas, D376), perkiraan nilai dan tanggal closing. Kalau sumbernya referral Package, proyek menunjuk ke referral-nya.")}
+  <div class="tabs" role="tablist">${tabs.map(([k, l, ph]) => `<button role="tab" data-tab="${k}" aria-selected="${route.tab === k}">${l}<span class="ph-tag">${ph}</span></button>`).join("")}</div>
+  <div>${({ timeline: tabTimeline, design: tabDesign, quotes: tabQuotes, meetings: tabMeetings, files: tabFiles, prod: tabProd })[route.tab]()}</div>`;
+}
+function tabTimeline() {
+  const ev = [
+    ["6 Okt", "a", "F", "Follow-up dijadwalkan 8 Okt: tanya keputusan rev 2", "Rina"],
+    ["3 Okt", "b", "Q", "Quotation qt-26-10-03_01 rev 2 dikirim · Rp 612.400.000", "Rina · berlaku sampai 17 Okt"],
+    ["2 Okt", "g", "✓", "Klien menyetujui render rev B · 26007-A-LR-01 Sofa 3 seater", "via WhatsApp · Ibu Lina · bukti terlampir"],
+    ["1 Okt", "v", "M", "Meeting di lokasi · 4 peserta · 1 keputusan, 2 permintaan revisi", "Rina, Ayu, Ibu Lina, Bp. Agus"],
+    ["30 Sep", "v", "R", "Render rev B diunggah · Sofa 3 seater", "Ayu (drafter)"],
+    ["28 Sep", "r", "×", "Quotation rev 1 ditolak klien · harga Type 3BR terlalu tinggi", "Rina · proyek tetap QUOTATION SENT, rev 2 dibuat"],
+    ["25 Sep", "a", "K", "6 file dari klien: 2 gambar, 4 referensi", "Rina"],
+    ["22 Sep", "", "S", "Survei lokasi · 18 foto", "Putu"],
+    ["20 Sep", "", "+", "Proyek dibuat · INQUIRY · sumber: Referral Package – agen Made", "Rina"],
+  ];
+  return `<div class="card pad" style="display:grid;gap:8px">
+    ${note("Satu view (P7) yang menggabungkan status, kontak, meeting, quotation, file, persetujuan, revisi desain, lalu Job Order, pengiriman, dan BAST setelah deal. Tidak ada yang disimpan dua kali.")}
+    <div class="tl">${ev.map(e => `<div class="tle"><span class="d">${e[0]}</span><span class="ic ${e[1]}">${e[2]}</span><span class="t">${esc(e[3])}<br><span class="s">${esc(e[4])}</span></span></div>`).join("")}</div></div>`;
+}
+function tabDesign() {
+  return `<div style="display:grid;gap:12px">
+    ${note("Urutan D379: klien → proyek → koleksi / katalog → ruangan → item. Item menjadi produk (dengan BOM dan Job Order) setelah dipesan. Status item dihitung dari file, persetujuan, dan quotation; tidak diisi tangan.")}
+    <div class="actions"><button class="btn sm" data-act="toast" data-msg="Preview: form koleksi baru">+ Collection</button><button class="btn sm" data-act="upload">Upload file</button></div>
+    ${COLLECTIONS.map(c => `<section class="card coll">
+      <header><div><h3>Collection ${c.code} · ${c.name}</h3><span class="small muted">${c.units} unit · ${c.rooms.length} ruangan · ${c.rooms.reduce((a, r) => a + r.items.length, 0)} item</span></div>
+        <button class="btn sm" data-act="toast" data-msg="Preview: form ruangan baru">+ Room</button></header>
+      ${c.rooms.map(r => `<div class="room"><h4>${r.name} <button class="btn sm" data-act="toast" data-msg="Preview: form item baru">+ Item</button></h4>
+        <div class="tablewrap"><table class="it"><thead><tr><th>Item</th><th class="r">Qty</th><th>Ukuran (mm)</th><th>Asal</th><th>Status</th><th>File</th><th>Persetujuan klien</th></tr></thead><tbody>
+        ${r.items.map(i => `<tr class="click" data-item="${i.no}"><td><span class="mono">${i.no}</span><br>${esc(i.name)}</td><td class="r num">${i.qty}</td><td class="num">${i.size}</td><td>${og(i.origin)}</td><td>${st(i.status)}</td>
+          <td class="small">${i.renders} render · ${i.client} dari klien</td>
+          <td class="small">${i.appr ? `<span style="color:var(--brand-strong)">✓ ${esc(i.appr)}</span>` : i.status === "RELEASED" ? `<span style="color:var(--warn)">Belum ada · gambar kerja sudah rilis</span>` : '<span class="muted">Belum ada</span>'}</td></tr>`).join("")}
+        </tbody></table></div></div>`).join("")}
+    </section>`).join("")}
+  </div>`;
+}
+function tabQuotes() {
+  const lines = ALL_ITEMS.filter(i => i.qline !== "—");
+  const price = { "26007-A-LR-01": 7.8e6, "26007-A-LR-02": 2.1e6, "26007-A-MB-01": 6.4e6, "26007-A-MB-03": 5.9e6, "26007-B-LR-01": 12.5e6, "26007-B-DN-01": 6.9e6 };
+  return `<div style="display:grid;gap:12px">
+    ${note("Quotation sudah ada (0133). Yang ditambah di P5: setiap baris menunjuk item desain dan mengunci revisi gambarnya, seperti BOM rev yang sudah dikunci hari ini.")}
+    <div class="card"><div class="list">
+      <div class="li"><div><div class="t">qt-26-10-03_01 · rev 2 ${pill("SENT", "blue")}</div><div class="s">Dikirim 3 Okt · berlaku sampai 17 Okt · 6 baris</div></div><div class="num" style="font-weight:700">${rp(612.4e6)}</div></div>
+      <div class="li"><div><div class="t">qt-26-09-26_02 · rev 1 ${pill("REJECTED", "red")}</div><div class="s">Ditolak 28 Sep · PRICE · “harga Type 3BR terlalu tinggi” · digantikan rev 2</div></div><div class="num muted">${rp(688.0e6)}</div></div>
+    </div></div>
+    <div class="card pad" style="display:grid;gap:8px"><h3 style="font-size:14px">Baris rev 2, per koleksi dan ruangan</h3>
+      <div class="tablewrap"><table class="it"><thead><tr><th>Koleksi / ruangan</th><th>Item desain</th><th class="r">Qty</th><th>Gambar yang dikunci</th><th class="r">Harga satuan</th></tr></thead><tbody>
+      ${lines.map(i => `<tr><td class="small">${i.coll.code} · ${i.coll.name}<br>${i.room.name}</td><td><span class="mono">${i.no}</span><br>${esc(i.name)}</td><td class="r num">${i.qty}</td><td class="small">${i.renders ? "render rev " + (i.renders > 1 ? "B" : "A") : "gambar klien rev 1"}${i.gk.includes("released") ? " · GK " + i.gk.replace(" released", "") : ""}</td><td class="r num">${rp(price[i.no])}</td></tr>`).join("")}
+      </tbody></table></div></div>
+  </div>`;
+}
+function tabMeetings() {
+  return `<div style="display:grid;gap:12px">
+    ${note("Log kontak sudah ada (0134), append-only. Di P3, meeting dan kunjungan mendapat peserta, notulen, baris keputusan / permintaan revisi yang menunjuk item, dan lampiran.")}
+    <div class="actions"><button class="btn pri" data-act="meeting">Log meeting</button><button class="btn" data-act="toast" data-msg="Preview: form kontak singkat (call / WhatsApp / email) sudah ada hari ini">Log call / WA</button></div>
+    <div class="card"><div class="list">
+      <div class="li"><div><div class="t">1 Okt · Meeting di lokasi ${pill("meeting", "violet")}</div>
+        <div class="s">Peserta: Rina, Ayu (TALA) · Ibu Lina, Bp. Agus (klien)</div>
+        <div class="s" style="margin-top:4px">✓ Keputusan: Dining table Type 3BR disetujui, kayu jati finishing natural (26007-B-DN-01)</div>
+        <div class="s">↻ Revisi: Coffee table dibuat lebih rendah, 380 mm (26007-A-LR-02)</div>
+        <div class="s">↻ Revisi: Wardrobe, klien akan memilih HPL atau duco (26007-A-MB-03)</div>
+        <div class="s">Lampiran: Notulen meeting 1 Okt.jpg</div></div><div class="small muted">Rina</div></div>
+      <div class="li"><div><div class="t">28 Sep · WhatsApp ${pill("whatsapp")}</div><div class="s">Klien menolak rev 1: total Type 3BR terlalu tinggi. Follow-up: kirim rev 2 sebelum 3 Okt ✓ selesai</div></div><div class="small muted">Rina</div></div>
+      <div class="li"><div><div class="t">22 Sep · Survei lokasi ${pill("visit")}</div><div class="s">Ukur unit tipikal 2BR dan 3BR · 18 foto</div></div><div class="small muted">Putu</div></div>
+    </div></div></div>`;
+}
+let originFilter = "All";
+function tabFiles() {
+  const fs = FILES.filter(f => originFilter === "All" || (originFilter === "TALA" ? f.origin === "TALA" : f.origin !== "TALA"));
+  return `<div style="display:grid;gap:12px">
+    ${note("P1. Setiap file punya jenis dan asal (TALA / klien / pihak ketiga), dan ditempel ke proyek, koleksi, ruangan, item, meeting, atau quotation. Foldernya di Drive ditentukan database (D313), satu folder per proyek.")}
+    <div class="filters"><span class="small muted">Asal</span>${["All", "TALA", "Client"].map(o => `<button class="chip" data-origin="${o}" aria-pressed="${originFilter === o}">${o}</button>`).join("")}<span class="spacer"></span><button class="btn sm pri" data-act="upload">Upload file</button></div>
+    <div class="card pad"><div>${fs.map(f => `<div class="file"><span class="thumb">${f.kind.slice(0, 3).toUpperCase()}</span>
+      <div style="min-width:0"><div class="t">${esc(f.name)}</div><div class="s">${esc(f.kind)} · ${esc(f.on)} · ${esc(f.by)}, ${f.when}</div></div>
+      <div>${og(f.origin === "KLIEN" ? "KLIEN" : "TALA")}</div></div>`).join("")}</div></div>
+    <div class="card pad" style="display:grid;gap:6px"><h3 style="font-size:13px">Di Drive</h3>
+      <div class="path">PROJECT MANAGER / ops-talaliving / <b>CL-0012 PT CONTOH RESIDENCE / 26007 RESIDENCE KUTA</b> / 01 BRIEF &amp; SURVEI · 03 PROPOSAL &amp; PENAWARAN · 04 MEETING · 05 KONTRAK · 06 SERAH TERIMA</div>
+      <div class="path">DRAFTING / ops-talaliving / <b>CL-0012 PT CONTOH RESIDENCE / 26007 RESIDENCE KUTA</b> / 00 DARI KLIEN · KOLEKSI A TYPE 2BR / LIVING ROOM / 26007-A-LR-01 SOFA 3 SEATER</div>
+      ${note("Drive PROJECT MANAGER belum terhubung di produksi. IT perlu menghubungkannya di /it/drive sebelum P1 bisa diuji.")}
+    </div></div>`;
+}
+function tabProd() {
+  return `<div class="card pad" style="display:grid;gap:8px">${note("Sudah ada hari ini dan tidak berubah: setelah DEAL, item yang dipesan menjadi produk, lalu Job Order, pengiriman, instalasi, dan BAST. Semuanya ikut muncul di Timeline (P7).")}
+    <p class="muted">Proyek ini belum deal, jadi belum ada Job Order atau pengiriman.</p></div>`;
+}
+
+/* ───────────────────────── drafter queue ───────────────────────── */
+let qFilter = { client: "All", coll: "All" };
+const TASKS = [
+  { item: "26007-A-MB-03", kind: "Working drawing", status: "QUESTION", who: "Ayu", due: "9 Okt", q: "Finishing HPL atau duco? Ditanyakan ke klien 29 Sep" },
+  { item: "26007-A-LR-02", kind: "Render", status: "DRAWING", who: "Ayu", due: "8 Okt", revs: "rev B diunggah, belum dirilis" },
+  { item: "26007-B-LR-01", kind: "Render", status: "DRAWING", who: "Komang", due: "10 Okt" },
+  { item: "26007-A-MB-02", kind: "Render", status: "TO DRAW", who: "—", due: "14 Okt" },
+  { item: "26007-B-DN-01", kind: "Working drawing", status: "DRAWING", who: "Komang", due: "12 Okt", appr: true },
+];
+function pageQueue() {
+  const rows = TASKS.map(t => ({ ...t, it: ALL_ITEMS.find(i => i.no === t.item) })).filter(t => qFilter.coll === "All" || t.it.coll.code === qFilter.coll);
+  const groups = {};
+  rows.forEach(t => { const k = t.it.coll.code + "|" + t.it.room.name; (groups[k] = groups[k] || []).push(t); });
+  const stc = { QUESTION: "red", DRAWING: "blue", "TO DRAW": "", RELEASED: "violet" };
+  return `<div class="crumbs">Production › Design queue</div>
+  <div class="ph"><div><h1>Design queue</h1><div class="sub">Pekerjaan drafter, dikelompokkan menurut klien, proyek, koleksi, dan ruangan.</div></div></div>
+  ${note("Layar ini sudah ada tetapi hanya di demo (M30). P6 membuatnya berjalan sungguhan dan mengubah pengelompokannya ke urutan D379. Tugas untuk produk katalog tanpa proyek baru tetap bisa dibuat.")}
+  <div class="kpis">
+    <div class="kpi alert"><span class="l">Menunggu jawaban</span><span class="v">1</span><span class="s">rilis terkunci (D179)</span></div>
+    <div class="kpi"><span class="l">Revisi belum dirilis</span><span class="v">1</span><span class="s">workshop masih memakai revisi lama</span></div>
+    <div class="kpi"><span class="l">Belum digambar</span><span class="v">1</span></div>
+    <div class="kpi"><span class="l">Rilis tanpa persetujuan klien</span><span class="v">1</span><span class="s">peringatan saja (D378)</span></div>
+  </div>
+  <div class="filters">
+    <span class="small muted">Klien</span><select class="chip" id="qclient" aria-label="Client"><option>All</option><option selected>PT Contoh Residence</option></select>
+    <span class="small muted">Proyek</span><select class="chip" aria-label="Project"><option>26007 Residence Kuta</option></select>
+    <span class="small muted">Koleksi</span>${["All", "A", "B"].map(c => `<button class="chip" data-coll="${c}" aria-pressed="${qFilter.coll === c}">${c === "All" ? "All" : c}</button>`).join("")}
+  </div>
+  <div class="card">${Object.entries(groups).map(([k, ts]) => { const [cc, rn] = k.split("|"); const c = COLLECTIONS.find(x => x.code === cc);
+    return `<div class="qgrp"><div class="qh"><span>PT Contoh Residence</span><span class="sep">›</span><span>26007</span><span class="sep">›</span><span>Collection ${cc} · ${c.name}</span><span class="sep">›</span><b>${rn}</b></div>
+    ${ts.map(t => `<div class="task" id="task-${t.item}"><div style="min-width:0"><div class="t"><span class="mono">${t.item}</span> ${esc(t.it.name)} · ${t.kind}</div>
+      <div class="s">${pill(t.status, stc[t.status])} ${og(t.it.origin)} <span>${t.who}</span><span>perlu ${t.due}</span>${t.revs ? `<span>${t.revs}</span>` : ""}${t.appr ? pill("Client approved", "green") : ""}</div>
+      ${t.q ? `<div class="s" style="color:var(--bad)">? ${esc(t.q)}</div>` : ""}</div>
+      <div class="actions"><button class="btn sm" data-item="${t.item}">Detail</button><button class="btn sm pri" data-release="${t.item}">Release</button></div>
+      <div class="msg" data-msg-for="${t.item}"></div></div>`).join("")}</div>`; }).join("")}</div>`;
+}
+function release(no) {
+  const t = TASKS.find(x => x.item === no); const it = ALL_ITEMS.find(i => i.no === no);
+  const box = document.querySelector(`[data-msg-for="${no}"]`);
+  if (t.status === "QUESTION") { box.innerHTML = `<div class="alert red"><b>Rilis ditolak.</b> Masih ada pertanyaan yang belum dijawab: ${esc(t.q)}. Jawab dulu, lalu rilis (D179).</div>`; return; }
+  if (!it.appr && !t.appr) { box.innerHTML = `<div class="alert amber"><span><b>Belum ada persetujuan klien</b> untuk item ini. Rilis tetap boleh (D378), dan peringatan ini tercatat di revisinya.</span><span><button class="btn sm" data-confirm="${no}">Release anyway</button> <button class="btn sm" data-item="${no}">Catat persetujuan dulu</button></span></div>`; return; }
+  box.innerHTML = `<div class="alert green">Revisi dirilis. Workshop sekarang memotong dari revisi ini.</div>`;
+}
+
+/* ───────────────────────── overlays ───────────────────────── */
+function closeOverlay() { $("#overlay").innerHTML = ""; }
+function drawer(title, sub, body, foot) {
+  $("#overlay").innerHTML = `<div class="scrim" data-close></div><aside class="drawer" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+    <header><div><h2>${title}</h2>${sub ? `<div class="small muted">${sub}</div>` : ""}</div><button class="x" data-close aria-label="Tutup">×</button></header>
+    <div class="body">${body}</div><footer>${foot || '<button class="btn" data-close>Tutup</button>'}</footer></aside>`;
+  const first = [...document.querySelectorAll("#overlay .drawer input, #overlay .drawer select, #overlay .drawer textarea")].find(el => el.offsetParent); (first || $("#overlay .x")).focus();
+}
+function itemDrawer(no) {
+  const i = ALL_ITEMS.find(x => x.no === no);
+  const files = [];
+  if (i.renders) for (let r = 0; r < i.renders; r++) files.push([`render rev ${"AB"[r]}`, "render", "TALA", r === i.renders - 1 ? "terbaru" : "digantikan"]);
+  for (let c = 0; c < i.client; c++) files.push([i.origin === "KLIEN" ? `Gambar dari klien ${c + 1}` : `Referensi klien ${c + 1}`, i.origin === "KLIEN" ? "gambar_klien" : "referensi_klien", "KLIEN", ""]);
+  const appr = i.appr
+    ? `<div class="alert green"><b>Disetujui klien</b><span>${esc(i.appr)} · atas render rev ${i.renders > 1 ? "B" : "A"} · bukti: tangkapan WA</span></div>`
+    : `<div class="alert amber"><span><b>Belum ada persetujuan klien.</b> Tidak wajib (D378). Kalau gambar kerja dirilis tanpa persetujuan, layar memberi peringatan.</span></div>`;
+  drawer(`<span class="mono" style="font-size:13px">${i.no}</span><br>${esc(i.name)}`, `Collection ${i.coll.code} · ${i.coll.name} › ${i.room.name}`, `
+    <div style="display:flex;gap:6px;flex-wrap:wrap">${st(i.status)} ${og(i.origin)}</div>
+    <div class="facts"><div><span class="l">Qty</span><span class="v num">${i.qty}</span></div><div><span class="l">Ukuran (mm)</span><span class="v num">${i.size}</span></div><div><span class="l">Produk</span><span class="v">dibuat saat dipesan</span></div><div><span class="l">Quotation</span><span class="v">${i.qline}</span></div></div>
+    ${i.q ? `<div class="alert red"><b>Pertanyaan terbuka</b><span>${esc(i.q)}</span></div>` : ""}
+    ${no === "26007-A-LR-02" ? `<div class="alert amber"><b>Permintaan revisi dari meeting 1 Okt</b><span>Dibuat lebih rendah, 380 mm. Belum dijawab dengan revisi baru.</span></div>` : ""}
+    <section class="sec"><h3>File</h3>${files.length ? files.map(f => `<div class="file"><span class="thumb">${f[1].slice(0, 3).toUpperCase()}</span><div><div class="t">${esc(f[0])}</div><div class="s">${f[1]}${f[3] ? " · " + f[3] : ""}</div></div>${og(f[2])}</div>`).join("") : '<p class="muted small">Belum ada file. Unggah render, moodboard, atau gambar dari klien.</p>'}
+      <div><button class="btn sm" data-act="upload" data-for="${i.no}">Upload file</button></div></section>
+    <section class="sec"><h3>Persetujuan klien</h3>${appr}
+      <div id="apprform" hidden class="card pad" style="display:grid;gap:10px">
+        <div class="grid2"><div class="fld"><label for="ap-date">Tanggal</label><input id="ap-date" type="date" value="2026-10-06"></div>
+        <div class="fld"><label for="ap-ch">Lewat</label><select id="ap-ch"><option>WhatsApp</option><option>Meeting</option><option>Email</option><option>Tanda tangan di gambar</option></select></div></div>
+        <div class="fld"><label for="ap-who">Disetujui oleh (pihak klien)</label><input id="ap-who" placeholder="mis. Ibu Lina"></div>
+        <div class="fld"><label for="ap-rev">Atas file / revisi</label><select id="ap-rev">${files.filter(f => f[2] === "TALA").map(f => `<option>${esc(f[0])}</option>`).join("") || "<option>(belum ada render)</option>"}</select></div>
+        <div class="fld"><label for="ap-ev">Bukti</label><input id="ap-ev" type="file"><span class="hint">Tangkapan WA, foto gambar yang ditandatangani, atau email.</span></div>
+        <div><button class="btn pri sm" data-act="toast" data-msg="Preview: persetujuan dicatat (append-only, tidak bisa diedit)">Simpan persetujuan</button></div>
+      </div>
+      <div><button class="btn sm" data-showappr>Record client approval</button></div></section>
+    <section class="sec"><h3>Pekerjaan drafter</h3><p class="small">${i.gk === "—" ? "Belum ada tugas gambar kerja." : "Gambar kerja: " + esc(i.gk)} <button class="linkbtn" data-nav="queue">Buka di Design queue</button></p></section>
+    ${note("P4: item desain, file per item dari dua pihak, dan persetujuan klien. Status di atas dihitung dari isi drawer ini.")}`);
+}
+function peek(code) {
+  const p = PROJECTS.find(x => x.code === code);
+  drawer(`${p.code} · ${esc(p.name)}`, esc(p.client), `
+    <div class="facts"><div><span class="l">Tahap</span><span class="v">${p.stage.replace("_", " ")}</span></div><div><span class="l">PIC sales</span><span class="v">${p.pic}</span></div>
+    <div><span class="l">${p.est ? "Perkiraan nilai" : "Quotation berlaku"}</span><span class="v num">${p.value ? rp(p.value) : "belum ada"}</span></div><div><span class="l">Sumber</span><span class="v">${esc(p.src || "—")}</span></div></div>
+    ${p.noContract ? '<div class="alert amber">Sudah DEAL tetapi kontrak / SPK / PO klien belum diunggah.</div>' : ""}
+    ${note("Halaman proyek lengkap dicontohkan dengan 26007 Residence Kuta. Dari sini Anda bisa mencoba dialog Mark as lost / Cancel project.")}`,
+    `<button class="btn" data-open="26007">Buka contoh 26007</button><button class="btn danger" data-lostfor="${p.code}">${["DEAL", "IN_PRODUCTION"].includes(p.stage) ? "Cancel project" : "Mark as lost"}</button>`);
+}
+function uploadDialog(forItem) {
+  const items = ALL_ITEMS.map(i => `<option value="${i.no}" ${i.no === forItem ? "selected" : ""}>Item ${i.no} ${esc(i.name)}</option>`).join("");
+  drawer("Upload file", "26007 · Residence Kuta", `
+    <div class="fld"><label for="up-file">File</label><input id="up-file" type="file" multiple></div>
+    <div class="fld"><label for="up-kind">Jenis</label><select id="up-kind">${KINDS.map(k => `<option value="${k[0]}" ${k[0] === (forItem ? "render" : "gambar_klien") ? "selected" : ""}>${k[1]} · ${k[0]}</option>`).join("")}</select><span class="hint" id="up-drive"></span></div>
+    <div class="fld"><label>Asal file</label><div class="radios">
+      <label><input type="radio" name="org" value="TALA"> TALA</label><label><input type="radio" name="org" value="KLIEN" checked> Client</label><label><input type="radio" name="org" value="PIHAK3"> Third party (arsitek / desainer klien)</label></div></div>
+    <div class="fld"><label for="up-on">Ditempel ke</label><select id="up-on"><option value="P">Proyek (seluruhnya)</option><option value="CA">Collection A · TYPE 2BR</option><option value="CB">Collection B · TYPE 3BR</option>${items}</select></div>
+    <div class="fld"><label>Akan disimpan di Drive</label><div class="path" id="up-path"></div></div>
+    ${note("Drive dipilih oleh jenis file (doc_kind_drive, batas data pribadi). Folder di dalamnya dipilih oleh drive_paths dengan token baru {CLIENT}, {PROJECT}, {COLLECTION}, {ROOM}, {ITEM}. Jenis file baru ini masih menunggu Q69; tabel ini default-nya.")}`,
+    `<button class="btn" data-close>Batal</button><button class="btn pri" data-act="toast" data-msg="Preview: tidak ada file yang diunggah" data-close-after>Upload</button>`);
+  const upd = () => {
+    const k = KINDS.find(x => x[0] === $("#up-kind").value); const on = $("#up-on").value;
+    const base = `${k[2]} / ops-talaliving / <b>CL-0012 PT CONTOH RESIDENCE / 26007 RESIDENCE KUTA</b> / `;
+    let tail;
+    if (k[3]) tail = k[3];
+    else if (on === "P") tail = ["gambar_klien", "referensi_klien"].includes(k[0]) ? "00 DARI KLIEN" : "00 KONSEP";
+    else if (on === "CA" || on === "CB") tail = (on === "CA" ? "KOLEKSI A TYPE 2BR" : "KOLEKSI B TYPE 3BR") + " / 00 KONSEP";
+    else { const i = ALL_ITEMS.find(x => x.no === on); tail = `KOLEKSI ${i.coll.code} ${i.coll.name} / ${i.room.name.toUpperCase()} / ${i.no} ${i.name.toUpperCase()}`; }
+    $("#up-path").innerHTML = base + esc(tail);
+    $("#up-drive").textContent = "Drive: " + k[2];
+  };
+  $("#up-kind").addEventListener("change", upd); $("#up-on").addEventListener("change", upd); upd();
+}
+function lostDialog(code) {
+  const p = PROJECTS.find(x => x.code === code) || PROJECTS.find(x => x.main);
+  const after = ["DEAL", "IN_PRODUCTION"].includes(p.stage);
+  drawer(after ? "Cancel project" : "Mark as lost", `${p.code} · ${esc(p.name)}`, `
+    <p class="small">${after ? "Proyek ini sudah DEAL, jadi statusnya menjadi <b>CANCELLED</b> (batal setelah deal)." : "Proyek ini belum deal, jadi statusnya menjadi <b>LOST</b> (tidak jadi)."} Pipeline dan alasannya ikut terhitung.</p>
+    <div class="fld"><label for="lr">Reason</label><select id="lr"><option value="">Pilih alasan…</option>${REASONS.map(r => `<option>${r}</option>`).join("")}</select></div>
+    <div class="fld"><label for="ln">Catatan</label><textarea id="ln" placeholder="Apa yang dikatakan klien, dan siapa yang mengatakannya"></textarea><span class="hint">Wajib. Kategori menjawab “berapa banyak”, catatan menjawab “kenapa yang ini”.</span></div>
+    <div id="lmsg"></div>
+    ${note("D377: tujuh kategori dalam bahasa Inggris, catatan selalu wajib. Ditolak oleh database bila kosong, bukan hanya oleh layar.")}`,
+    `<button class="btn" data-close>Batal</button><button class="btn danger" id="lgo">${after ? "Cancel project" : "Mark as lost"}</button>`);
+  $("#lgo").addEventListener("click", () => {
+    const r = $("#lr").value, n = $("#ln").value.trim();
+    if (!r || !n) { $("#lmsg").innerHTML = `<div class="alert red">${!r ? "Pilih alasan." : ""} ${!n ? "Catatan wajib diisi." : ""} Tidak ada yang berubah.</div>`; return; }
+    closeOverlay(); toast(`Preview: ${p.code} ditandai ${after ? "CANCELLED" : "LOST"} · ${r}`);
+  });
+}
+function meetingDialog() {
+  const opts = ALL_ITEMS.map(i => `<option>${i.no} ${esc(i.name)}</option>`).join("");
+  const reqRow = (t, ty, it) => `<div class="req"><input aria-label="Isi" value="${esc(t)}"><select aria-label="Item"><option>— tanpa item —</option>${opts.replace(`<option>${it}`, `<option selected>${it}`)}</select><select aria-label="Jenis"><option ${ty === "d" ? "selected" : ""}>Keputusan</option><option ${ty === "r" ? "selected" : ""}>Revisi diminta</option></select><button class="x" data-delrow aria-label="Hapus baris">×</button></div>`;
+  drawer("Log meeting", "26007 · Residence Kuta · PT Contoh Residence", `
+    <div class="grid2"><div class="fld"><label for="m-date">Tanggal</label><input id="m-date" type="date" value="2026-10-06"></div>
+      <div class="fld"><label for="m-kind">Jenis</label><select id="m-kind"><option>Meeting</option><option>Visit / survei</option></select></div></div>
+    <div class="fld"><label>Peserta TALA</label><div class="filters">${["Rina", "Ayu", "Putu", "Dewa", "Pimpinan"].map((n, k) => `<button class="chip" data-toggle aria-pressed="${k < 2}">${n}</button>`).join("")}</div></div>
+    <div class="fld"><label for="m-cl">Peserta klien</label><input id="m-cl" value="Ibu Lina, Bp. Agus"></div>
+    <div class="fld"><label for="m-notes">Notulen</label><textarea id="m-notes">Presentasi render rev B Type 2BR. Klien suka sofa, minta coffee table lebih rendah.</textarea></div>
+    <div class="fld"><label>Keputusan dan permintaan revisi</label><div id="reqs" style="display:grid;gap:6px">
+      ${reqRow("Coffee table dibuat lebih rendah, 380 mm", "r", "26007-A-LR-02")}
+      ${reqRow("Render sofa 3 seater disetujui", "d", "26007-A-LR-01")}</div>
+      <div><button class="btn sm" data-addrow>+ Baris</button></div>
+      <span class="hint">Revisi yang menunjuk item muncul di drawer item itu sampai dijawab dengan revisi baru.</span></div>
+    <div class="fld"><label for="m-att">Lampiran</label><input id="m-att" type="file" multiple><span class="hint">Notulen yang ditandatangani, foto papan tulis, tangkapan WA. Masuk ke 04 MEETING.</span></div>
+    <div class="grid2"><div class="fld"><label for="m-fu">Follow-up</label><input id="m-fu" type="date" value="2026-10-08"></div><div class="fld"><label for="m-next">Yang dilakukan</label><input id="m-next" value="Kirim render coffee table rev C"></div></div>
+    ${note("P3. Tetap satu log kontak (0134), append-only: koreksi ditulis sebagai catatan baru. Keputusan “disetujui” di sini bisa langsung menjadi persetujuan klien pada item (D378).")}`,
+    `<button class="btn" data-close>Batal</button><button class="btn pri" data-act="toast" data-msg="Preview: meeting dicatat, 1 revisi diteruskan ke Coffee table" data-close-after>Simpan</button>`);
+  $("#reqs").dataset.tpl = reqRow("", "r", "");
+}
+
+/* ───────────────────────── events ───────────────────────── */
+document.addEventListener("click", e => {
+  const t = e.target.closest("button, [data-close], tr[data-item]"); if (!t) return;
+  const d = t.dataset;
+  if (t.id === "v-plan" || t.id === "v-prev") return setView(t.id === "v-plan" ? "plan" : "prev");
+  if ("close" in d) return closeOverlay();
+  if (d.go) { setView("prev"); if (d.go === "upload") { go("project", "files"); return uploadDialog(); } if (d.go === "lost") { go("pipeline"); return lostDialog("26004"); } if (d.go === "item") { go("project", "design"); return itemDrawer("26007-A-LR-02"); } if (d.go === "meeting") { go("project", "meetings"); return meetingDialog(); } return go(d.go, d.tab || undefined); }
+  if (d.nav) { closeOverlay(); return go(d.nav); }
+  if (d.open) { closeOverlay(); return d.open === "26007" ? go("project", route.tab) : peek(d.open); }
+  if (d.lostfor) return lostDialog(d.lostfor);
+  if (d.tab && t.getAttribute("role") === "tab") return go("project", d.tab);
+  if (d.pic) { picFilter = d.pic; return renderMain(); }
+  if (d.origin) { originFilter = d.origin; return renderMain(); }
+  if (d.coll) { qFilter.coll = d.coll; return renderMain(); }
+  if (d.item) return itemDrawer(d.item);
+  if (d.release) return release(d.release);
+  if (d.confirm) { document.querySelector(`[data-msg-for="${d.confirm}"]`).innerHTML = `<div class="alert green">Revisi dirilis, dengan catatan: belum ada persetujuan klien.</div>`; return; }
+  if ("showappr" in d) { $("#apprform").hidden = false; t.hidden = true; return; }
+  if ("toggle" in d) { t.setAttribute("aria-pressed", t.getAttribute("aria-pressed") !== "true"); return; }
+  if ("addrow" in d) { $("#reqs").insertAdjacentHTML("beforeend", $("#reqs").dataset.tpl); return; }
+  if ("delrow" in d) { t.closest(".req").remove(); return; }
+  if (d.act === "upload") return uploadDialog(d.for);
+  if (d.act === "lost") return lostDialog("26007");
+  if (d.act === "meeting") return meetingDialog();
+  if (d.act === "newproject") return toast("Preview: form inquiry baru (klien, nama proyek, PIC, sumber, perkiraan nilai)");
+  if (d.act === "toast") { if ("closeAfter" in d) closeOverlay(); return toast(d.msg); }
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape" && $("#overlay").innerHTML) closeOverlay(); });
+$("#shownotes").addEventListener("change", e => { document.body.classList.toggle("hide-notes", !e.target.checked); store("notes", e.target.checked ? "1" : "0"); });
+
+function setView(v) {
+  $("#plan").hidden = v !== "plan"; $("#prev").hidden = v !== "prev";
+  $("#v-plan").setAttribute("aria-pressed", v === "plan"); $("#v-prev").setAttribute("aria-pressed", v === "prev");
+  if (v === "prev") { renderSide(); renderMain(); }
+  try { history.replaceState(null, "", "#" + (v === "plan" ? "rencana" : route.page)); } catch {}
+  window.scrollTo(0, 0);
+}
+
+renderPlan();
+if (store("notes") === "0") { $("#shownotes").checked = false; document.body.classList.add("hide-notes"); }
+const h = (location.hash || "").slice(1);
+if (["pipeline", "project", "queue", "projects"].includes(h)) { route.page = h; setView("prev"); } else setView("plan");
+})();
+</script>
