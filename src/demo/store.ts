@@ -14,6 +14,7 @@ import type { DemoState, AuditRow, OutboxRow } from "./state";
 import { setActiveLocale } from "@/lib/format";
 import { setActiveLang } from "@/lib/i18n";
 import { officeDay as sharedOfficeDay } from "@/lib/office";
+import { notifyTasks } from "./notify";
 
 const STORAGE_KEY = "ops-v2-demo/v2";
 
@@ -122,6 +123,9 @@ export function resetDemo() {
 export function apply(mutator: (draft: DemoState) => void) {
   const draft = structuredClone(state);
   mutator(draft);
+  /* The database's triggers, run where the database would run them: after
+     the seam's own writes, inside the same step. */
+  notifyTasks(state, draft);
   state = draft;
   persist();
   emit();
@@ -144,7 +148,7 @@ export function officeDay(at: Date = new Date()): string {
  *  is only one candidate now. */
 export function nextDocNumber(
   draft: DemoState,
-  prefix: "pr" | "fund" | "trx" | "pay" | "po" | "ask" | "pyr" | "spk" | "jo" | "lbr" | "kyu" | "stk" | "izn" | "dsn" | "rkk" | "agn" | "lead" | "ppn" | "krm" | "pas" | "tmn" | "bast" | "tgs" | "rtn" | "ssr" | "kol" | "vnl" | "kkj" | "qt" | "kyb" | "fgm" | "tsl" | "rr",
+  prefix: "pr" | "fund" | "trx" | "pay" | "po" | "ask" | "pyr" | "spk" | "jo" | "lbr" | "kyu" | "stk" | "izn" | "dsn" | "rkk" | "agn" | "lead" | "ppn" | "krm" | "pas" | "tmn" | "bast" | "tgs" | "rtn" | "ssr" | "blg" | "kol" | "vnl" | "kkj" | "qt" | "kyb" | "fgm" | "tsl" | "rr",
   at: Date = new Date(),
 ): string {
   const day = officeDay(at);

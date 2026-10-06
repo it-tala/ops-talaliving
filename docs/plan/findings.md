@@ -9364,6 +9364,38 @@ ticked (Q64), because the run could never be approved over that day (D139).
 The sheet holds them with that sentence instead of letting the approval fail
 later on somebody else's screen.
 
+## F223 · 2026-10-06 · A notification belongs on the row, and a poll must be named like a read
+
+**On the row, not in the seams.** A task reaches a person through four seams
+today — `assign_task`, `edit_task` (moving it), `roll_task_routines` and
+`promote_work_log` (through `assign_task`). Adding a notify call to each would
+have meant dropping and recreating `assign_task` again (an apply the Supabase
+tool cannot do, F218) and leaving the fifth door, whoever writes it, silent.
+An `after insert or update of assignee_id, status` trigger on `ops_hr.tasks`
+says *a task was given to you* whenever it becomes true. The demo mirrors it
+the same way: `apply()` hands every mutation's before/after to
+`src/demo/notify.ts`, so `api/hr.ts` did not change either. **Rule:** a
+notice about a row's state is a trigger on that row; a notice about a
+decision (an approval asked for) belongs to the seam that decides.
+
+**A poll named like a write empties the cache.** `src/lib/api-cache.ts` treats
+any function whose name does not start with `list/get/count/…` as a write and
+clears every cached answer around it. The bell's unread count was first
+written as `unreadNotifications()` and polled every minute — which would have
+thrown away every screen's cached reads once a minute, invisibly (nothing
+fails; pages just reload their skeletons). It is `countUnreadNotifications()`.
+**Rule:** name a read with a read verb; the cache decides by the name.
+
+**The "live rules" smoke is a decision register.** `A3_core_outbox_delivery`
+asserts exactly which event types are live, so turning two on failed the suite
+until the decision was written into it. That is the point of the test — keep
+it that way rather than loosening it to a count.
+
+**Deploy order across the two repos.** A live rule whose renderer is not yet
+deployed in john-lau burns its five attempts in under half an hour and stops
+(`outbox_due` skips rows at five). Deploy john-lau's `pipeline-cycle` job
+first, then apply the `delivery_rules` part of 0215.
+
 ## F224 · 2026-10-06 · The sales road was built and never walked, and the half the owner now asks for was never built
 
 The owner asked for the whole business to be recorded from the first proposal
@@ -9401,3 +9433,25 @@ A render exists before the product does, so it cannot be filed against the
 product. That is why the kajian proposes a per-project design item as the
 spine, which becomes a quotation line, an order line, a product and a Job
 Order in turn.
+
+## F227 · 2026-10-06 · Work with nobody yet is its own table, and a number is not free until every branch says so
+
+**Not a task with two columns made optional.** The ask was a list of work
+that waits for somebody to come free. The short road was `tasks.assignee_id`
+and `due_date` nullable plus a status. Every reader of `tasks` would then have
+to learn to skip half-tasks: `v_task.overdue`, the KPI's on-time share, the
+chase box, the goal progress counts, `owes_daily_log`'s task list. Each one
+that forgot would count a waiting item as a late one, which is the D261
+unfairness in a new place. A separate `ops_hr.backlog` leaves `tasks` meaning
+what it always meant, and *Tugaskan* goes through `assign_task`, so the moment
+an item becomes work every rule of work applies, including the notification
+(0215). **Rule:** when a new state lacks the columns that make an existing
+row meaningful, it is a new table that turns into the old row, not a nullable
+version of it.
+
+**Numbers taken elsewhere.** This was written as `0216` / D375. Before
+committing, the remote branches already carried `0216`–`0219` (project files,
+procurement pipeline) and D375–D380, none merged to `main`. Renumbered to
+`0220` / D381 / F227 locally before the first push. F221 said the same about
+production; it holds for every open branch too, and for decision and finding
+numbers as much as migration numbers.
