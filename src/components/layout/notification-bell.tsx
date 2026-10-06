@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Bell, CheckCheck, ClipboardList, PackageCheck } from "lucide-react";
+import { Bell, CheckCheck, ClipboardList, Inbox, PackageCheck } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { identity } from "@/demo/api";
 import { subscribe } from "@/demo/store";
@@ -59,6 +59,29 @@ function Line({ n }: { n: AppNotification }) {
         {d.delivered_note ? (
           <span className="mt-0.5 block line-clamp-2 text-[12px] text-slate-600">“{String(d.delivered_note)}”</span>
         ) : null}
+      </>
+    );
+  }
+  if (n.kind === "backlog.proposed") {
+    return (
+      <>
+        <span className="font-medium text-slate-800">{String(d.title ?? "")}</span>
+        <span className="block text-[12px] text-slate-500">
+          {tr("Proposed for the waiting list by", "Diusulkan ke daftar tunggu oleh")} {String(d.by ?? "")}
+          {d.unit ? <> · {String(d.unit)}</> : null}
+        </span>
+      </>
+    );
+  }
+  if (n.kind === "backlog.accepted" || n.kind === "backlog.dropped") {
+    return (
+      <>
+        <span className="font-medium text-slate-800">{String(d.title ?? "")}</span>
+        <span className="block text-[12px] text-slate-500">
+          {n.kind === "backlog.accepted"
+            ? tr(`Your proposal is on the waiting list at #${String(d.position ?? "")}`, `Usulan Anda masuk daftar tunggu di urutan #${String(d.position ?? "")}`)
+            : <>{tr("Your proposal was not taken:", "Usulan Anda tidak diambil:")} {String(d.reason ?? "")}</>}
+        </span>
       </>
     );
   }
@@ -167,7 +190,7 @@ export function NotificationBell() {
             ) : (
               <ul className="divide-y divide-slate-100">
                 {rows.map((n) => {
-                  const Icon = n.kind === "task.delivered" ? PackageCheck : ClipboardList;
+                  const Icon = n.kind === "task.delivered" ? PackageCheck : n.kind.startsWith("backlog.") ? Inbox : ClipboardList;
                   return (
                     <li key={n.id}>
                       <button type="button" onClick={() => void go(n)}

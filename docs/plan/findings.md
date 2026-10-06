@@ -9396,3 +9396,25 @@ deployed in john-lau burns its five attempts in under half an hour and stops
 (`outbox_due` skips rows at five). Deploy john-lau's `pipeline-cycle` job
 first, then apply the `delivery_rules` part of 0215.
 
+## F227 · 2026-10-06 · Work with nobody yet is its own table, and a number is not free until every branch says so
+
+**Not a task with two columns made optional.** The ask was a list of work
+that waits for somebody to come free. The short road was `tasks.assignee_id`
+and `due_date` nullable plus a status. Every reader of `tasks` would then have
+to learn to skip half-tasks: `v_task.overdue`, the KPI's on-time share, the
+chase box, the goal progress counts, `owes_daily_log`'s task list. Each one
+that forgot would count a waiting item as a late one, which is the D261
+unfairness in a new place. A separate `ops_hr.backlog` leaves `tasks` meaning
+what it always meant, and *Tugaskan* goes through `assign_task`, so the moment
+an item becomes work every rule of work applies, including the notification
+(0215). **Rule:** when a new state lacks the columns that make an existing
+row meaningful, it is a new table that turns into the old row, not a nullable
+version of it.
+
+**Numbers taken elsewhere.** This was written as `0216` / D375. Before
+committing, the remote branches already carried `0216`–`0219` (project files,
+procurement pipeline) and D375–D380, none merged to `main`. Renumbered to
+`0220` / D381 / F227 locally before the first push. F221 said the same about
+production; it holds for every open branch too, and for decision and finding
+numbers as much as migration numbers.
+

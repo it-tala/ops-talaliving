@@ -24,6 +24,7 @@ import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 import { GoalBoardList, GoalProgress } from "@/components/hr/goal-parts";
 import { DailyLogTab } from "./daily-log";
+import { StaffBacklog } from "@/components/hr/backlog-staff";
 import { OvertimeForm } from "../saya/overtime-form";
 import { OvertimeAskDetails, useOvertimeStatus } from "../saya/overtime-ask";
 import { useDayLabel } from "../saya/shared";
@@ -729,6 +730,7 @@ function TasksTab({ me }: { me: ReturnType<typeof useLoad<Awaited<ReturnType<typ
             {goals.status === "failed" && (
               <Button size="sm" variant="ghost" onClick={reloadGoals}>{tr("Reload goals", "Muat ulang sasaran")}</Button>
             )}
+            <StaffBacklog />
           </div>
         );
       }}
