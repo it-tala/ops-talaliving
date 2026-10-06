@@ -18,15 +18,19 @@ export const DESIGN_ORIGINS: { code: DesignOrigin; label: string; label_id: stri
   { code: "adapted", label: "Adapted", label_id: "Adaptasi" },
 ];
 
-/** Where an item stands. P5 adds QUOTED and ORDERED; P6 the drafters' release. */
-export type DesignItemStatus = "CONCEPT" | "DRAWN" | "APPROVED" | "DROPPED";
+/** Where an item stands, furthest first: on an order line, on a quotation
+ *  that went out (P5), approved, drawn, or only a concept. P6 adds the
+ *  drafters' release. */
+export type DesignItemStatus = "CONCEPT" | "DRAWN" | "APPROVED" | "QUOTED" | "ORDERED" | "DROPPED";
 
 export const DESIGN_ITEM_STATUSES: {
-  code: DesignItemStatus; label: string; tone: "slate" | "brand" | "green" | "red";
+  code: DesignItemStatus; label: string; tone: "slate" | "brand" | "green" | "red" | "violet";
 }[] = [
   { code: "CONCEPT", get label() { return trNow("Concept", "Konsep"); }, tone: "slate" },
   { code: "DRAWN", get label() { return trNow("Drawn", "Sudah digambar"); }, tone: "brand" },
   { code: "APPROVED", get label() { return trNow("Client approved", "Disetujui klien"); }, tone: "green" },
+  { code: "QUOTED", get label() { return trNow("Quoted", "Sudah ditawarkan"); }, tone: "violet" },
+  { code: "ORDERED", get label() { return trNow("Ordered", "Dipesan"); }, tone: "green" },
   { code: "DROPPED", get label() { return trNow("Dropped", "Dikeluarkan"); }, tone: "red" },
 ];
 
@@ -102,6 +106,13 @@ export interface DesignItemView {
   approval_channel: ApprovalChannel | null;
   approval_by: string | null;
   status: DesignItemStatus;
+  /** The latest quotation sent with the item, and what it was offered at
+   *  (0225). */
+  quote_no: string | null;
+  quote_status: string | null;
+  quoted_unit_price: number | null;
+  /** An order line carries it. */
+  ordered: boolean;
 }
 
 export interface DesignApproval {

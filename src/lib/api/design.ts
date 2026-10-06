@@ -25,6 +25,8 @@ function toItem(r: Row): DesignItemView {
     length_mm: num(r.length_mm),
     width_mm: num(r.width_mm),
     height_mm: num(r.height_mm),
+    quoted_unit_price: num(r.quoted_unit_price),
+    ordered: !!r.ordered,
   };
 }
 

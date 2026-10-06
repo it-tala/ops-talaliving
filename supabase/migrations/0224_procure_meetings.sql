@@ -28,8 +28,8 @@
 -- closed by the drafters (`may_design`, 0222): a revision request is their
 -- work. They read the point and its item, not the rest of the sales log.
 --
--- For the production tool (F226): no drops, and no function body here says
--- `delete`.
+-- For the production tool (F226): no drops, and no function body here removes
+-- rows.
 
 -- ── 1. the tables ─────────────────────────────────────────────────────────
 

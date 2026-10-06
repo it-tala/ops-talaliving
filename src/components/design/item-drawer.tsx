@@ -7,6 +7,11 @@ import { Drawer } from "@/components/ui/drawer";
 import { Loaded, useLoad } from "@/components/ui/loaded";
 import { SaleFiles } from "@/components/files/sale-files";
 import { OpenPoints } from "@/components/crm/meeting-lines";
+import Link from "next/link";
+import { AlertTriangle } from "lucide-react";
+import { quotation } from "@/demo/api";
+import { formatIDR, formatNumber } from "@/lib/format";
+import type { QuotationLineView } from "@/services/quotation/contracts";
 import { cn } from "@/lib/cn";
 import { design, documents } from "@/demo/api";
 import {
@@ -41,6 +46,7 @@ export function ItemDrawer({
             <SaleFiles targets={[{ entity: "design_item", entity_no: i.item_no, label: i.item_no }]}
               canEdit={canEdit} onChanged={changed} />
             <Approvals i={i} canEdit={canEdit} onChanged={changed} />
+            <ItemQuotes itemNo={i.item_no} refresh={i.updated_at} />
             <OpenPoints filter={{ item_no: i.item_no }} title={tr("Asked in meetings", "Diminta di meeting")}
               empty={tr("Nothing asked about this item in a meeting yet.", "Belum ada permintaan tentang item ini dari meeting.")} />
           </div>
@@ -296,5 +302,48 @@ function ApprovalForm({
         </Button>
       </div>
     </div>
+  );
+}
+
+/** Every quotation that offered the item, and the drawing each was priced
+ *  on (0225, P5). */
+function ItemQuotes({ itemNo, refresh }: { itemNo: string; refresh: string }) {
+  const tr = useTr();
+  const [state, reload] = useLoad(() => quotation.listQuotationLinesForItem(itemNo), [itemNo, refresh]);
+  return (
+    <section>
+      <h3 className="mb-1.5 text-[12px] font-semibold uppercase tracking-wide text-slate-500">{tr("Quotations", "Quotation")}</h3>
+      <Loaded state={state} onRetry={reload} skeletonRows={1}>
+        {(rows: QuotationLineView[]) => rows.length === 0 ? (
+          <p className="text-[12px] text-slate-400">
+            {tr("Not offered yet. On a draft quotation of this project: From design.", "Belum ditawarkan. Di quotation draft proyek ini: Dari desain.")}
+          </p>
+        ) : (
+          <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+            {rows.map((l) => (
+              <li key={l.id} className="px-3 py-1.5 text-[13px]">
+                <div className="flex flex-wrap items-center gap-x-2">
+                  <Link href={`/proyek/quotation/${encodeURIComponent(l.quote_no)}`} className="font-mono text-[12px] text-brand-700 hover:underline">
+                    {l.quote_no}
+                  </Link>
+                  <Badge tone={l.status === "ACCEPTED" ? "green" : l.status === "SENT" ? "brand" : l.status === "REJECTED" ? "red" : "slate"}>{l.status}</Badge>
+                  <span className="text-slate-600">{formatNumber(l.qty)} {l.uom}</span>
+                  <span className="ml-auto tabular-nums text-slate-800">{l.unit_price == null ? "—" : formatIDR(l.unit_price)}</span>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  {l.design_file_name ? tr(`priced on ${l.design_file_name}`, `dihargai dari ${l.design_file_name}`) : tr("no drawing", "tanpa gambar")}
+                </p>
+                {l.design_changed && (
+                  <p className="flex items-center gap-1 text-[11px] text-amber-700">
+                    <AlertTriangle className="h-3 w-3" />
+                    {tr("drawn again since — revise the quotation to price the new drawing", "sudah digambar ulang — revisi quotation untuk menghargai gambar baru")}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Loaded>
+    </section>
   );
 }

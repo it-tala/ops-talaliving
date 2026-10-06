@@ -1,9 +1,10 @@
 "use client";
 
-import { use, useEffect } from "react";
+import { Fragment, use, useEffect } from "react";
 import { Loaded, useLoad } from "@/components/ui/loaded";
 import { formatIDR, formatNumber } from "@/lib/format";
 import { quotation } from "@/demo/api";
+import { groupLines, isHeading } from "@/components/sales/quote-design";
 import { useBrand } from "@/lib/brand";
 import { useTr, type Tr } from "@/lib/i18n";
 
@@ -93,12 +94,25 @@ export default function QuotationPrintPage({ params }: { params: Promise<{ no: s
                 </tr>
               </thead>
               <tbody>
-                {lines.map((l) => (
-                  <tr key={l.id} className="border-b border-slate-200 align-top">
+                {/* By collection and room, the order the client's design is in
+                    (P5); a subtotal under each room. */}
+                {groupLines(lines).map((l, i, all) => isHeading(l) ? (
+                  <tr key={`h-${l.key}`} className="border-b border-slate-300">
+                    <td colSpan={6} className="pb-1 pt-3 text-[12px] font-semibold uppercase tracking-wide text-slate-700">
+                      {l.heading || both("Other items", "Item lain")}
+                    </td>
+                  </tr>
+                ) : (
+                  <Fragment key={l.id}>
+                  <tr className="border-b border-slate-200 align-top">
                     <td className="py-2 tabular-nums">{l.line_no}</td>
                     <td className="py-2 pr-3">
                       {l.description}
-                      {l.product_code && <span className="block font-mono text-[11px] text-slate-500">{l.product_code}</span>}
+                      {(l.design_item_no || l.product_code) && (
+                        <span className="block font-mono text-[11px] text-slate-500">
+                          {[l.design_item_no, l.product_code].filter(Boolean).join(" · ")}
+                        </span>
+                      )}
                       {l.note && <span className="block text-[12px] text-slate-600">{l.note}</span>}
                     </td>
                     <td className="whitespace-nowrap py-2 text-right tabular-nums">{formatNumber(l.qty)} {l.uom}</td>
@@ -112,6 +126,17 @@ export default function QuotationPrintPage({ params }: { params: Promise<{ no: s
                       {l.unit_price == null ? "—" : formatIDR(l.unit_price * l.qty)}
                     </td>
                   </tr>
+                  {l.design_item_no && (i === all.length - 1 || isHeading(all[i + 1])) && (
+                    <tr className="border-b border-slate-300">
+                      <td colSpan={5} className="py-1.5 text-right text-[12px] text-slate-600">
+                        {both(`Subtotal ${l.room_name ?? ""}`, `Subtotal ${l.room_name ?? ""}`)}
+                      </td>
+                      <td className="whitespace-nowrap py-1.5 text-right text-[12px] font-medium tabular-nums">
+                        {roomTotal(all, i)}
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 ))}
               </tbody>
               <tfoot>
@@ -169,4 +194,17 @@ export default function QuotationPrintPage({ params }: { params: Promise<{ no: s
       </Loaded>
     </div>
   );
+}
+
+/** The room's lines above row `i`, back to its heading — or a dash when one
+ *  of them has no price yet. */
+function roomTotal(all: ReturnType<typeof groupLines>, i: number): string {
+  let sum = 0;
+  for (let j = i; j >= 0; j--) {
+    const x = all[j];
+    if (isHeading(x)) break;
+    if (x.unit_price == null) return "—";
+    sum += x.unit_price * x.qty;
+  }
+  return formatIDR(sum);
 }

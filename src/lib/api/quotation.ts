@@ -92,6 +92,18 @@ function toLine(r: Row): QuotationLineView {
     line_marketing_pct: nn(r.line_marketing_pct),
     line_overhead_pct: nn(r.line_overhead_pct),
     line_margin_pct: nn(r.line_margin_pct),
+    design_item_no: s(r.design_item_no),
+    design_item_name: s(r.design_item_name),
+    collection_code: s(r.collection_code),
+    collection_name: s(r.collection_name),
+    room_code: s(r.room_code),
+    room_name: s(r.room_name),
+    room_sort: nn(r.room_sort),
+    line_design_file_id: s(r.line_design_file_id),
+    design_file_id: s(r.design_file_id),
+    design_file_name: s(r.design_file_name),
+    latest_design_file_id: s(r.latest_design_file_id),
+    design_changed: !!r.design_changed,
   };
 }
 
@@ -209,4 +221,39 @@ export async function decideQuotation(
   const head = await one(quoteNo);
   if (head.error) return head;
   return ok(SERVICE, { quotation: head.data, order_lines_added: n(res.data.order_lines_added) });
+}
+
+/* ── the design a line offers (0225, P5) ─────────────────────────────── */
+
+/** One line per design item, named and sized from it; items already on the
+ *  quotation are left as they are. */
+export async function addQuotationLinesFromDesign(
+  quoteNo: string, itemNos: string[],
+): Promise<Result<{ quote_no: string; added: number }>> {
+  const { data, error } = await db().rpc("add_quotation_lines_from_design", { p_quote_no: quoteNo, p_item_nos: itemNos });
+  return fromSeam<{ quote_no: string; added: number }>(SERVICE, data, error);
+}
+
+/** Which design item a draft line offers, and the drawing its price rests on
+ *  (null: the item's latest). No item: the line offers none. */
+export async function setQuotationLineDesign(
+  quoteNo: string, lineId: string, itemNo: string | null, designFileId?: string | null,
+): Promise<Result<QuotationLineView>> {
+  const { data, error } = await db().rpc("set_quotation_line_design", {
+    p_quote_no: quoteNo, p_line_id: lineId, p_item_no: itemNo, p_design_file_id: designFileId ?? null,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  const line = await db().from("v_quotation_line").select("*").eq("id", lineId).maybeSingle();
+  if (line.error) return fail(SERVICE, line.error);
+  if (!line.data) return notFound(SERVICE, "line_not_found", "Baris itu tidak ada.");
+  return ok(SERVICE, toLine(line.data as Row));
+}
+
+/** Every quotation line that offered a design item, newest quotation first. */
+export async function listQuotationLinesForItem(itemNo: string): Promise<Result<QuotationLineView[]>> {
+  const { data, error } = await db().from("v_quotation_line").select("*")
+    .eq("design_item_no", itemNo).order("quote_no", { ascending: false });
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, ((data ?? []) as Row[]).map(toLine));
 }

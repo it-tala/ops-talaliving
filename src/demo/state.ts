@@ -179,6 +179,11 @@ export interface DemoState {
     /** The quotation line it was ordered from (0133) — stored, not shown:
      *  it is what stops an accepted quotation being ordered twice. */
     quotation_line_id?: string | null;
+    /** The design item it was ordered as and the drawing it was priced on,
+     *  carried from the accepted quotation line (0225) — read through the
+     *  item's status, not shown on the order. */
+    design_item_id?: string | null;
+    design_file_id?: string | null;
   })[];
   /** The client master (0111). */
   clients: Client[];

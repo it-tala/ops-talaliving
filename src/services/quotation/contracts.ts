@@ -147,6 +147,23 @@ export interface QuotationLineView {
   line_marketing_pct: number | null;
   line_overhead_pct: number | null;
   line_margin_pct: number | null;
+  /* P5 (0225): the design item the line offers, where it sits, and the
+     drawing its price rests on — the line's pick or the item's latest while a
+     draft, frozen once sent. */
+  design_item_no: string | null;
+  design_item_name: string | null;
+  collection_code: string | null;
+  collection_name: string | null;
+  room_code: string | null;
+  room_name: string | null;
+  room_sort: number | null;
+  /** The drawing the PM pinned; null follows the latest. */
+  line_design_file_id: string | null;
+  design_file_id: string | null;
+  design_file_name: string | null;
+  latest_design_file_id: string | null;
+  /** The item has been drawn again since this line's drawing. */
+  design_changed: boolean;
 }
 
 /** One revision in a project's quotation history. */
@@ -221,4 +238,9 @@ export interface QuotationLine {
   frozen_overhead_pct: number | null;
   frozen_margin_pct: number | null;
   frozen_unit_price: number | null;
+  /** The design item it offers, the drawing pinned, and the one frozen at
+   *  send (0225). */
+  design_item_id?: string | null;
+  design_file_id?: string | null;
+  frozen_design_file_id?: string | null;
 }
