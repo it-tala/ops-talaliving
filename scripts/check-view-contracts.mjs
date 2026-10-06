@@ -136,6 +136,9 @@ const VIEW_CONTRACTS = {
   v_design_room:       "DesignRoom",
   v_design_collection: "DesignCollection",
   v_design_approval:   "DesignApproval",
+  /* A meeting in full (0224, P3). */
+  v_meeting_attendee:  "MeetingAttendee",
+  v_meeting_point:     "MeetingPointView",
 
   /* ── core ────────────────────────────────────────────────────────────── */
   v_user_access:     "DirectoryRow",

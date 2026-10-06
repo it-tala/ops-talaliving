@@ -16,7 +16,7 @@ import { useTr, useLang } from "@/lib/i18n";
 /** A record a sale's files can be filed against: the project, one of its
  *  quotations, or the client (P1). */
 export interface FileTarget {
-  entity: Extract<LinkEntity, "project" | "quotation" | "client" | "design_item" | "design_collection">;
+  entity: Extract<LinkEntity, "project" | "quotation" | "client" | "design_item" | "design_collection" | "client_activity">;
   entity_no: string;
   label: string;
 }

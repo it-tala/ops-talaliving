@@ -9604,3 +9604,45 @@ RUANGAN` / `TANPA ITEM` rather than filing loose in the project.
 Another branch's `0220` (the task backlog, D381) and its F227 reached
 production and the plan first, so this became `0221`/`0222` and F228 before
 anything of it was applied.
+
+## F229 · 2026-10-06 · Replacing a view drops what it was told, and a meeting is lines, not a paragraph
+
+P3 (kajian F224 §4.2, G5) turned the meeting from one `summary` into who was
+there, the minutes as lines, and its files. Three things the build taught.
+
+**`create or replace view` forgets `security_invoker`.** The log's view got
+four columns at its end (attendees, minute lines, open lines, files). The
+smoke then found a drafter reading the whole sales log: replacing the view had
+dropped its options, so it read with its owner's rights and RLS on
+`client_activities` no longer applied. `0224` sets `security_invoker` again
+right after the replacement. Nothing in production was exposed — `0224` was
+never applied without it — and the `create or replace view`s of `0210`–`0224`
+were checked the same way (each sets it again, or says it inline).
+
+**A refused line must take its meeting with it.** A meeting with attendees and
+minutes is one call (`log_meeting`). The entry is written by the log's own
+seam, with its own rules and refusals, and only then can the lines be checked
+against it (an item must be of the project the entry is about). So the entry
+and its lines are written in a block that a refused line raises out of: the
+entry is rolled back with it, and the refusal names the line (`Butir 2: …`).
+The two helpers that check and write lines are **not** security definer: from
+the seam they run with its rights, and a signed-in account calling them
+directly has select only — the smoke proves the direct call is refused.
+
+**A line half filled is refused, never dropped.** The first form quietly
+dropped an attendee row left without a name, and saved the meeting without
+that person. It now sends every row as it is and the database refuses the
+empty one by its number; the form stays open with what was typed.
+
+The drafters read the minutes' lines — a revision request is their work — but
+not the sales log (D375). So each line carries the project and the date of
+its meeting, copied once (the log is append-only, so they cannot drift), and
+`v_meeting_point` needs nothing from the log to say where and when it was
+asked. The demo's `listActivities` read every row for everybody; it now
+answers a non-seller with none, as RLS does.
+
+**Rule:** a migration that replaces a view sets its `security_invoker` again
+in the same file.
+
+**Rule:** a seam that writes a parent and its lines checks the lines against
+the parent inside one block, and a refused line rolls the parent back.

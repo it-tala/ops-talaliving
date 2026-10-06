@@ -8,7 +8,7 @@ import type {
   DesignRoom, ProjectDesign,
 } from "@/services/design/contracts";
 import { getState, apply, newId, writeAudit } from "../store";
-import { latency, actingUser } from "./_kit";
+import { latency, actingUser, canDesign } from "./_kit";
 import { officeToday } from "@/lib/office";
 import type { DemoState, DemoDesignItem } from "../state";
 
@@ -19,12 +19,7 @@ const DESIGN_KINDS = ["Render", "Moodboard", "Layout / Floor Plan", "Gambar Kerj
 const DRAWN_KINDS = ["Render", "Layout / Floor Plan", "Gambar Kerja", "Gambar Jadi", "Client Drawing"];
 const CLIENT_KINDS = ["Client Drawing", "Client Reference"];
 
-function mayDesign(level: "read" | "write"): boolean {
-  const rank = { read: 0, write: 1, admin: 2 } as const;
-  return actingUser().modules.some((m) =>
-    (m.module === "project" || m.module === "marketing" || m.module === "production")
-    && rank[m.level] >= rank[level]);
-}
+const mayDesign = canDesign;
 
 function denied() {
   return refused(SERVICE, "not_permitted", "Mengubah desain butuh akses proyek, marketing, atau produksi (update).");

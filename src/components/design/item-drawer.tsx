@@ -6,6 +6,7 @@ import { Badge, Button } from "@/components/ui/primitives";
 import { Drawer } from "@/components/ui/drawer";
 import { Loaded, useLoad } from "@/components/ui/loaded";
 import { SaleFiles } from "@/components/files/sale-files";
+import { OpenPoints } from "@/components/crm/meeting-lines";
 import { cn } from "@/lib/cn";
 import { design, documents } from "@/demo/api";
 import {
@@ -40,6 +41,8 @@ export function ItemDrawer({
             <SaleFiles targets={[{ entity: "design_item", entity_no: i.item_no, label: i.item_no }]}
               canEdit={canEdit} onChanged={changed} />
             <Approvals i={i} canEdit={canEdit} onChanged={changed} />
+            <OpenPoints filter={{ item_no: i.item_no }} title={tr("Asked in meetings", "Diminta di meeting")}
+              empty={tr("Nothing asked about this item in a meeting yet.", "Belum ada permintaan tentang item ini dari meeting.")} />
           </div>
         )}
       </Loaded>

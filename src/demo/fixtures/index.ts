@@ -102,7 +102,31 @@ export function initialState(): DemoState {
     }],
     quotations: [],
     quotation_lines: [],
-    client_activities: [],
+    /* One design meeting on 26003 (P3): who went, what was decided, and the
+       coffee table the client wants lower — a revision request on the item. */
+    client_activities: [{
+      id: "act_26003_m1", client_id: "cl_26003", project_id: "prj_26003", quotation_id: null,
+      kind: "meeting", happened_on: "2026-10-01", summary: "Review render tipe 2BR dan 3BR di lokasi",
+      follow_up_on: "2026-10-08", next_action: "Kirim render revisi coffee table",
+      follow_up_done_at: null, follow_up_done_by: null, follow_up_result: null,
+      created_by: "usr_rina", created_at: "2026-10-01T08:00:00Z",
+    }],
+    meeting_attendees: [
+      { id: "ma_1", activity_id: "act_26003_m1", seq: 1, side: "tala", user_id: "usr_rina", name: null, role: null },
+      { id: "ma_2", activity_id: "act_26003_m1", seq: 2, side: "tala", user_id: "usr_made", name: null, role: "Workshop" },
+      { id: "ma_3", activity_id: "act_26003_m1", seq: 3, side: "client", user_id: null, name: "Bp. Agus", role: "Owner" },
+    ],
+    meeting_points: [
+      { id: "mp_1", activity_id: "act_26003_m1", project_id: "prj_26003", happened_on: "2026-10-01", seq: 1, kind: "decision",
+        body: "Meja makan 6 kursi tipe 3BR disetujui", design_item_id: "di_4", owner_id: null, due_on: null,
+        closed_at: null, closed_by: null, closed_note: null, created_by: "usr_rina", created_at: "2026-10-01T08:00:00Z" },
+      { id: "mp_2", activity_id: "act_26003_m1", project_id: "prj_26003", happened_on: "2026-10-01", seq: 2, kind: "revision",
+        body: "Coffee table lebih rendah, 380 mm", design_item_id: "di_2", owner_id: "usr_made", due_on: "2026-10-05",
+        closed_at: null, closed_by: null, closed_note: null, created_by: "usr_rina", created_at: "2026-10-01T08:00:01Z" },
+      { id: "mp_3", activity_id: "act_26003_m1", project_id: "prj_26003", happened_on: "2026-10-01", seq: 3, kind: "action",
+        body: "Kirim sampel finishing walnut", design_item_id: null, owner_id: "usr_rina", due_on: "2026-10-10",
+        closed_at: null, closed_by: null, closed_note: null, created_by: "usr_rina", created_at: "2026-10-01T08:00:02Z" },
+    ],
     /* One project's design to open (P4): 26003 RESIDENCE KUTA, two
        collections, the tree the drafters work in (D379). */
     design_collections: [

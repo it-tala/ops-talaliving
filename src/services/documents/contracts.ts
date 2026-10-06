@@ -193,7 +193,10 @@ export type LinkEntity =
    *  drawing, the approval (0222, P4). */
   | "design_item"
   /** A collection, by `<project>-<code>` (`26007-A`) — its moodboard. */
-  | "design_collection";
+  | "design_collection"
+  /** An entry of the client log, by its id — a meeting's minutes, the
+   *  whiteboard photo, the sketch the client handed over (0224, P3). */
+  | "client_activity";
 
 /** Who made a file (0217): us, the client, or somebody the client brought —
  *  their architect or designer. A property of the file, wherever it is
@@ -235,6 +238,12 @@ export const USUAL_ORIGIN: Partial<Record<DocKind, FileOrigin>> = {
 export const DESIGN_DOC_KINDS: readonly DocKind[] = [
   "Render", "Client Drawing", "Client Reference", "Moodboard", "Layout / Floor Plan",
   "Gambar Kerja", "Gambar Jadi", "Client Approval",
+];
+
+/** What a meeting or a visit is filed with (P3): the minutes, the photos, and
+ *  what the client brought to it. */
+export const MEETING_DOC_KINDS: readonly DocKind[] = [
+  "Meeting Notes", "Site Survey Photo", "Client Brief", "Client Drawing", "Client Reference",
 ];
 
 /** Where a file of this kind, filed against this record, would go — the
@@ -283,6 +292,7 @@ export const DOC_KINDS_FOR: Partial<Record<LinkEntity, readonly DocKind[]>> = {
   quotation: ["Proposal", "Contract / SPK", "Render", "Layout / Floor Plan", "Others"],
   design_item: DESIGN_DOC_KINDS,
   design_collection: ["Moodboard", "Layout / Floor Plan", "Render", "Client Reference", "Client Drawing"],
+  client_activity: MEETING_DOC_KINDS,
 };
 
 /** The photos an item carries (`0168`): at least one, at most four. */
