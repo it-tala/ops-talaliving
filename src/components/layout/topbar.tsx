@@ -12,6 +12,7 @@ import { useToast } from "@/store/toast";
 import { isLiveMode } from "@/lib/live";
 import { LANGS, setLang, useLang, useTr } from "@/lib/i18n";
 import { InstallApp } from "@/components/pwa/install-app";
+import { NotificationBell } from "./notification-bell";
 
 export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
   const { session, signOut } = useSession();
@@ -141,6 +142,10 @@ export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
               <span className="hidden md:inline">{tr("Sign out", "Keluar")}</span>
             </Button>
           )}
+
+          {/* What reached this person — a task given to them, a task handed
+              over to HRD (D374). Every account has one, like the profile. */}
+          <NotificationBell />
 
           {/* Staff clock in from the same page the floor does (D331): one
               `/saya` for everybody on the payroll, whatever else they hold. */}

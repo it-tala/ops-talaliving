@@ -14,6 +14,7 @@ import type {
   Session, Authority, ModuleName, ModuleLevel, ModuleGrant, AuditRowView,
   ActivityEvent, ActivityDaily, RetentionStatus, Approver, MyActivityEvent,
   UserDirectoryRow, AccountStatus, UserLinkSent, UserActiveChange, UserPasswordIssued,
+  AppNotification,
 } from "@/services/identity/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fail, fromRows, fromSeam, invalid, notFound, ok, type Result } from "./_kit";
@@ -417,6 +418,34 @@ export async function listMyActivity(
     .order("at", { ascending: false })
     .limit(opts.limit ?? 100);
   return fromRows<MyActivityEvent[]>(SERVICE, data as MyActivityEvent[] | null, error);
+}
+
+/** The reader's bell, newest first (0215, D374). `my_notifications` answers
+ *  about `auth.uid()` and nobody else — there is no parameter to ask about
+ *  somebody's bell, so there is nothing here to check. */
+export async function listNotifications(
+  opts: { limit?: number } = {},
+): Promise<Result<AppNotification[]>> {
+  const { data, error } = await db().rpc("my_notifications", { p_limit: opts.limit ?? 30 });
+  return fromRows<AppNotification[]>(SERVICE, data as AppNotification[] | null, error);
+}
+
+/** How many of the reader's are unread — the number on the bell. A count, so
+ *  the poll every minute is one integer and not thirty rows. Named `count…`
+ *  on purpose: `src/lib/api-cache.ts` treats any other verb as a write and
+ *  empties the whole cache, which a poll must never do. */
+export async function countUnreadNotifications(): Promise<Result<number>> {
+  const { data, error } = await db().rpc("unread_notifications");
+  return fromRows<number>(SERVICE, (data as number | null) ?? 0, error);
+}
+
+/** Mark some (`ids`) or all (`null`) of the reader's own as read. Answers how
+ *  many changed; somebody else's id simply changes nothing. */
+export async function markNotificationsRead(
+  ids: number[] | null = null,
+): Promise<Result<number>> {
+  const { data, error } = await db().rpc("mark_notifications_read", { p_ids: ids });
+  return fromRows<number>(SERVICE, (data as number | null) ?? 0, error);
 }
 
 /** The recaps: one row per person per day. */

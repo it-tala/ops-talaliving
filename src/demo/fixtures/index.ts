@@ -33,6 +33,7 @@ import { PAY_RULE_SETS } from "./payrules";
 import { CONTRIBUTION_RATES, ENROLMENTS } from "./contributions";
 import { GOALS, TASKS, TASK_ROUTINES } from "./tasks";
 import { WORK_LOG } from "./worklog";
+import { BACKLOG } from "./backlog";
 import { EMPLOYEE_IDENTITIES } from "./identity";
 import { EMPLOYEE_DOCUMENTS, LEAVE_REQUESTS } from "./hrfiles";
 import { CLAUSE_CHECKLIST, CONTRACT_CLAUSES, EMPLOYMENT_CONTRACTS } from "./contracts";
@@ -177,6 +178,7 @@ export function initialState(): DemoState {
     task_routines: TASK_ROUTINES,
     goals: GOALS,
     work_log: WORK_LOG,
+    backlog: BACKLOG,
     employee_identities: EMPLOYEE_IDENTITIES,
     /* Five of the six office personas are also on the roster (W7), and Karjo
        from the workshop floor (D331). Wulan (HRD) and
