@@ -270,6 +270,26 @@ export interface MyActivityEvent {
   label: string;
 }
 
+/** One line in the reader's bell — `ops_core.notifications` (0215, D374).
+ *
+ *  Written by the database when something reaches this person, never by a
+ *  screen: a task given to them, or a task handed over to HRD. `data` carries
+ *  what the bell needs to say it in either language; `title` is the Indonesian
+ *  sentence for a kind this screen does not know yet. */
+export type NotificationKind = "task.assigned" | "task.delivered";
+
+export interface AppNotification {
+  id: number;
+  kind: NotificationKind | string;
+  title: string;
+  data: Record<string, unknown>;
+  /** A path inside the app (`/profil?tab=tugas`), never a full URL. */
+  link: string | null;
+  entity_no: string | null;
+  created_at: string;
+  read_at: string | null;
+}
+
 /** One person, one day, in numbers. Written at the end of the day and kept
  *  120 working days per person — long after the events behind it are gone. */
 export interface ActivityDaily {

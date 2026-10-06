@@ -53,10 +53,13 @@ begin
     into n, live
     from ops_core.delivery_rules where is_live;
 
-  assert n = 1 and live = 'procurement.approval.requested',
+  -- D374 added the two task notices: a task reaching its person, and a task
+  -- handed over reaching HRD.
+  assert n = 3 and live = 'hr.task.assigned, hr.task.delivered, procurement.approval.requested',
     n || ' rule(s) are live: ' || coalesce(live, '(none)')
-    || '. The owner asked for exactly one — leadership being asked to decide a PR — and '
-    || 'everything else prepared but off. Turning one on is a decision to write down here too.';
+    || '. The owner asked for exactly these — leadership being asked to decide a PR (0155) and '
+    || 'the two task notices (D374) — and everything else prepared but off. Turning one on is '
+    || 'a decision to write down here too.';
 
   -- Off is a decision, so it carries its reason. A blank note is a rule
   -- somebody added without saying why, and in six months nobody can tell
