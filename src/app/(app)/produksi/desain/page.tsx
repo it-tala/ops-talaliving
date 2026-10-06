@@ -13,6 +13,7 @@ import {
 } from "@/services/production/contracts";
 import { DesignDrawer } from "./DesignDrawer";
 import { useSession } from "@/store/session";
+import { useCanDesign } from "@/lib/sell";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 
@@ -39,11 +40,17 @@ export default function DesignPage() {
   const [gaps, reloadGaps] = useLoad(() => production.listDesignGaps(), []);
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [view, setView] = useState<"queue" | "project">("queue");
+  const [projectFilter, setProjectFilter] = useState("");
+  const canDesign = useCanDesign();
+  /* The drafters take a task on, upload and release; whoever works on a
+     design raises a task and asks or answers (0226). */
   const mayEdit = can("production.update");
+  const mayAsk = canDesign("update");
 
-  async function raise(productCode: string, kind: DesignKind) {
+  async function raise(target: { item_no?: string | null; product_code?: string | null }, kind: DesignKind) {
     setBusy(true);
-    const res = await production.createDesignTask({ product_code: productCode, kind });
+    const res = await production.createDesignTask({ ...target, kind });
     setBusy(false);
     if (res.error) {
       toast(res.error.status === 409 ? "warning" : "critical", tr("Not created", "Tidak dibuat"), res.error.message);
@@ -130,13 +137,18 @@ export default function DesignPage() {
                   )}
                   icon={PencilRuler}
                 />
-                <Paged rows={all} pageSize={12} unit={tr("tasks", "tugas")}>
-                  {(page) => (
-                    <ul className="divide-y divide-slate-100">
-                      {page.map((t) => <Row key={t.id} task={t} onOpen={() => setOpen(t.task_no)} />)}
-                    </ul>
-                  )}
-                </Paged>
+                <QueueControls all={all} view={view} setView={setView} project={projectFilter} setProject={setProjectFilter} />
+                {view === "queue" ? (
+                  <Paged rows={filterTasks(all, projectFilter)} pageSize={12} unit={tr("tasks", "tugas")}>
+                    {(page) => (
+                      <ul className="divide-y divide-slate-100">
+                        {page.map((t) => <Row key={t.id} task={t} onOpen={() => setOpen(t.task_no)} />)}
+                      </ul>
+                    )}
+                  </Paged>
+                ) : (
+                  <ByProject tasks={filterTasks(all, projectFilter)} onOpen={setOpen} />
+                )}
               </Card>
 
               <Loaded state={gaps} onRetry={reloadGaps}>
@@ -145,23 +157,28 @@ export default function DesignPage() {
                     <CardHeader
                       title={tr(`${g.length} drawings without a task`, `${g.length} gambar belum punya tugas`)}
                       subtitle={tr(
-                        "Products that are ordered or in production with no drawing task at all. Worked out from the orders, not from anyone's memory.",
-                        "Produk yang dipesan atau sedang dikerjakan, dan belum ada satu pun tugas gambar untuknya. Dihitung dari pesanan, bukan diingat orang.",
+                        "Products ordered or in production, and design items the client approved or that were quoted or ordered, with no drawing task at all. Worked out from the orders and the design, not from anyone's memory.",
+                        "Produk yang dipesan atau sedang dikerjakan, dan item desain yang disetujui klien, ditawarkan, atau dipesan, yang belum punya tugas gambar. Dihitung dari pesanan dan desain, bukan diingat orang.",
                       )}
                       icon={FileStack}
                     />
                     <ul className="divide-y divide-slate-100">
                       {g.map((row) => (
-                        <li key={`${row.product_code}-${row.kind}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2.5">
+                        <li key={`${row.item_no ?? row.product_code}-${row.kind}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2.5">
                           <span className="min-w-[200px] flex-1 text-[13px] text-slate-800">
                             {row.product_name}
-                            <span className="ml-2 font-mono text-[10px] text-slate-400">{row.product_code}</span>
+                            <span className="ml-2 font-mono text-[10px] text-slate-400">{row.item_no ?? row.product_code}</span>
+                            {row.item_no && (
+                              <span className="block text-[11px] text-slate-500">
+                                {[row.project_code, row.collection_code, row.room_name].filter(Boolean).join(" › ")}
+                              </span>
+                            )}
                           </span>
                           <Badge tone="slate">{DESIGN_KIND_LABEL[row.kind]}</Badge>
                           <span className="text-[12px] text-slate-500">{row.why}</span>
-                          {mayEdit && (
+                          {mayAsk && (
                             <Button size="sm" variant="outline" icon={Plus} disabled={busy}
-                              onClick={() => raise(row.product_code, row.kind)}>
+                              onClick={() => raise(row.item_no ? { item_no: row.item_no } : { product_code: row.product_code }, row.kind)}>
                               {tr("Create task", "Buat tugas")}
                             </Button>
                           )}
@@ -176,6 +193,7 @@ export default function DesignPage() {
                 <DesignDrawer
                   taskNo={open}
                   mayEdit={mayEdit}
+                  mayAsk={mayAsk}
                   onClose={() => setOpen(null)}
                   onChanged={() => { reload(); reloadGaps(); }}
                 />
@@ -184,6 +202,79 @@ export default function DesignPage() {
           );
         }}
       </Loaded>
+    </div>
+  );
+}
+
+const filterTasks = (xs: DesignTaskView[], project: string) =>
+  !project ? xs : project === "__catalogue" ? xs.filter((t) => !t.project_code) : xs.filter((t) => t.project_code === project);
+
+/** The queue's two readings: by priority (D179), or in the drafters' own
+ *  order — client → project → collection → room → item (D379). */
+function QueueControls({
+  all, view, setView, project, setProject,
+}: {
+  all: DesignTaskView[]; view: "queue" | "project"; setView: (v: "queue" | "project") => void;
+  project: string; setProject: (p: string) => void;
+}) {
+  const tr = useTr();
+  const projects = [...new Map(all.filter((t) => t.project_code).map((t) => [t.project_code!, t])).values()]
+    .sort((a, b) => (a.client_display ?? "").localeCompare(b.client_display ?? "") || a.project_code!.localeCompare(b.project_code!));
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-2">
+      <div className="inline-flex rounded-lg border border-slate-200 p-0.5 text-[12px]">
+        {([["queue", tr("By priority", "Menurut prioritas")], ["project", tr("By client & project", "Per klien & proyek")]] as const).map(([k, l]) => (
+          <button key={k} onClick={() => setView(k)}
+            className={cn("rounded-md px-2.5 py-1", view === k ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-100")}>{l}</button>
+        ))}
+      </div>
+      <select value={project} onChange={(e) => setProject(e.target.value)} aria-label={tr("Project", "Proyek")}
+        className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[12px]">
+        <option value="">{tr("All projects and products", "Semua proyek dan produk")}</option>
+        {projects.map((t) => (
+          <option key={t.project_code} value={t.project_code!}>{t.client_display ? `${t.client_display} › ` : ""}{t.project_code} {t.project_name}</option>
+        ))}
+        <option value="__catalogue">{tr("Catalogue products (no project)", "Produk katalog (tanpa proyek)")}</option>
+      </select>
+    </div>
+  );
+}
+
+function ByProject({ tasks, onOpen }: { tasks: DesignTaskView[]; onOpen: (taskNo: string) => void }) {
+  const tr = useTr();
+  const groups = new Map<string, { head: string; sub: Map<string, DesignTaskView[]> }>();
+  /* Projects first, by client; the catalogue's own products after. */
+  const sorted = [...tasks].sort((a, b) =>
+    (a.project_code ? 0 : 1) - (b.project_code ? 0 : 1)
+    || (a.client_display ?? "").localeCompare(b.client_display ?? "") || (a.project_code ?? "").localeCompare(b.project_code ?? "")
+    || (a.collection_code ?? "").localeCompare(b.collection_code ?? "") || (a.room_sort ?? 0) - (b.room_sort ?? 0)
+    || (a.item_no ?? a.product_code ?? "").localeCompare(b.item_no ?? b.product_code ?? ""));
+  for (const t of sorted) {
+    const gk = t.project_code ?? "__catalogue";
+    const head = t.project_code
+      ? `${t.client_display ? `${t.client_display} › ` : ""}${t.project_code} ${t.project_name ?? ""}`
+      : tr("Catalogue products — no project", "Produk katalog — tanpa proyek");
+    if (!groups.has(gk)) groups.set(gk, { head, sub: new Map() });
+    const sk = t.project_code ? `${t.collection_code ?? ""} · ${t.collection_name ?? ""} › ${t.room_name ?? ""}` : "";
+    const g = groups.get(gk)!;
+    g.sub.set(sk, [...(g.sub.get(sk) ?? []), t]);
+  }
+  if (groups.size === 0) return <p className="px-5 py-6 text-center text-[13px] text-slate-500">{tr("No tasks.", "Tidak ada tugas.")}</p>;
+  return (
+    <div>
+      {[...groups.entries()].map(([k, g]) => (
+        <section key={k} className="border-b border-slate-100 last:border-0">
+          <h3 className="bg-slate-50/70 px-5 py-1.5 text-[12px] font-semibold text-slate-700">{g.head}</h3>
+          {[...g.sub.entries()].map(([sk, ts]) => (
+            <div key={sk}>
+              {sk && <p className="px-5 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{sk}</p>}
+              <ul className="divide-y divide-slate-100">
+                {ts.map((t) => <Row key={t.id} task={t} onOpen={() => onOpen(t.task_no)} />)}
+              </ul>
+            </div>
+          ))}
+        </section>
+      ))}
     </div>
   );
 }
@@ -197,8 +288,13 @@ function Row({ task: t, onOpen }: { task: DesignTaskView; onOpen: () => void }) 
         <span className="min-w-[200px] flex-1">
           <span className="block text-[13px] font-medium text-slate-800">{t.product_name}</span>
           <span className="block font-mono text-[10px] text-slate-400">
-            {t.task_no} · {t.product_code} · {DESIGN_KIND_LABEL[t.kind]}
+            {t.task_no} · {t.item_no ?? t.product_code} · {DESIGN_KIND_LABEL[t.kind]}
           </span>
+          {t.project_code && (
+            <span className="block text-[11px] text-slate-500">
+              {[t.client_display, t.project_code, t.collection_code, t.room_name].filter(Boolean).join(" › ")}
+            </span>
+          )}
         </span>
 
         <Badge tone={

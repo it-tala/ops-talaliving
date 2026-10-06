@@ -5,7 +5,7 @@ import {
   PROCESS_STAGES, RETIRED_STAGES, VENDOR_PROCESSES, VENDOR_PROCESS_NAME, DESIGN_KIND_LABEL, ROUTE, STAGE_NAME, goodsOnSite,
   type WorkOrder, type WorkOrderView, type WorkOrderRef, type ProgressEntry, type ProgressEntryOnOrder, type ProductView,
   type WorkSlot, type WorkSlotView, type WorkSlotWorker, type DailyTargetView,
-  type DesignKind, type DesignTaskView, type RouteCode, type BomExplosion,
+  type DesignKind, type DesignTaskView, type DesignGap, type RouteCode, type BomExplosion,
   type VendorLegView, type VendorRecord,
   type WorkAttribution, type BomKind,
   type JobTrail, type TrailEvent, type TrailStage,
@@ -15,6 +15,7 @@ import {
 import { normLabel, wasteFromNorm } from "@/lib/bom-norms";
 import type { ProjectStatus } from "@/services/procurement/contracts";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
+import type { DemoState } from "../state";
 import {
   workOrderView, workOrderViews, productView, productViews,
   currentBomRev, draftBomRev, bomAt, bomDiff, bomRevisions, lineRate, lineKey, bomRepinnable, explodeBom, bomWouldCycle,
@@ -22,7 +23,7 @@ import {
   unresolvedNames, workAttribution, openVendorLegs, vendorLegViews, vendorRecords, type UnresolvedName,
 } from "../production-derive";
 import {
-  latency, actingUser, requireModule, requireAuthority, requireLevel, conflict, replayed, remember,
+  latency, actingUser, requireModule, requireAuthority, requireLevel, conflict, replayed, remember, canDesign,
 } from "./_kit";
 import { settingNumber } from "../settings";
 import { lineCoverage } from "../derive";
@@ -2113,14 +2114,16 @@ export async function attachProductDrawing(
  */
 export async function listDesignTasks(): Promise<Result<DesignTaskView[]>> {
   await latency();
+  if (!canDesign("read")) return ok(SERVICE, []);
   return ok(SERVICE, designQueue(getState(), officeToday()));
 }
 
-/** Products that are ordered or on the floor with no drafting task at all.
- *  Computed, not tracked: putting a product on an order makes its missing
- *  drawings appear the same day (D179). */
-export async function listDesignGaps(): Promise<Result<ReturnType<typeof designGaps>>> {
+/** Products ordered or on the floor, and design items approved, quoted or
+ *  ordered, with no drafting task at all. Computed, not tracked: putting a
+ *  product on an order makes its missing drawings appear the same day (D179). */
+export async function listDesignGaps(): Promise<Result<DesignGap[]>> {
   await latency();
+  if (!canDesign("read")) return ok(SERVICE, []);
   return ok(SERVICE, designGaps(getState()));
 }
 
@@ -2128,33 +2131,44 @@ export async function getDesignTask(taskNo: string): Promise<Result<DesignTaskVi
   await latency();
   const state = getState();
   const task = state.design_tasks.find((t) => t.task_no === taskNo);
-  if (!task) return notFound(SERVICE, "task_not_found", `No design task ${taskNo}.`);
+  if (!task || !canDesign("read")) return notFound(SERVICE, "task_not_found", `No design task ${taskNo}.`);
   return ok(SERVICE, designTaskView(state, task, officeToday()));
 }
 
+/** Sellers and drafters raise tasks; only the drafters take one on, upload
+ *  and release (0226). */
+const mayDraft = () => requireModule(SERVICE, "production");
+const mayRaise = () => (canDesign("write") ? null
+  : refused(SERVICE, "not_permitted", "Membuat tugas gambar butuh akses produksi, proyek, atau marketing (update)."));
+
+/** A task for a drawing: of a design item (P6, D379), or of a catalogue
+ *  product with no project behind it. One per thing and kind. */
 export async function createDesignTask(
-  input: { product_code: string; kind: DesignKind; assignee?: string | null; due_date?: string | null; note?: string | null },
+  input: { item_no?: string | null; product_code?: string | null; kind: DesignKind; assignee?: string | null; due_date?: string | null; note?: string | null },
   idempotencyKey?: string,
 ): Promise<Result<DesignTaskView>> {
   await latency();
   const cached = replayed<DesignTaskView>(SERVICE, "createDesignTask", idempotencyKey);
   if (cached) return cached;
-
-  const denied = requireModule(SERVICE, "production");
+  const denied = mayRaise();
   if (denied) return denied;
 
   const state = getState();
-  if (!state.products.some((p) => p.product_code === input.product_code)) {
-    return notFound(SERVICE, "product_not_found", `No product ${input.product_code}.`);
+  const itemNo = input.item_no?.trim() || null;
+  const code = input.product_code?.trim().toUpperCase() || null;
+  if (!itemNo && !code) return invalid(SERVICE, "nothing_to_draw", "Gambar untuk item desain atau produk yang mana?", { field: "item_no" });
+  if (itemNo) {
+    const item = state.design_items.find((i) => i.item_no === itemNo);
+    if (!item) return notFound(SERVICE, "item_not_found", `Tidak ada item ${itemNo}.`);
+    if (item.dropped_at) return invalid(SERVICE, "item_dropped", `Item ${itemNo} sudah dikeluarkan dari desain.`, { field: "item_no" });
+  } else if (!state.products.some((p) => p.product_code === code)) {
+    return notFound(SERVICE, "product_not_found", `Tidak ada produk ${code}.`);
   }
-  const clash = state.design_tasks.find(
-    (t) => t.product_code === input.product_code && t.kind === input.kind,
-  );
+  const clash = state.design_tasks.find((t) => t.kind === input.kind
+    && (itemNo ? t.item_no === itemNo : !t.item_no && t.product_code === code));
   if (clash) {
-    return conflict(
-      SERVICE, "task_exists",
-      `${clash.task_no} sudah menangani ${DESIGN_KIND_LABEL[input.kind].toLowerCase()} untuk ${input.product_code}. Revisi baru masuk ke situ, bukan ke tugas kedua.`,
-    );
+    return conflict(SERVICE, "task_exists",
+      `${clash.task_no} sudah menangani gambar ini. Revisi baru masuk ke situ, bukan ke tugas kedua.`);
   }
 
   const user = actingUser();
@@ -2162,8 +2176,7 @@ export async function createDesignTask(
   apply((draft) => {
     no = nextDocNumber(draft, "dsn");
     draft.design_tasks.push({
-      id: newId("dsg"), task_no: no,
-      product_code: input.product_code, kind: input.kind,
+      id: newId("dsg"), task_no: no, item_no: itemNo, product_code: itemNo ? null : code, kind: input.kind,
       status: "BELUM",
       assignee: input.assignee?.trim() || null,
       assignee_employee_id: null,
@@ -2175,10 +2188,12 @@ export async function createDesignTask(
     writeAudit(draft, {
       service: SERVICE, entity: "design_task", entity_no: no,
       action: "create", outcome: "ok", reason: null,
-      detail: { product: input.product_code, kind: input.kind, by: user.email },
+      detail: { item: itemNo, product: code, kind: input.kind, by: user.email },
     });
   });
-  return getDesignTask(no);
+  const res = await getDesignTask(no);
+  if (isOk(res)) remember(SERVICE, "createDesignTask", idempotencyKey, res.data);
+  return res;
 }
 
 /** Who is drawing it, and by when. */
@@ -2186,88 +2201,95 @@ export async function assignDesignTask(
   input: { task_no: string; assignee: string | null; due_date?: string | null },
 ): Promise<Result<DesignTaskView>> {
   await latency();
-  const denied = requireModule(SERVICE, "production");
+  const denied = mayDraft();
   if (denied) return denied;
 
   const state = getState();
   const task = state.design_tasks.find((t) => t.task_no === input.task_no);
-  if (!task) return notFound(SERVICE, "task_not_found", `No design task ${input.task_no}.`);
+  if (!task) return notFound(SERVICE, "task_not_found", `Tidak ada tugas ${input.task_no}.`);
 
   const user = actingUser();
   apply((draft) => {
     const row = draft.design_tasks.find((t) => t.task_no === input.task_no);
     if (!row) return;
-    const before = { assignee: row.assignee, due_date: row.due_date, status: row.status };
+    const before = { assignee: row.assignee, due_date: row.due_date };
     row.assignee = input.assignee?.trim() || null;
     if (input.due_date !== undefined) row.due_date = input.due_date || null;
-    /* Taking one on moves it out of the untouched pile — the status is a
-       consequence of the act, not a second thing to remember. */
-    if (row.assignee && row.status === "BELUM") row.status = "DIGAMBAR";
     writeAudit(draft, {
       service: SERVICE, entity: "design_task", entity_no: row.task_no,
       action: "assign", outcome: "ok", reason: null,
-      detail: { before, after: { assignee: row.assignee, due_date: row.due_date, status: row.status }, by: user.email },
+      detail: { before, after: { assignee: row.assignee, due_date: row.due_date }, by: user.email },
     });
   });
   return getDesignTask(input.task_no);
 }
 
-/** A revision is an upload, not an edit. Releasing it is a **separate act**,
- *  because a drawing the workshop may cut from and a drawing somebody saved on
- *  Friday evening are different things (D179). */
+function openQuestions(state: DemoState, taskId: string) {
+  return state.design_questions.filter((q) => q.task_id === taskId && !q.answer);
+}
+
+/** A revision is an upload, not an edit: a file already filed on the item (or
+ *  the product), numbered by the drafter (0226). Releasing it is a separate
+ *  act, though it may happen at once (D179). */
 export async function addDesignRevision(
-  input: { task_no: string; rev: string; attachment_id?: string | null; filename?: string | null; note?: string | null; release?: boolean },
+  input: { task_no: string; rev: string; attachment_id: string | null; note?: string | null; release?: boolean },
 ): Promise<Result<DesignTaskView>> {
   await latency();
-  const denied = requireModule(SERVICE, "production");
+  const denied = mayDraft();
   if (denied) return denied;
 
   const state = getState();
   const task = state.design_tasks.find((t) => t.task_no === input.task_no);
-  if (!task) return notFound(SERVICE, "task_not_found", `No design task ${input.task_no}.`);
-  if (!input.rev.trim()) {
+  if (!task) return notFound(SERVICE, "task_not_found", `Tidak ada tugas ${input.task_no}.`);
+  const rev = input.rev.trim().toUpperCase();
+  if (!/^[A-Z0-9]{1,4}$/.test(rev)) {
     return invalid(SERVICE, "rev_required", "Revisi harus punya nomor — A, B, C. Itu yang disebut orang bengkel.", { field: "rev" });
   }
-  if (state.design_revisions.some((r) => r.task_id === task.id && r.rev.toUpperCase() === input.rev.trim().toUpperCase())) {
-    return conflict(SERVICE, "rev_exists", `Revisi ${input.rev.trim().toUpperCase()} sudah ada di ${task.task_no}.`);
+  if (!input.attachment_id) {
+    return invalid(SERVICE, "file_required", "Revisi adalah file gambarnya. Unggah dulu filenya.", { field: "attachment_id" });
+  }
+  const onTask = state.attachment_links.some((l) => l.attachment_id === input.attachment_id
+    && (task.item_no ? l.entity === "design_item" && l.entity_no === task.item_no
+      : l.entity === "product" && l.entity_no === task.product_code));
+  if (!onTask) {
+    return invalid(SERVICE, "file_not_on_task", "File revisi harus diarsipkan pada item (atau produk) tugas ini.", { field: "attachment_id" });
+  }
+  if (state.design_revisions.some((r) => r.task_id === task.id && r.rev.toUpperCase() === rev)) {
+    return conflict(SERVICE, "rev_exists", `Revisi ${rev} sudah ada di ${task.task_no}.`);
   }
   /* Releasing over an open question is the one thing this refuses: it is how a
      drawing nobody agreed to reaches the saw. */
-  const open = state.design_questions.filter((q) => q.task_id === task.id && !q.answer);
+  const open = openQuestions(state, task.id);
   if (input.release && open.length > 0) {
-    return refused(
-      SERVICE, "question_open",
+    return refused(SERVICE, "question_open",
       `Masih ada ${open.length} pertanyaan yang belum dijawab: "${open[0].question}". Rilis berarti bengkel boleh memotong dari gambar ini.`,
-      { questions: open.length },
-    );
+      { questions: open.length });
   }
 
   const user = actingUser();
   apply((draft) => {
     const row = draft.design_tasks.find((t) => t.task_no === input.task_no);
     if (!row) return;
+    const now = new Date().toISOString();
     draft.design_revisions.push({
-      id: newId("drv"), task_id: row.id,
-      rev: input.rev.trim().toUpperCase(),
-      attachment_id: input.attachment_id ?? null,
-      filename: input.filename?.trim() || null,
+      id: newId("drv"), task_id: row.id, rev,
+      attachment_id: input.attachment_id,
+      filename: draft.attachments.find((a) => a.id === input.attachment_id)?.filename ?? null,
       note: input.note?.trim() || null,
-      released_at: input.release ? new Date().toISOString() : null,
+      released_at: input.release ? now : null,
       released_by: input.release ? user.id : null,
-      uploaded_by: user.id, uploaded_at: new Date().toISOString(),
+      uploaded_by: user.id, uploaded_at: now,
     });
-    if (input.release) row.status = "RILIS";
-    else if (row.status === "BELUM") row.status = "DIGAMBAR";
     writeAudit(draft, {
       service: SERVICE, entity: "design_task", entity_no: row.task_no,
       action: input.release ? "release_revision" : "add_revision",
       outcome: "ok", reason: input.note?.trim() || null,
-      detail: { rev: input.rev.trim().toUpperCase(), by: user.email },
+      detail: { rev, by: user.email },
     });
     if (input.release) {
       writeOutbox(draft, {
         service: SERVICE, event_type: "production.design.released",
-        payload: { task_no: row.task_no, product_code: row.product_code, rev: input.rev.trim().toUpperCase() },
+        payload: { task_no: row.task_no, item_no: row.item_no, product_code: row.product_code, rev },
       });
     }
   });
@@ -2279,26 +2301,24 @@ export async function releaseDesignRevision(
   input: { task_no: string; rev: string },
 ): Promise<Result<DesignTaskView>> {
   await latency();
-  const denied = requireModule(SERVICE, "production");
+  const denied = mayDraft();
   if (denied) return denied;
 
   const state = getState();
   const task = state.design_tasks.find((t) => t.task_no === input.task_no);
-  if (!task) return notFound(SERVICE, "task_not_found", `No design task ${input.task_no}.`);
+  if (!task) return notFound(SERVICE, "task_not_found", `Tidak ada tugas ${input.task_no}.`);
   const rev = state.design_revisions.find(
     (r) => r.task_id === task.id && r.rev.toUpperCase() === input.rev.toUpperCase(),
   );
-  if (!rev) return notFound(SERVICE, "rev_not_found", `No revision ${input.rev} on ${input.task_no}.`);
+  if (!rev) return notFound(SERVICE, "rev_not_found", `Tidak ada revisi ${input.rev} di ${input.task_no}.`);
   if (rev.released_at) {
     return conflict(SERVICE, "already_released", `Revisi ${rev.rev} sudah dirilis — tidak ada yang berubah.`);
   }
-  const open = state.design_questions.filter((q) => q.task_id === task.id && !q.answer);
+  const open = openQuestions(state, task.id);
   if (open.length > 0) {
-    return refused(
-      SERVICE, "question_open",
-      `Masih ada ${open.length} pertanyaan yang belum dijawab: "${open[0].question}".`,
-      { questions: open.length },
-    );
+    return refused(SERVICE, "question_open",
+      `Masih ada ${open.length} pertanyaan yang belum dijawab: "${open[0].question}". Rilis berarti bengkel boleh memotong dari gambar ini.`,
+      { questions: open.length });
   }
 
   const user = actingUser();
@@ -2308,7 +2328,6 @@ export async function releaseDesignRevision(
     if (!row || !t) return;
     row.released_at = new Date().toISOString();
     row.released_by = user.id;
-    t.status = "RILIS";
     writeAudit(draft, {
       service: SERVICE, entity: "design_task", entity_no: t.task_no,
       action: "release_revision", outcome: "ok", reason: null,
@@ -2316,25 +2335,24 @@ export async function releaseDesignRevision(
     });
     writeOutbox(draft, {
       service: SERVICE, event_type: "production.design.released",
-      payload: { task_no: t.task_no, product_code: t.product_code, rev: row.rev },
+      payload: { task_no: t.task_no, item_no: t.item_no, product_code: t.product_code, rev: row.rev },
     });
   });
   return getDesignTask(input.task_no);
 }
 
-/** The question a drafter cannot answer alone. It blocks the task on purpose:
- *  a drawing released over an unanswered question is a drawing the workshop
- *  will build wrong (D179). */
+/** The question a drafter cannot answer alone. It holds the release, on
+ *  purpose (D179). The seller may ask too — and answers for the client. */
 export async function askDesignQuestion(
   input: { task_no: string; asked_of: string; question: string },
 ): Promise<Result<DesignTaskView>> {
   await latency();
-  const denied = requireModule(SERVICE, "production");
-  if (denied) return denied;
-
+  if (!canDesign("write")) {
+    return refused(SERVICE, "not_permitted", "Bertanya pada tugas gambar butuh akses produksi, proyek, atau marketing (update).");
+  }
   const state = getState();
   const task = state.design_tasks.find((t) => t.task_no === input.task_no);
-  if (!task) return notFound(SERVICE, "task_not_found", `No design task ${input.task_no}.`);
+  if (!task) return notFound(SERVICE, "task_not_found", `Tidak ada tugas ${input.task_no}.`);
   if (!input.question.trim()) {
     return invalid(SERVICE, "question_required", "Tulis pertanyaannya.", { field: "question" });
   }
@@ -2351,7 +2369,6 @@ export async function askDesignQuestion(
       asked_by: user.id, asked_at: new Date().toISOString(),
       answered_by: null, answered_at: null,
     });
-    row.status = "TANYA";
     writeAudit(draft, {
       service: SERVICE, entity: "design_task", entity_no: row.task_no,
       action: "ask", outcome: "ok", reason: input.question.trim(),
@@ -2365,37 +2382,31 @@ export async function askDesignQuestion(
   return getDesignTask(input.task_no);
 }
 
+/** The answer, once: it is not overwritten. */
 export async function answerDesignQuestion(
   input: { task_no: string; question_id: string; answer: string },
 ): Promise<Result<DesignTaskView>> {
   await latency();
-  const denied = requireModule(SERVICE, "production");
-  if (denied) return denied;
-
+  if (!canDesign("write")) {
+    return refused(SERVICE, "not_permitted", "Menjawab pertanyaan gambar butuh akses produksi, proyek, atau marketing (update).");
+  }
   const state = getState();
   const task = state.design_tasks.find((t) => t.task_no === input.task_no);
-  if (!task) return notFound(SERVICE, "task_not_found", `No design task ${input.task_no}.`);
+  if (!task) return notFound(SERVICE, "task_not_found", `Tidak ada tugas ${input.task_no}.`);
   const q = state.design_questions.find((x) => x.id === input.question_id);
   if (!q) return notFound(SERVICE, "question_not_found", "Pertanyaan itu tidak ada.");
   if (q.answer) return conflict(SERVICE, "already_answered", "Pertanyaan itu sudah dijawab — jawabannya tidak ditimpa.");
-  if (!input.answer.trim()) {
-    return invalid(SERVICE, "answer_required", "Tulis jawabannya — itu yang dipakai menggambar.", { field: "answer" });
-  }
+  if (!input.answer.trim()) return invalid(SERVICE, "answer_required", "Tulis jawabannya.", { field: "answer" });
 
   const user = actingUser();
   apply((draft) => {
     const row = draft.design_questions.find((x) => x.id === input.question_id);
-    const t = draft.design_tasks.find((x) => x.id === task.id);
-    if (!row || !t) return;
+    if (!row) return;
     row.answer = input.answer.trim();
     row.answered_by = user.id;
     row.answered_at = new Date().toISOString();
-    /* Back to drawing once nothing is outstanding — the status follows the
-       facts rather than waiting for somebody to update it. */
-    const stillOpen = draft.design_questions.some((x) => x.task_id === t.id && !x.answer);
-    if (!stillOpen && t.status === "TANYA") t.status = "DIGAMBAR";
     writeAudit(draft, {
-      service: SERVICE, entity: "design_task", entity_no: t.task_no,
+      service: SERVICE, entity: "design_task", entity_no: task.task_no,
       action: "answer", outcome: "ok", reason: input.answer.trim(),
       detail: { question_id: row.id, by: user.email },
     });

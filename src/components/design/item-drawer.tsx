@@ -9,7 +9,8 @@ import { SaleFiles } from "@/components/files/sale-files";
 import { OpenPoints } from "@/components/crm/meeting-lines";
 import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
-import { quotation } from "@/demo/api";
+import { production, quotation } from "@/demo/api";
+import { DESIGN_KIND_LABEL, DESIGN_STATUS_LABEL, type DesignKind, type DesignTaskView } from "@/services/production/contracts";
 import { formatIDR, formatNumber } from "@/lib/format";
 import type { QuotationLineView } from "@/services/quotation/contracts";
 import { cn } from "@/lib/cn";
@@ -46,6 +47,7 @@ export function ItemDrawer({
             <SaleFiles targets={[{ entity: "design_item", entity_no: i.item_no, label: i.item_no }]}
               canEdit={canEdit} onChanged={changed} />
             <Approvals i={i} canEdit={canEdit} onChanged={changed} />
+            <ItemDrawingTasks i={i} canEdit={canEdit} />
             <ItemQuotes itemNo={i.item_no} refresh={i.updated_at} />
             <OpenPoints filter={{ item_no: i.item_no }} title={tr("Asked in meetings", "Diminta di meeting")}
               empty={tr("Nothing asked about this item in a meeting yet.", "Belum ada permintaan tentang item ini dari meeting.")} />
@@ -342,6 +344,65 @@ function ItemQuotes({ itemNo, refresh }: { itemNo: string; refresh: string }) {
               </li>
             ))}
           </ul>
+        )}
+      </Loaded>
+    </section>
+  );
+}
+
+/** The drafters' tasks for the item (0226, P6): its working and finished
+ *  drawing, which revision the workshop may cut from, and what holds it. */
+function ItemDrawingTasks({ i, canEdit }: { i: DesignItemView; canEdit: boolean }) {
+  const tr = useTr();
+  const { toast } = useToast();
+  const [state, reload] = useLoad(async () => {
+    const r = await production.listDesignTasks();
+    return r.error ? r : { ...r, data: r.data.filter((t) => t.item_no === i.item_no) };
+  }, [i.item_no]);
+  const [busy, setBusy] = useState(false);
+  async function raise(kind: DesignKind) {
+    setBusy(true);
+    const r = await production.createDesignTask({ item_no: i.item_no, kind });
+    setBusy(false);
+    if (r.error) { toast("warning", tr("Not created", "Tidak dibuat"), r.error.message); return; }
+    toast("success", tr(`${r.data.task_no} created`, `${r.data.task_no} dibuat`), tr("It is in the drafters' queue.", "Sudah masuk antrean drafter."));
+    reload();
+  }
+  return (
+    <section>
+      <h3 className="mb-1.5 text-[12px] font-semibold uppercase tracking-wide text-slate-500">{tr("Drawing tasks", "Tugas gambar")}</h3>
+      <Loaded state={state} onRetry={reload} skeletonRows={1}>
+        {(ts: DesignTaskView[]) => (
+          <div className="space-y-1.5">
+            {ts.length > 0 && (
+              <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+                {ts.map((t) => (
+                  <li key={t.id} className="flex flex-wrap items-center gap-x-2 px-3 py-1.5 text-[13px]">
+                    <span className="font-mono text-[11px] text-slate-400">{t.task_no}</span>
+                    <span className="text-slate-800">{DESIGN_KIND_LABEL[t.kind]}</span>
+                    <Badge tone={t.blocked ? "red" : t.status === "RILIS" ? "green" : t.status === "DIGAMBAR" ? "brand" : "slate"}>
+                      {DESIGN_STATUS_LABEL[t.status]}
+                    </Badge>
+                    <span className="text-[12px] text-slate-500">
+                      {t.released_rev ? tr(`released ${t.released_rev}`, `rilis ${t.released_rev}`) : tr("no release yet", "belum ada rilis")}
+                      {t.ahead_of_release && tr(` · ${t.latest_rev} not released`, ` · ${t.latest_rev} belum dirilis`)}
+                      {t.assignee && ` · ${t.assignee}`}
+                    </span>
+                    <Link href="/produksi/desain" className="ml-auto text-[12px] text-brand-700 hover:underline">{tr("Queue", "Antrean")}</Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {canEdit && i.status !== "DROPPED" && (["gambar_kerja", "gambar_jadi"] as DesignKind[])
+              .filter((k) => !ts.some((t) => t.kind === k)).map((k) => (
+                <Button key={k} size="sm" variant="outline" disabled={busy} onClick={() => raise(k)} className="mr-1.5">
+                  {tr(`Ask for the ${DESIGN_KIND_LABEL[k].toLowerCase()}`, `Minta ${DESIGN_KIND_LABEL[k].toLowerCase()}`)}
+                </Button>
+              ))}
+            {ts.length === 0 && !canEdit && (
+              <p className="text-[12px] text-slate-400">{tr("No drawing task yet.", "Belum ada tugas gambar.")}</p>
+            )}
+          </div>
         )}
       </Loaded>
     </section>

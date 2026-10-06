@@ -9628,3 +9628,41 @@ the BOM revision for the cost, the drawing for the design.
 
 **Rule:** a count over a status reads the fact it means (an approval), not
 the status that happens to show it today.
+
+## F231 · 2026-10-06 · A queue built in the sandbox stored what it should have read, and a revision was a name
+
+P6 (kajian F224 G15) took M30's drafting queue (D179) to the database. M30 was
+sandbox-only, and two of its choices did not survive the move.
+
+**The status was a column somebody set.** Every action wrote `status` —
+BELUM, DIGAMBAR, TANYA, RILIS — and answering the last question had to
+remember to set it back. On the database it is read (A3): TANYA while a
+question is open, RILIS once a revision is released, DIGAMBAR once somebody
+holds the task or a revision exists. Nothing can forget to update it, and the
+sandbox now derives it the same way, ignoring what its fixtures stored.
+
+**A revision was a typed filename.** "Revision C" with a name in a box is a
+claim, not a drawing. A revision is now a file filed on the item (or the
+product) — in the item's own DRAFTING folder (0222) — and the seam refuses one
+that is not (`file_required`, `file_not_on_task`). The drawer uploads, files
+and records the revision in one press.
+
+**The task points at the item, not the product.** The drafters' order is
+client → project → collection → room → item (D379), and an item has no product
+until it is ordered. So a task carries `item_no` (or, for a catalogue product
+with no project, `product_code`); the view reads the item's place and, once
+ordered, the product the order line made of it (0225). The queue can be read
+by priority (D179) or grouped in the drafters' own order, and design items the
+client approved, or that were quoted or ordered, with no working drawing show
+as gaps beside the products on the floor.
+
+**A smoke check reads every column name.** `check_shadowing` refuses a
+PL/pgSQL local that shares a name with any column — and a new view column
+`blocked` made `0027`'s old local `blocked` ambiguous. The view says
+`is_blocked`; the screen's contract still says `blocked`, mapped in one place.
+
+**Rule:** what a queue shows about work — its status, whether it is held —
+is read from the work's own rows, never stored beside them.
+
+**Rule:** a revision is the file; a record that names a file it does not hold
+is not a revision.

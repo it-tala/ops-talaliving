@@ -31,6 +31,7 @@ import type {
   BomExplodedLine, BomExplosion, ProgressEntry, ProgressEntryOnOrder, RouteCode, VendorLegView,
   WorkSlotView, WorkSlotWorker, DailyTargetView,
   WorkOrder, WorkOrderStatus, WorkOrderView, JobTrail,
+  DesignKind, DesignTaskView, DesignGap,
 } from "@/services/production/contracts";
 import { boardOrder, deriveWorkOrderView } from "@/services/production/work-order-view";
 import { officeDay } from "@/lib/office";
@@ -1163,4 +1164,174 @@ export async function jobTrail(no: string): Promise<Result<JobTrail>> {
       ...e, qty: n(e.qty), amount: n(e.amount), paid: n(e.paid),
     })),
   });
+}
+
+/* ── Desain: the drafters' queue, live (0226, P6) ──────────────────────
+ *
+ *  `v_design_task` reads each task with its item's place (client → project →
+ *  collection → room, D379), its derived status and the date it is needed
+ *  by; its revisions and questions come in two more reads and are put
+ *  together here, the same shape the sandbox gives (D179). */
+
+type DRow = Record<string, unknown>;
+const dn = (v: unknown): number | null => (v == null ? null : Number(v));
+const ds = (v: unknown): string | null => (v == null ? null : String(v));
+
+function designViews(tasks: DRow[], revs: DRow[], qs: DRow[]): DesignTaskView[] {
+  return tasks.map((t) => {
+    const revisions = revs.filter((r) => r.task_id === t.id)
+      .sort((a, b) => String(a.uploaded_at).localeCompare(String(b.uploaded_at)))
+      .map((r) => ({
+        id: r.id as string, task_id: r.task_id as string, rev: r.rev as string,
+        attachment_id: ds(r.attachment_id), filename: ds(r.filename), note: ds(r.note),
+        released_at: ds(r.released_at), released_by: ds(r.released_by),
+        uploaded_by: (r.uploaded_by as string) ?? "", uploaded_at: r.uploaded_at as string,
+        uploaded_by_name: (r.uploaded_by_name as string) ?? "—", released_by_name: ds(r.released_by_name),
+      }));
+    const questions = qs.filter((q) => q.task_id === t.id)
+      .sort((a, b) => String(b.asked_at).localeCompare(String(a.asked_at)))
+      .map((q) => ({
+        id: q.id as string, task_id: q.task_id as string, asked_of: q.asked_of as string,
+        question: q.question as string, answer: ds(q.answer),
+        asked_by: (q.asked_by as string) ?? "", asked_at: q.asked_at as string,
+        answered_by: ds(q.answered_by), answered_at: ds(q.answered_at),
+        asked_by_name: (q.asked_by_name as string) ?? "—", answered_by_name: ds(q.answered_by_name),
+        waiting_days: dn(q.waiting_days),
+      }));
+    return {
+      id: t.id as string, task_no: t.task_no as string,
+      item_no: ds(t.item_no), product_code: ds(t.product_code),
+      kind: t.kind as DesignKind, status: t.status as DesignTaskView["status"],
+      assignee: ds(t.assignee), assignee_employee_id: null, assignee_not_a_person: false,
+      due_date: ds(t.due_date), note: ds(t.note),
+      created_by: (t.created_by as string) ?? "", created_at: t.created_at as string,
+      product_name: t.product_name as string, category: (t.category as string) ?? "—", dimension: ds(t.dimension),
+      item_name: ds(t.item_name), collection_code: ds(t.collection_code), collection_name: ds(t.collection_name),
+      room_code: ds(t.room_code), room_name: ds(t.room_name), room_sort: dn(t.room_sort),
+      project_code: ds(t.project_code), project_name: ds(t.project_name),
+      client_code: ds(t.client_code), client_display: ds(t.client_display),
+      revisions, questions,
+      released_rev: ds(t.released_rev), latest_rev: ds(t.latest_rev),
+      ahead_of_release: !!t.ahead_of_release, blocked: !!t.is_blocked,
+      ordered_by: (t.ordered_by as string[] | null) ?? [],
+      work_orders: (t.work_orders as DesignTaskView["work_orders"] | null) ?? [],
+      needed_by: ds(t.needed_by), days_left: dn(t.days_left),
+    };
+  });
+}
+
+/** The queue, in the order a drafter should work it: held up first, then a
+ *  newer revision nobody released, then the undrawn, then by the date needed
+ *  (D179) — the sandbox's `designQueue`, on the database's rows. */
+function queueOrder(xs: DesignTaskView[]): DesignTaskView[] {
+  const rank = (t: DesignTaskView) =>
+    t.blocked ? 0 : t.ahead_of_release ? 1 : t.status === "BELUM" ? 2 : t.status === "DIGAMBAR" ? 3 : 4;
+  return [...xs].sort((a, b) => rank(a) - rank(b) || (a.days_left ?? 9999) - (b.days_left ?? 9999)
+    || a.product_name.localeCompare(b.product_name));
+}
+
+async function designRead(filter?: { task_no?: string }): Promise<Result<DesignTaskView[]>> {
+  let q = db().from("v_design_task").select("*");
+  if (filter?.task_no) q = q.eq("task_no", filter.task_no);
+  const t = await q;
+  if (t.error) return fail(SERVICE, t.error);
+  const tasks = (t.data ?? []) as DRow[];
+  if (tasks.length === 0) return ok(SERVICE, []);
+  const ids = tasks.map((x) => x.id as string);
+  const [r, qq] = await Promise.all([
+    db().from("v_design_revision").select("*").in("task_id", ids),
+    db().from("v_design_question").select("*").in("task_id", ids),
+  ]);
+  if (r.error) return fail(SERVICE, r.error);
+  if (qq.error) return fail(SERVICE, qq.error);
+  return ok(SERVICE, designViews(tasks, (r.data ?? []) as DRow[], (qq.data ?? []) as DRow[]));
+}
+
+export async function listDesignTasks(): Promise<Result<DesignTaskView[]>> {
+  const res = await designRead();
+  if (res.error) return res;
+  return ok(SERVICE, queueOrder(res.data));
+}
+
+/** Products ordered or on the floor, and design items approved, quoted or
+ *  ordered, with no drafting task at all — computed by `v_design_gap`. */
+export async function listDesignGaps(): Promise<Result<DesignGap[]>> {
+  const { data, error } = await db().from("v_design_gap").select("*");
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, (data ?? []) as DesignGap[]);
+}
+
+export async function getDesignTask(taskNo: string): Promise<Result<DesignTaskView>> {
+  const res = await designRead({ task_no: taskNo });
+  if (res.error) return res;
+  if (!res.data[0]) return notFound(SERVICE, "task_not_found", `Tidak ada tugas ${taskNo}.`);
+  return ok(SERVICE, res.data[0]);
+}
+
+export async function createDesignTask(
+  input: { item_no?: string | null; product_code?: string | null; kind: DesignKind; assignee?: string | null; due_date?: string | null; note?: string | null },
+  idempotencyKey?: string,
+): Promise<Result<DesignTaskView>> {
+  const { data, error } = await db().rpc("create_design_task", {
+    p_kind: input.kind, p_item_no: input.item_no ?? null, p_product_code: input.product_code ?? null,
+    p_assignee: input.assignee ?? null, p_due_date: input.due_date || null, p_note: input.note ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const res = fromSeam<{ task_no: string }>(SERVICE, data, error);
+  if (res.error) return res;
+  return getDesignTask(res.data.task_no);
+}
+
+export async function assignDesignTask(
+  input: { task_no: string; assignee: string | null; due_date?: string | null },
+): Promise<Result<DesignTaskView>> {
+  const { data, error } = await db().rpc("assign_design_task", {
+    p_task_no: input.task_no, p_assignee: input.assignee,
+    p_due_date: input.due_date || null, p_keep_due: input.due_date === undefined,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return getDesignTask(input.task_no);
+}
+
+/** A revision is a file already filed on the item or the product (0226). */
+export async function addDesignRevision(
+  input: { task_no: string; rev: string; attachment_id: string | null; note?: string | null; release?: boolean },
+): Promise<Result<DesignTaskView>> {
+  const { data, error } = await db().rpc("add_design_revision", {
+    p_task_no: input.task_no, p_rev: input.rev, p_attachment_id: input.attachment_id,
+    p_note: input.note ?? null, p_release: !!input.release,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return getDesignTask(input.task_no);
+}
+
+export async function releaseDesignRevision(input: { task_no: string; rev: string }): Promise<Result<DesignTaskView>> {
+  const { data, error } = await db().rpc("release_design_revision", { p_task_no: input.task_no, p_rev: input.rev });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return getDesignTask(input.task_no);
+}
+
+export async function askDesignQuestion(
+  input: { task_no: string; asked_of: string; question: string },
+): Promise<Result<DesignTaskView>> {
+  const { data, error } = await db().rpc("ask_design_question", {
+    p_task_no: input.task_no, p_asked_of: input.asked_of, p_question: input.question,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return getDesignTask(input.task_no);
+}
+
+export async function answerDesignQuestion(
+  input: { task_no: string; question_id: string; answer: string },
+): Promise<Result<DesignTaskView>> {
+  const { data, error } = await db().rpc("answer_design_question", {
+    p_question_id: input.question_id, p_answer: input.answer,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return getDesignTask(input.task_no);
 }

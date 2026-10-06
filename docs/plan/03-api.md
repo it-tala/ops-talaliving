@@ -596,6 +596,25 @@ is its authority (D147).
 
 Events: `production.work_order.closed`.
 
+### Desain — the drafters' queue, live (P6, 0226)
+
+M30's queue (D179) on the database. A task is for a **design item** (by
+`item_no`, D379) or a **catalogue product** with no project (by
+`product_code`), one per drawing kind. Read by whoever works on a design
+(`may_design`); taken on, uploaded and released by the drafters
+(`production.update`); raised, asked and answered by either.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/design-tasks` | `v_design_task` + `v_design_revision` + `v_design_question`: status **read** (TANYA · RILIS · DIGAMBAR · BELUM), `released_rev`, `latest_rev`, `ahead_of_release`, `is_blocked`, the item's client/project/collection/room, `needed_by` (task date, open work orders, the live project's target — F51) and `days_left`. Queue order: blocked → ahead of release → undrawn → by date |
+| GET | `/design-gaps` | `v_design_gap`: products on an open work order or a live order line with no task (per kind), and design items approved, quoted or ordered with no working-drawing task |
+| POST | `/design-tasks` | `{kind, item_no?, product_code?, assignee?, due_date?, note?}` — `create_design_task`. 422 `nothing_to_draw`, `bad_kind`, `item_dropped`; 404 item/product; 409 `task_exists`. Idempotent by key |
+| POST | `/design-tasks/{no}/assign` | `{assignee, due_date?}` — free text: a freelance drafter is an answer (D264). Drafters only |
+| POST | `/design-tasks/{no}/revisions` | `{rev, attachment_id, note?, release?}` — `add_design_revision`: **a revision is a file** already filed on the item (`design_item`) or the product (`product`); 422 `file_required`, `file_not_on_task`, `rev_required`; 409 `rev_exists`; `release` refused while a question is open (403 `question_open`) |
+| POST | `/design-tasks/{no}/revisions/{rev}/release` | `release_design_revision`. 409 `already_released`; 403 `question_open` |
+| POST | `/design-tasks/{no}/questions` | `{asked_of, question}` — holds the release until answered |
+| POST | `/design-questions/{id}/answer` | `{answer}` — once (409 `already_answered`) |
+
 ## `inventory` — stock and timber
 
 Stock, added M27:
