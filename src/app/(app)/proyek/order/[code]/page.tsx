@@ -11,6 +11,7 @@ import { OpenPoints } from "@/components/crm/meeting-lines";
 import { SaleFiles, type FileTarget } from "@/components/files/sale-files";
 import { procurement, quotation } from "@/demo/api";
 import { DesignBoard } from "@/components/design/design-board";
+import { ProjectTimeline } from "@/components/sales/project-timeline";
 import { useCanDesign, useCanSell } from "@/lib/sell";
 import { useTr } from "@/lib/i18n";
 import { ProjectOverview } from "../ProjectDrawer";
@@ -59,8 +60,12 @@ export default function ProjectPage({ params }: { params: Promise<{ code: string
                 description={p.client_display ?? tr("Internal / stock — no client", "Internal / stok — tanpa klien")}
               />
               <Tabs
-                defaultId="order"
+                defaultId="timeline"
                 items={[
+                  {
+                    id: "timeline", label: tr("Timeline", "Timeline"),
+                    content: <ProjectTimeline projectCode={p.code} />,
+                  },
                   {
                     id: "order", label: tr("Order", "Pesanan"),
                     content: <ProjectOverview code={p.code} onChanged={reloadProject} />,

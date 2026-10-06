@@ -9720,3 +9720,36 @@ is read from the work's own rows, never stored beside them.
 
 **Rule:** a revision is the file; a record that names a file it does not hold
 is not a revision.
+
+## F232 · 2026-10-06 · A timeline is every record side by side, read with the reader's own eyes
+
+P7 (kajian F224 §4.6) closed the plan: one view, `v_project_timeline`, puts a
+project's status moves, calls and meetings, closed meeting lines, quotations
+sent and answered, files, design items, approvals, released drawings, Job
+Orders, deliveries, installations and the BAST side by side in time — nothing
+copied (A3). Three things the build taught.
+
+**`security_invoker` turns a union into a per-reader view, which is right.**
+The first smoke asserted that a seller sees every kind of event, and failed:
+deliveries and the BAST are readable with `project` or `delivery` access, and a
+marketing-only seller has neither. Rather than lift those rows past their own
+policies, the timeline is read with each reader's access: leadership sees the
+whole road, the seller the sale and the design, the drafter the design and the
+floor. The smoke now asserts all three.
+
+**A won project's value is the accepted offer.** `v_project` reads the
+*current* quotation — a draft or a sent one — so a deal read its old estimate.
+`v_project_outcome` reads the accepted quotation first.
+
+**A deal before moves were logged has a date, not a duration.** Projects that
+reached production before the status log existed have no logged move to DEAL.
+Their deal is dated by the day they reached their current status (it was no
+later than that) so the twelve-month win rate counts them; *days to the deal*
+is read only from a logged move, because an approximate date is not a
+duration.
+
+And again (F221, F227): another branch held `0227` and `0228`, so this is
+`0229`.
+
+**Rule:** a view that gathers many modules' rows keeps each row behind its own
+policy; who sees what follows from access, not from the view.

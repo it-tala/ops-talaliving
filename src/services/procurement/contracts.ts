@@ -1408,3 +1408,59 @@ export interface PoDetail {
   /** Why this order cannot be closed yet, empty when it can. */
   close_blockers: string[];
 }
+
+/* ── a project from first contact to handover (0229, P7) ──────────────── */
+
+/** What happened, from every record a project is made of — never stored
+ *  twice (A3). Each reader sees the events their own access reads. */
+export type TimelineKind =
+  | "status" | "contact" | "meeting" | "point_closed"
+  | "quote_sent" | "quote_accepted" | "quote_rejected"
+  | "file" | "design_item" | "design_dropped" | "approval" | "drawing_released"
+  | "job_order" | "delivery" | "delivery_received" | "installation" | "handover";
+
+/** The four lanes a timeline is filtered by. */
+export const TIMELINE_LANES: { code: "sale" | "design" | "floor" | "files"; kinds: TimelineKind[]; label: Message }[] = [
+  { code: "sale", label: { en: "Sale", id: "Penjualan" },
+    kinds: ["status", "contact", "meeting", "point_closed", "quote_sent", "quote_accepted", "quote_rejected"] },
+  { code: "design", label: { en: "Design", id: "Desain" },
+    kinds: ["design_item", "design_dropped", "approval", "drawing_released"] },
+  { code: "floor", label: { en: "Production & site", id: "Produksi & lokasi" },
+    kinds: ["job_order", "delivery", "delivery_received", "installation", "handover"] },
+  { code: "files", label: { en: "Files", id: "File" }, kinds: ["file"] },
+];
+
+export interface TimelineEvent {
+  project_code: string;
+  at: string;
+  /** The office day it happened — a meeting is dated when it was held, not
+   *  when it was written down. */
+  day: string;
+  kind: TimelineKind;
+  title: string;
+  detail: string | null;
+  /** The public code it is about: a quotation, an item, a Job Order… */
+  ref: string | null;
+  actor_name: string | null;
+}
+
+/** One project as the pipeline counts it (0229): who sells it, where it came
+ *  from, when it opened and reached the deal or was lost. Values are offers,
+ *  never receivables or profit (D164). */
+export interface ProjectOutcome {
+  project_code: string;
+  project_name: string;
+  client_display: string | null;
+  status: ProjectStatus;
+  sales_pic: string | null;
+  sales_pic_name: string | null;
+  source_note: string | null;
+  value: number | null;
+  opened_on: string;
+  deal_on: string | null;
+  lost_on: string | null;
+  outcome: "won" | "lost" | "open";
+  days_to_deal: number | null;
+  days_in_status: number | null;
+  closing_reason_code: ClosingReason | null;
+}

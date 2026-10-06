@@ -6,6 +6,7 @@ import { Plus, Target, XCircle } from "lucide-react";
 import { Badge, Button, PageHeader } from "@/components/ui/primitives";
 import { Loaded, useLoad } from "@/components/ui/loaded";
 import { ClosingForm } from "@/components/sales/closing-form";
+import { PipelineNumbers } from "@/components/sales/pipeline-numbers";
 import { formatIDR } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { crm, procurement } from "@/demo/api";
@@ -57,6 +58,7 @@ export default function PipelinePage() {
           />
         )}
       </Loaded>
+      <PipelineNumbers pic={pic} />
     </div>
   );
 }
