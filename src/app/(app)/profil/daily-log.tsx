@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ClipboardPen, PackageCheck, Pencil, Trash2, Zap } from "lucide-react";
+import { CalendarDays, ClipboardPen, PackageCheck, Pencil, Trash2, Zap } from "lucide-react";
 import { Badge, Button, Card, CardHeader } from "@/components/ui/primitives";
 import { Loaded, useLoad } from "@/components/ui/loaded";
 import { WorkEvidencePanel } from "@/components/hr/work-evidence";
@@ -36,6 +36,9 @@ export function DailyLogTab({ employeeNo }: { employeeNo: string }) {
      HRD access would otherwise be handed everybody's day on its own profile. */
   const [lines, reloadLines] = useLoad(
     () => hr.listWorkLog({ from: today, to: today, employee_no: employeeNo }), [today, employeeNo]);
+  /* What the person planned for today across their tasks (D384) — the log
+     below is written against it. */
+  const [plan] = useLoad(() => hr.getMyPlan(), [today]);
   const blank = { entry_id: null as string | null, task: "", summary: "", progress: "lanjut" as WorkProgress,
                   requested_by: "", hours: "" };
   const [draft, setDraft] = useState(blank);
@@ -105,6 +108,41 @@ export function DailyLogTab({ employeeNo }: { employeeNo: string }) {
 
   return (
     <div className="space-y-4">
+      {plan.status === "ready" && plan.data.length > 0 && (
+        <Card>
+          <CardHeader
+            title={tr("Planned for today", "Rencana hari ini")}
+            subtitle={tr("Your own targets from the tasks' daily plans. Log against them: what got done, and how far.",
+                         "Target Anda sendiri dari rencana per hari di tiap tugas. Catat terhadapnya: apa yang selesai, dan sejauh mana.")}
+            icon={CalendarDays}
+          />
+          <ul className="divide-y divide-slate-100">
+            {plan.data.map((l) => {
+              const open = openTasks.some((t) => t.task_no === l.task_no);
+              const logged = lines.status === "ready" && lines.data.some((x) => x.task_no === l.task_no);
+              return (
+                <li key={l.task_no} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2.5 text-[13px]">
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[12px] text-slate-500">
+                      {l.goal_rank !== null ? `#${l.goal_rank} · ` : ""}{l.title}
+                    </span>
+                    <span className="text-slate-800">{l.target}</span>
+                  </span>
+                  {logged ? (
+                    <Badge tone="green">{tr("logged", "sudah dicatat")}</Badge>
+                  ) : open && (
+                    <Button size="sm" variant="outline" icon={ClipboardPen}
+                      onClick={() => { setDraft({ ...blank, task: l.task_no, summary: l.target }); window.scrollTo({ top: 0, behavior: "smooth" }); }}>
+                      {tr("Log it", "Catat")}
+                    </Button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+      )}
+
       <Card>
         <CardHeader
           title={draft.entry_id ? tr("Change a line", "Ubah catatan") : tr(`Today's log — ${today}`, `Laporan hari ini — ${today}`)}
