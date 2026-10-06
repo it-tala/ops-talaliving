@@ -7,7 +7,7 @@
 import { ok, invalid, notFound, refused, type Result } from "@/services/_shared/envelope";
 import type {
   Attachment, AttachmentLink, AttachmentView, DocKind, LinkEntity,
-  DriveCheckReport, DriveSetUp,
+  DriveCheckReport, DriveSetUp, FileOrigin, FilingPreview,
 } from "@/services/documents/contracts";
 import { ITEM_PHOTO_MAX, ITEM_PHOTO_MIN } from "@/services/documents/contracts";
 import { getState, apply, newId, writeAudit, writeOutbox } from "../store";
@@ -51,7 +51,10 @@ function view(att: Attachment): AttachmentView {
 export async function upload(
   /** `entity` picks the task folder under OPS in the live system (0172); the
    *  sandbox files nothing to Drive, so it is accepted and unused. */
-  input: { file: File; kind: DocKind; sha256?: string; entity?: LinkEntity },
+  input: {
+    file: File; kind: DocKind; sha256?: string; entity?: LinkEntity;
+    entity_no?: string; origin?: FileOrigin | null;
+  },
   idempotencyKey?: string,
 ): Promise<Result<AttachmentView>> {
   await latency();
@@ -98,7 +101,10 @@ export async function upload(
     filename, sha256: sha, mime, bytes,
     uploaded_by: user.id, uploaded_at: new Date().toISOString(),
     source: "web", duplicate_suspect: duplicate,
+    origin: input.origin ?? null,
   };
+  const where = filingPlace(input.kind, input.entity, input.entity_no);
+  if (where) att.filed_in = where.filed_in;
   apply((draft) => {
     draft.attachments.push(att);
     writeAudit(draft, { service: SERVICE, entity: "attachment", entity_no: att.filename, action: "upload", outcome: "ok", reason: duplicate ? "identical bytes seen before" : null });
@@ -106,6 +112,64 @@ export async function upload(
   const result = view(att);
   remember(SERVICE, "upload", idempotencyKey, result);
   return ok(SERVICE, result);
+}
+
+/* ── where a file would go (0217, P1) ──────────────────────────────────────
+ *
+ * The sandbox's copy of `doc_kind_drive` and `drive_paths` for the kinds of a
+ * sale and a design — the live answer is the database's (`drive_folder_for`).
+ * Other kinds answer with the kind's own folder, as the database does when no
+ * row says otherwise. */
+const SALE_KINDS: Partial<Record<DocKind, [drive: string, task: string]>> = {
+  "Client Brief": ["PROJECT MANAGER", "01 BRIEF & SURVEI"],
+  "Site Survey Photo": ["PROJECT MANAGER", "01 BRIEF & SURVEI"],
+  "Proposal": ["PROJECT MANAGER", "03 PROPOSAL & PENAWARAN"],
+  "Meeting Notes": ["PROJECT MANAGER", "04 MEETING"],
+  "Contract / SPK": ["PROJECT MANAGER", "05 KONTRAK"],
+  "Client Drawing": ["DRAFTING", "00 DARI KLIEN"],
+  "Client Reference": ["DRAFTING", "00 DARI KLIEN"],
+  "Moodboard": ["DRAFTING", "00 KONSEP"],
+  "Layout / Floor Plan": ["DRAFTING", "00 KONSEP"],
+  "Render": ["DRAFTING", "00 KONSEP"],
+};
+
+/** One name as one folder, as `ops_core.drive_segment` makes it. */
+const segment = (s: string | null | undefined) =>
+  (s ?? "").toUpperCase().replace(/[/\\]+/g, "-").replace(/\s+/g, " ").trim().slice(0, 90) || null;
+
+function filingPlace(kind: DocKind, entity?: LinkEntity, entityNo?: string): FilingPreview | null {
+  const sale = SALE_KINDS[kind];
+  if (!sale) return null;
+  const st = getState();
+  let client: string | null = null;
+  let project: string | null = null;
+  const no = entityNo?.trim();
+  if (no && (entity === "project" || entity === "quotation")) {
+    const projectId = entity === "quotation"
+      ? st.quotations.find((q) => q.quote_no === no)?.project_id
+      : undefined;
+    const p = st.projects.find((x) => (projectId ? x.id === projectId : x.code === no));
+    if (p) {
+      const c = p.client_id ? st.clients.find((x) => x.id === p.client_id) : undefined;
+      client = c ? segment(`${c.code} ${c.name}`) : segment(p.client_name) ?? "TANPA KLIEN";
+      project = segment(`${p.code} ${p.name}`);
+    }
+  } else if (no && entity === "client") {
+    const c = st.clients.find((x) => x.code === no);
+    if (c) { client = segment(`${c.code} ${c.name}`); project = "00 UMUM"; }
+  }
+  const path = `${client ?? "TANPA KLIEN"}/${project ?? "TANPA PROYEK"}/${sale[1]}`;
+  return { drive: sale[0], path, filed_in: `${sale[0]} / ops-talaliving / ${path}` };
+}
+
+export async function filingPreview(
+  input: { kind: DocKind; entity?: LinkEntity; entity_no?: string },
+): Promise<Result<FilingPreview>> {
+  await latency();
+  const place = filingPlace(input.kind, input.entity, input.entity_no);
+  if (place) return ok(SERVICE, place);
+  const path = input.kind.toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
+  return ok(SERVICE, { drive: "—", path, filed_in: `ops-talaliving / ${path}` });
 }
 
 /** A document arriving with no record to attach it to — the exception road.

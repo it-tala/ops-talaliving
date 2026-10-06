@@ -18,6 +18,7 @@ import {
 } from "@/services/quotation/contracts";
 import { pctOk, quotePrice } from "@/services/quotation/pricing";
 import { ActivityLog } from "@/components/crm/activity-log";
+import { SaleFiles } from "@/components/files/sale-files";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useTr, type Tr } from "@/lib/i18n";
@@ -170,6 +171,15 @@ function Editor({ d, reload, source }: { d: QuotationDetail; reload: () => void;
           />
         </div>
       )}
+
+      {/* The proposal deck sent with it, the copy the client signed (P1). The
+          project's other files are on the project page. */}
+      <div className="mt-4">
+        <SaleFiles
+          targets={[{ entity: "quotation", entity_no: q.quote_no, label: `Quotation ${q.quote_no}` }]}
+          canEdit={can("project.update")}
+        />
+      </div>
 
       {d.revisions.length > 1 && (
         <Card className="mt-4">

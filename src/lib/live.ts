@@ -132,6 +132,7 @@ export const LIVE_ROUTES: readonly string[] = [
   "/proyek/follow-up",
   "/proyek/instalasi",
   "/proyek/order",
+  "/proyek/order/[code]",
   "/proyek/pengiriman",
   "/proyek/peti",
   "/proyek/peti/label",
