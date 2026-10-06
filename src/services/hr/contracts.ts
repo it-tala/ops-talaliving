@@ -922,7 +922,7 @@ export type TaskAction = "start" | "done" | "block" | "unblock" | "cancel" | "re
  *  An enum and not a cron string, because every value here has an obvious first
  *  and last day and a cron field does not — and the period's edges are what the
  *  whole module is keyed on. */
-export type TaskCadence = "WEEKLY" | "MONTHLY" | "QUARTERLY" | "SEMESTER" | "ANNUAL";
+export type TaskCadence = "DAILY" | "WEEKLY" | "MONTHLY" | "QUARTERLY" | "SEMESTER" | "ANNUAL";
 
 /** A standing expectation — *tugas rutin*.
  *

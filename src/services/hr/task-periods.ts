@@ -44,15 +44,16 @@
 
 /** How often a standing expectation comes round. Mirrors
  *  `ops_hr.task_cadence_t`. */
-export type Cadence = "WEEKLY" | "MONTHLY" | "QUARTERLY" | "SEMESTER" | "ANNUAL";
+export type Cadence = "DAILY" | "WEEKLY" | "MONTHLY" | "QUARTERLY" | "SEMESTER" | "ANNUAL";
 
-export const CADENCES: Cadence[] = ["WEEKLY", "MONTHLY", "QUARTERLY", "SEMESTER", "ANNUAL"];
+export const CADENCES: Cadence[] = ["DAILY", "WEEKLY", "MONTHLY", "QUARTERLY", "SEMESTER", "ANNUAL"];
 
 /** What each cadence is called on a screen, in both languages. Not part of
  *  the parity gate — Postgres never prints this one. The shape is
  *  `Message` from `@/lib/i18n`, written out because this file imports nothing;
  *  `CADENCE_LABEL` in `./contracts` is the map that follows the language. */
 export const CADENCE_LABELS: Record<Cadence, { en: string; id: string }> = {
+  DAILY: { en: "Daily (working days)", id: "Harian (hari kerja)" },
   WEEKLY: { en: "Weekly", id: "Mingguan" },
   MONTHLY: { en: "Monthly", id: "Bulanan" },
   QUARTERLY: { en: "Quarterly", id: "Tiga bulanan" },
@@ -101,6 +102,8 @@ export function taskPeriodStart(cadence: Cadence, on: string): string {
   const y = d.getUTCFullYear();
   const m = d.getUTCMonth();
   switch (cadence) {
+    /* A day is its own period (D383). */
+    case "DAILY":     return on;
     case "WEEKLY": {
       /* `getUTCDay()` is 0 for Sunday, so Sunday is six days into its week and
          not the start of the next one. Getting this backwards moves every
@@ -128,6 +131,7 @@ export function taskPeriodEnd(cadence: Cadence, start: string): string {
   const m = d.getUTCMonth();
   const day = d.getUTCDate();
   switch (cadence) {
+    case "DAILY":     return start;
     case "WEEKLY":    return addDays(start, 6);
     case "MONTHLY":   return fmt(new Date(Date.UTC(y, m + 1, day - 1)));
     case "QUARTERLY": return fmt(new Date(Date.UTC(y, m + 3, day - 1)));
@@ -161,6 +165,7 @@ export function taskPeriodLabel(cadence: Cadence, start: string): string {
   const y = d.getUTCFullYear();
   const m = d.getUTCMonth();
   switch (cadence) {
+    case "DAILY":     return `${String(d.getUTCDate()).padStart(2, "0")}-${String(m + 1).padStart(2, "0")}-${y}`;
     case "WEEKLY": {
       const { week, year } = isoWeek(start);
       return `Minggu ${String(week).padStart(2, "0")}/${year}`;
@@ -204,6 +209,9 @@ export function taskPeriodsBetween(
  *  implementations agree about the easy half.
  */
 export const PERIOD_CASES: { cadence: Cadence; on: string }[] = [
+  /* Daily: a day is its own period, including across a month and a year. */
+  { cadence: "DAILY",     on: "2026-10-05" },
+  { cadence: "DAILY",     on: "2026-12-31" },
   { cadence: "WEEKLY",    on: "2026-09-20" },  // Sunday — end of its week
   { cadence: "WEEKLY",    on: "2026-09-21" },  // Monday — start of the next
   { cadence: "WEEKLY",    on: "2026-12-31" },  // ISO week 53 of 2026

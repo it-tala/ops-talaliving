@@ -168,6 +168,20 @@ export const TASKS: Task[] = [
       started_at: "2026-10-01T09:10:00+07:00",
       done_at: "2026-10-02T15:00:00+07:00", done_by: "usr_anggun",
       delivered_note: "Selisih 8.500, foto buku kas di folder ACCOUNTING." }),
+
+  /* A daily routine (D383): Anggun's petty-cash check, one task per working
+     day. Sunday 4 Oct raised nothing; Friday 2 Oct was missed; Monday's is
+     still open. On the Roadmap it is one row of cells, not seven bars. */
+  ...(["2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-05"].map((d) => {
+    const missed = d === "2026-10-02" || d === "2026-10-05";
+    return t("emp_03", "Cek kas kecil harian", d, missed ? "OPEN" : "DONE", {
+      routine_id: "rtn_003", period_start: d, period_end: d, chase_date: d,
+      deliverable: "Foto buku kas hari ini ke grup WA",
+      assigned_at: `${d}T05:05:00+07:00`, assigned_by: "usr_wulan",
+      ...(missed ? {} : { done_at: `${d}T16:10:00+07:00`, done_by: "usr_anggun",
+                          started_at: `${d}T08:30:00+07:00`, delivered_note: "Foto buku kas sudah di grup WA" }),
+    });
+  })),
 ];
 
 /** The results tasks are parts of (D367). Ranked: the hotel order first,
@@ -223,5 +237,15 @@ export const TASK_ROUTINES: TaskRoutine[] = [
     due_offset_days: 1, chase_lead_days: 0,
     starts_on: "2026-09-01", ends_on: null, ended_reason: null,
     created_by: "usr_evin", created_at: "2026-09-01T09:00:00+07:00",
+  },
+  {
+    id: "rtn_003", routine_no: "rtn-26-09-29_01",
+    title: "Cek kas kecil harian",
+    detail: null,
+    deliverable: "Foto buku kas hari ini ke grup WA",
+    assignee_id: "emp_03", cadence: "DAILY",
+    due_offset_days: 0, chase_lead_days: 0,
+    starts_on: "2026-09-29", ends_on: null, ended_reason: null,
+    created_by: "usr_wulan", created_at: "2026-09-28T15:00:00+07:00",
   },
 ];

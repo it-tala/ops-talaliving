@@ -4074,6 +4074,15 @@ export async function endTaskRoutine(
  *  September, and a board that opens with thirty-five red rows is one nobody
  *  reads again.
  */
+/** `ops_hr.works_on` (0228): not a Sunday (the demo's week is six days), not
+ *  an office holiday, not a day marked off for this person — a half day
+ *  still works. */
+function worksOn(state: DemoState, employeeId: string, day: string): boolean {
+  if (new Date(`${day}T00:00:00Z`).getUTCDay() === 0) return false;
+  return !state.day_marks.some((m) => m.work_date === day && m.kind !== "half_day"
+    && (m.employee_id === null || m.employee_id === employeeId));
+}
+
 export async function rollTaskRoutines(
   input: { through?: string | null; backfill_days?: number } = {},
 ): Promise<Result<{ through: string; created: number; already_there: number; tasks: TaskView[] }>> {
@@ -4092,13 +4101,18 @@ export async function rollTaskRoutines(
   const user = actingUser();
   const made: string[] = [];
   let had = 0;
+  let skipped = 0;
 
   apply((draft) => {
     for (const r of [...draft.task_routines].sort((a, b) => a.routine_no.localeCompare(b.routine_no))) {
       if (r.starts_on > through) continue;
       if (r.ends_on !== null && r.ends_on < from) continue;
-      const windowFrom = from > r.starts_on ? from : r.starts_on;
+      /* A daily routine is never backfilled (D383): yesterday's task raised
+         today would be late on arrival. */
+      const back = r.cadence === "DAILY" ? through : from;
+      const windowFrom = back > r.starts_on ? back : r.starts_on;
       for (const p of taskPeriodsBetween(r.cadence, windowFrom, through)) {
+        if (r.cadence === "DAILY" && !worksOn(draft, r.assignee_id, p.start)) { skipped += 1; continue; }
         /* A routine that started mid-period does not owe the part before it
            existed, and one that ended mid-period does not owe the part after. */
         if (p.end < r.starts_on) continue;
@@ -4139,7 +4153,8 @@ export async function rollTaskRoutines(
          the individual tasks each carry their own creation in the same log. */
       service: SERVICE, entity: "task_routine", entity_no: `roll:${through}`,
       action: "roll", outcome: "ok", reason: null,
-      detail: { through, backfill_days: backfill, created: made.length, already_there: had, by: user.email },
+      detail: { through, backfill_days: backfill, created: made.length, already_there: had,
+                not_a_working_day: skipped, by: user.email },
     });
   });
 

@@ -848,13 +848,27 @@ function Tasks() {
                   {tr("Cadence", "Irama")}
                   <select
                     value={rDraft.cadence}
-                    onChange={(e) => setRDraft({ ...rDraft, cadence: e.target.value as Cadence })}
+                    onChange={(e) => {
+                      const cadence = e.target.value as Cadence;
+                      /* Daily work is due the same day and asked about on it (D383). */
+                      setRDraft(cadence === "DAILY"
+                        ? { ...rDraft, cadence, due_offset_days: 0, chase_lead_days: 0 }
+                        : { ...rDraft, cadence });
+                    }}
                     className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm"
                   >
                     {(Object.keys(CADENCE_LABEL) as Cadence[]).map((c) => (
                       <option key={c} value={c}>{CADENCE_LABEL[c]}</option>
                     ))}
                   </select>
+                  {rDraft.cadence === "DAILY" && (
+                    <span className="mt-0.5 block text-[11px] text-slate-400">
+                      {tr(
+                        "Raised every morning automatically, on the person's working days only — not on rest days, holidays, leave or sick days. Never backfilled. The bell rings; Chat does not.",
+                        "Terbit otomatis setiap pagi, hanya di hari kerja orangnya — tidak di hari libur, tanggal merah, cuti, atau sakit. Tidak ditarik mundur. Lonceng berbunyi; Chat tidak.",
+                      )}
+                    </span>
+                  )}
                 </label>
                 <label className="text-[12px] text-slate-600">
                   {tr("What is the task", "Tugasnya apa")}
