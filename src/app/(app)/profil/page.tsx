@@ -22,6 +22,7 @@ import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 import { GoalBoardList, GoalProgress } from "@/components/hr/goal-parts";
+import { DailyLogTab } from "./daily-log";
 import { OvertimeForm } from "../saya/overtime-form";
 import { OvertimeAskDetails, useOvertimeStatus } from "../saya/overtime-ask";
 import { useDayLabel } from "../saya/shared";
@@ -65,6 +66,7 @@ export default function ProfilePage() {
             { id: "presensi", label: tr("Attendance", "Presensi"), content: <AttendanceTab me={me} /> },
             { id: "lembur", label: tr("Overtime", "Lembur"), content: <OvertimeTab me={me} /> },
             { id: "cuti", label: tr("Leave & permits", "Cuti & izin"), content: <LeaveTab me={me} /> },
+            { id: "hari-ini", label: tr("Today", "Hari ini"), content: <TodayTab me={me} /> },
             { id: "tugas", label: tr("Tasks", "Tugas"), content: <TasksTab me={me} /> },
             { id: "gaji", label: tr("Pay", "Gaji"), content: <PayslipTab me={me} /> },
           ]}
@@ -437,6 +439,15 @@ function LeaveTab({ me }: { me: ReturnType<typeof useLoad<Awaited<ReturnType<typ
       </Card>
     </div>
   );
+}
+
+/* ── Hari ini ─────────────────────────────────────────────────────────── */
+
+function TodayTab({ me }: { me: ReturnType<typeof useLoad<Awaited<ReturnType<typeof hr.myProfile>>["data"]>>[0] }) {
+  const linked = me.status === "ready" ? me.data : null;
+  if (me.status === "loading") return null;
+  if (!linked) return <NoEmployeeLink />;
+  return <DailyLogTab employeeNo={linked.employee_no} />;
 }
 
 /* ── Tugas ────────────────────────────────────────────────────────────

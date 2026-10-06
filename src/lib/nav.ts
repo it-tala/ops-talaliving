@@ -74,6 +74,7 @@ export const NAV: NavSection[] = [
       { label: "Employment contracts", labelKey: "contracts", href: "/hrd/kontrak", icon: ScrollText, permission: "hrd.read", badge: "new" },
       { label: "Leave & Permits", labelKey: "leave", href: "/hrd/cuti", icon: CalendarClock, permission: "hrd.read", badge: "new" },
       { label: "Payroll", labelKey: "payroll", href: "/hrd/payroll", icon: Wallet, permission: "payroll.read" },
+      { label: "Buat payroll", labelKey: "payrollGenerate", href: "/hrd/payroll/buat", icon: ClipboardList, permission: "payroll.run", badge: "new" },
       { label: "Gajian mingguan", labelKey: "payrollWeek", href: "/hrd/payroll/minggu", icon: CalendarRange, permission: "payroll.read", badge: "new" },
       { label: "Statutory contributions", labelKey: "contributions", href: "/hrd/iuran", icon: ShieldCheck, permission: "payroll.read", orPermission: "accounting.read", badge: "new" },
       { label: "Task monitoring", labelKey: "taskMonitoring", href: "/hrd/tugas", icon: ListChecks, permission: "hrd.read", badge: "new" },

@@ -4,7 +4,7 @@ import type {
   Employee, RosterEntry, AttendanceScan, TimesheetDay, DayMark, DayMarkKind,
   OvertimeSheet, OvertimeLine, OvertimeSheetView, OvertimeKind, OvertimeDecider, SelfOvertimeView,
   PayrollRun, PayrollView, PayrollLine, PayBasis,
-  PayGroup, PayComponents, PayrollRunMember,
+  PayGroup, PayComponents, PayrollRunMember, PaidElsewhere, PayrollHold,
   AdjustmentKind, PayrollAdjustmentView,
   PayRules, PayRuleSet, PayRuleSetView, WorkSchedule, ScheduleHours, UnitScheduleDefault,
   EmployeeDocKind, EmployeeFileView, DocNoSource, LeaveBalance, LeaveKind, LeaveRequestView, LeaveStatus,
@@ -15,6 +15,7 @@ import type {
   ContributionScheme, ContributionRate, ContributionRoll, Enrolment,
   Task, TaskView, TaskRefKind, KpiView,
   TaskAction, Goal, GoalView, GoalBoardTask,
+  WorkLog, WorkLogEntry, WorkLogRosterRow, WorkEvidence, WorkProgress,
   ContractKind, ClauseKind, ClauseChecklistItem, EmploymentContract,
   ContractView, ContractDetail, ContractClause, ClauseConflict, TimesheetTotal, DayState,
   EffectiveDaysCalendar, EmployeeAccount, ScanImportResult,
@@ -35,8 +36,9 @@ import {
   contributionRoll, allRolls,
   taskView, taskViews, taskRoutineView, taskRoutineViews, kpiView, kpiViews, weekdayOf,
   goalViews, goalBoardRows,
+  workLogView, workLogRoster as workLogRosterRows, workEvidence as workEvidenceOf,
   employeeIdentityViews, wlkpRecap,
-  membersOf, groupPeople, paidElsewhere,
+  membersOf, groupPeople, paidElsewhere as paidElsewhereRun,
 } from "../hr-derive";
 import { latency, actingUser, requireModule, requireLevel, requireAuthority, conflict, replayed, remember } from "./_kit";
 import { OFFICE_TZ, officeClock, officeToday as sharedOfficeToday, officeStamp } from "@/lib/office";
@@ -3677,6 +3679,215 @@ export async function acknowledgeTask(
   return ok(SERVICE, taskView(after, after.tasks.find((x) => x.task_no === input.task_no)!));
 }
 
+/* ── laporan harian (D371, D372) ──────────────────────────────────────── */
+
+/** HRD and payroll read everybody's lines; anybody else their own — the
+ *  `work_log_read` policy (0214), forced here the way the database forces it,
+ *  whatever the filter asked for. */
+export async function listWorkLog(
+  input: { from: string; to: string; employee_no?: string },
+): Promise<Result<WorkLogEntry[]>> {
+  await latency();
+  const state = getState();
+  const wide = requireModule(SERVICE, "hrd") === null || requireModule(SERVICE, "payroll") === null;
+  const mine = myEmployee(state);
+  const rows = state.work_log
+    .filter((l) => l.work_date >= input.from && l.work_date <= input.to)
+    .filter((l) => (wide ? true : mine !== null && l.employee_id === mine.id))
+    .map((l) => workLogView(state, l))
+    .filter((v) => !input.employee_no || v.employee_no === input.employee_no)
+    .sort((a, b) => b.work_date.localeCompare(a.work_date) || a.created_at.localeCompare(b.created_at));
+  return ok(SERVICE, rows);
+}
+
+/** Writing today's log — `ops_hr.log_work`, same checks in the same order.
+ *  The person is the signed-in account's employee and the day is today:
+ *  there is no way to write for anybody else, or for another day. */
+export async function logWork(
+  input: {
+    entry_id?: string | null;
+    task_no?: string | null;
+    summary: string;
+    progress: WorkProgress;
+    requested_by?: string | null;
+    hours?: number | null;
+  },
+): Promise<Result<WorkLogEntry>> {
+  await latency();
+  const state = getState();
+  const me = myEmployee(state);
+  if (!me) {
+    return refused(SERVICE, "no_employee_link",
+      "Akun ini belum tertaut ke data karyawan, jadi tidak bisa mengisi laporan harian. Minta HRD menautkannya.");
+  }
+  if (!input.summary?.trim()) {
+    return invalid(SERVICE, "summary_required", "Apa yang dikerjakan? Satu kalimat yang bisa dibaca orang lain.",
+      { field: "summary" });
+  }
+  if (!["lanjut", "selesai", "tertahan"].includes(input.progress)) {
+    return invalid(SERVICE, "unknown_progress", "Progresnya lanjut, selesai, atau tertahan.", { field: "progress" });
+  }
+  const hours = input.hours ?? null;
+  if (hours !== null && (hours <= 0 || hours > 16)) {
+    return invalid(SERVICE, "hours_invalid", "Jam kerja diisi antara 0,5 dan 16, atau dikosongkan.", { field: "hours" });
+  }
+  const today = officeToday();
+  let taskId: string | null = null;
+  let asker: string | null = null;
+  if (input.task_no?.trim()) {
+    const t = state.tasks.find((x) => x.task_no === input.task_no!.trim());
+    if (!t) return notFound(SERVICE, "task_not_found", `Tidak ada tugas ${input.task_no}.`);
+    if (t.assignee_id !== me.id) {
+      return refused(SERVICE, "task_not_yours",
+        "Laporan harian hanya untuk tugas Anda sendiri. Pekerjaan untuk tugas orang lain dicatat sebagai dadakan, dengan nama yang meminta.");
+    }
+    if (t.status === "CANCELLED" || (t.status === "DONE" && t.done_at?.slice(0, 10) !== today)) {
+      return conflict(SERVICE, "task_closed", `${t.task_no} sudah ${t.status.toLowerCase()}.`);
+    }
+    taskId = t.id;
+  } else {
+    if (!input.requested_by?.trim()) {
+      return invalid(SERVICE, "requested_by_required",
+        "Pekerjaan dadakan diminta oleh siapa? Tanpa nama, dadakan tidak bisa diperiksa.", { field: "requested_by" });
+    }
+    asker = input.requested_by.trim();
+  }
+
+  const user = actingUser();
+  let id = input.entry_id ?? "";
+  if (!input.entry_id) {
+    if (taskId && state.work_log.some((l) => l.employee_id === me.id && l.work_date === today && l.task_id === taskId)) {
+      return conflict(SERVICE, "already_logged",
+        "Tugas ini sudah dicatat hari ini. Ubah catatan yang ada, jangan membuat yang kedua.");
+    }
+    apply((draft) => {
+      id = newId("wlg");
+      draft.work_log.push({
+        id, employee_id: me.id, work_date: today, task_id: taskId,
+        summary: input.summary.trim(), progress: input.progress, requested_by: asker, hours,
+        created_by: user.id, created_at: new Date().toISOString(), updated_at: null,
+        promoted_task_id: null, promoted_by: null, promoted_at: null,
+      });
+      writeAudit(draft, {
+        service: SERVICE, entity: "work_log", entity_no: id, action: "log", outcome: "ok", reason: null,
+        detail: { task: input.task_no ?? null, progress: input.progress, requested_by: asker, hours, by: user.email },
+      });
+    });
+  } else {
+    const w = state.work_log.find((l) => l.id === input.entry_id && l.employee_id === me.id);
+    if (!w) return notFound(SERVICE, "work_log_not_found", "Catatan itu tidak ada di laporan Anda.");
+    if (w.work_date !== today) {
+      return conflict(SERVICE, "past_day", `Catatan ${w.work_date} sudah menjadi riwayat. Laporan hanya bisa diubah pada harinya.`);
+    }
+    if (w.promoted_task_id) {
+      return conflict(SERVICE, "already_promoted", "HRD sudah menjadikan catatan ini tugas. Perubahan berikutnya dicatat di tugas itu.");
+    }
+    if (taskId && taskId !== w.task_id
+        && state.work_log.some((l) => l.employee_id === me.id && l.work_date === today && l.task_id === taskId)) {
+      return conflict(SERVICE, "already_logged", "Tugas itu sudah punya catatan hari ini.");
+    }
+    apply((draft) => {
+      const row = draft.work_log.find((l) => l.id === w.id);
+      if (!row) return;
+      row.task_id = taskId; row.summary = input.summary.trim(); row.progress = input.progress;
+      row.requested_by = asker; row.hours = hours; row.updated_at = new Date().toISOString();
+      writeAudit(draft, {
+        service: SERVICE, entity: "work_log", entity_no: w.id, action: "edit", outcome: "ok", reason: null,
+        detail: { before: { summary: w.summary, progress: w.progress }, by: user.email },
+      });
+    });
+  }
+  const after = getState();
+  return ok(SERVICE, workLogView(after, after.work_log.find((l) => l.id === id)!));
+}
+
+export async function removeWorkLog(
+  input: { entry_id: string },
+): Promise<Result<{ entry_id: string }>> {
+  await latency();
+  const state = getState();
+  const me = myEmployee(state);
+  const w = me ? state.work_log.find((l) => l.id === input.entry_id && l.employee_id === me.id) : undefined;
+  if (!w) return notFound(SERVICE, "work_log_not_found", "Catatan itu tidak ada di laporan Anda.");
+  if (w.work_date !== officeToday()) {
+    return conflict(SERVICE, "past_day", `Catatan ${w.work_date} sudah menjadi riwayat dan tidak bisa dihapus.`);
+  }
+  if (w.promoted_task_id) {
+    return conflict(SERVICE, "already_promoted", "HRD sudah menjadikan catatan ini tugas, jadi catatannya tetap.");
+  }
+  const user = actingUser();
+  apply((draft) => {
+    draft.work_log = draft.work_log.filter((l) => l.id !== w.id);
+    writeAudit(draft, {
+      service: SERVICE, entity: "work_log", entity_no: w.id, action: "remove", outcome: "ok", reason: null,
+      detail: { summary: w.summary, by: user.email },
+    });
+  });
+  return ok(SERVICE, { entry_id: w.id });
+}
+
+/** HRD: a dadakan line becomes a task for the same person. The line stays
+ *  dadakan; the task counts as received and started when the line was
+ *  written — `ops_hr.promote_work_log`. */
+export async function promoteWorkLog(
+  input: { entry_id: string; due_date: string; goal_no?: string | null },
+): Promise<Result<TaskView>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+  const state = getState();
+  const w = state.work_log.find((l) => l.id === input.entry_id);
+  if (!w) return notFound(SERVICE, "work_log_not_found", "Catatan itu tidak ada.");
+  if (w.task_id !== null) return conflict(SERVICE, "not_dadakan", "Catatan ini sudah untuk sebuah tugas.");
+  if (w.promoted_task_id) return conflict(SERVICE, "already_promoted", "Catatan ini sudah dijadikan tugas.");
+  const emp = state.employees.find((e) => e.id === w.employee_id)!;
+  const made = await createTask({
+    assignee_no: emp.employee_no, title: w.summary, due_date: input.due_date,
+    detail: `Dari laporan harian ${w.work_date} — pekerjaan dadakan, diminta oleh ${w.requested_by}.`,
+    goal_no: input.goal_no ?? null,
+  });
+  if (made.error) return made;
+  const user = actingUser();
+  apply((draft) => {
+    const t = draft.tasks.find((x) => x.task_no === made.data.task_no);
+    if (t) { t.acknowledged_at = w.created_at; t.started_at = w.created_at; }
+    const row = draft.work_log.find((l) => l.id === w.id);
+    if (row && t) { row.promoted_task_id = t.id; row.promoted_by = user.id; row.promoted_at = new Date().toISOString(); }
+    writeAudit(draft, {
+      service: SERVICE, entity: "work_log", entity_no: w.id, action: "promote", outcome: "ok", reason: null,
+      detail: { task_no: made.data.task_no, due: input.due_date, goal: input.goal_no ?? null, by: user.email },
+    });
+  });
+  const after = getState();
+  return ok(SERVICE, taskView(after, after.tasks.find((x) => x.task_no === made.data.task_no)!));
+}
+
+export async function workLogRoster(
+  input: { date: string },
+): Promise<Result<WorkLogRosterRow[]>> {
+  await latency();
+  if (requireModule(SERVICE, "hrd") && requireModule(SERVICE, "payroll")) {
+    return refused(SERVICE, "not_permitted", "Laporan harian semua orang butuh akses HRD.");
+  }
+  return ok(SERVICE, workLogRosterRows(getState(), input.date));
+}
+
+/** The evidence a performance advisory is written from: HRD and payroll about
+ *  anybody, a person about themselves (D372). */
+export async function workEvidence(
+  input: { employee_no: string; period_start: string; period_end: string },
+): Promise<Result<WorkEvidence>> {
+  await latency();
+  const state = getState();
+  const emp = state.employees.find((e) => e.employee_no === input.employee_no);
+  if (!emp) return notFound(SERVICE, "employee_not_found", `Tidak ada karyawan ${input.employee_no}.`);
+  const wide = requireModule(SERVICE, "hrd") === null || requireModule(SERVICE, "payroll") === null;
+  if (!wide && myEmployee(state)?.id !== emp.id) {
+    return refused(SERVICE, "not_permitted", "Bukti kinerja orang lain butuh akses HRD atau penggajian.");
+  }
+  return ok(SERVICE, workEvidenceOf(state, emp, input.period_start, input.period_end));
+}
+
 /* ── tugas rutin ──────────────────────────────────────────────────────── */
 
 export async function listTaskRoutines(): Promise<Result<TaskRoutineView[]>> {
@@ -4580,7 +4791,7 @@ export async function myPayslip(runNo: string): Promise<Result<PayrollLine>> {
  *  number, and the screen says plainly that nothing has been opened yet.
  */
 export async function previewPayroll(
-  input: { period_start: string; period_end: string; pay_group?: PayGroup },
+  input: { period_start: string; period_end: string; pay_group?: PayGroup; fresh?: boolean },
 ): Promise<Result<PayrollView & { opened: boolean }>> {
   await latency();
   if (input.period_end < input.period_start) {
@@ -4593,7 +4804,8 @@ export async function previewPayroll(
     (r) => r.period_start === input.period_start && r.period_end === input.period_end
       && (r.pay_group ?? "all") === group,
   );
-  if (run) return ok(SERVICE, { ...payrollView(state, run), opened: true });
+  /* `fresh`: the generate sheet wants everybody, computed from the days (0213). */
+  if (run && !input.fresh) return ok(SERVICE, { ...payrollView(state, run), opened: true });
 
   /* A period nobody has opened. The run number is empty on purpose: there is
      no document, and inventing one here would make a payslip printable for a
@@ -4638,23 +4850,16 @@ export async function openPayroll(
     return invalid(SERVICE, "reason_required", "Komponen yang tidak dibayar di run ini perlu alasan — tercetak di slip.", { field: "components_note" });
   }
   const state = getState();
-  /* The same group over overlapping days is still refused; across groups
-     the rule is the person's (0212, same as `open_payroll_run`). */
-  const clash = state.payroll_runs.find(
-    (r) => r.period_start <= input.period_end && r.period_end >= input.period_start
-      && group !== "custom" && (r.pay_group ?? "all") === group,
-  );
-  if (clash) {
-    return conflict(SERVICE, "period_overlaps",
-      `${clash.run_no} sudah mencakup ${clash.period_start} sampai ${clash.period_end}. Hari yang sama tidak dibayar dua kali.`);
-  }
   /* Who it is born with: the group, less anybody another run already pays for
-     one of these days — written off with that run named. */
+     one of these days — written off with that run named. The rule is the
+     person's (0212); a second run of the same group over the same days opens
+     when it pays somebody the first does not (0213), and one that would pay
+     nobody is the overlap, naming the run in the way. */
   const born = group === "custom" ? [] : groupPeople(state, input.period_start, input.period_end, group)
-    .map((e) => ({ e, other: paidElsewhere(state, e.id, input.period_start, input.period_end, "") }));
+    .map((e) => ({ e, other: paidElsewhereRun(state, e.id, input.period_start, input.period_end, "") }));
   if (born.length > 0 && born.every((b) => b.other)) {
     return conflict(SERVICE, "period_overlaps",
-      "Semua orang di kelompok ini sudah dibayar untuk hari-hari itu di run lain. Hari yang sama tidak dibayar dua kali.");
+      `Semua orang di kelompok ini sudah dibayar untuk hari-hari itu di ${born[0].other!.run_no}. Hari yang sama tidak dibayar dua kali.`);
   }
 
   const user = actingUser();
@@ -4687,6 +4892,88 @@ export async function openPayroll(
   });
   const view = await getPayroll(runNo);
   if (view.data) remember(SERVICE, "openPayroll", idempotencyKey, view.data);
+  return view;
+}
+
+/* ── the sheet (0213, D373) ──────────────────────────────────────────── */
+
+/** Who another run already pays for days of this period. */
+export async function paidElsewhere(
+  input: { period_start: string; period_end: string; except_run?: string | null },
+): Promise<Result<PaidElsewhere[]>> {
+  await latency();
+  const state = getState();
+  const rows: PaidElsewhere[] = [];
+  for (const e of state.employees) {
+    const r = paidElsewhereRun(state, e.id, input.period_start, input.period_end, input.except_run ?? "");
+    if (r) rows.push({ employee_id: e.id, employee_no: e.employee_no, run_no: r.run_no, period_start: r.period_start, period_end: r.period_end });
+  }
+  return ok(SERVICE, rows);
+}
+
+/** Open the run for the group and hold everybody left unticked, each with a
+ *  sentence — all or nothing, as `ops_hr.generate_payroll`. */
+export async function generatePayroll(
+  input: {
+    period_start: string; period_end: string; pay_group: PayGroup;
+    hold: PayrollHold[]; note?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<PayrollView>> {
+  await latency();
+  const cached = replayed<PayrollView>(SERVICE, "generatePayroll", idempotencyKey);
+  if (cached) return cached;
+  const denied = requireLevel(SERVICE, "payroll", "write");
+  if (denied) return denied;
+  const missing = input.hold.find((h) => !h.note?.trim());
+  if (missing) {
+    return invalid(SERVICE, "reason_required",
+      `Menahan gaji ${missing.employee_no} perlu alasan — tercetak di daftar run.`, { field: "hold" });
+  }
+  const state = getState();
+  const unknown = input.hold.find((h) => !state.employees.some((e) => e.employee_no === h.employee_no));
+  if (unknown) return notFound(SERVICE, "not_found", "Ada karyawan di daftar tahan yang tidak dikenal.");
+  /* Nobody left once the holds are applied: refused before anything opens. */
+  const held = new Set(input.hold.map((h) => h.employee_no));
+  const born = input.pay_group === "custom" ? []
+    : groupPeople(state, input.period_start, input.period_end, input.pay_group)
+      .filter((e) => !paidElsewhereRun(state, e.id, input.period_start, input.period_end, ""));
+  if (born.length > 0 && born.every((e) => held.has(e.employee_no))) {
+    return invalid(SERVICE, "nobody_selected", "Tidak ada yang dicentang — run tanpa orang bukan run.", { field: "hold" });
+  }
+
+  const opened = await openPayroll({
+    period_start: input.period_start, period_end: input.period_end,
+    note: input.note ?? null, pay_group: input.pay_group,
+  });
+  if (opened.error) return opened;
+  const runNo = opened.data.run_no;
+  const user = actingUser();
+  apply((draft) => {
+    for (const h of input.hold) {
+      const emp = draft.employees.find((e) => e.employee_no === h.employee_no);
+      if (!emp) continue;
+      const rows = draft.payroll_run_members ?? [];
+      const row = rows.find((m) => m.run_no === runNo && m.employee_id === emp.id);
+      if (row) {
+        row.included = false; row.note = h.note.trim(); row.auto = false;
+        row.set_by = user.id; row.set_at = new Date().toISOString();
+      } else {
+        rows.push({
+          run_no: runNo, employee_id: emp.id, included: false, components: {},
+          note: h.note.trim(), auto: false, set_by: user.id, set_at: new Date().toISOString(),
+        });
+      }
+      draft.payroll_run_members = rows;
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "payroll", entity_no: runNo,
+      action: "generate", outcome: "ok", reason: null,
+      detail: { held: input.hold.map((h) => h.employee_no), by: user.email },
+    });
+  });
+  const view = await getPayroll(runNo);
+  if (view.data) remember(SERVICE, "generatePayroll", idempotencyKey, view.data);
   return view;
 }
 
@@ -4746,7 +5033,7 @@ export async function setRunMember(
       { field: "note" });
   }
   if (input.included) {
-    const other = paidElsewhere(state, emp.id, run.period_start, run.period_end, run.run_no);
+    const other = paidElsewhereRun(state, emp.id, run.period_start, run.period_end, run.run_no);
     if (other) {
       return conflict(SERVICE, "paid_elsewhere",
         `${emp.full_name} sudah dibayar untuk sebagian hari ini di ${other.run_no}. Keluarkan dari sana dulu — hari yang sama tidak dibayar dua kali.`);
