@@ -14,7 +14,7 @@ import type {
   AllowanceWithholding, AllowanceWithholdingView,
   ContributionScheme, ContributionRate, ContributionRoll, Enrolment,
   Task, TaskView, TaskRefKind, KpiView,
-  TaskAction, Goal, GoalView, GoalBoardTask,
+  TaskAction, Goal, GoalView, GoalBoardTask, BacklogItem,
   WorkLog, WorkLogEntry, WorkLogRosterRow, WorkEvidence, WorkProgress,
   ContractKind, ClauseKind, ClauseChecklistItem, EmploymentContract,
   ContractView, ContractDetail, ContractClause, ClauseConflict, TimesheetTotal, DayState,
@@ -27,7 +27,7 @@ import {
 import { addDayKey } from "@/services/hr/shift-reading";
 import { instantInDay, isOvernight, dayBoundaryMinutes, type ScheduleDay, type ScheduleShift, type ScheduleWeekDay, scheduleWeek } from "@/services/hr/schedule-rules";
 import type { DocKind } from "@/services/documents/contracts";
-import type { DemoState, DemoRunMember } from "../state";
+import type { DemoState, DemoRunMember, DemoBacklog } from "../state";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
 import {
   timesheet, timesheetDay, payrollView, overtimeStage, overtimePayable, sheetEvidence,
@@ -5984,3 +5984,268 @@ export async function getWlkpRecap(
   if (denied) return denied;
   return ok(SERVICE, wlkpRecap(getState(), input.asof ?? null));
 }
+
+
+/* ── daftar tunggu (D381) ─────────────────────────────────────────────── */
+
+function backlogView(state: DemoState, b: DemoBacklog, me: string): BacklogItem {
+  const g = b.goal_id ? state.goals.find((x) => x.id === b.goal_id) : undefined;
+  const t = b.task_id ? state.tasks.find((x) => x.id === b.task_id) : undefined;
+  const who = t ? state.employees.find((e) => e.id === t.assignee_id) : undefined;
+  return {
+    id: b.id, item_no: b.item_no, title: b.title, detail: b.detail, deliverable: b.deliverable, unit: b.unit,
+    goal_no: g?.goal_no ?? null, goal_title: g?.title ?? null, goal_rank: g?.rank ?? null,
+    goal_open: g ? g.status === "OPEN" : null,
+    status: b.status, position: b.sort_key, proposed: b.proposed,
+    created_by_name: state.users.find((u) => u.id === b.created_by)?.full_name ?? b.created_by,
+    created_at: b.created_at, accepted_at: b.accepted_at,
+    task_no: t?.task_no ?? null, assignee_name: who?.full_name ?? null, assigned_at: b.assigned_at,
+    dropped_reason: b.dropped_reason, dropped_at: b.dropped_at,
+    is_mine: b.created_by === me,
+  };
+}
+
+const BACKLOG_ORDER: Record<DemoBacklog["status"], number> = { PROPOSED: 0, OPEN: 1, ASSIGNED: 2, DROPPED: 2 };
+
+function backlogViews(state: DemoState, includeClosed: boolean): BacklogItem[] {
+  const me = actingUser(state).id;
+  const hrd = requireModule(SERVICE, "hrd") === null;
+  return (state.backlog ?? [])
+    .filter((b) => includeClosed || b.status === "PROPOSED" || b.status === "OPEN")
+    .filter((b) => hrd || b.status === "OPEN" || b.created_by === me)
+    .sort((a, b) => BACKLOG_ORDER[a.status] - BACKLOG_ORDER[b.status]
+      || (a.sort_key ?? 1e9) - (b.sort_key ?? 1e9)
+      || (b.assigned_at ?? b.dropped_at ?? b.created_at).localeCompare(a.assigned_at ?? a.dropped_at ?? a.created_at)
+      || a.item_no.localeCompare(b.item_no))
+    .map((b) => backlogView(state, b, me));
+}
+
+function backlogByNo(itemNo: string): BacklogItem {
+  const state = getState();
+  return backlogView(state, (state.backlog ?? []).find((b) => b.item_no === itemNo)!, actingUser(state).id);
+}
+
+/** `ops_hr.backlog_notify` — the bell only; the daftar tunggu sends nothing to Chat. */
+function ringBacklog(draft: DemoState, kind: string, title: string, data: Record<string, unknown>,
+                     itemNo: string, to: string | null) {
+  const me = draft.session_user_id;
+  const who = draft.users.filter((u) => u.is_active && u.id !== me && (to
+    ? u.id === to
+    : u.modules.some((m) => m.module === "hrd" && (m.level === "write" || m.level === "admin"))));
+  draft.notifications = draft.notifications ?? [];
+  for (const u of who) {
+    const id = draft.notifications.reduce((m, n) => Math.max(m, n.id), 0) + 1;
+    draft.notifications.unshift({
+      id, user_id: u.id, kind, title, data, entity_no: itemNo, read_at: null,
+      link: to ? "/profil?tab=tugas" : "/hrd/tugas?tab=backlog", created_at: new Date().toISOString(),
+    });
+  }
+}
+
+export async function listBacklog(
+  input: { include_closed?: boolean } = {},
+): Promise<Result<BacklogItem[]>> {
+  await latency();
+  const state = getState();
+  if (requireModule(SERVICE, "hrd") && !myEmployee(state)) {
+    return refused(SERVICE, "not_permitted", "Daftar tunggu dibaca oleh HRD dan staf yang punya data karyawan.");
+  }
+  return ok(SERVICE, backlogViews(state, input.include_closed ?? false));
+}
+
+export async function saveBacklogItem(
+  input: {
+    item_no?: string | null;
+    title: string;
+    deliverable?: string | null;
+    detail?: string | null;
+    unit?: string | null;
+    goal_no?: string | null;
+  },
+): Promise<Result<BacklogItem>> {
+  await latency();
+  const state = getState();
+  const user = actingUser();
+  const hrd = requireModule(SERVICE, "hrd") === null;
+  const existing = input.item_no ? (state.backlog ?? []).find((b) => b.item_no === input.item_no) : null;
+  if (input.item_no) {
+    if (!existing) return notFound(SERVICE, "backlog_not_found", `Tidak ada item ${input.item_no} di daftar tunggu.`);
+    if (existing.status !== "PROPOSED" && existing.status !== "OPEN") {
+      return conflict(SERVICE, "backlog_closed",
+        `${existing.item_no} sudah ${existing.status === "ASSIGNED" ? "dijadikan tugas" : "dikeluarkan dari daftar"}.`);
+    }
+    if (!hrd && !(existing.status === "PROPOSED" && existing.created_by === user.id)) {
+      return refused(SERVICE, "not_permitted",
+        "Item daftar tunggu diubah oleh HRD; usulan Anda sendiri bisa diubah selama belum diterima.");
+    }
+  } else if (!hrd && !myEmployee(state)) {
+    return refused(SERVICE, "not_permitted", "Mengusulkan pekerjaan butuh akun yang tertaut ke data karyawan.");
+  }
+  if (!input.title?.trim()) return invalid(SERVICE, "title_required", "Pekerjaannya apa?", { field: "title" });
+
+  const goalNo = input.goal_no?.trim() || null;
+  const goal = goalNo ? state.goals.find((g) => g.goal_no === goalNo) : undefined;
+  if (goalNo && !goal) return invalid(SERVICE, "unknown_goal", `Tidak ada sasaran ${goalNo}.`, { field: "goal_no" });
+  if (goal && goal.status !== "OPEN") {
+    return conflict(SERVICE, "goal_closed", `${goal.goal_no} sudah ditutup — pekerjaan baru tidak masuk ke sasaran yang sudah selesai.`);
+  }
+  const clean = (v?: string | null) => v?.trim() || null;
+
+  let no = existing?.item_no ?? "";
+  apply((draft) => {
+    draft.backlog = draft.backlog ?? [];
+    if (existing) {
+      const row = draft.backlog.find((b) => b.id === existing.id);
+      if (!row) return;
+      row.title = input.title.trim(); row.detail = clean(input.detail);
+      row.deliverable = clean(input.deliverable); row.unit = clean(input.unit);
+      row.goal_id = goal?.id ?? null;
+    } else {
+      no = nextDocNumber(draft, "blg");
+      const place = hrd ? Math.max(0, ...draft.backlog.filter((b) => b.status === "OPEN").map((b) => b.sort_key ?? 0)) + 1 : null;
+      const now = new Date().toISOString();
+      draft.backlog.push({
+        id: newId("blg"), item_no: no, title: input.title.trim(), detail: clean(input.detail),
+        deliverable: clean(input.deliverable), unit: clean(input.unit), goal_id: goal?.id ?? null,
+        status: hrd ? "OPEN" : "PROPOSED", sort_key: place, proposed: !hrd,
+        created_by: user.id, created_at: now,
+        accepted_by: hrd ? user.id : null, accepted_at: hrd ? now : null,
+        task_id: null, assigned_by: null, assigned_at: null,
+        dropped_reason: null, dropped_by: null, dropped_at: null,
+      });
+      if (!hrd) {
+        ringBacklog(draft, "backlog.proposed", `${user.full_name} mengusulkan pekerjaan: ${input.title.trim()}`,
+          { item_no: no, title: input.title.trim(), by: user.full_name, unit: clean(input.unit), goal_title: goal?.title ?? null },
+          no, null);
+      }
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "backlog", entity_no: no, action: existing ? "update" : "create",
+      outcome: "ok", reason: null, detail: { by: user.email, unit: clean(input.unit), goal: goalNo },
+    });
+  });
+  return ok(SERVICE, backlogByNo(no));
+}
+
+export async function acceptBacklogItem(input: { item_no: string }): Promise<Result<BacklogItem>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+  const b = (getState().backlog ?? []).find((x) => x.item_no === input.item_no);
+  if (!b) return notFound(SERVICE, "backlog_not_found", `Tidak ada item ${input.item_no} di daftar tunggu.`);
+  if (b.status !== "PROPOSED") return conflict(SERVICE, "not_a_proposal", `${b.item_no} bukan usulan yang menunggu jawaban.`);
+  const user = actingUser();
+  apply((draft) => {
+    const list = draft.backlog ?? [];
+    const row = list.find((x) => x.id === b.id);
+    if (!row) return;
+    row.status = "OPEN";
+    row.sort_key = Math.max(0, ...list.filter((x) => x.status === "OPEN" && x.id !== b.id).map((x) => x.sort_key ?? 0)) + 1;
+    row.accepted_by = user.id; row.accepted_at = new Date().toISOString();
+    ringBacklog(draft, "backlog.accepted", `Usulan Anda masuk daftar tunggu: ${b.title}`,
+      { item_no: b.item_no, title: b.title, position: row.sort_key }, b.item_no, b.created_by);
+    writeAudit(draft, { service: SERVICE, entity: "backlog", entity_no: b.item_no, action: "accept",
+      outcome: "ok", reason: null, detail: { by: user.email } });
+  });
+  return ok(SERVICE, backlogByNo(b.item_no));
+}
+
+export async function dropBacklogItem(
+  input: { item_no: string; reason?: string | null },
+): Promise<Result<BacklogItem>> {
+  await latency();
+  const user = actingUser();
+  const hrd = requireModule(SERVICE, "hrd") === null;
+  const b = (getState().backlog ?? []).find((x) => x.item_no === input.item_no);
+  if (!b) return notFound(SERVICE, "backlog_not_found", `Tidak ada item ${input.item_no} di daftar tunggu.`);
+  const own = b.status === "PROPOSED" && b.created_by === user.id;
+  if (!hrd && !own) {
+    return refused(SERVICE, "not_permitted",
+      "Mengeluarkan item dari daftar tunggu butuh akses HRD; usulan Anda sendiri bisa ditarik.");
+  }
+  if (b.status !== "PROPOSED" && b.status !== "OPEN") {
+    return conflict(SERVICE, "backlog_closed", `${b.item_no} sudah tidak di daftar tunggu.`);
+  }
+  let reason = input.reason?.trim() || null;
+  if (!reason) {
+    if (!own) {
+      return invalid(SERVICE, "reason_required",
+        "Kenapa dikeluarkan? Alasannya dibaca oleh yang mengusulkan, dan oleh siapa pun yang bertanya nanti.",
+        { field: "reason" });
+    }
+    reason = "Ditarik oleh pengusul.";
+  }
+  apply((draft) => {
+    const row = (draft.backlog ?? []).find((x) => x.id === b.id);
+    if (!row) return;
+    row.status = "DROPPED"; row.sort_key = null;
+    row.dropped_reason = reason; row.dropped_by = user.id; row.dropped_at = new Date().toISOString();
+    if (b.proposed && b.created_by !== user.id) {
+      ringBacklog(draft, "backlog.dropped", `Usulan Anda tidak masuk daftar tunggu: ${b.title}`,
+        { item_no: b.item_no, title: b.title, reason }, b.item_no, b.created_by);
+    }
+    writeAudit(draft, { service: SERVICE, entity: "backlog", entity_no: b.item_no, action: "drop",
+      outcome: "ok", reason, detail: { by: user.email } });
+  });
+  return ok(SERVICE, backlogByNo(b.item_no));
+}
+
+export async function rankBacklog(input: { item_nos: string[] }): Promise<Result<BacklogItem[]>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+  const open = (getState().backlog ?? []).filter((b) => b.status === "OPEN");
+  if ([...input.item_nos].sort().join("|") !== open.map((b) => b.item_no).sort().join("|")) {
+    return conflict(SERVICE, "order_stale", "Daftar tunggu sudah berubah sejak layar ini dibuka. Muat ulang, lalu urutkan lagi.");
+  }
+  const before = [...open].sort((a, b) => (a.sort_key ?? 0) - (b.sort_key ?? 0)).map((b) => b.item_no);
+  if (before.join("|") === input.item_nos.join("|")) return noop(SERVICE, backlogViews(getState(), false));
+  const user = actingUser();
+  apply((draft) => {
+    input.item_nos.forEach((no, i) => {
+      const row = (draft.backlog ?? []).find((b) => b.item_no === no);
+      if (row) row.sort_key = i + 1;
+    });
+    writeAudit(draft, { service: SERVICE, entity: "backlog", entity_no: "", action: "rank",
+      outcome: "ok", reason: null, detail: { by: user.email, before, after: input.item_nos } });
+  });
+  return ok(SERVICE, backlogViews(getState(), false));
+}
+
+export async function assignBacklogItem(
+  input: { item_no: string; assignee_no: string; due_date: string; chase_date?: string | null },
+): Promise<Result<{ item_no: string; task_no: string; assignee_name: string }>> {
+  await latency();
+  const denied = requireModule(SERVICE, "hrd");
+  if (denied) return denied;
+  const state = getState();
+  const b = (state.backlog ?? []).find((x) => x.item_no === input.item_no);
+  if (!b) return notFound(SERVICE, "backlog_not_found", `Tidak ada item ${input.item_no} di daftar tunggu.`);
+  if (b.status !== "OPEN") {
+    return conflict(SERVICE, "not_open",
+      b.status === "PROPOSED" ? `${b.item_no} masih usulan — terima dulu ke daftar tunggu.`
+        : b.status === "ASSIGNED" ? `${b.item_no} sudah dijadikan tugas.` : `${b.item_no} sudah dikeluarkan dari daftar.`);
+  }
+  if (!input.due_date) {
+    return invalid(SERVICE, "due_required", "Tugas butuh jatuh tempo — itulah bedanya dengan daftar tunggu.", { field: "due_date" });
+  }
+  const goal = b.goal_id ? state.goals.find((g) => g.id === b.goal_id) : undefined;
+  const made = await createTask({
+    assignee_no: input.assignee_no, title: b.title, due_date: input.due_date,
+    detail: [b.detail, `Dari daftar tunggu ${b.item_no}.`].filter(Boolean).join("\n\n"),
+    deliverable: b.deliverable, chase_date: input.chase_date ?? null, goal_no: goal?.goal_no ?? null,
+  });
+  if (made.error) return made;
+  const user = actingUser();
+  apply((draft) => {
+    const row = (draft.backlog ?? []).find((x) => x.id === b.id);
+    const t = draft.tasks.find((x) => x.task_no === made.data.task_no);
+    if (!row || !t) return;
+    row.status = "ASSIGNED"; row.sort_key = null; row.task_id = t.id;
+    row.assigned_by = user.id; row.assigned_at = new Date().toISOString();
+    writeAudit(draft, { service: SERVICE, entity: "backlog", entity_no: b.item_no, action: "assign",
+      outcome: "ok", reason: null, detail: { by: user.email, task_no: t.task_no, assignee: input.assignee_no } });
+  });
+  return ok(SERVICE, { item_no: b.item_no, task_no: made.data.task_no, assignee_name: made.data.assignee_name });
+}
+
