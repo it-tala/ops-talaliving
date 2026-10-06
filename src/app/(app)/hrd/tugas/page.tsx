@@ -18,6 +18,7 @@ import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 import { GoalsPanel } from "./goals-panel";
 import { DailyPanel } from "./daily-panel";
+import { BacklogPanel } from "./backlog-panel";
 
 /** Pemantauan tugas — the module built against a failure the owner described
  *  in one sentence (D303):
@@ -66,7 +67,7 @@ export default function TasksPage() {
   );
 }
 
-const TABS = ["goals", "daily", "open", "all", "routines"] as const;
+const TABS = ["goals", "backlog", "daily", "open", "all", "routines"] as const;
 type TabKey = (typeof TABS)[number];
 
 function Tasks() {
@@ -419,8 +420,8 @@ function Tasks() {
         </p>
       )}
 
-      <div className="mb-3 flex gap-1.5">
-        {([["goals", tr("Goals & priority", "Sasaran & prioritas")], ["daily", tr("Daily log", "Laporan harian")], ["open", tr("Open", "Terbuka")], ["all", tr("All", "Semua")], ["routines", tr("Routine tasks", "Tugas rutin")]] as const).map(([k, label]) => (
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        {([["goals", tr("Goals & priority", "Sasaran & prioritas")], ["backlog", tr("Waiting list", "Daftar tunggu")], ["daily", tr("Daily log", "Laporan harian")], ["open", tr("Open", "Terbuka")], ["all", tr("All", "Semua")], ["routines", tr("Routine tasks", "Tugas rutin")]] as const).map(([k, label]) => (
           <button
             key={k}
             onClick={() => setTab(k)}
@@ -563,6 +564,16 @@ function Tasks() {
           mayEdit={mayEdit}
           onAddPart={addPart}
           stamp={tasks.status === "ready" ? tasks.data : null}
+          onChanged={reloadTasks}
+        />
+      )}
+
+      {tab === "backlog" && (
+        <BacklogPanel
+          employees={employees.status === "ready" ? employees.data : []}
+          goals={openGoals}
+          mayCreate={mayCreate}
+          mayEdit={mayEdit}
           onChanged={reloadTasks}
         />
       )}
