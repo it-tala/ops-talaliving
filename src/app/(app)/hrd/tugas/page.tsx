@@ -19,6 +19,7 @@ import { useTr } from "@/lib/i18n";
 import { GoalsPanel } from "./goals-panel";
 import { DailyPanel } from "./daily-panel";
 import { BacklogPanel } from "./backlog-panel";
+import { RoadmapPanel } from "./roadmap-panel";
 
 /** Pemantauan tugas — the module built against a failure the owner described
  *  in one sentence (D303):
@@ -67,7 +68,7 @@ export default function TasksPage() {
   );
 }
 
-const TABS = ["goals", "backlog", "daily", "open", "all", "routines"] as const;
+const TABS = ["goals", "roadmap", "backlog", "daily", "open", "all", "routines"] as const;
 type TabKey = (typeof TABS)[number];
 
 function Tasks() {
@@ -421,7 +422,7 @@ function Tasks() {
       )}
 
       <div className="mb-3 flex flex-wrap gap-1.5">
-        {([["goals", tr("Goals & priority", "Sasaran & prioritas")], ["backlog", tr("Waiting list", "Daftar tunggu")], ["daily", tr("Daily log", "Laporan harian")], ["open", tr("Open", "Terbuka")], ["all", tr("All", "Semua")], ["routines", tr("Routine tasks", "Tugas rutin")]] as const).map(([k, label]) => (
+        {([["goals", tr("Goals & priority", "Sasaran & prioritas")], ["roadmap", tr("Roadmap", "Roadmap")], ["backlog", tr("Waiting list", "Daftar tunggu")], ["daily", tr("Daily log", "Laporan harian")], ["open", tr("Open", "Terbuka")], ["all", tr("All", "Semua")], ["routines", tr("Routine tasks", "Tugas rutin")]] as const).map(([k, label]) => (
           <button
             key={k}
             onClick={() => setTab(k)}
@@ -566,6 +567,12 @@ function Tasks() {
           stamp={tasks.status === "ready" ? tasks.data : null}
           onChanged={reloadTasks}
         />
+      )}
+
+      {tab === "roadmap" && (
+        <Loaded state={tasks} onRetry={reloadTasks}>
+          {(list) => <RoadmapPanel tasks={list} stamp={tasks} />}
+        </Loaded>
       )}
 
       {tab === "backlog" && (
