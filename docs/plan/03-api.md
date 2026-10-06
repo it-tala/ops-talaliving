@@ -271,6 +271,13 @@ drawing/reference), and are filed in DRAFTING under
 `…/KOLEKSI <code> <name>/00 KOLEKSI` (tokens `{COLLECTION}` `{ROOM}` `{ITEM}`,
 0222). A collection's `entity_no` is `<project code>-<collection code>`.
 
+### Projects — timeline and the pipeline's numbers (P7, 0229)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/projects/{code}/timeline` | `v_project_timeline`, newest first: `day`, `at`, `kind` (`status` · `contact` · `meeting` · `point_closed` · `quote_sent` · `quote_accepted` · `quote_rejected` · `file` · `design_item` · `design_dropped` · `approval` · `drawing_released` · `job_order` · `delivery` · `delivery_received` · `installation` · `handover`), `title`, `detail`, `ref` (a public code), `actor_name`. `security_invoker`: each reader sees what their access reads |
+| GET | `/pipeline/outcomes` | `v_project_outcome` (sellers): `outcome` won/lost/open, `opened_on`, `deal_on` (logged, else the day it reached its current status), `days_to_deal` (logged only), `days_in_status`, `value` (accepted offer › offer in play › estimate › contract; D164: never profit), `sales_pic_name`, `source_note`, `closing_reason_code` |
+
 ### Projects — quotation ↔ design (P5, 0225)
 
 | Method | Path | Notes |

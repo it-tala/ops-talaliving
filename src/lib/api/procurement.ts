@@ -34,7 +34,7 @@ import type {
   ReceivingMatchResult, PoPaymentRequest, ReceivingArchiveResult,
   UomCode, PrCategory, PrDocument,
   ProjectView, ProjectLineView, ProjectStatus, ProjectStatusChange, Client, ClientView,
-  ClosingReason, SalesPerson,
+  ClosingReason, SalesPerson, TimelineEvent, ProjectOutcome,
 } from "@/services/procurement/contracts";
 import type { DocKind } from "@/services/documents/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -2311,4 +2311,29 @@ export async function archiveReceiving(rrNo: string): Promise<Result<ReceivingAr
     };
   }
   return ok(SERVICE, envelope.data);
+}
+
+/* ── a project from first contact to handover (0229, P7) ──────────────── */
+
+/** Everything recorded about a project, newest first — read with the
+ *  reader's own access, so a drafter sees the design and the floor. */
+export async function getProjectTimeline(projectCode: string): Promise<Result<TimelineEvent[]>> {
+  const { data, error } = await db().from("v_project_timeline").select("*")
+    .eq("project_code", projectCode)
+    .order("day", { ascending: false }).order("at", { ascending: false });
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, (data ?? []) as TimelineEvent[]);
+}
+
+/** Every project as the pipeline counts it: won, lost or open, its days to
+ *  the deal and the offer's value (D164: never profit). */
+export async function listProjectOutcomes(): Promise<Result<ProjectOutcome[]>> {
+  const { data, error } = await db().from("v_project_outcome").select("*").order("opened_on", { ascending: false });
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+    ...(r as unknown as ProjectOutcome),
+    value: r.value == null ? null : Number(r.value),
+    days_to_deal: r.days_to_deal == null ? null : Number(r.days_to_deal),
+    days_in_status: r.days_in_status == null ? null : Number(r.days_in_status),
+  })));
 }

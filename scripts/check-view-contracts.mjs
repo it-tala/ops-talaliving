@@ -136,6 +136,10 @@ const VIEW_CONTRACTS = {
   v_design_room:       "DesignRoom",
   v_design_collection: "DesignCollection",
   v_design_approval:   "DesignApproval",
+  /* A project from first contact to handover, and the pipeline's numbers
+     (0229, P7). */
+  v_project_timeline:  "TimelineEvent",
+  v_project_outcome:   "ProjectOutcome",
   /* The drafters' queue, live (0226, P6): tasks, revisions and questions
      put together field by field in `src/lib/api/production.ts`. */
   v_design_task:       null,

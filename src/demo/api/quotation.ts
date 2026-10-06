@@ -163,6 +163,16 @@ export function currentQuotation(state: DemoState, projectId: string): Quotation
   return views[0] ?? null;
 }
 
+/** The accepted offer's total for a project, newest decision first — what a
+ *  won project is worth in the pipeline's numbers (0229). */
+export function acceptedQuotationTotal(state: DemoState, projectId: string): number | null {
+  const today = officeToday();
+  const q = state.quotations
+    .filter((x) => x.project_id === projectId && x.status === "ACCEPTED")
+    .sort((a, b) => (b.decided_at ?? "").localeCompare(a.decided_at ?? ""))[0];
+  return q ? quotationView(state, q, false, today).grand_total : null;
+}
+
 function view(quoteNo: string): QuotationView | null {
   const state = getState();
   const q = state.quotations.find((x) => x.quote_no === quoteNo);
