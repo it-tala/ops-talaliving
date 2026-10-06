@@ -103,6 +103,26 @@ export function initialState(): DemoState {
     quotations: [],
     quotation_lines: [],
     client_activities: [],
+    /* One project's design to open (P4): 26003 RESIDENCE KUTA, two
+       collections, the tree the drafters work in (D379). */
+    design_collections: [
+      { id: "dc_26003_A", project_id: "prj_26003", code: "A", name: "TYPE 2BR", note: "24 unit", created_at: "2026-09-26T02:00:00Z" },
+      { id: "dc_26003_B", project_id: "prj_26003", code: "B", name: "TYPE 3BR", note: "12 unit", created_at: "2026-09-26T02:00:00Z" },
+    ],
+    design_rooms: [
+      { id: "dr_A_LR", collection_id: "dc_26003_A", code: "LR", name: "Living room", sort: 1 },
+      { id: "dr_A_MB", collection_id: "dc_26003_A", code: "MB", name: "Master bedroom", sort: 2 },
+      { id: "dr_B_DN", collection_id: "dc_26003_B", code: "DN", name: "Dining", sort: 1 },
+    ],
+    design_items: [
+      { id: "di_1", item_no: "26003-A-LR-01", room_id: "dr_A_LR", seq: 1, name: "Sofa 3 seater", qty: 24, length_mm: 2100, width_mm: 900, height_mm: 780, origin: "tala", product_code: null, note: null, dropped_at: null, drop_reason: null, created_at: "2026-09-26T02:00:00Z", updated_at: "2026-09-26T02:00:00Z" },
+      { id: "di_2", item_no: "26003-A-LR-02", room_id: "dr_A_LR", seq: 2, name: "Coffee table", qty: 24, length_mm: 1100, width_mm: 600, height_mm: 420, origin: "adapted", product_code: null, note: "Klien minta lebih rendah, 380 mm", dropped_at: null, drop_reason: null, created_at: "2026-09-26T02:00:00Z", updated_at: "2026-09-26T02:00:00Z" },
+      { id: "di_3", item_no: "26003-A-MB-01", room_id: "dr_A_MB", seq: 1, name: "Bed 160 + headboard", qty: 24, length_mm: 1700, width_mm: 2150, height_mm: 1100, origin: "client", product_code: null, note: null, dropped_at: null, drop_reason: null, created_at: "2026-09-26T02:00:00Z", updated_at: "2026-09-26T02:00:00Z" },
+      { id: "di_4", item_no: "26003-B-DN-01", room_id: "dr_B_DN", seq: 1, name: "Dining table 6 seats", qty: 12, length_mm: 1800, width_mm: 900, height_mm: 750, origin: "tala", product_code: null, note: null, dropped_at: null, drop_reason: null, created_at: "2026-09-26T02:00:00Z", updated_at: "2026-09-26T02:00:00Z" },
+    ],
+    design_approvals: [
+      { id: "da_1", item_id: "di_4", decision: "approved", decided_on: "2026-10-01", channel: "meeting", client_person: "Bp. Agus", attachment_id: null, evidence_attachment_id: null, note: "Disetujui di meeting lokasi", recorded_by: "usr_rina", recorded_at: "2026-10-01T06:00:00Z" },
+    ],
 
     pr_documents: PR_DOCUMENTS,
     pr_lines: PR_LINES,

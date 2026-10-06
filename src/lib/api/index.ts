@@ -70,6 +70,10 @@ export * as quotation from "./quotation";
    quotation. Stamped `procurement`, checked against `project`. */
 export * as crm from "./crm";
 
+/* A project's design (0222): collections, rooms, items and the client's
+   approval. Stamped `procurement`, checked against `may_design`. */
+export * as design from "./design";
+
 /* ## `marketing` is exported (D316)
  *
  *  The line waited on two things, and both are now true. The Marketing block

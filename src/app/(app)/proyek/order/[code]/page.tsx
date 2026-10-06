@@ -9,7 +9,8 @@ import { Tabs } from "@/components/ui/tabs";
 import { ActivityLog } from "@/components/crm/activity-log";
 import { SaleFiles, type FileTarget } from "@/components/files/sale-files";
 import { procurement, quotation } from "@/demo/api";
-import { useCanSell } from "@/lib/sell";
+import { DesignBoard } from "@/components/design/design-board";
+import { useCanDesign, useCanSell } from "@/lib/sell";
 import { useTr } from "@/lib/i18n";
 import { ProjectOverview } from "../ProjectDrawer";
 
@@ -19,13 +20,14 @@ import { ProjectOverview } from "../ProjectDrawer";
  *  sale's record grows: the order as before, **every file of the sale** —
  *  the client's brief, drawings and references, our moodboards and renders,
  *  the proposal, the signed contract — each saying who made it, and the
- *  contact log. P2 adds the pipeline, P4 the design items, P7 the timeline.
+ *  contact log. P2 adds the pipeline, P4 the design items (Design tab), P7 the timeline.
  */
 export default function ProjectPage({ params }: { params: Promise<{ code: string }> }) {
   const { code: raw } = use(params);
   const code = decodeURIComponent(raw);
   const tr = useTr();
   const canSell = useCanSell();
+  const canDesign = useCanDesign();
   const [project, reloadProject] = useLoad(() => procurement.getProject(code), [code]);
   const [quotes] = useLoad(() => quotation.listQuotations({ project_code: code }), [code]);
 
@@ -60,6 +62,10 @@ export default function ProjectPage({ params }: { params: Promise<{ code: string
                   {
                     id: "order", label: tr("Order", "Pesanan"),
                     content: <ProjectOverview code={p.code} onChanged={reloadProject} />,
+                  },
+                  {
+                    id: "design", label: tr("Design", "Desain"),
+                    content: <DesignBoard projectCode={p.code} canEdit={canDesign()} />,
                   },
                   {
                     id: "files", label: tr("Files", "File"),

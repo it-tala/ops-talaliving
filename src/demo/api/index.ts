@@ -29,6 +29,7 @@ import * as demoMarketing from "./marketing";
 import * as demoDelivery from "./delivery";
 import * as demoQuotation from "./quotation";
 import * as demoCrm from "./crm";
+import * as demoDesign from "./design";
 import * as demoAssistant from "./assistant";
 
 import * as liveIdentity from "@/lib/api/identity";
@@ -42,6 +43,7 @@ import * as liveHr from "@/lib/api/hr";
 import * as liveDelivery from "@/lib/api/delivery";
 import * as liveQuotation from "@/lib/api/quotation";
 import * as liveCrm from "@/lib/api/crm";
+import * as liveDesign from "@/lib/api/design";
 import * as liveMarketing from "@/lib/api/marketing";
 
 export const identity = swap("identity", demoIdentity, liveIdentity);
@@ -77,6 +79,9 @@ export const delivery = swap("production", demoDelivery, liveDelivery);
 export const quotation = swap("procurement", demoQuotation, liveQuotation);
 /* The client log sits with the clients it is about. */
 export const crm = swap("procurement", demoCrm, liveCrm);
+/* A project's design (0222): collections, rooms, items, approvals. Stamped
+   `procurement`, where projects live. */
+export const design = swap("procurement", demoDesign, liveDesign);
 export const assistant = swap("procurement", demoAssistant, liveAssistant);
 
 export { isOk } from "@/services/_shared/envelope";
