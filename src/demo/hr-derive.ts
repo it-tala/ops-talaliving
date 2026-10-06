@@ -8,7 +8,7 @@
  */
 import { tapWhere, type TapReadingRow } from "@/services/hr/tap-where";
 import type { DemoState, DemoRunMember } from "./state";
-import { settingNumber } from "./settings";
+import { settingNumber, settingText } from "./settings";
 import { officeClock, officeDay, officeStamp, officeToday } from "@/lib/office";
 import { personWork, workAttribution } from "./production-derive";
 import type {
@@ -20,7 +20,7 @@ import type {
   AllowanceWithholding, AllowanceWithholdingView,
   ContributionScheme, ContributionRate, Enrolment, ContributionLine, ContributionRoll,
   Task, TaskView, TaskRoutine, TaskRoutineView, KpiMeasure, KpiView,
-  GoalView, GoalBoardTask,
+  GoalView, GoalBoardTask, WorkLog, WorkLogEntry, WorkLogRosterRow, WorkEvidence,
   EmployeeFileView, EmployeeDocSlot, EmployeeDocument, EmployeeDocumentView,
   LeaveBalance, LeaveRequest, LeaveRequestView,
   EmployeeIdentity, EmployeeIdentityView, IdentityField, WlkpBucket, WlkpRecap,
@@ -1590,7 +1590,31 @@ export function kpiView(
     weight: settingNumber(state, "kpi.weight_tasks", 50),
   };
 
-  const measures = [punctuality, attendance, task_delivery];
+  /* ── Laporan harian terisi (D372) ───────────────────────────────────── */
+  /* Over the working days a log was owed — `ops_hr.daily_log_coverage`,
+     transcribed. What is measured is whether the day was logged, never what
+     kind of work it was: the dadakan share is a note below, not a score. */
+  const logCoverage = dailyLogCoverage(state, employee, from, to);
+  const hasAccount = owesDailyLog(state, employee);
+  const daily_log: KpiMeasure = {
+    key: "daily_log",
+    label: "Laporan harian terisi",
+    value: !hasAccount || logCoverage.expected < minDays ? null
+      : Math.round((logCoverage.logged / logCoverage.expected) * 100),
+    unmeasured_reason: !hasAccount
+      ? "Orang ini tidak mengisi laporan harian: belum punya akun kantor (akun pekerja lapangan tanpa modul tidak mengisinya). Tidak terukur, bukan nol."
+      : logCoverage.expected < minDays
+        ? `Baru ${logCoverage.expected} hari kerja yang wajib dilaporkan (sejak ${logCoverage.counted_from}, tanpa hari ini), di bawah ambang ${minDays} hari.`
+        : null,
+    basis: !hasAccount ? "tidak wajib mengisi"
+      : logCoverage.expected < minDays
+        ? `${logCoverage.logged} dari ${logCoverage.expected} hari kerja ada laporannya`
+        : `${logCoverage.logged} dari ${logCoverage.expected} hari kerja ada laporannya · cuti, sakit, izin, libur, mangkir dan hari ini tidak dihitung`,
+    source: "Laporan harian · jadwal kerja · tanda hari dari HRD",
+    weight: settingNumber(state, "kpi.weight_daily_log", 25),
+  };
+
+  const measures = [punctuality, attendance, task_delivery, daily_log];
   const measured = measures.filter((m) => m.value !== null);
   const minMeasures = settingNumber(state, "kpi.min_measures", 2);
 
@@ -1628,6 +1652,11 @@ export function kpiView(
   if (work !== null) {
     notes.push("Hasil produksi ditampilkan sebagai bukti, bukan sebagai nilai: satu lemari dan satu nakas tidak bisa dijumlahkan, jadi jumlah potong bukan ukuran kinerja.");
   }
+  const logLines = state.work_log.filter((l) =>
+    l.employee_id === employee.id && l.work_date >= from && l.work_date <= to);
+  if (logLines.length > 0) {
+    notes.push(`${logLines.filter((l) => l.task_id === null).length} dari ${logLines.length} entri laporan harian adalah pekerjaan dadakan — dibaca sebagai konteks, tidak dinilai.`);
+  }
 
   return {
     employee_id: employee.id,
@@ -1653,6 +1682,134 @@ export function kpiView(
       coverage,
     },
     notes,
+  };
+}
+
+/* ── Laporan harian (D371, D372) ───────────────────────────────────────── */
+
+/** Who owes a daily log — `ops_hr.owes_daily_log`: an office account, a login
+ *  linked to the employee holding at least one module. A worker's account
+ *  with no module (`/saya`, D331) is a floor worker's — out of scope (D371). */
+export function owesDailyLog(state: DemoState, employee: Employee): boolean {
+  const link = (state.employee_accounts ?? []).find((a) => a.employee_no === employee.employee_no);
+  if (!link) return false;
+  return (state.users.find((u) => u.id === link.user_id)?.modules.length ?? 0) > 0;
+}
+
+/** The working days a log was owed — `ops_hr.daily_log_coverage`, transcribed.
+ *  Not a rest day (week pattern or tanggal merah), not marked cuti, sakit,
+ *  izin, libur or mangkir for this person (half a day is still owed), from the
+ *  day the log existed, and never today, which is not over yet. */
+export function dailyLogCoverage(
+  state: DemoState, employee: Employee, from: string, to: string, today = officeToday(),
+): { expected: number; logged: number; counted_from: string; counted_to: string } {
+  const since = settingText(state, "kpi.daily_log_from", "2026-10-06");
+  const counted_from = from > since ? from : since;
+  const yesterday = addDayKey(today, -1);
+  const counted_to = to < yesterday ? to : yesterday;
+  let expected = 0;
+  let logged = 0;
+  for (let d = counted_from; d <= counted_to; d = addDayKey(d, 1)) {
+    if (isRestDay(state, activePayRules(state, d).rules, d)) continue;
+    const marked = state.day_marks.some((m) =>
+      m.work_date === d && (m.employee_id === employee.id || m.employee_id === null) && m.kind !== "half_day");
+    if (marked) continue;
+    expected += 1;
+    if (state.work_log.some((l) => l.employee_id === employee.id && l.work_date === d)) logged += 1;
+  }
+  return { expected, logged, counted_from, counted_to };
+}
+
+/** A log line with its task and goal named — `v_work_log`, transcribed. */
+export function workLogView(state: DemoState, l: WorkLog, today = officeToday()): WorkLogEntry {
+  const emp = state.employees.find((e) => e.id === l.employee_id);
+  const t = l.task_id ? state.tasks.find((x) => x.id === l.task_id) ?? null : null;
+  const g = t?.goal_id ? state.goals.find((x) => x.id === t.goal_id) ?? null : null;
+  const promoted = l.promoted_task_id ? state.tasks.find((x) => x.id === l.promoted_task_id) ?? null : null;
+  return {
+    id: l.id, work_date: l.work_date, employee_id: l.employee_id,
+    employee_no: emp?.employee_no ?? "—", employee_name: emp?.full_name ?? "—",
+    kind: l.task_id === null ? "dadakan" : "tugas",
+    task_no: t?.task_no ?? null, task_title: t?.title ?? null, task_status: t?.status ?? null,
+    goal_no: g?.goal_no ?? null, goal_title: g?.title ?? null, goal_rank: g?.rank ?? null,
+    summary: l.summary, progress: l.progress, requested_by: l.requested_by, hours: l.hours,
+    created_at: l.created_at, updated_at: l.updated_at,
+    editable: l.work_date === today && l.promoted_task_id === null,
+    promoted_task_no: promoted?.task_no ?? null,
+  };
+}
+
+/** HRD's day — `ops_hr.work_log_roster`, transcribed: everybody who can log
+ *  (an account), the ones with nothing logged first. */
+export function workLogRoster(state: DemoState, date: string): WorkLogRosterRow[] {
+  return state.employees
+    .filter((e) => e.active && owesDailyLog(state, e))
+    .map((e): WorkLogRosterRow => {
+      const lines = state.work_log.filter((l) => l.employee_id === e.id && l.work_date === date);
+      const mark = state.day_marks.find((m) =>
+        m.work_date === date && (m.employee_id === e.id || m.employee_id === null));
+      const sum = (xs: WorkLog[]) => xs.reduce((a, l) => a + (l.hours ?? 0), 0);
+      const dadakan = lines.filter((l) => l.task_id === null);
+      return {
+        employee_no: e.employee_no, full_name: e.full_name, unit: e.unit, position: e.position,
+        scheduled: !isRestDay(state, activePayRules(state, date).rules, date),
+        mark_kind: mark?.kind ?? null,
+        entries: lines.length,
+        task_entries: lines.length - dadakan.length,
+        dadakan_entries: dadakan.length,
+        hours: sum(lines), dadakan_hours: sum(dadakan),
+      };
+    })
+    .sort((a, b) => Number(a.entries > 0) - Number(b.entries > 0) || a.full_name.localeCompare(b.full_name));
+}
+
+/** What a performance advisory is written from — `ops_hr.work_evidence`,
+ *  transcribed. */
+export function workEvidence(
+  state: DemoState, employee: Employee, from: string, to: string,
+): WorkEvidence {
+  const cov = dailyLogCoverage(state, employee, from, to);
+  const lines = state.work_log
+    .filter((l) => l.employee_id === employee.id && l.work_date >= from && l.work_date <= to)
+    .map((l) => workLogView(state, l));
+  const dadakan = lines.filter((l) => l.kind === "dadakan");
+  const onTasks = lines.filter((l) => l.kind === "tugas");
+  const sumH = (xs: WorkLogEntry[]) => xs.reduce((a, l) => a + (l.hours ?? 0), 0);
+  const byTask = new Map<string, WorkLogEntry[]>();
+  for (const l of onTasks) byTask.set(l.task_no!, [...(byTask.get(l.task_no!) ?? []), l]);
+  const byAsker = new Map<string, number>();
+  for (const l of dadakan) byAsker.set(l.requested_by ?? "—", (byAsker.get(l.requested_by ?? "—") ?? 0) + 1);
+  const byGoal = new Map<string, { title: string; entries: number }>();
+  for (const l of onTasks.filter((x) => x.goal_no)) {
+    const cur = byGoal.get(l.goal_no!) ?? { title: l.goal_title ?? "—", entries: 0 };
+    byGoal.set(l.goal_no!, { ...cur, entries: cur.entries + 1 });
+  }
+  const days = lines.map((l) => l.work_date).sort();
+  return {
+    employee_no: employee.employee_no, full_name: employee.full_name,
+    period_start: from, period_end: to,
+    has_account: owesDailyLog(state, employee),
+    days_expected: cov.expected, days_logged: cov.logged, counted_from: cov.counted_from,
+    coverage: cov.expected === 0 ? null : Math.round((cov.logged / cov.expected) * 100),
+    entries: lines.length, task_entries: onTasks.length, dadakan_entries: dadakan.length,
+    dadakan_share: lines.length === 0 ? null : Math.round((dadakan.length / lines.length) * 100),
+    hours_task: sumH(onTasks), hours_dadakan: sumH(dadakan),
+    entries_without_hours: lines.filter((l) => l.hours === null).length,
+    promoted: lines.filter((l) => l.promoted_task_no !== null).length,
+    first_day: days[0] ?? null, last_day: days[days.length - 1] ?? null,
+    tasks: [...byTask.entries()].map(([task_no, ls]) => {
+      const latest = [...ls].sort((a, b) =>
+        b.work_date.localeCompare(a.work_date) || b.created_at.localeCompare(a.created_at))[0];
+      return {
+        task_no, title: latest.task_title ?? "—", status: latest.task_status ?? "OPEN",
+        goal_title: latest.goal_title, days: new Set(ls.map((l) => l.work_date)).size,
+        last_progress: latest.progress,
+      };
+    }).sort((a, b) => b.days - a.days || a.task_no.localeCompare(b.task_no)),
+    requesters: [...byAsker.entries()].map(([requested_by, entries]) => ({ requested_by, entries }))
+      .sort((a, b) => b.entries - a.entries || a.requested_by.localeCompare(b.requested_by)),
+    goals: [...byGoal.entries()].map(([goal_no, g]) => ({ goal_no, title: g.title, entries: g.entries }))
+      .sort((a, b) => b.entries - a.entries || a.goal_no.localeCompare(b.goal_no)),
   };
 }
 

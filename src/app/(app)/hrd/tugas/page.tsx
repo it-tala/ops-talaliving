@@ -16,6 +16,7 @@ import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 import { GoalsPanel } from "./goals-panel";
+import { DailyPanel } from "./daily-panel";
 
 /** Pemantauan tugas — the module built against a failure the owner described
  *  in one sentence (D303):
@@ -66,7 +67,7 @@ export default function TasksPage() {
   const [routines, reloadRoutines] = useLoad(() => hr.listTaskRoutines(), []);
   const [employees] = useLoad(() => hr.listEmployees(), []);
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<"goals" | "open" | "all" | "routines">("goals");
+  const [tab, setTab] = useState<"goals" | "daily" | "open" | "all" | "routines">("goals");
 
   const mayCreate = can("hrd.create");
   const mayEdit = can("hrd.update");
@@ -399,7 +400,7 @@ export default function TasksPage() {
       )}
 
       <div className="mb-3 flex gap-1.5">
-        {([["goals", tr("Goals & priority", "Sasaran & prioritas")], ["open", tr("Open", "Terbuka")], ["all", tr("All", "Semua")], ["routines", tr("Routine tasks", "Tugas rutin")]] as const).map(([k, label]) => (
+        {([["goals", tr("Goals & priority", "Sasaran & prioritas")], ["daily", tr("Daily log", "Laporan harian")], ["open", tr("Open", "Terbuka")], ["all", tr("All", "Semua")], ["routines", tr("Routine tasks", "Tugas rutin")]] as const).map(([k, label]) => (
           <button
             key={k}
             onClick={() => setTab(k)}
@@ -544,6 +545,10 @@ export default function TasksPage() {
           stamp={tasks.status === "ready" ? tasks.data : null}
           onChanged={reloadTasks}
         />
+      )}
+
+      {tab === "daily" && (
+        <DailyPanel goals={openGoals} mayCreate={mayCreate} onChanged={reloadTasks} />
       )}
 
       {(tab === "open" || tab === "all") && (

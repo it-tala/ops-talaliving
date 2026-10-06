@@ -12,6 +12,7 @@ import { hr } from "@/demo/api";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
+import { WorkEvidencePanel } from "@/components/hr/work-evidence";
 
 /** The KPI analyzer and the task tracker — the owner asked for both, and they
  *  are one screen because one is the evidence for the other (D260, D261).
@@ -63,6 +64,7 @@ export default function KpiPage() {
   const [tasks, reloadTasks] = useLoad(() => hr.listTasks(), []);
   const [employees] = useLoad(() => hr.listEmployees(), []);
   const [open, setOpen] = useState<string | null>(null);
+  const [evidence, setEvidence] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const [who, setWho] = useState("");
@@ -256,6 +258,24 @@ export default function KpiPage() {
                             `${r.tasks_blocked} tugas tertahan menunggu pihak lain — tidak dihitung sebagai kegagalannya.`,
                           )}
                         </p>
+                      )}
+                    </div>
+                    {/* The PA's evidence (D372): what the person logged, how much
+                        of it was dadakan and who asked — read on demand, per
+                        person, for the same period as the score. */}
+                    <div className="border-t border-slate-100 px-5 py-2">
+                      <button
+                        className="text-[12px] font-medium text-brand-700 hover:underline"
+                        onClick={() => setEvidence(evidence === r.employee_no ? null : r.employee_no)}
+                      >
+                        {evidence === r.employee_no
+                          ? tr("Hide PA evidence", "Sembunyikan bukti PA")
+                          : tr("Evidence for the PA (daily log)", "Bukti untuk PA (laporan harian)")}
+                      </button>
+                      {evidence === r.employee_no && (
+                        <div className="mt-2">
+                          <WorkEvidencePanel employeeNo={r.employee_no} from={start} to={end} />
+                        </div>
                       )}
                     </div>
                   </Card>
