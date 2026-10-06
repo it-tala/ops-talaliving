@@ -11,7 +11,7 @@ import { ADJUSTMENT_LABEL, type PayrollLine } from "@/services/hr/contracts";
 import { useTr } from "@/lib/i18n";
 import { officeClock } from "@/lib/office";
 
-/** Payroll as one sheet (0213, D371).
+/** Payroll as one sheet (0213, D373).
  *
  *  Owner: *pastikan absensi lengkap; tampilkan rate gaji bulanan, pokok,
  *  tunjangan, bonus, potongan, rate harian dan rate per jam; breakdown

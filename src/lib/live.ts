@@ -76,6 +76,7 @@ export const LIVE_ROUTES: readonly string[] = [
   "/hrd/cuti",
   "/hrd/jadwal",
   "/hrd/karyawan",
+  "/hrd/kinerja",
   "/hrd/kontrak",
   "/hrd/kontrak/[no]",
   "/hrd/lembur",

@@ -141,7 +141,7 @@ export default function PayrollPage() {
             <Button variant="outline" icon={CalendarRange}>{tr("Weekly payroll", "Gajian mingguan")}</Button>
           </Link>
           {/* The sheet: attendance, rates, every breakdown and a box per
-              person, before anything is opened (0213, D371). */}
+              person, before anything is opened (0213, D373). */}
           {mayRun && (
             <Link href="/hrd/payroll/buat">
               <Button icon={ClipboardList}>{tr("Generate payroll", "Buat payroll")}</Button>

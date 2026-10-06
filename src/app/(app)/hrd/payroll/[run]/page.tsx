@@ -157,7 +157,7 @@ export default function PayrollRunPage({ params }: { params: Promise<{ run: stri
 
             <PayRun run={d} onPosted={reload} />
 
-            {/* The sheet (0213, D371): every person, their attendance and rates,
+            {/* The sheet (0213, D373): every person, their attendance and rates,
                 what is added and what is taken, and a box — unticking holds
                 somebody off this run with the reason below. */}
             {d.status === "DRAFT" && mayRun && (

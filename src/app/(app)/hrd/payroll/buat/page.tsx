@@ -17,7 +17,7 @@ import { useLang, useTr } from "@/lib/i18n";
 import { officeToday } from "@/lib/office";
 import { PayrollSheet, type SheetAside } from "../PayrollSheet";
 
-/** Generating a payroll, as one sheet (0213, D371).
+/** Generating a payroll, as one sheet (0213, D373).
  *
  *  The order is the owner's: attendance complete first, then the rates, then
  *  every person's breakdown one click away, and the totals of what is added

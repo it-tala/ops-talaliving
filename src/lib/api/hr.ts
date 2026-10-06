@@ -50,6 +50,7 @@ import type {
   LeaveKind, LeaveStatus, LeaveRequestView, LeaveBalance,
   TaskStatus, TaskRefKind, TaskView, TaskCadence, TaskRoutineView,
   TaskAction, GoalView, GoalBoardTask,
+  WorkLogEntry, WorkLogRosterRow, WorkEvidence, WorkProgress, KpiView,
   Sex, Education, Citizenship, MaritalStatus, EmployeeIdentityView, WlkpRecap,
   TapReading, TapSelfResult, LocationJudgement, WorkSite, LocatedTapView, TapKind,
   EmployeeAccount, ScanImportResult,
@@ -61,6 +62,7 @@ import {
 import { instantInDay, nextOfficeDay, type ScheduleDay, type ScheduleShift, type ScheduleWeekDay } from "@/services/hr/schedule-rules";
 import { tapWhere, type TapReadingRow } from "@/services/hr/tap-where";
 import { supabaseBrowser } from "@/lib/supabase/client";
+import { STAGE_NAME } from "@/services/production/contracts";
 import { fromSeam, fromRows, notFound, invalid, ok, type Result } from "./_kit";
 import { link as linkDocument } from "./documents";
 import { officeStamp } from "@/lib/office";
@@ -800,7 +802,7 @@ export async function setRunComponents(
   return getPayroll(input.run_no);
 }
 
-/* ── the sheet (0213, D371) ──────────────────────────────────────────── */
+/* ── the sheet (0213, D373) ──────────────────────────────────────────── */
 
 /** Who another run already pays for days of this period — the sheet greys
  *  them out and names the run before anything is generated. */
@@ -2450,6 +2452,119 @@ export async function closeGoal(
   const said = fromSeam<{ goal_no: string }>(SERVICE, data, error);
   if (said.error) return said as unknown as Result<GoalView>;
   return goalByNo(input.goal_no);
+}
+
+/* ------------------------------------------------------------------ */
+/* Laporan harian (D371, D372)                                          */
+/* ------------------------------------------------------------------ */
+//
+// Writes go through `log_work` / `remove_work_log`, which take the person from
+// the account link and the day from the office clock — there is no argument
+// here to name anybody else or another day, by design. Reads are `v_work_log`
+// under RLS: a person their own lines, HRD and payroll everybody's.
+
+export async function listWorkLog(
+  input: { from: string; to: string; employee_no?: string },
+): Promise<Result<WorkLogEntry[]>> {
+  let q = db().from("v_work_log").select("*")
+    .gte("work_date", input.from).lte("work_date", input.to)
+    .order("work_date", { ascending: false })
+    .order("created_at", { ascending: true });
+  if (input.employee_no) q = q.eq("employee_no", input.employee_no);
+  const { data, error } = await q;
+  return fromRows<WorkLogEntry[]>(SERVICE, data as never, error);
+}
+
+async function workLogById(id: string): Promise<Result<WorkLogEntry>> {
+  const { data, error } = await db().from("v_work_log").select("*").eq("id", id).maybeSingle();
+  if (error) return fromRows<WorkLogEntry>(SERVICE, null as never, error);
+  if (!data) return notFound(SERVICE, "work_log_not_found", "Catatan tersimpan tapi tidak terbaca kembali.");
+  return ok(SERVICE, data as unknown as WorkLogEntry);
+}
+
+/** New (no `entry_id`) or a change to one of today's own lines. A line with
+ *  no `task_no` is dadakan and needs `requested_by`. */
+export async function logWork(
+  input: {
+    entry_id?: string | null;
+    task_no?: string | null;
+    summary: string;
+    progress: WorkProgress;
+    requested_by?: string | null;
+    hours?: number | null;
+  },
+): Promise<Result<WorkLogEntry>> {
+  const { data, error } = await db().rpc("log_work", {
+    p_summary: input.summary,
+    p_progress: input.progress,
+    p_task_no: input.task_no ?? null,
+    p_requested_by: input.requested_by ?? null,
+    p_hours: input.hours ?? null,
+    p_entry: input.entry_id ?? null,
+  });
+  const said = fromSeam<{ entry_id: string }>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<WorkLogEntry>;
+  return workLogById(said.data.entry_id);
+}
+
+export async function removeWorkLog(
+  input: { entry_id: string },
+): Promise<Result<{ entry_id: string }>> {
+  const { data, error } = await db().rpc("remove_work_log", { p_entry: input.entry_id });
+  return fromSeam<{ entry_id: string }>(SERVICE, data, error);
+}
+
+/** HRD: a dadakan line becomes a task for the same person. */
+export async function promoteWorkLog(
+  input: { entry_id: string; due_date: string; goal_no?: string | null },
+): Promise<Result<TaskView>> {
+  const { data, error } = await db().rpc("promote_work_log", {
+    p_entry: input.entry_id, p_due: input.due_date, p_goal_no: input.goal_no ?? null,
+  });
+  const said = fromSeam<{ entry_id: string; task_no: string }>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<TaskView>;
+  return taskByNo(said.data.task_no);
+}
+
+export async function workLogRoster(
+  input: { date: string },
+): Promise<Result<WorkLogRosterRow[]>> {
+  const { data, error } = await db().rpc("work_log_roster", { p_date: input.date });
+  return fromRows<WorkLogRosterRow[]>(SERVICE, (data ?? []) as WorkLogRosterRow[], error);
+}
+
+/** The evidence a performance advisory is written from (D372). */
+export async function workEvidence(
+  input: { employee_no: string; period_start: string; period_end: string },
+): Promise<Result<WorkEvidence>> {
+  const { data, error } = await db().rpc("work_evidence", {
+    p_employee_no: input.employee_no, p_from: input.period_start, p_to: input.period_end,
+  });
+  return fromRows<WorkEvidence>(SERVICE, data as WorkEvidence, error);
+}
+
+/** The KPI board, live for the first time (D372).
+ *
+ *  `kpi_board()` assembles the card from `kpi()` and `kpi_measures()`, so the
+ *  arithmetic stays where it already lives. The one thing assembled here is
+ *  the stage's name, from the same `STAGE_NAME` the demo reads: the database
+ *  stores codes, and the name of an old seven-stage code is a display rule. */
+export async function getKpi(
+  input: { period_start: string; period_end: string; employee_no?: string },
+): Promise<Result<KpiView[]>> {
+  const { data, error } = await db().rpc("kpi_board", {
+    p_from: input.period_start, p_to: input.period_end, p_employee_no: input.employee_no ?? null,
+  });
+  if (error) return fromRows<KpiView[]>(SERVICE, null as never, error);
+  const cards = ((data ?? []) as KpiView[]).map((c) => ({
+    ...c,
+    work: c.work === null ? null : {
+      ...c.work,
+      by_stage: (c.work.by_stage ?? []).map((st) => ({ ...st, name: STAGE_NAME(st.stage) })),
+      work_orders: c.work.work_orders ?? [],
+    },
+  }));
+  return ok(SERVICE, cards);
 }
 
 export async function listTaskRoutines(): Promise<Result<TaskRoutineView[]>> {

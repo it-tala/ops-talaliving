@@ -1,4 +1,4 @@
--- 213_hr_payroll_sheet.sql — payroll generated as a sheet (0213, D371).
+-- 213_hr_payroll_sheet.sql — payroll generated as a sheet (0213, D373).
 --
 --   • each day of a line carries its own lateness;
 --   • a line carries a day's rate for each pay basis, what the alpa took from
@@ -21,7 +21,7 @@ insert into ops_core.user_modules (user_id, module, level) values
   ('ffffffff-0000-0000-0000-000000021302','payroll','read');
 
 insert into ops_hr.pay_rule_sets (version, effective_from, note, rules, created_by) values
- (1, '2026-08-01', 'uji D371', '{
+ (1, '2026-08-01', 'uji D373', '{
    "week_pattern":"5day","late_grace_minutes":15,"late_mode":"manual","undertime_mode":"off",
    "day_reading":"in_out","hours_rounding_minutes":15,
    "overtime_mode":"tiered","workday_tiers":[{"after_hours":0,"multiplier":1.5}],
@@ -54,7 +54,7 @@ values ('2026-09-15','aaaa2130-0000-0000-0000-000000000001','absent','Tidak masu
 -- Monday 28 September: B-2132 in at 08.40 (25 minutes past the grace), out 17.05.
 -- Tuesday 29: on time. B-2133 both days on time.
 insert into ops_hr.attendance_scans (employee_id, work_date, at, verify, source, reason)
-select e.id, ops_core.office_day(t), t, 'FP', 'manual', 'uji D371'
+select e.id, ops_core.office_day(t), t, 'FP', 'manual', 'uji D373'
   from (values ('aaaa2130-0000-0000-0000-000000000002'::uuid, '2026-09-28 08:40'::timestamp),
                ('aaaa2130-0000-0000-0000-000000000002', '2026-09-28 17:05'),
                ('aaaa2130-0000-0000-0000-000000000002', '2026-09-29 07:55'),

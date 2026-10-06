@@ -1,7 +1,12 @@
 -- 0213 — payroll generated as a sheet: attendance complete first, every rate
 -- in view, each person's breakdown one click away, and a checkbox per person.
 --
--- ── the owner's ask (D371, 2026-10-06) ────────────────────────────────────
+-- Written and applied to production (2026-10-06, four parts named
+-- `0213_hr_payroll_sheet_*`) as D371; renumbered D373 / F222 because the
+-- daily work log (#130) reached main first under D371/D372. The function
+-- bodies in production carry the old number in their comments, nothing else.
+--
+-- ── the owner's ask (D373, 2026-10-06) ────────────────────────────────────
 --
 --   *ubah pendekatan cara payroll di generate: (1) pastikan absensi lengkap —
 --   total absensi beserta durasi kerja, keterlambatan, overtime per hari;
@@ -107,7 +112,7 @@ declare
   v_off      jsonb := '[]'::jsonb;
   v_cut      bigint;
   v_k        text;
-  -- 0213 (D371)
+  -- 0213 (D373)
   v_late_day int;
   v_mb_full  jsonb;
   v_adj_pos  numeric := 0;
@@ -321,7 +326,7 @@ begin
       end if;
     end if;
 
-    /* 0213 (D371): the day's lateness on the day's own line, so the sheet can
+    /* 0213 (D373): the day's lateness on the day's own line, so the sheet can
        show duration, lateness and overtime side by side. */
     v_days := jsonb_set(v_days, array[(jsonb_array_length(v_days) - 1)::text, 'late_minutes'],
                         to_jsonb(v_late_day));
@@ -360,7 +365,7 @@ begin
               coalesce((c_person ->> 'absence')::boolean, (c_run ->> 'absence')::boolean, true));
     out_row.base_pay  := (v_mb ->> 'amount')::bigint;
     out_row.proration := v_mb -> 'months';
-    /* 0213 (D371): what the alpa took, apart from what the calendar did —
+    /* 0213 (D373): what the alpa took, apart from what the calendar did —
        the salary with nothing marked, less the salary as paid. Zero when the
        `absence` switch is off, because then nothing was taken. */
     v_mb_full := ops_hr.monthly_base(emp.base_rate, v_rules, sc, emp.joined_on, emp.left_on,
@@ -370,7 +375,7 @@ begin
     out_row.absence_deduction := 0;
   end if;
 
-  /* 0213 (D371): a day of this person's pay — the salary over the first
+  /* 0213 (D373): a day of this person's pay — the salary over the first
      month's working days, the day wage, or the hour wage over a contracted
      day. The hour beside it is `hourly`, the one overtime is priced at. */
   out_row.daily_rate := case emp.pay_basis
@@ -528,7 +533,7 @@ begin
 
   out_row.take_home := out_row.net - out_row.contribution_total;
 
-  /* 0213 (D371): the two columns of the sheet. What is added — pokok,
+  /* 0213 (D373): the two columns of the sheet. What is added — pokok,
      tunjangan, lembur, every addition typed by hand — and what is taken —
      lateness, short hours, BPJS, every deduction typed by hand. Their
      difference is `take_home`, by construction; the alpa is already inside
