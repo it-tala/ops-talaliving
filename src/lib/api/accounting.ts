@@ -387,6 +387,30 @@ async function codeFor(
   return (data as { code: string } | null)?.code ?? null;
 }
 
+/** A row a seam has just written, read back through `v_transaction`.
+ *
+ *  `maybeSingle`, not `single`: a row on a leadership account is not in the
+ *  view for a reader without `approve_funds` (`0238`, D391), and staff with
+ *  `post_ledger` do write them — the out leg of a round's funding (D78). The
+ *  seam has already said yes, so the answer is the row as far as this reader
+ *  may know it — its number and what they typed themselves — and never an
+ *  error, which a screen reads as *not recorded* and a person answers by
+ *  paying twice. */
+async function readBack(trxNo: string, known: Partial<TransactionView> = {}): Promise<Result<TransactionView>> {
+  const row = await db().from("v_transaction").select("*").eq("trx_no", trxNo).maybeSingle();
+  if (row.error) return fail(SERVICE, row.error);
+  if (row.data) return ok(SERVICE, row.data as TransactionView);
+  return ok(SERVICE, {
+    id: "", trx_date: "", account_id: "", account_code: "", direction: "OUT", amount_idr: 0,
+    type_code: "", vendor_id: null, vendor_name: null, project_id: null, description: "",
+    remark: null, status: "POSTED", source_ref: "", posted_by: "", posted_at: "",
+    void_reason: null, allocated_total: 0, unallocated: 0, evidence_count: 0,
+    has_payment_proof: false, has_receipt_doc: false, pr_line_nos: [], expects_allocation: false,
+    ...known,
+    trx_no: trxNo,
+  });
+}
+
 /** Post a transaction, and answer with the transaction.
  *
  *  **No document, no row** (D85), and a purchase needs to be checkable (D86).
@@ -445,8 +469,13 @@ export async function postTransaction(
   /* The row exists whether or not this read succeeds, so its error is returned
      as it is rather than dressed as a failed post — retrying a post that
      already happened is how a payment gets made twice. */
-  const row = await db().from("v_transaction").select("*").eq("trx_no", posted.data.trx_no).single();
-  return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
+  return readBack(posted.data.trx_no, {
+    trx_date: input.trx_date, account_id: input.account_id, account_code: accountCode,
+    direction: input.direction, amount_idr: input.amount_idr, type_code: input.type_code,
+    vendor_id: input.vendor_id ?? null, project_id: input.project_id ?? null,
+    description: input.description, source_ref: input.source_ref,
+    unallocated: input.amount_idr, evidence_count: input.documents.length,
+  });
 }
 
 /** Book one document — the whole nota, in one act.
@@ -530,8 +559,7 @@ export async function bookEvidence(
      read succeeds, so a failed read is returned as itself rather than dressed
      as a failed booking. Retrying a booking that already happened is how a
      payment gets made twice. */
-  const row = await db().from("v_transaction").select("*").eq("trx_no", booked.data.trx_no).single();
-  return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
+  return readBack(booked.data.trx_no);
 }
 
 /** Pay an approved request line.
@@ -585,9 +613,7 @@ export async function postFromLine(
      read succeeds, so a failed read is returned as itself rather than dressed
      as a failed payment. Retrying one that already happened is how a supplier
      gets paid twice. */
-  const row = await db()
-    .from("v_transaction").select("*").eq("trx_no", posted.data.trx_no).single();
-  return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
+  return readBack(posted.data.trx_no);
 }
 
 /** Paying an order from its own screen (B8, `ops_acct.post_to_po`, 0139).
@@ -622,9 +648,7 @@ export async function postToPo(
   });
   const posted = fromSeam<{ trx_no: string }>(SERVICE, data, error);
   if (posted.error) return posted;
-  const row = await db()
-    .from("v_transaction").select("*").eq("trx_no", posted.data.trx_no).single();
-  return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
+  return readBack(posted.data.trx_no);
 }
 
 /** Paying an approved payroll run from its page (F154, `ops_acct.post_payroll_run`,
@@ -658,9 +682,7 @@ export async function postPayrollRun(
   });
   const posted = fromSeam<{ trx_no: string }>(SERVICE, data, error);
   if (posted.error) return posted;
-  const row = await db()
-    .from("v_transaction").select("*").eq("trx_no", posted.data.trx_no).single();
-  return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
+  return readBack(posted.data.trx_no);
 }
 
 /** VOID keeps the row and the amount, with a reason beside it (A5, D84). The
@@ -677,8 +699,7 @@ export async function voidTransaction(
   /* The row is still there — that is the whole point of a VOID (A5, D84) — so
      the screen wants it back, now reading VOID, rather than a receipt saying it
      worked. */
-  const row = await db().from("v_transaction").select("*").eq("trx_no", voided.data.trx_no).single();
-  return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
+  return readBack(voided.data.trx_no);
 }
 
 /** Correcting a row in place — amount (with a remark) and description
@@ -730,8 +751,7 @@ export async function editTransaction(
   const edited = fromSeam<{ trx_no: string }>(SERVICE, data, error);
   if (edited.error) return edited;
 
-  const row = await db().from("v_transaction").select("*").eq("trx_no", edited.data.trx_no).single();
-  return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
+  return readBack(edited.data.trx_no);
 }
 
 /** A row moved past POSTED to COMPLETED — `post_ledger`, the same authority
@@ -742,8 +762,7 @@ export async function markComplete(trxNo: string): Promise<Result<TransactionVie
   const completed = fromSeam<{ trx_no: string; status: string }>(SERVICE, data, error);
   if (completed.error) return completed;
 
-  const row = await db().from("v_transaction").select("*").eq("trx_no", completed.data.trx_no).single();
-  return fromRows<TransactionView>(SERVICE, row.data as TransactionView | null, row.error);
+  return readBack(completed.data.trx_no);
 }
 
 /** The second seam: what a payment was *for*. A transaction never funds more
