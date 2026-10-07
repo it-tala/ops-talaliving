@@ -27,8 +27,10 @@ insert into ops_core.user_modules (user_id, module, level) values
   ('ffffffff-0000-0000-0000-00000000aa02','payroll','read');
 
 insert into ops_hr.employees (id, employee_no, full_name, pay_basis, base_rate, allowance_rate, daily_hours)
-values ('aaaa0000-0000-0000-0000-00000000c001','B-501','Sari Utami','monthly',5000000,25000,8),
-       ('aaaa0000-0000-0000-0000-00000000c002','B-502','Bima Saputra','monthly',9000000,25000,8);
+-- A salary's tunjangan is a month since 0230 (D386): 625.000 is what 25.000 a
+-- day over 25 days used to be, so every figure below stays as it was.
+values ('aaaa0000-0000-0000-0000-00000000c001','B-501','Sari Utami','monthly',5000000,625000,8),
+       ('aaaa0000-0000-0000-0000-00000000c002','B-502','Bima Saputra','monthly',9000000,625000,8);
 
 insert into ops_hr.pay_rule_sets (version, effective_from, note, rules, created_by) values
  (1, current_date, 'versi uji iuran',
@@ -105,7 +107,7 @@ declare l record;
 begin
   select * into l from ops_hr.contribution_lines('BPJS_KESEHATAN','2026-08-01')
    where employee_no = 'B-501';
-  assert l.base = 5625000,     '5.000.000 + 25.000 × 25 hari, got ' || l.base;
+  assert l.base = 5625000,     'pokok 5.000.000 + tunjangan 625.000 sebulan, got ' || l.base;
   assert l.base_source = 'pay_record', 'nothing was declared for her, got ' || l.base_source;
   assert l.employer = 225000,  '4% pemberi kerja, got ' || l.employer;
   assert l.employee = 56250,   '1% pekerja, got ' || l.employee;

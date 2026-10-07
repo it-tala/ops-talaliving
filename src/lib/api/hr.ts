@@ -45,7 +45,7 @@ import type {
   ContractView, ContractDetail, ContractClause, ClauseCoverage, ClauseConflict,
   PayRules, PayRuleSetView, TimesheetTotal, EffectiveDaysCalendar,
   PayrollRun, PayrollView, PayrollLine, PayrollAdjustmentView,
-  PayGroup, PayComponents, PayrollRunMember, PaidElsewhere, PayrollHold,
+  PayGroup, PayComponents, PayrollRunMember, PaidElsewhere, PayrollHold, PayPreview, PayPreviewInput,
   AdjustmentKind, ContributionScheme,
   LeaveKind, LeaveStatus, LeaveRequestView, LeaveBalance,
   TaskStatus, TaskRefKind, TaskView, TaskCadence, TaskRoutineView,
@@ -813,6 +813,20 @@ export async function paidElsewhere(
     p_from: input.period_start, p_to: input.period_end, p_except: input.except_run ?? null,
   });
   return fromRows<PaidElsewhere[]>(SERVICE, data as never, error);
+}
+
+/** What the employee form shows once pokok and tunjangan are typed, before
+ *  anything is saved (0231, D386). */
+export async function payPreview(input: PayPreviewInput): Promise<Result<PayPreview>> {
+  const { data, error } = await db().rpc("pay_preview", {
+    p_pay_basis: input.pay_basis, p_base_rate: Math.round(input.base_rate),
+    p_allowance_rate: Math.round(input.allowance_rate),
+    p_daily_hours: input.daily_hours ?? 8, p_schedule_code: input.schedule_code ?? null,
+    p_unit: input.unit ?? null, p_on: input.on ?? null,
+  });
+  /* A table function of one row. */
+  if (error) return fromRows<PayPreview>(SERVICE, null, error);
+  return fromRows<PayPreview>(SERVICE, ((data ?? []) as PayPreview[])[0] ?? null, null);
 }
 
 /** The sheet's one button: open the run for the group and hold everybody left

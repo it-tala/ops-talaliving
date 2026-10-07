@@ -51,6 +51,12 @@ function payWeekOf(key: string, dow: number): [string, string] {
   return [start, addDays(start, 6)];
 }
 
+/** The month a number of months from the one `key` is in. */
+function shiftMonth(key: string, n: number): string {
+  const [y, m] = key.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 10);
+}
+
 function monthOf(key: string): [string, string] {
   const [y, m] = key.split("-").map(Number);
   const end = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
@@ -190,16 +196,31 @@ export default function GeneratePayrollPage() {
           <input id="g-to" type="date" value={to} onChange={(e) => setPeriod([from, e.target.value])}
             className="mt-1 h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none" />
         </div>
+        {/* Walking the period: by the pay week for wages, by the month for
+            salaries — a salary is compared month by month (D386). */}
         <div className="flex gap-1.5">
-          <Button size="sm" variant="outline" onClick={() => setPeriod(payWeekOf(addDays(from, -7), PAY_WEEK_STARTS_DEFAULT))}>
-            {tr("‹ Week", "‹ Minggu")}
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setPeriod(payWeekOf(addDays(from, 7), PAY_WEEK_STARTS_DEFAULT))}>
-            {tr("Week ›", "Minggu ›")}
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setPeriod(monthOf(from))}>
-            {tr("Whole month", "Sebulan")}
-          </Button>
+          {group === "monthly" ? (
+            <>
+              <Button size="sm" variant="outline" onClick={() => setPeriod(monthOf(shiftMonth(from, -1)))}>
+                {tr("‹ Month", "‹ Bulan")}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setPeriod(monthOf(shiftMonth(from, 1)))}>
+                {tr("Month ›", "Bulan ›")}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button size="sm" variant="outline" onClick={() => setPeriod(payWeekOf(addDays(from, -7), PAY_WEEK_STARTS_DEFAULT))}>
+                {tr("‹ Week", "‹ Minggu")}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setPeriod(payWeekOf(addDays(from, 7), PAY_WEEK_STARTS_DEFAULT))}>
+                {tr("Week ›", "Minggu ›")}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setPeriod(monthOf(from))}>
+                {tr("Whole month", "Sebulan")}
+              </Button>
+            </>
+          )}
         </div>
       </div>
 

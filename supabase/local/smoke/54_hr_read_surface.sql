@@ -56,7 +56,8 @@ insert into ops_hr.employees (id, employee_no, full_name, unit, schedule_code, p
                               base_rate, allowance_rate, paid_leave_days)
 values
   -- Linked by name: a decision somebody took.
-  ('aaaa5700-0000-0000-0000-0000000000e1','B-0012','Joko','Produksi','PRODUKSI','monthly', 4500000, 25000, 12),
+  -- Tunjangan 650.000 a month (0230, D386): 25.000 a day over September's 26.
+  ('aaaa5700-0000-0000-0000-0000000000e1','B-0012','Joko','Produksi','PRODUKSI','monthly', 4500000, 650000, 12),
   -- On a pattern only because the unit defaults to it: an assumption.
   ('aaaa5700-0000-0000-0000-0000000000e2','B-0007','Siti','Kantor', null,'daily', 180000, 20000, 12),
   -- Nobody linked her and her unit has no default: no clock at all to judge
@@ -284,7 +285,7 @@ begin
   select * into w from ops_hr.v_allowance_withholding where employee_no = 'B-0012';
   assert w.full_name = 'Joko', 'got ' || coalesce(w.full_name,'(null)');
   assert w.by_name = 'Staf HRD', 'who decided, by name, got ' || coalesce(w.by_name,'(null)');
-  assert w.amount = 25000, 'what it costs that day, got ' || w.amount;
+  assert w.amount = 25000, 'what it costs that day — 650.000 ÷ 26, got ' || w.amount;
   assert w.live, 'and it is still withheld';
   assert w.restored_by_name is null, 'nobody has put it back';
   a := ops_hr.restore_allowance('B-0012','2026-09-18','sepatunya ternyata rusak, sudah diganti');

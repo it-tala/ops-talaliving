@@ -4,7 +4,7 @@ import type {
   Employee, RosterEntry, AttendanceScan, TimesheetDay, DayMark, DayMarkKind,
   OvertimeSheet, OvertimeLine, OvertimeSheetView, OvertimeKind, OvertimeDecider, SelfOvertimeView,
   PayrollRun, PayrollView, PayrollLine, PayBasis,
-  PayGroup, PayComponents, PayrollRunMember, PaidElsewhere, PayrollHold,
+  PayGroup, PayComponents, PayrollRunMember, PaidElsewhere, PayrollHold, PayPreview, PayPreviewInput,
   AdjustmentKind, PayrollAdjustmentView,
   PayRules, PayRuleSet, PayRuleSetView, WorkSchedule, ScheduleHours, UnitScheduleDefault,
   EmployeeDocKind, EmployeeFileView, DocNoSource, LeaveBalance, LeaveKind, LeaveRequestView, LeaveStatus,
@@ -39,6 +39,7 @@ import {
   workLogView, workLogRoster as workLogRosterRows, workEvidence as workEvidenceOf,
   employeeIdentityViews, wlkpRecap,
   membersOf, groupPeople, paidElsewhere as paidElsewhereRun,
+  monthWorkdays, allowanceDayExact, hourlyRate,
 } from "../hr-derive";
 import { latency, actingUser, requireModule, requireLevel, requireAuthority, conflict, replayed, remember } from "./_kit";
 import { OFFICE_TZ, officeClock, officeToday as sharedOfficeToday, officeStamp } from "@/lib/office";
@@ -1216,7 +1217,9 @@ function viewWithholding(state: DemoState, w: AllowanceWithholding): AllowanceWi
     /* The person's rate **as it stands**, not as it stood. Said in the contract
        and worth repeating: this is context for the decision, not a stored
        amount, and a rate that has since changed will move it. */
-    amount: emp?.allowance_rate ?? 0,
+    /* 0231 (D386): a day of it — for a salary, the month's share of that day. */
+    amount: emp ? Math.round(allowanceDayExact(state, activePayRules(state, w.work_date).rules,
+      scheduleFor(activePayRules(state, w.work_date).rules, emp), emp, w.work_date)) : 0,
   };
 }
 
@@ -2325,7 +2328,7 @@ function contractConflicts(state: DemoState, c: EmploymentContract): ClauseConfl
       const runs: string | null =
         cl.kind === "gaji_pokok"
           ? `${emp.base_rate} / ${emp.pay_basis === "monthly" ? "month" : emp.pay_basis === "daily" ? "day" : "hour"}`
-        : cl.kind === "tunjangan" ? `${emp.allowance_rate} / day`
+        : cl.kind === "tunjangan" ? `${emp.allowance_rate} / ${emp.pay_basis === "monthly" ? "month" : "day"}`
         : cl.kind === "cuti" ? `${emp.paid_leave_days} hari`
         : cl.kind === "jam_kerja" ? emp.schedule_code ?? null
         : cl.kind === "jangka_waktu" ? c.kind
@@ -4924,6 +4927,36 @@ export async function paidElsewhere(
     if (r) rows.push({ employee_id: e.id, employee_no: e.employee_no, run_no: r.run_no, period_start: r.period_start, period_end: r.period_end });
   }
   return ok(SERVICE, rows);
+}
+
+/** What the employee form shows once pokok and tunjangan are typed — the
+ *  arithmetic payroll uses, as `ops_hr.pay_preview` (0231, D386). */
+export async function payPreview(input: PayPreviewInput): Promise<Result<PayPreview>> {
+  await latency();
+  const state = getState();
+  const on = input.on ?? officeToday();
+  const rules = activePayRules(state, on).rules;
+  const emp = {
+    pay_basis: input.pay_basis, base_rate: input.base_rate, allowance_rate: input.allowance_rate,
+    daily_hours: input.daily_hours ?? 8, schedule_code: input.schedule_code ?? null,
+    unit: input.unit ?? "Workshop",
+  } as Employee;
+  const n = monthWorkdays(state, rules, scheduleFor(rules, emp), on);
+  const rate = hourlyRate(emp, rules);
+  const hpd = emp.daily_hours;
+  return ok(SERVICE, {
+    month: on.slice(0, 7),
+    workdays: n,
+    daily_rate: input.pay_basis === "monthly" ? (n > 0 ? Math.round(input.base_rate / n) : null)
+      : input.pay_basis === "daily" ? input.base_rate : Math.round(input.base_rate * hpd),
+    allowance_daily: input.pay_basis === "monthly" ? (n > 0 ? Math.round(input.allowance_rate / n) : null)
+      : input.allowance_rate,
+    hourly: rate.hourly,
+    hourly_basis: rate.basis,
+    monthly_total: input.pay_basis === "monthly" ? input.base_rate + input.allowance_rate
+      : input.pay_basis === "daily" ? (input.base_rate + input.allowance_rate) * n
+        : Math.round(input.base_rate * hpd * n) + input.allowance_rate * n,
+  });
 }
 
 /** Open the run for the group and hold everybody left unticked, each with a

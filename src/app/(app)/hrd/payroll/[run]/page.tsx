@@ -2,7 +2,7 @@
 
 import { use, useCallback, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Check, Printer, Clock, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, Check, Printer, Clock } from "lucide-react";
 import { Button, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { formatNumber } from "@/lib/format";
@@ -24,13 +24,6 @@ import { useTr } from "@/lib/i18n";
  *  changes the figure the instant somebody closes it — and why approving a run
  *  is refused while any are open (D139).
  */
-/** A date, some days later or earlier. UTC arithmetic on a string, because the
- *  office day is not the browser's day (F17). */
-function shiftDate(key: string, days: number): string {
-  const [y, m, d] = key.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d) + days * 86_400_000).toISOString().slice(0, 10);
-}
-
 export default function PayrollRunPage({ params }: { params: Promise<{ run: string }> }) {
   /* Next 15 hands route params to the page as a promise, so it can start
      rendering before the segment is resolved. `use` unwraps it here — the
@@ -117,17 +110,6 @@ export default function PayrollRunPage({ params }: { params: Promise<{ run: stri
               actions={
                 <div className="flex flex-wrap items-center gap-2">
                   <SourceBadge state={detail} />
-                  {/* Walking to the week before or after this run. A run is a
-                      document over a period; the period exists whether or not
-                      anybody opened one, so the arrows never dead-end (D158). */}
-                  <Link href={`/hrd/payroll/minggu?from=${shiftDate(d.period_start, -7)}`}>
-                    <Button variant="outline" size="sm" icon={ChevronLeft}>{tr("Previous week", "Minggu sebelumnya")}</Button>
-                  </Link>
-                  <Link href={`/hrd/payroll/minggu?from=${shiftDate(d.period_start, 7)}`}>
-                    <Button variant="outline" size="sm">
-                      {tr("Next week", "Minggu berikutnya")} <ChevronRight className="ml-1 h-3.5 w-3.5" />
-                    </Button>
-                  </Link>
                   <Button
                     variant="outline" icon={Printer}
                     onClick={() => window.open(`/hrd/payroll/${encodeURIComponent(d.run_no)}/payslip`, "_blank", "noopener")}

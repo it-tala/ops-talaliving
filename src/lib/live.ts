@@ -84,7 +84,6 @@ export const LIVE_ROUTES: readonly string[] = [
   "/hrd/payroll/[run]",
   "/hrd/payroll/[run]/payslip",
   "/hrd/payroll/buat",
-  "/hrd/payroll/minggu",
   "/hrd/tugas",
   "/hrd/wlkp",
   "/inventory/assets",

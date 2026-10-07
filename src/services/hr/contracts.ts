@@ -45,9 +45,12 @@ export interface Employee {
   /** **Pokok only**, per month, per day or per hour, matching `pay_basis`.
    *  Whole rupiah. */
   base_rate: number;
-  /** **Tunjangan, per day the person was actually here** — the same unit for
-   *  everybody regardless of `pay_basis`, because that is how the owner
-   *  described it: *allowance dibayar per hari* (D250).
+  /** **Tunjangan, in the unit of the pay** (D386): **per month** for a
+   *  monthly salary — typed as agreed at hiring, beside the pokok — and per
+   *  day present for a day or hour wage. A day of a monthly allowance is
+   *  derived, never typed: the month's allowance ÷ that month's working days,
+   *  paid per day present. (D250 had it per day for everybody, and HR typed
+   *  monthly figures into it.)
    *
    *  Zero is the honest default and means exactly what it says: this person's
    *  pay has not been split yet. Nothing about their figures changes while it
@@ -2471,8 +2474,11 @@ export interface PayrollLine {
   position: string;
   pay_basis: PayBasis;
   base_rate: number;
-  /** Per day here, whatever the basis of the pokok is (D250). */
+  /** As stored: a month for a salary, a day otherwise (D386). */
   allowance_rate: number;
+  /** A day of the allowance — for a salary, the month's ÷ the first month's
+   *  working days (0231, D386). Null where there are no working days. */
+  allowance_daily: number | null;
   /** Days present, and of those, how many are still open. */
   days_worked: number;
   days_open: number;
@@ -2628,6 +2634,31 @@ export interface PayrollView extends PayrollRun {
 }
 
 /** Somebody another run already pays for days of a period (0213). */
+/** What the employee form shows once pokok and tunjangan are typed, before
+ *  anything is saved (0231, D386): the month it is read for, its working
+ *  days, a day of the pay, a day of the allowance, the hour overtime is
+ *  priced at, and the month in total. Payroll's own arithmetic. */
+export interface PayPreview {
+  month: string;
+  workdays: number;
+  daily_rate: number | null;
+  allowance_daily: number | null;
+  hourly: number;
+  hourly_basis: "company" | "statutory";
+  monthly_total: number;
+}
+
+export interface PayPreviewInput {
+  pay_basis: PayBasis;
+  base_rate: number;
+  allowance_rate: number;
+  daily_hours?: number;
+  schedule_code?: string | null;
+  unit?: string | null;
+  /** The day whose month is read; today when left out. */
+  on?: string;
+}
+
 export interface PaidElsewhere {
   employee_id: string;
   employee_no: string;

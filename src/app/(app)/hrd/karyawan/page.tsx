@@ -151,7 +151,9 @@ export default function EmployeesPage() {
           </p>
           {e.allowance_rate > 0 && (
             <p className="text-[11px] text-slate-500">
-              + {formatIDR(e.allowance_rate)} {tr("allowance / day present", "tunjangan / hari hadir")}
+              + {formatIDR(e.allowance_rate)} {e.pay_basis === "monthly"
+                ? tr("allowance / month", "tunjangan / bulan")
+                : tr("allowance / day present", "tunjangan / hari hadir")}
             </p>
           )}
         </div>
@@ -211,7 +213,8 @@ export default function EmployeesPage() {
           /* Pokok and tunjangan kept apart in the tiles for the same reason
              they are kept apart on the slip: one is owed whatever happens and
              the other is earned by turning up, and a single total would hide
-             which of the two a month's wage bill actually is (D250). */
+             which of the two a month's wage bill actually is (D250). A salary's
+             tunjangan is a month (D386), so it adds up as one. */
           const monthlyCost = monthly.reduce((s, e) => s + e.base_rate, 0);
           const monthlyAllowance = monthly.reduce((s, e) => s + e.allowance_rate, 0);
           /* A full day of the workshop **does** include the allowance: everybody
@@ -234,7 +237,7 @@ export default function EmployeesPage() {
                   {([
                     [tr("People", "Orang"), String(active.length), tr(`${monthly.length} on salary, ${daily.length} on a rate`, `${monthly.length} bergaji bulanan, ${daily.length} dengan tarif`)],
                     [tr("Salaries", "Gaji"), formatIDR(monthlyCost), monthlyAllowance > 0
-                      ? tr(`base pay every month · + ${formatIDR(monthlyAllowance)} allowance per day present`, `pokok setiap bulan · + ${formatIDR(monthlyAllowance)} tunjangan per hari hadir`)
+                      ? tr(`base pay every month · + ${formatIDR(monthlyAllowance)} allowance a month, paid per day present`, `pokok setiap bulan · + ${formatIDR(monthlyAllowance)} tunjangan sebulan, dibayar per hari hadir`)
                       : tr("every month, whatever the machine says", "setiap bulan, apa pun kata mesin")],
                     [tr("A full day of the workshop", "Sehari penuh workshop"), formatIDR(dailyCost), tr(`${daily.length} people, if everybody is in — base + allowance`, `${daily.length} orang, kalau semua hadir — pokok + tunjangan`)],
                     [tr("Left", "Keluar"), leftAll == null ? "…" : String(leftAll), tr("records kept — a payslip from March is still a fact", "catatan tetap disimpan — slip gaji bulan Maret tetap sebuah fakta")],

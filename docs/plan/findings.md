@@ -9753,3 +9753,48 @@ And again (F221, F227): another branch held `0227` and `0228`, so this is
 
 **Rule:** a view that gathers many modules' rows keeps each row behind its own
 policy; who sees what follows from access, not from the view.
+
+## F233 · 2026-10-06 · The ledger knows what was paid, not what the salary is — THR is the one row that says the base
+
+Filling the monthly staff from the ledger for the backtest (D385): every
+payroll row is take-home, with overtime, allowance and absences already folded
+in, so no month on its own says the salary. Searching each amount for
+*base × days ÷ month* found an exact fit only where the month had nothing else
+in it — ADZKIA and RIZKY in September (4.500.000 × 2/22 = 409.091), DANISH in
+August (4.300.000 × 15/19). The row that does say the base is the **THR**: a
+full THR is one month's base by law, and the two salaries HR had already
+entered match theirs to the rupiah. A prorated THR (DILA, 2.041.667) leaves two
+candidates, and only a later month can choose between them.
+
+**Rule:** to recover a rate from payments, look for the payment that has no
+other component in it (THR, a first partial month, a flat month), never the
+typical month. When the ledger only bounds a date — it starts in January 2026 —
+store the bound and say it is a bound, in the record, not a guessed day.
+
+## F234 · 2026-10-06 · A field is typed in the unit people are told, or it is typed wrong
+
+D250 made the allowance *per day present* for everybody, because that is how
+it is paid. HR is not handed it that way: an offer letter says *pokok
+3.150.000 + tunjangan 1.350.000 sebulan*, and that is what went into the field
+— for every salaried person, the same morning. At 22 working days the screen
+would have paid ADZKIA's allowance twenty-two times over. Nothing in the form
+was wrong by its own description; the description did not match the paper on
+HR's desk.
+
+`base_rate` never had this problem because it was always quoted in the unit of
+the pay. Doing the same for the allowance — a month for a salary, a day for a
+day wage — removed the conversion from the person typing and put it where the
+calendar is known: a day of the allowance is the month over *that month's*
+working days, the same days the salary is prorated over, so a whole month
+pays exactly what was agreed and an alpa costs exactly one day of it.
+
+**Rule:** store a rate in the unit the agreement states it in, and let the
+system derive every other unit — and show the derived figures on the form, at
+the moment of typing, so a wrong unit is visible before it is saved.
+
+Three ways to open a payroll run (a form on the list, the sheet, and the week
+walker) had grown one feature at a time. Each was reasonable when added; the
+three together left HR asking which one is the payroll. One path — the sheet —
+does everything the others did. **Rule:** when a new screen supersedes an old
+one, the old one leaves the menu in the same change.
+

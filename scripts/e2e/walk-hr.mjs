@@ -335,10 +335,15 @@ try {
 
   /* ═════ gajian ══════════════════════════════════════════════════════ */
   await h.step({
-    process: "hr.payroll_run", action: "Gajian mingguan minggu lalu → Buka run minggu ini", button: "Buka run minggu ini", shot: "gajian-mingguan",
+    process: "hr.payroll_run", action: "Buat payroll minggu lalu → Generate", button: "Generate N orang", shot: "buat-payroll",
     act: async () => {
-      await h.go(`/hrd/payroll/minggu?from=${MON}`);
-      const b = h.page.getByRole("button", { name: "Buka run minggu ini" });
+      /* One way to make a run since D386: the sheet. */
+      await h.go(`/hrd/payroll/buat`);
+      await h.page.locator("#g-group").selectOption("weekly");
+      await h.page.locator("#g-from").fill(MON);
+      await h.page.locator("#g-to").fill(day(Date.parse(`${MON}T00:00:00Z`) + 6 * 86_400_000));
+      await h.page.waitForTimeout(2500);
+      const b = h.page.getByRole("button", { name: /^Generate \d+ orang$/ });
       await h.mark(b); await b.click(); await h.page.waitForTimeout(2500);
     },
     check: async () => {

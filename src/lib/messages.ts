@@ -23,8 +23,6 @@ export const MESSAGES = {
     employeeFiles: m("Employee Files", "Berkas 201"),
     leave: m("Leave & Permits", "Cuti & izin"),
     payroll: m("Payroll", "Penggajian"),
-    payrollWeek: m("Weekly payroll", "Gajian mingguan"),
-    payrollGenerate: m("Generate payroll", "Buat payroll"),
     payRules: m("Pay rules", "Aturan penggajian"),
     contributions: m("Statutory contributions", "Iuran wajib"),
     workSchedules: m("Work schedules", "Jadwal kerja"),
