@@ -123,6 +123,12 @@ begin
   assert r -> 'error' ->> 'code' = 'reason_required', format('a reason: %s', r);
   r := ops_acct.clear_cashflow_week(v_line, '2026-10-15');
   assert r ->> 'outcome' = 'ok', format('cleared: %s', r);
+  assert (select not active from ops_acct.cashflow_overrides where line_id = v_line and week_start = '2026-10-15'),
+         'cleared is kept, not deleted';
+  r := ops_acct.set_cashflow_week('2026-10-15', 5, 'Lagi', p_line_id => v_line);
+  assert (select active and amount = 5 from ops_acct.cashflow_overrides where line_id = v_line and week_start = '2026-10-15'),
+         'setting it again brings it back';
+  r := ops_acct.clear_cashflow_week(v_line, '2026-10-15');
   r := ops_acct.clear_cashflow_week(v_line, '2026-10-15');
   assert r ->> 'outcome' = 'noop', format('clearing twice is a noop: %s', r);
 
@@ -144,13 +150,21 @@ begin
   assert (r ->> 'status')::int = 404, format('a bill is settled on the calendar: %s', r);
   r := ops_acct.remove_cashflow_receipt(v_rc);
   assert r ->> 'outcome' = 'ok', format('receipt removed: %s', r);
+  assert (select removed_at is not null and trx_no is null from ops_acct.cashflow_receipts where id = v_rc),
+         'removed is kept, and lets go of its ledger row';
+  r := ops_acct.remove_cashflow_receipt(v_rc);
+  assert (r ->> 'status')::int = 404, format('removing twice: %s', r);
+  r := ops_acct.record_cashflow_receipt(v_line, '2026-08-30', 100000000, 'trx-cf-239-001');
+  assert r ->> 'outcome' = 'ok', format('the freed row can be used again: %s', r);
 
   /* ── saldo awal, pengaturan ───────────────────────────────────────────── */
   r := ops_acct.set_cashflow_opening('2026-10', 820000000, 'Cek rekening koran');
   assert r ->> 'outcome' = 'ok', format('opening typed: %s', r);
   assert (select amount from ops_acct.cashflow_openings where month = '2026-10') = 820000000, 'opening stored';
   r := ops_acct.set_cashflow_opening('2026-10', null);
-  assert not exists (select 1 from ops_acct.cashflow_openings where month = '2026-10'), 'opening cleared';
+  assert (select not active from ops_acct.cashflow_openings where month = '2026-10'), 'opening cleared, kept on record';
+  r := ops_acct.set_cashflow_opening('2026-10', 800000000);
+  assert (select active and amount = 800000000 from ops_acct.cashflow_openings where month = '2026-10'), 'typed again';
   r := ops_acct.set_cashflow_opening('2026-13', 1);
   assert r -> 'error' ->> 'code' = 'month_invalid', format('a real month: %s', r);
   r := ops_acct.set_cashflow_settings(150000000, array['CASHFLOW', ' CASHFLOW ']);

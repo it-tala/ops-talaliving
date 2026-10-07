@@ -9921,3 +9921,16 @@ money between our own accounts. So the opening balance can be typed (and the
 ledger's figure is shown beside it), client receipts can be recorded on the
 line itself, and the transfer categories are a setting rather than a constant.
 
+**And one about the road to production.** The Supabase migration tool held
+every part whose function bodies contained a `DELETE` — the whole of part two,
+then a smaller part, then the same body through `execute_sql` — each timing out
+at 60 s with nothing applied: it waits on a confirmation for a statement it
+reads as destructive, which this road cannot give (D367/D370 met the same with
+`DROP FUNCTION`). Parts without one went straight in. Rather than disguise the
+keyword, the three removals became marks — a cleared week is `active = false`,
+a removed realisation keeps its row with `removed_at` and lets go of its
+ledger row, a typed opening handed back to the ledger is `active = false` —
+which this project prefers anyway (*recorded, never discarded*). **Rule:** a
+seam that only ever needs to un-assert something can mark it; write it that
+way from the start and the migration reaches production in one piece.
+

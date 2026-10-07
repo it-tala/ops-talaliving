@@ -42,6 +42,13 @@
 -- `cashflow_ledger`, for the two things the client cannot read cheaply: every
 -- account's balance on a past day, and every ledger row of a window in one
 -- answer rather than PostgREST pages.
+--
+-- **Nothing is deleted.** Clearing a week, removing a realisation and going
+-- back to the ledger's opening mark the row (`active`, `removed_at`) and keep
+-- it: the trail of what leadership once assumed is part of reading why a
+-- projection moved. (It is also what the Supabase migration road needs — a
+-- statement it reads as destructive waits on a confirmation that road cannot
+-- give, F240.)
 
 create table ops_acct.cashflow_lines (
   id           uuid primary key default gen_random_uuid(),
@@ -96,6 +103,8 @@ create table ops_acct.cashflow_overrides (
   -- That week's total for the line; null is *not this week*.
   amount       numeric check (amount is null or amount >= 0),
   reason       text not null check (length(btrim(reason)) > 0),
+  -- Cleared is not deleted: false puts the week back on its schedule.
+  active       boolean not null default true,
   recorded_by  uuid not null references ops_core.users(id),
   recorded_at  timestamptz not null default now(),
   unique (line_id, week_start)
@@ -110,7 +119,11 @@ create table ops_acct.cashflow_receipts (
   trx_no       text unique references ops_acct.transactions(trx_no),
   note         text,
   recorded_by  uuid not null references ops_core.users(id),
-  recorded_at  timestamptz not null default now()
+  recorded_at  timestamptz not null default now(),
+  -- Removed, not deleted. A removed realisation lets go of its ledger row
+  -- (`trx_no` null) so the row can be used again; the audit keeps which.
+  removed_at   timestamptz,
+  removed_by   uuid references ops_core.users(id)
 );
 create index cashflow_receipts_line_idx on ops_acct.cashflow_receipts (line_id);
 
@@ -118,6 +131,8 @@ create table ops_acct.cashflow_openings (
   month        text primary key check (month ~ '^\d{4}-(0[1-9]|1[0-2])$'),
   amount       numeric not null,
   note         text,
+  -- False: back to the ledger's figure. The typed one stays on record.
+  active       boolean not null default true,
   recorded_by  uuid not null references ops_core.users(id),
   recorded_at  timestamptz not null default now()
 );
@@ -455,7 +470,7 @@ begin
   insert into ops_acct.cashflow_overrides (line_id, week_start, amount, reason, recorded_by)
   values (v_line, p_week_start, p_amount, btrim(p_reason), auth.uid())
   on conflict (line_id, week_start) do update set
-    amount = excluded.amount, reason = excluded.reason,
+    amount = excluded.amount, reason = excluded.reason, active = true,
     recorded_by = excluded.recorded_by, recorded_at = now();
 
   return ops_core.ok('accounting','cashflow_week', p_week_start::text,'set',
@@ -470,7 +485,8 @@ begin
   if not ops_core.has_authority('approve_funds') then
     return ops_acct.cashflow_refusal('cashflow_week', p_week_start::text, 'clear');
   end if;
-  delete from ops_acct.cashflow_overrides where line_id = p_line_id and week_start = p_week_start;
+  update ops_acct.cashflow_overrides set active = false, recorded_by = auth.uid(), recorded_at = now()
+   where line_id = p_line_id and week_start = p_week_start and active;
   if not found then
     return ops_core.noop('accounting','cashflow_week', p_week_start::text,'clear',
       'That week was not changed.', jsonb_build_object('line_id', p_line_id, 'week_start', p_week_start));
@@ -536,10 +552,13 @@ begin
   if not ops_core.has_authority('approve_funds') then
     return ops_acct.cashflow_refusal('cashflow_receipt', p_id::text, 'remove');
   end if;
-  delete from ops_acct.cashflow_receipts where id = p_id returning to_jsonb(cashflow_receipts.*) into v_was;
+  select to_jsonb(r) into v_was from ops_acct.cashflow_receipts r where id = p_id and removed_at is null;
   if v_was is null then
     return ops_core.not_found('accounting','cashflow_receipt', p_id::text,'remove','No such realisation.');
   end if;
+  update ops_acct.cashflow_receipts
+     set removed_at = now(), removed_by = auth.uid(), trx_no = null
+   where id = p_id;
   return ops_core.ok('accounting','cashflow_receipt', p_id::text,'remove', jsonb_build_object('id', p_id), v_was, null);
 end $$;
 
@@ -558,12 +577,13 @@ begin
   end if;
   select to_jsonb(o) into v_was from ops_acct.cashflow_openings o where month = p_month;
   if p_amount is null then
-    delete from ops_acct.cashflow_openings where month = p_month;
+    update ops_acct.cashflow_openings set active = false, recorded_by = auth.uid(), recorded_at = now()
+     where month = p_month;
   else
     insert into ops_acct.cashflow_openings (month, amount, note, recorded_by)
     values (p_month, p_amount, nullif(btrim(p_note), ''), auth.uid())
     on conflict (month) do update set
-      amount = excluded.amount, note = excluded.note,
+      amount = excluded.amount, note = excluded.note, active = true,
       recorded_by = excluded.recorded_by, recorded_at = now();
   end if;
   return ops_core.ok('accounting','cashflow_opening', p_month,'set',

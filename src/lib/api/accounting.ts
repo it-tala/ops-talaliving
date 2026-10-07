@@ -2279,9 +2279,11 @@ export async function getCashflow(from?: string): Promise<Result<Cashflow>> {
   const [plan, lines, overrides, receipts, openings, settings, ledger] = await Promise.all([
     planFrom(`${fromMonth}-01`),
     db().from("cashflow_lines").select("*"),
-    db().from("cashflow_overrides").select("*"),
-    db().from("cashflow_receipts").select("*"),
-    db().from("cashflow_openings").select("*"),
+    /* Cleared weeks, removed realisations and openings handed back to the
+       ledger are kept as rows (`0239`); only the live ones count. */
+    db().from("cashflow_overrides").select("*").eq("active", true),
+    db().from("cashflow_receipts").select("*").is("removed_at", null),
+    db().from("cashflow_openings").select("*").eq("active", true),
     db().from("cashflow_settings").select("min_balance, transfer_types").maybeSingle(),
     db().rpc("cashflow_ledger", { p_from: `${fromMonth}-01`, p_to: lastDay }),
   ]);
