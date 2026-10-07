@@ -8,14 +8,15 @@ import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { formatIDR } from "@/lib/format";
 import { hr } from "@/demo/api";
 import {
-  PAY_GROUP_LABELS, PAY_WEEK_STARTS_DEFAULT,
-  type PayGroup, type PayrollHold, type PayrollLine,
+  ADJUSTMENT_LABEL, PAY_GROUP_LABELS, PAY_WEEK_STARTS_DEFAULT,
+  type PayGroup, type PayrollAdjustInput, type PayrollHold, type PayrollLine,
 } from "@/services/hr/contracts";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useLang, useTr } from "@/lib/i18n";
 import { officeToday } from "@/lib/office";
 import { PayrollSheet, type SheetAside } from "../PayrollSheet";
+import type { AdjustEditor } from "../SheetEditors";
 
 /** Generating a payroll, as one sheet (0213, D373).
  *
@@ -87,6 +88,27 @@ export default function GeneratePayrollPage() {
     () => hr.previewPayroll({ period_start: from, period_end: to, pay_group: group, fresh: true }),
     [from, to, group],
   );
+
+  /* Bonus, retensi and lain-lain typed in the drawer before the run exists
+     (D388). Kept here, shown on the lines, and written with the run by
+     `generate_payroll` — for a different period they are a different
+     decision, so moving the period clears them. */
+  const [pending, setPending] = useState<Record<string, PayrollAdjustInput[]>>({});
+  useEffect(() => { setPending({}); }, [from, to, group]);
+  const adjust: AdjustEditor = {
+    list: (no) => (pending[no] ?? []).map((a, i) => ({ key: String(i), kind: a.kind, amount: a.amount, reason: a.reason })),
+    add: async (no, a) => {
+      if (!a.reason) return tr("A reason is printed on the payslip.", "Alasannya tercetak di slip.");
+      if (a.amount === 0) return tr("Nought is not an adjustment.", "Nol bukan penyesuaian.");
+      setPending((p) => ({ ...p, [no]: [...(p[no] ?? []), { employee_no: no, ...a }] }));
+      return null;
+    },
+    remove: async (no, key) => {
+      setPending((p) => ({ ...p, [no]: (p[no] ?? []).filter((_, i) => String(i) !== key) }));
+      return null;
+    },
+  };
+  const mayEditDays = can("hrd.create");
   const [paid, reloadPaid] = useLoad(
     () => hr.paidElsewhere({ period_start: from, period_end: to }),
     [from, to],
@@ -98,8 +120,25 @@ export default function GeneratePayrollPage() {
     return m;
   }, [paid]);
 
+  /* The line as it will be once the run carries what was typed: the two
+     columns and take-home move by exactly those amounts, which the database
+     will add the same way (`additions_total`, `deductions_total`). */
+  const withPending = (l: PayrollLine): PayrollLine => {
+    const extra = pending[l.employee_no] ?? [];
+    if (extra.length === 0) return l;
+    const plus = extra.filter((a) => a.amount > 0).reduce((t, a) => t + a.amount, 0);
+    const minus = extra.filter((a) => a.amount < 0).reduce((t, a) => t - a.amount, 0);
+    return {
+      ...l,
+      adjustments: [...l.adjustments, ...extra.map((a) => ({ kind: a.kind, label: ADJUSTMENT_LABEL[a.kind], amount: a.amount, reason: a.reason }))],
+      adjustment_total: l.adjustment_total + plus - minus,
+      additions_total: l.additions_total + plus,
+      deductions_total: l.deductions_total + minus,
+      take_home: l.take_home + plus - minus,
+    };
+  };
   const lines: PayrollLine[] = view.status === "ready"
-    ? view.data.lines.filter((l) => !paidBy.has(l.employee_no)) : [];
+    ? view.data.lines.filter((l) => !paidBy.has(l.employee_no)).map(withPending) : [];
   const asides: SheetAside[] = view.status === "ready"
     ? view.data.lines.filter((l) => paidBy.has(l.employee_no)).map((l) => ({
       employee_no: l.employee_no, full_name: l.full_name, pay_basis: l.pay_basis, locked: true,
@@ -134,6 +173,7 @@ export default function GeneratePayrollPage() {
   }
 
   const chosen = lines.filter((l) => selected.has(l.employee_no));
+  const pendingCount = chosen.reduce((t, l) => t + (pending[l.employee_no]?.length ?? 0), 0);
   const manuallyHeld = lines.filter((l) => !selected.has(l.employee_no) && blocked(l) === null && !empty(l));
 
   async function generate() {
@@ -146,8 +186,9 @@ export default function GeneratePayrollPage() {
           : empty(l) ? "Tidak ada yang dibayar di periode ini"
             : holdReason.trim() || "Ditahan HRD saat generate",
       }));
+    const adjustments = chosen.flatMap((l) => pending[l.employee_no] ?? []);
     setBusy(true);
-    const res = await hr.generatePayroll({ period_start: from, period_end: to, pay_group: group, hold });
+    const res = await hr.generatePayroll({ period_start: from, period_end: to, pay_group: group, hold, adjust: adjustments });
     setBusy(false);
     if (res.error) {
       toast(res.error.status === 409 ? "warning" : "critical", tr("Not generated", "Tidak digenerate"), res.error.message);
@@ -231,6 +272,10 @@ export default function GeneratePayrollPage() {
               lines={lines} asides={asides}
               selectable selected={selected} onToggle={toggle} onToggleAll={toggleAll}
               blocked={blocked}
+              adjust={mayRun ? adjust : undefined}
+              period={{ from, to }}
+              editDays={mayEditDays}
+              onChanged={() => { reload(); reloadPaid(); }}
               title={tr(`${PAY_GROUP_LABELS[group].en} · ${from} → ${to}`, `${PAY_GROUP_LABELS[group].id} · ${from} → ${to}`)}
             />
 
@@ -252,6 +297,9 @@ export default function GeneratePayrollPage() {
               </div>
               <div className="text-right text-[12px] text-slate-500">
                 <p>{tr(`${chosen.length} paid · ${lines.length - chosen.length} held`, `${chosen.length} dibayar · ${lines.length - chosen.length} ditahan`)}</p>
+                {pendingCount > 0 && (
+                  <p>{tr(`${pendingCount} adjustment(s) go with the run`, `${pendingCount} penyesuaian ikut dibuat`)}</p>
+                )}
               </div>
               <Button icon={PlayCircle} disabled={busy || !mayRun || chosen.length === 0} onClick={generate}>
                 {busy ? tr("Generating…", "Membuat…") : tr(`Generate for ${chosen.length}`, `Generate ${chosen.length} orang`)}

@@ -46,6 +46,7 @@ import type {
   PayRules, PayRuleSetView, TimesheetTotal, EffectiveDaysCalendar,
   PayrollRun, PayrollView, PayrollLine, PayrollAdjustmentView,
   PayGroup, PayComponents, PayrollRunMember, PaidElsewhere, PayrollHold, PayPreview, PayPreviewInput,
+  PayrollAdjustInput, PersonDayEdits, RetentionBalance, EmployeeStanding,
   AdjustmentKind, ContributionScheme,
   LeaveKind, LeaveStatus, LeaveRequestView, LeaveBalance,
   TaskStatus, TaskRefKind, TaskView, TaskCadence, TaskRoutineView,
@@ -835,13 +836,15 @@ export async function generatePayroll(
   input: {
     period_start: string; period_end: string; pay_group: PayGroup;
     hold: PayrollHold[]; note?: string | null;
+    /** Bonus, retensi and lain-lain typed on the sheet (0234, D388). */
+    adjust?: PayrollAdjustInput[];
   },
   idempotencyKey?: string,
 ): Promise<Result<PayrollView>> {
   const { data, error } = await db().rpc("generate_payroll", {
     p_period_start: input.period_start, p_period_end: input.period_end,
     p_group: input.pay_group, p_hold: input.hold, p_note: input.note ?? null,
-    p_key: idempotencyKey ?? null,
+    p_key: idempotencyKey ?? null, p_adjust: input.adjust ?? [],
   });
   const made = fromSeam<{ run_no: string }>(SERVICE, data, error);
   if (made.error) return made as unknown as Result<PayrollView>;
@@ -849,6 +852,45 @@ export async function generatePayroll(
 }
 
 /* ── adjustments ──────────────────────────────────────────────────────── */
+
+/** Retensi per person — HRD's only; the database answers nothing to an
+ *  account without `hrd.read` or `payroll.read` (0234, D388). */
+export async function retentionBalances(employeeNo?: string | null): Promise<Result<RetentionBalance[]>> {
+  const { data, error } = await db().rpc("retention_balances", { p_employee_no: employeeNo ?? null });
+  return fromRows<RetentionBalance[]>(SERVICE, data as never, error);
+}
+
+/** One person as HRD reads them over a period (0234, D388). Null when the
+ *  caller may not see it, or there is nobody by that number. */
+export async function employeeStanding(
+  input: { employee_no: string; from: string; to: string },
+): Promise<Result<EmployeeStanding | null>> {
+  const { data, error } = await db().rpc("employee_standing", {
+    p_employee_no: input.employee_no, p_from: input.from, p_to: input.to,
+  });
+  if (error) return fromRows<EmployeeStanding | null>(SERVICE, null, error);
+  return fromRows<EmployeeStanding | null>(SERVICE, ((data ?? []) as EmployeeStanding[])[0] ?? null, null);
+}
+
+/** The marks and withheld allowances of one person's days, so the payroll
+ *  drawer can change them (D388). */
+export async function personDayEdits(
+  input: { employee_no: string; from: string; to: string },
+): Promise<Result<PersonDayEdits>> {
+  const { data: emp, error: e1 } = await db()
+    .from("employees").select("id").eq("employee_no", input.employee_no).maybeSingle();
+  if (e1) return fromRows<PersonDayEdits>(SERVICE, null, e1);
+  if (!emp) return notFound(SERVICE, "employee_not_found", `No employee ${input.employee_no}.`);
+  const [{ data: marks, error: e2 }, held] = await Promise.all([
+    db().from("day_marks").select("id,employee_id,work_date,kind,reason,marked_by,marked_at")
+      .eq("employee_id", (emp as { id: string }).id)
+      .gte("work_date", input.from).lte("work_date", input.to).is("withdrawn_at", null),
+    listWithholdings({ employee_no: input.employee_no, from: input.from, to: input.to }),
+  ]);
+  if (e2) return fromRows<PersonDayEdits>(SERVICE, null, e2);
+  if (held.error) return held as unknown as Result<PersonDayEdits>;
+  return ok(SERVICE, { marks: (marks ?? []) as DayMark[], withholdings: held.data });
+}
 
 export async function listAdjustments(runNo: string): Promise<Result<PayrollAdjustmentView[]>> {
   const { data, error } = await db()

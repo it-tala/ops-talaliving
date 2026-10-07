@@ -47,7 +47,7 @@ export function Adjustments({
   /* Deductions are typed as a positive number and stored negative: nobody
      writes "minus fifty thousand" on a form, and a stray sign is a wage
      dispute. Additions are chosen explicitly. */
-  const adds = draft.kind === "carry_over" || draft.kind === "bonus";
+  const adds = draft.kind === "carry_over" || draft.kind === "bonus" || draft.kind === "retention_release";
 
   async function save() {
     setBusy(true);

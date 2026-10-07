@@ -1,13 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, CheckSquare, ChevronRight, ClipboardList, SlidersHorizontal, Square } from "lucide-react";
+import { AlertTriangle, CheckSquare, ChevronRight, ClipboardList, Pencil, SlidersHorizontal, Square } from "lucide-react";
 import { Badge, Button, Card, CardHeader } from "@/components/ui/primitives";
 import { Drawer } from "@/components/ui/drawer";
 import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { ADJUSTMENT_LABEL, type PayrollLine } from "@/services/hr/contracts";
+import { hr } from "@/demo/api";
+import { useLoad } from "@/components/ui/loaded";
+import { AdjustSection, DayEditor, type AdjustEditor } from "./SheetEditors";
 import { useTr } from "@/lib/i18n";
 import { officeClock } from "@/lib/office";
 
@@ -40,7 +43,7 @@ export interface SheetAside {
 
 export function PayrollSheet({
   lines, asides = [], selectable = false, selected, onToggle, onToggleAll,
-  blocked, onPersonSettings, title,
+  blocked, onPersonSettings, title, adjust, period, editDays = false, onChanged,
 }: {
   lines: PayrollLine[];
   asides?: SheetAside[];
@@ -53,9 +56,22 @@ export function PayrollSheet({
   /** Open this person's component switches (the run page only). */
   onPersonSettings?: (employeeNo: string) => void;
   title?: string;
+  /** Bonus, retensi and lain-lain, typed in the drawer (D388). Absent where
+   *  nothing may be changed — a signed run. */
+  adjust?: AdjustEditor;
+  /** The period the lines cover — the day editor reads the marks in it. */
+  period?: { from: string; to: string };
+  /** Whether the drawer may change a day: add a missed tap, mark *mangkir*,
+   *  take the allowance off (D388). */
+  editDays?: boolean;
+  /** Something in the drawer changed a figure: read the sheet again. */
+  onChanged?: () => void;
 }) {
   const tr = useTr();
-  const [open, setOpen] = useState<PayrollLine | null>(null);
+  /* By number, not the line: the drawer must show the line as it is after a
+     change, and the line object is replaced when the sheet is read again. */
+  const [openNo, setOpenNo] = useState<string | null>(null);
+  const open = openNo ? lines.find((l) => l.employee_no === openNo) ?? null : null;
   const isOn = (l: PayrollLine) => !selectable || (selected?.has(l.employee_no) ?? true);
   const counted = lines.filter(isOn);
 
@@ -155,7 +171,7 @@ export function PayrollSheet({
                 return (
                   <tr
                     key={l.employee_no}
-                    onClick={() => setOpen(l)}
+                    onClick={() => setOpenNo(l.employee_no)}
                     className={cn("cursor-pointer align-top hover:bg-brand-50/30", !on && "bg-slate-50/70 text-slate-400")}
                   >
                     {selectable && (
@@ -244,8 +260,9 @@ export function PayrollSheet({
       </Card>
 
       {open && (
-        <PersonBreakdown line={open} onClose={() => setOpen(null)}
-          onPersonSettings={onPersonSettings ? () => { onPersonSettings(open.employee_no); setOpen(null); } : undefined} />
+        <PersonBreakdown line={open} onClose={() => setOpenNo(null)}
+          adjust={adjust} period={period} editDays={editDays} onChanged={onChanged}
+          onPersonSettings={onPersonSettings ? () => { onPersonSettings(open.employee_no); setOpenNo(null); } : undefined} />
       )}
     </>
   );
@@ -256,10 +273,24 @@ const WEEKDAY_EN = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 /** One person, taken apart: the rates, every addition and deduction, and the
  *  days they came from. */
-function PersonBreakdown({ line: l, onClose, onPersonSettings }: {
+function PersonBreakdown({ line: l, onClose, onPersonSettings, adjust, period, editDays, onChanged }: {
   line: PayrollLine; onClose: () => void; onPersonSettings?: () => void;
+  adjust?: AdjustEditor; period?: { from: string; to: string }; editDays?: boolean; onChanged?: () => void;
 }) {
   const tr = useTr();
+  const canEditDays = !!editDays && !!period;
+  const [edits, reloadEdits] = useLoad(
+    () => (canEditDays && period
+      ? hr.personDayEdits({ employee_no: l.employee_no, from: period.from, to: period.to })
+      : Promise.resolve({ data: null, error: null } as never)),
+    [l.employee_no, period?.from, period?.to, canEditDays],
+  );
+  const [editing, setEditing] = useState<string | null>(null);
+  const dayDone = () => { setEditing(null); reloadEdits(); onChanged?.(); };
+  /* *Mangkir* is a day marked absent with that word first (D388): the mark
+     the system already pays nothing for, said the way HRD said it. */
+  const truant = (date: string) => edits.status === "ready"
+    && !!edits.data?.marks.some((m) => m.work_date === date && m.kind === "absent" && m.reason.startsWith("Mangkir"));
   const approvedOt = new Map<string, number>();
   for (const p of l.overtime_parts) approvedOt.set(p.work_date, (approvedOt.get(p.work_date) ?? 0) + p.hours);
   const plus = l.adjustments.filter((a) => a.amount > 0);
@@ -325,7 +356,9 @@ function PersonBreakdown({ line: l, onClose, onPersonSettings }: {
             <Row k={tr(`Allowance · ${formatNumber(l.allowance_days)} days`, `Tunjangan · ${formatNumber(l.allowance_days)} hari`)} v={formatIDR(l.allowance_pay)} tone={l.allowance_pay > 0 ? "plus" : "muted"} />
             <Row k={tr(`Overtime · ${formatNumber(l.overtime_hours)} h approved`, `Lembur · ${formatNumber(l.overtime_hours)} jam disetujui`)} v={formatIDR(l.overtime_pay)} tone={l.overtime_pay > 0 ? "plus" : "muted"}
               note={l.overtime_parts.length > 0 ? l.overtime_parts.map((p) => (p.multiplier > 0 ? `${formatNumber(p.hours)}×${formatNumber(p.multiplier)}` : tr("form", "form"))).join(" + ") : undefined} />
-            {plus.map((a, i) => <Row key={`p${i}`} k={`${a.label ?? ADJUSTMENT_LABEL[a.kind]}`} note={a.reason} v={formatIDR(a.amount)} tone="plus" />)}
+            {adjust
+              ? <AdjustSection side="add" employeeNo={l.employee_no} editor={adjust} />
+              : plus.map((a, i) => <Row key={`p${i}`} k={`${a.label ?? ADJUSTMENT_LABEL[a.kind]}`} note={a.reason} v={formatIDR(a.amount)} tone="plus" />)}
             <Row k={tr("Total additions", "Total penambahan")} v={formatIDR(l.additions_total)} tone="plus" />
           </div>
         </section>
@@ -343,7 +376,9 @@ function PersonBreakdown({ line: l, onClose, onPersonSettings }: {
               note={l.late_minutes > 0 && l.late_deduction === 0 ? tr("not deducted under the current rules", "belum dipotong menurut aturan sekarang") : undefined} />
             <Row k={tr(`Short hours · ${formatNumber(l.undertime_hours)} h`, `Jam kurang · ${formatNumber(l.undertime_hours)} jam`)} v={l.undertime_amount > 0 ? `(${formatIDR(l.undertime_amount)})` : "—"} tone={l.undertime_amount > 0 ? "minus" : "muted"} />
             {l.contributions.map((c) => <Row key={c.scheme} k={c.label} v={`(${formatIDR(c.employee)})`} tone="minus" />)}
-            {minus.map((a, i) => <Row key={`m${i}`} k={`${a.label ?? ADJUSTMENT_LABEL[a.kind]}`} note={a.reason} v={`(${formatIDR(-a.amount)})`} tone="minus" />)}
+            {adjust
+              ? <AdjustSection side="take" employeeNo={l.employee_no} editor={adjust} />
+              : minus.map((a, i) => <Row key={`m${i}`} k={`${a.label ?? ADJUSTMENT_LABEL[a.kind]}`} note={a.reason} v={`(${formatIDR(-a.amount)})`} tone="minus" />)}
             {l.components_off.filter((o) => o.amount !== 0 || o.scope === "person").map((o) => (
               <Row key={o.component} k={tr(`Switched off: ${o.component}`, `Dimatikan: ${o.component}`)} note={o.reason} v={formatIDR(Math.abs(o.amount))} tone="muted" />
             ))}
@@ -372,13 +407,17 @@ function PersonBreakdown({ line: l, onClose, onPersonSettings }: {
                   <th className="px-2 py-1.5 text-right">{tr("Late", "Telat")}</th>
                   <th className="px-2 py-1.5 text-right">{tr("OT (machine / approved)", "Lembur (mesin / disetujui)")}</th>
                   <th className="px-2 py-1.5">{tr("Status", "Status")}</th>
+                  {canEditDays && <th className="w-8" />}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {l.days.map((d) => {
                   const ot = approvedOt.get(d.work_date) ?? 0;
+                  const withheld = edits.status === "ready"
+                    && edits.data?.withholdings.some((w) => w.work_date === d.work_date && w.restored_at === null);
                   return (
-                    <tr key={d.work_date} className={cn(d.open && "bg-amber-50/70")}>
+                    <Fragment key={d.work_date}>
+                    <tr className={cn(d.open && "bg-amber-50/70", editing === d.work_date && "bg-brand-50/40")}>
                       <td className="whitespace-nowrap px-2 py-1.5 text-slate-700">
                         {tr(WEEKDAY_EN[d.weekday], WEEKDAY_ID[d.weekday])} {d.work_date.slice(8)}/{d.work_date.slice(5, 7)}
                       </td>
@@ -395,12 +434,39 @@ function PersonBreakdown({ line: l, onClose, onPersonSettings }: {
                       </td>
                       <td className="px-2 py-1.5 text-[11px]">
                         {d.open ? <span className="font-medium text-amber-700">{tr("unread", "belum dibaca")}</span>
+                          : truant(d.work_date) ? <span className="font-medium text-rose-700">{tr("truant", "mangkir")}</span>
                           : d.mark ? <span className="text-slate-600">{d.mark}</span>
                             : d.assumed ? <span className="text-slate-500">{tr("assumed", "asumsi")}</span>
                               : d.day_value > 0 ? <span className="text-emerald-700">{d.day_value === 1 ? tr("present", "hadir") : `${formatNumber(d.day_value)}`}</span>
                                 : <span className="text-slate-400">—</span>}
+                        {withheld && <span className="block text-rose-700">{tr("no allowance", "tanpa tunjangan")}</span>}
                       </td>
+                      {canEditDays && (
+                        <td className="px-1 py-1">
+                          <button
+                            type="button"
+                            onClick={() => setEditing(editing === d.work_date ? null : d.work_date)}
+                            aria-label={tr(`Edit ${d.work_date}`, `Ubah ${d.work_date}`)}
+                            className={cn("rounded p-1 hover:bg-slate-100", d.open ? "text-amber-700" : "text-slate-400")}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        </td>
+                      )}
                     </tr>
+                    {canEditDays && editing === d.work_date && (
+                      <tr>
+                        <td colSpan={8} className="p-0">
+                          <DayEditor
+                            key={`${d.work_date}:${edits.status === "ready" ? JSON.stringify(edits.data) : ""}`}
+                            employeeNo={l.employee_no} workDate={d.work_date} open={d.open}
+                            edits={edits.status === "ready" ? edits.data : null}
+                            onDone={dayDone}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -410,7 +476,7 @@ function PersonBreakdown({ line: l, onClose, onPersonSettings }: {
                   <td className="px-2 py-1.5 text-right tabular-nums">{formatNumber(l.normal_hours)}</td>
                   <td className="px-2 py-1.5 text-right tabular-nums">{l.late_minutes > 0 ? tr(`${l.late_minutes} min`, `${l.late_minutes} mnt`) : "—"}</td>
                   <td className="px-2 py-1.5 text-right tabular-nums">{formatNumber(l.overtime_hours)}</td>
-                  <td />
+                  <td colSpan={canEditDays ? 2 : 1} />
                 </tr>
               </tfoot>
             </table>

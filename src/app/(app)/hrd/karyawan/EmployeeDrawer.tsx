@@ -13,6 +13,7 @@ import { useLoad } from "@/components/ui/loaded";
 import type { Employee, EmployeeAccount, PayBasis } from "@/services/hr/contracts";
 import { contactProblem, leaveFrom } from "@/services/hr/employee-rules";
 import { useToast } from "@/store/toast";
+import { StandingPanel } from "./StandingPanel";
 import { useTr } from "@/lib/i18n";
 
 /** Somebody's name, and what their time costs.
@@ -203,6 +204,9 @@ export function EmployeeDrawer({
             </p>
           </div>
         )}
+        {/* HRD's own reading of this person (D388) — the database refuses it
+            to anybody else, so nothing leaks if the panel is reached. */}
+        {employee && <StandingPanel employeeNo={employee.employee_no} />}
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <label htmlFor="e-no" className="block text-xs text-slate-500">{tr("Number on the machine", "Nomor di mesin")}</label>

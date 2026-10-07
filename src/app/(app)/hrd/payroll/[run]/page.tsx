@@ -13,6 +13,7 @@ import { Adjustments } from "./Adjustments";
 import { Members } from "./Members";
 import { PayRun } from "./PayRun";
 import { PayrollSheet, type SheetAside } from "../PayrollSheet";
+import type { AdjustEditor } from "../SheetEditors";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
@@ -39,6 +40,26 @@ export default function PayrollRunPage({ params }: { params: Promise<{ run: stri
   /* Who the run was opened for and is not paying: held, or paid by another
      run. They keep a row on the sheet, with the reason (0213). */
   const [members, reloadMembers] = useLoad(() => hr.listRunMembers(runNo), [runNo]);
+  /* The run's adjustments, by id, so the drawer can take one back (D388). */
+  const [adjs, reloadAdjs] = useLoad(() => hr.listAdjustments(runNo), [runNo]);
+  const [adjVersion, setAdjVersion] = useState(0);
+  const adjust: AdjustEditor = {
+    list: (no) => (adjs.status === "ready" ? adjs.data : [])
+      .filter((a) => a.employee_no === no)
+      .map((a) => ({ key: a.id, kind: a.kind, amount: a.amount, reason: a.reason })),
+    add: async (no, a) => {
+      const res = await hr.saveAdjustment({ run_no: runNo, employee_no: no, ...a });
+      if (res.error) return res.error.message;
+      reload(); reloadAdjs(); setAdjVersion((v) => v + 1);
+      return null;
+    },
+    remove: async (_no, key) => {
+      const res = await hr.removeAdjustment({ run_no: runNo, adjustment_id: key });
+      if (res.error) return res.error.message;
+      reload(); reloadAdjs(); setAdjVersion((v) => v + 1);
+      return null;
+    },
+  };
   /* Locked is *another run pays them now* — read live, not the note written
      when this run opened: once that run lets them go, they can be ticked
      here (0213). */
@@ -159,6 +180,10 @@ export default function PayrollRunPage({ params }: { params: Promise<{ run: stri
               selected={new Set(d.lines.map((l) => l.employee_no))}
               onToggle={toggleMember}
               onPersonSettings={d.status === "DRAFT" && mayRun ? setFocusNo : undefined}
+              adjust={d.status === "DRAFT" && mayRun ? adjust : undefined}
+              period={{ from: d.period_start, to: d.period_end }}
+              editDays={d.status === "DRAFT" && can("hrd.create")}
+              onChanged={reload}
             />
 
             <Members
@@ -171,9 +196,10 @@ export default function PayrollRunPage({ params }: { params: Promise<{ run: stri
             />
 
             <Adjustments
+              key={adjVersion}
               runNo={d.run_no}
               editable={d.status === "DRAFT"}
-              onChanged={reload}
+              onChanged={() => { reload(); reloadAdjs(); }}
             />
 
           </>
