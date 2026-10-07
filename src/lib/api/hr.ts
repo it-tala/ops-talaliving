@@ -47,6 +47,7 @@ import type {
   PayrollRun, PayrollView, PayrollLine, PayrollAdjustmentView,
   PayGroup, PayComponents, PayrollRunMember, PaidElsewhere, PayrollHold, PayPreview, PayPreviewInput,
   PayrollAdjustInput, PersonDayEdits, RetentionBalance, EmployeeStanding,
+  DeductionKind, DeductionDefault, EmployeeDeduction, DueDeduction,
   AdjustmentKind, ContributionScheme,
   LeaveKind, LeaveStatus, LeaveRequestView, LeaveBalance,
   TaskStatus, TaskRefKind, TaskView, TaskCadence, TaskRoutineView,
@@ -852,6 +853,56 @@ export async function generatePayroll(
 }
 
 /* ── adjustments ──────────────────────────────────────────────────────── */
+
+/* ── potongan default per bulan (0236, D389) ─────────────────────────── */
+
+export async function listDeductionDefaults(): Promise<Result<DeductionDefault[]>> {
+  const { data, error } = await db().from("deduction_defaults").select("kind, amount, updated_at").order("kind");
+  return fromRows<DeductionDefault[]>(SERVICE, data as never, error);
+}
+
+export async function setDeductionDefault(
+  input: { kind: DeductionKind; amount: number }, idempotencyKey?: string,
+): Promise<Result<DeductionDefault[]>> {
+  const { data, error } = await db().rpc("set_deduction_default", {
+    p_kind: input.kind, p_amount: Math.round(input.amount), p_key: idempotencyKey ?? null,
+  });
+  const said = fromSeam<unknown>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<DeductionDefault[]>;
+  return listDeductionDefaults();
+}
+
+/** A person's own amounts; a kind with no row follows the default. */
+export async function listEmployeeDeductions(employeeNo: string): Promise<Result<EmployeeDeduction[]>> {
+  const { data: emp, error: e1 } = await db()
+    .from("employees").select("id").eq("employee_no", employeeNo).maybeSingle();
+  if (e1) return fromRows<EmployeeDeduction[]>(SERVICE, null, e1);
+  if (!emp) return notFound(SERVICE, "employee_not_found", `No employee ${employeeNo}.`);
+  const { data, error } = await db().from("employee_deductions").select("kind, amount")
+    .eq("employee_id", (emp as { id: string }).id);
+  return fromRows<EmployeeDeduction[]>(SERVICE, data as never, error);
+}
+
+/** `amount: null` takes the person's own amount away. */
+export async function setEmployeeDeduction(
+  input: { employee_no: string; kind: DeductionKind; amount: number | null }, idempotencyKey?: string,
+): Promise<Result<EmployeeDeduction[]>> {
+  const { data, error } = await db().rpc("set_employee_deduction", {
+    p_employee_no: input.employee_no, p_kind: input.kind,
+    p_amount: input.amount == null ? null : Math.round(input.amount), p_key: idempotencyKey ?? null,
+  });
+  const said = fromSeam<unknown>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<EmployeeDeduction[]>;
+  return listEmployeeDeductions(input.employee_no);
+}
+
+/** Who owes which default over a period — the generate sheet starts from it. */
+export async function dueDeductions(input: { from: string; to: string }): Promise<Result<DueDeduction[]>> {
+  const { data, error } = await db().rpc("deduction_defaults_for", {
+    p_from: input.from, p_to: input.to, p_employee_no: null,
+  });
+  return fromRows<DueDeduction[]>(SERVICE, data as never, error);
+}
 
 /** Retensi per person — HRD's only; the database answers nothing to an
  *  account without `hrd.read` or `payroll.read` (0234, D388). */

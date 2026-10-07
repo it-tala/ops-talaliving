@@ -6,6 +6,7 @@ import type {
   PayrollRun, PayrollView, PayrollLine, PayBasis,
   PayGroup, PayComponents, PayrollRunMember, PaidElsewhere, PayrollHold, PayPreview, PayPreviewInput,
   PayrollAdjustInput, PersonDayEdits, RetentionBalance, EmployeeStanding,
+  DeductionKind, DeductionDefault, EmployeeDeduction, DueDeduction,
   AdjustmentKind, PayrollAdjustmentView,
   PayRules, PayRuleSet, PayRuleSetView, WorkSchedule, ScheduleHours, UnitScheduleDefault,
   EmployeeDocKind, EmployeeFileView, DocNoSource, LeaveBalance, LeaveKind, LeaveRequestView, LeaveStatus,
@@ -40,7 +41,7 @@ import {
   workLogView, workLogRoster as workLogRosterRows, workEvidence as workEvidenceOf,
   employeeIdentityViews, wlkpRecap,
   membersOf, groupPeople, paidElsewhere as paidElsewhereRun,
-  monthWorkdays, allowanceDayExact, hourlyRate,
+  monthWorkdays, allowanceDayExact, hourlyRate, enrolledIn,
 } from "../hr-derive";
 import { latency, actingUser, requireModule, requireLevel, requireAuthority, conflict, replayed, remember } from "./_kit";
 import { OFFICE_TZ, officeClock, officeToday as sharedOfficeToday, officeStamp } from "@/lib/office";
@@ -1736,6 +1737,112 @@ function retentionRefusal(
     }
   }
   return null;
+}
+
+/* ── potongan default per bulan (0236, D389) ─────────────────────────── */
+
+const DEDUCTION_SEED: DeductionDefault[] = [
+  { kind: "retention", amount: 500_000, updated_at: "2026-10-07T00:00:00Z" },
+  { kind: "bpjs_tk", amount: 0, updated_at: "2026-10-07T00:00:00Z" },
+  { kind: "bpjs_kes", amount: 0, updated_at: "2026-10-07T00:00:00Z" },
+];
+const DEDUCTION_NAME: Record<DeductionKind, string> = {
+  retention: "Retensi bulanan", bpjs_tk: "BPJS Ketenagakerjaan", bpjs_kes: "BPJS Kesehatan",
+};
+const MONTH_ID = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus",
+  "September", "Oktober", "November", "Desember"];
+const isDeductionKind = (k: string): k is DeductionKind => k === "retention" || k === "bpjs_tk" || k === "bpjs_kes";
+
+export async function listDeductionDefaults(): Promise<Result<DeductionDefault[]>> {
+  await latency();
+  if (!seesStanding()) return ok(SERVICE, []);
+  return ok(SERVICE, getState().deduction_defaults ?? DEDUCTION_SEED);
+}
+
+export async function setDeductionDefault(
+  input: { kind: DeductionKind; amount: number },
+): Promise<Result<DeductionDefault[]>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "hrd", "write");
+  if (denied) return denied;
+  if (!isDeductionKind(input.kind)) {
+    return invalid(SERVICE, "kind_not_default", "Hanya retensi, BPJS TK dan BPJS Kesehatan yang punya nilai default.", { field: "kind" });
+  }
+  if (input.amount == null || input.amount < 0) {
+    return invalid(SERVICE, "amount_invalid", "Nominal tidak boleh kosong atau negatif — nol berarti tidak dipotong.", { field: "amount" });
+  }
+  apply((draft) => {
+    const rows = draft.deduction_defaults ?? DEDUCTION_SEED.map((r) => ({ ...r }));
+    const row = rows.find((r) => r.kind === input.kind);
+    if (row) { row.amount = Math.round(input.amount); row.updated_at = new Date().toISOString(); }
+    draft.deduction_defaults = rows;
+  });
+  return listDeductionDefaults();
+}
+
+export async function listEmployeeDeductions(employeeNo: string): Promise<Result<EmployeeDeduction[]>> {
+  await latency();
+  const state = getState();
+  const emp = state.employees.find((e) => e.employee_no === employeeNo);
+  if (!emp) return notFound(SERVICE, "employee_not_found", `No employee ${employeeNo}.`);
+  if (!seesStanding()) return ok(SERVICE, []);
+  return ok(SERVICE, (state.employee_deductions ?? [])
+    .filter((d) => d.employee_id === emp.id).map((d) => ({ kind: d.kind, amount: d.amount })));
+}
+
+export async function setEmployeeDeduction(
+  input: { employee_no: string; kind: DeductionKind; amount: number | null },
+): Promise<Result<EmployeeDeduction[]>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "hrd", "write");
+  if (denied) return denied;
+  const emp = getState().employees.find((e) => e.employee_no === input.employee_no);
+  if (!emp) return notFound(SERVICE, "employee_not_found", `No employee ${input.employee_no}.`);
+  if (input.amount != null && input.amount < 0) {
+    return invalid(SERVICE, "amount_invalid", "Nominal tidak boleh negatif — nol berarti orang ini tidak dipotong.", { field: "amount" });
+  }
+  apply((draft) => {
+    const rows = (draft.employee_deductions ?? []).filter((d) => !(d.employee_id === emp.id && d.kind === input.kind));
+    if (input.amount != null) rows.push({ employee_id: emp.id, kind: input.kind, amount: Math.round(input.amount) });
+    draft.employee_deductions = rows;
+  });
+  return listEmployeeDeductions(input.employee_no);
+}
+
+/** `ops_hr.deduction_defaults_for`: each salaried person employed in a month
+ *  whose last day falls in the period, once per month; a person's own amount
+ *  wins; a BPJS default steps aside for an enrolment in that scheme. */
+export async function dueDeductions(input: { from: string; to: string }): Promise<Result<DueDeduction[]>> {
+  await latency();
+  if (!seesStanding()) return ok(SERVICE, []);
+  const state = getState();
+  const defaults = state.deduction_defaults ?? DEDUCTION_SEED;
+  const out: DueDeduction[] = [];
+  const [fy, fm] = input.from.split("-").map(Number);
+  for (let y = fy, m = fm; `${y}-${String(m).padStart(2, "0")}-01` <= input.to; m === 12 ? (y += 1, m = 1) : (m += 1)) {
+    const mStart = `${y}-${String(m).padStart(2, "0")}-01`;
+    const mEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+    if (mEnd < input.from || mEnd > input.to) continue;
+    for (const e of state.employees) {
+      if (e.pay_basis !== "monthly") continue;
+      if (e.joined_on && e.joined_on > mEnd) continue;
+      if (e.left_on && e.left_on < mStart) continue;
+      for (const kind of ["retention", "bpjs_tk", "bpjs_kes"] as DeductionKind[]) {
+        const own = (state.employee_deductions ?? []).find((d) => d.employee_id === e.id && d.kind === kind);
+        const amount = own?.amount ?? defaults.find((d) => d.kind === kind)?.amount ?? 0;
+        if (amount <= 0) continue;
+        const enrolled = state.enrolments.some((en) => en.employee_id === e.id && enrolledIn(mStart.slice(0, 7), en)
+          && ((kind === "bpjs_kes" && en.scheme === "BPJS_KESEHATAN") || (kind === "bpjs_tk" && (en.scheme === "JHT" || en.scheme === "JP"))));
+        if (enrolled) continue;
+        out.push({
+          employee_no: e.employee_no, full_name: e.full_name, kind, amount,
+          source: own ? "person" : "default", month: mStart,
+          reason: `${DEDUCTION_NAME[kind]} — ${MONTH_ID[m - 1]} ${y}`,
+        });
+      }
+    }
+  }
+  return ok(SERVICE, out.sort((a, b) => a.full_name.localeCompare(b.full_name) || a.month.localeCompare(b.month)));
 }
 
 /** HRD's, or payroll's — never the employee's own account (D388). */

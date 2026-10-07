@@ -14,6 +14,7 @@ import type { Employee, EmployeeAccount, PayBasis } from "@/services/hr/contract
 import { contactProblem, leaveFrom } from "@/services/hr/employee-rules";
 import { useToast } from "@/store/toast";
 import { StandingPanel } from "./StandingPanel";
+import { PersonDeductions } from "./DeductionDefaults";
 import { useTr } from "@/lib/i18n";
 
 /** Somebody's name, and what their time costs.
@@ -405,6 +406,10 @@ export function EmployeeDrawer({
                 : tr("The hour follows the pay rules.", "Per jam mengikuti aturan penggajian.")}
             </p>
           </div>
+          {/* A salaried person's own monthly deductions (D389). */}
+          {employee && basis === "monthly" && (
+            <div className="sm:col-span-2"><PersonDeductions employeeNo={employee.employee_no} /></div>
+          )}
           <div>
             <label htmlFor="e-hours" className="block text-xs text-slate-500">{tr("Hours in a standard day", "Jam dalam sehari standar")}</label>
             <NumberInput id="e-hours" value={hours} min={1} max={24} onChange={setHours} className="mt-1" />

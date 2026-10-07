@@ -278,6 +278,10 @@ export interface DemoState {
   /** Who each run was opened for, on it or not (0212, D370). Optional so a
    *  saved demo from before it loads; a run with no rows is read as its group. */
   payroll_run_members?: DemoRunMember[];
+  /** Potongan default per bulan and a person's own (0236, D389). Optional so a
+   *  saved demo from before them loads with the database's seed. */
+  deduction_defaults?: { kind: "retention" | "bpjs_tk" | "bpjs_kes"; amount: number; updated_at: string }[];
+  employee_deductions?: { employee_id: string; kind: "retention" | "bpjs_tk" | "bpjs_kes"; amount: number }[];
   /** Berkas 201: somebody's own file, and what is missing from it (D177). */
   employee_documents: EmployeeDocument[];
   /* Kontrak kerja, klausulnya, dan daftar poin wajibnya — yang terakhir adalah

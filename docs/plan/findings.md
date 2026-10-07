@@ -9839,3 +9839,25 @@ record that already carries it, and bring that record to where the decision is
 made. A second way to say *this day is not paid* would be a second rule for
 payroll to read.
 
+## F237 · 2026-10-07 · A monthly amount on weekly-cut runs needs a rule for which run takes it
+
+Retensi and BPJS are owed per month, but runs are cut by whatever period HRD
+picks: a whole month, or a week that straddles two. Prorating them over the
+days a run covers would put fractions of BPJS on payslips; taking them in
+*every* run that touches a month would take them twice. The rule that makes
+both impossible is a calendar fact, not a counter: **a month's deduction
+belongs to the run whose period holds the month's last day.** Consecutive runs
+never share a day (D370), so exactly one of them holds it.
+
+The amounts reach the payslip as ordinary adjustments the sheet starts with,
+rather than as a hidden figure inside the line, so HRD sees each one in the
+drawer and can take it off for a person before generating — the same place the
+owner asked to edit bonus and retensi by hand (D388) — and retensi written this
+way lands on the balance with no second code path.
+
+BPJS already had a source: enrolments (0051), computed from the wage. A fixed
+default beside it would deduct twice for anybody enrolled, so the default steps
+aside per scheme. **Rule:** when a second way to compute the same deduction is
+added, decide in the database which one wins for each person, not on the
+screen.
+

@@ -1882,7 +1882,7 @@ export function rateFor(
  *  month, so somebody who joined on the 20th is on that month's invoice. The
  *  line says which case it is rather than leaving a full month's charge looking
  *  like a full month's cover. */
-function enrolledIn(month: string, en: Enrolment): boolean {
+export function enrolledIn(month: string, en: Enrolment): boolean {
   const first = `${month}-01`;
   const last = `${month}-31`;
   if (en.enrolled_on > last) return false;
