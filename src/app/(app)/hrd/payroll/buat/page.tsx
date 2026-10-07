@@ -94,7 +94,19 @@ export default function GeneratePayrollPage() {
      `generate_payroll` — for a different period they are a different
      decision, so moving the period clears them. */
   const [pending, setPending] = useState<Record<string, PayrollAdjustInput[]>>({});
-  useEffect(() => { setPending({}); }, [from, to, group]);
+  /* 0236 (D389): the sheet starts every salaried person with the monthly
+     defaults due in this period — retensi, BPJS TK, BPJS Kesehatan, or a
+     person's own amount — as deductions HRD can still take off here. */
+  const [due] = useLoad(() => hr.dueDeductions({ from, to }), [from, to]);
+  useEffect(() => {
+    const seed: Record<string, PayrollAdjustInput[]> = {};
+    if (due.status === "ready") {
+      for (const d of due.data) {
+        (seed[d.employee_no] ??= []).push({ employee_no: d.employee_no, kind: d.kind, amount: -d.amount, reason: d.reason });
+      }
+    }
+    setPending(seed);
+  }, [due, group]);
   const adjust: AdjustEditor = {
     list: (no) => (pending[no] ?? []).map((a, i) => ({ key: String(i), kind: a.kind, amount: a.amount, reason: a.reason })),
     add: async (no, a) => {

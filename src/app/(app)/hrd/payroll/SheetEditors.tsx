@@ -47,7 +47,7 @@ export interface AdjustEditor {
 /** The kinds each column offers. Retensi starts at 500.000; nothing else
  *  starts anywhere — the number is typed. */
 const ADDS: AdjustmentKind[] = ["bonus", "other", "retention_release"];
-const TAKES: AdjustmentKind[] = ["retention", "other"];
+const TAKES: AdjustmentKind[] = ["retention", "bpjs_tk", "bpjs_kes", "other"];
 
 export function AdjustSection({
   side, employeeNo, editor,

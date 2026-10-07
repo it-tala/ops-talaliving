@@ -1383,7 +1383,10 @@ export type AdjustmentKind =
   | "late" | "sp" | "carry_over" | "advance" | "bonus" | "other"
   /** Money held back from a payslip, kept as a balance only HRD reads, and
    *  the same money given back (0233–0234, D388). */
-  | "retention" | "retention_release";
+  | "retention" | "retention_release"
+  /** BPJS taken from a salary as a fixed monthly amount (0235–0236, D389) —
+   *  not the enrolment-based contributions of 0051. */
+  | "bpjs_tk" | "bpjs_kes";
 
 export const ADJUSTMENT_LABELS: Record<AdjustmentKind, Message> = {
   late: { en: "Lateness", id: "Keterlambatan" },
@@ -1394,12 +1397,44 @@ export const ADJUSTMENT_LABELS: Record<AdjustmentKind, Message> = {
   other: { en: "Other", id: "Lain-lain" },
   retention: { en: "Retention", id: "Retensi" },
   retention_release: { en: "Retention returned", id: "Pengembalian retensi" },
+  bpjs_tk: { en: "BPJS Employment", id: "BPJS TK" },
+  bpjs_kes: { en: "BPJS Health", id: "BPJS Kesehatan" },
 };
 export const ADJUSTMENT_LABEL = bilingual(ADJUSTMENT_LABELS);
 
 /** What the retensi field starts at when HRD adds one. Not applied by itself:
  *  retensi is added person by person (owner, D388). */
 export const RETENTION_DEFAULT = 500_000;
+
+/** The monthly deductions with a default for everybody on a salary (D389). */
+export type DeductionKind = "retention" | "bpjs_tk" | "bpjs_kes";
+export const DEDUCTION_KINDS: DeductionKind[] = ["retention", "bpjs_tk", "bpjs_kes"];
+
+/** One default, as HRD set it — `ops_hr.deduction_defaults`. */
+export interface DeductionDefault {
+  kind: DeductionKind;
+  amount: number;
+  updated_at: string;
+}
+
+/** A person's own amount over the default; zero means *not this person*. */
+export interface EmployeeDeduction {
+  kind: DeductionKind;
+  amount: number;
+}
+
+/** What a salaried person owes for one month of a period —
+ *  `ops_hr.deduction_defaults_for`. **Positive**: the sheet writes it as a
+ *  deduction. */
+export interface DueDeduction {
+  employee_no: string;
+  full_name: string;
+  kind: DeductionKind;
+  amount: number;
+  source: "default" | "person";
+  month: string;
+  reason: string;
+}
 
 /** A bonus, retensi or lain-lain typed on the generate sheet before the run
  *  exists, written with it by `generate_payroll` (0234). **Signed**, as an

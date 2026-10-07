@@ -14,6 +14,7 @@ import { officeToday } from "@/lib/office";
 import { useSession } from "@/store/session";
 import { useTr } from "@/lib/i18n";
 import { EmployeeDrawer } from "./EmployeeDrawer";
+import { DeductionDefaults } from "./DeductionDefaults";
 
 /** Who works here, and what a day of their time costs.
  *
@@ -203,6 +204,9 @@ export default function EmployeesPage() {
         )}
         actions={mayEdit ? <Button icon={Plus} onClick={() => setAdding(true)}>{tr("Add somebody", "Tambah orang")}</Button> : undefined}
       />
+
+      {/* Potongan default per bulan (D389) — HRD's, above the list it applies to. */}
+      <DeductionDefaults />
 
       <Loaded state={rows} onRetry={reload}>
         {(all) => {
