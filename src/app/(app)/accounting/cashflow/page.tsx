@@ -3,7 +3,6 @@
 import { useState } from "react";
 import {
   AlertTriangle, CheckCircle2, ShieldAlert, Wallet, ArrowDownLeft, ArrowUpRight, Landmark, Settings2, Lock,
-  ChevronRight, ChevronDown,
 } from "lucide-react";
 import { Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
@@ -12,7 +11,7 @@ import { formatIDR, formatIDRCompact } from "@/lib/format";
 import { officeToday } from "@/lib/office";
 import { cn } from "@/lib/cn";
 import { accounting } from "@/demo/api";
-import type { Cashflow, CashflowMonth, CashflowRow, Direction } from "@/services/accounting/contracts";
+import type { Cashflow, CashflowRow, Direction } from "@/services/accounting/contracts";
 import { useSession } from "@/store/session";
 import { useTr } from "@/lib/i18n";
 import { addMonths } from "@/services/accounting/cashflow";
@@ -321,114 +320,162 @@ function Tile({
   );
 }
 
-/** The owner's chain, month after month: starting balance, in, out, ending
- *  balance — and the ending balance is the next row's start. A month opens
- *  into its four weeks. */
+/** The owner's chain, months side by side: starting balance, in, out,
+ *  ending balance — and each month's ending balance is the next column's
+ *  start. The month picked opens in place into its four weeks, still
+ *  side by side, and the sections below follow it. */
 function MonthChain({ cf, month, onMonth }: { cf: Cashflow; month: string; onMonth: (m: string) => void }) {
   const tr = useTr();
+  const today = cf.generated_for;
   const [open, setOpen] = useState<string | null>(month);
 
-  /* Against what was due by today: the current month is not under budget by
-     the weeks it has not reached yet. */
-  const today = cf.generated_for;
-  const toDate = (m: string, dir: Direction) => cf.weeks
+  /* One column per month; the open month becomes its four weeks plus its
+     total. Every column is read through the same fields. */
+  type Col = {
+    key: string; label: string; sub?: string; month: string; kind: "month" | "week" | "total";
+    current: boolean; started: boolean; over: boolean;
+    opening: number; closing: number; low: number;
+    in_planned: number; in_actual: number; in_used: number; in_due: number;
+    out_planned: number; out_actual: number; out_used: number; out_due: number; carried: number;
+  };
+  const dueOf = (m: string, dir: Direction) => cf.weeks
     .filter((w) => w.month === m && w.start <= today)
     .reduce((s, w) => s + (dir === "IN" ? w.in_planned : w.out_planned), 0);
-  const flow = (m: string, planned: number, actual: number, used: number, started: boolean, dir: Direction) => {
-    const due = toDate(m, dir);
-    const diff = actual - due;
-    const bad = dir === "OUT" ? diff > 0 : diff < 0;
-    return (
-      <>
-        <span className="block text-[13px] tabular-nums text-slate-800">{formatIDRCompact(used)}</span>
-        {started && (
-          <span className="block text-[10px] tabular-nums text-slate-500">
-            {due !== planned ? tr("due to date", "rencana s.d. kini") : tr("plan", "rencana")} {formatIDRCompact(due)} · {tr("actual", "aktual")} {formatIDRCompact(actual)}
-            {diff !== 0 && <span className={cn("ml-1 font-medium", bad ? "text-rose-600" : "text-emerald-600")}>({signed(diff, formatIDRCompact)})</span>}
-          </span>
-        )}
-      </>
-    );
-  };
+  const cols: Col[] = cf.months.flatMap((m): Col[] => {
+    const monthCol: Col = {
+      key: m.month, label: monthLabel(m.month), month: m.month, kind: open === m.month ? "total" : "month",
+      sub: open === m.month ? tr("month", "bulan") : undefined,
+      current: m.is_current, started: m.is_past || m.is_current, over: m.is_past,
+      opening: m.opening, closing: m.closing, low: m.low_point,
+      in_planned: m.in_planned, in_actual: m.in_actual, in_used: m.in_used, in_due: dueOf(m.month, "IN"),
+      out_planned: m.out_planned, out_actual: m.out_actual, out_used: m.out_used, out_due: dueOf(m.month, "OUT"),
+      carried: cf.weeks.filter((w) => w.month === m.month).reduce((s, w) => s + w.carried_out, 0),
+    };
+    if (open !== m.month) return [monthCol];
+    const weeks: Col[] = cf.weeks.filter((w) => w.month === m.month).map((w) => ({
+      key: w.start, label: tr(`Wk ${w.n}`, `Mg ${w.n}`), sub: weekLabel(w.start, w.end), month: m.month, kind: "week",
+      current: w.is_current, started: w.start <= today, over: w.is_past,
+      opening: w.opening, closing: w.closing, low: w.closing,
+      in_planned: w.in_planned, in_actual: w.in_actual, in_used: w.in_used, in_due: w.start <= today ? w.in_planned : 0,
+      out_planned: w.out_planned, out_actual: w.out_actual, out_used: w.out_used, out_due: w.start <= today ? w.out_planned : 0,
+      carried: w.carried_out,
+    }));
+    return [...weeks, monthCol];
+  });
 
-  const status = (m: CashflowMonth) => {
-    if (m.closing < 0) return <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-700">{tr("runs out", "habis")}</span>;
-    if (m.low_point < cf.settings.min_balance) return <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">{tr("thin", "menipis")}</span>;
+  const money = (n: number) => (n < 0 ? `− ${formatIDRCompact(-n)}` : formatIDRCompact(n));
+  const diffCell = (c: Col, dir: Direction) => {
+    if (!c.started) return <span className="text-slate-300">—</span>;
+    const due = dir === "IN" ? c.in_due : c.out_due;
+    const diff = (dir === "IN" ? c.in_actual : c.out_actual) - due;
+    if (diff === 0) return <span className="text-slate-400">0</span>;
+    const bad = dir === "OUT" ? diff > 0 : diff < 0;
+    /* Out under the plan while the period is still running is a bill not yet
+       paid, not money saved. */
+    const pending = dir === "OUT" && diff < 0 && !c.over;
+    return <span className={pending ? "text-amber-700" : bad ? "text-rose-600" : "text-emerald-600"}
+      title={pending ? tr("not yet paid — the period is still running", "belum dibayar — periodenya masih berjalan") : undefined}>{signed(diff, formatIDRCompact)}</span>;
+  };
+  const status = (c: Col) => {
+    if (c.closing < 0 || c.low < 0) return <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-700">{tr("runs out", "habis")}</span>;
+    if (c.low < cf.settings.min_balance) return <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">{tr("thin", "menipis")}</span>;
     return <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">{tr("safe", "aman")}</span>;
   };
+
+  const rows: { key: string; label: string; hint?: string; tone?: "in" | "out" | "total"; render: (c: Col) => React.ReactNode }[] = [
+    { key: "open", label: tr("Starting balance", "Saldo awal"), render: (c) => <span className="text-slate-600">{money(c.opening)}</span> },
+    { key: "in_p", label: tr("Cash in · projected", "Cash in · proyeksi"), tone: "in", render: (c) => <span className="text-emerald-700">{formatIDRCompact(c.in_planned)}</span> },
+    { key: "in_a", label: tr("Cash in · actual", "Cash in · aktual"), tone: "in", render: (c) => c.started ? <span className="text-slate-700">{formatIDRCompact(c.in_actual)}</span> : <span className="text-slate-300">—</span> },
+    { key: "in_d", label: tr("Cash in · difference", "Cash in · selisih"), hint: tr("actual against what was due by today", "aktual dibanding yang jatuh tempo s.d. hari ini"), tone: "in", render: (c) => diffCell(c, "IN") },
+    { key: "out_p", label: tr("Cash out · projected", "Cash out · proyeksi"), tone: "out", render: (c) => <span className="text-rose-700">{formatIDRCompact(c.out_planned)}</span> },
+    { key: "out_a", label: tr("Cash out · actual", "Cash out · aktual"), tone: "out", render: (c) => c.started ? <span className="text-slate-700">{formatIDRCompact(c.out_actual)}</span> : <span className="text-slate-300">—</span> },
+    { key: "out_d", label: tr("Cash out · difference", "Cash out · selisih"), hint: tr("+ is over budget", "+ berarti melebihi budget"), tone: "out", render: (c) => diffCell(c, "OUT") },
+    { key: "net", label: tr("Net", "Neto"), render: (c) => {
+      const n = c.in_used - c.out_used;
+      return <span className={n < 0 ? "text-rose-700" : "text-emerald-700"}>{signed(n, formatIDRCompact)}</span>;
+    } },
+    { key: "close", label: tr("Ending balance", "Saldo akhir"), hint: tr("= next starting balance", "= saldo awal berikutnya"), tone: "total", render: (c) => (
+      <span className={cn("font-semibold", c.closing < 0 ? "text-rose-700" : c.closing < cf.settings.min_balance ? "text-amber-700" : "text-slate-900")}>
+        {money(c.closing)}
+        {c.carried > 0 && <span className="block text-[10px] font-normal text-amber-700">{tr("incl. overdue", "termasuk tunggakan")} {formatIDRCompact(c.carried)}</span>}
+      </span>
+    ) },
+    { key: "status", label: tr("Status", "Status"), render: (c) => status(c) },
+  ];
 
   return (
     <Card>
       <CardHeader
         title={tr("Month by month", "Bulan ke bulan")}
-        subtitle={tr("Each month's ending balance is the next month's starting balance. Tap a month for its weeks — the sections below follow it.",
-          "Saldo akhir tiap bulan menjadi saldo awal bulan berikutnya. Ketuk bulan untuk melihat minggunya — section di bawah ikut bulan itu.")}
+        subtitle={tr("Months side by side. Each month's ending balance is the next month's starting balance. Tap a month to open its four weeks — the sections below follow it.",
+          "Bulan menyamping. Saldo akhir tiap bulan menjadi saldo awal bulan berikutnya. Ketuk bulan untuk membuka empat minggunya — section di bawah ikut bulan itu.")}
         icon={Landmark}
       />
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] border-collapse text-left">
+        <table className="w-full border-collapse" style={{ minWidth: `${200 + cols.length * 104}px` }}>
           <thead>
-            <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              <th className="sticky left-0 z-10 bg-slate-50 px-4 py-2.5">{tr("Month", "Bulan")}</th>
-              <th className="px-3 py-2.5 text-right">{tr("Starting", "Saldo awal")}</th>
-              <th className="px-3 py-2.5 text-right">Cash in</th>
-              <th className="px-3 py-2.5 text-right">Cash out</th>
-              <th className="px-3 py-2.5 text-right">{tr("Net", "Neto")}</th>
-              <th className="px-3 py-2.5 text-right">{tr("Ending", "Saldo akhir")}</th>
-              <th className="px-3 py-2.5" />
+            <tr className="border-b border-slate-200 bg-slate-50/70">
+              <th className="sticky left-0 z-10 w-[170px] bg-slate-50 px-4 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500 sm:w-[200px]">
+                {tr("Line", "Baris")}
+              </th>
+              {cols.map((c) => (
+                <th
+                  key={c.key}
+                  onClick={() => {
+                    if (c.kind === "week") return;
+                    setOpen(open === c.month ? null : c.month);
+                    onMonth(c.month);
+                  }}
+                  className={cn(
+                    "whitespace-nowrap px-3 py-2 text-right",
+                    c.kind !== "week" && "cursor-pointer hover:bg-brand-50",
+                    c.kind === "week" && "bg-slate-100/70",
+                    c.kind === "total" && "border-r-2 border-brand-200 bg-brand-50/60",
+                    month === c.month && c.kind === "month" && "bg-brand-50/60",
+                  )}
+                  title={c.kind === "week" ? undefined : tr("Open this month's weeks", "Buka minggu-minggu bulan ini")}
+                >
+                  <span className={cn(
+                    "block text-[11px] font-semibold uppercase tracking-wide",
+                    c.current ? "text-brand-700" : "text-slate-500",
+                    c.kind !== "week" && "underline decoration-dotted underline-offset-4",
+                  )}>
+                    {c.label}
+                    {c.current && c.kind !== "total" && <span className="ml-1 rounded bg-brand-600 px-1 py-0.5 text-[9px] text-white">{tr("now", "kini")}</span>}
+                  </span>
+                  {c.sub && <span className="block text-[10px] font-normal normal-case text-slate-400">{c.sub}</span>}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {cf.months.map((m) => {
-              const started = m.is_past || m.is_current;
-              const isOpen = open === m.month;
-              const net = m.in_used - m.out_used;
-              return [
-                <tr
-                  key={m.month}
-                  onClick={() => { setOpen(isOpen ? null : m.month); onMonth(m.month); }}
-                  className={cn(
-                    "cursor-pointer border-b border-slate-100 align-top hover:bg-slate-50",
-                    month === m.month && "bg-brand-50/50",
-                  )}
-                >
-                  <th className={cn("sticky left-0 z-10 px-4 py-2", month === m.month ? "bg-brand-50" : "bg-white")}>
-                    <span className="flex items-center gap-1.5 whitespace-nowrap text-[13px] font-medium text-slate-800">
-                      {isOpen ? <ChevronDown className="h-3.5 w-3.5 text-slate-400" /> : <ChevronRight className="h-3.5 w-3.5 text-slate-400" />}
-                      {monthLabel(m.month, true)}
-                      {m.is_current && <span className="rounded bg-brand-600 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-white">{tr("now", "kini")}</span>}
-                    </span>
-                  </th>
-                  <td className="whitespace-nowrap px-3 py-2 text-right text-[13px] tabular-nums text-slate-600">{formatIDRCompact(m.opening)}</td>
-                  <td className="whitespace-nowrap px-3 py-2 text-right">{flow(m.month, m.in_planned, m.in_actual, m.in_used, started, "IN")}</td>
-                  <td className="whitespace-nowrap px-3 py-2 text-right">{flow(m.month, m.out_planned, m.out_actual, m.out_used, started, "OUT")}</td>
-                  <td className={cn("whitespace-nowrap px-3 py-2 text-right text-[13px] tabular-nums", net < 0 ? "text-rose-700" : "text-emerald-700")}>{signed(net, formatIDRCompact)}</td>
-                  <td className={cn("whitespace-nowrap px-3 py-2 text-right text-[13px] font-semibold tabular-nums", m.closing < 0 ? "text-rose-700" : "text-slate-800")}>{formatIDRCompact(m.closing)}</td>
-                  <td className="px-3 py-2 text-right">{status(m)}</td>
-                </tr>,
-                ...(isOpen ? cf.weeks.filter((w) => w.month === m.month).map((w) => (
-                  <tr key={w.start} className="border-b border-slate-100 bg-slate-50/50 text-[12px]">
-                    <th className="sticky left-0 z-10 whitespace-nowrap bg-slate-50 py-1.5 pl-10 pr-4 font-normal text-slate-600">
-                      {tr(`Week ${w.n}`, `Minggu ${w.n}`)} · {weekLabel(w.start, w.end)}
-                      {w.is_current && <span className="ml-1.5 text-[10px] font-semibold text-brand-700">{tr("this week", "minggu ini")}</span>}
-                    </th>
-                    <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums text-slate-500">{formatIDRCompact(w.opening)}</td>
-                    <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums text-emerald-700">
-                      + {formatIDRCompact(w.in_used)}
-                      {(w.is_past || w.is_current) && <span className="block text-[10px] text-slate-400">{tr("plan", "rencana")} {formatIDRCompact(w.in_planned)}</span>}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums text-rose-700">
-                      − {formatIDRCompact(w.out_used)}
-                      {(w.is_past || w.is_current) && <span className="block text-[10px] text-slate-400">{tr("plan", "rencana")} {formatIDRCompact(w.out_planned)}</span>}
-                      {w.carried_out > 0 && <span className="block text-[10px] text-amber-700">{tr("incl. overdue", "termasuk tunggakan")} {formatIDRCompact(w.carried_out)}</span>}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums text-slate-500">{signed(w.in_used - w.out_used, formatIDRCompact)}</td>
-                    <td className={cn("whitespace-nowrap px-3 py-1.5 text-right font-medium tabular-nums", w.closing < 0 ? "text-rose-700" : w.closing < cf.settings.min_balance ? "text-amber-700" : "text-slate-700")}>{formatIDRCompact(w.closing)}</td>
-                    <td />
-                  </tr>
-                )) : []),
-              ];
-            })}
+            {rows.map((r) => (
+              <tr key={r.key} className={cn(
+                "border-b border-slate-100",
+                r.tone === "total" && "border-t-2 border-slate-200 bg-slate-50/70",
+                (r.key === "in_p" || r.key === "out_p") && "border-t border-slate-200",
+              )}>
+                <th className={cn(
+                  "sticky left-0 z-10 px-4 py-2 text-left align-top",
+                  r.tone === "total" ? "bg-slate-50" : "bg-white",
+                )}>
+                  <span className={cn(
+                    "block text-[12px] font-medium",
+                    r.tone === "in" ? "text-emerald-800" : r.tone === "out" ? "text-rose-800" : "text-slate-800",
+                  )}>{r.label}</span>
+                  {r.hint && <span className="block text-[10px] font-normal text-slate-400">{r.hint}</span>}
+                </th>
+                {cols.map((c) => (
+                  <td key={c.key} className={cn(
+                    "whitespace-nowrap px-3 py-2 text-right align-top text-[13px] tabular-nums",
+                    c.kind === "week" && "bg-slate-50/60 text-[12px]",
+                    c.kind === "total" && "border-r-2 border-brand-200 bg-brand-50/30",
+                  )}>
+                    {r.render(c)}
+                  </td>
+                ))}
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
