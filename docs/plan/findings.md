@@ -9798,3 +9798,17 @@ three together left HR asking which one is the payroll. One path — the sheet �
 does everything the others did. **Rule:** when a new screen supersedes an old
 one, the old one leaves the menu in the same change.
 
+## F235 · 2026-10-07 · A table moved by hand takes its readers down with it, and the readers are in another repository
+
+Overnight on 2026-10-06, John Lau's legacy tables were moved out of `public` into
+`zz_archive_jl_*` schemas. No migration in either repository records it. Data was
+safe; the readers were not. The capture bot's extractor loads `public.vendors`,
+`projects` and `items` to build its prompt, got PGRST205 on every cycle, and read
+nothing from 08:00 WITA. The daily ops card summed `public.transactions` and had
+nothing to sum. Both failures were silent in Chat, which is where anybody looks.
+
+Two lessons. First, an archive is a schema change and belongs in a migration, so
+the move shows up where people look before it shows up in production. Second, the
+bot now reads this application's data only through named functions (D387,
+`0232`). A table can then move or be renamed without breaking it, as long as the
+function still answers.

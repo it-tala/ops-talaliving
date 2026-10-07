@@ -137,6 +137,8 @@ begin
           'ops_procure.answer_po_approval','ops_procure.po_approval_card',
           'ops_procure.answer_request','ops_procure.answer_batch',
           'ops_procure.approval_card',
+          -- the capture worker's two reads, below (§4, 0232)
+          'ops_procure.extraction_reference','ops_acct.bot_balances',
           -- the notification worker's, below (§4). Not seams: a person never
           -- "delivers an event", a machine does.
           'ops_core.outbox_due','ops_core.outbox_delivered','ops_core.outbox_failed')
@@ -171,6 +173,14 @@ end $$;
 -- line, so the addressee check and the `approve_goods` check happen exactly
 -- once in the codebase.
 --
+-- Two more are `0232`'s, and they are the capture worker's only reads:
+-- `extraction_reference` (the curated catalogue its extractor prompts with) and
+-- `bot_balances` (each account's figure for the daily ops card it posts into a
+-- channel, leadership withheld by custody — D87). Both are read-only. They are
+-- shut to people because `bot_balances` decides by custody rather than by the
+-- caller's `approve_funds`, so a browser caller would get the channel's view
+-- instead of their own — a second, weaker rule beside the one the screens use.
+--
 -- All of the non-`file_evidence` verbs are shut to `authenticated`, for the
 -- same reason in two shapes: a card is answered from Chat by its addressee,
 -- never from a browser session, and a signed-in person calling
@@ -201,11 +211,12 @@ begin
      and has_function_privilege('service_role', p.oid, 'EXECUTE');
 
   assert reach = 'answer_batch, answer_po_approval, answer_request, approval_card, '
+               || 'bot_balances, extraction_reference, '
                || 'file_evidence, outbox_delivered, outbox_due, outbox_failed, po_approval_card',
     'The service_role key can execute ' || n || ' seam(s): ' || coalesce(reach, '(none)')
     || '. 0038 (capture), D299 (PO approval by Chat), 0155 (outbox to Chat), 0157 (a request '
-    || 'line answered from Chat) and 0159 (the meeting''s whole list, and the card that carries '
-    || 'its money) name exactly these nine, and that sentence is the reason a service_role key '
+    || 'line answered from Chat), 0159 (the meeting''s whole list, and the card that carries '
+    || 'its money) and 0232 (the capture worker''s catalogue and balances) name exactly these eleven, and that sentence is the reason a service_role key '
     || 'is allowed to exist here at all. Widening it is a decision to write down — in the '
     || 'migration and in this list — not a grant to add in passing.';
 
@@ -216,6 +227,7 @@ begin
    where p.oid::regproc::text in ('ops_procure.answer_po_approval','ops_procure.po_approval_card',
                                   'ops_procure.answer_request','ops_procure.answer_batch',
                                   'ops_procure.approval_card',
+                                  'ops_procure.extraction_reference','ops_acct.bot_balances',
                                   'ops_core.outbox_due','ops_core.outbox_delivered',
                                   'ops_core.outbox_failed')
      and (has_function_privilege('authenticated', p.oid, 'EXECUTE')
