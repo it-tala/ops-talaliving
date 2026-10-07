@@ -390,7 +390,7 @@ async function codeFor(
 /** A row a seam has just written, read back through `v_transaction`.
  *
  *  `maybeSingle`, not `single`: a row on a leadership account is not in the
- *  view for a reader without `approve_funds` (`0237`, D390), and staff with
+ *  view for a reader without `approve_funds` (`0238`, D391), and staff with
  *  `post_ledger` do write them — the out leg of a round's funding (D78). The
  *  seam has already said yes, so the answer is the row as far as this reader
  *  may know it — its number and what they typed themselves — and never an

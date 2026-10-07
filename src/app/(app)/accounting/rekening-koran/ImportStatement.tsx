@@ -121,7 +121,7 @@ export function ImportStatement({ onClose, onDone }: { onClose: () => void; onDo
   const [busy, setBusy] = useState(false);
 
   /* A leadership account's statement is its rows (D180), and those are
-     `approve_funds`' to read (D390) — offering the upload to somebody who
+     `approve_funds`' to read (D391) — offering the upload to somebody who
      could never open the result would answer a good import with "not found".
      The same test the cash position locks the balance with. */
   const { hasAuthority } = useSession();

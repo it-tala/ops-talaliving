@@ -38,7 +38,7 @@ export async function listAccounts(): Promise<Result<AccountBalance[]>> {
 
 /** The accounts whose rows this reader may see: every one of accounting's,
  *  and leadership's only with `approve_funds` — the test that already locks
- *  the balance (D87), now also hiding the rows under it (D390, `0237`). */
+ *  the balance (D87), now also hiding the rows under it (D391, `0238`). */
 function readableAccountIds(state: DemoState): Set<string> {
   const mayReadLeadership = actingUser(state).authorities.includes("approve_funds");
   return new Set(state.accounts

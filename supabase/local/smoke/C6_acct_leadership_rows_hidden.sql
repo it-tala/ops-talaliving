@@ -1,4 +1,4 @@
--- acct — a leadership account's rows are `approve_funds`' to read (0237, D390).
+-- acct — a leadership account's rows are `approve_funds`' to read (0238, D391).
 --
 -- D87 locked the balance; the owner then found the rows still listed under
 -- it. Two readers with accounting write, one of them holding approve_funds:

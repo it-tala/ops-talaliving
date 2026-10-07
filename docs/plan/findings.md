@@ -9861,7 +9861,7 @@ aside per scheme. **Rule:** when a second way to compute the same deduction is
 added, decide in the database which one wins for each person, not on the
 screen.
 
-## F238 · 2026-10-07 · Hiding a row from a list is not the same as hiding it from the arithmetic
+## F239 · 2026-10-07 · Hiding a row from a list is not the same as hiding it from the arithmetic
 
 The obvious place to hide leadership's rows was the table's own policy,
 `trx_read` — one line, and every read in the system obeys it. It would also

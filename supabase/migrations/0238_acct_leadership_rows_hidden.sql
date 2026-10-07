@@ -1,5 +1,5 @@
--- 0237_acct_leadership_rows_hidden.sql — a leadership account's rows are read
--- by `approve_funds` only, like its balance (D390).
+-- 0238_acct_leadership_rows_hidden.sql — a leadership account's rows are read
+-- by `approve_funds` only, like its balance (D391).
 --
 -- Owner, 2026-10-07: *di module accounting, hanya pimpinan dan superadmin yang
 -- bisa baca transaksi yang menggunakan account leadership. jumlah balance sudah
@@ -31,7 +31,7 @@
 -- worse than the leak it closes. Those views keep counting the money; only
 -- the accounting module's own lists stop showing the rows. This is the same
 -- level D87 gated the balance at (a view, not the table), and it is written
--- down as F238 rather than assumed.
+-- down as F239 rather than assumed.
 --
 -- Nothing is written differently. Staff with `post_ledger` still record the
 -- out leg of a round's funding from the leadership account (D78); they get
@@ -44,7 +44,7 @@ language sql stable set search_path = ops_acct, pg_temp as $$
 $$;
 comment on function ops_acct.account_rows_readable(ops_acct.account_custody_t) is
   'Whether the caller may read rows on an account of this custody: everybody for accounting''s, '
-  '`approve_funds` for leadership''s (D87 for the balance, D390 for the rows).';
+  '`approve_funds` for leadership''s (D87 for the balance, D391 for the rows).';
 grant execute on function ops_acct.account_rows_readable(ops_acct.account_custody_t) to authenticated;
 
 -- ── the ledger row ────────────────────────────────────────────────────────
