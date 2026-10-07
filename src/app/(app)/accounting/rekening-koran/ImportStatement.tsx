@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Upload, FileSpreadsheet, AlertTriangle } from "lucide-react";
 import { Modal } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/primitives";
@@ -10,6 +10,7 @@ import { formatNumber } from "@/lib/format";
 import { accounting } from "@/demo/api";
 import { parseCsv } from "@/lib/csv";
 import type { Direction } from "@/services/accounting/contracts";
+import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 
@@ -119,6 +120,20 @@ export function ImportStatement({ onClose, onDone }: { onClose: () => void; onDo
   const [form, setForm] = useState({ account_code: "BCA 064", opening: 0, closing: 0, note: "" });
   const [busy, setBusy] = useState(false);
 
+  /* A leadership account's statement is its rows (D180), and those are
+     `approve_funds`' to read (D390) — offering the upload to somebody who
+     could never open the result would answer a good import with "not found".
+     The same test the cash position locks the balance with. */
+  const { hasAuthority } = useSession();
+  const mayReadLeadership = hasAuthority("approve_funds");
+  const pickable = (accounts.status === "ready" ? accounts.data : [])
+    .filter((a) => (a.custody !== "leadership" || mayReadLeadership)
+      && (a.is_active !== false || a.code === form.account_code));
+  const fallback = pickable.some((a) => a.code === form.account_code) ? null : pickable[0]?.code ?? null;
+  useEffect(() => {
+    if (fallback) setForm((f) => ({ ...f, account_code: fallback }));
+  }, [fallback]);
+
   async function read(f: File) {
     const { rows, skipped } = parseStatement(await f.text());
     setFile({ name: f.name, rows, skipped });
@@ -181,7 +196,7 @@ export function ImportStatement({ onClose, onDone }: { onClose: () => void; onDo
     >
       <div className="space-y-4">
         <Loaded state={accounts} skeletonRows={1}>
-          {(accs) => (
+          {() => (
             <label className="block">
               <span className="block text-xs text-slate-500">{tr("Account", "Rekening")}</span>
               <select
@@ -189,7 +204,7 @@ export function ImportStatement({ onClose, onDone }: { onClose: () => void; onDo
                 onChange={(e) => setForm({ ...form, account_code: e.target.value })}
                 className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
               >
-                {accs.filter((a) => a.is_active !== false || a.code === form.account_code).map((a) => (
+                {pickable.map((a) => (
                   <option key={a.code} value={a.code}>
                     {a.code} — {a.name}{a.currency !== "IDR" ? ` (${a.currency})` : ""}
                   </option>
