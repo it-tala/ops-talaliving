@@ -23,7 +23,7 @@ import { type UomCode } from "@/services/procurement/contracts";
 import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
 import { UomOptions } from "@/components/ui/uom-options";
-import { useTr, type Message } from "@/lib/i18n";
+import { useTr, type Message, type Tr } from "@/lib/i18n";
 
 /** The narrow road: documents whose parent is genuinely unknown.
  *
@@ -113,6 +113,16 @@ function docTitle(d: InboxDoc, filename?: string): string {
   return (d.rows.length > 1
     ? r.extracted.vendor_name ?? r.extracted.note
     : r.extracted.note ?? r.extracted.vendor_name) ?? filename ?? r.attachment_id;
+}
+
+/** Who sent it. When the sender's name matched nobody active the row is filed
+ *  under the fallback account (0237, D390), and the name as given is said too,
+ *  so the screen never claims the fallback account sent it. */
+function sentBy(r: EvidenceInboxRow, tr: Tr): string {
+  const as = r.extracted.reported_as;
+  return as
+    ? tr(` · from ${r.reported_by_name} (sent as ${as})`, ` · dari ${r.reported_by_name} (dikirim sebagai ${as})`)
+    : tr(` · from ${r.reported_by_name}`, ` · dari ${r.reported_by_name}`);
 }
 
 /** The reading the preview shows, with the document's total rather than the
@@ -326,7 +336,7 @@ export default function InboxPage() {
                         </p>
                         <p className="text-[11px] text-slate-400">
                           {r.reported_at.slice(0, 10)} · {r.origin}
-                          {r.reported_by_name != null && tr(` · from ${r.reported_by_name}`, ` · dari ${r.reported_by_name}`)}
+                          {r.reported_by_name != null && sentBy(r, tr)}
                           {r.extracted.confidence != null && tr(` · read ${r.extracted.confidence}% sure`, ` · terbaca ${r.extracted.confidence}% yakin`)}
                         </p>
                         {similar.length > 0 && (
@@ -749,7 +759,7 @@ function ResolvePanel({
       <CardHeader
         title={docTitle(doc, file?.filename)}
         subtitle={`${row.origin} · ${row.reported_at.slice(0, 16).replace("T", " ")}`
-          + (row.reported_by_name != null ? tr(` · from ${row.reported_by_name}`, ` · dari ${row.reported_by_name}`) : "")
+          + (row.reported_by_name != null ? sentBy(row, tr) : "")
           + tr(` · read ${row.extracted.confidence ?? "—"}% sure`, ` · terbaca ${row.extracted.confidence ?? "—"}% yakin`)}
         icon={FileText}
         action={<Badge tone={row.money_direction === "IN" ? "green" : "slate"}>{row.money_direction ?? "OUT"}</Badge>}
