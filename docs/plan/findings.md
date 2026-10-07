@@ -9885,3 +9885,32 @@ say what did not match, and let the screen show it. The bot should also stop
 saying *confirm on Verifikasi* when its write came back refused. That fix
 belongs in the bot's repository, not here.
 
+## F239 · 2026-10-07 · Hiding a row from a list is not the same as hiding it from the arithmetic
+
+The obvious place to hide leadership's rows was the table's own policy,
+`trx_read` — one line, and every read in the system obeys it. It would also
+have been wrong. Seven views outside accounting (`v_line_funding`,
+`v_line_evidence`, `v_po_status`, `v_po_detail`, `v_purchase_facts`,
+`v_vendor_view`, `ops_prod.v_project_cost`) run as the caller and join
+`ops_acct.transactions` to decide whether money reached a line. Under a table
+policy, a PR line leadership paid straight out of BCA 064 would turn back into
+*WAITING FOR PAYMENT* on the procurement board for everybody without
+`approve_funds` — a hidden row becoming a false fact.
+
+So the filter sits where the owner saw the rows: the accounting views a person
+reads rows from. The board keeps counting the payment; the ledger, the drawer,
+the allocations, a vendor's payments and the rekening koran stop listing it.
+The cost is stated rather than hidden: like the balance before it (D87), the
+gate is at the view, and the base table is still readable to accounting read
+through the API by somebody who goes looking for it. Closing that needs the
+coverage views to stop reading `transactions` as the caller — a definer
+function for *is this allocation's transaction live* — which is its own
+change.
+
+The write side needed one adjustment. Staff with `post_ledger` write the out
+leg of a round's funding from the leadership account (D78), and every post
+read its row back with `.single()` — which now errors for them, and a screen
+reads that error as *not recorded*. `readBack` answers with the number the
+seam returned and what the poster typed. **Rule:** before hiding rows by the
+reader, find every reader that computes from those rows, not only the ones that
+list them.

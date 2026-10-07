@@ -36,6 +36,16 @@ export async function listAccounts(): Promise<Result<AccountBalance[]>> {
   return ok(SERVICE, accountBalances(getState()));
 }
 
+/** The accounts whose rows this reader may see: every one of accounting's,
+ *  and leadership's only with `approve_funds` — the test that already locks
+ *  the balance (D87), now also hiding the rows under it (D391, `0238`). */
+function readableAccountIds(state: DemoState): Set<string> {
+  const mayReadLeadership = actingUser(state).authorities.includes("approve_funds");
+  return new Set(state.accounts
+    .filter((a) => a.custody !== "leadership" || mayReadLeadership)
+    .map((a) => a.id));
+}
+
 export async function listAccountRows(): Promise<Result<Account[]>> {
   await latency();
   return ok(SERVICE, getState().accounts);
@@ -259,7 +269,8 @@ export async function listTransactions(
 ): Promise<Result<TransactionView[]>> {
   await latency();
   const state = getState();
-  let rows = state.transactions;
+  const readable = readableAccountIds(state);
+  let rows = state.transactions.filter((t) => readable.has(t.account_id));
   /* Filtered here rather than in the browser, so "page 2 of 3" counts the
      rows the reader will actually see. */
   if (!opts.include_void) rows = rows.filter((t) => t.status !== "VOID");
@@ -289,7 +300,9 @@ export async function getTransaction(trxNo: string): Promise<Result<TransactionD
   await latency();
   const state = getState();
   const trx = state.transactions.find((t) => t.trx_no === trxNo);
-  if (!trx) return notFound(SERVICE, "transaction_not_found", `Transaction ${trxNo} not found.`);
+  if (!trx || !readableAccountIds(state).has(trx.account_id)) {
+    return notFound(SERVICE, "transaction_not_found", `Transaction ${trxNo} not found.`);
+  }
 
   const allocations: AllocationView[] = state.payment_allocations
     .filter((a) => a.trx_id === trx.id)
@@ -1185,8 +1198,9 @@ export async function listInboxDecided(limit = 20): Promise<Result<EvidenceInbox
 export async function paymentsForVendor(vendorId: string): Promise<Result<VendorPayment[]>> {
   await latency();
   const state = getState();
+  const readable = readableAccountIds(state);
   const rows = state.transactions
-    .filter((t) => t.vendor_id === vendorId && t.direction === "OUT")
+    .filter((t) => t.vendor_id === vendorId && t.direction === "OUT" && readable.has(t.account_id))
     .map((t) => {
       const link = state.attachment_links.find(
         (l) => l.entity === "transaction" && l.entity_no === t.trx_no && l.kind === "Payment Proof",
@@ -2029,7 +2043,9 @@ export async function listStatements(): Promise<Result<BankStatementView[]>> {
   await latency();
   const denied = requireModule(SERVICE, "accounting");
   if (denied) return denied;
-  return ok(SERVICE, bankStatementViews(getState()));
+  const state = getState();
+  const readable = readableAccountIds(state);
+  return ok(SERVICE, bankStatementViews(state).filter((s) => readable.has(s.account_id)));
 }
 
 export async function getStatement(statementNo: string): Promise<Result<BankStatementView>> {
@@ -2038,7 +2054,9 @@ export async function getStatement(statementNo: string): Promise<Result<BankStat
   if (denied) return denied;
   const state = getState();
   const st = state.bank_statements.find((s) => s.statement_no === statementNo);
-  if (!st) return notFound(SERVICE, "statement_not_found", `No statement ${statementNo}.`);
+  if (!st || !readableAccountIds(state).has(st.account_id)) {
+    return notFound(SERVICE, "statement_not_found", `No statement ${statementNo}.`);
+  }
   return ok(SERVICE, bankStatementView(state, st));
 }
 
@@ -2350,7 +2368,9 @@ export async function coverageForDocument(
 /** What a ledger row already carries, before a document is attached to it. */
 export async function coverageForTransaction(trxNo: string): Promise<Result<TransactionCoverage>> {
   await latency();
-  const c = transactionCoverage(getState(), trxNo);
+  const state = getState();
+  const trx = state.transactions.find((t) => t.trx_no === trxNo);
+  const c = trx && readableAccountIds(state).has(trx.account_id) ? transactionCoverage(state, trxNo) : null;
   if (!c) return notFound(SERVICE, "transaction_not_found", `Tidak ada transaksi ${trxNo}.`);
   return ok(SERVICE, c);
 }
