@@ -41,6 +41,10 @@ export interface NavItem {
    *  the `approve_overtime` authority and usually holds no HR module, so the
    *  one screen where overtime is decided has to be reachable by it (D333). */
   orAuthority?: import("@/services/identity/contracts").Authority;
+  /** An authority the item **requires**, on top of any permission. The
+   *  cashflow is leadership's — exactly the people holding `approve_funds`,
+   *  who are not the people holding `accounting: admin` (D392). */
+  authority?: import("@/services/identity/contracts").Authority;
   badge?: "core" | "new";
 }
 
@@ -124,6 +128,7 @@ export const NAV: NavSection[] = [
       { label: "Rekening koran", labelKey: "statements", href: "/accounting/rekening-koran", icon: Landmark, permission: "accounting.read", badge: "new" },
       { label: "Ledger", labelKey: "ledger", href: "/accounting/ledger", icon: BookOpen, permission: "accounting.read", badge: "core" },
       { label: "Liquidation", labelKey: "liquidation", href: "/accounting/liquidation", icon: TrendingUp, permission: "accounting.read", badge: "new" },
+      { label: "Cashflow", labelKey: "cashflow", href: "/accounting/cashflow", icon: Wallet, authority: "approve_funds", badge: "new" },
       { label: "Payment Calendar", labelKey: "calendar", href: "/accounting/calendar", icon: PiggyBank, permission: "accounting.read", badge: "new" },
       { label: "Monthly bills", labelKey: "monthlyBills", href: "/accounting/tagihan", icon: CalendarClock, permission: "accounting.read", badge: "new" },
       { label: "Subscriptions", labelKey: "subscriptions", href: "/accounting/langganan", icon: Repeat, permission: "accounting.read", badge: "new" },

@@ -1010,3 +1010,311 @@ export interface SubscriptionPaymentInput {
   amount_usd?: number | null;
   note?: string | null;
 }
+
+
+/* ------------------------------------------------------------------ */
+/* Cashflow — leadership's weekly projection (`0239`, D392)            */
+/* ------------------------------------------------------------------ */
+
+/** What a cashflow line is, for grouping. The owner asked for two sections —
+ *  cash in and cash out — and a list of forty lines with no grouping is not
+ *  readable on a phone, so every line carries one of these. */
+export type CashflowCategory =
+  | "client"        // a client's termin, DP, pelunasan
+  | "capital"       // owner's money, a loan drawn
+  | "other_in"
+  | "payroll"
+  | "bills"         // the payment calendar's recurring bills
+  | "subscription"  // the subscription register
+  | "vendor"        // materials and vendors
+  | "tax"
+  | "loan"          // instalments, credit cards
+  | "other_out";
+
+export const CASHFLOW_IN_CATEGORIES: CashflowCategory[] = ["client", "capital", "other_in"];
+export const CASHFLOW_OUT_CATEGORIES: CashflowCategory[] = [
+  "payroll", "bills", "subscription", "vendor", "tax", "loan", "other_out",
+];
+
+/** One line of the cashflow, as stored.
+ *
+ *  Two kinds share the table, told apart by `source_ref`:
+ *
+ *  - **Mirrors a monthly bill** (`component:<uuid>` or `sub:<uuid>`): the
+ *    schedule, the dates and the actual payments come from the payment
+ *    calendar and the subscription register — the cashflow never keeps a
+ *    second copy of a bill (D228). What it adds is the flexibility the owner
+ *    asked for: `amount` replaces the calendar's figure *for the projection
+ *    only*, `growth_pct` grows it month by month, `hidden` leaves it out. A
+ *    bill with no row here is still in the cashflow, at the calendar's figure.
+ *  - **The cashflow's own** (`source_ref` null): a client's termin, a tax
+ *    payment, a loan instalment — things the calendar does not hold. Its
+ *    schedule is its own and its actuals are the realisations recorded on it
+ *    plus the ledger rows its category finds. */
+export interface CashflowLine {
+  id: string;
+  source_ref: string | null;
+  name: string;
+  direction: Direction;
+  category: CashflowCategory;
+  /** Own lines only; a mirrored bill follows the calendar's dates. */
+  frequency: CashFrequency | null;
+  /** Per occurrence. On a mirrored bill, null follows the calendar. */
+  amount: number | null;
+  due_day: number | null;
+  due_weekday: number | null;
+  due_date: string | null;
+  /** `YYYY-MM`, inclusive. */
+  starts_on: string | null;
+  ends_on: string | null;
+  /** Percent per month, compounding from `growth_from` (`YYYY-MM`): 5 means
+   *  each month is 5% more than the one before. Negative shrinks it. */
+  growth_pct: number;
+  growth_from: string | null;
+  /** How the ledger finds what actually happened for an own line. */
+  type_code: TransactionTypeCode | null;
+  vendor_id: string | null;
+  project_id: string | null;
+  hidden: boolean;
+  note: string | null;
+  active: boolean;
+  created_by: string;
+  created_at: string;
+}
+
+/** One week of one line, changed: `amount` is that week's total for the line,
+ *  null is *not this week*. A week a line does not normally fall in can be
+ *  given an amount too — a one-time extra is a fact about that week. */
+export interface CashflowWeekOverride {
+  id: string;
+  line_id: string;
+  /** The first day of the week, `YYYY-MM-DD`. */
+  week_start: string;
+  amount: number | null;
+  reason: string;
+  recorded_by: string;
+  recorded_at: string;
+}
+
+/** Money that actually came in (or went out) against an own line, typed by
+ *  leadership — because a client's transfer into the leadership account is
+ *  not always in the ledger. With `trx_no` it *is* a ledger row, and that row
+ *  is then never counted twice. */
+export interface CashflowReceipt {
+  id: string;
+  line_id: string;
+  on_date: string;
+  amount: number;
+  trx_no: string | null;
+  note: string | null;
+  recorded_by: string;
+  recorded_at: string;
+}
+
+/** A starting balance leadership typed for a month, because the ledger does
+ *  not hold every account's every movement. It wins over the ledger's figure
+ *  for that month and is shown beside it. */
+export interface CashflowOpening {
+  /** `YYYY-MM` */
+  month: string;
+  amount: number;
+  note: string | null;
+  recorded_by: string;
+  recorded_at: string;
+}
+
+export interface CashflowSettings {
+  /** The cash the company should never go under — the line between *aman*
+   *  and *menipis*. */
+  min_balance: number;
+  /** Ledger categories that move money between the company's own accounts.
+   *  They are neither cash in nor cash out for the company as a whole. */
+  transfer_types: TransactionTypeCode[];
+}
+
+export type CashflowCellState =
+  | "PAID" | "PARTIAL" | "OVERDUE" | "DUE" | "PLANNED" | "SKIPPED" | "NONE";
+
+/** Weeks are cut inside the month — 1–7, 8–14, 15–21, 22 to the end — so a
+ *  month is always four weeks and its closing balance is exactly the next
+ *  month's opening (D392). */
+export interface CashflowWeek {
+  /** `YYYY-MM-DD` */
+  start: string;
+  end: string;
+  month: string;
+  /** 1–4 within its month. */
+  n: number;
+  is_past: boolean;
+  is_current: boolean;
+  in_planned: number;
+  in_actual: number;
+  out_planned: number;
+  out_actual: number;
+  /** Actuals no line claimed — part of `in_actual` / `out_actual`. */
+  in_unplanned: number;
+  out_unplanned: number;
+  /** Unpaid bills from earlier weeks, carried into the current week so the
+   *  balance does not pretend they went away. Zero everywhere else. */
+  carried_out: number;
+  /** What the balance walk used for this week: actual for a week that has
+   *  ended, actual so far plus what is still to come for this week, the plan
+   *  for a week ahead. */
+  in_used: number;
+  out_used: number;
+  opening: number;
+  closing: number;
+  /** The plan alone, walked from the same opening — the figure to hold the
+   *  actual against. */
+  planned_closing: number;
+}
+
+export interface CashflowMonth {
+  month: string;
+  is_past: boolean;
+  is_current: boolean;
+  opening: number;
+  in_planned: number;
+  in_actual: number;
+  out_planned: number;
+  out_actual: number;
+  in_used: number;
+  out_used: number;
+  closing: number;
+  planned_closing: number;
+  /** The lowest week-end balance in the month. */
+  low_point: number;
+}
+
+export interface CashflowCell {
+  week_start: string;
+  planned: number;
+  actual: number;
+  state: CashflowCellState;
+  /** Dates in the week this line falls due — the bill's *tanggal tagihan*. */
+  dates: string[];
+  overridden: boolean;
+  reason: string | null;
+  trx_nos: string[];
+}
+
+export type CashflowSource = "calendar" | "subscription" | "own";
+
+export interface CashflowRow {
+  /** The stored row, or for a bill nobody has adjusted, a line built from
+   *  the calendar with `id` empty. */
+  line: CashflowLine;
+  /** `component:<uuid>` / `sub:<uuid>` / the line id. Stable across the two
+   *  kinds — a screen keys on it. */
+  key: string;
+  source: CashflowSource;
+  /** The calendar's own figure per occurrence, before the cashflow's change. */
+  base_amount: number | null;
+  /** How it repeats, for the label: `monthly` day, `weekly` weekday, `once`. */
+  frequency: CashFrequency | null;
+  due_day: number | null;
+  due_weekday: number | null;
+  due_date: string | null;
+  account_code: AccountCode | null;
+  vendor_name: string | null;
+  project_code: string | null;
+  cells: CashflowCell[];
+  planned_total: number;
+  actual_total: number;
+  /** The next date it falls due from today, for the *tanggal tagihan* column. */
+  next_due: string | null;
+}
+
+export interface CashflowOpeningView {
+  month: string;
+  /** What the ledger says every account held at the start of the month. */
+  ledger: number;
+  accounts: { code: AccountCode; custody: AccountCustody; currency: string; balance: number }[];
+  typed: CashflowOpening | null;
+  /** The figure the walk starts from: the typed one when there is one. */
+  used: number;
+}
+
+export type CashflowVerdictState = "safe" | "thin" | "short";
+
+export interface CashflowVerdict {
+  state: CashflowVerdictState;
+  /** The first week the balance goes under zero, from the current week on. */
+  runs_out_week: string | null;
+  short_by: number;
+  /** The first week it goes under `min_balance`. */
+  thin_week: string | null;
+  lowest: number;
+  lowest_week: string | null;
+  /** Whole weeks from the current one until it runs out; null if it never does. */
+  runway_weeks: number | null;
+  /** Expected cash in that should have arrived and did not — not carried
+   *  forward, because money not received is not assumed to arrive. */
+  missed_in: number;
+  carried_out: number;
+}
+
+/** The current month so far — is spending under or over what was planned. */
+export interface CashflowBudget {
+  month: string;
+  /** Weeks of the month up to and including the current one. */
+  in_planned: number;
+  in_actual: number;
+  out_planned: number;
+  out_actual: number;
+}
+
+export interface Cashflow {
+  generated_for: string;
+  from_month: string;
+  opening: CashflowOpeningView;
+  settings: CashflowSettings;
+  months: CashflowMonth[];
+  weeks: CashflowWeek[];
+  in_rows: CashflowRow[];
+  out_rows: CashflowRow[];
+  /** Monthly bills leadership left out of the cashflow, so they can be put
+   *  back. Never silently gone. */
+  hidden: { key: string; line_id: string; name: string; source: CashflowSource }[];
+  /** Realisations recorded on own lines, newest first. */
+  receipts: CashflowReceipt[];
+  /** Per week, aligned with `weeks`: actuals no line claimed. */
+  unplanned_in: { amount: number; trx_nos: string[] }[];
+  unplanned_out: { amount: number; trx_nos: string[]; top_types: { type_code: string; amount: number }[] }[];
+  verdict: CashflowVerdict;
+  budget: CashflowBudget;
+  /** Supplier balances with no date — no week can hold them (F30). */
+  undated_obligations: number;
+}
+
+export interface CashflowLineInput {
+  name: string;
+  direction: Direction;
+  category: CashflowCategory;
+  frequency: CashFrequency;
+  amount: number;
+  due_day?: number | null;
+  due_weekday?: number | null;
+  due_date?: string | null;
+  starts_on: string;
+  ends_on?: string | null;
+  growth_pct?: number;
+  growth_from?: string | null;
+  type_code?: TransactionTypeCode | null;
+  vendor_id?: string | null;
+  project_id?: string | null;
+  note?: string | null;
+}
+
+/** The cashflow's change to a monthly bill. Nothing here touches the calendar:
+ *  accounting's reminder keeps the bill as it is. */
+export interface CashflowBillInput {
+  source_ref: string;
+  name: string;
+  category: CashflowCategory;
+  amount: number | null;
+  growth_pct: number;
+  growth_from: string | null;
+  hidden: boolean;
+  note?: string | null;
+}
