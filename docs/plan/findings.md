@@ -9890,3 +9890,34 @@ reads that error as *not recorded*. `readBack` answers with the number the
 seam returned and what the poster typed. **Rule:** before hiding rows by the
 reader, find every reader that computes from those rows, not only the ones that
 list them.
+
+## F240 · 2026-10-07 · *Pimpinan* is an authority, not a module level — and *under budget* is often a bill not yet paid
+
+Two things the cashflow (D392) taught before it shipped.
+
+**Who.** The calendar's estimates were made leadership's by `accounting.plan_cash`
+(D233), so that was the obvious door. Production said otherwise: the five
+accounting staff hold `accounting: admin` — and so `plan_cash` — while
+leadership (evin@) holds `accounting: read`. The door would have let five wrong
+people in and kept the one right person out. The only grant that is exactly
+*pimpinan dan superadmin* is `approve_funds`, which D87 and D391 already put on
+the leadership accounts this screen adds up. The nav learned to *require* an
+authority (`authority`), not only to accept one (`orAuthority`). Worth a look
+separately: whether `plan_cash` on the calendar still means what D233 meant.
+
+**What under budget means.** The first walk showed October's cash out
+*Rp 41 juta under budget* and painted it green. Nothing had been saved: the
+payroll and BPJS due by then had simply not been paid yet. A difference
+measured against the whole month (half of it not reached) was worse still —
+*Rp 447 juta under budget* on the 7th. Two rules came out of it: a month in
+progress is compared with what was due **by today**, and money out under the
+plan while the period is still running is shown amber, *belum dibayar*, never
+green. The same family as F68: two sides of a difference must be the same kind
+of number.
+
+**The ledger is not the company's cash.** In production BCA 064's rows stop in
+August, and client money arrives typed `CASHFLOW` — the same category as moving
+money between our own accounts. So the opening balance can be typed (and the
+ledger's figure is shown beside it), client receipts can be recorded on the
+line itself, and the transfer categories are a setting rather than a constant.
+

@@ -29,6 +29,8 @@ import type {
   CoverageLine, CoveragePayment,
   Subscription, SubscriptionPayment, SubscriptionRegister, SubscriptionInput,
   SubscriptionPaymentInput, SubscriptionStatus,
+  AccountCustody, Cashflow, CashflowLine, CashflowLineInput, CashflowBillInput, CashflowWeekOverride,
+  CashflowReceipt, CashflowOpening, CashflowSettings,
 } from "@/services/accounting/contracts";
 import {
   applySubscriptions, settleUnplanned, subscriptionRegister, subscriptionRows,
@@ -37,6 +39,9 @@ import type { DocKind } from "@/services/documents/contracts";
 import type { ContributionAuditGroup } from "@/services/hr/contracts";
 import type { LineCoverage } from "@/services/procurement/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
+import {
+  buildCashflow, addMonths, CASHFLOW_MONTHS, DEFAULT_CASHFLOW_SETTINGS, type CashflowLedgerRow,
+} from "@/services/accounting/cashflow";
 import { getActiveLocale, formatIDRCompact } from "@/lib/format";
 import { officeToday, officeStamp } from "@/lib/office";
 import { fail, fromSeam, fromPage, fromRows, invalid, notFound, ok, type Result } from "./_kit";
@@ -2249,4 +2254,166 @@ export async function ignoreStatementLine(
   const res = fromSeam<unknown>(SERVICE, data, error);
   if (res.error) return res;
   return getStatement(input.statement_no);
+}
+
+/* ------------------------------------------------------------------ */
+/* Cashflow — leadership's weekly projection (`0239`, D392)            */
+/* ------------------------------------------------------------------ */
+
+/** Twelve months of weeks from `from` (default: this month).
+ *
+ *  Five small tables and two seams, then `buildCashflow` — the same function
+ *  the demo runs, so the two cannot compute the cashflow two ways. The bills
+ *  are `cash_plan(p_from)` with the subscriptions laid on, exactly what the
+ *  payment calendar reads (D228); the ledger and every account's balance on
+ *  the 1st come from `cashflow_ledger`, one answer rather than pages. Every
+ *  read is gated on `approve_funds` in the database: RLS on the tables, the
+ *  seam's own refusal on the ledger. */
+export async function getCashflow(from?: string): Promise<Result<Cashflow>> {
+  const today = officeToday();
+  const fromMonth = from && /^\d{4}-(0[1-9]|1[0-2])$/.test(from) ? from : today.slice(0, 7);
+  const lastMonth = addMonths(fromMonth, CASHFLOW_MONTHS - 1);
+  const [ly, lm] = lastMonth.split("-").map(Number);
+  const lastDay = `${lastMonth}-${String(new Date(ly, lm, 0).getDate()).padStart(2, "0")}`;
+
+  const [plan, lines, overrides, receipts, openings, settings, ledger] = await Promise.all([
+    planFrom(`${fromMonth}-01`),
+    db().from("cashflow_lines").select("*"),
+    db().from("cashflow_overrides").select("*"),
+    db().from("cashflow_receipts").select("*"),
+    db().from("cashflow_openings").select("*"),
+    db().from("cashflow_settings").select("min_balance, transfer_types").maybeSingle(),
+    db().rpc("cashflow_ledger", { p_from: `${fromMonth}-01`, p_to: lastDay }),
+  ]);
+  if (plan.error) return plan;
+  const ledgerRes = fromSeam<{
+    accounts: { code: string; custody: AccountCustody; currency: string; balance: number }[];
+    rows: CashflowLedgerRow[];
+  }>(SERVICE, ledger.data, ledger.error);
+  if (ledgerRes.error) return ledgerRes;
+  for (const r of [lines, overrides, receipts, openings, settings]) {
+    if (r.error) return fail(SERVICE, r.error);
+  }
+
+  const num = (v: unknown) => (v == null ? null : Number(v));
+  const lineRows = ((lines.data ?? []) as CashflowLine[]).map((l) => ({
+    ...l, amount: num(l.amount), growth_pct: Number(l.growth_pct ?? 0),
+  }));
+
+  /* Names for the few own lines that point at a project or a vendor. */
+  const projectIds = [...new Set(lineRows.map((l) => l.project_id).filter((x): x is string => !!x))];
+  const vendorIds = [...new Set(lineRows.map((l) => l.vendor_id).filter((x): x is string => !!x))];
+  const [projects, vendors] = await Promise.all([
+    projectIds.length ? procure().from("projects").select("id, code").in("id", projectIds) : Promise.resolve({ data: [] }),
+    vendorIds.length ? procure().from("vendors").select("id, name").in("id", vendorIds) : Promise.resolve({ data: [] }),
+  ]);
+  const projectCode = new Map(((projects.data ?? []) as { id: string; code: string }[]).map((p) => [p.id, p.code]));
+  const vendorName = new Map(((vendors.data ?? []) as { id: string; name: string }[]).map((v) => [v.id, v.name]));
+
+  const s = settings.data as { min_balance: number; transfer_types: string[] } | null;
+  return ok(SERVICE, buildCashflow({
+    today, fromMonth, plan: plan.data,
+    lines: lineRows,
+    overrides: ((overrides.data ?? []) as CashflowWeekOverride[]).map((o) => ({ ...o, amount: num(o.amount) })),
+    receipts: ((receipts.data ?? []) as CashflowReceipt[]).map((r) => ({ ...r, amount: Number(r.amount) })),
+    openings: ((openings.data ?? []) as CashflowOpening[]).map((o) => ({ ...o, amount: Number(o.amount) })),
+    settings: s ? { min_balance: Number(s.min_balance), transfer_types: s.transfer_types ?? [] } : DEFAULT_CASHFLOW_SETTINGS,
+    ledger: ledgerRes.data.rows.map((t) => ({ ...t, amount_idr: Number(t.amount_idr) })),
+    openingAccounts: ledgerRes.data.accounts.map((a) => ({ ...a, balance: Number(a.balance) })),
+    vendorName: (id) => (id ? vendorName.get(id) ?? null : null),
+    projectCode: (id) => (id ? projectCode.get(id) ?? null : null),
+    accountCode: () => null,
+  }));
+}
+
+export async function saveCashflowLine(input: CashflowLineInput, id?: string | null): Promise<Result<{ id: string }>> {
+  const { data, error } = await db().rpc("save_cashflow_line", {
+    p_name: input.name,
+    p_direction: input.direction,
+    p_category: input.category,
+    p_frequency: input.frequency,
+    p_amount: input.amount,
+    p_due_day: input.frequency === "monthly" ? input.due_day ?? null : null,
+    p_due_weekday: input.frequency === "weekly" ? input.due_weekday ?? null : null,
+    p_due_date: input.frequency === "once" ? input.due_date ?? null : null,
+    p_starts_on: input.starts_on || null,
+    p_ends_on: input.ends_on || null,
+    p_growth_pct: input.growth_pct ?? 0,
+    p_growth_from: input.growth_from ?? null,
+    p_type_code: input.type_code ?? null,
+    p_vendor_id: input.vendor_id ?? null,
+    p_project_id: input.project_id ?? null,
+    p_note: input.note ?? null,
+    p_id: id ?? null,
+  });
+  return fromSeam<{ id: string }>(SERVICE, data, error);
+}
+
+export async function saveCashflowBill(input: CashflowBillInput): Promise<Result<{ id: string }>> {
+  const { data, error } = await db().rpc("save_cashflow_bill", {
+    p_source_ref: input.source_ref,
+    p_name: input.name,
+    p_category: input.category,
+    p_amount: input.amount,
+    p_growth_pct: input.growth_pct,
+    p_growth_from: input.growth_from,
+    p_hidden: input.hidden,
+    p_note: input.note ?? null,
+  });
+  return fromSeam<{ id: string }>(SERVICE, data, error);
+}
+
+export async function removeCashflowLine(id: string): Promise<Result<{ id: string }>> {
+  const { data, error } = await db().rpc("remove_cashflow_line", { p_id: id });
+  return fromSeam<{ id: string }>(SERVICE, data, error);
+}
+
+export async function setCashflowWeek(input: {
+  line_id?: string | null; source_ref?: string | null; name?: string;
+  week_start: string; amount: number | null; reason: string;
+}): Promise<Result<{ line_id: string; week_start: string }>> {
+  const { data, error } = await db().rpc("set_cashflow_week", {
+    p_week_start: input.week_start,
+    p_amount: input.amount,
+    p_reason: input.reason,
+    p_line_id: input.line_id ?? null,
+    p_source_ref: input.source_ref ?? null,
+    p_name: input.name ?? null,
+  });
+  return fromSeam<{ line_id: string; week_start: string }>(SERVICE, data, error);
+}
+
+export async function clearCashflowWeek(lineId: string, weekStart: string): Promise<Result<{ line_id: string; week_start: string }>> {
+  const { data, error } = await db().rpc("clear_cashflow_week", { p_line_id: lineId, p_week_start: weekStart });
+  return fromSeam<{ line_id: string; week_start: string }>(SERVICE, data, error);
+}
+
+export async function recordCashflowReceipt(lineId: string, input: {
+  on_date: string; amount: number; trx_no?: string | null; note?: string | null;
+}): Promise<Result<{ id: string }>> {
+  const { data, error } = await db().rpc("record_cashflow_receipt", {
+    p_line_id: lineId,
+    p_on_date: input.on_date,
+    p_amount: input.amount,
+    p_trx_no: input.trx_no ?? null,
+    p_note: input.note ?? null,
+  });
+  return fromSeam<{ id: string }>(SERVICE, data, error);
+}
+
+export async function removeCashflowReceipt(id: string): Promise<Result<{ id: string }>> {
+  const { data, error } = await db().rpc("remove_cashflow_receipt", { p_id: id });
+  return fromSeam<{ id: string }>(SERVICE, data, error);
+}
+
+export async function setCashflowOpening(month: string, amount: number | null, note?: string | null): Promise<Result<{ month: string }>> {
+  const { data, error } = await db().rpc("set_cashflow_opening", { p_month: month, p_amount: amount, p_note: note ?? null });
+  return fromSeam<{ month: string }>(SERVICE, data, error);
+}
+
+export async function setCashflowSettings(input: CashflowSettings): Promise<Result<CashflowSettings>> {
+  const { data, error } = await db().rpc("set_cashflow_settings", {
+    p_min_balance: input.min_balance, p_transfer_types: input.transfer_types,
+  });
+  return fromSeam<CashflowSettings>(SERVICE, data, error);
 }

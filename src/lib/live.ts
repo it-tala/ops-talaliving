@@ -62,6 +62,7 @@ export const LIVE_SERVICES = ["identity", "procurement", "accounting", "inventor
  */
 export const LIVE_ROUTES: readonly string[] = [
   "/accounting/calendar",
+  "/accounting/cashflow",
   "/accounting/documents",
   "/accounting/langganan",
   "/accounting/ledger",
