@@ -58,7 +58,8 @@ export function Sidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClose:
           // `ops-talaliving.vercel.app` tetap membuka seluruh 52 layar.
           const visibleItems = section.items.filter(
             (i) => (can(i.permission) || (i.orPermission ? can(i.orPermission) : false)
-              || (i.orAuthority ? hasAuthority(i.orAuthority) : false)) && isRouteLive(i.href),
+              || (i.orAuthority ? hasAuthority(i.orAuthority) : false))
+              && (i.authority ? hasAuthority(i.authority) : true) && isRouteLive(i.href),
           );
           if (visibleItems.length === 0) return null;
 

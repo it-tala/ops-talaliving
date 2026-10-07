@@ -2,7 +2,7 @@
 
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart,
-  Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Pie, PieChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { formatCompact, formatIDRCompact, formatNumber } from "@/lib/format";
 
@@ -144,6 +144,45 @@ export function DualLine({
         <Tooltip contentStyle={tooltipStyle} formatter={(v) => [formatIDRCompact(Number(v)), ""]} />
         <Line type="monotone" dataKey="pendapatan" stroke={BRAND} strokeWidth={2.5} dot={false} />
         <Line type="monotone" dataKey="laba" stroke="#34d399" strokeWidth={2.5} dot={false} />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+
+/** The cashflow's balance, week by week (D392): what the balance is expected
+ *  to be — actual where the week is over, plan where it is ahead — against the
+ *  plan alone, with the zero line and the safe minimum drawn and labelled.
+ *  One axis, one unit: both lines are rupiah balances. */
+export function BalanceChart({
+  data, minBalance, height = 280, labels,
+}: {
+  data: { label: string; saldo: number; rencana: number; current?: boolean }[];
+  minBalance: number;
+  height?: number;
+  labels: { saldo: string; rencana: string; zero: string; min: string };
+}) {
+  const current = data.find((d) => d.current)?.label;
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <LineChart data={data} margin={{ top: 12, right: 12, left: 4, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
+        <XAxis dataKey="label" tick={{ fontSize: 10, fill: AXIS }} axisLine={false} tickLine={false} interval="preserveStartEnd" minTickGap={18} />
+        <YAxis
+          tick={{ fontSize: 11, fill: AXIS }} axisLine={false} tickLine={false} width={52}
+          tickFormatter={(v) => formatCompact(Number(v))}
+        />
+        <Tooltip
+          contentStyle={tooltipStyle}
+          formatter={(v, name) => [formatIDRCompact(Number(v)), name === "saldo" ? labels.saldo : labels.rencana]}
+        />
+        <ReferenceLine y={0} stroke="#e11d48" strokeWidth={1.5} label={{ value: labels.zero, position: "insideBottomLeft", fontSize: 10, fill: "#9f1239" }} />
+        {minBalance > 0 && (
+          <ReferenceLine y={minBalance} stroke="#f59e0b" strokeDasharray="4 4" label={{ value: labels.min, position: "insideTopLeft", fontSize: 10, fill: "#92400e" }} />
+        )}
+        {current && <ReferenceLine x={current} stroke="#94a3b8" strokeDasharray="2 3" />}
+        <Line type="monotone" dataKey="rencana" stroke="#94a3b8" strokeWidth={2} strokeDasharray="5 4" dot={false} isAnimationActive={false} />
+        <Line type="monotone" dataKey="saldo" stroke={BRAND} strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} isAnimationActive={false} />
       </LineChart>
     </ResponsiveContainer>
   );

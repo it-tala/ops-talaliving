@@ -361,6 +361,14 @@ quotation, and nothing in this system produces either yet (Q37).
 | POST | `/statements/{no}/lines/{id}/book` | **creates** the ledger row, with the statement as its evidence. `post_ledger`; **422** on a foreign line with no rate |
 | POST | `/statements/{no}/lines/{id}/ignore` | left out, with a reason. Never deleted |
 | GET | `/reports/cashflow`, `/reports/liquidation` | |
+| GET | `/cashflow?from=YYYY-MM` | leadership's cashflow (D392): twelve months of weeks (1–7, 8–14, 15–21, 22–end) from `from` (default this month) — opening per account, weeks and months with planned / actual / used / closing, in and out rows (calendar bills, subscriptions, own lines), *not in the plan* per week, the verdict, the month to date. Computed by `buildCashflow` from `cash_plan(p_from)`, the five `cashflow_*` tables and `cashflow_ledger(p_from, p_to)`. **403 without `approve_funds`** |
+| POST | `/cashflow/lines` · `/cashflow/lines/{id}` | an own line: name, IN/OUT, category on that side, weekly / monthly / once, amount per occurrence, bill date, months, growth % per month, optional ledger category / vendor / project. **422** wrong-side category, once without date, monthly without day, growth outside −99..100, end before start |
+| DELETE | `/cashflow/lines/{id}` | off the cashflow (`active = false`); realisations kept |
+| PUT | `/cashflow/bills/{source_ref}` | the cashflow's change to a calendar bill or subscription (`component:<uuid>` / `sub:<uuid>`): own amount or null (follow the calendar), growth, group, leave out. One row per bill; the calendar is untouched. **404** no such bill |
+| PUT | `/cashflow/weeks/{line}/{week_start}` | one week's total for one line, or null for *not this week*; a reason is required; `week_start` is the 1st, 8th, 15th or 22nd. A bill with no row yet gets one. `DELETE` undoes it (`noop` when there was nothing) |
+| POST | `/cashflow/lines/{id}/receipts` · `DELETE /cashflow/receipts/{id}` | money that actually moved against an own line. **422** in the future or an unknown ledger row; **409** a ledger row already used by another realisation |
+| PUT | `/cashflow/openings/{month}` | a typed starting balance for the month (null clears it, back to the ledger's) |
+| PUT | `/cashflow/settings` | the safe minimum balance and the ledger categories that are transfers between our own accounts |
 
 **Validation at the seam** (ADR-004): `POST /allocations` calls
 `procurement.GET /pr/lines/{line_no}` before writing. A line that does not

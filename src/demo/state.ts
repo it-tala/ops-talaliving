@@ -13,6 +13,7 @@ import type {
   PaymentAllocation, EvidenceInboxRow,
   CashComponent, CashOverride, CashSettlement, BankStatement, StatementLine,
   Subscription, SubscriptionPayment,
+  CashflowLine, CashflowWeekOverride, CashflowReceipt, CashflowOpening, CashflowSettings,
 } from "@/services/accounting/contracts";
 import type { Attachment, AttachmentLink } from "@/services/documents/contracts";
 import type { ApprovalChannel, DesignOrigin } from "@/services/design/contracts";
@@ -250,6 +251,13 @@ export interface DemoState {
   subscriptions: Subscription[];
   subscription_payments: SubscriptionPayment[];
   subscription_fx: number;
+  /** Leadership's cashflow (`0239`): its own lines, the cashflow's change to
+   *  calendar bills, week changes, realisations, typed openings. */
+  cashflow_lines: CashflowLine[];
+  cashflow_overrides: CashflowWeekOverride[];
+  cashflow_receipts: CashflowReceipt[];
+  cashflow_openings: CashflowOpening[];
+  cashflow_settings: CashflowSettings;
 
   attachments: Attachment[];
   attachment_links: AttachmentLink[];

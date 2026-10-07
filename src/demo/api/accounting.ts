@@ -12,8 +12,11 @@ import type {
   AssetRentSchedule, AccountCode,
   Subscription, SubscriptionRegister, SubscriptionInput, SubscriptionPaymentInput,
   SubscriptionStatus, SubscriptionPayment,
+  Cashflow, CashflowLineInput, CashflowBillInput, CashflowSettings,
 } from "@/services/accounting/contracts";
+import { CASHFLOW_IN_CATEGORIES, CASHFLOW_OUT_CATEGORIES } from "@/services/accounting/contracts";
 import { subscriptionRegister } from "@/services/accounting/subscriptions";
+import { buildCashflow, balancesAt } from "@/services/accounting/cashflow";
 import { getActiveLocale, formatIDR } from "@/lib/format";
 import { officeToday } from "@/lib/office";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
@@ -2775,4 +2778,270 @@ export async function linkSubscriptionPayment(input: {
     });
   });
   return ok(SERVICE, { id: input.subscription_id, period: input.period, trx_no: input.trx_no, amount_idr: trx.amount_idr });
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Cashflow — leadership's weekly projection (`0239`, D392)            */
+/* ------------------------------------------------------------------ */
+
+/** Leadership's alone: the owner's *untuk pimpinan dan superadmin* is exactly
+ *  the people holding `approve_funds` — the same door as the leadership
+ *  accounts' balances and rows (D87, D391), which this screen adds up. */
+function cashflowDenied() {
+  return requireAuthority(SERVICE, "approve_funds");
+}
+
+const isMonth = (s: string | null | undefined) => !!s && /^\d{4}-(0[1-9]|1[0-2])$/.test(s);
+const isDay = (s: string | null | undefined) => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
+
+/** Twelve months of weeks from `from` (default: this month). */
+export async function getCashflow(from?: string): Promise<Result<Cashflow>> {
+  await latency();
+  const denied = cashflowDenied();
+  if (denied) return denied;
+  const today = officeToday();
+  const fromMonth = isMonth(from) ? from! : today.slice(0, 7);
+  const state = getState();
+  const [y, m] = fromMonth.split("-").map(Number);
+  const plan = cashPlan(state, new Date(), new Date(y, m - 1, 1));
+  const ledger = state.transactions
+    .filter((t) => t.status !== "VOID")
+    .map((t) => ({
+      trx_no: t.trx_no, trx_date: t.trx_date, direction: t.direction, amount_idr: t.amount_idr,
+      type_code: t.type_code, vendor_id: t.vendor_id, project_id: t.project_id, account_id: t.account_id,
+    }));
+  return ok(SERVICE, buildCashflow({
+    today, fromMonth, plan,
+    lines: state.cashflow_lines,
+    overrides: state.cashflow_overrides,
+    receipts: state.cashflow_receipts,
+    openings: state.cashflow_openings,
+    settings: state.cashflow_settings,
+    ledger,
+    openingAccounts: balancesAt(state.accounts, ledger, `${fromMonth}-01`),
+    vendorName: (id) => state.vendors.find((v) => v.id === id)?.name ?? null,
+    projectCode: (id) => state.projects.find((p) => p.id === id)?.code ?? null,
+    accountCode: (id) => state.accounts.find((a) => a.id === id)?.code ?? null,
+  }));
+}
+
+function checkLine(input: CashflowLineInput) {
+  if (!input.name?.trim()) return invalid(SERVICE, "name_required", "Name the line so it can be recognised.", { field: "name" });
+  if (!["IN", "OUT"].includes(input.direction)) return invalid(SERVICE, "direction_invalid", "Money in or money out.", { field: "direction" });
+  const cats = input.direction === "IN" ? CASHFLOW_IN_CATEGORIES : CASHFLOW_OUT_CATEGORIES;
+  if (!cats.includes(input.category)) return invalid(SERVICE, "category_invalid", "That group does not belong on this side.", { field: "category" });
+  if (!["weekly", "monthly", "once"].includes(input.frequency)) return invalid(SERVICE, "frequency_invalid", "Weekly, monthly or once.", { field: "frequency" });
+  if (!(input.amount > 0)) return invalid(SERVICE, "amount_required", "The amount each time, more than zero.", { field: "amount" });
+  if (input.frequency === "once" && !isDay(input.due_date)) return invalid(SERVICE, "date_required", "A one-off needs its date.", { field: "due_date" });
+  if (input.frequency === "monthly" && !(Number(input.due_day) >= 1 && Number(input.due_day) <= 31)) return invalid(SERVICE, "day_invalid", "A day of the month, 1 to 31.", { field: "due_day" });
+  if (input.frequency === "weekly" && !(Number(input.due_weekday) >= 0 && Number(input.due_weekday) <= 6)) return invalid(SERVICE, "weekday_invalid", "A day of the week.", { field: "due_weekday" });
+  if (input.frequency !== "once" && !isMonth(input.starts_on)) return invalid(SERVICE, "start_required", "The month it starts.", { field: "starts_on" });
+  if (input.ends_on && (!isMonth(input.ends_on) || input.ends_on < input.starts_on)) return invalid(SERVICE, "end_before_start", "It ends before it starts.", { field: "ends_on" });
+  if (input.growth_pct != null && !(input.growth_pct > -100 && input.growth_pct <= 100)) return invalid(SERVICE, "growth_invalid", "Growth is a percentage per month, between −99 and 100.", { field: "growth_pct" });
+  if (input.growth_from && !isMonth(input.growth_from)) return invalid(SERVICE, "growth_from_invalid", "The month growth starts from.", { field: "growth_from" });
+  return null;
+}
+
+/** Add or change one of the cashflow's own lines. */
+export async function saveCashflowLine(input: CashflowLineInput, id?: string | null): Promise<Result<{ id: string }>> {
+  await latency();
+  const denied = cashflowDenied();
+  if (denied) return denied;
+  const bad = checkLine(input);
+  if (bad) return bad;
+  const state = getState();
+  if (id) {
+    const was = state.cashflow_lines.find((l) => l.id === id && l.source_ref === null);
+    if (!was) return notFound(SERVICE, "no_such_line", "No such cashflow line.");
+  }
+  const lineId = id ?? newId("cfl");
+  const row = {
+    name: input.name.trim(), direction: input.direction, category: input.category,
+    frequency: input.frequency, amount: input.amount,
+    due_day: input.frequency === "monthly" ? Number(input.due_day) : null,
+    due_weekday: input.frequency === "weekly" ? Number(input.due_weekday) : null,
+    due_date: input.frequency === "once" ? input.due_date ?? null : null,
+    starts_on: input.frequency === "once" ? (input.due_date ?? "").slice(0, 7) : input.starts_on,
+    ends_on: input.frequency === "once" ? null : input.ends_on ?? null,
+    growth_pct: input.growth_pct ?? 0, growth_from: input.growth_from ?? null,
+    type_code: input.type_code ?? null, vendor_id: input.vendor_id ?? null, project_id: input.project_id ?? null,
+    note: input.note?.trim() || null,
+  };
+  apply((draft) => {
+    const at = draft.cashflow_lines.findIndex((l) => l.id === lineId);
+    if (at >= 0) draft.cashflow_lines[at] = { ...draft.cashflow_lines[at], ...row };
+    else draft.cashflow_lines.push({
+      ...row, id: lineId, source_ref: null, hidden: false, active: true,
+      created_by: actingUser().id, created_at: new Date().toISOString(),
+    });
+    writeAudit(draft, { service: SERVICE, entity: "cashflow_line", entity_no: row.name, action: id ? "update" : "create", outcome: "ok", reason: null, detail: row });
+  });
+  return ok(SERVICE, { id: lineId });
+}
+
+/** The cashflow's change to a monthly bill — amount, growth, or leaving it
+ *  out. The calendar's own figure is not touched. */
+export async function saveCashflowBill(input: CashflowBillInput): Promise<Result<{ id: string }>> {
+  await latency();
+  const denied = cashflowDenied();
+  if (denied) return denied;
+  if (!/^(component:|sub:)/.test(input.source_ref ?? "")) return invalid(SERVICE, "source_invalid", "Not a monthly bill.", { field: "source_ref" });
+  if (!CASHFLOW_OUT_CATEGORIES.includes(input.category)) return invalid(SERVICE, "category_invalid", "That group does not belong on this side.", { field: "category" });
+  if (input.amount !== null && !(input.amount > 0)) return invalid(SERVICE, "amount_required", "The amount each time, more than zero — or empty to follow the calendar.", { field: "amount" });
+  if (!(input.growth_pct > -100 && input.growth_pct <= 100)) return invalid(SERVICE, "growth_invalid", "Growth is a percentage per month, between −99 and 100.", { field: "growth_pct" });
+  if (input.growth_from && !isMonth(input.growth_from)) return invalid(SERVICE, "growth_from_invalid", "The month growth starts from.", { field: "growth_from" });
+  const state = getState();
+  const existing = state.cashflow_lines.find((l) => l.source_ref === input.source_ref);
+  const lineId = existing?.id ?? newId("cfl");
+  apply((draft) => {
+    const at = draft.cashflow_lines.findIndex((l) => l.id === lineId);
+    const row = {
+      name: input.name, category: input.category, amount: input.amount, growth_pct: input.growth_pct,
+      growth_from: input.growth_from, hidden: input.hidden, note: input.note?.trim() || null, active: true,
+    };
+    if (at >= 0) draft.cashflow_lines[at] = { ...draft.cashflow_lines[at], ...row };
+    else draft.cashflow_lines.push({
+      ...row, id: lineId, source_ref: input.source_ref, direction: "OUT", frequency: null,
+      due_day: null, due_weekday: null, due_date: null, starts_on: null, ends_on: null,
+      type_code: null, vendor_id: null, project_id: null,
+      created_by: actingUser().id, created_at: new Date().toISOString(),
+    });
+    writeAudit(draft, { service: SERVICE, entity: "cashflow_line", entity_no: input.name, action: "adjust_bill", outcome: "ok", reason: null, detail: row });
+  });
+  return ok(SERVICE, { id: lineId });
+}
+
+/** Take an own line off the cashflow. Its realisations stay on record. */
+export async function removeCashflowLine(id: string): Promise<Result<{ id: string }>> {
+  await latency();
+  const denied = cashflowDenied();
+  if (denied) return denied;
+  const line = getState().cashflow_lines.find((l) => l.id === id && l.source_ref === null);
+  if (!line) return notFound(SERVICE, "no_such_line", "No such cashflow line.");
+  apply((draft) => {
+    const l = draft.cashflow_lines.find((x) => x.id === id)!;
+    l.active = false;
+    writeAudit(draft, { service: SERVICE, entity: "cashflow_line", entity_no: l.name, action: "remove", outcome: "ok", reason: null, detail: null });
+  });
+  return ok(SERVICE, { id });
+}
+
+/** Change one week of one line: an amount, or null for *not this week*.
+ *  A bill nobody has adjusted yet is given its cashflow row on the way. */
+export async function setCashflowWeek(input: {
+  line_id?: string | null; source_ref?: string | null; name?: string;
+  week_start: string; amount: number | null; reason: string;
+}): Promise<Result<{ line_id: string; week_start: string }>> {
+  await latency();
+  const denied = cashflowDenied();
+  if (denied) return denied;
+  if (!isDay(input.week_start) || ![1, 8, 15, 22].includes(Number(input.week_start.slice(8, 10)))) {
+    return invalid(SERVICE, "week_invalid", "A week starts on the 1st, 8th, 15th or 22nd.", { field: "week_start" });
+  }
+  if (input.amount !== null && !(input.amount >= 0)) return invalid(SERVICE, "amount_invalid", "Zero or more — or not this week.", { field: "amount" });
+  if (!input.reason?.trim()) return invalid(SERVICE, "reason_required", "Say why this week is different.", { field: "reason" });
+  const state = getState();
+  let lineId = input.line_id ?? null;
+  if (!lineId && input.source_ref) {
+    lineId = state.cashflow_lines.find((l) => l.source_ref === input.source_ref)?.id ?? null;
+    if (!lineId) {
+      const r = await saveCashflowBill({
+        source_ref: input.source_ref, name: input.name ?? input.source_ref, category: input.source_ref.startsWith("sub:") ? "subscription" : "bills",
+        amount: null, growth_pct: 0, growth_from: null, hidden: false,
+      });
+      if (r.error) return r;
+      lineId = r.data.id;
+    }
+  }
+  if (!lineId || !getState().cashflow_lines.some((l) => l.id === lineId)) return notFound(SERVICE, "no_such_line", "No such cashflow line.");
+  apply((draft) => {
+    draft.cashflow_overrides = draft.cashflow_overrides.filter((o) => !(o.line_id === lineId && o.week_start === input.week_start));
+    draft.cashflow_overrides.push({
+      id: newId("cfo"), line_id: lineId!, week_start: input.week_start, amount: input.amount,
+      reason: input.reason.trim(), recorded_by: actingUser().id, recorded_at: new Date().toISOString(),
+    });
+    writeAudit(draft, { service: SERVICE, entity: "cashflow_week", entity_no: input.week_start, action: "set", outcome: "ok", reason: input.reason, detail: { line_id: lineId, amount: input.amount } });
+  });
+  return ok(SERVICE, { line_id: lineId, week_start: input.week_start });
+}
+
+/** Undo a week's change — the line falls back to its schedule. */
+export async function clearCashflowWeek(lineId: string, weekStart: string): Promise<Result<{ line_id: string; week_start: string }>> {
+  await latency();
+  const denied = cashflowDenied();
+  if (denied) return denied;
+  apply((draft) => {
+    draft.cashflow_overrides = draft.cashflow_overrides.filter((o) => !(o.line_id === lineId && o.week_start === weekStart));
+  });
+  return ok(SERVICE, { line_id: lineId, week_start: weekStart });
+}
+
+/** Record money that actually moved against an own line. */
+export async function recordCashflowReceipt(lineId: string, input: {
+  on_date: string; amount: number; trx_no?: string | null; note?: string | null;
+}): Promise<Result<{ id: string }>> {
+  await latency();
+  const denied = cashflowDenied();
+  if (denied) return denied;
+  const state = getState();
+  if (!state.cashflow_lines.some((l) => l.id === lineId && l.source_ref === null)) return notFound(SERVICE, "no_such_line", "Realisations are recorded on the cashflow's own lines; a bill is settled on the calendar.");
+  if (!isDay(input.on_date)) return invalid(SERVICE, "date_required", "The day the money moved.", { field: "on_date" });
+  if (input.on_date > officeToday()) return invalid(SERVICE, "date_in_future", "A realisation has already happened.", { field: "on_date" });
+  if (!(input.amount > 0)) return invalid(SERVICE, "amount_required", "The amount, more than zero.", { field: "amount" });
+  const trx = input.trx_no?.trim() || null;
+  if (trx) {
+    if (!state.transactions.some((t) => t.trx_no === trx && t.status !== "VOID")) return invalid(SERVICE, "no_such_trx", `There is no ledger row ${trx}.`, { field: "trx_no" });
+    if (state.cashflow_receipts.some((r) => r.trx_no === trx)) return conflict(SERVICE, "trx_already_used", `${trx} is already a realisation on another line.`);
+  }
+  const id = newId("cfr");
+  apply((draft) => {
+    draft.cashflow_receipts.push({
+      id, line_id: lineId, on_date: input.on_date, amount: input.amount, trx_no: trx,
+      note: input.note?.trim() || null, recorded_by: actingUser().id, recorded_at: new Date().toISOString(),
+    });
+    writeAudit(draft, { service: SERVICE, entity: "cashflow_receipt", entity_no: input.on_date, action: "record", outcome: "ok", reason: null, detail: { line_id: lineId, amount: input.amount, trx_no: trx } });
+  });
+  return ok(SERVICE, { id });
+}
+
+export async function removeCashflowReceipt(id: string): Promise<Result<{ id: string }>> {
+  await latency();
+  const denied = cashflowDenied();
+  if (denied) return denied;
+  if (!getState().cashflow_receipts.some((r) => r.id === id)) return notFound(SERVICE, "no_such_receipt", "No such realisation.");
+  apply((draft) => {
+    draft.cashflow_receipts = draft.cashflow_receipts.filter((r) => r.id !== id);
+  });
+  return ok(SERVICE, { id });
+}
+
+/** Type a month's starting balance (null clears it, back to the ledger's). */
+export async function setCashflowOpening(month: string, amount: number | null, note?: string | null): Promise<Result<{ month: string }>> {
+  await latency();
+  const denied = cashflowDenied();
+  if (denied) return denied;
+  if (!isMonth(month)) return invalid(SERVICE, "month_invalid", "A month, YYYY-MM.", { field: "month" });
+  if (amount !== null && !Number.isFinite(amount)) return invalid(SERVICE, "amount_invalid", "A figure in rupiah.", { field: "amount" });
+  apply((draft) => {
+    draft.cashflow_openings = draft.cashflow_openings.filter((o) => o.month !== month);
+    if (amount !== null) draft.cashflow_openings.push({
+      month, amount, note: note?.trim() || null, recorded_by: actingUser().id, recorded_at: new Date().toISOString(),
+    });
+    writeAudit(draft, { service: SERVICE, entity: "cashflow_opening", entity_no: month, action: "set", outcome: "ok", reason: note ?? null, detail: { amount } });
+  });
+  return ok(SERVICE, { month });
+}
+
+export async function setCashflowSettings(input: CashflowSettings): Promise<Result<CashflowSettings>> {
+  await latency();
+  const denied = cashflowDenied();
+  if (denied) return denied;
+  if (!(input.min_balance >= 0)) return invalid(SERVICE, "min_balance_invalid", "The safe minimum is zero or more.", { field: "min_balance" });
+  const types = [...new Set(input.transfer_types.map((t) => t.trim()).filter(Boolean))];
+  apply((draft) => {
+    draft.cashflow_settings = { min_balance: input.min_balance, transfer_types: types };
+    writeAudit(draft, { service: SERVICE, entity: "cashflow_settings", entity_no: "settings", action: "set", outcome: "ok", reason: null, detail: { min_balance: input.min_balance, transfer_types: types } });
+  });
+  return ok(SERVICE, { min_balance: input.min_balance, transfer_types: types });
 }
