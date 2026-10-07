@@ -5,6 +5,7 @@ import type {
   OvertimeSheet, OvertimeLine, OvertimeSheetView, OvertimeKind, OvertimeDecider, SelfOvertimeView,
   PayrollRun, PayrollView, PayrollLine, PayBasis,
   PayGroup, PayComponents, PayrollRunMember, PaidElsewhere, PayrollHold, PayPreview, PayPreviewInput,
+  PayrollAdjustInput, PersonDayEdits, RetentionBalance, EmployeeStanding,
   AdjustmentKind, PayrollAdjustmentView,
   PayRules, PayRuleSet, PayRuleSetView, WorkSchedule, ScheduleHours, UnitScheduleDefault,
   EmployeeDocKind, EmployeeFileView, DocNoSource, LeaveBalance, LeaveKind, LeaveRequestView, LeaveStatus,
@@ -1683,6 +1684,8 @@ export async function saveAdjustment(
       { field: "reason" },
     );
   }
+  const signRefusal = retentionRefusal(state, emp.id, input.kind, input.amount);
+  if (signRefusal) return signRefusal;
 
   const user = actingUser();
   apply((draft) => {
@@ -1709,6 +1712,99 @@ export async function saveAdjustment(
     });
   });
   return listAdjustments(run.run_no);
+}
+
+/** The two rules retensi carries, as `add_adjustment` states them (0234):
+ *  retensi only takes; a release only gives back, never more than is held. */
+function retentionRefusal(
+  state: ReturnType<typeof getState>, employeeId: string, kind: AdjustmentKind, amount: number,
+) {
+  if (kind === "retention" && amount > 0) {
+    return invalid(SERVICE, "retention_is_deduction", "Retensi adalah potongan — nominalnya negatif.", { field: "amount" });
+  }
+  if (kind === "retention_release") {
+    if (amount < 0) {
+      return invalid(SERVICE, "release_is_addition", "Pengembalian retensi adalah tambahan — nominalnya positif.", { field: "amount" });
+    }
+    const heldNow = -state.payroll_adjustments
+      .filter((a) => a.employee_id === employeeId && (a.kind === "retention" || a.kind === "retention_release"))
+      .reduce((t, a) => t + a.amount, 0);
+    if (amount > heldNow) {
+      return invalid(SERVICE, "release_exceeds_balance",
+        `Saldo retensi hanya Rp ${heldNow.toLocaleString("id-ID")} — tidak bisa mengembalikan Rp ${amount.toLocaleString("id-ID")}.`,
+        { field: "amount" });
+    }
+  }
+  return null;
+}
+
+/** HRD's, or payroll's — never the employee's own account (D388). */
+function seesStanding(): boolean {
+  return actingUser().modules.some((m) => m.module === "hrd" || m.module === "payroll");
+}
+
+/** Retensi per person — `ops_hr.retention_balances` (0234). */
+export async function retentionBalances(employeeNo?: string | null): Promise<Result<RetentionBalance[]>> {
+  await latency();
+  if (!seesStanding()) return ok(SERVICE, []);
+  const state = getState();
+  const byEmp = new Map<string, RetentionBalance>();
+  for (const a of state.payroll_adjustments) {
+    if (a.kind !== "retention" && a.kind !== "retention_release") continue;
+    const emp = state.employees.find((e) => e.id === a.employee_id);
+    if (!emp || (employeeNo && emp.employee_no !== employeeNo)) continue;
+    const draft = state.payroll_runs.find((r) => r.run_no === a.run_no)?.status === "DRAFT";
+    const row = byEmp.get(emp.id) ?? {
+      employee_id: emp.id, employee_no: emp.employee_no, full_name: emp.full_name,
+      held: 0, released: 0, balance: 0, in_draft: 0,
+    };
+    if (draft) row.in_draft -= a.amount;
+    else {
+      row.balance -= a.amount;
+      if (a.kind === "retention") row.held -= a.amount; else row.released += a.amount;
+    }
+    byEmp.set(emp.id, row);
+  }
+  return ok(SERVICE, [...byEmp.values()].sort((x, y) => x.full_name.localeCompare(y.full_name)));
+}
+
+/** One person as HRD reads them — `ops_hr.employee_standing` (0234). */
+export async function employeeStanding(
+  input: { employee_no: string; from: string; to: string },
+): Promise<Result<EmployeeStanding | null>> {
+  await latency();
+  if (!seesStanding()) return ok(SERVICE, null);
+  const state = getState();
+  const emp = state.employees.find((e) => e.employee_no === input.employee_no);
+  if (!emp) return ok(SERVICE, null);
+  const l = payrollLine(state, emp, input.from, input.to);
+  const lb = leaveBalance(state, emp, input.to.slice(0, 4));
+  const rb = (await retentionBalances(emp.employee_no)).data?.[0];
+  return ok(SERVICE, {
+    employee_no: emp.employee_no, full_name: emp.full_name,
+    period_from: input.from, period_to: input.to,
+    days_present: l.days_present, days_unpaid: l.days_unpaid,
+    days_sick_paid: l.days_sick_paid, days_leave_paid: l.days_leave_paid,
+    days_open: l.days_open, late_minutes: l.late_minutes, late_days: l.late_days,
+    overtime_hours: l.overtime_hours, allowance_withheld_days: l.allowance_withheld_days,
+    leave_entitlement: lb.entitlement, leave_taken: lb.taken, leave_remaining: lb.remaining,
+    retention_balance: rb?.balance ?? 0, retention_in_draft: rb?.in_draft ?? 0,
+  });
+}
+
+/** The marks and withheld allowances of one person's days (D388). */
+export async function personDayEdits(
+  input: { employee_no: string; from: string; to: string },
+): Promise<Result<PersonDayEdits>> {
+  await latency();
+  const state = getState();
+  const emp = state.employees.find((e) => e.employee_no === input.employee_no);
+  if (!emp) return notFound(SERVICE, "employee_not_found", `No employee ${input.employee_no}.`);
+  const marks = state.day_marks.filter((m) => m.employee_id === emp.id
+    && m.work_date >= input.from && m.work_date <= input.to);
+  const held = await listWithholdings({ employee_no: input.employee_no, from: input.from, to: input.to });
+  if (held.error) return held as unknown as Result<PersonDayEdits>;
+  return ok(SERVICE, { marks, withholdings: held.data });
 }
 
 export async function removeAdjustment(
@@ -4965,6 +5061,8 @@ export async function generatePayroll(
   input: {
     period_start: string; period_end: string; pay_group: PayGroup;
     hold: PayrollHold[]; note?: string | null;
+    /** Bonus, retensi and lain-lain typed on the sheet (0234, D388). */
+    adjust?: PayrollAdjustInput[];
   },
   idempotencyKey?: string,
 ): Promise<Result<PayrollView>> {
@@ -4988,6 +5086,22 @@ export async function generatePayroll(
       .filter((e) => !paidElsewhereRun(state, e.id, input.period_start, input.period_end, ""));
   if (born.length > 0 && born.every((e) => held.has(e.employee_no))) {
     return invalid(SERVICE, "nobody_selected", "Tidak ada yang dicentang — run tanpa orang bukan run.", { field: "hold" });
+  }
+  /* 0234 (D388): every adjustment checked as `add_adjustment` would, before
+     anything opens — one refusal and nothing is written. */
+  const adjust = input.adjust ?? [];
+  for (const a of adjust) {
+    const emp = state.employees.find((e) => e.employee_no === a.employee_no);
+    if (!emp || held.has(a.employee_no) || !born.some((b) => b.employee_no === a.employee_no)) {
+      return invalid(SERVICE, "adjust_not_on_run",
+        `${a.employee_no} tidak dibayar run ini — penyesuaiannya tidak bisa ditulis di sini.`, { field: "adjust" });
+    }
+    if (!a.amount) return invalid(SERVICE, "amount_required", "Nol bukan penyesuaian.", { field: "amount" });
+    if (!a.reason?.trim()) {
+      return invalid(SERVICE, "reason_required", "Alasannya tercetak di slip. Tanpa itu karyawan tidak bisa membantahnya.", { field: "reason" });
+    }
+    const refusal = retentionRefusal(state, emp.id, a.kind, a.amount);
+    if (refusal) return refusal;
   }
 
   const opened = await openPayroll({
@@ -5014,10 +5128,19 @@ export async function generatePayroll(
       }
       draft.payroll_run_members = rows;
     }
+    for (const a of adjust) {
+      const emp = draft.employees.find((e) => e.employee_no === a.employee_no);
+      if (!emp) continue;
+      draft.payroll_adjustments.push({
+        id: newId("adj"), run_no: runNo, employee_id: emp.id,
+        kind: a.kind, amount: Math.round(a.amount), reason: a.reason.trim(),
+        created_by: user.id, created_at: new Date().toISOString(),
+      });
+    }
     writeAudit(draft, {
       service: SERVICE, entity: "payroll", entity_no: runNo,
       action: "generate", outcome: "ok", reason: null,
-      detail: { held: input.hold.map((h) => h.employee_no), by: user.email },
+      detail: { held: input.hold.map((h) => h.employee_no), adjustments: adjust.length, by: user.email },
     });
   });
   const view = await getPayroll(runNo);

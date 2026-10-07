@@ -1379,17 +1379,37 @@ export interface ContributionAuditGroup {
  *  written warning, money left over from the last run. Each one is typed by
  *  somebody, carries a sentence, and appears on the payslip in words (D155).
  */
-export type AdjustmentKind = "late" | "sp" | "carry_over" | "advance" | "bonus" | "other";
+export type AdjustmentKind =
+  | "late" | "sp" | "carry_over" | "advance" | "bonus" | "other"
+  /** Money held back from a payslip, kept as a balance only HRD reads, and
+   *  the same money given back (0233–0234, D388). */
+  | "retention" | "retention_release";
 
 export const ADJUSTMENT_LABELS: Record<AdjustmentKind, Message> = {
   late: { en: "Lateness", id: "Keterlambatan" },
   sp: { en: "Warning letter", id: "Surat peringatan" },
   carry_over: { en: "Carry-over from last period", id: "Selisih periode lalu" },
   advance: { en: "Cash advance / loan repayment", id: "Kasbon / potongan pinjaman" },
-  bonus: { en: "Addition", id: "Tambahan" },
+  bonus: { en: "Bonus", id: "Bonus" },
   other: { en: "Other", id: "Lain-lain" },
+  retention: { en: "Retention", id: "Retensi" },
+  retention_release: { en: "Retention returned", id: "Pengembalian retensi" },
 };
 export const ADJUSTMENT_LABEL = bilingual(ADJUSTMENT_LABELS);
+
+/** What the retensi field starts at when HRD adds one. Not applied by itself:
+ *  retensi is added person by person (owner, D388). */
+export const RETENTION_DEFAULT = 500_000;
+
+/** A bonus, retensi or lain-lain typed on the generate sheet before the run
+ *  exists, written with it by `generate_payroll` (0234). **Signed**, as an
+ *  adjustment always is. */
+export interface PayrollAdjustInput {
+  employee_no: string;
+  kind: AdjustmentKind;
+  amount: number;
+  reason: string;
+}
 
 export interface PayrollAdjustment {
   id: string;
@@ -2657,6 +2677,50 @@ export interface PayPreviewInput {
   unit?: string | null;
   /** The day whose month is read; today when left out. */
   on?: string;
+}
+
+/** What a person's days carry beyond the reading, so the payroll drawer can
+ *  change them: the marks HRD wrote, and the days their allowance was taken
+ *  off (D388). */
+export interface PersonDayEdits {
+  marks: DayMark[];
+  withholdings: AllowanceWithholdingView[];
+}
+
+/** Retensi per person — HRD's only (D388). `balance` is what signed runs hold;
+ *  `in_draft` is what drafts would add. */
+export interface RetentionBalance {
+  employee_id: string;
+  employee_no: string;
+  full_name: string;
+  held: number;
+  released: number;
+  balance: number;
+  in_draft: number;
+}
+
+/** One person as HRD reads them over a period (D388): attendance as payroll
+ *  counts it, the year's leave, the retensi balance. Never shown to the
+ *  employee's own account — the database refuses it there. */
+export interface EmployeeStanding {
+  employee_no: string;
+  full_name: string;
+  period_from: string;
+  period_to: string;
+  days_present: number;
+  days_unpaid: number;
+  days_sick_paid: number;
+  days_leave_paid: number;
+  days_open: number;
+  late_minutes: number;
+  late_days: number;
+  overtime_hours: number;
+  allowance_withheld_days: number;
+  leave_entitlement: number | null;
+  leave_taken: number | null;
+  leave_remaining: number | null;
+  retention_balance: number;
+  retention_in_draft: number;
 }
 
 export interface PaidElsewhere {

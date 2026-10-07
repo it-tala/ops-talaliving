@@ -9812,3 +9812,30 @@ the move shows up where people look before it shows up in production. Second, th
 bot now reads this application's data only through named functions (D387,
 `0232`). A table can then move or be renamed without breaking it, as long as the
 function still answers.
+
+## F236 · 2026-10-07 · *Mangkir* was already in the system; it needed a door on the payroll screen
+
+The owner asked for three things on the payroll drawer: bonus and lain-lain
+with a free amount and a reason, a retensi deduction that starts at 500.000,
+and a way to say *present but truant — do not pay*. Only retensi was new.
+Bonus and lain-lain have been adjustment kinds since 0001; *not paying a day*
+is the *tidak masuk* mark (a mark beats the taps, D142), and *no allowance for
+a day* is the withholding (D250). What was missing was reach: adjustments
+could only be typed after a run existed, on a card below the sheet, and marks
+only on the attendance screen. HR reads a person in the drawer, so the drawer
+is where the decision is made.
+
+Two consequences shaped the database side. Adjustments typed before the run
+exists are written **by the run's own seam** (`generate_payroll(p_adjust)`),
+through `add_adjustment`, so every rule an adjustment has — a reason, a
+non-zero amount, retensi only taking, a release never above the balance — holds
+on both screens, and one refusal undoes the run. And the retensi balance is a
+**definer function that refuses**, not a panel that hides: an employee's own
+account reads its payslip (the retensi line is on it, as it must be) but is
+told nothing about the balance.
+
+**Rule:** before adding a field for a new kind of decision, look for the
+record that already carries it, and bring that record to where the decision is
+made. A second way to say *this day is not paid* would be a second rule for
+payroll to read.
+
