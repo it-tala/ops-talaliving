@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus, Trash2, Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/primitives";
 import { MoneyInput } from "@/components/ui/money-input";
@@ -9,9 +9,10 @@ import { cn } from "@/lib/cn";
 import { hr } from "@/demo/api";
 import {
   ADJUSTMENT_LABEL, DAY_MARK_LABEL, OVERTIME_STAGE_LABEL, RETENTION_DEFAULT,
-  type AdjustmentKind, type PersonDayEdits,
+  type AdjustmentKind, type OvertimePreviewRow, type PersonDayEdits,
 } from "@/services/hr/contracts";
 import { useToast } from "@/store/toast";
+import { clockFace, minutesOfClock } from "@/services/hr/overtime-clock";
 import { useTr } from "@/lib/i18n";
 
 /** What the payroll drawer can change (D388).
@@ -198,7 +199,32 @@ export function DayEditor({
      — the machine's, until HRD says otherwise. */
   const nights = (edits?.overtime ?? []).filter((o) => o.work_date === workDate);
   const liveNight = nights.find((o) => o.stage !== "declined" && o.stage !== "unpaid") ?? null;
-  const [otHours, setOtHours] = useState(machineOvertime > 0 ? String(machineOvertime) : "");
+  /* 0244 (D396): approved by the clock — start and finish, the schedule's
+     end and the last tap until HRD says otherwise — with the ranges and the
+     money shown before anything is written. */
+  const toInput = (m: number | null | undefined) => (m == null ? "" : clockFace(m % 1440).replace(".", ":"));
+  const [otFrom, setOtFrom] = useState("");
+  const [otUntil, setOtUntil] = useState("");
+  const [preview, setPreview] = useState<OvertimePreviewRow[]>([]);
+  useEffect(() => {
+    if (liveNight) return;
+    let gone = false;
+    const from = minutesOfClock(otFrom);
+    const until = minutesOfClock(otUntil);
+    void hr.overtimePreview({ employee_no: employeeNo, work_date: workDate, from_minutes: from, until_minutes: until })
+      .then((res) => {
+        if (gone || res.error) return;
+        setPreview(res.data);
+        const first = res.data[0];
+        if (first && !otFrom && first.from_minutes != null) setOtFrom(toInput(first.from_minutes));
+        if (first && !otUntil && first.until_minutes != null) setOtUntil(toInput(first.until_minutes));
+      });
+    return () => { gone = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [otFrom, otUntil, employeeNo, workDate]);
+  const ranges = preview.filter((r) => r.seg_from != null && r.hours != null);
+  const otHours = Math.round(ranges.reduce((t, r) => t + (r.hours ?? 0), 0) * 100) / 100;
+  const otAmount = ranges.reduce((t, r) => t + (r.amount ?? 0), 0);
 
   async function run(p: Promise<{ error?: { message: string } | null }>, done: string) {
     setBusy(true);
@@ -210,9 +236,10 @@ export function DayEditor({
   }
 
   async function approveOvertime() {
-    const hours = Number(otHours.replace(",", "."));
-    if (await run(hr.approveDayOvertime({ employee_no: employeeNo, work_date: workDate, hours, reason: reason.trim() }),
-      tr(`${hours} h overtime approved`, `Lembur ${hours} jam disetujui`))) onDone();
+    if (await run(hr.approveDayOvertime({
+      employee_no: employeeNo, work_date: workDate, reason: reason.trim(),
+      from_minutes: minutesOfClock(otFrom), until_minutes: minutesOfClock(otUntil),
+    }), tr(`${otHours} h overtime approved`, `Lembur ${otHours} jam disetujui`))) onDone();
   }
 
   async function withdrawOvertime(sheetNo: string) {
@@ -313,18 +340,48 @@ export function DayEditor({
           </p>
         )}
         {!liveNight && (
-          <div className="flex flex-wrap items-end gap-2">
-            <div>
-              <label htmlFor={`ot-${workDate}`} className="block text-[11px] text-slate-500">{tr("Hours to pay", "Jam dibayar")}</label>
-              <input id={`ot-${workDate}`} type="number" min={0.25} max={12} step={0.25} value={otHours}
-                onChange={(e) => setOtHours(e.target.value)}
-                className="mt-0.5 h-8 w-24 rounded-lg border border-slate-200 bg-white px-2 text-[12px] tabular-nums focus:border-brand-400 focus:outline-none" />
+          <>
+            <div className="flex flex-wrap items-end gap-2">
+              <div>
+                <label htmlFor={`otf-${workDate}`} className="block text-[11px] text-slate-500">{tr("Start", "Mulai")}</label>
+                <input id={`otf-${workDate}`} type="time" value={otFrom} onChange={(e) => setOtFrom(e.target.value)}
+                  className="mt-0.5 h-8 rounded-lg border border-slate-200 bg-white px-2 text-[12px] tabular-nums focus:border-brand-400 focus:outline-none" />
+              </div>
+              <div>
+                <label htmlFor={`otu-${workDate}`} className="block text-[11px] text-slate-500">{tr("Finish", "Selesai")}</label>
+                <input id={`otu-${workDate}`} type="time" value={otUntil} onChange={(e) => setOtUntil(e.target.value)}
+                  className="mt-0.5 h-8 rounded-lg border border-slate-200 bg-white px-2 text-[12px] tabular-nums focus:border-brand-400 focus:outline-none" />
+              </div>
+              <Button size="sm" variant="outline" disabled={busy || !(otHours > 0) || !reason.trim()} onClick={approveOvertime}>
+                {tr(`Approve ${otHours} h`, `Setujui ${otHours} jam`)}
+              </Button>
+              <span className="text-[11px] text-slate-500">{tr("reason below; added to Additions", "alasan di bawah; masuk Penambahan")}</span>
             </div>
-            <Button size="sm" variant="outline" disabled={busy || !(Number(otHours.replace(",", ".")) > 0) || !reason.trim()} onClick={approveOvertime}>
-              {tr("Approve overtime", "Setujui lembur")}
-            </Button>
-            <span className="text-[11px] text-slate-500">{tr("reason below; added to Additions", "alasan di bawah; masuk Penambahan")}</span>
-          </div>
+            {ranges.length > 0 && (
+              <table className="w-full text-[11px] tabular-nums">
+                <tbody>
+                  {ranges.map((r, i) => (
+                    <tr key={i} className="text-slate-600">
+                      <td className="py-0.5">{clockFace(r.seg_from!)}–{clockFace(r.seg_until!)}</td>
+                      <td className="text-right">{tr(`${r.hours} h`, `${String(r.hours).replace(".", ",")} jam`)}</td>
+                      <td className="text-right">{r.multiplier}×</td>
+                      <td className="text-right">{formatIDR(Math.round(r.hourly * (r.multiplier ?? 0)))}/{tr("h", "jam")}</td>
+                      <td className="text-right font-medium text-slate-800">{formatIDR(r.amount ?? 0)}</td>
+                    </tr>
+                  ))}
+                  <tr className="border-t border-slate-100 font-medium text-slate-800">
+                    <td className="py-0.5">{tr("Total", "Jumlah")}</td>
+                    <td className="text-right">{tr(`${otHours} h`, `${String(otHours).replace(".", ",")} jam`)}</td>
+                    <td colSpan={2} />
+                    <td className="text-right">{formatIDR(otAmount)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            )}
+            {ranges.length === 0 && otFrom && otUntil && (
+              <p className="text-[11px] text-slate-500">{tr("Nothing to pay in that window.", "Tidak ada jam lembur yang dibayar di rentang itu.")}</p>
+            )}
+          </>
         )}
       </div>
 

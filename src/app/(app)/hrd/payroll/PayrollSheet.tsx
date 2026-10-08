@@ -313,11 +313,12 @@ function PersonBreakdown({ line: l, onClose, onPersonSettings, adjust, period, e
     && !!edits.data?.marks.some((m) => m.work_date === date && m.kind === "absent" && m.reason.startsWith("Mangkir"));
   const approvedOt = new Map<string, number>();
   for (const p of l.overtime_parts) approvedOt.set(p.work_date, (approvedOt.get(p.work_date) ?? 0) + p.hours);
-  /* 0243 (D395): why each paid night was approved, beside the overtime line. */
-  const paidNights = edits.status === "ready" ? (edits.data?.overtime ?? []).filter((o) => o.payable && o.reason) : [];
-  const otReasons = paidNights.length > 0
-    ? ` · ${paidNights.map((o) => `${o.work_date.slice(8)}/${o.work_date.slice(5, 7)} ${o.reason}`).join("; ")}`
-    : "";
+  /* 0243/0244 (D395, D396): the overtime parts, one line each, with why the
+     night was approved where the drawer knows it. */
+  const nightReason = new Map((edits.status === "ready" ? edits.data?.overtime ?? [] : [])
+    .map((o) => [o.sheet_no, o.reason ?? ""] as const));
+  const reasonOf = (sheetNo: string) => nightReason.get(sheetNo) ?? "";
+  const otDetail = l.overtime_parts.length > 0;
   const plus = l.adjustments.filter((a) => a.amount > 0);
   const minus = l.adjustments.filter((a) => a.amount < 0);
   const hhmm = (v: string | null) => {
@@ -380,10 +381,30 @@ function PersonBreakdown({ line: l, onClose, onPersonSettings, adjust, period, e
                 : undefined} />
             <Row k={tr(`Allowance · ${formatNumber(l.allowance_days)} days`, `Tunjangan · ${formatNumber(l.allowance_days)} hari`)} v={formatIDR(l.allowance_pay)} tone={l.allowance_pay > 0 ? "plus" : "muted"} />
             <Row k={tr(`Overtime · ${formatNumber(l.overtime_hours)} h approved`, `Lembur · ${formatNumber(l.overtime_hours)} jam disetujui`)} v={formatIDR(l.overtime_pay)} tone={l.overtime_pay > 0 ? "plus" : "muted"}
-              note={l.overtime_parts.length > 0
+              note={l.overtime_parts.length > 0 && !otDetail
                 ? l.overtime_parts.map((p) => (p.multiplier > 0 ? `${formatNumber(p.hours)}×${formatNumber(p.multiplier)}` : tr("form", "form"))).join(" + ")
-                  + otReasons
                 : undefined} />
+            {/* 0244 (D396): every part on its own line — the day, the clock
+                range (or the ladder's rung), hours, the hour's price at that
+                multiplier, the amount, and why it was approved. */}
+            {otDetail && (
+              <table className="my-1 w-full text-[11px] tabular-nums text-slate-600">
+                <tbody>
+                  {l.overtime_parts.map((p, i) => (
+                    <tr key={i}>
+                      <td className="whitespace-nowrap py-0.5 pr-2">{p.work_date.slice(8)}/{p.work_date.slice(5, 7)}</td>
+                      <td className="whitespace-nowrap pr-2">{p.label}</td>
+                      <td className="whitespace-nowrap pr-2 text-right">{formatNumber(p.hours)} {tr("h", "jam")}</td>
+                      <td className="whitespace-nowrap pr-2 text-right">
+                        {p.multiplier > 0 ? `${formatIDR(Math.round(p.hourly * p.multiplier))}/${tr("h", "jam")}` : "—"}
+                      </td>
+                      <td className="whitespace-nowrap pr-2 text-right font-medium text-slate-800">{formatIDR(p.amount)}</td>
+                      <td className="text-slate-500">{reasonOf(p.source)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
             {adjust
               ? <AdjustSection side="add" employeeNo={l.employee_no} editor={adjust} />
               : plus.map((a, i) => <Row key={`p${i}`} k={`${a.label ?? ADJUSTMENT_LABEL[a.kind]}`} note={a.reason} v={formatIDR(a.amount)} tone="plus" />)}

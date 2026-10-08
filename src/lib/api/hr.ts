@@ -46,7 +46,7 @@ import type {
   PayRules, PayRuleSetView, TimesheetTotal, EffectiveDaysCalendar,
   PayrollRun, PayrollView, PayrollLine, PayrollAdjustmentView,
   PayGroup, PayComponents, PayrollRunMember, PaidElsewhere, PayrollHold, PayPreview, PayPreviewInput,
-  PayrollAdjustInput, PersonDayEdits, DayOvertime, RetentionBalance, EmployeeStanding,
+  PayrollAdjustInput, PersonDayEdits, DayOvertime, OvertimePreviewRow, RetentionBalance, EmployeeStanding,
   DeductionKind, DeductionDefault, EmployeeDeduction, DueDeduction, AttendanceExemption,
   AdjustmentKind, ContributionScheme,
   LeaveKind, LeaveStatus, LeaveRequestView, LeaveBalance,
@@ -909,13 +909,37 @@ export async function dueDeductions(input: { from: string; to: string }): Promis
  *  lands in Penambahan. Refused while a live line for that night exists on
  *  any other sheet. */
 export async function approveDayOvertime(
-  input: { employee_no: string; work_date: string; hours: number; reason: string }, idempotencyKey?: string,
-): Promise<Result<{ sheet_no: string }>> {
+  input: {
+    employee_no: string; work_date: string; reason: string;
+    /** 0244 (D396): when it started and finished, minutes of the office day.
+     *  Omitted: the schedule's end and the last tap. The hours follow. */
+    from_minutes?: number | null; until_minutes?: number | null;
+    /** Only for a day with no clock at all. */
+    hours?: number | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<{ sheet_no: string; hours: number }>> {
   const { data, error } = await db().rpc("approve_day_overtime", {
-    p_employee_no: input.employee_no, p_work_date: input.work_date, p_hours: input.hours,
+    p_employee_no: input.employee_no, p_work_date: input.work_date, p_hours: input.hours ?? null,
     p_reason: input.reason, p_key: idempotencyKey ?? null,
+    p_from_minutes: input.from_minutes ?? null, p_until_minutes: input.until_minutes ?? null,
   });
-  return fromSeam<{ sheet_no: string }>(SERVICE, data, error);
+  return fromSeam<{ sheet_no: string; hours: number }>(SERVICE, data, error);
+}
+
+/** What approving an evening would pay, range by range, before approving
+ *  (`overtime_preview`, 0244). HRD/payroll only. */
+export async function overtimePreview(
+  input: { employee_no: string; work_date: string; from_minutes?: number | null; until_minutes?: number | null },
+): Promise<Result<OvertimePreviewRow[]>> {
+  const { data, error } = await db().rpc("overtime_preview", {
+    p_employee_no: input.employee_no, p_work_date: input.work_date,
+    p_from_minutes: input.from_minutes ?? null, p_until_minutes: input.until_minutes ?? null,
+  });
+  if (error) return fromRows<OvertimePreviewRow[]>(SERVICE, null as never, error);
+  return ok(SERVICE, ((data ?? []) as OvertimePreviewRow[]).map((r) => ({
+    ...r, hours: r.hours == null ? null : Number(r.hours), multiplier: r.multiplier == null ? null : Number(r.multiplier),
+  })));
 }
 
 /** Turns such a sheet off, keeping it and the reason (D146, D395). */

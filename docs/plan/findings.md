@@ -10022,3 +10022,25 @@ something another screen already approves, add a road to the existing
 record and make the roads exclusive per item, rather than a parallel record
 the first screen cannot see.
 
+## F244 · 2026-10-08 · An approval that stores hours cannot leave a break out
+
+The first payroll approval (D395) stored *5,5 jam* for RIAN's 21/09 — the
+machine's 17.15–22.44 — and the ladder then priced the first of those hours
+at 1,5× and the rest at 2×. The owner read it as reversed. Two different
+things were wrong, and only one was a rule: the multipliers were the rule
+book's (and the owner set new ones), but the **hours** were wrong under any
+rule, because 17.30–18.30 is a break and a number of hours has no way to say
+where in the evening it sat. A night rate has the same problem — *how many of
+these hours were after 22.00?* is unanswerable from a count.
+
+So the line keeps **when** (start and finish), and every rule that depends on
+the clock — the break, the night line, rounding — is applied to the clock,
+range by range, with each range printed on the slip. The count is derived.
+
+Also: the owner's rule pays below PP 35/2021's minimum for an evening like
+this one (Rp 244.923 against Rp 270.232). That was put to the owner with both
+figures before it was applied, and recorded with his answer (D396). **Rule:**
+store the instants a pay rule depends on, not the quantity it produces; and
+when a stated rule falls below a statutory floor, show both numbers and let
+the owner choose on the record.
+
