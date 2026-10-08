@@ -254,6 +254,10 @@ export interface EvidenceInboxRow {
     doc_type?: string | null;
     confidence?: number | null;
     note?: string | null;
+    /** The sender's name as the capture worker gave it, when it matched
+     *  nobody active and the row was filed under the fallback account
+     *  instead (0237, D390). Absent when `reported_by` is the sender. */
+    reported_as?: string | null;
   };
   produced_trx_id: string | null;
   produced_pr_line_no: string | null;
