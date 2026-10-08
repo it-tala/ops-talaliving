@@ -538,6 +538,20 @@ export default function PayRulesPage() {
                           onChange={(v) => set({ overtime_night_multiplier: v > 0 ? v : null })}
                           disabled={!mayEdit}
                         />
+                        <Field
+                          label={tr("Overtime break from (minutes from midnight)", "Istirahat lembur mulai (menit dari tengah malam)")}
+                          hint={tr("1050 = 17.30. Unpaid; only for overtime approved with start and finish. 0 = none.", "1050 = jam 17.30. Tidak dibayar; hanya untuk lembur yang dicatat jam mulai–selesainya. 0 = tidak ada.")}
+                          value={rules.overtime_break_from_minutes ?? 0}
+                          onChange={(v) => set({ overtime_break_from_minutes: v > 0 ? v : null })}
+                          disabled={!mayEdit}
+                        />
+                        <Field
+                          label={tr("…until", "…sampai")}
+                          hint={tr("1110 = 18.30.", "1110 = jam 18.30.")}
+                          value={rules.overtime_break_to_minutes ?? 0}
+                          onChange={(v) => set({ overtime_break_to_minutes: v > 0 ? v : null })}
+                          disabled={!mayEdit}
+                        />
                       </div>
                       {([
                         ["allowance_on_premium_days", true,

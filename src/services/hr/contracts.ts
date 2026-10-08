@@ -461,6 +461,10 @@ export interface OvertimeLine {
    *  for up front on the self road, where it is what the approver weighs;
    *  optional on HRD's own sheet. `result_note` is what was actually done. */
   deliverable: string | null;
+  /** When it started and finished, minutes of the office day (0195, 0244).
+   *  Both set: paid by the clock, range by range (D396). */
+  from_minutes?: number | null;
+  until_minutes?: number | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -2477,6 +2481,10 @@ export interface PayRules {
    *  `overtime_night_multiplier`, for lines that say when they finished. */
   overtime_night_after_minutes?: number | null;
   overtime_night_multiplier?: number | null;
+  /** An unpaid break inside an evening's overtime (17.30–18.30 = 1050–1110),
+   *  left out of lines that say when they started and finished (0244, D396). */
+  overtime_break_from_minutes?: number | null;
+  overtime_break_to_minutes?: number | null;
   /** Price an overtime hour before rounding it to the rupiah, as the sheet
    *  does (170.500 / 8 = 21.312,5). */
   overtime_exact_hourly?: boolean;
@@ -2551,6 +2559,19 @@ export interface OvertimePart {
   amount: number;
   /** `Hari kerja · jam ke-1`, `Hari libur · jam 1–7`, `Sesuai form`. */
   label: string;
+}
+
+/** One clock range of an evening's overtime, as approving it would pay
+ *  (`overtime_preview`, 0244). */
+export interface OvertimePreviewRow {
+  from_minutes: number | null;
+  until_minutes: number | null;
+  seg_from: number | null;
+  seg_until: number | null;
+  hours: number | null;
+  multiplier: number | null;
+  hourly: number;
+  amount: number | null;
 }
 
 export interface PayrollLine {

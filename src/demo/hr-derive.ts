@@ -35,6 +35,7 @@ import {
   scheduleHoursOf, isOvernight, dayBoundaryMinutes, shiftMinutes, nextOfficeDay, scheduleDay,
 } from "@/services/hr/schedule-rules";
 import { shiftReading, addDayKey, SHIFT_LOOKBACK_DAYS, SHIFT_LOOKAHEAD_DAYS } from "@/services/hr/shift-reading";
+import { overtimeSegments, clockFace } from "@/services/hr/overtime-clock";
 import {
   addDays, taskPeriodStart, taskPeriodEnd, taskPeriodLabel, ageOn, ageBand,
 } from "@/services/hr/task-periods";
@@ -1142,6 +1143,30 @@ export function activePayRules(state: DemoState, onDate: string): PayRuleSet {
 
 /** Whether a date is a weekly rest day under the active pattern, or a public
  *  holiday somebody marked. Both take the steeper ladder. */
+/** Where an evening's overtime starts and ends by default — the weekday's
+ *  scheduled end (the first tap on a day off) and the last tap
+ *  (`ops_hr.day_overtime_window`, 0244). */
+export function dayOvertimeWindow(
+  state: DemoState, employee: Employee, date: string,
+): { from_minutes: number | null; until_minutes: number | null } {
+  const rules = activePayRules(state, date).rules;
+  const d = timesheetDay(state, employee, date);
+  const toMin = (iso?: string) => {
+    if (!iso) return null;
+    const [h, m] = officeClock(new Date(iso)).split(":").map(Number);
+    return h * 60 + m;
+  };
+  const sd = scheduleDay(scheduleFor(rules, employee), weekdayOf(date));
+  let from = sd && !sd.off ? sd.end_minutes : null;
+  if (from == null) from = toMin(d.slots.in);
+  const last = [d.slots.out, d.slots.ot_end].filter(Boolean).sort().pop();
+  return { from_minutes: from, until_minutes: toMin(last) };
+}
+
+export function isRestDayOn(state: DemoState, date: string): boolean {
+  return isRestDay(state, activePayRules(state, date).rules, date);
+}
+
 function isRestDay(state: DemoState, rules: PayRules, date: string): boolean {
   const marked = state.day_marks.some((m) => m.work_date === date && m.employee_id === null && m.kind === "holiday");
   if (marked) return true;
@@ -2158,6 +2183,20 @@ export function overtimeParts(
         hours: line.hours, multiplier: 0, hourly, amount: 0,
         label: "Tidak ada angka di form — tidak dibayar",
       });
+      continue;
+    }
+
+    /* 0244 (D396): a line that says when it started and finished is paid by
+       the clock, range by range — `ops_hr.ot_segments`. */
+    if (line.from_minutes != null && line.until_minutes != null) {
+      for (const seg of overtimeSegments(rules, isRestDay(state, rules, sheet.work_date), line.from_minutes, line.until_minutes)) {
+        out.push({
+          source: sheet.sheet_no, work_date: sheet.work_date,
+          hours: seg.hours, multiplier: seg.multiplier, hourly,
+          amount: Math.round(seg.hours * seg.multiplier * hourly),
+          label: `${clockFace(seg.seg_from)}–${clockFace(seg.seg_until)}`,
+        });
+      }
       continue;
     }
 

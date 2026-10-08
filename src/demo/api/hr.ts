@@ -5,7 +5,7 @@ import type {
   OvertimeSheet, OvertimeLine, OvertimeSheetView, OvertimeKind, OvertimeDecider, SelfOvertimeView,
   PayrollRun, PayrollView, PayrollLine, PayBasis,
   PayGroup, PayComponents, PayrollRunMember, PaidElsewhere, PayrollHold, PayPreview, PayPreviewInput,
-  PayrollAdjustInput, PersonDayEdits, DayOvertime, RetentionBalance, EmployeeStanding,
+  PayrollAdjustInput, PersonDayEdits, DayOvertime, OvertimePreviewRow, RetentionBalance, EmployeeStanding,
   DeductionKind, DeductionDefault, EmployeeDeduction, DueDeduction, AttendanceExemption,
   AdjustmentKind, PayrollAdjustmentView,
   PayRules, PayRuleSet, PayRuleSetView, WorkSchedule, ScheduleHours, UnitScheduleDefault,
@@ -31,6 +31,7 @@ import { instantInDay, isOvernight, dayBoundaryMinutes, type ScheduleDay, type S
 import type { DocKind } from "@/services/documents/contracts";
 import type { DemoState, DemoRunMember, DemoBacklog } from "../state";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
+import { overtimeSegments } from "@/services/hr/overtime-clock";
 import {
   timesheet, timesheetDay, payrollView, overtimeStage, overtimePayable, sheetEvidence,
   activePayRules, payrollLine, payrollLineWith, scheduleHours, scheduleFor,
@@ -41,7 +42,7 @@ import {
   workLogView, workLogRoster as workLogRosterRows, workEvidence as workEvidenceOf,
   employeeIdentityViews, wlkpRecap,
   membersOf, groupPeople, paidElsewhere as paidElsewhereRun,
-  monthWorkdays, allowanceDayExact, hourlyRate, enrolledIn,
+  monthWorkdays, allowanceDayExact, hourlyRate, enrolledIn, dayOvertimeWindow, isRestDayOn,
 } from "../hr-derive";
 import { latency, actingUser, requireModule, requireLevel, requireAuthority, conflict, replayed, remember } from "./_kit";
 import { OFFICE_TZ, officeClock, officeToday as sharedOfficeToday, officeStamp } from "@/lib/office";
@@ -1848,8 +1849,11 @@ export async function dueDeductions(input: { from: string; to: string }): Promis
 /** `ops_hr.approve_day_overtime` (0243, D395): a staff sheet HRD keys and
  *  checks at once, refused while a live line for that night exists. */
 export async function approveDayOvertime(
-  input: { employee_no: string; work_date: string; hours: number; reason: string },
-): Promise<Result<{ sheet_no: string }>> {
+  input: {
+    employee_no: string; work_date: string; reason: string;
+    from_minutes?: number | null; until_minutes?: number | null; hours?: number | null;
+  },
+): Promise<Result<{ sheet_no: string; hours: number }>> {
   await latency();
   const denied = requireLevel(SERVICE, "hrd", "write");
   if (denied) return denied;
@@ -1858,12 +1862,27 @@ export async function approveDayOvertime(
   if (input.work_date > sharedOfficeToday()) {
     return invalid(SERVICE, "date_in_future", "Lembur disetujui untuk malam yang sudah dijalani.", { field: "work_date" });
   }
-  if (!(input.hours > 0 && input.hours <= 12)) {
-    return invalid(SERVICE, "hours_out_of_range", "Jam lembur lebih dari nol dan sampai 12.", { field: "hours" });
-  }
   const state = getState();
   const emp = state.employees.find((e) => e.employee_no === input.employee_no);
   if (!emp) return notFound(SERVICE, "employee_not_found", `No employee ${input.employee_no}.`);
+
+  /* 0244 (D396): by the clock wherever it can be. */
+  let from = input.from_minutes ?? null;
+  let until = input.until_minutes ?? null;
+  let hours = input.hours ?? null;
+  if (hours == null || from != null || until != null) {
+    const w = dayOvertimeWindow(state, emp, input.work_date);
+    from = from ?? w.from_minutes;
+    until = until ?? w.until_minutes;
+    if (from == null || until == null) {
+      return invalid(SERVICE, "time_required", "Jam mulai dan selesai lembur belum diketahui — tulis keduanya.", { field: "from_minutes" });
+    }
+    hours = overtimeSegments(activePayRules(state, input.work_date).rules, isRestDayOn(state, input.work_date), from, until)
+      .reduce((t, x) => t + x.hours, 0);
+  }
+  if (!(hours > 0 && hours <= 12)) {
+    return invalid(SERVICE, "hours_out_of_range", "Jam lembur lebih dari nol dan sampai 12.", { field: "hours" });
+  }
   const live = state.overtime_lines
     .filter((l) => l.employee_id === emp.id)
     .map((l) => state.overtime_sheets.find((x) => x.id === l.sheet_id))
@@ -1888,16 +1907,41 @@ export async function approveDayOvertime(
       via: "hrd", decided_by: null, decided_at: null, decided_as: null, decision_note: null,
     });
     draft.overtime_lines.push({
-      id: newId("lbl"), sheet_id: id, employee_id: emp.id, hours: input.hours, task: reason,
+      id: newId("lbl"), sheet_id: id, employee_id: emp.id, hours: hours!, task: reason,
       wo_no: null, stage: null, qty_done: null, form_amount: null, result_note: null, deliverable: null,
+      from_minutes: from, until_minutes: until,
     });
     writeAudit(draft, {
       service: SERVICE, entity: "overtime_sheet", entity_no: sheetNo,
       action: "approve_day", outcome: "ok", reason,
-      detail: { employee: emp.employee_no, work_date: input.work_date, hours: input.hours, by: user.email },
+      detail: { employee: emp.employee_no, work_date: input.work_date, hours, from, until, by: user.email },
     });
   });
-  return ok(SERVICE, { sheet_no: sheetNo });
+  return ok(SERVICE, { sheet_no: sheetNo, hours: hours! });
+}
+
+/** `ops_hr.overtime_preview` (0244). */
+export async function overtimePreview(
+  input: { employee_no: string; work_date: string; from_minutes?: number | null; until_minutes?: number | null },
+): Promise<Result<OvertimePreviewRow[]>> {
+  await latency();
+  if (!seesStanding()) return ok(SERVICE, []);
+  const state = getState();
+  const emp = state.employees.find((e) => e.employee_no === input.employee_no);
+  if (!emp) return ok(SERVICE, []);
+  const rules = activePayRules(state, input.work_date).rules;
+  const hourly = hourlyRate(emp, rules).hourly;
+  const w = dayOvertimeWindow(state, emp, input.work_date);
+  const from = input.from_minutes ?? w.from_minutes;
+  const until = input.until_minutes ?? w.until_minutes;
+  if (from == null || until == null) {
+    return ok(SERVICE, [{ from_minutes: from, until_minutes: until, seg_from: null, seg_until: null,
+      hours: null, multiplier: null, hourly, amount: null }]);
+  }
+  return ok(SERVICE, overtimeSegments(rules, isRestDayOn(state, input.work_date), from, until).map((x) => ({
+    from_minutes: from, until_minutes: until, seg_from: x.seg_from, seg_until: x.seg_until,
+    hours: x.hours, multiplier: x.multiplier, hourly, amount: Math.round(x.hours * x.multiplier * hourly),
+  })));
 }
 
 /** `ops_hr.withdraw_day_overtime` (0243, D395). */
