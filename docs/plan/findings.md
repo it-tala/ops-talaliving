@@ -9934,3 +9934,24 @@ which this project prefers anyway (*recorded, never discarded*). **Rule:** a
 seam that only ever needs to un-assert something can mark it; write it that
 way from the start and the migration reaches production in one piece.
 
+## F241 · 2026-10-08 · A third goal status leaks into every screen that only knew two
+
+Adding `CANDIDATE` (D393) was one enum value, and three readers that had
+quietly meant *open or closed* each read it wrong before the walk caught them.
+
+- **`list_backlog().goal_open` is `status = 'OPEN'`.** For a candidate it is
+  false — the same answer as a cancelled goal — so *Ubah* on an item emptied
+  its candidate, and the badge drew it as a goal with no rank. Changing the
+  function's return type means dropping it (F218); the screen instead tells them
+  apart by the candidate list it already loads.
+- **The owner's notice pointed at `/hrd/tugas`.** A candidate's owner is often
+  staff, who cannot open that page. Where a person sees *their* goals is
+  `/profil?tab=tugas`; `goal.run` links there.
+- **A goal run from a candidate said *Belum ada bagian — hasil tanpa bagian
+  masih berupa keinginan*.** Its parts were prepared, on the waiting list,
+  exactly as designed; the card counted only tasks. Goal cards now count the
+  parts still waiting.
+
+**Rule:** a new status is a question to every `= 'OPEN'` and every link that
+assumes who the reader is — grep for them in the same change, not after.
+
