@@ -65,6 +65,12 @@ select e.id, ops_core.office_day(t), t, 'FP', 'manual', 'uji D373'
                ('aaaa2130-0000-0000-0000-000000000003', '2026-09-29 17:05')) e(id, ts)
   cross join lateral (select e.ts at time zone ops_core.office_tz() as t) x;
 
+-- 0242 (D394): these salaries have no taps and are paid the month, which
+-- since D394 is somebody exempt from attendance (F72's rule, kept for them).
+insert into ops_hr.attendance_exemptions (employee_id, reason, "by")
+select e.id, 'uji: tanpa tap, dibayar sebulan', 'ffffffff-0000-0000-0000-000000021301'
+  from ops_hr.employees e where e.pay_basis = 'monthly';
+
 set local role authenticated;
 set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-000000021301';
 

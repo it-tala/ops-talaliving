@@ -89,6 +89,14 @@ update ops_hr.employees set active = false, left_on = '2026-09-16'
 update ops_hr.employees set active = false, left_on = '2026-08-30'
  where employee_no = 'B-0055';
 
+-- 0242 (D394): these salaries have no taps and are paid the month, which
+-- since D394 is somebody exempt from attendance (F72's rule, kept for them).
+reset role;
+insert into ops_hr.attendance_exemptions (employee_id, reason, "by")
+select e.id, 'uji: tanpa tap, dibayar sebulan', 'ffffffff-0000-0000-0000-000000005201'
+  from ops_hr.employees e where e.pay_basis = 'monthly';
+set local role authenticated;
+
 /* Monday is whole for Joko: in, out for lunch, back, home. Siti's Tuesday has
    everything but the going home — the machine did not read her finger — and
    that is the day nobody has read, the one the signature refuses over. A day

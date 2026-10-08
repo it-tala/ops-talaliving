@@ -10,7 +10,7 @@ import { cn } from "@/lib/cn";
 import { ADJUSTMENT_LABEL, type PayrollLine } from "@/services/hr/contracts";
 import { hr } from "@/demo/api";
 import { useLoad } from "@/components/ui/loaded";
-import { AdjustSection, DayEditor, type AdjustEditor } from "./SheetEditors";
+import { AdjustSection, ConfirmAll, DayEditor, type AdjustEditor } from "./SheetEditors";
 import { useTr } from "@/lib/i18n";
 import { officeClock } from "@/lib/office";
 
@@ -83,6 +83,17 @@ export function PayrollSheet({
   const takeHome = sum((l) => l.take_home);
   const openDays = lines.reduce((t, l) => t + l.days_open, 0);
   const incomplete = lines.filter((l) => l.days_open > 0);
+  /* 0242 (D394): of the open days, the salaried working days with no tap and
+     no mark — said apart, because they are answered differently. */
+  const unconfirmedDays = lines.reduce((t, l) => t + (l.days_unconfirmed ?? 0), 0);
+  const openLabel = (l: PayrollLine) => {
+    const unc = l.days_unconfirmed ?? 0;
+    const unread = l.days_open - unc;
+    return [
+      unread > 0 ? tr(`${unread} unread`, `${unread} belum dibaca`) : null,
+      unc > 0 ? tr(`${unc} no tap, not confirmed`, `${unc} tanpa tap, belum dikonfirmasi`) : null,
+    ].filter(Boolean).join(" · ");
+  };
 
   const lateDays = (l: PayrollLine) => (l.days ?? []).filter((d) => (d.late_minutes ?? 0) > 0).length;
 
@@ -97,7 +108,7 @@ export function PayrollSheet({
             [tr("Additions", "Penambahan"), formatIDR(additions), tr("pay, allowance, overtime, bonus", "pokok, tunjangan, lembur, bonus"), false],
             [tr("Deductions", "Pengurangan"), formatIDR(deductions), tr("late, short hours, BPJS, kasbon…", "terlambat, jam kurang, BPJS, kasbon…"), deductions > 0],
             [tr("Take-home", "Diterima"), formatIDR(takeHome), tr("additions less deductions", "penambahan dikurangi pengurangan"), false],
-            [tr("Attendance", "Absensi"), openDays === 0 ? tr("complete", "lengkap") : tr(`${openDays} day(s) unread`, `${openDays} hari belum dibaca`),
+            [tr("Attendance", "Absensi"), openDays === 0 ? tr("complete", "lengkap") : tr(`${openDays} day(s) open`, `${openDays} hari belum beres`),
               openDays === 0 ? tr("every day has been read", "semua hari sudah dibaca") : tr(`${incomplete.length} person(s) affected`, `${incomplete.length} orang terdampak`), openDays > 0],
           ] as [string, string, string, boolean][]).map(([k, v, note, warn]) => (
             <div key={k} className="px-4 py-3.5">
@@ -117,8 +128,16 @@ export function PayrollSheet({
             {tr("Attendance not complete", "Absensi belum lengkap")}
           </p>
           <p className="mt-1">
-            {incomplete.map((l) => `${l.full_name} (${l.days_open})`).join(" · ")}
+            {incomplete.map((l) => `${l.full_name} (${openLabel(l)})`).join(" · ")}
           </p>
+          {unconfirmedDays > 0 && (
+            <p className="mt-1 text-[12px]">
+              {tr(
+                "A salaried working day with no tap and no mark is not paid until HRD says what it was: present without a tap, or a mark (absent, permit, sick, leave). Open the person and set the day, or confirm their days at once. Someone who does not tap at all (a leader) is set as exempt in their employee record.",
+                "Hari kerja gaji bulanan tanpa tap dan tanpa keterangan belum dibayar sampai HRD memutuskan: hadir tanpa tap, atau ditandai (alpa, izin, sakit, cuti). Buka orangnya lalu ubah per hari, atau konfirmasi sekaligus. Orang yang memang tidak absen (pimpinan) diatur ‘tidak wajib absensi’ di data karyawannya.",
+              )}
+            </p>
+          )}
           <p className="mt-1 text-[12px]">
             {tr(
               "A day the machine left incomplete is worth nothing until somebody reads it. Read them on the timesheet; until then these people are held.",
@@ -192,6 +211,7 @@ export function PayrollSheet({
                       <Badge tone={l.pay_basis === "monthly" ? "violet" : "slate"}>
                         {l.pay_basis === "monthly" ? tr("monthly", "bulanan") : l.pay_basis === "daily" ? tr("daily", "harian") : tr("hourly", "per jam")}
                       </Badge>
+                      {l.attendance_exempt && <Badge tone="slate">{tr("no attendance required", "tidak wajib absensi")}</Badge>}
                       {why && <p className="mt-1 text-[11px] text-amber-700">{why}</p>}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2.5 text-right text-[12px]">
@@ -202,7 +222,7 @@ export function PayrollSheet({
                       <p className={cn("tabular-nums", l.overtime_hours > 0 ? "text-slate-700" : "text-slate-400")}>
                         {tr(`overtime ${formatNumber(l.overtime_hours)} h`, `lembur ${formatNumber(l.overtime_hours)} jam`)}
                       </p>
-                      {l.days_open > 0 && <p className="font-medium text-amber-700">{tr(`${l.days_open} unread`, `${l.days_open} belum dibaca`)}</p>}
+                      {l.days_open > 0 && <p className="font-medium text-amber-700">{openLabel(l)}</p>}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2.5 text-right text-[12px] text-slate-600">
                       {l.pay_basis === "monthly" && <p>{tr("month", "bulan")} {formatIDR(l.base_rate)}</p>}
@@ -369,7 +389,10 @@ function PersonBreakdown({ line: l, onClose, onPersonSettings, adjust, period, e
           <div className="divide-y divide-slate-100 rounded-lg border border-rose-100 px-3">
             {l.absence_deduction > 0 && (
               <Row k={tr("Alpa (already inside the base)", "Alpa (sudah di dalam pokok)")} v={`(${formatIDR(l.absence_deduction)})`} tone="muted"
-                note={tr("not taken a second time", "tidak dipotong dua kali")} />
+                note={(l.days_unconfirmed ?? 0) > 0
+                  ? tr(`includes ${l.days_unconfirmed} day(s) with no tap not yet confirmed; not taken a second time`,
+                    `termasuk ${l.days_unconfirmed} hari tanpa tap yang belum dikonfirmasi; tidak dipotong dua kali`)
+                  : tr("not taken a second time", "tidak dipotong dua kali")} />
             )}
             <Row k={tr(`Late · ${l.late_minutes} min`, `Terlambat · ${l.late_minutes} mnt`)} v={l.late_deduction > 0 ? `(${formatIDR(l.late_deduction)})` : "—"}
               tone={l.late_deduction > 0 ? "minus" : "muted"}
@@ -396,6 +419,16 @@ function PersonBreakdown({ line: l, onClose, onPersonSettings, adjust, period, e
           <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
             {tr("Attendance, day by day", "Absensi per hari")}
           </h3>
+          {l.attendance_exempt && (
+            <p className="mb-1.5 text-[12px] text-slate-500">
+              {tr("No attendance required (set by HRD): a working day with no tap is paid.",
+                "Tidak wajib absensi (diatur HRD): hari kerja tanpa tap tetap dibayar.")}
+            </p>
+          )}
+          {canEditDays && (l.days_unconfirmed ?? 0) > 0 && (
+            <ConfirmAll employeeNo={l.employee_no}
+              dates={l.days.filter((d) => d.unconfirmed).map((d) => d.work_date)} onDone={dayDone} />
+          )}
           <div className="overflow-x-auto rounded-lg border border-slate-200">
             <table className="w-full min-w-[560px] text-[12px]">
               <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
@@ -433,7 +466,9 @@ function PersonBreakdown({ line: l, onClose, onPersonSettings, adjust, period, e
                         <span className={ot > 0 ? "font-medium text-slate-800" : "text-slate-300"}>{formatNumber(ot)}</span>
                       </td>
                       <td className="px-2 py-1.5 text-[11px]">
-                        {d.open ? <span className="font-medium text-amber-700">{tr("unread", "belum dibaca")}</span>
+                        {d.unconfirmed ? <span className="font-medium text-amber-700">{tr("no tap — check", "tanpa tap — cek")}</span>
+                          : d.open ? <span className="font-medium text-amber-700">{tr("unread", "belum dibaca")}</span>
+                          : d.confirmed ? <span className="text-emerald-700">{tr("present (HRD)", "hadir (konfirmasi HRD)")}</span>
                           : truant(d.work_date) ? <span className="font-medium text-rose-700">{tr("truant", "mangkir")}</span>
                           : d.mark ? <span className="text-slate-600">{d.mark}</span>
                             : d.assumed ? <span className="text-slate-500">{tr("assumed", "asumsi")}</span>
@@ -458,8 +493,10 @@ function PersonBreakdown({ line: l, onClose, onPersonSettings, adjust, period, e
                       <tr>
                         <td colSpan={8} className="p-0">
                           <DayEditor
-                            key={`${d.work_date}:${edits.status === "ready" ? JSON.stringify(edits.data) : ""}`}
-                            employeeNo={l.employee_no} workDate={d.work_date} open={d.open}
+                            key={`${d.work_date}:${d.unconfirmed}:${d.confirmed}:${edits.status === "ready" ? JSON.stringify(edits.data) : ""}`}
+                            employeeNo={l.employee_no} workDate={d.work_date} open={d.open && !d.unconfirmed}
+                            unconfirmed={!!d.unconfirmed} confirmed={!!d.confirmed}
+                            noTapSalary={l.pay_basis === "monthly" && (!!d.unconfirmed || !!d.confirmed || (!d.in_at && !d.out_at))}
                             edits={edits.status === "ready" ? edits.data : null}
                             onDone={dayDone}
                           />

@@ -290,6 +290,16 @@ export interface DemoState {
    *  saved demo from before them loads with the database's seed. */
   deduction_defaults?: { kind: "retention" | "bpjs_tk" | "bpjs_kes"; amount: number; updated_at: string }[];
   employee_deductions?: { employee_id: string; kind: "retention" | "bpjs_tk" | "bpjs_kes"; amount: number }[];
+  /** Hadir tanpa tap, and tidak wajib absensi (0242, D394). Optional so a
+   *  saved demo from before them loads. */
+  presence_confirmations?: {
+    employee_id: string; work_date: string; reason: string; by: string; at: string;
+    withdrawn_at: string | null;
+  }[];
+  attendance_exemptions?: {
+    employee_id: string; reason: string; starts_on: string | null; by: string; at: string;
+    ends_on: string | null;
+  }[];
   /** Berkas 201: somebody's own file, and what is missing from it (D177). */
   employee_documents: EmployeeDocument[];
   /* Kontrak kerja, klausulnya, dan daftar poin wajibnya — yang terakhir adalah

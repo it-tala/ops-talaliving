@@ -6,7 +6,7 @@ import type {
   PayrollRun, PayrollView, PayrollLine, PayBasis,
   PayGroup, PayComponents, PayrollRunMember, PaidElsewhere, PayrollHold, PayPreview, PayPreviewInput,
   PayrollAdjustInput, PersonDayEdits, RetentionBalance, EmployeeStanding,
-  DeductionKind, DeductionDefault, EmployeeDeduction, DueDeduction,
+  DeductionKind, DeductionDefault, EmployeeDeduction, DueDeduction, AttendanceExemption,
   AdjustmentKind, PayrollAdjustmentView,
   PayRules, PayRuleSet, PayRuleSetView, WorkSchedule, ScheduleHours, UnitScheduleDefault,
   EmployeeDocKind, EmployeeFileView, DocNoSource, LeaveBalance, LeaveKind, LeaveRequestView, LeaveStatus,
@@ -1843,6 +1843,106 @@ export async function dueDeductions(input: { from: string; to: string }): Promis
     }
   }
   return ok(SERVICE, out.sort((a, b) => a.full_name.localeCompare(b.full_name) || a.month.localeCompare(b.month)));
+}
+
+/** `ops_hr.confirm_presence` (0242, D394). */
+export async function confirmPresence(
+  input: { employee_no: string; dates: string[]; reason: string },
+): Promise<Result<{ confirmed: number }>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "hrd", "write");
+  if (denied) return denied;
+  if (!input.reason.trim()) {
+    return invalid(SERVICE, "reason_required", "Hadir tanpa tap karena apa? Alasannya yang dibaca kalau hari itu dipertanyakan.", { field: "reason" });
+  }
+  if (input.dates.length === 0) return invalid(SERVICE, "dates_required", "Pilih hari yang dikonfirmasi.", { field: "dates" });
+  const future = input.dates.filter((d) => d > sharedOfficeToday()).sort().pop();
+  if (future) {
+    return invalid(SERVICE, "future_date", `${future} belum terjadi — hadir hanya bisa dikonfirmasi untuk hari yang sudah lewat.`, { field: "dates" });
+  }
+  const emp = getState().employees.find((e) => e.employee_no === input.employee_no);
+  if (!emp) return notFound(SERVICE, "employee_not_found", `No employee ${input.employee_no}.`);
+  let confirmed = 0;
+  apply((draft) => {
+    const rows = draft.presence_confirmations ?? [];
+    for (const d of new Set(input.dates)) {
+      if (rows.some((r) => r.employee_id === emp.id && r.work_date === d && r.withdrawn_at === null)) continue;
+      rows.push({ employee_id: emp.id, work_date: d, reason: input.reason.trim(), by: actingUser().id,
+        at: new Date().toISOString(), withdrawn_at: null });
+      confirmed += 1;
+    }
+    draft.presence_confirmations = rows;
+  });
+  return ok(SERVICE, { confirmed });
+}
+
+/** `ops_hr.withdraw_presence` (0242, D394). */
+export async function withdrawPresence(
+  input: { employee_no: string; work_date: string; reason: string },
+): Promise<Result<{ work_date: string }>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "hrd", "write");
+  if (denied) return denied;
+  if (!input.reason.trim()) return invalid(SERVICE, "reason_required", "Dibatalkan karena apa?", { field: "reason" });
+  const state = getState();
+  const emp = state.employees.find((e) => e.employee_no === input.employee_no);
+  if (!emp) return notFound(SERVICE, "employee_not_found", `No employee ${input.employee_no}.`);
+  const live = (state.presence_confirmations ?? [])
+    .some((r) => r.employee_id === emp.id && r.work_date === input.work_date && r.withdrawn_at === null);
+  if (!live) return notFound(SERVICE, "not_found", `Tidak ada konfirmasi hadir ${input.employee_no} pada ${input.work_date}.`);
+  apply((draft) => {
+    for (const r of draft.presence_confirmations ?? []) {
+      if (r.employee_id === emp.id && r.work_date === input.work_date && r.withdrawn_at === null) {
+        r.withdrawn_at = new Date().toISOString();
+      }
+    }
+  });
+  return ok(SERVICE, { work_date: input.work_date });
+}
+
+/** `ops_hr.attendance_exemptions_list` (0242, D394) — HRD's only. */
+export async function listAttendanceExemptions(): Promise<Result<AttendanceExemption[]>> {
+  await latency();
+  if (!seesStanding()) return ok(SERVICE, []);
+  const state = getState();
+  return ok(SERVICE, (state.attendance_exemptions ?? []).filter((x) => x.ends_on === null).flatMap((x) => {
+    const e = state.employees.find((m) => m.id === x.employee_id);
+    if (!e) return [];
+    return [{
+      employee_no: e.employee_no, full_name: e.full_name, reason: x.reason, starts_on: x.starts_on,
+      by_name: state.users.find((u) => u.id === x.by)?.full_name ?? null, at: x.at,
+    }];
+  }).sort((a, b) => a.employee_no.localeCompare(b.employee_no)));
+}
+
+/** `ops_hr.set_attendance_exempt` (0242, D394). */
+export async function setAttendanceExempt(
+  input: { employee_no: string; exempt: boolean; reason: string },
+): Promise<Result<AttendanceExemption[]>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "hrd", "write");
+  if (denied) return denied;
+  if (!input.reason.trim()) {
+    return invalid(SERVICE, "reason_required", "Tidak wajib absensi karena apa? Aturannya semua orang absen; pengecualian perlu alasannya.", { field: "reason" });
+  }
+  const state = getState();
+  const emp = state.employees.find((e) => e.employee_no === input.employee_no);
+  if (!emp) return notFound(SERVICE, "employee_not_found", `No employee ${input.employee_no}.`);
+  const live = (state.attendance_exemptions ?? []).find((x) => x.employee_id === emp.id && x.ends_on === null);
+  if (input.exempt && live) return conflict(SERVICE, "already_exempt", `${emp.full_name} sudah tidak wajib absensi.`);
+  if (!input.exempt && !live) return conflict(SERVICE, "not_exempt", `${emp.full_name} memang wajib absensi.`);
+  apply((draft) => {
+    const rows = draft.attendance_exemptions ?? [];
+    if (input.exempt) {
+      rows.push({ employee_id: emp.id, reason: input.reason.trim(), starts_on: null, by: actingUser().id,
+        at: new Date().toISOString(), ends_on: null });
+    } else {
+      const yesterday = new Date(Date.parse(`${sharedOfficeToday()}T00:00:00Z`) - 86400000).toISOString().slice(0, 10);
+      for (const r of rows) if (r.employee_id === emp.id && r.ends_on === null) r.ends_on = yesterday;
+    }
+    draft.attendance_exemptions = rows;
+  });
+  return listAttendanceExemptions();
 }
 
 /** HRD's, or payroll's — never the employee's own account (D388). */

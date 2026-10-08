@@ -750,10 +750,29 @@ export function payrollLine(
      the share of each month's working days, inside employment, less the
      days HRD marked unpaid (alpa, izin, sakit tanpa surat, cuti di luar
      jatah; not a half day, Q63). Same rule as `ops_hr.monthly_base`. */
-  const unpaidDates = new Set(days
-    .filter((d) => d.mark && d.mark.kind !== "holiday" && d.day_value === 0)
-    .map((d) => d.work_date));
   const sched = scheduleFor(rules, employee);
+  /* 0242 (D394): a salaried working day with no tap and no mark waits for HRD
+     — *wajib dicek dulu* — unless HRD confirmed it (hadir tanpa tap) or the
+     person is exempt from attendance. Never a day still to come, nor one
+     outside employment. Same rule as `ops_hr.payroll_line_for`. */
+  const today = officeToday();
+  const confirmedDates = new Set((state.presence_confirmations ?? [])
+    .filter((c) => c.employee_id === employee.id && c.withdrawn_at === null).map((c) => c.work_date));
+  const exemptions = (state.attendance_exemptions ?? []).filter((x) => x.employee_id === employee.id);
+  const exemptOn = (key: string) => exemptions.some((x) =>
+    (x.starts_on === null || x.starts_on <= key) && (x.ends_on === null || x.ends_on >= key));
+  const noTapWorkday = (d: (typeof days)[number]) => employee.pay_basis === "monthly"
+    && !d.mark && d.scans.length === 0 && d.work_date <= today
+    && d.work_date >= employee.joined_on && (employee.left_on === null || d.work_date <= employee.left_on)
+    && isWorkdayFor(state, rules, sched, d.work_date);
+  const unconfirmed = new Set(days
+    .filter((d) => noTapWorkday(d) && !confirmedDates.has(d.work_date) && !exemptOn(d.work_date))
+    .map((d) => d.work_date));
+  const attendance_exempt = exemptions.some((x) =>
+    (x.starts_on === null || x.starts_on <= to) && (x.ends_on === null || x.ends_on >= from));
+  const unpaidDates = new Set(days
+    .filter((d) => (d.mark && d.mark.kind !== "holiday" && d.day_value === 0) || unconfirmed.has(d.work_date))
+    .map((d) => d.work_date));
   const monthly = employee.pay_basis === "monthly"
     ? monthlyBase(state, rules, sched, employee, from, to, unpaidDates, on("absence"))
     : null;
@@ -787,6 +806,9 @@ export function payrollLine(
   const warnings: string[] = [];
   if (open.length > 0) {
     warnings.push(`${open.length} day(s) need a person to read them — worth nothing until they do`);
+  }
+  if (unconfirmed.size > 0) {
+    warnings.push(`${unconfirmed.size} hari kerja tanpa tap dan tanpa keterangan — belum dibayar sampai HRD mengonfirmasi hadir atau menandainya`);
   }
   if (shown_ot > 0 && shown_ot > approvedOt + pendingOt) {
     warnings.push(`${Math.round((shown_ot - approvedOt - pendingOt) * 10) / 10} hour(s) past the day on the machine that nobody has claimed`);
@@ -890,8 +912,8 @@ export function payrollLine(
     ? days.filter((d) => employed(d.work_date) && (d.mark
       ? d.mark.kind === "half_day"
       /* 0231 (D386): the days the pattern works — the ones the month's
-         allowance is divided by. */
-      : isWorkdayFor(state, rules, sched, d.work_date)))
+         allowance is divided by. 0242 (D394): not one nobody accounted for. */
+      : isWorkdayFor(state, rules, sched, d.work_date) && !unconfirmed.has(d.work_date)))
     : days.filter(earnsAllowance);
   const allowance_days = presentDays.filter((d) => !withheldDates.has(d.work_date)).length;
   const allowance_withheld_days = presentDays.filter((d) => withheldDates.has(d.work_date)).length;
@@ -931,7 +953,9 @@ export function payrollLine(
     late_minutes: lateBy(d),
     shift: d.shift_code ?? null,
     day_value: d.day_value,
-    open: d.state === "review",
+    open: d.state === "review" || unconfirmed.has(d.work_date),
+    unconfirmed: unconfirmed.has(d.work_date),
+    confirmed: noTapWorkday(d) && confirmedDates.has(d.work_date),
   }));
 
   /* 0212 (D370): the switches. Each component off is zero here, and listed
@@ -1038,7 +1062,9 @@ export function payrollLine(
     allowance_rate: employee.allowance_rate,
     allowance_daily,
     days_worked: worked_days,
-    days_open: open.length,
+    days_open: open.length + unconfirmed.size,
+    days_unconfirmed: unconfirmed.size,
+    attendance_exempt,
     days_present: Math.round(days_present * 100) / 100,
     days_sick_paid,
     days_leave_paid,

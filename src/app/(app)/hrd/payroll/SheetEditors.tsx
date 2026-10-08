@@ -151,22 +151,32 @@ export function AdjustSection({
 }
 
 /** One day's status, as HRD can set it from the drawer. */
-type DayChoice = "paid" | "truant" | "no_allowance";
+type DayChoice = "unset" | "paid" | "truant" | "absent" | "no_allowance";
 
 /** The editor under one day of the drawer's attendance table.
  *
- *  *Default hadir = dibayar = tunjangan.* The two other answers are the ones
- *  the system already knows how to keep, with a sentence each: **mangkir** is a
+ *  *Default hadir = dibayar = tunjangan.* The other answers are the ones the
+ *  system already knows how to keep, with a sentence each: **mangkir** is a
  *  day marked *tidak masuk* (no wage, no allowance — the mark beats the taps,
  *  D142), and **tanpa tunjangan** is the allowance withheld for that day
- *  (D250). A day the machine left incomplete takes the tap it missed. */
+ *  (D250). A day the machine left incomplete takes the tap it missed.
+ *
+ *  0242 (D394): a salaried working day with **no tap and no mark** is not
+ *  paid until HRD answers it — *hadir tanpa tap* (a confirmation, with the
+ *  reason) or *tidak masuk* (a mark). */
 export function DayEditor({
-  employeeNo, workDate, open, edits, onDone,
+  employeeNo, workDate, open, unconfirmed = false, confirmed = false, noTapSalary = false, edits, onDone,
 }: {
   employeeNo: string;
   workDate: string;
   /** The machine left this day unread. */
   open: boolean;
+  /** A salaried working day with no tap and no mark, not yet answered. */
+  unconfirmed?: boolean;
+  /** HRD confirmed it as present without a tap. */
+  confirmed?: boolean;
+  /** A salaried day with no tap at all, answered or not. */
+  noTapSalary?: boolean;
   edits: PersonDayEdits | null;
   onDone: () => void;
 }) {
@@ -174,7 +184,9 @@ export function DayEditor({
   const { toast } = useToast();
   const mark = edits?.marks.find((m) => m.work_date === workDate) ?? null;
   const withheld = edits?.withholdings.find((w) => w.work_date === workDate && w.restored_at === null) ?? null;
-  const current: DayChoice = mark?.kind === "absent" ? "truant" : withheld ? "no_allowance" : "paid";
+  const current: DayChoice = mark?.kind === "absent"
+    ? (mark.reason.startsWith("Mangkir") ? "truant" : "absent")
+    : unconfirmed ? "unset" : withheld ? "no_allowance" : "paid";
   const [choice, setChoice] = useState<DayChoice>(current);
   const [reason, setReason] = useState("");
   const [time, setTime] = useState("");
@@ -197,15 +209,29 @@ export function DayEditor({
   async function setStatus() {
     const why = reason.trim();
     /* Undo what the day carries now, then write what was chosen. */
-    if (current === "truant" && mark) {
+    if ((current === "truant" || current === "absent") && mark) {
       if (!(await run(hr.unmarkDay(mark.id, why), tr("Mark removed", "Tanda dihapus")))) return;
     }
     if (current === "no_allowance" && withheld) {
       if (!(await run(hr.restoreAllowance({ id: withheld.id, reason: why }), tr("Allowance restored", "Tunjangan dikembalikan")))) return;
     }
+    if (confirmed && (choice === "truant" || choice === "absent")) {
+      if (!(await run(hr.withdrawPresence({ employee_no: employeeNo, work_date: workDate, reason: why }),
+        tr("Confirmation withdrawn", "Konfirmasi hadir dibatalkan")))) return;
+    }
+    /* A day with no tap is present only when HRD says so (D394). */
+    const needsConfirm = (choice === "paid" || choice === "no_allowance")
+      && (unconfirmed || (noTapSalary && !confirmed && (current === "truant" || current === "absent")));
+    if (needsConfirm) {
+      if (!(await run(hr.confirmPresence({ employee_no: employeeNo, dates: [workDate], reason: why }),
+        tr("Confirmed present without a tap", "Dikonfirmasi hadir tanpa tap")))) return;
+    }
     if (choice === "truant") {
       await run(hr.markDay({ employee_no: employeeNo, work_date: workDate, kind: "absent", reason: `Mangkir — ${why}` }),
         tr("Marked: present but truant, not paid", "Ditandai: hadir tapi mangkir, tidak dibayar"));
+    } else if (choice === "absent") {
+      await run(hr.markDay({ employee_no: employeeNo, work_date: workDate, kind: "absent", reason: why }),
+        tr("Marked: absent, not paid", "Ditandai: tidak masuk, tidak dibayar"));
     } else if (choice === "no_allowance") {
       await run(hr.withholdAllowance({ employee_no: employeeNo, work_date: workDate, reason: why }),
         tr("Allowance withheld for this day", "Tunjangan hari ini tidak dibayar"));
@@ -213,10 +239,15 @@ export function DayEditor({
     onDone();
   }
 
-  /* A mark other than mangkir (sakit, cuti, tanggal merah…) is changed where it
-     was made; the drawer only says so. */
+  /* A mark other than tidak masuk (sakit, cuti, tanggal merah…) is changed
+     where it was made; the drawer only says so. */
   const otherMark = mark && mark.kind !== "absent" ? mark : null;
-  const options: [DayChoice, string, string][] = [
+  const options: [DayChoice, string, string][] = noTapSalary ? [
+    ["paid", tr("Present without a tap — paid", "Hadir tanpa tap — dibayar"), tr("HRD confirms it; wage and allowance", "dikonfirmasi HRD; upah dan tunjangan")],
+    ["no_allowance", tr("Present without a tap — no allowance", "Hadir tanpa tap — tanpa tunjangan"), tr("wage paid, allowance not", "upah dibayar, tunjangan tidak")],
+    ["absent", tr("Did not come in — not paid", "Tidak masuk — tidak dibayar"), tr("no wage, no allowance for the day", "tanpa upah dan tunjangan hari itu")],
+    ["truant", tr("Present but truant — not paid", "Hadir tapi mangkir — tidak dibayar"), tr("no wage, no allowance for the day", "tanpa upah dan tunjangan hari itu")],
+  ] : [
     ["paid", tr("Present — paid", "Hadir — dibayar"), tr("wage and allowance (default)", "upah dan tunjangan (default)")],
     ["truant", tr("Present but truant — not paid", "Hadir tapi mangkir — tidak dibayar"), tr("no wage, no allowance for the day", "tanpa upah dan tunjangan hari itu")],
     ["no_allowance", tr("Present — no allowance", "Hadir — tanpa tunjangan"), tr("wage paid, allowance not", "upah dibayar, tunjangan tidak")],
@@ -246,6 +277,11 @@ export function DayEditor({
       ) : (
         <fieldset className="space-y-1">
           <legend className="text-[11px] text-slate-500">{tr("This day is", "Hari ini")}</legend>
+          {unconfirmed && (
+            <p className="text-[11px] font-medium text-amber-700">
+              {tr("No tap and no mark — not paid until you choose.", "Tanpa tap dan tanpa keterangan — belum dibayar sampai dipilih.")}
+            </p>
+          )}
           {options.map(([v, label, note]) => (
             <label key={v} className="flex cursor-pointer items-start gap-2">
               <input type="radio" name={`day-${workDate}`} checked={choice === v} onChange={() => setChoice(v)} className="mt-0.5" />
@@ -270,6 +306,50 @@ export function DayEditor({
             {tr("Save status", "Simpan status")}
           </Button>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** Every unanswered no-tap day of one person, confirmed at once (D394) — for a
+ *  gap the machine left in its file, which is a fact about the machine, not
+ *  about each day. One reason for all of them. */
+export function ConfirmAll({ employeeNo, dates, onDone }: {
+  employeeNo: string; dates: string[]; onDone: () => void;
+}) {
+  const tr = useTr();
+  const { toast } = useToast();
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const short = (d: string) => `${d.slice(8)}/${d.slice(5, 7)}`;
+
+  async function confirm() {
+    setBusy(true);
+    const res = await hr.confirmPresence({ employee_no: employeeNo, dates, reason: reason.trim() });
+    setBusy(false);
+    if (res.error) { toast("warning", tr("Not saved", "Tidak tersimpan"), res.error.message); return; }
+    toast("success", tr(`${dates.length} day(s) confirmed present`, `${dates.length} hari dikonfirmasi hadir`));
+    setReason("");
+    onDone();
+  }
+
+  return (
+    <div className="mb-2 space-y-1.5 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-[12px] text-amber-900">
+      <p>
+        {tr(`${dates.length} working day(s) with no tap and no mark: `, `${dates.length} hari kerja tanpa tap dan tanpa keterangan: `)}
+        <span className="font-medium tabular-nums">{dates.map(short).join(", ")}</span>.{" "}
+        {tr("Not paid until answered — per day with the pencil, or all at once:", "Belum dibayar sampai dijawab — per hari lewat pensil, atau sekaligus:")}
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          value={reason} onChange={(e) => setReason(e.target.value)}
+          aria-label={tr("Reason for confirming", "Alasan konfirmasi")}
+          placeholder={tr("Reason — e.g. machine file missing these days", "Alasan — mis. file mesin tidak memuat hari-hari ini")}
+          className="h-8 min-w-[220px] flex-1 rounded-lg border border-amber-200 bg-white px-2 text-[12px] focus:border-brand-400 focus:outline-none"
+        />
+        <Button size="sm" disabled={busy || !reason.trim()} onClick={confirm}>
+          {tr(`Confirm all ${dates.length} present`, `Konfirmasi hadir semua (${dates.length})`)}
+        </Button>
       </div>
     </div>
   );

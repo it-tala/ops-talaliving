@@ -519,6 +519,9 @@ make the reveal log record a click.
 | GET/PUT | `/payroll/deduction-defaults` | the monthly defaults (D389): `[{kind: retention\|bpjs_tk\|bpjs_kes, amount}]`; PUT `{kind, amount ≥ 0}` — `hrd.update`. **HRD only** |
 | GET/PUT | `/employees/{no}/deductions` | a person's own monthly amounts over the default; PUT `{kind, amount \| null}` (null = follow the default) — `hrd.update` |
 | GET | `/payroll/deductions-due?from=&to=` | who owes which default in a period (`deduction_defaults_for`): salaried people employed in a month whose last day falls in the period, once per month; skips a BPJS default for an enrolment in that scheme. The generate sheet starts from it |
+| POST | `/employees/{no}/presence` | *hadir tanpa tap* (D394): `{dates: date[], reason}` — a salaried working day with no tap and no mark is paid only once confirmed; past days only; a day already confirmed is skipped (`confirmed` = how many were new) — `hrd.update` |
+| DELETE | `/employees/{no}/presence/{date}` | withdraw a confirmation, `{reason}`; the day is held again — `hrd.update` |
+| GET/PUT | `/attendance/exemptions` | who is *tidak wajib absensi* now (`[{employee_no, full_name, reason, starts_on, by_name, at}]`); PUT `{employee_no, exempt, reason}` — on, or off from today on — `hrd.update`. **HRD only** |
 | GET | `/employees/{no}/standing?from=&to=` | one person as HRD reads them (D388): days present, unpaid (alpa), late minutes/days, sick/leave paid, allowance withheld, unread, leave entitlement/taken/remaining, retensi balance. **HRD only** |
 | GET | `/employees/{no}/day-edits?from=&to=` | the marks and withheld allowances of a person's days, for the payroll drawer's day editor (D388) |
 | GET | `/payroll/paid-elsewhere?from=&to=` | who another run already pays for days of the period, and which run — the sheet greys them out before anything is generated |

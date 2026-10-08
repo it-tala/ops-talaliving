@@ -9979,3 +9979,27 @@ quietly meant *open or closed* each read it wrong before the walk caught them.
 **Rule:** a new status is a question to every `= 'OPEN'` and every link that
 assumes who the reader is — grep for them in the same change, not after.
 
+## F242 · 2026-10-08 · "No tap is not absence" was true of a machine, not of a person
+
+F72 made a salaried person's working day with no tap count as presence,
+because the office did not use the reader: making the allowance depend on taps
+had paid five office staff less overnight. That was a fact about the
+**machine's coverage** at the time, written as a rule about **people**. Once
+everybody taps, the same rule pays a full month to somebody who was missing
+three days (RIAN, September: 19 days tapped, 22 paid) and to somebody who is
+not on the machine at all, and nothing on the sheet says so.
+
+Neither old reading was right on its own: *no tap = present* pays absences
+silently; *no tap = absent* docks pay for every gap in the machine's file
+(16 and 22–24 September are missing for almost everybody — an export gap,
+not seven people staying home). The day is **unknown**, and the honest state
+for an unknown day is the one the system already had for an unread one:
+open, worth nothing yet, and holding the person until somebody answers.
+
+The exception the owner named — a leader who does not tap — is a property of
+the person, not of a day, so it is kept on the person (with who set it and
+why) rather than as a month of hand-made confirmations that would look like
+attendance. **Rule:** when a default stands in for missing data, say on the
+record which fact it assumes, so the day the fact stops being true the default
+is visible as a decision rather than as arithmetic.
+
