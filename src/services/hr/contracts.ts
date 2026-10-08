@@ -2773,6 +2773,23 @@ export interface PayPreviewInput {
 export interface PersonDayEdits {
   marks: DayMark[];
   withholdings: AllowanceWithholdingView[];
+  /** Each night's overtime on any sheet, where it has got to and why (0243,
+   *  D395). Optional so an older caller still type-checks. */
+  overtime?: DayOvertime[];
+}
+
+/** One person's line on one overtime sheet, as the payroll drawer reads it
+ *  beside a day (0243, D395). `reason` is the sheet's purpose, the ask's
+ *  deliverable, or why it was turned off. */
+export interface DayOvertime {
+  sheet_no: string;
+  work_date: string;
+  kind: OvertimeKind;
+  via: OvertimeVia;
+  stage: OvertimeStage;
+  payable: boolean;
+  hours: number;
+  reason: string | null;
 }
 
 /** Retensi per person — HRD's only (D388). `balance` is what signed runs hold;

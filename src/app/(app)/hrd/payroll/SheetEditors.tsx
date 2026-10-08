@@ -8,7 +8,7 @@ import { formatIDR } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { hr } from "@/demo/api";
 import {
-  ADJUSTMENT_LABEL, DAY_MARK_LABEL, RETENTION_DEFAULT,
+  ADJUSTMENT_LABEL, DAY_MARK_LABEL, OVERTIME_STAGE_LABEL, RETENTION_DEFAULT,
   type AdjustmentKind, type PersonDayEdits,
 } from "@/services/hr/contracts";
 import { useToast } from "@/store/toast";
@@ -165,7 +165,8 @@ type DayChoice = "unset" | "paid" | "truant" | "absent" | "no_allowance";
  *  paid until HRD answers it — *hadir tanpa tap* (a confirmation, with the
  *  reason) or *tidak masuk* (a mark). */
 export function DayEditor({
-  employeeNo, workDate, open, unconfirmed = false, confirmed = false, noTapSalary = false, edits, onDone,
+  employeeNo, workDate, open, unconfirmed = false, confirmed = false, noTapSalary = false,
+  machineOvertime = 0, edits, onDone,
 }: {
   employeeNo: string;
   workDate: string;
@@ -177,6 +178,8 @@ export function DayEditor({
   confirmed?: boolean;
   /** A salaried day with no tap at all, answered or not. */
   noTapSalary?: boolean;
+  /** Hours past the day on the machine — evidence, never pay (D138). */
+  machineOvertime?: number;
   edits: PersonDayEdits | null;
   onDone: () => void;
 }) {
@@ -191,6 +194,11 @@ export function DayEditor({
   const [reason, setReason] = useState("");
   const [time, setTime] = useState("");
   const [busy, setBusy] = useState(false);
+  /* 0243 (D395): this night's overtime on any sheet, and the hours to approve
+     — the machine's, until HRD says otherwise. */
+  const nights = (edits?.overtime ?? []).filter((o) => o.work_date === workDate);
+  const liveNight = nights.find((o) => o.stage !== "declined" && o.stage !== "unpaid") ?? null;
+  const [otHours, setOtHours] = useState(machineOvertime > 0 ? String(machineOvertime) : "");
 
   async function run(p: Promise<{ error?: { message: string } | null }>, done: string) {
     setBusy(true);
@@ -199,6 +207,17 @@ export function DayEditor({
     if (res.error) { toast("warning", tr("Not saved", "Tidak tersimpan"), res.error.message); return false; }
     toast("success", done);
     return true;
+  }
+
+  async function approveOvertime() {
+    const hours = Number(otHours.replace(",", "."));
+    if (await run(hr.approveDayOvertime({ employee_no: employeeNo, work_date: workDate, hours, reason: reason.trim() }),
+      tr(`${hours} h overtime approved`, `Lembur ${hours} jam disetujui`))) onDone();
+  }
+
+  async function withdrawOvertime(sheetNo: string) {
+    if (await run(hr.withdrawDayOvertime({ sheet_no: sheetNo, reason: reason.trim() }),
+      tr("Overtime withdrawn", "Lembur dibatalkan"))) onDone();
   }
 
   async function addTap() {
@@ -266,6 +285,47 @@ export function DayEditor({
         <Button size="sm" variant="outline" disabled={busy || !time || !reason.trim()} onClick={addTap}>
           {tr("Add tap", "Tambah tap")}
         </Button>
+      </div>
+
+      {/* Lembur (D395): approved here with the reason, it is paid and lands in Penambahan. */}
+      <div className="space-y-1 rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+        <p className="text-[11px] text-slate-500">
+          {tr("Overtime", "Lembur")}
+          {machineOvertime > 0 && <> · {tr(`machine ${machineOvertime} h`, `mesin ${machineOvertime} jam`)}</>}
+        </p>
+        {nights.map((o) => (
+          <div key={o.sheet_no} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className={cn("font-medium", o.payable ? "text-emerald-700" : "text-slate-500")}>
+              {tr(`${o.hours} h`, `${o.hours} jam`)} · {OVERTIME_STAGE_LABEL[o.stage]}
+            </span>
+            <span className="font-mono text-[11px] text-slate-400">{o.sheet_no}</span>
+            {o.reason && <span className="italic text-slate-600">{o.reason}</span>}
+            {o.payable && o.kind === "staff" && o.via === "hrd" && (
+              <Button size="sm" variant="ghost" disabled={busy || !reason.trim()} onClick={() => withdrawOvertime(o.sheet_no)}>
+                {tr("Withdraw", "Batalkan")}
+              </Button>
+            )}
+          </div>
+        ))}
+        {liveNight && !liveNight.payable && (
+          <p className="text-[11px] text-amber-700">
+            {tr("Still being decided on its sheet — decide it on the Overtime screen.", "Masih diputuskan di lembarnya — putuskan di layar Lembur.")}
+          </p>
+        )}
+        {!liveNight && (
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <label htmlFor={`ot-${workDate}`} className="block text-[11px] text-slate-500">{tr("Hours to pay", "Jam dibayar")}</label>
+              <input id={`ot-${workDate}`} type="number" min={0.25} max={12} step={0.25} value={otHours}
+                onChange={(e) => setOtHours(e.target.value)}
+                className="mt-0.5 h-8 w-24 rounded-lg border border-slate-200 bg-white px-2 text-[12px] tabular-nums focus:border-brand-400 focus:outline-none" />
+            </div>
+            <Button size="sm" variant="outline" disabled={busy || !(Number(otHours.replace(",", ".")) > 0) || !reason.trim()} onClick={approveOvertime}>
+              {tr("Approve overtime", "Setujui lembur")}
+            </Button>
+            <span className="text-[11px] text-slate-500">{tr("reason below; added to Additions", "alasan di bawah; masuk Penambahan")}</span>
+          </div>
+        )}
       </div>
 
       {otherMark ? (

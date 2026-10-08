@@ -10003,3 +10003,22 @@ attendance. **Rule:** when a default stands in for missing data, say on the
 record which fact it assumes, so the day the fact stops being true the default
 is visible as a decision rather than as arithmetic.
 
+## F243 · 2026-10-08 · Approving from a second screen is a second road onto the same record, not a second record
+
+The owner asked for overtime to be approved where payroll is read, beside
+the day. The tempting build is a payroll adjustment — *lembur 3,75 jam, Rp
+122.500* — typed on the run. It would have worked on the day and been wrong
+by the next week: the hours would be priced by hand instead of on the
+person's ladder, a production sheet for the same night could be signed and
+paid as well, and the overtime screen, the absensi column *mesin / disetujui*
+and the payslip's rungs would not know it happened.
+
+So the payroll drawer writes the record overtime has always had — a sheet,
+here a one-person staff sheet checked by HRD — and everything downstream
+reads it the way it reads any other. The new seam's only real rule is the one
+a second road needs: **refuse when the night already lives on another
+sheet**, and send HRD there. **Rule:** when a screen asks to approve
+something another screen already approves, add a road to the existing
+record and make the roads exclusive per item, rather than a parallel record
+the first screen cannot see.
+

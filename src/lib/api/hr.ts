@@ -46,7 +46,7 @@ import type {
   PayRules, PayRuleSetView, TimesheetTotal, EffectiveDaysCalendar,
   PayrollRun, PayrollView, PayrollLine, PayrollAdjustmentView,
   PayGroup, PayComponents, PayrollRunMember, PaidElsewhere, PayrollHold, PayPreview, PayPreviewInput,
-  PayrollAdjustInput, PersonDayEdits, RetentionBalance, EmployeeStanding,
+  PayrollAdjustInput, PersonDayEdits, DayOvertime, RetentionBalance, EmployeeStanding,
   DeductionKind, DeductionDefault, EmployeeDeduction, DueDeduction, AttendanceExemption,
   AdjustmentKind, ContributionScheme,
   LeaveKind, LeaveStatus, LeaveRequestView, LeaveBalance,
@@ -904,6 +904,30 @@ export async function dueDeductions(input: { from: string; to: string }): Promis
   return fromRows<DueDeduction[]>(SERVICE, data as never, error);
 }
 
+/** Overtime for one person's night approved from the payroll, with the reason
+ *  (0243, D395): a staff sheet HRD keys and checks at once, so it is paid and
+ *  lands in Penambahan. Refused while a live line for that night exists on
+ *  any other sheet. */
+export async function approveDayOvertime(
+  input: { employee_no: string; work_date: string; hours: number; reason: string }, idempotencyKey?: string,
+): Promise<Result<{ sheet_no: string }>> {
+  const { data, error } = await db().rpc("approve_day_overtime", {
+    p_employee_no: input.employee_no, p_work_date: input.work_date, p_hours: input.hours,
+    p_reason: input.reason, p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<{ sheet_no: string }>(SERVICE, data, error);
+}
+
+/** Turns such a sheet off, keeping it and the reason (D146, D395). */
+export async function withdrawDayOvertime(
+  input: { sheet_no: string; reason: string }, idempotencyKey?: string,
+): Promise<Result<{ sheet_no: string }>> {
+  const { data, error } = await db().rpc("withdraw_day_overtime", {
+    p_sheet_no: input.sheet_no, p_reason: input.reason, p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<{ sheet_no: string }>(SERVICE, data, error);
+}
+
 /** *Hadir tanpa tap* for one day or many (0242, D394): a salaried working day
  *  with no tap and no mark is held until HRD says it was worked, or marks it. */
 export async function confirmPresence(
@@ -974,15 +998,20 @@ export async function personDayEdits(
     .from("employees").select("id").eq("employee_no", input.employee_no).maybeSingle();
   if (e1) return fromRows<PersonDayEdits>(SERVICE, null, e1);
   if (!emp) return notFound(SERVICE, "employee_not_found", `No employee ${input.employee_no}.`);
-  const [{ data: marks, error: e2 }, held] = await Promise.all([
+  const [{ data: marks, error: e2 }, held, { data: ot, error: e3 }] = await Promise.all([
     db().from("day_marks").select("id,employee_id,work_date,kind,reason,marked_by,marked_at")
       .eq("employee_id", (emp as { id: string }).id)
       .gte("work_date", input.from).lte("work_date", input.to).is("withdrawn_at", null),
     listWithholdings({ employee_no: input.employee_no, from: input.from, to: input.to }),
+    db().rpc("person_day_overtime", { p_employee_no: input.employee_no, p_from: input.from, p_to: input.to }),
   ]);
   if (e2) return fromRows<PersonDayEdits>(SERVICE, null, e2);
+  if (e3) return fromRows<PersonDayEdits>(SERVICE, null, e3);
   if (held.error) return held as unknown as Result<PersonDayEdits>;
-  return ok(SERVICE, { marks: (marks ?? []) as DayMark[], withholdings: held.data });
+  return ok(SERVICE, {
+    marks: (marks ?? []) as DayMark[], withholdings: held.data,
+    overtime: ((ot ?? []) as DayOvertime[]).map((o) => ({ ...o, hours: Number(o.hours) })),
+  });
 }
 
 export async function listAdjustments(runNo: string): Promise<Result<PayrollAdjustmentView[]>> {

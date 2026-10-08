@@ -5,7 +5,7 @@ import type {
   OvertimeSheet, OvertimeLine, OvertimeSheetView, OvertimeKind, OvertimeDecider, SelfOvertimeView,
   PayrollRun, PayrollView, PayrollLine, PayBasis,
   PayGroup, PayComponents, PayrollRunMember, PaidElsewhere, PayrollHold, PayPreview, PayPreviewInput,
-  PayrollAdjustInput, PersonDayEdits, RetentionBalance, EmployeeStanding,
+  PayrollAdjustInput, PersonDayEdits, DayOvertime, RetentionBalance, EmployeeStanding,
   DeductionKind, DeductionDefault, EmployeeDeduction, DueDeduction, AttendanceExemption,
   AdjustmentKind, PayrollAdjustmentView,
   PayRules, PayRuleSet, PayRuleSetView, WorkSchedule, ScheduleHours, UnitScheduleDefault,
@@ -1845,6 +1845,83 @@ export async function dueDeductions(input: { from: string; to: string }): Promis
   return ok(SERVICE, out.sort((a, b) => a.full_name.localeCompare(b.full_name) || a.month.localeCompare(b.month)));
 }
 
+/** `ops_hr.approve_day_overtime` (0243, D395): a staff sheet HRD keys and
+ *  checks at once, refused while a live line for that night exists. */
+export async function approveDayOvertime(
+  input: { employee_no: string; work_date: string; hours: number; reason: string },
+): Promise<Result<{ sheet_no: string }>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "hrd", "write");
+  if (denied) return denied;
+  const reason = input.reason.trim();
+  if (!reason) return invalid(SERVICE, "reason_required", "Lembur ini disetujui karena apa? Kalimatnya tercetak di slip.", { field: "reason" });
+  if (input.work_date > sharedOfficeToday()) {
+    return invalid(SERVICE, "date_in_future", "Lembur disetujui untuk malam yang sudah dijalani.", { field: "work_date" });
+  }
+  if (!(input.hours > 0 && input.hours <= 12)) {
+    return invalid(SERVICE, "hours_out_of_range", "Jam lembur lebih dari nol dan sampai 12.", { field: "hours" });
+  }
+  const state = getState();
+  const emp = state.employees.find((e) => e.employee_no === input.employee_no);
+  if (!emp) return notFound(SERVICE, "employee_not_found", `No employee ${input.employee_no}.`);
+  const live = state.overtime_lines
+    .filter((l) => l.employee_id === emp.id)
+    .map((l) => state.overtime_sheets.find((x) => x.id === l.sheet_id))
+    .find((sh) => sh && sh.work_date === input.work_date
+      && !["declined", "unpaid"].includes(overtimeStage(state, sh)));
+  if (live) {
+    return conflict(SERVICE, "already_claimed",
+      `Lembur ${emp.full_name} tanggal ${input.work_date.slice(8)}/${input.work_date.slice(5, 7)} sudah ada di ${live.sheet_no} (${overtimeStage(state, live)}) — putuskan di layar Lembur, supaya malam itu tidak dibayar dua kali.`);
+  }
+  const user = actingUser();
+  const now = new Date().toISOString();
+  let sheetNo = "";
+  apply((draft) => {
+    sheetNo = nextDocNumber(draft, "lbr");
+    const id = newId("lbr");
+    draft.overtime_sheets.push({
+      id, sheet_no: sheetNo, kind: "staff", work_date: input.work_date, purpose: reason,
+      created_by: user.id, created_at: now,
+      hrd_checked_by: user.id, hrd_checked_at: now,
+      leader_approved_by: null, leader_approved_at: null,
+      paid: true, unpaid_reason: null, declined_by: null, declined_reason: null,
+      via: "hrd", decided_by: null, decided_at: null, decided_as: null, decision_note: null,
+    });
+    draft.overtime_lines.push({
+      id: newId("lbl"), sheet_id: id, employee_id: emp.id, hours: input.hours, task: reason,
+      wo_no: null, stage: null, qty_done: null, form_amount: null, result_note: null, deliverable: null,
+    });
+    writeAudit(draft, {
+      service: SERVICE, entity: "overtime_sheet", entity_no: sheetNo,
+      action: "approve_day", outcome: "ok", reason,
+      detail: { employee: emp.employee_no, work_date: input.work_date, hours: input.hours, by: user.email },
+    });
+  });
+  return ok(SERVICE, { sheet_no: sheetNo });
+}
+
+/** `ops_hr.withdraw_day_overtime` (0243, D395). */
+export async function withdrawDayOvertime(
+  input: { sheet_no: string; reason: string },
+): Promise<Result<{ sheet_no: string }>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "hrd", "write");
+  if (denied) return denied;
+  const reason = input.reason.trim();
+  if (!reason) return invalid(SERVICE, "reason_required", "Dibatalkan karena apa?", { field: "reason" });
+  const sheet = getState().overtime_sheets.find((x) => x.sheet_no === input.sheet_no);
+  if (!sheet) return notFound(SERVICE, "sheet_not_found", `No sheet ${input.sheet_no}.`);
+  if (sheet.kind !== "staff" || sheet.via !== "hrd") {
+    return conflict(SERVICE, "not_hrd_session", `${input.sheet_no} bukan lembur yang dicatat HRD — putuskan di layar Lembur.`);
+  }
+  if (!sheet.paid) return conflict(SERVICE, "already_unpaid", `${input.sheet_no} sudah tidak dibayar.`);
+  apply((draft) => {
+    const sh = draft.overtime_sheets.find((x) => x.sheet_no === input.sheet_no);
+    if (sh) { sh.paid = false; sh.unpaid_reason = reason; }
+  });
+  return ok(SERVICE, { sheet_no: input.sheet_no });
+}
+
 /** `ops_hr.confirm_presence` (0242, D394). */
 export async function confirmPresence(
   input: { employee_no: string; dates: string[]; reason: string },
@@ -2011,7 +2088,20 @@ export async function personDayEdits(
     && m.work_date >= input.from && m.work_date <= input.to);
   const held = await listWithholdings({ employee_no: input.employee_no, from: input.from, to: input.to });
   if (held.error) return held as unknown as Result<PersonDayEdits>;
-  return ok(SERVICE, { marks, withholdings: held.data });
+  /* `ops_hr.person_day_overtime` (0243): each night's line, its stage and why. */
+  const overtime: DayOvertime[] = state.overtime_lines
+    .filter((l) => l.employee_id === emp.id)
+    .flatMap((l) => {
+      const sh = state.overtime_sheets.find((x) => x.id === l.sheet_id);
+      if (!sh || sh.work_date < input.from || sh.work_date > input.to) return [];
+      return [{
+        sheet_no: sh.sheet_no, work_date: sh.work_date, kind: sh.kind, via: sh.via,
+        stage: overtimeStage(state, sh), payable: overtimePayable(state, sh), hours: l.hours,
+        reason: (sh.unpaid_reason ?? sh.declined_reason ?? "").trim() || (l.deliverable ?? "").trim() || sh.purpose,
+      }];
+    })
+    .sort((a, b) => a.work_date.localeCompare(b.work_date));
+  return ok(SERVICE, { marks, withholdings: held.data, overtime });
 }
 
 export async function removeAdjustment(
