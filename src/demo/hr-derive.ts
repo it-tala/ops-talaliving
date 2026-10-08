@@ -692,7 +692,7 @@ export function payrollLine(
   const otFrom = projected ? addDays(from, -1) : from;
   const otTo = projected ? addDays(to, -1) : to;
   const assumedDates = new Set<string>();
-  const days = timesheet(state, employee, from, to).map((d) => {
+  const days0 = timesheet(state, employee, from, to).map((d) => {
     if (!projected || d.work_date !== to || d.mark || d.scheduled_hours == null
       || (employee.left_on != null && employee.left_on < to)
       || (employee.joined_on != null && employee.joined_on > to)) return d;
@@ -703,6 +703,38 @@ export function payrollLine(
       overtime_hours: 0, slots: {}, issues: [],
     };
   });
+  /* 0246 (D398): a day is worth its hours — the kept break given back
+     first, then a complete, unmarked working day short of its schedule worth
+     work ÷ schedule. Same rule as `ops_hr.payroll_line_for`. */
+  const keptDates = new Set((state.break_waivers ?? [])
+    .filter((w) => w.employee_id === employee.id && w.withdrawn_at === null).map((w) => w.work_date));
+  const schedF = scheduleFor(rules, employee);
+  const fractions = new Map<string, number>();
+  const days = days0.map((d) => {
+    let x = d;
+    if (keptDates.has(d.work_date) && d.scans.length > 0 && !d.mark) {
+      x = { ...x, work_hours: Math.round((x.work_hours + (x.break_hours ?? 0)) * 100) / 100 };
+    }
+    const sh = x.scheduled_hours ?? 0;
+    if ((employee.pay_basis === "monthly" || employee.pay_basis === "daily")
+      && !x.mark && x.state === "complete" && !assumedDates.has(x.work_date)
+      && sh > 0 && x.work_hours < sh && !x.shift_code && !x.overnight
+      && isWorkdayFor(state, rules, schedF, x.work_date)
+      && x.work_date >= employee.joined_on && (employee.left_on === null || x.work_date <= employee.left_on)) {
+      const f = Math.round((Math.max(x.work_hours, 0) / sh) * 10000) / 10000;
+      fractions.set(x.work_date, f);
+      x = { ...x, day_value: f };
+    }
+    return x;
+  });
+  /* For a salary, each short day's share of that month's salary. */
+  const shortAmt = employee.pay_basis === "monthly"
+    ? [...fractions].reduce((t, [key, f]) => {
+      const n = monthWorkdays(state, rules, schedF, key);
+      return n > 0 ? t + (employee.base_rate / n) * (1 - f) : t;
+    }, 0)
+    : 0;
+
   /* A day is worth what the timesheet says it is worth: a full day, half of
      one when the office closed at noon, none at all when somebody was away
      (D142). */
@@ -777,7 +809,7 @@ export function payrollLine(
   const monthly = employee.pay_basis === "monthly"
     ? monthlyBase(state, rules, sched, employee, from, to, unpaidDates, on("absence"))
     : null;
-  let base_pay = monthly ? monthly.amount : base_full;
+  let base_pay = monthly ? monthly.amount - (on("absence") ? Math.round(shortAmt) : 0) : base_full;
 
   /* What an ordinary hour of this person's time is worth, and then the ladder
      the active rule book says to multiply it by (D173). Both come out of the
@@ -807,6 +839,10 @@ export function payrollLine(
   const warnings: string[] = [];
   if (open.length > 0) {
     warnings.push(`${open.length} day(s) need a person to read them — worth nothing until they do`);
+  }
+  if (fractions.size > 0) {
+    const less = Math.round([...fractions.values()].reduce((t, f) => t + (1 - f), 0) * 100) / 100;
+    warnings.push(`${fractions.size} hari kurang jam — dibayar sebanding jam kerjanya (kurang ${less} hari)`);
   }
   if (unconfirmed.size > 0) {
     warnings.push(`${unconfirmed.size} hari kerja tanpa tap dan tanpa keterangan — belum dibayar sampai HRD mengonfirmasi hadir atau menandainya`);
@@ -923,7 +959,7 @@ export function payrollLine(
      rounded once, as the database does. */
   const dayWorth = (key: string) => allowanceDayExact(state, rules, sched, employee, key);
   let allowance_pay = Math.round(presentDays.filter((d) => !withheldDates.has(d.work_date))
-    .reduce((t, d) => t + dayWorth(d.work_date), 0));
+    .reduce((t, d) => t + dayWorth(d.work_date) * (fractions.get(d.work_date) ?? 1), 0));
   const allowance_withheld_amount = Math.round(presentDays.filter((d) => withheldDates.has(d.work_date))
     .reduce((t, d) => t + dayWorth(d.work_date), 0));
   const nameOf = (id: string) => state.users.find((u) => u.id === id)?.full_name ?? id;
@@ -957,6 +993,8 @@ export function payrollLine(
     open: d.state === "review" || unconfirmed.has(d.work_date),
     unconfirmed: unconfirmed.has(d.work_date),
     confirmed: noTapWorkday(d) && confirmedDates.has(d.work_date),
+    fraction: fractions.get(d.work_date) ?? null,
+    break_kept: keptDates.has(d.work_date) && d.scans.length > 0,
   }));
 
   /* 0212 (D370): the switches. Each component off is zero here, and listed
@@ -972,7 +1010,8 @@ export function payrollLine(
     if (c === "late") { amount = late_deduction; late_deduction = 0; }
     if (c === "undertime") { amount = undertime_amount; undertime_amount = 0; }
     if (c === "absence" && monthly) {
-      amount = monthly.amount - monthlyBase(state, rules, sched, employee, from, to, unpaidDates, true).amount;
+      amount = monthly.amount - monthlyBase(state, rules, sched, employee, from, to, unpaidDates, true).amount
+        + Math.round(shortAmt);
     }
     const personal = cPerson[c] !== undefined;
     components_off.push({
@@ -1043,6 +1082,7 @@ export function payrollLine(
     : employee.allowance_rate;
   const absence_deduction = monthly && on("absence")
     ? monthlyBase(state, rules, sched, employee, from, to, unpaidDates, false).amount - monthly.amount
+      + Math.round(shortAmt)
     : 0;
   const adjPos = adjustments.filter((a) => a.amount > 0).reduce((t, a) => t + a.amount, 0);
   const adjNeg = adjustments.filter((a) => a.amount < 0).reduce((t, a) => t - a.amount, 0);
@@ -1065,6 +1105,7 @@ export function payrollLine(
     days_worked: worked_days,
     days_open: open.length + unconfirmed.size,
     days_unconfirmed: unconfirmed.size,
+    days_short: fractions.size,
     attendance_exempt,
     days_present: Math.round(days_present * 100) / 100,
     days_sick_paid,
@@ -1162,6 +1203,21 @@ export function dayOvertimeWindow(
   if (from == null) from = toMin(d.slots.in);
   const last = [d.slots.out, d.slots.ot_end].filter(Boolean).sort().pop();
   return { from_minutes: from, until_minutes: toMin(last) };
+}
+
+/** `ops_hr.ot_rules_for` (0246, D398): the rule book with the day's own facts
+ *  — a kept break keeps the overtime break; a rest day loses the pattern's
+ *  lunch after four hours. */
+export function otRulesFor(state: DemoState, rules: PayRules, employee: Employee, date: string): PayRules {
+  const kept = (state.break_waivers ?? []).some((w) => w.employee_id === employee.id
+    && w.work_date === date && w.withdrawn_at === null);
+  if (kept) return { ...rules, overtime_break_from_minutes: null, overtime_break_to_minutes: null };
+  if (isRestDay(state, rules, date)) {
+    const sc = scheduleFor(rules, employee);
+    const b = scheduleDay(sc, weekdayOf(date))?.break_minutes ?? sc?.break_minutes ?? 0;
+    if (b > 0) return { ...rules, rest_break_minutes: b };
+  }
+  return rules;
 }
 
 export function isRestDayOn(state: DemoState, date: string): boolean {
@@ -2190,7 +2246,8 @@ export function overtimeParts(
     /* 0244 (D396): a line that says when it started and finished is paid by
        the clock, range by range — `ops_hr.ot_segments`. */
     if (line.from_minutes != null && line.until_minutes != null) {
-      for (const seg of overtimeSegments(rules, isRestDay(state, rules, sheet.work_date), line.from_minutes, line.until_minutes)) {
+      for (const seg of overtimeSegments(otRulesFor(state, rules, employee, sheet.work_date),
+        isRestDay(state, rules, sheet.work_date), line.from_minutes, line.until_minutes)) {
         out.push({
           source: sheet.sheet_no, work_date: sheet.work_date,
           hours: seg.hours, multiplier: seg.multiplier, hourly,

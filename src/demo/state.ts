@@ -296,6 +296,12 @@ export interface DemoState {
     employee_id: string; work_date: string; reason: string; by: string; at: string;
     withdrawn_at: string | null;
   }[];
+  /** Istirahat tidak dipotong, and taps HRD took back (0246, D398). */
+  break_waivers?: {
+    id: string; employee_id: string; work_date: string; reason: string; by: string; at: string;
+    withdrawn_at: string | null;
+  }[];
+  voided_scans?: { id: string; employee_id: string; work_date: string; at: string; reason: string; voided_at: string }[];
   attendance_exemptions?: {
     employee_id: string; reason: string; starts_on: string | null; by: string; at: string;
     ends_on: string | null;

@@ -10059,3 +10059,23 @@ source payroll asks (`is_rest_day`), and a time range that wraps past
 midnight needs a stated condition for wrapping (here 0195's: a finish before
 noon), never "the end is smaller than the start".
 
+## F246 · 2026-10-08 · "Present" was a yes/no on a quantity
+
+Since D370 a complete day was worth one day, whatever its hours: the reading
+knew DEWI's 16/09 was 3 jam (and, wrongly, that she took a lunch she left
+before) and payroll still paid a day. Two separate things were blurred. The
+**reading** of a day (how many hours, was the break taken) is a question
+about the clock and about what happened, and only HRD knows the second part;
+the **worth** of a day is a ratio of the first to the schedule. Once the
+worth is the ratio, a half-day mark, an outing that ran to 14.00 and a late
+morning are the same arithmetic, and the break becomes the one fact HRD must
+be able to state per day — so it is a checkbox with a reason, not a clock
+window guessed for everybody.
+
+Two consequences worth knowing: with no tolerance, arriving late now costs
+its minutes in pay (restated smokes 186 and 195 show it), and a shift or a
+night stays a day (D364) because its "schedule" is the shift, not a span.
+**Rule:** when a count stands in for a measure (days for hours), say which
+measure it stands in for, so the day the owner asks for the measure the
+count can be replaced rather than patched.
+

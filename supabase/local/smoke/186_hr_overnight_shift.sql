@@ -218,7 +218,9 @@ begin
   p := ops_hr.payroll_line_for('aaaa1860-0000-0000-0000-000000000003', '2026-08-03', '2026-08-04');
   assert p.late_minutes = greatest(ops_hr.wita_minutes('2026-08-04 07:50+07') - 450 - 15, 0)
      and p.late_minutes = 5, 'terlambat pekerja siang: ' || p.late_minutes;
-  assert p.worked_days = 2 and p.normal_hours = 16.43, format('%s hari %s jam', p.worked_days, p.normal_hours);
+  -- 0246 (D398): a day is worth its hours — the late morning's 7,93 of 8,5
+  -- jam is 0,96 of a day, no tolerance.
+  assert p.worked_days = 1.96 and p.normal_hours = 16.43, format('%s hari %s jam', p.worked_days, p.normal_hours);
 end $$;
 
 -- `late_minutes` dan rumus lama sepakat sampai detik dan pembulatan ke bawah

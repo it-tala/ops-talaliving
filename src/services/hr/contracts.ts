@@ -2485,6 +2485,9 @@ export interface PayRules {
    *  left out of lines that say when they started and finished (0244, D396). */
   overtime_break_from_minutes?: number | null;
   overtime_break_to_minutes?: number | null;
+  /** Not stored: folded in per person and day by `ot_rules_for` — a rest
+   *  day's lunch, taken after four hours of overtime (0246, D398). */
+  rest_break_minutes?: number | null;
   /** Price an overtime hour before rounding it to the rupiah, as the sheet
    *  does (170.500 / 8 = 21.312,5). */
   overtime_exact_hourly?: boolean;
@@ -2593,6 +2596,8 @@ export interface PayrollLine {
    *  mark that HRD has not confirmed (0242, D394) — held until somebody says
    *  what they were. */
   days_unconfirmed: number;
+  /** Complete working days paid in proportion to their hours (0246, D398). */
+  days_short?: number;
   /** HRD exempted this person from attendance for some of the period (D394). */
   attendance_exempt: boolean;
   /** The paid days that were not worked, kept apart so a payslip can say what
@@ -2733,6 +2738,11 @@ export interface PayslipDay {
   unconfirmed?: boolean;
   /** HRD confirmed this day as present without a tap (D394). */
   confirmed?: boolean;
+  /** Work ÷ schedule when a complete working day was short of its schedule
+   *  and is paid in that proportion (0246, D398); null for a whole day. */
+  fraction?: number | null;
+  /** HRD ticked *istirahat tidak dipotong* for this day (D398). */
+  break_kept?: boolean;
 }
 
 /** *Tidak wajib absensi* — a person HRD exempted, with why (0242, D394). */
@@ -2797,6 +2807,10 @@ export interface PersonDayEdits {
   /** Each night's overtime on any sheet, where it has got to and why (0243,
    *  D395). Optional so an older caller still type-checks. */
   overtime?: DayOvertime[];
+  /** Days whose break HRD kept, and the taps HRD typed — the ones the drawer
+   *  can take back (0246, D398). */
+  break_kept?: { id: string; work_date: string; reason: string }[];
+  manual_scans?: { id: string; work_date: string; at: string; reason: string }[];
 }
 
 /** One person's line on one overtime sheet, as the payroll drawer reads it

@@ -501,9 +501,14 @@ function PersonBreakdown({ line: l, onClose, onPersonSettings, adjust, period, e
                           : truant(d.work_date) ? <span className="font-medium text-rose-700">{tr("truant", "mangkir")}</span>
                           : d.mark ? <span className="text-slate-600">{d.mark}</span>
                             : d.assumed ? <span className="text-slate-500">{tr("assumed", "asumsi")}</span>
+                              : d.fraction != null
+                                ? <span className="font-medium text-amber-700" title={tr("work ÷ schedule", "jam kerja ÷ jam jadwal")}>
+                                    {tr(`${formatNumber(d.fraction)} day`, `${formatNumber(d.fraction)} hari`)}
+                                  </span>
                               : d.day_value > 0 ? <span className="text-emerald-700">{d.day_value === 1 ? tr("present", "hadir") : `${formatNumber(d.day_value)}`}</span>
                                 : <span className="text-slate-400">—</span>}
                         {withheld && <span className="block text-rose-700">{tr("no allowance", "tanpa tunjangan")}</span>}
+                        {d.break_kept && <span className="block text-slate-500">{tr("break kept", "istirahat tidak dipotong")}</span>}
                       </td>
                       {canEditDays && (
                         <td className="px-1 py-1">
@@ -527,6 +532,7 @@ function PersonBreakdown({ line: l, onClose, onPersonSettings, adjust, period, e
                             unconfirmed={!!d.unconfirmed} confirmed={!!d.confirmed}
                             noTapSalary={l.pay_basis === "monthly" && (!!d.unconfirmed || !!d.confirmed || (!d.in_at && !d.out_at))}
                             machineOvertime={d.overtime_hours}
+                            breakKept={!!d.break_kept}
                             edits={edits.status === "ready" ? edits.data : null}
                             onDone={dayDone}
                           />
