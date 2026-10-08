@@ -16,7 +16,7 @@ import type {
   AllowanceWithholding, AllowanceWithholdingView,
   ContributionScheme, ContributionRate, ContributionRoll, Enrolment,
   Task, TaskView, TaskRefKind, KpiView,
-  TaskAction, Goal, GoalView, GoalBoardTask, BacklogItem, TaskPlanDay, MyPlanLine,
+  TaskAction, Goal, GoalView, GoalBoardTask, BacklogItem, CandidateGoal, TaskPlanDay, MyPlanLine,
   WorkLog, WorkLogEntry, WorkLogRosterRow, WorkEvidence, WorkProgress,
   ContractKind, ClauseKind, ClauseChecklistItem, EmploymentContract,
   ContractView, ContractDetail, ContractClause, ClauseConflict, TimesheetTotal, DayState,
@@ -46,7 +46,7 @@ import {
 import { latency, actingUser, requireModule, requireLevel, requireAuthority, conflict, replayed, remember } from "./_kit";
 import { OFFICE_TZ, officeClock, officeToday as sharedOfficeToday, officeStamp } from "@/lib/office";
 import { carrySickNote } from "../self-link";
-import { CADENCE_LABELS, addDays, taskPeriodsBetween, ageOn } from "@/services/hr/task-periods";
+import { CADENCE_LABELS, addDays, daysBetween, taskPeriodsBetween, ageOn } from "@/services/hr/task-periods";
 import { contactProblem, leaveProblem, normalEmail, normalPhone } from "@/services/hr/employee-rules";
 
 const SERVICE = "hr" as const;
@@ -6364,7 +6364,8 @@ export async function saveBacklogItem(
   const goalNo = input.goal_no?.trim() || null;
   const goal = goalNo ? state.goals.find((g) => g.goal_no === goalNo) : undefined;
   if (goalNo && !goal) return invalid(SERVICE, "unknown_goal", `Tidak ada sasaran ${goalNo}.`, { field: "goal_no" });
-  if (goal && goal.status !== "OPEN") {
+  /* A candidate takes items too: its parts are prepared before it is decided (D393). */
+  if (goal && goal.status !== "OPEN" && goal.status !== "CANDIDATE") {
     return conflict(SERVICE, "goal_closed", `${goal.goal_no} sudah ditutup — pekerjaan baru tidak masuk ke sasaran yang sudah selesai.`);
   }
   const clean = (v?: string | null) => v?.trim() || null;
@@ -6507,6 +6508,11 @@ export async function assignBacklogItem(
   if (!input.due_date) {
     return invalid(SERVICE, "due_required", "Tugas butuh jatuh tempo — itulah bedanya dengan daftar tunggu.", { field: "due_date" });
   }
+  const parent = b.goal_id ? state.goals.find((g) => g.id === b.goal_id) : undefined;
+  if (parent?.status === "CANDIDATE") {
+    return conflict(SERVICE, "goal_is_candidate",
+      `${b.item_no} bagian dari kandidat sasaran ${parent.goal_no} — putuskan Jalankan dulu, baru bagian-bagiannya ditugaskan.`);
+  }
   const goal = b.goal_id ? state.goals.find((g) => g.id === b.goal_id) : undefined;
   const made = await createTask({
     assignee_no: input.assignee_no, title: b.title, due_date: input.due_date,
@@ -6615,5 +6621,179 @@ export async function getMyPlan(input: { date?: string | null } = {}): Promise<R
     })
     .sort((a, b) => (a.goal_rank ?? 1e6) - (b.goal_rank ?? 1e6) || a.due_date.localeCompare(b.due_date));
   return ok(SERVICE, lines);
+}
+
+
+/* ── kandidat sasaran (D393) ──────────────────────────────────────────── */
+
+/** `ops_hr.can_plan_goals()`: HRD that can change goals, or pimpinan. */
+function canPlanGoals(): boolean {
+  return requireModule(SERVICE, "hrd") === null || actingUser().authorities.includes("approve_funds");
+}
+
+function candidateView(state: DemoState, g: Goal): CandidateGoal {
+  const owner = state.employees.find((e) => e.id === g.owner_id);
+  const items = (state.backlog ?? []).filter((b) => b.goal_id === g.id && (b.status === "OPEN" || b.status === "PROPOSED"))
+    .sort((a, b) => (a.sort_key ?? 1e9) - (b.sort_key ?? 1e9) || a.item_no.localeCompare(b.item_no));
+  return {
+    id: g.id, goal_no: g.goal_no, title: g.title, outcome: g.outcome, detail: g.detail,
+    owner_no: owner?.employee_no ?? "", owner_name: owner?.full_name ?? "",
+    target_date: g.target_date, starts_month: g.starts_month ?? null, decide_by: g.decide_by ?? g.target_date,
+    days_to_decide: daysBetween(officeToday(), g.decide_by ?? g.target_date),
+    created_by_name: state.users.find((u) => u.id === g.created_by)?.full_name ?? g.created_by,
+    created_at: g.created_at, items: items.length, item_titles: items.map((b) => b.title),
+  };
+}
+
+export async function listCandidateGoals(): Promise<Result<CandidateGoal[]>> {
+  await latency();
+  if (!canPlanGoals() && requireModule(SERVICE, "hrd")) {
+    return refused(SERVICE, "not_permitted", "Kandidat sasaran dibaca oleh HRD dan pimpinan.");
+  }
+  const state = getState();
+  return ok(SERVICE, state.goals.filter((g) => g.status === "CANDIDATE")
+    .map((g) => candidateView(state, g))
+    .sort((a, b) => a.decide_by.localeCompare(b.decide_by) || a.goal_no.localeCompare(b.goal_no)));
+}
+
+export async function saveCandidateGoal(
+  input: {
+    goal_no?: string | null; title: string; outcome: string; owner_no: string;
+    target_date: string; decide_by: string; starts_month?: string | null; detail?: string | null;
+  },
+): Promise<Result<{ goal_no: string; status: string }>> {
+  await latency();
+  if (!canPlanGoals()) return refused(SERVICE, "not_permitted", "Kandidat sasaran ditulis oleh HRD atau pimpinan.");
+  const state = getState();
+  const existing = input.goal_no ? state.goals.find((g) => g.goal_no === input.goal_no) : null;
+  if (input.goal_no && !existing) return notFound(SERVICE, "goal_not_found", `Tidak ada sasaran ${input.goal_no}.`);
+  if (existing && existing.status !== "CANDIDATE") {
+    return conflict(SERVICE, "not_a_candidate", `${existing.goal_no} bukan kandidat lagi — ubah lewat Sasaran & prioritas.`);
+  }
+  if (!input.title?.trim()) return invalid(SERVICE, "title_required", "Sasarannya apa?", { field: "title" });
+  if (!input.outcome?.trim()) {
+    return invalid(SERVICE, "outcome_required",
+      "Seperti apa hasilnya kalau sudah tercapai? Tanpa itu, semua bagian bisa selesai dan tetap tidak ada hasilnya.", { field: "outcome" });
+  }
+  if (!input.target_date) {
+    return invalid(SERVICE, "target_required", "Perkiraan tanggal tercapai — kandidat pun butuh, supaya terlihat di roadmap.", { field: "target_date" });
+  }
+  if (!input.decide_by) {
+    return invalid(SERVICE, "decide_by_required", "Kapan diputuskan jalan atau tidak? Kandidat tanpa tanggal keputusan menggantung selamanya.", { field: "decide_by" });
+  }
+  if (input.decide_by > input.target_date) {
+    return invalid(SERVICE, "decide_after_target", "Tanggal keputusan sesudah target — tidak ada waktu untuk mengerjakannya.", { field: "decide_by" });
+  }
+  if (!existing && input.decide_by < officeToday()) {
+    return invalid(SERVICE, "decide_in_past", "Tanggal keputusan sudah lewat.", { field: "decide_by" });
+  }
+  const emp = state.employees.find((e) => e.employee_no === input.owner_no);
+  if (!emp) return notFound(SERVICE, "employee_not_found", `Tidak ada karyawan ${input.owner_no || "(kosong)"}.`);
+  if (!emp.active) return conflict(SERVICE, "employee_left", `${emp.full_name} sudah tidak aktif.`);
+  const month = input.starts_month ? `${input.starts_month.slice(0, 7)}-01` : null;
+  const user = actingUser();
+  let no = existing?.goal_no ?? "";
+  apply((draft) => {
+    if (existing) {
+      const row = draft.goals.find((g) => g.id === existing.id);
+      if (!row) return;
+      Object.assign(row, { title: input.title.trim(), outcome: input.outcome.trim(), detail: input.detail?.trim() || null,
+        owner_id: emp.id, target_date: input.target_date, starts_month: month, decide_by: input.decide_by });
+    } else {
+      no = nextDocNumber(draft, "ssr");
+      draft.goals.push({
+        id: newId("goal"), goal_no: no, title: input.title.trim(), outcome: input.outcome.trim(),
+        detail: input.detail?.trim() || null, owner_id: emp.id, target_date: input.target_date,
+        status: "CANDIDATE", rank: null, created_by: user.id, created_at: new Date().toISOString(),
+        closed_at: null, closed_by: null, closed_note: null,
+        starts_month: month, decide_by: input.decide_by, decided_at: null, decided_by: null, decision_note: null,
+      });
+    }
+    writeAudit(draft, { service: SERVICE, entity: "goal", entity_no: no, action: existing ? "update" : "create",
+      outcome: "ok", reason: null, detail: { by: user.email, status: "CANDIDATE", decide_by: input.decide_by } });
+  });
+  return ok(SERVICE, { goal_no: no, status: "CANDIDATE" });
+}
+
+export async function decideCandidateGoal(
+  input: { goal_no: string; run: boolean; rank?: number | null; note?: string | null },
+): Promise<Result<{ goal_no: string; status: string; rank?: number; items_removed?: number }>> {
+  await latency();
+  if (!canPlanGoals()) return refused(SERVICE, "not_permitted", "Memutuskan kandidat sasaran butuh akses HRD atau pimpinan.");
+  const state = getState();
+  const g = state.goals.find((x) => x.goal_no === input.goal_no);
+  if (!g) return notFound(SERVICE, "goal_not_found", `Tidak ada sasaran ${input.goal_no}.`);
+  if (g.status !== "CANDIDATE") return conflict(SERVICE, "not_a_candidate", `${g.goal_no} sudah diputuskan.`);
+  const note = input.note?.trim() || null;
+  const user = actingUser();
+  const now = new Date().toISOString();
+  if (input.run) {
+    const open = state.goals.filter((x) => x.status === "OPEN").length;
+    const pos = Math.min(Math.max(input.rank ?? open + 1, 1), open + 1);
+    apply((draft) => {
+      for (const x of draft.goals) if (x.status === "OPEN" && (x.rank ?? 0) >= pos) x.rank = (x.rank ?? 0) + 1;
+      const row = draft.goals.find((x) => x.id === g.id);
+      if (row) Object.assign(row, { status: "OPEN", rank: pos, decided_at: now, decided_by: user.id, decision_note: note });
+      /* Its owner is told, as 0241 does: the page that shows their goals. */
+      const owner = draft.employees.find((e) => e.id === g.owner_id);
+      const link = owner && draft.employee_accounts?.find((a) => a.employee_no === owner.employee_no);
+      const to = link && draft.users.find((u) => u.id === link.user_id && u.is_active && u.id !== user.id);
+      if (to) {
+        draft.notifications = draft.notifications ?? [];
+        draft.notifications.unshift({
+          id: draft.notifications.reduce((m, n) => Math.max(m, n.id), 0) + 1, user_id: to.id, kind: "goal.run",
+          title: `Kandidat dijalankan: ${g.title} — sekarang #${pos}`,
+          data: { goal_no: g.goal_no, title: g.title, rank: pos }, entity_no: g.goal_no, read_at: null,
+          link: "/profil?tab=tugas", created_at: now,
+        });
+      }
+      writeAudit(draft, { service: SERVICE, entity: "goal", entity_no: g.goal_no, action: "decide", outcome: "ok",
+        reason: note, detail: { run: true, rank: pos, by: user.email } });
+    });
+    return ok(SERVICE, { goal_no: g.goal_no, status: "OPEN", rank: pos });
+  }
+  if (!note) {
+    return invalid(SERVICE, "reason_required", "Kenapa tidak jadi? Alasannya satu-satunya jejak yang tersisa dari kandidat ini.", { field: "note" });
+  }
+  let removed = 0;
+  apply((draft) => {
+    const row = draft.goals.find((x) => x.id === g.id);
+    if (row) Object.assign(row, { status: "CANCELLED", closed_at: now, closed_by: user.id, closed_note: note,
+      decided_at: now, decided_by: user.id, decision_note: note });
+    for (const b of draft.backlog ?? []) {
+      if (b.goal_id === g.id && (b.status === "OPEN" || b.status === "PROPOSED")) {
+        Object.assign(b, { status: "DROPPED", sort_key: null, dropped_reason: `Kandidat ${g.goal_no} tidak jadi: ${note}`,
+          dropped_by: user.id, dropped_at: now });
+        removed += 1;
+      }
+    }
+    writeAudit(draft, { service: SERVICE, entity: "goal", entity_no: g.goal_no, action: "decide", outcome: "ok",
+      reason: note, detail: { run: false, by: user.email, items_removed: removed } });
+  });
+  return ok(SERVICE, { goal_no: g.goal_no, status: "CANCELLED", items_removed: removed });
+}
+
+export async function attachBacklogToGoal(
+  input: { item_nos: string[]; goal_no: string },
+): Promise<Result<{ goal_no: string; attached: number }>> {
+  await latency();
+  if (!canPlanGoals()) return refused(SERVICE, "not_permitted", "Menyusun sasaran dari daftar tunggu butuh akses HRD atau pimpinan.");
+  if (input.item_nos.length === 0) {
+    return invalid(SERVICE, "items_required", "Pilih item daftar tunggu yang akan dimasukkan.", { field: "item_nos" });
+  }
+  const state = getState();
+  const g = state.goals.find((x) => x.goal_no === input.goal_no);
+  if (!g) return notFound(SERVICE, "goal_not_found", `Tidak ada sasaran ${input.goal_no}.`);
+  if (g.status !== "OPEN" && g.status !== "CANDIDATE") return conflict(SERVICE, "goal_closed", `${g.goal_no} sudah ditutup.`);
+  const bad = input.item_nos.filter((no) => !(state.backlog ?? []).some((b) => b.item_no === no && b.status === "OPEN"));
+  if (bad.length > 0) {
+    return conflict(SERVICE, "not_waiting", `Bukan item daftar tunggu yang terbuka: ${bad.join(", ")}.`);
+  }
+  apply((draft) => {
+    for (const b of draft.backlog ?? []) if (input.item_nos.includes(b.item_no)) b.goal_id = g.id;
+    writeAudit(draft, { service: SERVICE, entity: "backlog", entity_no: "", action: "attach", outcome: "ok",
+      reason: null, detail: { goal: g.goal_no, items: input.item_nos } });
+  });
+  return ok(SERVICE, { goal_no: g.goal_no, attached: input.item_nos.length });
 }
 

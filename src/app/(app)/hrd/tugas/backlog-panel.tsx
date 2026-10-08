@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowDown, ArrowUp, Ban, Check, Inbox, Pencil, Plus, UserPlus } from "lucide-react";
+import { ArrowDown, ArrowUp, Ban, Check, Inbox, Lightbulb, Pencil, Plus, Target, UserPlus } from "lucide-react";
 import { Badge, Button, Card, CardHeader } from "@/components/ui/primitives";
 import { Loaded, useLoad } from "@/components/ui/loaded";
 import { cn } from "@/lib/cn";
@@ -22,14 +22,20 @@ import { useTr } from "@/lib/i18n";
  *  Staff may propose items; a proposal waits at the top for an answer. The
  *  bidang is a filter, not an assignee: it narrows the list to what somebody
  *  in that field could pick up.
+ *
+ *  Items can be picked and put into a goal or a candidate together, new or
+ *  existing (D393): a December project is often first a handful of things
+ *  already on this list.
  */
 export function BacklogPanel({
-  employees, goals, mayCreate, mayEdit, onChanged,
+  employees, goals, mayCreate, mayEdit, mayPlan, onChanged,
 }: {
   employees: Employee[];
   goals: GoalView[];
   mayCreate: boolean;
   mayEdit: boolean;
+  /** HRD at update or pimpinan: may put items into goals and candidates. */
+  mayPlan: boolean;
   onChanged: () => void;
 }) {
   const { toast } = useToast();
@@ -43,6 +49,16 @@ export function BacklogPanel({
   const [editing, setEditing] = useState(false);
   const [giving, setGiving] = useState<{ item_no: string; assignee_no: string; due: string; chase: string } | null>(null);
   const [dropping, setDropping] = useState<{ item_no: string; reason: string } | null>(null);
+  /* Candidates are listed apart from goals (D393); a reader who may not see
+     them simply gets none. */
+  const [cands, reloadCands] = useLoad(() => hr.listCandidateGoals(), []);
+  const candidates = cands.status === "ready" ? cands.data : [];
+  const candidateNos = new Set(candidates.map((c) => c.goal_no));
+  const [picked, setPicked] = useState<string[]>([]);
+  const [into, setInto] = useState("");
+  const blankGoal = { kind: "CANDIDATE" as "CANDIDATE" | "OPEN", title: "", outcome: "", owner_no: "",
+                      target_date: "", decide_by: "", starts_month: "" };
+  const [newGoal, setNewGoal] = useState<typeof blankGoal | null>(null);
 
   const all = items.status === "ready" ? items.data : [];
   const units = Array.from(new Set([
@@ -115,9 +131,56 @@ export function BacklogPanel({
     reload(); onChanged();
   }
 
+  function togglePick(itemNo: string) {
+    setPicked((p) => (p.includes(itemNo) ? p.filter((x) => x !== itemNo) : [...p, itemNo]));
+  }
+
+  async function attachTo(goalNo: string) {
+    const res = await hr.attachBacklogToGoal({ item_nos: picked, goal_no: goalNo });
+    if (res.error) { toast("warning", tr("Not put in", "Tidak dimasukkan"), res.error.message); return false; }
+    toast("success", goalNo, tr(`${res.data.attached} item(s) are now parts of it. They stay on the waiting list until assigned.`,
+      `${res.data.attached} item sekarang bagian darinya. Item tetap di daftar tunggu sampai ditugaskan.`));
+    setPicked([]); setInto(""); setNewGoal(null);
+    reload(); reloadCands(); onChanged();
+    return true;
+  }
+
+  async function attach() {
+    if (!into) return;
+    setBusy(true);
+    await attachTo(into);
+    setBusy(false);
+  }
+
+  /* A new goal or candidate made from the picked items: saved, then the
+     items put into it. Two calls — if the second is refused the goal stays,
+     and the toast says why. */
+  async function createAndAttach() {
+    if (!newGoal) return;
+    setBusy(true);
+    const res = newGoal.kind === "CANDIDATE"
+      ? await hr.saveCandidateGoal({
+          title: newGoal.title, outcome: newGoal.outcome, owner_no: newGoal.owner_no,
+          target_date: newGoal.target_date, decide_by: newGoal.decide_by,
+          starts_month: newGoal.starts_month ? `${newGoal.starts_month}-01` : null,
+        })
+      : await hr.saveGoal({
+          title: newGoal.title, outcome: newGoal.outcome, owner_no: newGoal.owner_no,
+          target_date: newGoal.target_date,
+        });
+    if (res.error) {
+      setBusy(false);
+      toast("warning", tr("Not saved", "Tidak tersimpan"), res.error.message);
+      return;
+    }
+    await attachTo(res.data.goal_no);
+    setBusy(false);
+  }
+
   function edit(b: BacklogItem) {
     setDraft({ item_no: b.item_no, title: b.title, deliverable: b.deliverable ?? "", unit: b.unit ?? "",
-               goal_no: b.goal_open ? b.goal_no ?? "" : "", detail: b.detail ?? "" });
+               goal_no: b.goal_open || candidateNos.has(b.goal_no ?? "") ? b.goal_no ?? "" : "",
+               detail: b.detail ?? "" });
     setEditing(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -195,6 +258,11 @@ export function BacklogPanel({
               <select id="blg-goal" value={draft.goal_no} onChange={(e) => setDraft({ ...draft, goal_no: e.target.value })} className={input}>
                 <option value="">{tr("— none —", "— tidak ada —")}</option>
                 {goals.map((g) => <option key={g.goal_no} value={g.goal_no}>#{g.rank} · {g.title}</option>)}
+                {candidates.length > 0 && (
+                  <optgroup label={tr("Candidates — not decided yet", "Kandidat — belum diputuskan")}>
+                    {candidates.map((c) => <option key={c.goal_no} value={c.goal_no}>{tr("candidate", "kandidat")} · {c.title}</option>)}
+                  </optgroup>
+                )}
               </select>)}
             {field(tr("Notes (optional)", "Catatan (boleh kosong)"),
               <textarea id="blg-detail" value={draft.detail} rows={2} onChange={(e) => setDraft({ ...draft, detail: e.target.value })}
@@ -218,14 +286,20 @@ export function BacklogPanel({
           const line = (b: BacklogItem) => (
             <li key={b.item_no} className="px-5 py-3">
               <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
+                {b.status === "OPEN" && mayPlan && (
+                  <input type="checkbox" checked={picked.includes(b.item_no)} onChange={() => togglePick(b.item_no)}
+                    aria-label={tr(`Pick ${b.item_no}`, `Pilih ${b.item_no}`)} className="mt-1" />
+                )}
                 {b.status === "OPEN" && (
                   <span className="mt-0.5 font-mono text-[13px] font-semibold text-slate-500">#{b.position}</span>
                 )}
-                <div className="min-w-0 flex-1">
+                <div className="min-w-[12rem] flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="text-sm font-medium text-slate-800">{b.title}</span>
                     {b.unit && <Badge tone="slate">{b.unit}</Badge>}
-                    {b.goal_title && <Badge tone="brand">{b.goal_rank !== null ? `#${b.goal_rank} · ` : ""}{b.goal_title}</Badge>}
+                    {b.goal_title && (candidateNos.has(b.goal_no ?? "")
+                      ? <Badge tone="violet">{tr("candidate", "kandidat")} · {b.goal_title}</Badge>
+                      : <Badge tone="brand">{b.goal_rank !== null ? `#${b.goal_rank} · ` : ""}{b.goal_title}</Badge>)}
                     {b.status === "PROPOSED" && <Badge tone="amber">{tr("proposal", "usulan")}</Badge>}
                     {b.status === "ASSIGNED" && <Badge tone="green">{tr("assigned", "ditugaskan")}</Badge>}
                     {b.status === "DROPPED" && <Badge tone="slate">{tr("removed", "dikeluarkan")}</Badge>}
@@ -319,6 +393,93 @@ export function BacklogPanel({
                                  "Terima menaruhnya di urutan paling bawah; Keluarkan wajib alasan, yang dibaca pengusulnya.")}
                     icon={Inbox} />
                   <ul className="divide-y divide-slate-100">{proposals.map(line)}</ul>
+                </Card>
+              )}
+              {picked.length > 0 && (
+                <Card className="z-10 border-brand-200 bg-brand-50/60 sm:sticky sm:top-2">
+                  <div className="flex flex-wrap items-end gap-2 px-5 py-3">
+                    <p className="w-full text-[13px] font-medium text-slate-800">
+                      {tr(`${picked.length} item(s) picked`, `${picked.length} item dipilih`)}
+                      <span className="ml-2 font-mono text-[11px] font-normal text-slate-500">{picked.join(", ")}</span>
+                    </p>
+                    <label className="min-w-[220px] flex-1 text-[12px] text-slate-600">
+                      {tr("Put into", "Masukkan ke")}
+                      <select id="blg-into" value={into} onChange={(e) => setInto(e.target.value)}
+                        className="mt-1 block h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm">
+                        <option value="">{tr("— choose a goal or candidate —", "— pilih sasaran atau kandidat —")}</option>
+                        {goals.length > 0 && (
+                          <optgroup label={tr("Goals in progress", "Sasaran berjalan")}>
+                            {goals.map((g) => <option key={g.goal_no} value={g.goal_no}>#{g.rank} · {g.title}</option>)}
+                          </optgroup>
+                        )}
+                        {candidates.length > 0 && (
+                          <optgroup label={tr("Candidates — not decided yet", "Kandidat — belum diputuskan")}>
+                            {candidates.map((c) => <option key={c.goal_no} value={c.goal_no}>{c.title}</option>)}
+                          </optgroup>
+                        )}
+                      </select>
+                    </label>
+                    <Button size="sm" icon={Target} disabled={busy || !into} onClick={attach}>{tr("Put in", "Masukkan")}</Button>
+                    <span className="text-[12px] text-slate-400">{tr("or", "atau")}</span>
+                    <Button size="sm" variant="outline" icon={Lightbulb} disabled={busy}
+                      onClick={() => setNewGoal(newGoal ? null : { ...blankGoal })}>
+                      {tr("Make a new one from these", "Buat baru dari pilihan ini")}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => { setPicked([]); setNewGoal(null); setInto(""); }}>
+                      {tr("Clear", "Batal pilih")}
+                    </Button>
+                  </div>
+                  {newGoal && (
+                    <div className="grid gap-3 border-t border-brand-100 px-5 py-3 sm:grid-cols-2">
+                      <div className="flex flex-wrap gap-1.5 sm:col-span-2">
+                        {([["CANDIDATE", tr("Candidate — may or may not happen", "Kandidat — mungkin jalan, mungkin tidak")],
+                           ...(mayEdit ? [["OPEN", tr("Goal — starts now, ranked last", "Sasaran — berjalan sekarang, di urutan terakhir")]] : [])] as const)
+                          .map(([k, label]) => (
+                            <button key={k} type="button" onClick={() => setNewGoal({ ...newGoal, kind: k as "CANDIDATE" | "OPEN" })}
+                              className={cn("h-7 rounded-full px-3 text-[12px] font-medium",
+                                newGoal.kind === k ? "bg-slate-800 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100")}>
+                              {label}
+                            </button>
+                          ))}
+                      </div>
+                      {field(tr("Name", "Nama"),
+                        <input id="blg-new-title" value={newGoal.title} onChange={(e) => setNewGoal({ ...newGoal, title: e.target.value })}
+                          placeholder={tr("e.g. December furniture fair", "mis. Pameran furnitur Desember")} className={input} />)}
+                      {field(tr("Result — what done looks like", "Hasil — seperti apa kalau selesai"),
+                        <input id="blg-new-outcome" value={newGoal.outcome} onChange={(e) => setNewGoal({ ...newGoal, outcome: e.target.value })} className={input} />)}
+                      {field(tr("Owner", "Penanggung jawab"),
+                        <select id="blg-new-owner" value={newGoal.owner_no} onChange={(e) => setNewGoal({ ...newGoal, owner_no: e.target.value })} className={input}>
+                          <option value="">{tr("— choose —", "— pilih —")}</option>
+                          {employees.filter((e) => e.active).map((e) => (
+                            <option key={e.employee_no} value={e.employee_no}>{e.full_name} · {e.position}</option>
+                          ))}
+                        </select>)}
+                      {field(tr("Target date", "Tanggal target"),
+                        <input id="blg-new-target" type="date" value={newGoal.target_date} min={officeToday()}
+                          onChange={(e) => setNewGoal({ ...newGoal, target_date: e.target.value })} className={input} />)}
+                      {newGoal.kind === "CANDIDATE" && (
+                        <>
+                          {field(tr("Would start in (month, optional)", "Perkiraan mulai (bulan, boleh kosong)"),
+                            <input id="blg-new-month" type="month" value={newGoal.starts_month}
+                              onChange={(e) => setNewGoal({ ...newGoal, starts_month: e.target.value })} className={input} />)}
+                          {field(tr("Decide by", "Diputuskan paling lambat"),
+                            <input id="blg-new-decide" type="date" value={newGoal.decide_by} min={officeToday()}
+                              max={newGoal.target_date || undefined}
+                              onChange={(e) => setNewGoal({ ...newGoal, decide_by: e.target.value })} className={input} />)}
+                        </>
+                      )}
+                      <div className="flex justify-end gap-2 sm:col-span-2">
+                        <Button size="sm" variant="ghost" onClick={() => setNewGoal(null)}>{tr("Cancel", "Batal")}</Button>
+                        <Button size="sm" onClick={createAndAttach}
+                          disabled={busy || !newGoal.title.trim() || !newGoal.outcome.trim() || !newGoal.owner_no
+                            || !newGoal.target_date || (newGoal.kind === "CANDIDATE" && !newGoal.decide_by)}>
+                          {newGoal.kind === "CANDIDATE"
+                            ? tr(`Save candidate with ${picked.length} item(s)`, `Simpan kandidat dengan ${picked.length} item`)
+                            : tr(`Save goal with ${picked.length} item(s)`, `Simpan sasaran dengan ${picked.length} item`)}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </Card>
               )}
               <Card>

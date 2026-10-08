@@ -207,6 +207,20 @@ export const GOALS: Goal[] = [
     created_by: "usr_evin", created_at: "2026-10-01T08:50:00+07:00",
     closed_at: null, closed_by: null, closed_note: null,
   },
+  /* A candidate (D393): the December fair the director may or may not do.
+     Not ranked, nobody tasked; one part already prepared in the daftar tunggu. */
+  {
+    id: "goal_003", goal_no: "ssr-26-10-07_01",
+    title: "Pameran furnitur Desember",
+    outcome: "Booth terpasang dengan tiga sampel kursi dan katalog cetak",
+    detail: "Tergantung anggaran Q4. Pimpinan memutuskan setelah tutup buku Oktober.",
+    owner_id: "emp_04", target_date: "2026-12-12",
+    status: "CANDIDATE", rank: null,
+    created_by: "usr_evin", created_at: "2026-10-07T10:00:00+07:00",
+    closed_at: null, closed_by: null, closed_note: null,
+    starts_month: "2026-11-01", decide_by: "2026-11-06",
+    decided_at: null, decided_by: null, decision_note: null,
+  },
 ];
 
 /** The standing expectations themselves (D303).

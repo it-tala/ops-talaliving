@@ -42,4 +42,11 @@ export const BACKLOG: DemoBacklog[] = [
     created_by: "usr_andi", created_at: "2026-10-05T14:30:00+07:00",
     accepted_by: null, accepted_at: null,
   },
+  {
+    ...base, id: "blg_005", item_no: "blg-26-10-07_01",
+    title: "Desain booth pameran 3×3 m",
+    deliverable: "Gambar booth dan daftar bahan di DRAFTING/ops-talaliving",
+    unit: "Drafting", goal_id: "goal_003", status: "OPEN", sort_key: 4,
+    created_by: "usr_evin", created_at: "2026-10-07T10:05:00+07:00", accepted_by: "usr_evin", accepted_at: "2026-10-07T10:05:00+07:00",
+  },
 ];
