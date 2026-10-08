@@ -19,7 +19,10 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 export function overtimeSegments(rules: PayRules, rest: boolean, from: number, until: number): OvertimeSegment[] {
   const out: OvertimeSegment[] = [];
   const s = from;
-  const e = until <= from ? until + 1440 : until;
+  /* 0245 (D397): past midnight only when the finish is before noon; an
+     afternoon finish before the start is no overtime at all. */
+  if (until === from || (until < from && until >= 720)) return out;
+  const e = until < from ? until + 1440 : until;
   const roundm = rules.overtime_rounding_minutes ?? 0;
   const nightAfter = rules.overtime_night_after_minutes != null && rules.overtime_night_multiplier != null
     ? rules.overtime_night_after_minutes : null;
