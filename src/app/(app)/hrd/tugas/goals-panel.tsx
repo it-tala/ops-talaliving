@@ -43,6 +43,11 @@ export function GoalsPanel({
   const tr = useTr();
   const [showClosed, setShowClosed] = useState(false);
   const [goals, reload] = useLoad(() => hr.listGoals({ include_closed: showClosed }), [showClosed, stamp]);
+  /* Parts prepared on the waiting list and not given to anybody yet — a goal
+     that was a candidate usually starts with only these (D393). */
+  const [backlog] = useLoad(() => hr.listBacklog(), [stamp]);
+  const waitingOf = (goalNo: string) => backlog.status === "ready"
+    ? backlog.data.filter((b) => b.status === "OPEN" && b.goal_no === goalNo).length : 0;
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const blank = { goal_no: null as string | null, title: "", outcome: "", owner_no: "", target_date: "", detail: "" };
@@ -237,7 +242,7 @@ export function GoalsPanel({
                       </p>
                       {g.detail && <p className="mt-0.5 text-[12px] text-slate-500">{g.detail}</p>}
                       {g.closed_note && <p className="mt-0.5 text-[12px] text-slate-500">{g.closed_note}</p>}
-                      <div className="mt-2"><GoalProgress g={g} /></div>
+                      <div className="mt-2"><GoalProgress g={g} waiting={waitingOf(g.goal_no)} /></div>
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-1 border-t border-slate-100 px-5 py-2">

@@ -9861,6 +9861,30 @@ aside per scheme. **Rule:** when a second way to compute the same deduction is
 added, decide in the database which one wins for each person, not on the
 screen.
 
+## F238 · 2026-10-07 · A refusal nobody reads is a lost document
+
+The capture bot read a Google Cloud payment proof, told Chat *Please confirm on
+/accounting/verifikasi*, and the row was never there. `file_evidence` had
+refused it: the bot names the shared Chat account "Tala IT", and
+it@talaliving.com was deactivated on 2026-09-29, so the name matched nobody
+active (`reporter_unresolved`). The same refusal had already swallowed the
+September Google Cloud invoice on 2026-10-02. Both sat in `ops_core.audit_log`
+with a clear reason, and the bot's own `ops_inbox_writes` said `refused`. The
+bot's Chat reply did not, and nobody reads either table.
+
+A refusal is right when the caller can still correct the input. The sender of a
+photo in Chat cannot: by then the bot has said *done*. So `0237` files the
+document under a fallback account and keeps the given name beside it. It
+invents nothing about who sent it, and nothing is lost. Deactivating an
+account is an access decision. It should not make that account's past and
+future paperwork disappear.
+
+**Rule:** a seam fed by a machine that has already told a person *done* must
+not refuse over something only an administrator can fix. File the document,
+say what did not match, and let the screen show it. The bot should also stop
+saying *confirm on Verifikasi* when its write came back refused. That fix
+belongs in the bot's repository, not here.
+
 ## F239 · 2026-10-07 · Hiding a row from a list is not the same as hiding it from the arithmetic
 
 The obvious place to hide leadership's rows was the table's own policy,
@@ -9933,6 +9957,27 @@ ledger row, a typed opening handed back to the ledger is `active = false` —
 which this project prefers anyway (*recorded, never discarded*). **Rule:** a
 seam that only ever needs to un-assert something can mark it; write it that
 way from the start and the migration reaches production in one piece.
+
+## F241 · 2026-10-08 · A third goal status leaks into every screen that only knew two
+
+Adding `CANDIDATE` (D393) was one enum value, and three readers that had
+quietly meant *open or closed* each read it wrong before the walk caught them.
+
+- **`list_backlog().goal_open` is `status = 'OPEN'`.** For a candidate it is
+  false — the same answer as a cancelled goal — so *Ubah* on an item emptied
+  its candidate, and the badge drew it as a goal with no rank. Changing the
+  function's return type means dropping it (F218); the screen instead tells them
+  apart by the candidate list it already loads.
+- **The owner's notice pointed at `/hrd/tugas`.** A candidate's owner is often
+  staff, who cannot open that page. Where a person sees *their* goals is
+  `/profil?tab=tugas`; `goal.run` links there.
+- **A goal run from a candidate said *Belum ada bagian — hasil tanpa bagian
+  masih berupa keinginan*.** Its parts were prepared, on the waiting list,
+  exactly as designed; the card counted only tasks. Goal cards now count the
+  parts still waiting.
+
+**Rule:** a new status is a question to every `= 'OPEN'` and every link that
+assumes who the reader is — grep for them in the same change, not after.
 
 ## F242 · 2026-10-08 · "No tap is not absence" was true of a machine, not of a person
 

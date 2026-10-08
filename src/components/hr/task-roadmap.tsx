@@ -6,7 +6,7 @@ import { Badge, Card } from "@/components/ui/primitives";
 import { cn } from "@/lib/cn";
 import { officeToday } from "@/lib/office";
 import { addDays } from "@/services/hr/task-periods";
-import type { BacklogItem, GoalView, TaskView } from "@/services/hr/contracts";
+import type { BacklogItem, CandidateGoal, GoalView, TaskView } from "@/services/hr/contracts";
 import { useTr } from "@/lib/i18n";
 import { TaskPlanDays } from "./task-plan";
 
@@ -27,6 +27,9 @@ import { TaskPlanDays } from "./task-plan";
  *    a vertical line for today.
  *  - **Belum dijadwalkan**: the daftar tunggu (D381) — work with no dates
  *    yet, listed beside the chart the way Asana lists unscheduled tasks.
+ *  - **Kandidat** (D393): projects that may or may not happen, in a lane of
+ *    their own at the bottom — a dashed bar from the month they would start
+ *    to their target, and a flag on the day they are decided.
  */
 
 type Zoom = "week" | "month" | "quarter";
@@ -104,14 +107,17 @@ type Row =
   | { kind: "task"; key: string; bar: Bar }
   /* One row per daily routine, one cell per day (D383): a bar per morning
      would bury every other line on the chart. */
-  | { kind: "daily"; key: string; title: string; person: string; cells: TaskView[] };
+  | { kind: "daily"; key: string; title: string; person: string; cells: TaskView[] }
+  | { kind: "candidate"; key: string; c: CandidateGoal };
 
 export function TaskRoadmap({
-  tasks, goals, backlog,
+  tasks, goals, backlog, candidates = [],
 }: {
   tasks: TaskView[];
   goals: GoalView[];
   backlog: BacklogItem[];
+  /** Undecided goals (D393); empty for a reader who may not see them. */
+  candidates?: CandidateGoal[];
 }) {
   const tr = useTr();
   const today = officeToday();
@@ -176,6 +182,14 @@ export function TaskRoadmap({
                    target: null, rank: null, late: false });
         out.push(...dailyRows);
       }
+      if (candidates.length > 0) {
+        out.push({ kind: "lane", key: "g:cand", title: tr("Candidates — not decided", "Kandidat — belum diputuskan"),
+                   sub: tr("may or may not happen; nobody is tasked", "mungkin jalan, mungkin tidak; belum ada yang ditugaskan"),
+                   target: null, rank: null, late: false });
+        for (const c of [...candidates].sort((a, b) => a.decide_by.localeCompare(b.decide_by))) {
+          out.push({ kind: "candidate", key: `c:${c.goal_no}`, c });
+        }
+      }
     } else {
       const byPerson = new Map<string, Bar[]>();
       for (const b of bars) byPerson.set(b.t.assignee_name, [...(byPerson.get(b.t.assignee_name) ?? []), b]);
@@ -189,13 +203,15 @@ export function TaskRoadmap({
       }
     }
     return out;
-  }, [bars, dailyRows, goals, group, tr]);
+  }, [bars, dailyRows, goals, candidates, group, tr]);
 
   /* The window: everything drawn, plus a margin, never less than eight weeks
      around today and never more than a year. */
   const [from, to] = useMemo(() => {
     const dates = [today, ...bars.flatMap((b) => [b.start, b.end]),
       ...rows.flatMap((r) => (r.kind === "lane" && r.target ? [r.target] : [])),
+      ...rows.flatMap((r) => (r.kind === "candidate"
+        ? [r.c.starts_month ?? r.c.decide_by, r.c.decide_by, r.c.target_date] : [])),
       ...dailyRows.flatMap((d) => d.cells.map((c) => c.due_date)).filter((d) => diff(d, today) <= 30)];
     let lo = dates.reduce((m, d) => (d < m ? d : m), today);
     let hi = dates.reduce((m, d) => (d > m ? d : m), today);
@@ -297,6 +313,12 @@ export function TaskRoadmap({
         <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rotate-45 bg-slate-800" />{tr("goal target", "target sasaran")}</span>
         <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2 w-2 rounded-full border-2 border-slate-700 bg-white" />{tr("chase date", "ditagih")}</span>
         <span className="inline-flex items-center gap-1.5"><i className="inline-block h-3 w-0.5 bg-red-500" />{tr("today", "hari ini")}</span>
+        {candidates.length > 0 && (
+          <span className="inline-flex items-center gap-1.5">
+            <i className="inline-block h-2.5 w-5 rounded-sm border border-dashed border-violet-400 bg-violet-50" />{tr("candidate", "kandidat")}
+            <Flag className="h-3 w-3 text-violet-600" />{tr("decide by", "diputuskan")}
+          </span>
+        )}
       </div>
 
       <Card className="overflow-hidden">
@@ -317,6 +339,13 @@ export function TaskRoadmap({
                   {r.rank !== null && <span className="font-mono text-[11px] font-semibold text-slate-500">#{r.rank}</span>}
                   <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-slate-800" title={`${r.title} — ${r.sub}`}>{r.title}</span>
                   {r.late && <Badge tone="red">{tr("late", "lewat")}</Badge>}
+                </div>
+              ) : r.kind === "candidate" ? (
+                <div key={r.key} className="flex items-center gap-1.5 border-b border-slate-100 px-3 pl-5" style={{ height: ROW }}>
+                  <span className="min-w-0 flex-1 truncate text-[12px] text-slate-700" title={`${r.c.title} — ${r.c.outcome}`}>{r.c.title}</span>
+                  <span className="shrink-0 rounded bg-violet-50 px-1 text-[10px] text-violet-700">
+                    {r.c.items > 0 ? tr(`${r.c.items} ${r.c.items === 1 ? "part" : "parts"}`, `${r.c.items} bagian`) : tr("candidate", "kandidat")}
+                  </span>
                 </div>
               ) : r.kind === "daily" ? (
                 <div key={r.key} className="flex items-center gap-1.5 border-b border-slate-100 px-3 pl-5" style={{ height: ROW }}>
@@ -400,6 +429,30 @@ export function TaskRoadmap({
                       style={{ left: x(day) + 1, width: Math.max(3, px - 2), top: rowY.get(r.key)! + 9, height: ROW - 18 }} />
                   );
                 }))}
+
+                {/* candidates: dashed span and the decision flag */}
+                {rows.map((r) => {
+                  if (r.kind !== "candidate") return null;
+                  const c = r.c;
+                  const start = c.starts_month ?? c.decide_by;
+                  const top = rowY.get(r.key)! + 7;
+                  const w = Math.max(px, (diff(start, c.target_date) + 1) * px);
+                  const due = c.decide_by <= today;
+                  return (
+                    <div key={`k${r.key}`}>
+                      <div className="absolute z-10 flex items-center overflow-hidden whitespace-nowrap rounded border border-dashed border-violet-400 bg-violet-50/80 px-1.5 font-mono text-[10px] text-violet-800"
+                        title={tr(`${c.title} · would start ${start} · target ${c.target_date}`, `${c.title} · perkiraan mulai ${start} · target ${c.target_date}`)}
+                        style={{ left: x(start), width: w, top, height: ROW - 14 }}>
+                        {w > 90 ? `${dm(start)}–${dm(c.target_date)}` : ""}
+                      </div>
+                      <div className="absolute z-20" title={tr(`Decide by ${c.decide_by}`, `Diputuskan paling lambat ${c.decide_by}`)}
+                        style={{ left: x(c.decide_by) + px / 2 - 1, top: top - 6, height: ROW - 2 }}>
+                        <div className={cn("h-full w-0.5", due ? "bg-red-500" : "bg-violet-600")} />
+                        <Flag className={cn("absolute -top-1 left-0 h-3 w-3", due ? "text-red-600" : "text-violet-600")} />
+                      </div>
+                    </div>
+                  );
+                })}
 
                 {/* bars */}
                 {rows.map((r) => {

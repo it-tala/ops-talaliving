@@ -20,6 +20,7 @@ import { GoalsPanel } from "./goals-panel";
 import { DailyPanel } from "./daily-panel";
 import { BacklogPanel } from "./backlog-panel";
 import { RoadmapPanel } from "./roadmap-panel";
+import { CandidatesPanel } from "./candidates-panel";
 
 /** Pemantauan tugas — the module built against a failure the owner described
  *  in one sentence (D303):
@@ -72,7 +73,7 @@ const TABS = ["goals", "roadmap", "backlog", "daily", "open", "all", "routines"]
 type TabKey = (typeof TABS)[number];
 
 function Tasks() {
-  const { can } = useSession();
+  const { can, hasAuthority } = useSession();
   const params = useSearchParams();
   const { toast } = useToast();
   const tr = useTr();
@@ -93,6 +94,8 @@ function Tasks() {
 
   const mayCreate = can("hrd.create");
   const mayEdit = can("hrd.update");
+  /* Candidate goals are HRD's and the leader's to write and decide (D393). */
+  const mayPlan = mayEdit || hasAuthority("approve_funds");
 
   /* One draft for a one-off task, one for a routine. Kept flat and keyed by
      field name rather than rebuilt per keystroke — a map keyed by a value the
@@ -568,6 +571,15 @@ function Tasks() {
           onChanged={reloadTasks}
         />
       )}
+      {tab === "goals" && (
+        <CandidatesPanel
+          employees={employees.status === "ready" ? employees.data : []}
+          ranked={openGoals}
+          mayPlan={mayPlan}
+          stamp={tasks.status === "ready" ? tasks.data : null}
+          onChanged={reloadTasks}
+        />
+      )}
 
       {tab === "roadmap" && (
         <Loaded state={tasks} onRetry={reloadTasks}>
@@ -581,6 +593,7 @@ function Tasks() {
           goals={openGoals}
           mayCreate={mayCreate}
           mayEdit={mayEdit}
+          mayPlan={mayPlan}
           onChanged={reloadTasks}
         />
       )}

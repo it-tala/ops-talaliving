@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Bell, CheckCheck, ClipboardList, Inbox, PackageCheck } from "lucide-react";
+import { Bell, CheckCheck, ClipboardList, Flag, Inbox, Lightbulb, PackageCheck } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { identity } from "@/demo/api";
 import { subscribe } from "@/demo/store";
@@ -81,6 +81,28 @@ function Line({ n }: { n: AppNotification }) {
           {n.kind === "backlog.accepted"
             ? tr(`Your proposal is on the waiting list at #${String(d.position ?? "")}`, `Usulan Anda masuk daftar tunggu di urutan #${String(d.position ?? "")}`)
             : <>{tr("Your proposal was not taken:", "Usulan Anda tidak diambil:")} {String(d.reason ?? "")}</>}
+        </span>
+      </>
+    );
+  }
+  if (n.kind === "goal.run") {
+    return (
+      <>
+        <span className="font-medium text-slate-800">{String(d.title ?? "")}</span>
+        <span className="block text-[12px] text-slate-500">
+          {tr(`The candidate goal you own is going ahead — now #${String(d.rank ?? "")}`,
+              `Kandidat sasaran yang Anda pegang dijalankan — sekarang #${String(d.rank ?? "")}`)}
+        </span>
+      </>
+    );
+  }
+  if (n.kind === "goal.decide_due") {
+    return (
+      <>
+        <span className="font-medium text-slate-800">{String(d.title ?? "")}</span>
+        <span className="block text-[12px] text-slate-500">
+          {tr("Candidate to decide today: go ahead or not", "Kandidat diputuskan hari ini: jalankan atau tidak jadi")}
+          {d.decide_by ? <> · {dmy(d.decide_by)}</> : null}
         </span>
       </>
     );
@@ -190,14 +212,15 @@ export function NotificationBell() {
             ) : (
               <ul className="divide-y divide-slate-100">
                 {rows.map((n) => {
-                  const Icon = n.kind === "task.delivered" ? PackageCheck : n.kind.startsWith("backlog.") ? Inbox : ClipboardList;
+                  const Icon = n.kind === "task.delivered" ? PackageCheck : n.kind.startsWith("backlog.") ? Inbox
+                    : n.kind === "goal.run" ? Flag : n.kind === "goal.decide_due" ? Lightbulb : ClipboardList;
                   return (
                     <li key={n.id}>
                       <button type="button" onClick={() => void go(n)}
                         className={cn("flex w-full gap-3 px-4 py-3 text-left text-[13px] hover:bg-slate-50",
                           n.read_at === null && "bg-brand-50/60")}>
                         <Icon className={cn("mt-0.5 h-4 w-4 shrink-0",
-                          n.kind === "task.delivered" ? "text-emerald-600" : "text-brand-600")} />
+                          n.kind === "task.delivered" ? "text-emerald-600" : n.kind.startsWith("goal.") ? "text-violet-600" : "text-brand-600")} />
                         <span className="min-w-0 flex-1">
                           <Line n={n} />
                           <span className="mt-0.5 block text-[11px] text-slate-400">

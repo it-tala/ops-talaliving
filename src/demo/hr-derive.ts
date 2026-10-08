@@ -1381,6 +1381,8 @@ export function goalViews(
   includeClosed = false, today = officeToday(),
 ): GoalView[] {
   return state.goals
+    /* Candidates have their own list (D393), never among the closed. */
+    .filter((g) => g.status !== "CANDIDATE")
     .filter((g) => canSeeGoal(state, g.id, me, hrd) && (includeClosed || g.status === "OPEN"))
     .map((g): GoalView => {
       const parts = state.tasks.filter((t) => t.goal_id === g.id);

@@ -13,17 +13,24 @@ import { useTr } from "@/lib/i18n";
  *  The same numbers on HRD's board and on a staff member's profile, because
  *  both read `list_goals()`: a drafter must not see a six-part result as a
  *  one-part result just because only one part is theirs. */
-export function GoalProgress({ g }: { g: GoalView }) {
+export function GoalProgress({ g, waiting = 0 }: {
+  g: GoalView;
+  /** Its parts still on the waiting list (D393): known, not yet anybody's. */
+  waiting?: number;
+}) {
   const tr = useTr();
   const pct = g.tasks_total === 0 ? 0 : Math.round((g.tasks_done / g.tasks_total) * 100);
   return (
     <div>
       <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-slate-600">
         <span>
-          {g.tasks_total === 0
+          {g.tasks_total === 0 && waiting > 0
+            ? tr("No part assigned yet.", "Belum ada bagian yang ditugaskan.")
+            : g.tasks_total === 0
             ? tr("No parts yet — a result with no parts is a wish.", "Belum ada bagian — hasil tanpa bagian masih berupa keinginan.")
             : tr(`${g.tasks_done} of ${g.tasks_total} parts done`, `${g.tasks_done} dari ${g.tasks_total} bagian selesai`)}
         </span>
+        {waiting > 0 && <Badge tone="violet">{tr(`${waiting} on the waiting list`, `${waiting} di daftar tunggu`)}</Badge>}
         {g.tasks_overdue > 0 && <Badge tone="red">{tr(`${g.tasks_overdue} late`, `${g.tasks_overdue} terlambat`)}</Badge>}
         {g.tasks_blocked > 0 && <Badge tone="amber">{tr(`${g.tasks_blocked} blocked`, `${g.tasks_blocked} tertahan`)}</Badge>}
         {g.tasks_waiting > 0 && <Badge tone="slate">{tr(`${g.tasks_waiting} waiting on a previous part`, `${g.tasks_waiting} menunggu bagian sebelumnya`)}</Badge>}

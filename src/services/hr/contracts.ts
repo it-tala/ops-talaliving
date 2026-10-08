@@ -781,7 +781,7 @@ export interface TaskView extends Task {
 }
 
 /** How a result ends. */
-export type GoalStatus = "OPEN" | "DONE" | "CANCELLED";
+export type GoalStatus = "CANDIDATE" | "OPEN" | "DONE" | "CANCELLED";
 
 /** A goal as stored (`ops_hr.goals`). Screens read `GoalView`. */
 export interface Goal {
@@ -799,6 +799,37 @@ export interface Goal {
   closed_at: string | null;
   closed_by: string | null;
   closed_note: string | null;
+  /* A candidate's planning dates (D393). Optional so older rows still type. */
+  starts_month?: string | null;
+  decide_by?: string | null;
+  decided_at?: string | null;
+  decided_by?: string | null;
+  decision_note?: string | null;
+}
+
+/** A goal that may or may not happen — `ops_hr.list_candidate_goals()`
+ *  (0241, D393). Not ranked, nobody can be given a task in it, in nobody's
+ *  score. Its parts are prepared as daftar tunggu items (`items`), so a
+ *  decision to run it starts from a list. HRD and pimpinan (approve_funds)
+ *  write and decide it. */
+export interface CandidateGoal {
+  id: string;
+  goal_no: string;
+  title: string;
+  outcome: string;
+  detail: string | null;
+  owner_no: string;
+  owner_name: string;
+  target_date: string;
+  /** First day of the estimated start month, or null. */
+  starts_month: string | null;
+  decide_by: string;
+  /** Negative once the decision date has passed. */
+  days_to_decide: number;
+  created_by_name: string;
+  created_at: string;
+  items: number;
+  item_titles: string[];
 }
 
 /** *Sasaran* — a result several tasks are parts of, ranked (D367).

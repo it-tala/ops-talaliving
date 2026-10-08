@@ -51,7 +51,7 @@ import type {
   AdjustmentKind, ContributionScheme,
   LeaveKind, LeaveStatus, LeaveRequestView, LeaveBalance,
   TaskStatus, TaskRefKind, TaskView, TaskCadence, TaskRoutineView,
-  TaskAction, GoalView, GoalBoardTask, BacklogItem, TaskPlanDay, MyPlanLine,
+  TaskAction, GoalView, GoalBoardTask, BacklogItem, CandidateGoal, TaskPlanDay, MyPlanLine,
   WorkLogEntry, WorkLogRosterRow, WorkEvidence, WorkProgress, KpiView,
   Sex, Education, Citizenship, MaritalStatus, EmployeeIdentityView, WlkpRecap,
   TapReading, TapSelfResult, LocationJudgement, WorkSite, LocatedTapView, TapKind,
@@ -2530,7 +2530,66 @@ export async function listGoals(
   const { data, error } = await db().rpc("list_goals", {
     p_include_closed: input.include_closed ?? false,
   });
-  return fromRows<GoalView[]>(SERVICE, (data ?? []) as GoalView[], error);
+  /* Candidates have their own list (D393): a goal that may not happen is not
+     a closed one, and must not sit among them. */
+  const rows = ((data ?? []) as GoalView[]).filter((g) => g.status !== "CANDIDATE");
+  return fromRows<GoalView[]>(SERVICE, rows, error);
+}
+
+/* ------------------------------------------------------------------ */
+/* Kandidat sasaran (D393)                                              */
+/* ------------------------------------------------------------------ */
+
+/** Candidates, decision date first. HRD and pimpinan read; 403 otherwise. */
+export async function listCandidateGoals(): Promise<Result<CandidateGoal[]>> {
+  const { data, error } = await db().rpc("list_candidate_goals");
+  return fromRows<CandidateGoal[]>(SERVICE, (data ?? []) as CandidateGoal[], error);
+}
+
+/** New (`goal_no` absent) or changed candidate. HRD or pimpinan. */
+export async function saveCandidateGoal(
+  input: {
+    goal_no?: string | null;
+    title: string;
+    outcome: string;
+    owner_no: string;
+    target_date: string;
+    decide_by: string;
+    starts_month?: string | null;
+    detail?: string | null;
+  },
+): Promise<Result<{ goal_no: string; status: string }>> {
+  const { data, error } = await db().rpc("save_candidate_goal", {
+    p_goal_no: input.goal_no ?? null,
+    p_title: input.title,
+    p_outcome: input.outcome,
+    p_owner_no: input.owner_no,
+    p_target_date: input.target_date,
+    p_decide_by: input.decide_by,
+    p_starts_month: input.starts_month ?? null,
+    p_detail: input.detail ?? null,
+  });
+  return fromSeam<{ goal_no: string; status: string }>(SERVICE, data, error);
+}
+
+/** *Jalankan* (at `rank`, empty = last) or *Tidak jadi* (reason required). */
+export async function decideCandidateGoal(
+  input: { goal_no: string; run: boolean; rank?: number | null; note?: string | null },
+): Promise<Result<{ goal_no: string; status: string; rank?: number; items_removed?: number }>> {
+  const { data, error } = await db().rpc("decide_candidate_goal", {
+    p_goal_no: input.goal_no, p_run: input.run, p_rank: input.rank ?? null, p_note: input.note ?? null,
+  });
+  return fromSeam<{ goal_no: string; status: string; rank?: number; items_removed?: number }>(SERVICE, data, error);
+}
+
+/** Waiting items into a goal or candidate; they stay unassigned. */
+export async function attachBacklogToGoal(
+  input: { item_nos: string[]; goal_no: string },
+): Promise<Result<{ goal_no: string; attached: number }>> {
+  const { data, error } = await db().rpc("attach_backlog_to_goal", {
+    p_item_nos: input.item_nos, p_goal_no: input.goal_no,
+  });
+  return fromSeam<{ goal_no: string; attached: number }>(SERVICE, data, error);
 }
 
 /** Every part of one goal, for anybody allowed to see it. An unknown goal and
