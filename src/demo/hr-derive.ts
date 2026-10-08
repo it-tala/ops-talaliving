@@ -1157,7 +1157,8 @@ export function dayOvertimeWindow(
     return h * 60 + m;
   };
   const sd = scheduleDay(scheduleFor(rules, employee), weekdayOf(date));
-  let from = sd && !sd.off ? sd.end_minutes : null;
+  /* 0245 (D397): a rest day by the rule book starts at the first tap. */
+  let from = sd && !sd.off && !isRestDay(state, rules, date) ? sd.end_minutes : null;
   if (from == null) from = toMin(d.slots.in);
   const last = [d.slots.out, d.slots.ot_end].filter(Boolean).sort().pop();
   return { from_minutes: from, until_minutes: toMin(last) };

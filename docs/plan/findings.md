@@ -10044,3 +10044,18 @@ store the instants a pay rule depends on, not the quantity it produces; and
 when a stated rule falls below a statutory floor, show both numbers and let
 the owner choose on the record.
 
+## F245 · 2026-10-08 · Two sources for "is this a working day" disagree on Saturday
+
+`ops_hr.is_rest_day` reads the rule book's week (`week_pattern: 5day`), and
+`schedule_day` reads the pattern (KANTOR has hours for every weekday and no
+`off` on Saturday). Payroll and the ladder use the first; the default
+overtime window (0244) used the second, so a Saturday's overtime "started" at
+17.15 and ran to the 16.00 tap — which the clock cut, with no rule for an
+afternoon finish, read as an overnight 22 hours. The 12-hour cap refused it,
+so nobody was paid wrongly, but HRD could not approve the day at all.
+
+**Rule:** a function that asks whether a day is worked must ask the same
+source payroll asks (`is_rest_day`), and a time range that wraps past
+midnight needs a stated condition for wrapping (here 0195's: a finish before
+noon), never "the end is smaller than the start".
+
