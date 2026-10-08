@@ -9861,6 +9861,30 @@ aside per scheme. **Rule:** when a second way to compute the same deduction is
 added, decide in the database which one wins for each person, not on the
 screen.
 
+## F238 · 2026-10-07 · A refusal nobody reads is a lost document
+
+The capture bot read a Google Cloud payment proof, told Chat *Please confirm on
+/accounting/verifikasi*, and the row was never there. `file_evidence` had
+refused it: the bot names the shared Chat account "Tala IT", and
+it@talaliving.com was deactivated on 2026-09-29, so the name matched nobody
+active (`reporter_unresolved`). The same refusal had already swallowed the
+September Google Cloud invoice on 2026-10-02. Both sat in `ops_core.audit_log`
+with a clear reason, and the bot's own `ops_inbox_writes` said `refused`. The
+bot's Chat reply did not, and nobody reads either table.
+
+A refusal is right when the caller can still correct the input. The sender of a
+photo in Chat cannot: by then the bot has said *done*. So `0237` files the
+document under a fallback account and keeps the given name beside it. It
+invents nothing about who sent it, and nothing is lost. Deactivating an
+account is an access decision. It should not make that account's past and
+future paperwork disappear.
+
+**Rule:** a seam fed by a machine that has already told a person *done* must
+not refuse over something only an administrator can fix. File the document,
+say what did not match, and let the screen show it. The bot should also stop
+saying *confirm on Verifikasi* when its write came back refused. That fix
+belongs in the bot's repository, not here.
+
 ## F239 · 2026-10-07 · Hiding a row from a list is not the same as hiding it from the arithmetic
 
 The obvious place to hide leadership's rows was the table's own policy,
