@@ -88,6 +88,12 @@ begin
   values (s, 'aaaa2100-0000-0000-0000-000000000005', 2, 'Kejar kiriman');
 end $$;
 
+-- 0242 (D394): these salaries have no taps and are paid the month, which
+-- since D394 is somebody exempt from attendance (F72's rule, kept for them).
+insert into ops_hr.attendance_exemptions (employee_id, reason, "by")
+select e.id, 'uji: tanpa tap, dibayar sebulan', 'ffffffff-0000-0000-0000-000000021001'
+  from ops_hr.employees e where e.pay_basis = 'monthly';
+
 set local role authenticated;
 set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-000000021001';
 

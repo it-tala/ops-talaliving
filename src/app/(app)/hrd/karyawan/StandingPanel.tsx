@@ -39,7 +39,7 @@ export function StandingPanel({ employeeNo }: { employeeNo: string }) {
     [tr("Late", "Terlambat"), tr(`${s.late_minutes} min / ${s.late_days} d`, `${s.late_minutes} mnt / ${s.late_days} hari`)],
     [tr("Sick / leave paid", "Sakit / cuti dibayar"), `${s.days_sick_paid} / ${s.days_leave_paid}`],
     [tr("No allowance", "Tanpa tunjangan"), tr(`${s.allowance_withheld_days} d`, `${s.allowance_withheld_days} hari`)],
-    [tr("Unread days", "Belum dibaca"), String(s.days_open)],
+    [tr("Open days (unread or no tap)", "Belum beres (belum dibaca / tanpa tap)"), String(s.days_open)],
     [tr("Leave left", "Sisa cuti"), s.leave_remaining == null ? "—" : `${s.leave_remaining} / ${s.leave_entitlement}`,
       tr(`${s.leave_taken ?? 0} taken this year`, `${s.leave_taken ?? 0} terpakai tahun ini`)],
     [tr("Retention held", "Saldo retensi"), formatIDR(s.retention_balance),

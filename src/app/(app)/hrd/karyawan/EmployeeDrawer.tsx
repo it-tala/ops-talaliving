@@ -15,6 +15,7 @@ import { contactProblem, leaveFrom } from "@/services/hr/employee-rules";
 import { useToast } from "@/store/toast";
 import { StandingPanel } from "./StandingPanel";
 import { PersonDeductions } from "./DeductionDefaults";
+import { AttendanceExempt } from "./AttendanceExempt";
 import { useTr } from "@/lib/i18n";
 
 /** Somebody's name, and what their time costs.
@@ -409,6 +410,10 @@ export function EmployeeDrawer({
           {/* A salaried person's own monthly deductions (D389). */}
           {employee && basis === "monthly" && (
             <div className="sm:col-span-2"><PersonDeductions employeeNo={employee.employee_no} /></div>
+          )}
+          {/* Tidak wajib absensi, for a leader who does not tap (D394). */}
+          {employee && basis === "monthly" && (
+            <div className="sm:col-span-2"><AttendanceExempt employeeNo={employee.employee_no} /></div>
           )}
           <div>
             <label htmlFor="e-hours" className="block text-xs text-slate-500">{tr("Hours in a standard day", "Jam dalam sehari standar")}</label>

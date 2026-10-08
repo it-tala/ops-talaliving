@@ -2537,6 +2537,12 @@ export interface PayrollLine {
   /** Days present, and of those, how many are still open. */
   days_worked: number;
   days_open: number;
+  /** Of the open days, the salaried person's working days with no tap and no
+   *  mark that HRD has not confirmed (0242, D394) — held until somebody says
+   *  what they were. */
+  days_unconfirmed: number;
+  /** HRD exempted this person from attendance for some of the period (D394). */
+  attendance_exempt: boolean;
   /** The paid days that were not worked, kept apart so a payslip can say what
    *  it is paying for: sakit with a letter, cuti out of the balance (D144). */
   days_present: number;
@@ -2670,6 +2676,22 @@ export interface PayslipDay {
    *  with hours beside it that adds nothing to the total is the one an
    *  employee is right to argue about (D156). */
   open: boolean;
+  /** A salaried working day with no tap and no mark that nobody has accounted
+   *  for (0242, D394). Also `open`. */
+  unconfirmed?: boolean;
+  /** HRD confirmed this day as present without a tap (D394). */
+  confirmed?: boolean;
+}
+
+/** *Tidak wajib absensi* — a person HRD exempted, with why (0242, D394). */
+export interface AttendanceExemption {
+  employee_no: string;
+  full_name: string;
+  reason: string;
+  /** Null: every period. */
+  starts_on: string | null;
+  by_name: string | null;
+  at: string;
 }
 
 export interface PayrollView extends PayrollRun {

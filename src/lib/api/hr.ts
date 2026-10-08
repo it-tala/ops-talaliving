@@ -47,7 +47,7 @@ import type {
   PayrollRun, PayrollView, PayrollLine, PayrollAdjustmentView,
   PayGroup, PayComponents, PayrollRunMember, PaidElsewhere, PayrollHold, PayPreview, PayPreviewInput,
   PayrollAdjustInput, PersonDayEdits, RetentionBalance, EmployeeStanding,
-  DeductionKind, DeductionDefault, EmployeeDeduction, DueDeduction,
+  DeductionKind, DeductionDefault, EmployeeDeduction, DueDeduction, AttendanceExemption,
   AdjustmentKind, ContributionScheme,
   LeaveKind, LeaveStatus, LeaveRequestView, LeaveBalance,
   TaskStatus, TaskRefKind, TaskView, TaskCadence, TaskRoutineView,
@@ -902,6 +902,48 @@ export async function dueDeductions(input: { from: string; to: string }): Promis
     p_from: input.from, p_to: input.to, p_employee_no: null,
   });
   return fromRows<DueDeduction[]>(SERVICE, data as never, error);
+}
+
+/** *Hadir tanpa tap* for one day or many (0242, D394): a salaried working day
+ *  with no tap and no mark is held until HRD says it was worked, or marks it. */
+export async function confirmPresence(
+  input: { employee_no: string; dates: string[]; reason: string }, idempotencyKey?: string,
+): Promise<Result<{ confirmed: number }>> {
+  const { data, error } = await db().rpc("confirm_presence", {
+    p_employee_no: input.employee_no, p_dates: input.dates, p_reason: input.reason,
+    p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<{ confirmed: number }>(SERVICE, data, error);
+}
+
+/** Takes a *hadir tanpa tap* back; the day is held again (D394). */
+export async function withdrawPresence(
+  input: { employee_no: string; work_date: string; reason: string }, idempotencyKey?: string,
+): Promise<Result<{ work_date: string }>> {
+  const { data, error } = await db().rpc("withdraw_presence", {
+    p_employee_no: input.employee_no, p_work_date: input.work_date, p_reason: input.reason,
+    p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<{ work_date: string }>(SERVICE, data, error);
+}
+
+/** Who is *tidak wajib absensi* now — HRD's only (D394). */
+export async function listAttendanceExemptions(): Promise<Result<AttendanceExemption[]>> {
+  const { data, error } = await db().rpc("attendance_exemptions_list");
+  return fromRows<AttendanceExemption[]>(SERVICE, data as never, error);
+}
+
+/** On with a reason, or off with a reason from today on (D394). */
+export async function setAttendanceExempt(
+  input: { employee_no: string; exempt: boolean; reason: string }, idempotencyKey?: string,
+): Promise<Result<AttendanceExemption[]>> {
+  const { data, error } = await db().rpc("set_attendance_exempt", {
+    p_employee_no: input.employee_no, p_exempt: input.exempt, p_reason: input.reason,
+    p_starts_on: null, p_key: idempotencyKey ?? null,
+  });
+  const said = fromSeam<unknown>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<AttendanceExemption[]>;
+  return listAttendanceExemptions();
 }
 
 /** Retensi per person — HRD's only; the database answers nothing to an

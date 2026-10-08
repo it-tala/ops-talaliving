@@ -157,8 +157,19 @@ export default function GeneratePayrollPage() {
       reason: tr(`Already paid for these days by ${paidBy.get(l.employee_no)}`, `Sudah dibayar untuk hari-hari ini di ${paidBy.get(l.employee_no)}`),
     })) : [];
 
+  /* 0242 (D394): a salaried working day with no tap and no mark holds the
+     person too, said apart from the unread ones. */
+  const holdNote = (l: PayrollLine, en: boolean): string => {
+    const unc = l.days_unconfirmed ?? 0;
+    const unread = l.days_open - unc;
+    const parts = [
+      unread > 0 ? (en ? `${unread} day(s) unread` : `${unread} hari belum dibaca`) : null,
+      unc > 0 ? (en ? `${unc} day(s) with no tap not confirmed` : `${unc} hari tanpa tap belum dikonfirmasi`) : null,
+    ].filter(Boolean).join(", ");
+    return en ? `Attendance not complete — ${parts}` : `Absensi belum lengkap — ${parts}`;
+  };
   const blocked = (l: PayrollLine): string | null => l.days_open > 0
-    ? tr(`Attendance not complete — ${l.days_open} day(s) unread`, `Absensi belum lengkap — ${l.days_open} hari belum dibaca`)
+    ? tr(holdNote(l, true), holdNote(l, false))
     : null;
 
   /* Somebody with nothing to be paid — no day worked, no salary — is left
@@ -194,7 +205,7 @@ export default function GeneratePayrollPage() {
       .map((l) => ({
         employee_no: l.employee_no,
         note: blocked(l) !== null
-          ? `Absensi belum lengkap — ${l.days_open} hari belum dibaca`
+          ? holdNote(l, false)
           : empty(l) ? "Tidak ada yang dibayar di periode ini"
             : holdReason.trim() || "Ditahan HRD saat generate",
       }));
