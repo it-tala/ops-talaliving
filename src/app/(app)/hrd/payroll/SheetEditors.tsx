@@ -8,8 +8,8 @@ import { formatIDR } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { hr } from "@/demo/api";
 import {
-  ADJUSTMENT_LABEL, DAY_MARK_LABEL, OVERTIME_STAGE_LABEL, RETENTION_DEFAULT,
-  type AdjustmentKind, type OvertimePreviewRow, type PersonDayEdits,
+  ADJUSTMENT_LABEL, DAY_MARK_LABEL, OVERTIME_STAGE_LABEL, RETENTION_DEFAULT, TAP_KINDS, TAP_KIND_LABEL,
+  type AdjustmentKind, type DayScan, type OvertimePreviewRow, type PersonDayEdits, type TapKind,
 } from "@/services/hr/contracts";
 import { useToast } from "@/store/toast";
 import { clockFace, minutesOfClock } from "@/services/hr/overtime-clock";
@@ -200,6 +200,16 @@ export function DayEditor({
   /* 0246 (D398): the taps HRD typed on this day — the only ones it can take
      back — and whether the break is kept. */
   const typed = (edits?.manual_scans ?? []).filter((x) => x.work_date === workDate);
+  /* 0253 (D410): every tap of the day, whoever recorded it — each can be
+     changed or taken out. An older answer without them lists HRD's own. */
+  const dayScans: DayScan[] = edits?.scans
+    ? edits.scans.filter((x) => x.work_date === workDate)
+    : typed.map((x) => ({ id: x.id, work_date: x.work_date, at: x.at, source: "manual" as const, kind: null, reason: x.reason, edited_from: null }));
+  const [editingTap, setEditingTap] = useState<string | null>(null);
+  const [tapTime, setTapTime] = useState("");
+  const [tapKind, setTapKind] = useState<TapKind | "">("");
+  /* 0253: an approved evening opened at its own times to be changed. */
+  const [editingSheet, setEditingSheet] = useState<string | null>(null);
   const kept = (edits?.break_kept ?? []).find((x) => x.work_date === workDate) ?? null;
   const [choice, setChoice] = useState<DayChoice>(current);
   const [reason, setReason] = useState("");
@@ -217,7 +227,7 @@ export function DayEditor({
   const [otUntil, setOtUntil] = useState("");
   const [preview, setPreview] = useState<OvertimePreviewRow[]>([]);
   useEffect(() => {
-    if (liveNight) return;
+    if (liveNight && !editingSheet) return;
     let gone = false;
     const from = minutesOfClock(otFrom);
     const until = minutesOfClock(otUntil);
@@ -231,7 +241,7 @@ export function DayEditor({
       });
     return () => { gone = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [otFrom, otUntil, employeeNo, workDate]);
+  }, [otFrom, otUntil, employeeNo, workDate, editingSheet]);
   const ranges = preview.filter((r) => r.seg_from != null && r.hours != null);
   const otHours = Math.round(ranges.reduce((t, r) => t + (r.hours ?? 0), 0) * 100) / 100;
   const otAmount = ranges.reduce((t, r) => t + (r.amount ?? 0), 0);
@@ -252,6 +262,20 @@ export function DayEditor({
     }), tr(`${otHours} h overtime approved`, `Lembur ${otHours} jam disetujui`))) onDone();
   }
 
+  function openOvertime(o: { sheet_no: string; from_minutes?: number | null; until_minutes?: number | null }) {
+    setEditingSheet(o.sheet_no);
+    setOtFrom(toInput(o.from_minutes));
+    setOtUntil(toInput(o.until_minutes));
+  }
+
+  async function reviseOvertime() {
+    if (!editingSheet) return;
+    if (await run(hr.reviseDayOvertime({
+      sheet_no: editingSheet, reason: reason.trim(),
+      from_minutes: minutesOfClock(otFrom), until_minutes: minutesOfClock(otUntil),
+    }), tr(`Overtime changed to ${otHours} h`, `Lembur diubah menjadi ${otHours} jam`))) { setEditingSheet(null); onDone(); }
+  }
+
   async function withdrawOvertime(sheetNo: string) {
     if (await run(hr.withdrawDayOvertime({ sheet_no: sheetNo, reason: reason.trim() }),
       tr("Overtime withdrawn", "Lembur dibatalkan"))) onDone();
@@ -265,6 +289,19 @@ export function DayEditor({
   async function voidTap(id: string, at: string) {
     if (await run(hr.voidScan({ scan_id: id, reason: reason.trim() }),
       tr(`Tap ${at} removed`, `Tap ${at} dihapus`))) onDone();
+  }
+
+  function openTap(x: DayScan) {
+    setEditingTap(x.id);
+    setTapTime(clockOf(x.at));
+    setTapKind(x.kind ?? "");
+  }
+
+  async function saveTap(id: string) {
+    if (await run(hr.editScan({
+      scan_id: id, employee_no: employeeNo, work_date: workDate, time: tapTime,
+      kind: tapKind === "" ? null : tapKind, reason: reason.trim(),
+    }), tr(`Tap changed to ${tapTime}`, `Tap diubah menjadi ${tapTime}`))) { setEditingTap(null); onDone(); }
   }
 
   async function addTap() {
@@ -323,8 +360,30 @@ export function DayEditor({
     ["no_allowance", tr("Present — no allowance", "Hadir — tanpa tunjangan"), tr("wage paid, allowance not", "upah dibayar, tunjangan tidak")],
   ];
 
+  const SOURCE_LABEL: Record<DayScan["source"], string> = {
+    import: tr("machine", "mesin"), self: tr("phone", "HP"), manual: tr("HRD", "HRD"),
+  };
+
   return (
     <div className="space-y-2.5 bg-slate-50 px-3 py-2.5 text-[12px]">
+      {/* 0253 (D410): the reason first — every change below needs one, and a
+          field at the bottom left every button grey with nothing saying why. */}
+      <div>
+        <label htmlFor={`why-${workDate}`} className="block text-[11px] font-medium text-slate-600">
+          {tr("Reason — needed for every change on this day", "Alasan — wajib untuk setiap perubahan di hari ini")}
+        </label>
+        <input
+          id={`why-${workDate}`} value={reason} onChange={(e) => setReason(e.target.value)}
+          placeholder={tr("e.g. machine read 09.10, came at 08.00 (CCTV)", "mis. mesin terbaca 09.10, datang 08.00 (CCTV)")}
+          className="mt-0.5 h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-[12px] focus:border-brand-400 focus:outline-none"
+        />
+        {!reason.trim() && (
+          <p className="mt-0.5 text-[11px] text-amber-700">
+            {tr("Buttons below are enabled once a reason is written.", "Tombol di bawah aktif setelah alasan diisi.")}
+          </p>
+        )}
+      </div>
+
       <div className="flex flex-wrap items-end gap-2">
         <div>
           <label htmlFor={`tap-${workDate}`} className="block text-[11px] text-slate-500">
@@ -338,15 +397,46 @@ export function DayEditor({
         </Button>
       </div>
 
-      {typed.length > 0 && (
+      {dayScans.length > 0 && (
         <div className="space-y-1">
-          <p className="text-[11px] text-slate-500">{tr("Taps typed by HRD", "Tap yang diketik HRD")}</p>
-          {typed.map((x) => {
+          <p className="text-[11px] text-slate-500">{tr("Taps — change or remove any of them", "Tap — bisa diubah atau dihapus")}</p>
+          {dayScans.map((x) => {
             const at = clockOf(x.at);
+            if (editingTap === x.id) {
+              return (
+                <div key={x.id} className="flex flex-wrap items-end gap-2 rounded-lg border border-brand-200 bg-white px-2 py-1.5">
+                  <div>
+                    <label htmlFor={`tt-${x.id}`} className="block text-[11px] text-slate-500">{tr("Correct time", "Jam yang benar")}</label>
+                    <input id={`tt-${x.id}`} type="time" value={tapTime} onChange={(e) => setTapTime(e.target.value)}
+                      className="mt-0.5 h-8 rounded-lg border border-slate-200 bg-white px-2 text-[12px] tabular-nums focus:border-brand-400 focus:outline-none" />
+                  </div>
+                  <div>
+                    <label htmlFor={`tk-${x.id}`} className="block text-[11px] text-slate-500">{tr("Kind", "Jenis")}</label>
+                    <select id={`tk-${x.id}`} value={tapKind} onChange={(e) => setTapKind(e.target.value as TapKind | "")}
+                      className="mt-0.5 h-8 rounded-lg border border-slate-200 bg-white px-2 text-[12px] focus:border-brand-400 focus:outline-none">
+                      <option value="">{tr("By the clock", "Otomatis (menurut jam)")}</option>
+                      {TAP_KINDS.map((k) => <option key={k} value={k}>{TAP_KIND_LABEL[k]}</option>)}
+                    </select>
+                  </div>
+                  <Button size="sm" disabled={busy || !tapTime || !reason.trim()} onClick={() => saveTap(x.id)}>
+                    {tr("Save", "Simpan")}
+                  </Button>
+                  <Button size="sm" variant="ghost" icon={X} onClick={() => setEditingTap(null)}>{tr("Cancel", "Batal")}</Button>
+                </div>
+              );
+            }
             return (
               <div key={x.id} className="flex flex-wrap items-center gap-2">
                 <span className="font-medium tabular-nums text-slate-700">{at}</span>
-                <span className="italic text-slate-500">{x.reason}</span>
+                <span className="rounded bg-slate-100 px-1.5 text-[10px] uppercase tracking-wide text-slate-500">{SOURCE_LABEL[x.source]}</span>
+                {x.kind && <span className="text-slate-600">{TAP_KIND_LABEL[x.kind]}</span>}
+                {x.edited_from && (
+                  <span className="text-[11px] text-slate-500">{tr(`was ${clockOf(x.edited_from)}`, `semula ${clockOf(x.edited_from)}`)}</span>
+                )}
+                {x.source === "manual" && x.reason && <span className="italic text-slate-500">{x.reason}</span>}
+                <Button size="sm" variant="ghost" icon={Pencil} disabled={busy} onClick={() => openTap(x)}>
+                  {tr("Change", "Ubah")}
+                </Button>
                 <Button size="sm" variant="ghost" icon={Trash2} disabled={busy || !reason.trim()} onClick={() => voidTap(x.id, at)}>
                   {tr("Remove", "Hapus")}
                 </Button>
@@ -364,8 +454,8 @@ export function DayEditor({
           <span className="block text-[11px] text-slate-500">
             {kept
               ? <>{tr("Kept: ", "Tidak dipotong: ")}<span className="italic">{kept.reason}</span>{tr(" — untick with a reason to deduct again", " — hapus centang dengan alasan untuk memotong lagi")}</>
-              : tr("Worked through the break, or left before it — lunch, the overtime break and a weekend's lunch alike. Reason below.",
-                "Bekerja penuh selama istirahat, atau pulang sebelum istirahat — berlaku untuk istirahat siang, istirahat lembur dan istirahat Sabtu/Minggu. Alasan di bawah.")}
+              : tr("Worked through the break, or left before it — lunch, the overtime break and a weekend's lunch alike. Reason above.",
+                "Bekerja penuh selama istirahat, atau pulang sebelum istirahat — berlaku untuk istirahat siang, istirahat lembur dan istirahat Sabtu/Minggu. Alasan di atas.")}
           </span>
         </span>
       </label>
@@ -383,6 +473,14 @@ export function DayEditor({
             </span>
             <span className="font-mono text-[11px] text-slate-400">{o.sheet_no}</span>
             {o.reason && <span className="italic text-slate-600">{o.reason}</span>}
+            {o.payable && o.from_minutes != null && o.until_minutes != null && (
+              <span className="tabular-nums text-slate-600">{clockFace(o.from_minutes)}–{clockFace(o.until_minutes)}</span>
+            )}
+            {o.payable && o.kind === "staff" && o.via === "hrd" && editingSheet !== o.sheet_no && (
+              <Button size="sm" variant="ghost" icon={Pencil} disabled={busy} onClick={() => openOvertime(o)}>
+                {tr("Change times", "Ubah jam")}
+              </Button>
+            )}
             {o.payable && o.kind === "staff" && o.via === "hrd" && (
               <Button size="sm" variant="ghost" disabled={busy || !reason.trim()} onClick={() => withdrawOvertime(o.sheet_no)}>
                 {tr("Withdraw", "Batalkan")}
@@ -390,12 +488,12 @@ export function DayEditor({
             )}
           </div>
         ))}
-        {liveNight && !liveNight.payable && (
+        {liveNight && !liveNight.payable && !editingSheet && (
           <p className="text-[11px] text-amber-700">
             {tr("Still being decided on its sheet — decide it on the Overtime screen.", "Masih diputuskan di lembarnya — putuskan di layar Lembur.")}
           </p>
         )}
-        {!liveNight && (
+        {(!liveNight || editingSheet) && (
           <>
             <div className="flex flex-wrap items-end gap-2">
               <div>
@@ -408,10 +506,19 @@ export function DayEditor({
                 <input id={`otu-${workDate}`} type="time" value={otUntil} onChange={(e) => setOtUntil(e.target.value)}
                   className="mt-0.5 h-8 rounded-lg border border-slate-200 bg-white px-2 text-[12px] tabular-nums focus:border-brand-400 focus:outline-none" />
               </div>
-              <Button size="sm" variant="outline" disabled={busy || !(otHours > 0) || !reason.trim()} onClick={approveOvertime}>
-                {tr(`Approve ${otHours} h`, `Setujui ${otHours} jam`)}
-              </Button>
-              <span className="text-[11px] text-slate-500">{tr("reason below; added to Additions", "alasan di bawah; masuk Penambahan")}</span>
+              {editingSheet ? (
+                <>
+                  <Button size="sm" variant="outline" disabled={busy || !(otHours > 0) || !reason.trim()} onClick={reviseOvertime}>
+                    {tr(`Save change — ${otHours} h`, `Simpan perubahan — ${otHours} jam`)}
+                  </Button>
+                  <Button size="sm" variant="ghost" icon={X} onClick={() => setEditingSheet(null)}>{tr("Cancel", "Batal")}</Button>
+                </>
+              ) : (
+                <Button size="sm" variant="outline" disabled={busy || !(otHours > 0) || !reason.trim()} onClick={approveOvertime}>
+                  {tr(`Approve ${otHours} h`, `Setujui ${otHours} jam`)}
+                </Button>
+              )}
+              <span className="text-[11px] text-slate-500">{tr("reason above; added to Additions", "alasan di atas; masuk Penambahan")}</span>
             </div>
             {ranges.length > 0 && (
               <table className="w-full text-[11px] tabular-nums">
@@ -467,19 +574,13 @@ export function DayEditor({
         </fieldset>
       )}
 
-      <div className="flex flex-wrap items-end gap-2">
-        <input
-          value={reason} onChange={(e) => setReason(e.target.value)}
-          aria-label={tr("Reason", "Alasan")}
-          placeholder={tr("Reason — kept with the change", "Alasan — disimpan bersama perubahannya")}
-          className="h-8 min-w-[220px] flex-1 rounded-lg border border-slate-200 bg-white px-2 text-[12px] focus:border-brand-400 focus:outline-none"
-        />
-        {!otherMark && (
+      {!otherMark && (
+        <div className="flex flex-wrap items-end gap-2">
           <Button size="sm" icon={Pencil} disabled={busy || choice === current || !reason.trim()} onClick={setStatus}>
             {tr("Save status", "Simpan status")}
           </Button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -5,7 +5,7 @@ import type {
   OvertimeSheet, OvertimeLine, OvertimeSheetView, OvertimeKind, OvertimeDecider, SelfOvertimeView,
   PayrollRun, PayrollView, PayrollLine, PayBasis,
   PayGroup, PayComponents, PayrollRunMember, PaidElsewhere, PayrollHold, PayPreview, PayPreviewInput,
-  PayrollAdjustInput, PersonDayEdits, DayOvertime, OvertimePreviewRow, RetentionBalance, EmployeeStanding,
+  PayrollAdjustInput, PersonDayEdits, DayOvertime, DayScan, OvertimePreviewRow, RetentionBalance, EmployeeStanding,
   DeductionKind, DeductionDefault, EmployeeDeduction, DueDeduction, AttendanceExemption, PresencePay,
   AdjustmentKind, PayrollAdjustmentView,
   PayRules, PayRuleSet, PayRuleSetView, WorkSchedule, ScheduleHours, UnitScheduleDefault,
@@ -2032,7 +2032,7 @@ export async function keepBreak(
   return ok(SERVICE, { kept: input.keep });
 }
 
-/** `ops_hr.void_scan` (0246, D398): a tap HRD typed, moved out with why. */
+/** `ops_hr.void_scan` (0246, D398; any tap since 0253, D410): moved out with why. */
 export async function voidScan(input: { scan_id: string; reason: string }): Promise<Result<{ work_date: string }>> {
   await latency();
   const denied = requireLevel(SERVICE, "hrd", "write");
@@ -2041,10 +2041,6 @@ export async function voidScan(input: { scan_id: string; reason: string }): Prom
   if (!reason) return invalid(SERVICE, "reason_required", "Kenapa tap ini dihapus?", { field: "reason" });
   const scan = getState().attendance_scans.find((x) => x.id === input.scan_id);
   if (!scan) return notFound(SERVICE, "not_found", "Tap itu tidak ada.");
-  if (scan.source !== "manual") {
-    return conflict(SERVICE, "not_manual",
-      "Hanya tap yang diketik HRD yang bisa dihapus. Tap dari mesin atau HP adalah kejadian — kalau hari itu salah dibaca, tandai harinya.");
-  }
   apply((draft) => {
     draft.attendance_scans = draft.attendance_scans.filter((x) => x.id !== scan.id);
     draft.voided_scans = [...(draft.voided_scans ?? []), {
@@ -2053,6 +2049,86 @@ export async function voidScan(input: { scan_id: string; reason: string }): Prom
     }];
   });
   return ok(SERVICE, { work_date: scan.work_date });
+}
+
+/** `ops_hr.edit_scan` (0253, D410): any tap at a new time and/or kind; it
+ *  becomes HRD's, and what it was is kept. */
+export async function editScan(
+  input: { scan_id: string; employee_no: string; work_date: string; time: string; kind: TapKind | null; reason: string },
+): Promise<Result<{ work_date: string }>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "hrd", "write");
+  if (denied) return denied;
+  const reason = input.reason.trim();
+  if (!reason) return invalid(SERVICE, "reason_required", "Kenapa tap ini diubah? Kalimatnya disimpan bersama jam yang lama.", { field: "reason" });
+  if (!input.time) return invalid(SERVICE, "time_required", "Jam tap yang benar belum diisi.", { field: "at" });
+  const state = getState();
+  const scan = state.attendance_scans.find((x) => x.id === input.scan_id);
+  if (!scan) return notFound(SERVICE, "not_found", "Tap itu tidak ada.");
+  const emp = state.employees.find((e) => e.id === scan.employee_id);
+  if (!emp) return notFound(SERVICE, "employee_not_found", `No employee ${input.employee_no}.`);
+  const at = instantInDay(input.work_date, input.time, timesheetDay(state, emp, input.work_date).window_from);
+  const kind = input.kind ?? null;
+  if (Date.parse(scan.at) === Date.parse(at) && (scan.kind ?? null) === kind) {
+    return conflict(SERVICE, "unchanged", "Jam dan jenis tapnya sama dengan yang tercatat.");
+  }
+  if (state.attendance_scans.some((x) => x.employee_id === scan.employee_id && x.id !== scan.id
+    && Date.parse(x.at) === Date.parse(at))) {
+    return conflict(SERVICE, "already_recorded", "Sudah ada tap lain di jam itu.");
+  }
+  const user = actingUser();
+  apply((draft) => {
+    draft.scan_edits = [...(draft.scan_edits ?? []), {
+      scan_id: scan.id, old_at: scan.at, old_kind: scan.kind ?? null, old_source: scan.source,
+      new_at: at, new_kind: kind, reason, by: user.id, at: new Date().toISOString(),
+    }];
+    const row = draft.attendance_scans.find((x) => x.id === scan.id);
+    if (row) {
+      Object.assign(row, { at, work_date: at.slice(0, 10), kind, source: "manual" as const, verify: "MANUAL",
+        reason, recorded_by: user.id, recorded_at: new Date().toISOString() });
+    }
+  });
+  return ok(SERVICE, { work_date: at.slice(0, 10) });
+}
+
+/** `ops_hr.revise_day_overtime` (0253, D410): the old sheet off, a new one
+ *  approved by the clock — or nothing changes. */
+export async function reviseDayOvertime(
+  input: { sheet_no: string; from_minutes: number | null; until_minutes: number | null; reason: string },
+): Promise<Result<{ sheet_no: string; hours: number }>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "hrd", "write");
+  if (denied) return denied;
+  const reason = input.reason.trim();
+  if (!reason) return invalid(SERVICE, "reason_required", "Diubah karena apa? Kalimatnya tercetak di slip.", { field: "reason" });
+  if (input.from_minutes == null || input.until_minutes == null) {
+    return invalid(SERVICE, "time_required", "Jam mulai dan selesai lembur yang benar belum diisi.", { field: "from_minutes" });
+  }
+  const state = getState();
+  const sheet = state.overtime_sheets.find((x) => x.sheet_no === input.sheet_no);
+  if (!sheet) return notFound(SERVICE, "sheet_not_found", `No sheet ${input.sheet_no}.`);
+  if (sheet.kind !== "staff" || sheet.via !== "hrd") {
+    return conflict(SERVICE, "not_hrd_session", `${input.sheet_no} bukan lembur yang dicatat HRD — ubah di layar Lembur.`);
+  }
+  if (!sheet.paid) return conflict(SERVICE, "already_unpaid", `${input.sheet_no} sudah tidak dibayar — setujui lembur baru saja.`);
+  const line = state.overtime_lines.find((l) => l.sheet_id === sheet.id);
+  const emp = line ? state.employees.find((e) => e.id === line.employee_id) : undefined;
+  if (!emp) return notFound(SERVICE, "employee_not_found", `No line on ${input.sheet_no}.`);
+  /* Turned off first so the new approval is not refused as a second claim on
+     the night; turned back on if the new one is refused. */
+  apply((draft) => {
+    const sh = draft.overtime_sheets.find((x) => x.sheet_no === input.sheet_no);
+    if (sh) { sh.paid = false; sh.unpaid_reason = `Diubah: ${reason}`; }
+  });
+  const res = await approveDayOvertime({ employee_no: emp.employee_no, work_date: sheet.work_date, reason,
+    from_minutes: input.from_minutes, until_minutes: input.until_minutes });
+  if (res.error) {
+    apply((draft) => {
+      const sh = draft.overtime_sheets.find((x) => x.sheet_no === input.sheet_no);
+      if (sh) { sh.paid = true; sh.unpaid_reason = null; }
+    });
+  }
+  return res;
 }
 
 /** `ops_hr.confirm_presence` (0242, D394). */
@@ -2279,6 +2355,7 @@ export async function personDayEdits(
         sheet_no: sh.sheet_no, work_date: sh.work_date, kind: sh.kind, via: sh.via,
         stage: overtimeStage(state, sh), payable: overtimePayable(state, sh), hours: l.hours,
         reason: (sh.unpaid_reason ?? sh.declined_reason ?? "").trim() || (l.deliverable ?? "").trim() || sh.purpose,
+        from_minutes: l.from_minutes ?? null, until_minutes: l.until_minutes ?? null,
       }];
     })
     .sort((a, b) => a.work_date.localeCompare(b.work_date));
@@ -2292,7 +2369,16 @@ export async function personDayEdits(
       && x.work_date >= input.from && x.work_date <= input.to)
     .map((x) => ({ id: x.id, work_date: x.work_date, at: x.at, reason: x.reason ?? "" }))
     .sort((a, b) => a.at.localeCompare(b.at));
-  return ok(SERVICE, { marks, withholdings: held.data, overtime, break_kept, manual_scans });
+  /* `ops_hr.person_day_scans` (0253): every tap, and the time it had before
+     HRD first changed it. */
+  const scans: DayScan[] = state.attendance_scans
+    .filter((x) => x.employee_id === emp.id && x.work_date >= input.from && x.work_date <= input.to)
+    .map((x) => ({
+      id: x.id, work_date: x.work_date, at: x.at, source: x.source, kind: x.kind ?? null, reason: x.reason,
+      edited_from: (state.scan_edits ?? []).find((e) => e.scan_id === x.id)?.old_at ?? null,
+    }))
+    .sort((a, b) => a.at.localeCompare(b.at));
+  return ok(SERVICE, { marks, withholdings: held.data, overtime, break_kept, manual_scans, scans });
 }
 
 export async function removeAdjustment(

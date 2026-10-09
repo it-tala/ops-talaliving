@@ -2852,6 +2852,21 @@ export interface PersonDayEdits {
    *  can take back (0246, D398). */
   break_kept?: { id: string; work_date: string; reason: string }[];
   manual_scans?: { id: string; work_date: string; at: string; reason: string }[];
+  /** Every tap of the days, whoever recorded it — the drawer can change or
+   *  take out any of them (0253, D410). */
+  scans?: DayScan[];
+}
+
+/** One tap as the payroll drawer lists it (`person_day_scans`, 0253). */
+export interface DayScan {
+  id: string;
+  work_date: string;
+  at: string;
+  source: ScanSource;
+  kind: TapKind | null;
+  reason: string | null;
+  /** The time it had before HRD first changed it; null when never changed. */
+  edited_from: string | null;
 }
 
 /** One person's line on one overtime sheet, as the payroll drawer reads it
@@ -2866,6 +2881,9 @@ export interface DayOvertime {
   payable: boolean;
   hours: number;
   reason: string | null;
+  /** When it started and finished, minutes of the office day (0253). */
+  from_minutes?: number | null;
+  until_minutes?: number | null;
 }
 
 /** Retensi per person — HRD's only (D388). `balance` is what signed runs hold;

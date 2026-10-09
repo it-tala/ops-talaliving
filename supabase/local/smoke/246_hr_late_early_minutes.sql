@@ -126,7 +126,8 @@ begin
     'one tap left: the day is read again';
 end $$;
 
-/* the machine's taps are not HRD's to remove */
+/* the machine's taps — 0246 refused them; since 0253 (D410) HRD can take
+   any tap out, with why */
 do $$
 declare a jsonb; v_id uuid;
 begin
@@ -138,8 +139,9 @@ begin
           'import','bbbb2460-0000-0000-0000-000000000001')
   returning id into v_id;
   set local role authenticated;
-  a := ops_hr.void_scan(v_id, 'coba');
-  assert a -> 'error' ->> 'code' = 'not_manual', a::text;
+  a := ops_hr.void_scan(v_id, 'Tes mesin');
+  assert ops_core.said_ok(a), a::text;
+  assert (select source from ops_hr.voided_scans where id = v_id) = 'import', 'kept as the machine''s';
 end $$;
 
 rollback;
