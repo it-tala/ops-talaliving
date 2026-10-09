@@ -6,7 +6,7 @@ import type {
   PayrollRun, PayrollView, PayrollLine, PayBasis,
   PayGroup, PayComponents, PayrollRunMember, PaidElsewhere, PayrollHold, PayPreview, PayPreviewInput,
   PayrollAdjustInput, PersonDayEdits, DayOvertime, OvertimePreviewRow, RetentionBalance, EmployeeStanding,
-  DeductionKind, DeductionDefault, EmployeeDeduction, DueDeduction, AttendanceExemption,
+  DeductionKind, DeductionDefault, EmployeeDeduction, DueDeduction, AttendanceExemption, PresencePay,
   AdjustmentKind, PayrollAdjustmentView,
   PayRules, PayRuleSet, PayRuleSetView, WorkSchedule, ScheduleHours, UnitScheduleDefault,
   EmployeeDocKind, EmployeeFileView, DocNoSource, LeaveBalance, LeaveKind, LeaveRequestView, LeaveStatus,
@@ -2119,6 +2119,54 @@ export async function setAttendanceExempt(
     draft.attendance_exemptions = rows;
   });
   return listAttendanceExemptions();
+}
+
+/** `ops_hr.presence_pay_list` (0251, D406) — HRD's only. */
+export async function listPresencePay(): Promise<Result<PresencePay[]>> {
+  await latency();
+  if (!seesStanding()) return ok(SERVICE, []);
+  const state = getState();
+  return ok(SERVICE, (state.presence_pay ?? []).filter((x) => x.ends_on === null).flatMap((x) => {
+    const e = state.employees.find((m) => m.id === x.employee_id);
+    if (!e) return [];
+    return [{
+      employee_no: e.employee_no, full_name: e.full_name, reason: x.reason, starts_on: x.starts_on,
+      by_name: state.users.find((u) => u.id === x.by)?.full_name ?? null, at: x.at,
+    }];
+  }).sort((a, b) => a.employee_no.localeCompare(b.employee_no)));
+}
+
+/** `ops_hr.set_presence_pay` (0251, D406). */
+export async function setPresencePay(
+  input: { employee_no: string; on: boolean; reason: string; starts_on?: string | null },
+): Promise<Result<PresencePay[]>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "hrd", "write");
+  if (denied) return denied;
+  if (!input.reason.trim()) {
+    return invalid(SERVICE, "reason_required", "Kenapa jamnya tidak dihitung? Alasannya yang dibaca kalau upahnya dipertanyakan.", { field: "reason" });
+  }
+  const state = getState();
+  const emp = state.employees.find((e) => e.employee_no === input.employee_no);
+  if (!emp) return notFound(SERVICE, "employee_not_found", `No employee ${input.employee_no}.`);
+  const live = (state.presence_pay ?? []).find((x) => x.employee_id === emp.id && x.ends_on === null);
+  if (input.on && emp.pay_basis === "monthly") {
+    return conflict(SERVICE, "monthly", `${emp.full_name} digaji bulanan — gaji bulanan sudah dibayar sebulan, bukan per jam.`);
+  }
+  if (input.on && live) return conflict(SERVICE, "already_on", `${emp.full_name} sudah dibayar per kehadiran.`);
+  if (!input.on && !live) return conflict(SERVICE, "not_on", `${emp.full_name} memang dibayar menurut jam absensinya.`);
+  apply((draft) => {
+    const rows = draft.presence_pay ?? [];
+    if (input.on) {
+      rows.push({ employee_id: emp.id, reason: input.reason.trim(), starts_on: input.starts_on ?? null,
+        by: actingUser().id, at: new Date().toISOString(), ends_on: null });
+    } else {
+      const yesterday = new Date(Date.parse(`${sharedOfficeToday()}T00:00:00Z`) - 86400000).toISOString().slice(0, 10);
+      for (const r of rows) if (r.employee_id === emp.id && r.ends_on === null) r.ends_on = yesterday;
+    }
+    draft.presence_pay = rows;
+  });
+  return listPresencePay();
 }
 
 /** HRD's, or payroll's — never the employee's own account (D388). */

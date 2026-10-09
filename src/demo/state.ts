@@ -313,6 +313,12 @@ export interface DemoState {
     employee_id: string; reason: string; starts_on: string | null; by: string; at: string;
     ends_on: string | null;
   }[];
+  /** Dibayar per kehadiran (0251, D406). Optional so a saved demo from before
+   *  it loads. */
+  presence_pay?: {
+    employee_id: string; reason: string; starts_on: string | null; by: string; at: string;
+    ends_on: string | null;
+  }[];
   /** Berkas 201: somebody's own file, and what is missing from it (D177). */
   employee_documents: EmployeeDocument[];
   /* Kontrak kerja, klausulnya, dan daftar poin wajibnya — yang terakhir adalah

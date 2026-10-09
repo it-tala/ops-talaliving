@@ -2604,6 +2604,9 @@ export interface PayrollLine {
   days_unconfirmed: number;
   /** HRD exempted this person from attendance for some of the period (D394). */
   attendance_exempt: boolean;
+  /** *Dibayar per kehadiran* for some of the period (0251, D406): a day with
+   *  any tap is a whole day, its hours, lateness and early leave not counted. */
+  presence_paid: boolean;
   /** The paid days that were not worked, kept apart so a payslip can say what
    *  it is paying for: sakit with a letter, cuti out of the balance (D144). */
   days_present: number;
@@ -2752,6 +2755,8 @@ export interface PayslipDay {
   early_minutes?: number;
   /** HRD ticked *istirahat tidak dipotong* for this day (D398). */
   break_kept?: boolean;
+  /** 0251 (D406): read whole on its tap alone — *dibayar per kehadiran*. */
+  presence_paid?: boolean;
 }
 
 /** *Tidak wajib absensi* — a person HRD exempted, with why (0242, D394). */
@@ -2764,6 +2769,10 @@ export interface AttendanceExemption {
   by_name: string | null;
   at: string;
 }
+
+/** *Dibayar per kehadiran* — a day wage HRD set to be paid a whole day for any
+ *  tap, with why (0251, D406). Same shape as an exemption. */
+export type PresencePay = AttendanceExemption;
 
 export interface PayrollView extends PayrollRun {
   lines: PayrollLine[];

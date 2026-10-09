@@ -10138,3 +10138,29 @@ Three smaller things the screen taught:
 
 **Rule:** anything that orders rows by a timestamp must default to the clock,
 not to the transaction, or two rows written together have no order at all.
+
+## F250 · 2026-10-09 · The period was already free; what a day is worth was not
+
+Asked to let a day-wage payroll run over *seven days rather than five*, the
+first thing to check was where five came from. Nowhere: `payroll_line_for`
+walks every day from `p_from` to `p_to` and pays a day wage `day_value ×
+base_rate` for each one somebody came, Saturday included (JAMI and KIDO over
+2–8 October: six days each, Sunday off), and nothing in the run seams limits a
+period's length. The *Buat payroll* page already took any two dates; only its
+‹/› buttons snapped back to the Friday pay week, which is what made a typed
+period feel fixed.
+
+What was actually wrong for the person named was not the period but the day.
+Nur Khayati (SARIPAN_HOUSE, 14.00–22.00) had one day in the week with taps:
+a test from the phone at 22.28 (masuk and pulang four seconds apart) and an
+HRD-typed 15.00. The phone's taps said what they were, so they filled masuk
+and pulang first (D369) and the typed 15.00 was left over; the day read
+complete with 0 hours, 448 minutes late and 32 early — and D398's minutes,
+priced at (70.000 + 30.000) ÷ 8, took exactly the Rp 100.000 the day paid.
+Gross 0.
+
+**Rule:** before building "flexibility", find the constraint. When there is
+none, the complaint is usually about a number the flexible thing produced —
+here a day the clock priced at nothing for somebody whose clock is not the
+point.
+

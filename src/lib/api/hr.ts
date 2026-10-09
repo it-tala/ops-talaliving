@@ -47,7 +47,7 @@ import type {
   PayrollRun, PayrollView, PayrollLine, PayrollAdjustmentView,
   PayGroup, PayComponents, PayrollRunMember, PaidElsewhere, PayrollHold, PayPreview, PayPreviewInput,
   PayrollAdjustInput, PersonDayEdits, DayOvertime, OvertimePreviewRow, RetentionBalance, EmployeeStanding,
-  DeductionKind, DeductionDefault, EmployeeDeduction, DueDeduction, AttendanceExemption,
+  DeductionKind, DeductionDefault, EmployeeDeduction, DueDeduction, AttendanceExemption, PresencePay,
   AdjustmentKind, ContributionScheme,
   LeaveKind, LeaveStatus, LeaveRequestView, LeaveBalance,
   TaskStatus, TaskRefKind, TaskView, TaskCadence, TaskRoutineView,
@@ -1013,6 +1013,25 @@ export async function setAttendanceExempt(
   const said = fromSeam<unknown>(SERVICE, data, error);
   if (said.error) return said as unknown as Result<AttendanceExemption[]>;
   return listAttendanceExemptions();
+}
+
+/** Who is *dibayar per kehadiran* now — HRD's only (0251, D406). */
+export async function listPresencePay(): Promise<Result<PresencePay[]>> {
+  const { data, error } = await db().rpc("presence_pay_list");
+  return fromRows<PresencePay[]>(SERVICE, data as never, error);
+}
+
+/** On with a reason, or off with a reason from today on (0251, D406). */
+export async function setPresencePay(
+  input: { employee_no: string; on: boolean; reason: string; starts_on?: string | null }, idempotencyKey?: string,
+): Promise<Result<PresencePay[]>> {
+  const { data, error } = await db().rpc("set_presence_pay", {
+    p_employee_no: input.employee_no, p_on: input.on, p_reason: input.reason,
+    p_starts_on: input.starts_on ?? null, p_key: idempotencyKey ?? null,
+  });
+  const said = fromSeam<unknown>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<PresencePay[]>;
+  return listPresencePay();
 }
 
 /** Retensi per person — HRD's only; the database answers nothing to an

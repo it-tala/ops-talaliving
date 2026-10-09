@@ -709,9 +709,25 @@ export function payrollLine(
   const keptDates = new Set((state.break_waivers ?? [])
     .filter((w) => w.employee_id === employee.id && w.withdrawn_at === null).map((w) => w.work_date));
   const schedF = scheduleFor(rules, employee);
-  const days = days0.map((d) => (keptDates.has(d.work_date) && d.scans.length > 0 && !d.mark
+  const days1 = days0.map((d) => (keptDates.has(d.work_date) && d.scans.length > 0 && !d.mark
     ? { ...d, work_hours: Math.round((d.work_hours + (d.break_hours ?? 0)) * 100) / 100 }
     : d));
+  /* 0251 (D406): *dibayar per kehadiran* — any tap on the day is the
+     evidence, and the day is whole however the taps fall: worth a day, the
+     schedule's hours, no minutes late or early. A day with no tap is still
+     nothing. Same rule as `ops_hr.payroll_line_for`. */
+  const presence = (state.presence_pay ?? []).filter((x) => x.employee_id === employee.id);
+  const presenceOn = (key: string) => employee.pay_basis !== "monthly" && presence.some((x) =>
+    (x.starts_on === null || x.starts_on <= key) && (x.ends_on === null || x.ends_on >= key));
+  const presenceDates = new Set<string>();
+  const days = days1.map((d) => {
+    if (d.mark || d.scans.length === 0 || assumedDates.has(d.work_date) || !presenceOn(d.work_date)) return d;
+    presenceDates.add(d.work_date);
+    return {
+      ...d, state: "complete" as const, day_value: 1, issues: [],
+      work_hours: d.scheduled_hours != null ? Math.round(d.scheduled_hours * 100) / 100 : d.work_hours,
+    };
+  });
 
   /* A day is worth what the timesheet says it is worth: a full day, half of
      one when the office closed at noon, none at all when somebody was away
@@ -781,6 +797,8 @@ export function payrollLine(
     .map((d) => d.work_date));
   const attendance_exempt = exemptions.some((x) =>
     (x.starts_on === null || x.starts_on <= to) && (x.ends_on === null || x.ends_on >= from));
+  const presence_paid = employee.pay_basis !== "monthly" && presence.some((x) =>
+    (x.starts_on === null || x.starts_on <= to) && (x.ends_on === null || x.ends_on >= from));
   const unpaidDates = new Set(days
     .filter((d) => (d.mark && d.mark.kind !== "holiday" && d.day_value === 0) || unconfirmed.has(d.work_date))
     .map((d) => d.work_date));
@@ -817,6 +835,9 @@ export function payrollLine(
   const warnings: string[] = [];
   if (open.length > 0) {
     warnings.push(`${open.length} day(s) need a person to read them — worth nothing until they do`);
+  }
+  if (presenceDates.size > 0) {
+    warnings.push(`${presenceDates.size} hari dibayar per kehadiran — ada tap, dibayar sehari penuh; jam, terlambat dan pulang cepat tidak dihitung`);
   }
   if (unconfirmed.size > 0) {
     warnings.push(`${unconfirmed.size} hari kerja tanpa tap dan tanpa keterangan — belum dibayar sampai HRD mengonfirmasi hadir atau menandainya`);
@@ -864,7 +885,7 @@ export function payrollLine(
      after 480 minutes* and meant *late after 08:00* (F70). */
   const lateBy = (d: (typeof days)[number]): number => {
     const inAt = d.slots.in;
-    if (!inAt || d.mark) return 0;
+    if (!inAt || d.mark || presenceDates.has(d.work_date)) return 0;
     /* 0206 (D364): late against the shift worked — 17.00 for Shift 2. */
     const shiftStart = d.shift_code
       ? (scheduleFor(rules, employee)?.shifts ?? []).find((x) => x.code === d.shift_code)?.start_minutes ?? null
@@ -894,6 +915,7 @@ export function payrollLine(
      Priced like the late minutes, applied when `early_leave_mode` says. */
   const earlyBy = (d: (typeof days)[number]): number => {
     if (d.mark || d.state !== "complete" || d.shift_code || d.overnight || !d.slots.out) return 0;
+    if (presenceDates.has(d.work_date)) return 0;
     if (!isWorkdayFor(state, rules, schedF, d.work_date)) return 0;
     const end = scheduleDay(schedF, weekdayOf(d.work_date))?.end_minutes;
     if (end == null) return 0;
@@ -988,6 +1010,7 @@ export function payrollLine(
     unconfirmed: unconfirmed.has(d.work_date),
     confirmed: noTapWorkday(d) && confirmedDates.has(d.work_date),
     break_kept: keptDates.has(d.work_date) && d.scans.length > 0,
+    presence_paid: presenceDates.has(d.work_date),
   }));
 
   /* 0212 (D370): the switches. Each component off is zero here, and listed
@@ -1097,6 +1120,7 @@ export function payrollLine(
     days_open: open.length + unconfirmed.size,
     days_unconfirmed: unconfirmed.size,
     attendance_exempt,
+    presence_paid,
     days_present: Math.round(days_present * 100) / 100,
     days_sick_paid,
     days_leave_paid,

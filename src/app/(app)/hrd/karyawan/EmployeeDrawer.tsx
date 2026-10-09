@@ -16,6 +16,7 @@ import { useToast } from "@/store/toast";
 import { StandingPanel } from "./StandingPanel";
 import { PersonDeductions } from "./DeductionDefaults";
 import { AttendanceExempt } from "./AttendanceExempt";
+import { PresencePay } from "./PresencePay";
 import { useTr } from "@/lib/i18n";
 
 /** Somebody's name, and what their time costs.
@@ -414,6 +415,10 @@ export function EmployeeDrawer({
           {/* Tidak wajib absensi, for a leader who does not tap (D394). */}
           {employee && basis === "monthly" && (
             <div className="sm:col-span-2"><AttendanceExempt employeeNo={employee.employee_no} /></div>
+          )}
+          {/* Dibayar per kehadiran, for a day wage whose hours are not counted (D406). */}
+          {employee && basis !== "monthly" && (
+            <div className="sm:col-span-2"><PresencePay employeeNo={employee.employee_no} /></div>
           )}
           <div>
             <label htmlFor="e-hours" className="block text-xs text-slate-500">{tr("Hours in a standard day", "Jam dalam sehari standar")}</label>
