@@ -686,6 +686,25 @@ required and nothing refuses for an empty box (D401). Read and written by
 | POST | `/design/items/{no}/boxes/{box}/skip` | `{skip, note?}` — `set_design_box_skip`, append-only; *not needed* counts as filled (D403), *needed again* empties it; repeating is **noop**. 422 `unknown_box` |
 | POST | `/design/items/{no}/product` | `{product_code?, category?}` — `product_from_design_item` (D400): code defaults to the item number, an existing product is linked; made **inactive** with `design_item_no`, activated by the first order line naming it (trigger on `project_lines`). 409 `already_product`; 403 without `production.create` |
 
+### Desain — a room or an item given out as an HRD task (Studio Desain S2, 0249/0250, D402–D403)
+
+One room (`26003-A-LR`) or item (`26003-A-LR-01`) to one drafter with one due
+date, from Design. It **is** an `ops_hr.tasks` row (`ref_kind` `design_room` /
+`design_item`), so the bell, Chat, the daily plan and log, *tertahan*, the
+Roadmap and the KPI apply. It **closes itself** when every box in its scope is
+filled or not needed — triggers on a file linked to the item, a spec, *not
+needed*, a BOM revision on its product, and an item dropped from the room —
+signed by whoever filled the last box, with a delivered note. A later version
+does not reopen it. **Nobody marks it done by hand**: a trigger on
+`ops_hr.tasks` refuses the status change (23514 → `invalid`/`constraint`) for
+the drafter and for HRD alike; reopening, blocking and moving stay as they are.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/design/assignments?project_code=` | `design_assignments()` (a definer function: drafters may read the design but not `ops_hr.tasks`): task, scope, ref, assignee, due, status, done_at, blocked reason, `filled`/`total` |
+| POST | `/design/assignments` | `{scope: room\|item, ref_no, assignee_no, due_date, note?}` — `assign_design_task` (`may_design`): a new task, or the open one **moved** (another person or date; same person and date is noop). 422 `unknown_scope`, `assignee_unknown` (active employees only), `due_required`, `due_in_past`, `nothing_to_do` (no items), `already_complete`, `item_dropped`; 404 room/item. Answers the project's assignments |
+| GET | `/hr/design-task-progress` | `ops_hr.design_task_progress()`: filled/total per design task — HRD and designers see all, a drafter their own. HRD's task list and *Profil → Tugas* show it, with *Buka di Desain* (`/produksi/desain?room=` / `?item=`) and no *done* button |
+
 ## `inventory` — stock and timber
 
 Stock, added M27:

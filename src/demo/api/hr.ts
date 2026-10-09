@@ -15,7 +15,7 @@ import type {
   EmployeeIdentity, EmployeeIdentityView, WlkpRecap,
   AllowanceWithholding, AllowanceWithholdingView,
   ContributionScheme, ContributionRate, ContributionRoll, Enrolment,
-  Task, TaskView, TaskRefKind, KpiView,
+  Task, TaskView, TaskRefKind, KpiView, DesignTaskProgress,
   TaskAction, Goal, GoalView, GoalBoardTask, BacklogItem, CandidateGoal, TaskPlanDay, MyPlanLine,
   WorkLog, WorkLogEntry, WorkLogRosterRow, WorkEvidence, WorkProgress,
   ContractKind, ClauseKind, ClauseChecklistItem, EmploymentContract,
@@ -44,7 +44,8 @@ import {
   membersOf, groupPeople, paidElsewhere as paidElsewhereRun,
   monthWorkdays, allowanceDayExact, hourlyRate, enrolledIn, dayOvertimeWindow, isRestDayOn, otRulesFor,
 } from "../hr-derive";
-import { latency, actingUser, requireModule, requireLevel, requireAuthority, conflict, replayed, remember } from "./_kit";
+import { latency, actingUser, requireModule, requireLevel, requireAuthority, conflict, replayed, remember, canDesign } from "./_kit";
+import { designScopeProgress } from "./design";
 import { OFFICE_TZ, officeClock, officeToday as sharedOfficeToday, officeStamp } from "@/lib/office";
 import { carrySickNote } from "../self-link";
 import { CADENCE_LABELS, addDays, daysBetween, taskPeriodsBetween, ageOn } from "@/services/hr/task-periods";
@@ -960,6 +961,21 @@ export async function importScans(
 /** The roster a timeslot names its workers from (D355): active people,
  *  no pay. Production, HRD or payroll may read it; anybody else gets an empty
  *  list, as the database answers. */
+/** Filled / total boxes for every design task the caller may see: HRD all of
+ *  them, a drafter their own (0250, D402). */
+export async function listDesignTaskProgress(): Promise<Result<DesignTaskProgress[]>> {
+  await latency();
+  const state = getState();
+  const all = actingUser().modules.some((m) => m.module === "hrd") || canDesign("read");
+  const mine = myEmployee(state)?.id;
+  return ok(SERVICE, state.tasks
+    .filter((t) => (t.ref_kind === "design_room" || t.ref_kind === "design_item") && (all || t.assignee_id === mine))
+    .map((t) => ({
+      task_no: t.task_no, ref_kind: t.ref_kind as "design_room" | "design_item", ref_no: t.ref_no ?? "",
+      ...designScopeProgress(t.ref_kind === "design_room" ? "room" : "item", t.ref_no ?? ""),
+    })));
+}
+
 export async function listWorkRoster(): Promise<Result<RosterEntry[]>> {
   await latency();
   const user = actingUser();
@@ -3657,6 +3673,11 @@ export async function updateTask(
       "Mengubah tugas ini butuh akses HRD, atau tugas ini harus milik Anda sendiri.");
   }
   if (!t) return notFound(SERVICE, "task_not_found", `Tidak ada tugas ${input.task_no}.`);
+  /* `design_task_closes_itself` (0250): the boxes are the delivery (D402). */
+  if (input.action === "done" && (t.ref_kind === "design_room" || t.ref_kind === "design_item") && t.status !== "DONE") {
+    return invalid(SERVICE, "constraint",
+      "Tugas desain selesai sendiri saat semua kotaknya terisi — unggah atau tandai tidak perlu di Produksi › Desain.");
+  }
   if (!hrd && (input.action === "cancel" || input.action === "reopen")) {
     return refused(SERVICE, "not_permitted",
       input.action === "cancel"

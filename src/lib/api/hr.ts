@@ -50,7 +50,7 @@ import type {
   DeductionKind, DeductionDefault, EmployeeDeduction, DueDeduction, AttendanceExemption,
   AdjustmentKind, ContributionScheme,
   LeaveKind, LeaveStatus, LeaveRequestView, LeaveBalance,
-  TaskStatus, TaskRefKind, TaskView, TaskCadence, TaskRoutineView,
+  TaskStatus, TaskRefKind, TaskView, TaskCadence, TaskRoutineView, DesignTaskProgress,
   TaskAction, GoalView, GoalBoardTask, BacklogItem, CandidateGoal, TaskPlanDay, MyPlanLine,
   WorkLogEntry, WorkLogRosterRow, WorkEvidence, WorkProgress, KpiView,
   Sex, Education, Citizenship, MaritalStatus, EmployeeIdentityView, WlkpRecap,
@@ -65,7 +65,7 @@ import { instantInDay, nextOfficeDay, type ScheduleDay, type ScheduleShift, type
 import { tapWhere, type TapReadingRow } from "@/services/hr/tap-where";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { STAGE_NAME } from "@/services/production/contracts";
-import { fromSeam, fromRows, notFound, invalid, ok, type Result } from "./_kit";
+import { fail, fromSeam, fromRows, notFound, invalid, ok, type Result } from "./_kit";
 import { link as linkDocument } from "./documents";
 import { officeStamp } from "@/lib/office";
 
@@ -128,6 +128,18 @@ export async function listLeavers(
  *  timeslot names its workers from (D355). A function, not the table: a
  *  production admin cannot read `employees`, and the picker was empty for
  *  exactly the person it was built for (F205). */
+/** Filled / total boxes for every design task the caller may see: HRD all of
+ *  them, a drafter their own (0250, D402). */
+export async function listDesignTaskProgress(): Promise<Result<DesignTaskProgress[]>> {
+  const { data, error } = await db().rpc("design_task_progress");
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+    ...(r as unknown as DesignTaskProgress),
+    filled: Number(r.filled ?? 0),
+    total: Number(r.total ?? 0),
+  })));
+}
+
 export async function listWorkRoster(): Promise<Result<RosterEntry[]>> {
   const { data, error } = await db().rpc("work_roster");
   return fromRows<RosterEntry[]>(SERVICE, (data ?? []) as RosterEntry[], error);
