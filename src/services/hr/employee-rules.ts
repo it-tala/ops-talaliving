@@ -1,5 +1,5 @@
-/** What a personnel record may say about how to reach somebody, and when
- *  their paid leave starts (D349).
+/** What a personnel record may say about how to reach somebody, who to call
+ *  in an emergency (D406), and when their paid leave starts (D349).
  *
  *  Owner (HRD evaluation, 2026-09-30): *new employee tambahkan alamat email dan
  *  nomor HP* and *paid leave entitlement, per year — harus dimasukkan oleh HR
@@ -15,7 +15,12 @@
  *     Lowering it, or leaving it as it was, is never refused — an edit to
  *     somebody's position must not fail over a number nobody touched.
  *
- *  `ops_hr.save_employee` (0198) makes the same refusals with the same codes
+ *  The emergency contact (0249, owner 2026-10-09: *tambahkan kontak darurat*)
+ *  is a name and a number together, a relation if known, and never the
+ *  person's own number — the day it is needed is the day that phone is not
+ *  answering.
+ *
+ *  `ops_hr.save_employee` (0198, 0249) makes the same refusals with the same codes
  *  (its comments say D348: written before that number went to inventory —
  *  F202)
  *  and sentences; the demo reads them from here (ADR-009). Pure, imports
@@ -55,6 +60,77 @@ export function contactProblem(email: string | null | undefined, phone: string |
       code: "phone_invalid",
       message: `${phone!.trim()} bukan nomor HP — tulis 8 sampai 15 angka, boleh diawali +.`,
       field: "phone",
+    };
+  }
+  return null;
+}
+
+/** The emergency contact as stored: blank is none, runs of spaces are one. */
+export function normalText(raw: string | null | undefined): string | null {
+  return (raw ?? "").trim().replace(/\s+/g, " ") || null;
+}
+
+export interface EmergencyContact {
+  emergency_name?: string | null;
+  emergency_relation?: string | null;
+  emergency_phone?: string | null;
+}
+
+/** The emergency contact as it will be after a save (D406): **absent keeps
+ *  what is stored, blank clears** — the same as email and phone. */
+export function emergencyAfter(stored: EmergencyContact | null | undefined, sent: EmergencyContact): {
+  name: string | null; relation: string | null; phone: string | null;
+} {
+  return {
+    name: sent.emergency_name === undefined ? stored?.emergency_name ?? null : normalText(sent.emergency_name),
+    relation: sent.emergency_relation === undefined ? stored?.emergency_relation ?? null : normalText(sent.emergency_relation),
+    phone: sent.emergency_phone === undefined
+      ? stored?.emergency_phone ?? null
+      : normalPhone(sent.emergency_phone ?? "") || null,
+  };
+}
+
+/** Null when the contact is usable or there is none (D406). `ownPhone` is the
+ *  person's own number as it will be stored. A name and a number together; the
+ *  relation cannot stand alone; never the person's own number. */
+export function emergencyProblem(
+  c: { name: string | null; relation: string | null; phone: string | null },
+  ownPhone: string | null | undefined,
+  typedPhone?: string | null,
+): RuleProblem | null {
+  if (c.phone && !PHONE_SHAPE.test(c.phone)) {
+    return {
+      code: "emergency_phone_invalid",
+      message: `${(typedPhone ?? c.phone).trim()} bukan nomor HP — tulis 8 sampai 15 angka, boleh diawali +.`,
+      field: "emergency_phone",
+    };
+  }
+  if (c.phone && !c.name) {
+    return {
+      code: "emergency_name_required",
+      message: "Kontak darurat perlu nama — siapa yang dicari saat nomor itu ditelepon.",
+      field: "emergency_name",
+    };
+  }
+  if (!c.phone && (c.name || c.relation)) {
+    return {
+      code: "emergency_phone_required",
+      message: "Kontak darurat perlu nomor yang bisa dihubungi.",
+      field: "emergency_phone",
+    };
+  }
+  if (c.name && c.name.length > 120) {
+    return { code: "emergency_name_too_long", message: "Nama kontak darurat paling panjang 120 huruf.", field: "emergency_name" };
+  }
+  if (c.relation && c.relation.length > 40) {
+    return { code: "emergency_relation_too_long", message: "Hubungan ditulis singkat — paling panjang 40 huruf.", field: "emergency_relation" };
+  }
+  const own = ownPhone ? normalPhone(ownPhone) : "";
+  if (c.phone && own && c.phone === own) {
+    return {
+      code: "emergency_is_own_phone",
+      message: "Nomor darurat sama dengan nomor HP orang ini — saat darurat, justru nomor itu yang tidak menjawab.",
+      field: "emergency_phone",
     };
   }
   return null;

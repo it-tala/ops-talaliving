@@ -96,6 +96,14 @@ export default function EmployeesPage() {
               )}
             </p>
           )}
+          {e.emergency_phone && (
+            <p className="text-[11px] text-slate-500">
+              {tr("emergency", "darurat")}:{" "}
+              <a href={`tel:${e.emergency_phone}`} onClick={(ev) => ev.stopPropagation()} className="hover:text-brand-700">
+                {e.emergency_name}{e.emergency_relation ? ` (${e.emergency_relation})` : ""} · {e.emergency_phone}
+              </a>
+            </p>
+          )}
           {accts.status === "ready" && (() => {
             const a = accountOf.get(e.id);
             return a?.user_email
@@ -227,7 +235,7 @@ export default function EmployeesPage() {
 
           const needle = q.trim().toLowerCase();
           const matches = (e: Employee) => !needle
-            || `${e.full_name} ${e.employee_no} ${e.position} ${e.unit} ${accountOf.get(e.id)?.user_email ?? ""} ${e.email ?? ""} ${e.phone ?? ""}`
+            || `${e.full_name} ${e.employee_no} ${e.position} ${e.unit} ${accountOf.get(e.id)?.user_email ?? ""} ${e.email ?? ""} ${e.phone ?? ""} ${e.emergency_name ?? ""}`
               .toLowerCase().includes(needle);
           /* People whose year is up and whose entitlement nobody has written
              yet — HRD's to fill in, so the screen counts them (D349). */
