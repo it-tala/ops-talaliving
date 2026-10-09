@@ -77,6 +77,12 @@ export interface Employee {
    *  is digits only, with a leading + when given. */
   email?: string | null;
   phone?: string | null;
+  /** Who to call when something happens to them at work (D406): a name and a
+   *  number, always together; how they are related is optional. The number
+   *  is digits only, like `phone`, and never this person's own. */
+  emergency_name?: string | null;
+  emergency_relation?: string | null;
+  emergency_phone?: string | null;
   active: boolean;
   /** Set when somebody leaves. Their records stay — a payslip from March is
    *  still a fact in June (A5). */
