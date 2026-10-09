@@ -15,7 +15,7 @@ import type {
   EmployeeIdentity, EmployeeIdentityView, WlkpRecap,
   AllowanceWithholding, AllowanceWithholdingView,
   ContributionScheme, ContributionRate, ContributionRoll, Enrolment,
-  Task, TaskView, TaskRefKind, KpiView,
+  Task, TaskView, TaskRefKind, KpiView, DesignTaskProgress,
   TaskAction, Goal, GoalView, GoalBoardTask, BacklogItem, CandidateGoal, TaskPlanDay, MyPlanLine,
   WorkLog, WorkLogEntry, WorkLogRosterRow, WorkEvidence, WorkProgress,
   ContractKind, ClauseKind, ClauseChecklistItem, EmploymentContract,
@@ -44,11 +44,14 @@ import {
   membersOf, groupPeople, paidElsewhere as paidElsewhereRun,
   monthWorkdays, allowanceDayExact, hourlyRate, enrolledIn, dayOvertimeWindow, isRestDayOn, otRulesFor,
 } from "../hr-derive";
-import { latency, actingUser, requireModule, requireLevel, requireAuthority, conflict, replayed, remember } from "./_kit";
+import { latency, actingUser, requireModule, requireLevel, requireAuthority, conflict, replayed, remember, canDesign } from "./_kit";
+import { designScopeProgress } from "./design";
 import { OFFICE_TZ, officeClock, officeToday as sharedOfficeToday, officeStamp } from "@/lib/office";
 import { carrySickNote } from "../self-link";
 import { CADENCE_LABELS, addDays, daysBetween, taskPeriodsBetween, ageOn } from "@/services/hr/task-periods";
-import { contactProblem, leaveProblem, normalEmail, normalPhone } from "@/services/hr/employee-rules";
+import {
+  contactProblem, emergencyAfter, emergencyProblem, leaveProblem, normalEmail, normalPhone,
+} from "@/services/hr/employee-rules";
 
 const SERVICE = "hr" as const;
 
@@ -226,6 +229,10 @@ export async function saveEmployee(
     /** Absent leaves it as it is; an empty string clears it (D349). */
     email?: string;
     phone?: string;
+    /** The emergency contact (D406), the same: absent keeps, blank clears. */
+    emergency_name?: string;
+    emergency_relation?: string;
+    emergency_phone?: string;
   },
   idempotencyKey?: string,
 ): Promise<Result<Employee>> {
@@ -267,12 +274,18 @@ export async function saveEmployee(
      cannot be used, and paid leave before a year of service. */
   const contact = contactProblem(input.email, input.phone);
   if (contact) return invalid(SERVICE, contact.code, contact.message, { field: contact.field });
+  const email = input.email === undefined ? undefined : normalEmail(input.email) || null;
+  const phone = input.phone === undefined ? undefined : normalPhone(input.phone) || null;
+  /* 0251: the emergency contact, judged as it will be after the save (D406). */
+  const emergency = emergencyAfter(existing, input);
+  const urgent = emergencyProblem(
+    emergency, phone === undefined ? existing?.phone ?? null : phone, input.emergency_phone,
+  );
+  if (urgent) return invalid(SERVICE, urgent.code, urgent.message, { field: urgent.field });
   const today = sharedOfficeToday();
   const joined = input.joined_on || existing?.joined_on || (existing ? null : today);
   const leave = leaveProblem(joined, existing ? existing.paid_leave_days : null, input.paid_leave_days, today);
   if (leave) return invalid(SERVICE, leave.code, leave.message, { field: leave.field });
-  const email = input.email === undefined ? undefined : normalEmail(input.email) || null;
-  const phone = input.phone === undefined ? undefined : normalPhone(input.phone) || null;
   const user = actingUser();
   let saved: Employee | null = null;
 
@@ -303,6 +316,9 @@ export async function saveEmployee(
         note: input.note?.trim() ?? row.note,
         email: email === undefined ? row.email ?? null : email,
         phone: phone === undefined ? row.phone ?? null : phone,
+        emergency_name: emergency.name,
+        emergency_relation: emergency.relation,
+        emergency_phone: emergency.phone,
       });
       saved = row;
       writeAudit(draft, {
@@ -338,6 +354,9 @@ export async function saveEmployee(
         joined_on: input.joined_on || today,
         email: email ?? null,
         phone: phone ?? null,
+        emergency_name: emergency.name,
+        emergency_relation: emergency.relation,
+        emergency_phone: emergency.phone,
         active: true,
         left_on: null,
         note: input.note?.trim() || null,
@@ -942,6 +961,21 @@ export async function importScans(
 /** The roster a timeslot names its workers from (D355): active people,
  *  no pay. Production, HRD or payroll may read it; anybody else gets an empty
  *  list, as the database answers. */
+/** Filled / total boxes for every design task the caller may see: HRD all of
+ *  them, a drafter their own (0250, D402). */
+export async function listDesignTaskProgress(): Promise<Result<DesignTaskProgress[]>> {
+  await latency();
+  const state = getState();
+  const all = actingUser().modules.some((m) => m.module === "hrd") || canDesign("read");
+  const mine = myEmployee(state)?.id;
+  return ok(SERVICE, state.tasks
+    .filter((t) => (t.ref_kind === "design_room" || t.ref_kind === "design_item") && (all || t.assignee_id === mine))
+    .map((t) => ({
+      task_no: t.task_no, ref_kind: t.ref_kind as "design_room" | "design_item", ref_no: t.ref_no ?? "",
+      ...designScopeProgress(t.ref_kind === "design_room" ? "room" : "item", t.ref_no ?? ""),
+    })));
+}
+
 export async function listWorkRoster(): Promise<Result<RosterEntry[]>> {
   await latency();
   const user = actingUser();
@@ -3687,6 +3721,11 @@ export async function updateTask(
       "Mengubah tugas ini butuh akses HRD, atau tugas ini harus milik Anda sendiri.");
   }
   if (!t) return notFound(SERVICE, "task_not_found", `Tidak ada tugas ${input.task_no}.`);
+  /* `design_task_closes_itself` (0250): the boxes are the delivery (D402). */
+  if (input.action === "done" && (t.ref_kind === "design_room" || t.ref_kind === "design_item") && t.status !== "DONE") {
+    return invalid(SERVICE, "constraint",
+      "Tugas desain selesai sendiri saat semua kotaknya terisi — unggah atau tandai tidak perlu di Produksi › Desain.");
+  }
   if (!hrd && (input.action === "cancel" || input.action === "reopen")) {
     return refused(SERVICE, "not_permitted",
       input.action === "cancel"

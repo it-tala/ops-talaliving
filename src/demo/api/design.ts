@@ -4,14 +4,14 @@
  */
 import { ok, invalid, notFound, noop, refused, type Result } from "@/services/_shared/envelope";
 import {
-  DESIGN_BOXES,
-  type DesignApproval, type DesignApprovalInput, type DesignBox, type DesignBoxKey, type DesignBoxVersion,
+  DESIGN_BOXES, roomCode,
+  type DesignApproval, type DesignApprovalInput, type DesignAssignInput, type DesignAssignment, type DesignBox, type DesignBoxKey, type DesignBoxVersion,
   type DesignCollection, type DesignItemInput, type DesignItemView, type DesignProject,
   type DesignRoom, type ProjectDesign,
 } from "@/services/design/contracts";
 import type { DocKind } from "@/services/documents/contracts";
 import { currentBomRev, draftBomRev, productView } from "../production-derive";
-import { getState, apply, newId, writeAudit } from "../store";
+import { getState, apply, newId, nextDocNumber, writeAudit } from "../store";
 import { latency, actingUser, canDesign, conflict } from "./_kit";
 import { officeToday } from "@/lib/office";
 import type { DemoState, DemoDesignItem } from "../state";
@@ -87,6 +87,7 @@ function design(state: DemoState, projectCode: string): ProjectDesign | null {
         room_count: rooms.filter((r) => r.collection_id === c.id).length,
         item_count: mine.filter((i) => i.status !== "DROPPED").length,
         approved_count: mine.filter((i) => i.status !== "DROPPED" && i.approval_decision === "approved").length,
+        gallery_url: c.gallery_url ?? null,
       };
     })
     .sort((a, b) => a.code.localeCompare(b.code));
@@ -162,6 +163,30 @@ export async function saveDesignCollection(
       });
     }
     writeAudit(draft, { service: SERVICE, entity: "design_collection", entity_no: `${p.code}-${code}`, action: had ? "update" : "create", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, design(getState(), p.code)!);
+}
+
+/** The collection's gallery link (a Google Photos album): set, change, or
+ *  clear with a blank (0251, D406). */
+export async function setDesignCollectionGallery(
+  input: { project_code: string; code: string; url: string | null },
+): Promise<Result<ProjectDesign>> {
+  await latency();
+  if (!mayDesign("write")) return denied();
+  const state = getState();
+  const p = state.projects.find((x) => x.code === input.project_code.trim());
+  const code = input.code.trim().toUpperCase();
+  const c = p && state.design_collections.find((x) => x.project_id === p.id && x.code === code);
+  if (!p || !c) return notFound(SERVICE, "not_found", `Tidak ada koleksi ${input.project_code}-${code}.`);
+  const url = input.url?.trim() || null;
+  if (url && !/^https?:\/\/\S+$/i.test(url)) {
+    return invalid(SERVICE, "bad_url", "Tempel link lengkap yang diawali https://, mis. link album Google Photos.", { field: "url" });
+  }
+  if ((c.gallery_url ?? null) === url) return noop(SERVICE, design(state, p.code)!);
+  apply((draft) => {
+    draft.design_collections.find((x) => x.id === c.id)!.gallery_url = url;
+    writeAudit(draft, { service: SERVICE, entity: "design_collection", entity_no: `${p.code}-${code}`, action: "set_gallery", outcome: "ok", reason: null });
   });
   return ok(SERVICE, design(getState(), p.code)!);
 }
@@ -258,6 +283,12 @@ export async function setDesignItemDropped(
     row.dropped_at = dropped ? new Date().toISOString() : null;
     row.drop_reason = dropped ? reason!.trim() : null;
   });
+  /* An item taken out can leave the rest of its room complete (0250). */
+  if (dropped) {
+    const st = getState();
+    const it = st.design_items.find((x) => x.item_no === itemNo);
+    for (const o of st.design_items.filter((x) => it && x.room_id === it.room_id && !x.dropped_at)) settleDesignTasks(o.item_no);
+  }
   return getDesignItem(itemNo);
 }
 
@@ -449,6 +480,7 @@ export async function saveDesignSpec(
     });
     writeAudit(d, { service: SERVICE, entity: "design_item", entity_no: i.item_no, action: "save_spec", outcome: "ok", reason: null });
   });
+  settleDesignTasks(i.item_no);
   return ok(SERVICE, itemBoxes(getState(), i));
 }
 
@@ -475,6 +507,7 @@ export async function setDesignBoxSkip(
     });
     writeAudit(d, { service: SERVICE, entity: "design_item", entity_no: i.item_no, action: "skip_box", outcome: "ok", reason: null });
   });
+  settleDesignTasks(i.item_no);
   return ok(SERVICE, itemBoxes(getState(), i));
 }
 
@@ -518,4 +551,165 @@ export async function productFromDesignItem(
     writeAudit(d, { service: SERVICE, entity: "product", entity_no: code, action: "from_design_item", outcome: "ok", reason: null });
   });
   return ok(SERVICE, { product_code: code, existing });
+}
+
+/* ── Studio Desain S2: a room or an item given out as an HRD task (0250) ───
+ *
+ * The sandbox's `assign_design_task`, `settle_design_tasks` and
+ * `design_assignments`. The task is a row in `state.tasks`, the same one HRD
+ * reads; the bell follows from the store (`notifyTasks`). */
+
+const roomOf = (state: DemoState, i: DemoDesignItem) => {
+  const v = itemView(state, i);
+  return roomCode(v.project_code, v.collection_code, v.room_code);
+};
+
+/** Filled / total for a room (`26003-A-LR`) or an item; dropped items do not
+ *  count. */
+function scopeBoxes(state: DemoState, scope: "room" | "item", ref: string): { filled: number; total: number } {
+  const items = state.design_items.filter((i) => !i.dropped_at
+    && (scope === "item" ? i.item_no === ref : roomOf(state, i) === ref));
+  const boxes = items.flatMap((i) => itemBoxes(state, i));
+  return { filled: boxes.filter((b) => b.state !== "kosong").length, total: boxes.length };
+}
+
+/** Filled / total for a room or an item, read now — for HRD's task list. */
+export function designScopeProgress(scope: "room" | "item", ref: string) {
+  return scopeBoxes(getState(), scope, ref);
+}
+
+function assignmentRows(state: DemoState, projectCode?: string | null): DesignAssignment[] {
+  return state.tasks
+    .filter((t) => (t.ref_kind === "design_room" || t.ref_kind === "design_item") && t.status !== "CANCELLED"
+      && (!projectCode || (t.ref_no ?? "").split("-")[0] === projectCode))
+    .map((t) => {
+      const ref = t.ref_no ?? "";
+      const [p, c, r] = ref.split("-");
+      const scope = t.ref_kind === "design_room" ? "room" as const : "item" as const;
+      const emp = state.employees.find((e) => e.id === t.assignee_id);
+      return {
+        task_no: t.task_no, scope, ref_no: ref, project_code: p, collection_code: c, room_code: r,
+        item_no: scope === "item" ? ref : null,
+        assignee_no: emp?.employee_no ?? "", assignee_name: emp?.full_name ?? "",
+        due_date: t.due_date, status: t.status, assigned_at: t.assigned_at, done_at: t.done_at,
+        blocked_reason: t.blocked_reason, ...scopeBoxes(state, scope, ref),
+      };
+    })
+    .sort((a, b) => Number(a.status === "DONE") - Number(b.status === "DONE")
+      || a.due_date.localeCompare(b.due_date) || a.task_no.localeCompare(b.task_no));
+}
+
+/** The tasks given out from Design, for a project or for all. */
+export async function listDesignAssignments(projectCode?: string | null): Promise<Result<DesignAssignment[]>> {
+  await latency();
+  if (!mayDesign("read")) return ok(SERVICE, []);
+  return ok(SERVICE, assignmentRows(getState(), projectCode));
+}
+
+/** Give a room or an item to a drafter as an HRD task, or move the open one. */
+export async function assignDesignTask(input: DesignAssignInput): Promise<Result<DesignAssignment[]>> {
+  await latency();
+  if (!mayDesign("write")) {
+    return refused(SERVICE, "not_permitted", "Menugaskan pekerjaan desain butuh akses proyek, marketing, atau produksi (update).");
+  }
+  const state = getState();
+  const ref = input.ref_no.trim().toUpperCase();
+  const project = ref.split("-")[0];
+  let title = "";
+  if (input.scope === "room") {
+    const room = state.design_rooms.find((r) => {
+      const c = state.design_collections.find((x) => x.id === r.collection_id);
+      const p = c && state.projects.find((x) => x.id === c.project_id);
+      return p && c && roomCode(p.code, c.code, r.code) === ref;
+    });
+    if (!room) return notFound(SERVICE, "not_found", `Tidak ada ruangan ${ref}.`);
+    const n = state.design_items.filter((i) => i.room_id === room.id && !i.dropped_at).length;
+    title = `Desain ${ref} ${room.name} — ${n} item`;
+  } else if (input.scope === "item") {
+    const i = state.design_items.find((x) => x.item_no === ref);
+    if (!i) return notFound(SERVICE, "not_found", `Tidak ada item ${ref}.`);
+    if (i.dropped_at) return invalid(SERVICE, "item_dropped", "Item ini sudah dikeluarkan dari desain.", { field: "ref" });
+    title = `Desain ${ref} ${i.name}`;
+  } else {
+    return invalid(SERVICE, "unknown_scope", "Yang ditugaskan: room (ruangan) atau item.", { field: "scope" });
+  }
+  const emp = state.employees.find((e) => e.employee_no === input.assignee_no && e.active);
+  if (!emp) return invalid(SERVICE, "assignee_unknown", "Siapa drafternya? Pilih karyawan yang masih aktif.", { field: "assignee_no" });
+  if (!input.due_date) return invalid(SERVICE, "due_required", "Tenggatnya kapan?", { field: "due_date" });
+  if (input.due_date < officeToday()) return invalid(SERVICE, "due_in_past", "Tenggat tidak boleh sebelum hari ini.", { field: "due_date" });
+
+  const kind = input.scope === "room" ? "design_room" : "design_item";
+  const open = state.tasks.find((t) => t.ref_kind === kind && t.ref_no === ref && t.status === "OPEN");
+  const user = actingUser();
+  if (open) {
+    if (open.assignee_id === emp.id && open.due_date === input.due_date) return noop(SERVICE, assignmentRows(state, project));
+    apply((d) => {
+      const t = d.tasks.find((x) => x.id === open.id)!;
+      if (t.assignee_id !== emp.id) t.acknowledged_at = null;
+      t.assignee_id = emp.id;
+      t.due_date = input.due_date;
+      t.title = title;
+      if (input.note?.trim()) t.detail = input.note.trim();
+      if (t.chase_date && t.chase_date > input.due_date) t.chase_date = null;
+      writeAudit(d, { service: SERVICE, entity: "design_task", entity_no: t.task_no, action: "reassign", outcome: "ok", reason: null });
+    });
+    return ok(SERVICE, assignmentRows(getState(), project));
+  }
+  const prog = scopeBoxes(state, input.scope, ref);
+  if (prog.total === 0) return invalid(SERVICE, "nothing_to_do", "Belum ada item di sini. Tambah itemnya dulu, lalu tugaskan.", { field: "ref" });
+  if (prog.filled === prog.total) {
+    return invalid(SERVICE, "already_complete",
+      `Semua kotak sudah terisi (${prog.filled}/${prog.total}) — tidak ada yang perlu dikerjakan.`, { field: "ref" });
+  }
+  apply((d) => {
+    const no = nextDocNumber(d, "tgs");
+    d.tasks.push({
+      id: newId("tsk"), task_no: no, title, detail: input.note?.trim() || null,
+      assignee_id: emp.id, assigned_by: user.id, assigned_at: new Date().toISOString(),
+      due_date: input.due_date, ref_kind: kind, ref_no: ref, status: "OPEN",
+      done_at: null, done_by: null, blocked_reason: null, blocked_at: null, cancelled_reason: null,
+      period_start: null, period_end: null, chase_date: null,
+      deliverable: "Semua kotak terisi: gambar kerja PDF, DWG, render, foto item, spesifikasi, BOM — atau ditandai tidak perlu. Selesai sendiri.",
+      delivered_note: null, acknowledged_at: null, chased_at: null, chased_by: null, chase_note: null,
+      routine_id: null, goal_id: null, waits_on: null, started_at: null,
+    });
+    writeAudit(d, { service: SERVICE, entity: "design_task", entity_no: no, action: "assign", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, assignmentRows(getState(), project));
+}
+
+/** Close every open task this item belongs to — its room's and its own — once
+ *  its scope has no empty box (D403). Called after anything that can fill the
+ *  last box: a file, a spec, *not needed*, a dropped item, a BOM revision. */
+export function settleDesignTasks(itemNo: string) {
+  const state = getState();
+  const item = state.design_items.find((i) => i.item_no === itemNo);
+  if (!item) return;
+  const room = roomOf(state, item);
+  const done = state.tasks.filter((t) => t.status === "OPEN"
+    && ((t.ref_kind === "design_room" && t.ref_no === room) || (t.ref_kind === "design_item" && t.ref_no === itemNo)))
+    .map((t) => ({ t, p: scopeBoxes(state, t.ref_kind === "design_room" ? "room" : "item", t.ref_no ?? "") }))
+    .filter(({ p }) => p.total > 0 && p.filled === p.total);
+  if (done.length === 0) return;
+  const me = actingUser();
+  apply((d) => {
+    for (const { t, p } of done) {
+      const row = d.tasks.find((x) => x.id === t.id)!;
+      row.status = "DONE";
+      row.done_at = new Date().toISOString();
+      row.done_by = me.id;
+      row.delivered_note = `Semua kotak terisi (${p.filled}/${p.total}) — selesai sendiri dari Desain.`;
+    }
+  });
+}
+
+/** Every item a product belongs to, settled: its BOM may be the last box. */
+export function settleDesignTasksForProduct(productCode: string) {
+  const state = getState();
+  for (const i of state.design_items) {
+    if (i.product_code === productCode
+        || state.project_lines.some((l) => l.design_item_id === i.id && l.product_code === productCode)) {
+      settleDesignTasks(i.item_no);
+    }
+  }
 }

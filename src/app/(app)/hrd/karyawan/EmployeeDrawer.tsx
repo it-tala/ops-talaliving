@@ -11,7 +11,9 @@ import { formatIDR, formatNumber } from "@/lib/format";
 import { hr } from "@/demo/api";
 import { useLoad } from "@/components/ui/loaded";
 import type { Employee, EmployeeAccount, PayBasis } from "@/services/hr/contracts";
-import { contactProblem, leaveFrom } from "@/services/hr/employee-rules";
+import {
+  contactProblem, emergencyAfter, emergencyProblem, leaveFrom, normalPhone,
+} from "@/services/hr/employee-rules";
 import { useToast } from "@/store/toast";
 import { StandingPanel } from "./StandingPanel";
 import { PersonDeductions } from "./DeductionDefaults";
@@ -50,6 +52,9 @@ export function EmployeeDrawer({
   const [leave, setLeave] = useState(employee?.paid_leave_days ?? 0);
   const [email, setEmail] = useState(employee?.email ?? "");
   const [phone, setPhone] = useState(employee?.phone ?? "");
+  const [emName, setEmName] = useState(employee?.emergency_name ?? "");
+  const [emRelation, setEmRelation] = useState(employee?.emergency_relation ?? "");
+  const [emPhone, setEmPhone] = useState(employee?.emergency_phone ?? "");
   const [schedule, setSchedule] = useState(employee?.schedule_code ?? "");
   /* The day they started, not the day they were typed in. Everybody entered at
      go-live would otherwise have joined that morning (F154). Blank on a new
@@ -94,6 +99,12 @@ export function EmployeeDrawer({
   const leaveOpensOn = leaveFrom(joined || (employee ? null : today));
   const leaveOpen = leaveOpensOn !== null && leaveOpensOn <= today;
   const contact = contactProblem(email, phone);
+  /* Who to call (D406): a name and a number together, never their own. Judged
+     only once something is typed, so an empty section is not a blocker. */
+  const urgent = emergencyProblem(
+    emergencyAfter(null, { emergency_name: emName, emergency_relation: emRelation, emergency_phone: emPhone }),
+    normalPhone(phone) || null, emPhone,
+  );
 
   const changed = employee && rate !== employee.base_rate;
   /* Somebody already on the books with no salary written yet (six monthly
@@ -108,6 +119,7 @@ export function EmployeeDrawer({
     !name.trim() && tr("the full name", "nama lengkap"),
     rateMissing && (basis === "monthly" ? tr("the salary", "gajinya") : tr("the rate", "tarifnya")),
     contact && contact.message,
+    urgent && urgent.message,
   ].filter(Boolean) as string[];
   const allowanceChanged = employee && allowance !== employee.allowance_rate;
 
@@ -120,6 +132,7 @@ export function EmployeeDrawer({
       ...(joined ? { joined_on: joined } : {}),
       /* Sent as typed; blank clears it on an existing person (D349). */
       email, phone,
+      emergency_name: emName, emergency_relation: emRelation, emergency_phone: emPhone,
       /* Empty means *follow the unit*, which is a real answer here and not an
          omission — so it is sent as an explicit null rather than left out
          (absent means unchanged on this endpoint). */
@@ -268,6 +281,54 @@ export function EmployeeDrawer({
             {contact?.field === "phone" && <p className="mt-1 text-[11px] text-amber-700">{contact.message}</p>}
           </div>
         </div>
+
+        {/* Who to call when something happens to them at work (D406). A name
+            and a number, together; the relation if known. Never their own
+            number — that is the phone not answering on the day. */}
+        <fieldset className="rounded-lg border border-slate-100 px-3 pb-3 pt-2">
+          <legend className="px-1 text-xs font-medium text-slate-600">{tr("Emergency contact", "Kontak darurat")}</legend>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="sm:col-span-1">
+              <label htmlFor="e-em-name" className="block text-xs text-slate-500">{tr("Name", "Nama")}</label>
+              <input
+                id="e-em-name" autoComplete="off" maxLength={120}
+                value={emName} onChange={(e) => setEmName(e.target.value)}
+                placeholder="Siti Aminah"
+                className={"mt-1 h-9 w-full rounded-lg border px-2 text-sm focus:outline-none "
+                  + (urgent?.field === "emergency_name" ? "border-amber-400 focus:border-amber-500" : "border-slate-200 focus:border-brand-400")}
+              />
+            </div>
+            <div className="sm:col-span-1">
+              <label htmlFor="e-em-rel" className="block text-xs text-slate-500">{tr("Relation", "Hubungan")}</label>
+              <input
+                id="e-em-rel" autoComplete="off" maxLength={40} list="e-em-rel-list"
+                value={emRelation} onChange={(e) => setEmRelation(e.target.value)}
+                placeholder={tr("Wife, Mother…", "Istri, Ibu…")}
+                className={"mt-1 h-9 w-full rounded-lg border px-2 text-sm focus:outline-none "
+                  + (urgent?.field === "emergency_relation" ? "border-amber-400 focus:border-amber-500" : "border-slate-200 focus:border-brand-400")}
+              />
+              <datalist id="e-em-rel-list">
+                {["Suami", "Istri", "Ayah", "Ibu", "Anak", "Kakak", "Adik", "Saudara", "Teman"].map((r) => <option key={r} value={r} />)}
+              </datalist>
+            </div>
+            <div className="sm:col-span-1">
+              <label htmlFor="e-em-phone" className="block text-xs text-slate-500">{tr("Mobile number", "Nomor HP")}</label>
+              <input
+                id="e-em-phone" type="tel" inputMode="tel" autoComplete="off"
+                value={emPhone} onChange={(e) => setEmPhone(e.target.value)}
+                placeholder="0813 1111 2222"
+                className={"mt-1 h-9 w-full rounded-lg border px-2 text-sm focus:outline-none "
+                  + (urgent?.field === "emergency_phone" ? "border-amber-400 focus:border-amber-500" : "border-slate-200 focus:border-brand-400")}
+              />
+            </div>
+          </div>
+          {urgent
+            ? <p className="mt-1 text-[11px] text-amber-700">{urgent.message}</p>
+            : <p className="mt-1 text-[11px] text-slate-500">{tr(
+                "Optional. Who HRD calls if something happens to this person at work.",
+                "Opsional. Yang dihubungi HRD bila terjadi sesuatu pada orang ini saat bekerja.",
+              )}</p>}
+        </fieldset>
 
         {/* Which working pattern this person is on (Q53, D281).
             

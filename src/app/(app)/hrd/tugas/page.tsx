@@ -21,6 +21,8 @@ import { DailyPanel } from "./daily-panel";
 import { BacklogPanel } from "./backlog-panel";
 import { RoadmapPanel } from "./roadmap-panel";
 import { CandidatesPanel } from "./candidates-panel";
+import { DesignTaskNote, useDesignProgress } from "@/components/hr/design-progress";
+import { isDesignTask } from "@/services/hr/contracts";
 
 /** Pemantauan tugas — the module built against a failure the owner described
  *  in one sentence (D303):
@@ -80,6 +82,7 @@ function Tasks() {
   const today = officeToday();
 
   const [tasks, reloadTasks] = useLoad(() => hr.listTasks(), []);
+  const designProgress = useDesignProgress(tasks);
   const [routines, reloadRoutines] = useLoad(() => hr.listTaskRoutines(), []);
   const [employees] = useLoad(() => hr.listEmployees(), []);
   const [busy, setBusy] = useState(false);
@@ -649,7 +652,8 @@ function Tasks() {
                                 : tr(`Started from: ${t.waits_on_title}`, `Mulai dari: ${t.waits_on_title}`)}
                             </p>
                           )}
-                          {t.deliverable && (
+                          <DesignTaskNote t={t} progress={designProgress} />
+                          {t.deliverable && !isDesignTask(t) && (
                             <p className="mt-0.5 text-[12px] text-slate-600">
                               <span className="text-slate-400">{tr("asked for:", "diminta:")}</span> {t.deliverable}
                             </p>
@@ -709,9 +713,12 @@ function Tasks() {
                                   <AlarmClock className="h-4 w-4" /> {tr("Chase", "Tagih")}
                                 </Button>
                               )}
-                              <Button size="sm" variant="ghost" onClick={() => act(t, "done")} disabled={busy}>
-                                <Check className="h-4 w-4" /> {tr("Done", "Selesai")}
-                              </Button>
+                              {/* HRD monitors a design task; its boxes close it (D402). */}
+                              {!isDesignTask(t) && (
+                                <Button size="sm" variant="ghost" onClick={() => act(t, "done")} disabled={busy}>
+                                  <Check className="h-4 w-4" /> {tr("Done", "Selesai")}
+                                </Button>
+                              )}
                               {t.blocked_reason ? (
                                 <Button size="sm" variant="ghost" onClick={() => act(t, "unblock")} disabled={busy}>
                                   <PlayCircle className="h-4 w-4" /> {tr("Resume", "Lanjut")}

@@ -14,6 +14,7 @@ import { getState, apply, newId, writeAudit, writeOutbox } from "../store";
 import { latency, actingUser, conflict, replayed, remember } from "./_kit";
 import { settingNumber } from "../settings";
 import { selfEmployeeId, carrySickNote } from "../self-link";
+import { settleDesignTasks } from "./design";
 
 const SERVICE = "documents" as const;
 
@@ -356,6 +357,8 @@ export async function link(
     writeOutbox(draft, { service: SERVICE, event_type: "documents.link.created", payload: { ...input } });
   });
   remember(SERVICE, endpoint, idempotencyKey, row);
+  /* A file can fill a design item's last box (0250). */
+  if (input.entity === "design_item") settleDesignTasks(input.entity_no);
   return ok(SERVICE, row);
 }
 

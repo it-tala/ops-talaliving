@@ -428,7 +428,7 @@ dies — the same reason `john-lau` set 15 MB under Next's 16 MB.
 | GET | `/employees/{employee_no}` | |
 | GET | `/employee-accounts` | `ops_hr.v_employee_account` over the definer `employee_accounts()` (D329): per employee — number, name, position, unit, active — and the linked account's email, name and `is_active`. **`it.read` or `hrd.read`**; nothing about pay. IT → Pengguna & akses searches it to link; HR → Karyawan shows it read-only |
 | POST | `/employees/{id}/account` | `{user_id}` or `{user_id: null}` to unlink — `ops_hr.link_employee_account` (D329), writing `employees.user_id`, the link `my_employee_id()` reads. **`it.manage_users`** (IT does the input). 409 `employee_has_account` (names the account there) · 409 `account_linked_elsewhere` (names the employee) · 403 `employee_left` · 404; `noop` for the same link twice. Unlinking is never refused. Trail: `hr/employee/account.link` · `account.unlink`, with the email before and after |
-| POST | `/employees` | create or update by `employee_no`. Carries **pokok** (`base_rate`) and **tunjangan harian** (`allowance_rate`) as separate fields (D250); `allowance_rate` omitted means **unchanged**, never zero, so a save that forgot the field cannot quietly stop paying somebody's allowance. A change to either puts the figure **before and after** on the audit row — "when did his rate go up, and who said so" is the question a payroll dispute turns on |
+| POST | `/employees` | create or update by `employee_no`. Carries **pokok** (`base_rate`) and **tunjangan harian** (`allowance_rate`) as separate fields (D250); `allowance_rate` omitted means **unchanged**, never zero, so a save that forgot the field cannot quietly stop paying somebody's allowance. A change to either puts the figure **before and after** on the audit row — "when did his rate go up, and who said so" is the question a payroll dispute turns on. `email`, `phone` (D349) and the emergency contact `emergency_name`, `emergency_relation`, `emergency_phone` (D406, `0251`): absent keeps, blank clears; 422 `emergency_name_required` · `emergency_phone_required` · `emergency_phone_invalid` · `emergency_is_own_phone`; none of them copied into the audit row |
 | POST | `/employees/{employee_no}/offboard` | `{left_on, reason}` — `ops_hr.offboard_employee` (D337): `active = false`, `left_on`; nothing deleted. **`hrd.update`**. 400 `reason_required` · 400 `left_before_joined` · 409 `already_left` · 404. Returns the employee plus `taps_after`, the taps already on file after the date. Trail: `hr/employee/offboard` with the reason |
 | POST | `/employees/{employee_no}/reinstate` | `{reason}` — `ops_hr.reinstate_employee` (D337), the undo. **`hrd.update`**. 400 `reason_required` · 409 `already_active` · 404. Trail: `hr/employee/reinstate` with the date it cleared |
 | GET | `/timesheet?from=&to=&unit=` | the grid: every person × every office day, plus `needs_review` and `marked` counts |
@@ -686,6 +686,31 @@ required and nothing refuses for an empty box (D401). Read and written by
 | POST | `/design/items/{no}/spec` | `{body, note?}` — `save_design_spec`: a new version. 422 `spec_empty`; the same text again is **noop** |
 | POST | `/design/items/{no}/boxes/{box}/skip` | `{skip, note?}` — `set_design_box_skip`, append-only; *not needed* counts as filled (D403), *needed again* empties it; repeating is **noop**. 422 `unknown_box` |
 | POST | `/design/items/{no}/product` | `{product_code?, category?}` — `product_from_design_item` (D400): code defaults to the item number, an existing product is linked; made **inactive** with `design_item_no`, activated by the first order line naming it (trigger on `project_lines`). 409 `already_product`; 403 without `production.create` |
+
+### Desain — a room or an item given out as an HRD task (Studio Desain S2, 0249/0250, D402–D403)
+
+One room (`26003-A-LR`) or item (`26003-A-LR-01`) to one drafter with one due
+date, from Design. It **is** an `ops_hr.tasks` row (`ref_kind` `design_room` /
+`design_item`), so the bell, Chat, the daily plan and log, *tertahan*, the
+Roadmap and the KPI apply. It **closes itself** when every box in its scope is
+filled or not needed — triggers on a file linked to the item, a spec, *not
+needed*, a BOM revision on its product, and an item dropped from the room —
+signed by whoever filled the last box, with a delivered note. A later version
+does not reopen it. **Nobody marks it done by hand**: a trigger on
+`ops_hr.tasks` refuses the status change (23514 → `invalid`/`constraint`) for
+the drafter and for HRD alike; reopening, blocking and moving stay as they are.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/design/assignments?project_code=` | `design_assignments()` (a definer function: drafters may read the design but not `ops_hr.tasks`): task, scope, ref, assignee, due, status, done_at, blocked reason, `filled`/`total` |
+| POST | `/design/assignments` | `{scope: room\|item, ref_no, assignee_no, due_date, note?}` — `assign_design_task` (`may_design`): a new task, or the open one **moved** (another person or date; same person and date is noop). 422 `unknown_scope`, `assignee_unknown` (active employees only), `due_required`, `due_in_past`, `nothing_to_do` (no items), `already_complete`, `item_dropped`; 404 room/item. Answers the project's assignments |
+| GET | `/hr/design-task-progress` | `ops_hr.design_task_progress()`: filled/total per design task — HRD and designers see all, a drafter their own. HRD's task list and *Profil → Tugas* show it, with *Buka di Desain* (`/produksi/desain?room=` / `?item=`) and no *done* button |
+
+### Desain — a gallery link per collection (0251, D406)
+
+| Method | Path | Notes |
+|---|---|---|
+| PUT | `/design/collections/{project}-{code}/gallery` | `{url}` — `set_design_collection_gallery` (`may_design`): a shared Google Photos album link; blank clears it; the same link is **noop**. 422 `bad_url` (not a web address); 404 collection. Read as `v_design_collection.gallery_url` |
 
 ## `inventory` — stock and timber
 

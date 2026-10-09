@@ -50,7 +50,7 @@ import type {
   DeductionKind, DeductionDefault, EmployeeDeduction, DueDeduction, AttendanceExemption, PresencePay,
   AdjustmentKind, ContributionScheme,
   LeaveKind, LeaveStatus, LeaveRequestView, LeaveBalance,
-  TaskStatus, TaskRefKind, TaskView, TaskCadence, TaskRoutineView,
+  TaskStatus, TaskRefKind, TaskView, TaskCadence, TaskRoutineView, DesignTaskProgress,
   TaskAction, GoalView, GoalBoardTask, BacklogItem, CandidateGoal, TaskPlanDay, MyPlanLine,
   WorkLogEntry, WorkLogRosterRow, WorkEvidence, WorkProgress, KpiView,
   Sex, Education, Citizenship, MaritalStatus, EmployeeIdentityView, WlkpRecap,
@@ -65,7 +65,7 @@ import { instantInDay, nextOfficeDay, type ScheduleDay, type ScheduleShift, type
 import { tapWhere, type TapReadingRow } from "@/services/hr/tap-where";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { STAGE_NAME } from "@/services/production/contracts";
-import { fromSeam, fromRows, notFound, invalid, ok, type Result } from "./_kit";
+import { fail, fromSeam, fromRows, notFound, invalid, ok, type Result } from "./_kit";
 import { link as linkDocument } from "./documents";
 import { officeStamp } from "@/lib/office";
 
@@ -82,7 +82,8 @@ const core = () => supabaseBrowser().schema("ops_core");
  *  below a lie by omission in the other direction. */
 const EMPLOYEE_COLS =
   "id,employee_no,full_name,position,unit,schedule_code,pay_basis,base_rate,"
-  + "allowance_rate,daily_hours,joined_on,paid_leave_days,email,phone,active,left_on,note";
+  + "allowance_rate,daily_hours,joined_on,paid_leave_days,email,phone,"
+  + "emergency_name,emergency_relation,emergency_phone,active,left_on,note";
 
 /* ------------------------------------------------------------------ */
 /* People                                                              */
@@ -127,6 +128,18 @@ export async function listLeavers(
  *  timeslot names its workers from (D355). A function, not the table: a
  *  production admin cannot read `employees`, and the picker was empty for
  *  exactly the person it was built for (F205). */
+/** Filled / total boxes for every design task the caller may see: HRD all of
+ *  them, a drafter their own (0250, D402). */
+export async function listDesignTaskProgress(): Promise<Result<DesignTaskProgress[]>> {
+  const { data, error } = await db().rpc("design_task_progress");
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+    ...(r as unknown as DesignTaskProgress),
+    filled: Number(r.filled ?? 0),
+    total: Number(r.total ?? 0),
+  })));
+}
+
 export async function listWorkRoster(): Promise<Result<RosterEntry[]>> {
   const { data, error } = await db().rpc("work_roster");
   return fromRows<RosterEntry[]>(SERVICE, (data ?? []) as RosterEntry[], error);
@@ -196,6 +209,10 @@ export async function saveEmployee(
     /** Absent leaves it as it is; an empty string clears it (D349). */
     email?: string;
     phone?: string;
+    /** The emergency contact (D406), the same: absent keeps, blank clears. */
+    emergency_name?: string;
+    emergency_relation?: string;
+    emergency_phone?: string;
   },
   idempotencyKey?: string,
 ): Promise<Result<Employee>> {
@@ -216,6 +233,9 @@ export async function saveEmployee(
     p_key: idempotencyKey ?? null,
     p_email: input.email ?? null,
     p_phone: input.phone ?? null,
+    p_emergency_name: input.emergency_name ?? null,
+    p_emergency_relation: input.emergency_relation ?? null,
+    p_emergency_phone: input.emergency_phone ?? null,
   });
   const said = fromSeam<{ employee_no: string }>(SERVICE, data, error);
   if (said.error) return said as unknown as Result<Employee>;
