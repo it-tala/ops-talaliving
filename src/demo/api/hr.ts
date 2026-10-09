@@ -42,7 +42,7 @@ import {
   workLogView, workLogRoster as workLogRosterRows, workEvidence as workEvidenceOf,
   employeeIdentityViews, wlkpRecap,
   membersOf, groupPeople, paidElsewhere as paidElsewhereRun,
-  monthWorkdays, allowanceDayExact, hourlyRate, enrolledIn, dayOvertimeWindow, isRestDayOn,
+  monthWorkdays, allowanceDayExact, hourlyRate, enrolledIn, dayOvertimeWindow, isRestDayOn, otRulesFor,
 } from "../hr-derive";
 import { latency, actingUser, requireModule, requireLevel, requireAuthority, conflict, replayed, remember } from "./_kit";
 import { OFFICE_TZ, officeClock, officeToday as sharedOfficeToday, officeStamp } from "@/lib/office";
@@ -1877,7 +1877,8 @@ export async function approveDayOvertime(
     if (from == null || until == null) {
       return invalid(SERVICE, "time_required", "Jam mulai dan selesai lembur belum diketahui — tulis keduanya.", { field: "from_minutes" });
     }
-    hours = overtimeSegments(activePayRules(state, input.work_date).rules, isRestDayOn(state, input.work_date), from, until)
+    hours = overtimeSegments(otRulesFor(state, activePayRules(state, input.work_date).rules, emp, input.work_date),
+      isRestDayOn(state, input.work_date), from, until)
       .reduce((t, x) => t + x.hours, 0);
   }
   if (!(hours > 0 && hours <= 12)) {
@@ -1938,7 +1939,7 @@ export async function overtimePreview(
     return ok(SERVICE, [{ from_minutes: from, until_minutes: until, seg_from: null, seg_until: null,
       hours: null, multiplier: null, hourly, amount: null }]);
   }
-  return ok(SERVICE, overtimeSegments(rules, isRestDayOn(state, input.work_date), from, until).map((x) => ({
+  return ok(SERVICE, overtimeSegments(otRulesFor(state, rules, emp, input.work_date), isRestDayOn(state, input.work_date), from, until).map((x) => ({
     from_minutes: from, until_minutes: until, seg_from: x.seg_from, seg_until: x.seg_until,
     hours: x.hours, multiplier: x.multiplier, hourly, amount: Math.round(x.hours * x.multiplier * hourly),
   })));
@@ -1964,6 +1965,60 @@ export async function withdrawDayOvertime(
     if (sh) { sh.paid = false; sh.unpaid_reason = reason; }
   });
   return ok(SERVICE, { sheet_no: input.sheet_no });
+}
+
+/** `ops_hr.keep_break` (0246, D398): *istirahat tidak dipotong* for a day. */
+export async function keepBreak(
+  input: { employee_no: string; work_date: string; keep: boolean; reason: string },
+): Promise<Result<{ kept: boolean }>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "hrd", "write");
+  if (denied) return denied;
+  const reason = input.reason.trim();
+  if (!reason) {
+    return invalid(SERVICE, "reason_required", "Kenapa istirahatnya tidak dipotong? Kalimatnya yang dibaca kalau hari itu dipertanyakan.", { field: "reason" });
+  }
+  const state = getState();
+  const emp = state.employees.find((e) => e.employee_no === input.employee_no);
+  if (!emp) return notFound(SERVICE, "employee_not_found", `No employee ${input.employee_no}.`);
+  const live = (state.break_waivers ?? []).find((w) => w.employee_id === emp.id
+    && w.work_date === input.work_date && w.withdrawn_at === null);
+  if (input.keep && live) return conflict(SERVICE, "already_kept", "Istirahat hari itu sudah tidak dipotong.");
+  if (!input.keep && !live) return conflict(SERVICE, "not_kept", "Istirahat hari itu memang dipotong.");
+  apply((draft) => {
+    const rows = draft.break_waivers ?? [];
+    if (input.keep) {
+      rows.push({ id: newId("brk"), employee_id: emp.id, work_date: input.work_date, reason,
+        by: actingUser().id, at: new Date().toISOString(), withdrawn_at: null });
+    } else {
+      for (const r of rows) if (r.id === live!.id) r.withdrawn_at = new Date().toISOString();
+    }
+    draft.break_waivers = rows;
+  });
+  return ok(SERVICE, { kept: input.keep });
+}
+
+/** `ops_hr.void_scan` (0246, D398): a tap HRD typed, moved out with why. */
+export async function voidScan(input: { scan_id: string; reason: string }): Promise<Result<{ work_date: string }>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "hrd", "write");
+  if (denied) return denied;
+  const reason = input.reason.trim();
+  if (!reason) return invalid(SERVICE, "reason_required", "Kenapa tap ini dihapus?", { field: "reason" });
+  const scan = getState().attendance_scans.find((x) => x.id === input.scan_id);
+  if (!scan) return notFound(SERVICE, "not_found", "Tap itu tidak ada.");
+  if (scan.source !== "manual") {
+    return conflict(SERVICE, "not_manual",
+      "Hanya tap yang diketik HRD yang bisa dihapus. Tap dari mesin atau HP adalah kejadian — kalau hari itu salah dibaca, tandai harinya.");
+  }
+  apply((draft) => {
+    draft.attendance_scans = draft.attendance_scans.filter((x) => x.id !== scan.id);
+    draft.voided_scans = [...(draft.voided_scans ?? []), {
+      id: scan.id, employee_id: scan.employee_id, work_date: scan.work_date, at: scan.at,
+      reason, voided_at: new Date().toISOString(),
+    }];
+  });
+  return ok(SERVICE, { work_date: scan.work_date });
 }
 
 /** `ops_hr.confirm_presence` (0242, D394). */
@@ -2145,7 +2200,17 @@ export async function personDayEdits(
       }];
     })
     .sort((a, b) => a.work_date.localeCompare(b.work_date));
-  return ok(SERVICE, { marks, withholdings: held.data, overtime });
+  /* `ops_hr.person_day_extras` (0246): kept breaks and the taps HRD typed. */
+  const break_kept = (state.break_waivers ?? [])
+    .filter((w) => w.employee_id === emp.id && w.withdrawn_at === null
+      && w.work_date >= input.from && w.work_date <= input.to)
+    .map((w) => ({ id: w.id, work_date: w.work_date, reason: w.reason }));
+  const manual_scans = state.attendance_scans
+    .filter((x) => x.employee_id === emp.id && x.source === "manual"
+      && x.work_date >= input.from && x.work_date <= input.to)
+    .map((x) => ({ id: x.id, work_date: x.work_date, at: x.at, reason: x.reason ?? "" }))
+    .sort((a, b) => a.at.localeCompare(b.at));
+  return ok(SERVICE, { marks, withholdings: held.data, overtime, break_kept, manual_scans });
 }
 
 export async function removeAdjustment(

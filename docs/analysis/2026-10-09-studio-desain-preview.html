@@ -332,17 +332,17 @@ function render() {
 
 function plan() {
   return `<div class="plan">
-  <div class="ph"><span class="crumb">Kajian 9 Okt 2026 · dijawab owner hari yang sama · D398–D404</span>
+  <div class="ph"><span class="crumb">Kajian 9 Okt 2026 · dijawab owner hari yang sama · D399–D405</span>
     <h1>Studio Desain: progres dan kelengkapan kerja drafter</h1>
     <p>Setiap item punya enam kotak. Drafter hanya mengunggah; yang berlaku selalu versi terbaru. Progres adalah jumlah kotak terisi, dan tugas selesai sendiri saat semuanya terisi. Tidak ada yang wajib, tidak ada yang diperiksa, dan HRD hanya memantau.</p></div>
   <section><h2>Jawaban owner</h2><div class="tablewrap"><table class="qa"><thead><tr><th>#</th><th>Jawaban</th><th>Artinya di layar</th></tr></thead><tbody>
-    ${[["D398", "Tidak ada final, hanya versi terbaru", "Tidak ada tombol Final/Revisi. Unggah lagi = versi B, C. Versi lama tetap di riwayat."],
-       ["D399", "Produk + BOM sebelum dipesan, untuk quotation", "Tombol Buat produk & BOM di kotak BOM. Biaya per unit tampil dan dipakai quotation."],
-       ["D400", "Jangan wajibkan, supaya tidak error", "Kotak kosong tidak menahan apa pun. Tidak perlu = satu ketukan, catatan boleh kosong."],
-       ["D401", "HRD hanya memantau", "Tugas dibuat dari Design. Di HRD tampil dengan progres, tanpa tombol ubah atau tutup."],
-       ["D402", "Selesai saat semua kotak terisi", "Tugas ruangan tertutup sendiri saat kotak terakhir terisi."],
-       ["D403", "Pakai proyek", "Klien › proyek › koleksi › ruangan › item."],
-       ["D404", "Di bawah Desain saja", "Layar Produksi › Design yang sudah ada diganti isinya: Ruang kerja dan Progres."]]
+    ${[["D399", "Tidak ada final, hanya versi terbaru", "Tidak ada tombol Final/Revisi. Unggah lagi = versi B, C. Versi lama tetap di riwayat."],
+       ["D400", "Produk + BOM sebelum dipesan, untuk quotation", "Tombol Buat produk & BOM di kotak BOM. Biaya per unit tampil dan dipakai quotation."],
+       ["D401", "Jangan wajibkan, supaya tidak error", "Kotak kosong tidak menahan apa pun. Tidak perlu = satu ketukan, catatan boleh kosong."],
+       ["D402", "HRD hanya memantau", "Tugas dibuat dari Design. Di HRD tampil dengan progres, tanpa tombol ubah atau tutup."],
+       ["D403", "Selesai saat semua kotak terisi", "Tugas ruangan tertutup sendiri saat kotak terakhir terisi."],
+       ["D404", "Pakai proyek", "Klien › proyek › koleksi › ruangan › item."],
+       ["D405", "Di bawah Desain saja", "Layar Produksi › Design yang sudah ada diganti isinya: Ruang kerja dan Progres."]]
       .map(([d, a, b]) => `<tr><td class="mono">${d}</td><td>${a}</td><td>${b}</td></tr>`).join("")}
   </tbody></table></div>
   <div class="row" style="margin-top:10px"><button class="btn sm" data-go="ws">Coba Produksi › Design</button><button class="btn sm out" data-go="hrd">Lihat di HRD</button></div>

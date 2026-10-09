@@ -1,6 +1,6 @@
 # Studio Desain: progres dan kelengkapan kerja drafter, kajian 9 Okt 2026
 
-Kajian ini sudah dijawab owner pada hari yang sama: **D398–D404** di
+Kajian ini sudah dijawab owner pada hari yang sama: **D399–D405** di
 `docs/plan/06-decisions.md`. Isi di bawah adalah bentuk yang diputuskan.
 
 Preview yang bisa diklik: `docs/analysis/2026-10-09-studio-desain-preview.html`.
@@ -16,13 +16,13 @@ Intinya track progress dan track kelengkapan hasil kerja.*
 
 | | Jawaban | Keputusan |
 |---|---|---|
-| Q74 | *tidak ada final, hanya versi terbaru saja* | D398 |
-| Q75 | *ya, untuk quotation ke klien* | D399 |
-| Q76 | *tidak, jangan wajibkan sehingga tidak error* | D400 |
-| Q77 | *HRD hanya memantau* | D401 |
-| Q78 | *semua kotak terisi* | D402 |
-| Q79 | *pakai proyek* | D403 |
-| Q80 | *di bawah desain saja* | D404 |
+| Q74 | *tidak ada final, hanya versi terbaru saja* | D399 |
+| Q75 | *ya, untuk quotation ke klien* | D400 |
+| Q76 | *tidak, jangan wajibkan sehingga tidak error* | D401 |
+| Q77 | *HRD hanya memantau* | D402 |
+| Q78 | *semua kotak terisi* | D403 |
+| Q79 | *pakai proyek* | D404 |
+| Q80 | *di bawah desain saja* | D405 |
 
 Versi-versi sebelumnya (dengan review, Final, dan kategori alasan) ada di
 riwayat git cabang ini.
@@ -31,21 +31,21 @@ riwayat git cabang ini.
 
 ## 0. Ringkas
 
-1. **Kenapa `/produksi/desain` tidak ada input** (F246). Tabelnya sudah ada di
+1. **Kenapa `/produksi/desain` tidak ada input** (F247). Tabelnya sudah ada di
    produksi tapi kosong: 1 klien, 5 proyek, 0 koleksi, 0 item, 0 tugas gambar.
    Antrean hanya membuat tugas dari item yang disetujui, ditawarkan, atau
    dipesan. Item hanya bisa dibuat di halaman proyek, dan menu Projects
    tertutup untuk drafter.
 2. **Setiap item punya enam kotak.** Kotak terisi saat ada file atau isinya.
-   **Yang berlaku selalu versi terbaru** (D398). Progres adalah jumlah kotak
+   **Yang berlaku selalu versi terbaru** (D399). Progres adalah jumlah kotak
    yang terisi, dan tidak pernah diketik.
 3. **Drafter hanya mengunggah.** Versi A, B, C, siapa, dan kapan tercatat
    sendiri.
-4. **Tidak ada yang wajib** (D400). Kotak kosong tidak menahan quotation,
+4. **Tidak ada yang wajib** (D401). Kotak kosong tidak menahan quotation,
    order, BOM, atau Job Order. Kosong hanya terlihat di progres.
 5. **Tugas drafter dibuat dari Desain sebagai tugas HRD.** Tugas selesai
-   sendiri saat semua kotaknya terisi (D402). HRD hanya memantau (D401).
-6. **Tempatnya layar Desain yang sudah ada** di bawah Produksi (D404).
+   sendiri saat semua kotaknya terisi (D403). HRD hanya memantau (D402).
+6. **Tempatnya layar Desain yang sudah ada** di bawah Produksi (D405).
 
 ---
 
@@ -63,7 +63,7 @@ riwayat git cabang ini.
 Setiap kotak punya tiga keadaan: **kosong**, **terisi** (dengan versi
 terbarunya), atau **tidak perlu**. *Tidak perlu* adalah satu ketukan, catatan
 boleh kosong, dan dihitung terisi. Tujuannya supaya item yang memang tanpa
-render tetap bisa 6/6 (D400, D402).
+render tetap bisa 6/6 (D401, D403).
 
 **Progres item** = kotak terisi / 6. Progres ruangan, koleksi, proyek, dan
 drafter dijumlahkan dari kotak yang sama. Tidak ada angka yang disimpan dua
@@ -77,12 +77,12 @@ kali (A3).
 - Yang tercatat sendiri: siapa, kapan, dan nomor versi. **Catatan opsional**
   per versi (*apa yang berubah*, *masukan klien*) untuk yang mau menulis.
   Catatan ini tidak pernah wajib.
-- **Versi terbaru yang berlaku** (D398), termasuk untuk bengkel. Untuk item
+- **Versi terbaru yang berlaku** (D399), termasuk untuk bengkel. Untuk item
   Studio Desain, langkah *rilis* D179 tidak dipakai lagi.
 - **DWG dicek silang terhadap PDF tanpa kerja tambahan:** *DWG versi A, PDF
   sudah versi B*. Ini sekadar tanda, tidak menahan apa pun.
 
-## 3. BOM untuk quotation (D399)
+## 3. BOM untuk quotation (D400)
 
 - Kotak BOM kosong → tombol **Buat produk & BOM**. Produk dibuat dari nama,
   ukuran, dan kategori item, ditandai *dari desain*, dan tidak tampil di
@@ -91,7 +91,7 @@ kali (A3).
 - Biaya per unit dari BOM tampil di kotak dan dipakai quotation *Dari desain*
   (`0225`), sehingga penawaran ke klien bisa dihargai sebelum ada order.
 
-## 4. Tugas dan tenggat (D401, D402)
+## 4. Tugas dan tenggat (D402, D403)
 
 - Di Desain, koordinator menugaskan **satu ruangan** (atau satu item, kalau
   ruangan dibagi) ke satu drafter dengan satu tenggat. Itu menjadi tugas HRD
@@ -106,7 +106,7 @@ kali (A3).
   Roadmap, lonceng, rencana harian, dan KPI ketepatan waktu. HRD tidak
   membuat, mengubah, atau menutupnya.
 
-## 5. Layar (D404)
+## 5. Layar (D405)
 
 `/produksi/desain` (menu Produksi → Design) diganti isinya dengan dua tab:
 
@@ -122,7 +122,7 @@ supaya PM juga bisa melihat kelengkapan sebelum membuat quotation.
 
 | # | Sesi | Database | Hasil |
 |---|---|---|---|
-| **S1** | **Ruang kerja dan enam kotak** di `/produksi/desain`: pohon dengan tombol tambah, unggah = versi otomatis, *tidak perlu*, progres item / ruangan / proyek, tanda DWG tertinggal, *Buat produk & BOM* | jenis file `dwg` dan `foto_item` ke DRAFTING; kolom `design_items.spec` (riwayat lewat audit); `design_slot_skips` (append-only); view `v_design_item_progress`; produk *dari desain* | drafter mengisi dari nol, progres dan kelengkapan terbaca. **Menutup F246** |
+| **S1** | **Ruang kerja dan enam kotak** di `/produksi/desain`: pohon dengan tombol tambah, unggah = versi otomatis, *tidak perlu*, progres item / ruangan / proyek, tanda DWG tertinggal, *Buat produk & BOM* | jenis file `dwg` dan `foto_item` ke DRAFTING; kolom `design_items.spec` (riwayat lewat audit); `design_slot_skips` (append-only); view `v_design_item_progress`; produk *dari desain* | drafter mengisi dari nol, progres dan kelengkapan terbaca. **Menutup F247** |
 | **S2** | **Tugas dari Desain ke HRD:** tugaskan ruangan / item + tenggat, progres di tugas HRD, selesai sendiri, HRD baca saja; tab Progres per drafter | enum `ref_kind` desain (dipakai di migrasi berikutnya, F161); trigger dari unggahan dan *tidak perlu* | pekerjaan drafter terpantau di HRD tanpa input HRD |
 | **S3** | **Unggah massal per ruangan:** file dicocokkan ke item lewat nomor item di nama file (`26003-A-LR-01.dwg`), yang tidak cocok ditanyakan. Lalu walk dengan tim drafter | — | puluhan file sekali seret |
 

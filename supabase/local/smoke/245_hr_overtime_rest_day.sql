@@ -51,15 +51,16 @@ begin
   select * into w from ops_hr.day_overtime_window('aaaa2450-0000-0000-0000-000000000001', '2026-09-12');
   assert w.from_minutes = 480 and w.until_minutes = 960, format('a Saturday from the first tap, got %s–%s', w.from_minutes, w.until_minutes);
 
-  assert (select sum(amount) from ops_hr.overtime_preview('K-2451','2026-09-12')) = 300000, '8 jam × 2 × 18.750';
+  -- 0246 (D398): less the pattern's lunch after four hours — 7 jam.
+  assert (select sum(amount) from ops_hr.overtime_preview('K-2451','2026-09-12')) = 262500, '7 jam × 2 × 18.750';
 
   a := ops_hr.approve_day_overtime('K-2451', '2026-09-12', null, 'Tutup buku');
-  assert ops_core.said_ok(a) and (a -> 'data' ->> 'hours')::numeric = 8, a::text;
+  assert ops_core.said_ok(a) and (a -> 'data' ->> 'hours')::numeric = 7, a::text;
   a := ops_hr.approve_day_overtime('K-2451', '2026-09-19', null, 'Tutup buku');
-  assert ops_core.said_ok(a) and (a -> 'data' ->> 'hours')::numeric = 5, '09.19–14.17 = 4.58 → 5 jam: ' || a::text;
+  assert ops_core.said_ok(a) and (a -> 'data' ->> 'hours')::numeric = 4, '09.19–14.17 less lunch from 13.19 = 4 jam: ' || a::text;
 
   l := ops_hr.payroll_line_for('aaaa2450-0000-0000-0000-000000000001','2026-09-01','2026-09-30');
-  assert l.overtime_pay = 300000 + 187500, 'both Saturdays at 2×, got ' || l.overtime_pay;
+  assert l.overtime_pay = 262500 + 150000, 'both Saturdays at 2×, got ' || l.overtime_pay;
 
   /* a finish before the start in the afternoon is no overtime, not a night */
   assert not exists (select 1 from ops_hr.ot_segments('{"workday_tiers":[{"after_hours":0,"multiplier":1.5}]}'::jsonb, false, 1035, 960)),

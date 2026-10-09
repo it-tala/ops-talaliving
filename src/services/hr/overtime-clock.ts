@@ -31,7 +31,16 @@ export function overtimeSegments(rules: PayRules, rest: boolean, from: number, u
   const bt = rules.overtime_break_to_minutes ?? null;
   const hasBreak = bf != null && bt != null && bt > bf;
 
+  /* 0246 (D398): a rest day's lunch, after four hours of work. */
+  const rb = rules.rest_break_minutes ?? 0;
+  const rbf = rest && rb > 0 && e - s > 240 ? s + 240 : null;
+  const rbt = rbf != null ? rbf + rb : null;
+
   const pts = new Set<number>([s, e]);
+  if (rbf != null && rbt != null) {
+    if (rbf < e) pts.add(rbf);
+    if (rbt < e) pts.add(rbt);
+  }
   for (const k of [0, 1]) {
     const add = (x: number | null) => { if (x != null && x + 1440 * k > s && x + 1440 * k < e) pts.add(x + 1440 * k); };
     add(nightAfter);
@@ -48,6 +57,7 @@ export function overtimeSegments(rules: PayRules, rest: boolean, from: number, u
   for (let i = 0; i < cuts.length - 1; i++) {
     const a = cuts[i]; const b = cuts[i + 1];
     if (hasBreak && ((a >= bf! && b <= bt!) || (a >= bf! + 1440 && b <= bt! + 1440))) continue;
+    if (rbf != null && rbt != null && a >= rbf && b <= rbt) continue;
     let m = b - a;
     if (roundm > 0) m = Math.round(m / roundm) * roundm;
     if (m <= 0) continue;

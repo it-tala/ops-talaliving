@@ -13,6 +13,9 @@ import {
 } from "@/services/hr/contracts";
 import { useToast } from "@/store/toast";
 import { clockFace, minutesOfClock } from "@/services/hr/overtime-clock";
+import { officeClock } from "@/lib/office";
+
+const clockOf = (iso: string) => officeClock(new Date(iso));
 import { useTr } from "@/lib/i18n";
 
 /** What the payroll drawer can change (D388).
@@ -152,7 +155,7 @@ export function AdjustSection({
 }
 
 /** One day's status, as HRD can set it from the drawer. */
-type DayChoice = "unset" | "paid" | "truant" | "absent" | "no_allowance";
+type DayChoice = "unset" | "paid" | "truant" | "absent" | "no_allowance" | "half";
 
 /** The editor under one day of the drawer's attendance table.
  *
@@ -167,7 +170,7 @@ type DayChoice = "unset" | "paid" | "truant" | "absent" | "no_allowance";
  *  reason) or *tidak masuk* (a mark). */
 export function DayEditor({
   employeeNo, workDate, open, unconfirmed = false, confirmed = false, noTapSalary = false,
-  machineOvertime = 0, edits, onDone,
+  machineOvertime = 0, breakKept = false, edits, onDone,
 }: {
   employeeNo: string;
   workDate: string;
@@ -181,6 +184,8 @@ export function DayEditor({
   noTapSalary?: boolean;
   /** Hours past the day on the machine — evidence, never pay (D138). */
   machineOvertime?: number;
+  /** HRD ticked *istirahat tidak dipotong* for this day (D398). */
+  breakKept?: boolean;
   edits: PersonDayEdits | null;
   onDone: () => void;
 }) {
@@ -190,7 +195,12 @@ export function DayEditor({
   const withheld = edits?.withholdings.find((w) => w.work_date === workDate && w.restored_at === null) ?? null;
   const current: DayChoice = mark?.kind === "absent"
     ? (mark.reason.startsWith("Mangkir") ? "truant" : "absent")
-    : unconfirmed ? "unset" : withheld ? "no_allowance" : "paid";
+    : mark?.kind === "half_day" && noTapSalary ? "half"
+      : unconfirmed ? "unset" : withheld ? "no_allowance" : "paid";
+  /* 0246 (D398): the taps HRD typed on this day — the only ones it can take
+     back — and whether the break is kept. */
+  const typed = (edits?.manual_scans ?? []).filter((x) => x.work_date === workDate);
+  const kept = (edits?.break_kept ?? []).find((x) => x.work_date === workDate) ?? null;
   const [choice, setChoice] = useState<DayChoice>(current);
   const [reason, setReason] = useState("");
   const [time, setTime] = useState("");
@@ -247,6 +257,16 @@ export function DayEditor({
       tr("Overtime withdrawn", "Lembur dibatalkan"))) onDone();
   }
 
+  async function toggleBreak() {
+    if (await run(hr.keepBreak({ employee_no: employeeNo, work_date: workDate, keep: !kept, reason: reason.trim() }),
+      kept ? tr("Break deducted again", "Istirahat dipotong lagi") : tr("Break not deducted", "Istirahat tidak dipotong"))) onDone();
+  }
+
+  async function voidTap(id: string, at: string) {
+    if (await run(hr.voidScan({ scan_id: id, reason: reason.trim() }),
+      tr(`Tap ${at} removed`, `Tap ${at} dihapus`))) onDone();
+  }
+
   async function addTap() {
     if (await run(hr.addScan({ employee_no: employeeNo, work_date: workDate, time, reason: reason.trim() }),
       tr(`Tap ${time} added`, `Tap ${time} ditambahkan`))) { setTime(""); onDone(); }
@@ -255,19 +275,19 @@ export function DayEditor({
   async function setStatus() {
     const why = reason.trim();
     /* Undo what the day carries now, then write what was chosen. */
-    if ((current === "truant" || current === "absent") && mark) {
+    if ((current === "truant" || current === "absent" || current === "half") && mark) {
       if (!(await run(hr.unmarkDay(mark.id, why), tr("Mark removed", "Tanda dihapus")))) return;
     }
     if (current === "no_allowance" && withheld) {
       if (!(await run(hr.restoreAllowance({ id: withheld.id, reason: why }), tr("Allowance restored", "Tunjangan dikembalikan")))) return;
     }
-    if (confirmed && (choice === "truant" || choice === "absent")) {
+    if (confirmed && (choice === "truant" || choice === "absent" || choice === "half")) {
       if (!(await run(hr.withdrawPresence({ employee_no: employeeNo, work_date: workDate, reason: why }),
         tr("Confirmation withdrawn", "Konfirmasi hadir dibatalkan")))) return;
     }
     /* A day with no tap is present only when HRD says so (D394). */
     const needsConfirm = (choice === "paid" || choice === "no_allowance")
-      && (unconfirmed || (noTapSalary && !confirmed && (current === "truant" || current === "absent")));
+      && (unconfirmed || (noTapSalary && !confirmed && (current === "truant" || current === "absent" || current === "half")));
     if (needsConfirm) {
       if (!(await run(hr.confirmPresence({ employee_no: employeeNo, dates: [workDate], reason: why }),
         tr("Confirmed present without a tap", "Dikonfirmasi hadir tanpa tap")))) return;
@@ -275,6 +295,9 @@ export function DayEditor({
     if (choice === "truant") {
       await run(hr.markDay({ employee_no: employeeNo, work_date: workDate, kind: "absent", reason: `Mangkir — ${why}` }),
         tr("Marked: present but truant, not paid", "Ditandai: hadir tapi mangkir, tidak dibayar"));
+    } else if (choice === "half") {
+      await run(hr.markDay({ employee_no: employeeNo, work_date: workDate, kind: "half_day", reason: why }),
+        tr("Marked: half day, paid 0.5", "Ditandai: setengah hari, dibayar 0,5"));
     } else if (choice === "absent") {
       await run(hr.markDay({ employee_no: employeeNo, work_date: workDate, kind: "absent", reason: why }),
         tr("Marked: absent, not paid", "Ditandai: tidak masuk, tidak dibayar"));
@@ -287,10 +310,11 @@ export function DayEditor({
 
   /* A mark other than tidak masuk (sakit, cuti, tanggal merah…) is changed
      where it was made; the drawer only says so. */
-  const otherMark = mark && mark.kind !== "absent" ? mark : null;
+  const otherMark = mark && mark.kind !== "absent" && !(mark.kind === "half_day" && noTapSalary) ? mark : null;
   const options: [DayChoice, string, string][] = noTapSalary ? [
     ["paid", tr("Present without a tap — paid", "Hadir tanpa tap — dibayar"), tr("HRD confirms it; wage and allowance", "dikonfirmasi HRD; upah dan tunjangan")],
     ["no_allowance", tr("Present without a tap — no allowance", "Hadir tanpa tap — tanpa tunjangan"), tr("wage paid, allowance not", "upah dibayar, tunjangan tidak")],
+    ["half", tr("Half day — paid 0.5", "Setengah hari — dibayar 0,5"), tr("e.g. an office event for half the day", "mis. acara kantor setengah hari")],
     ["absent", tr("Did not come in — not paid", "Tidak masuk — tidak dibayar"), tr("no wage, no allowance for the day", "tanpa upah dan tunjangan hari itu")],
     ["truant", tr("Present but truant — not paid", "Hadir tapi mangkir — tidak dibayar"), tr("no wage, no allowance for the day", "tanpa upah dan tunjangan hari itu")],
   ] : [
@@ -313,6 +337,38 @@ export function DayEditor({
           {tr("Add tap", "Tambah tap")}
         </Button>
       </div>
+
+      {typed.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[11px] text-slate-500">{tr("Taps typed by HRD", "Tap yang diketik HRD")}</p>
+          {typed.map((x) => {
+            const at = clockOf(x.at);
+            return (
+              <div key={x.id} className="flex flex-wrap items-center gap-2">
+                <span className="font-medium tabular-nums text-slate-700">{at}</span>
+                <span className="italic text-slate-500">{x.reason}</span>
+                <Button size="sm" variant="ghost" icon={Trash2} disabled={busy || !reason.trim()} onClick={() => voidTap(x.id, at)}>
+                  {tr("Remove", "Hapus")}
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* 0246 (D398): the break — lunch, the overtime break, a rest day's lunch. */}
+      <label className="flex cursor-pointer items-start gap-2">
+        <input type="checkbox" checked={!!kept || breakKept} disabled={busy || !reason.trim()} onChange={toggleBreak} className="mt-0.5" />
+        <span>
+          <span className="font-medium text-slate-700">{tr("Break not deducted", "Istirahat tidak dipotong")}</span>
+          <span className="block text-[11px] text-slate-500">
+            {kept
+              ? <>{tr("Kept: ", "Tidak dipotong: ")}<span className="italic">{kept.reason}</span>{tr(" — untick with a reason to deduct again", " — hapus centang dengan alasan untuk memotong lagi")}</>
+              : tr("Worked through the break, or left before it — lunch, the overtime break and a weekend's lunch alike. Reason below.",
+                "Bekerja penuh selama istirahat, atau pulang sebelum istirahat — berlaku untuk istirahat siang, istirahat lembur dan istirahat Sabtu/Minggu. Alasan di bawah.")}
+          </span>
+        </span>
+      </label>
 
       {/* Lembur (D395): approved here with the reason, it is paid and lands in Penambahan. */}
       <div className="space-y-1 rounded-lg border border-slate-200 bg-white px-2.5 py-2">

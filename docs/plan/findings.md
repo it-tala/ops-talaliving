@@ -10059,8 +10059,26 @@ source payroll asks (`is_rest_day`), and a time range that wraps past
 midnight needs a stated condition for wrapping (here 0195's: a finish before
 noon), never "the end is smaller than the start".
 
+## F246 · 2026-10-09 · A shortfall is either a smaller day or a deduction — not both, and the owner picks which
 
-## F246 · 2026-10-09 · A queue that waits for rows only another module can write
+DEWI's 16/09 (08.00–12.00) raised one question two ways. The first answer
+this session built made the **day smaller**: work ÷ schedule, so a short day
+paid 0,48 of a day and a late morning paid 0,96. Before it shipped the owner
+settled it the other way: a day present is a **whole day**, and what is short
+is a **deduction** — late minutes and early minutes, each at the hour's price.
+Both give similar money on an ordinary day; they differ in what the payslip
+says (*0,48 hari* against *pulang lebih awal 315 menit · Rp 144.375*), in
+what the allowance does (proportional against untouched), and in how a
+half-day mark or an outing reads. Building both would have priced the same
+minutes twice.
+
+The useful part of the first attempt survived: the break as a per-day fact
+HRD states, the weekend lunch, and taking back a typed tap. **Rule:** when a
+rule could be expressed as "the unit is smaller" or "something is taken from
+a whole unit", ask which one the owner means before building, because a
+payslip shows the two differently and only one of them can exist.
+
+## F247 · 2026-10-09 · A queue that waits for rows only another module can write
 
 The owner: *`/produksi/desain` tidak ada input.* The tables behind it (P4,
 P6) are in production and empty: 1 client, 5 projects, 0 collections, 0

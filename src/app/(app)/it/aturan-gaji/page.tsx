@@ -425,6 +425,27 @@ export default function PayRulesPage() {
                           ))}
                         </select>
                       </label>
+                      {/* 0246 (D398): leaving early, priced the same way, and the hour on 8 hours a day. */}
+                      <label className="block">
+                        <span className="block text-[12px] text-slate-500">{tr("Leaving early", "Potongan pulang lebih awal")}</span>
+                        <select
+                          value={rules.early_leave_mode ?? "manual"}
+                          onChange={(e) => set({ early_leave_mode: e.target.value as "manual" | "pro_rata" })}
+                          disabled={!mayEdit}
+                          className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none"
+                        >
+                          <option value="manual">{tr("Recorded, not deducted", "Dicatat, tidak dipotong")}</option>
+                          <option value="pro_rata">{tr("Deducted per minute of the hour", "Dipotong per menit dari gaji per jam")}</option>
+                        </select>
+                      </label>
+                      <Field
+                        label={tr("Hours a day the hourly rate is figured on", "Jam sehari untuk menghitung gaji per jam")}
+                        hint={tr("8 = (base + allowance) ÷ 160 a month, for everybody. 0 = each person's own day.",
+                          "8 = (pokok + tunjangan) ÷ 160 sebulan, untuk semua orang. 0 = jam kerja masing-masing orang.")}
+                        value={rules.hourly_day_hours ?? 0}
+                        onChange={(v) => set({ hourly_day_hours: v > 0 ? v : null })}
+                        disabled={!mayEdit}
+                      />
                       <label className="flex items-start gap-2 text-[12px] text-slate-600">
                         <input
                           type="checkbox"
