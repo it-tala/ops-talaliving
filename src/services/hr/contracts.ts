@@ -2488,6 +2488,12 @@ export interface PayRules {
   /** Not stored: folded in per person and day by `ot_rules_for` — a rest
    *  day's lunch, taken after four hours of overtime (0246, D398). */
   rest_break_minutes?: number | null;
+  /** *Pulang lebih awal*, priced per minute of the hour like `late_mode`
+   *  (0246, D398). `manual`: shown, not taken. */
+  early_leave_mode?: "manual" | "pro_rata";
+  /** The hours in a day the hour is figured on, for everybody (8 → ÷ 160 a
+   *  month); unset, each person's own `daily_hours` (0246, D398). */
+  hourly_day_hours?: number | null;
   /** Price an overtime hour before rounding it to the rupiah, as the sheet
    *  does (170.500 / 8 = 21.312,5). */
   overtime_exact_hourly?: boolean;
@@ -2596,8 +2602,6 @@ export interface PayrollLine {
    *  mark that HRD has not confirmed (0242, D394) — held until somebody says
    *  what they were. */
   days_unconfirmed: number;
-  /** Complete working days paid in proportion to their hours (0246, D398). */
-  days_short?: number;
   /** HRD exempted this person from attendance for some of the period (D394). */
   attendance_exempt: boolean;
   /** The paid days that were not worked, kept apart so a payslip can say what
@@ -2702,6 +2706,12 @@ export interface PayrollLine {
    *  what is *not* being deducted (D174, D251). */
   late_days: number;
   late_deduction: number;
+  /** *Pulang lebih awal* (0246, D398): minutes before the weekday's end, the
+   *  days it happened, what `pro_rata` would take, and what is taken. */
+  early_minutes: number;
+  early_days: number;
+  early_priced: number;
+  early_deduction: number;
   /** Every day of the period, for the weekly recap on the payslip (D156). */
   days: PayslipDay[];
   /** Anything a person cannot resolve from the figures alone. */
@@ -2738,9 +2748,8 @@ export interface PayslipDay {
   unconfirmed?: boolean;
   /** HRD confirmed this day as present without a tap (D394). */
   confirmed?: boolean;
-  /** Work ÷ schedule when a complete working day was short of its schedule
-   *  and is paid in that proportion (0246, D398); null for a whole day. */
-  fraction?: number | null;
+  /** Minutes before the weekday's end the person left (0246, D398). */
+  early_minutes?: number;
   /** HRD ticked *istirahat tidak dipotong* for this day (D398). */
   break_kept?: boolean;
 }

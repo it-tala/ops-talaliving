@@ -10059,23 +10059,21 @@ source payroll asks (`is_rest_day`), and a time range that wraps past
 midnight needs a stated condition for wrapping (here 0195's: a finish before
 noon), never "the end is smaller than the start".
 
-## F246 · 2026-10-08 · "Present" was a yes/no on a quantity
+## F246 · 2026-10-09 · A shortfall is either a smaller day or a deduction — not both, and the owner picks which
 
-Since D370 a complete day was worth one day, whatever its hours: the reading
-knew DEWI's 16/09 was 3 jam (and, wrongly, that she took a lunch she left
-before) and payroll still paid a day. Two separate things were blurred. The
-**reading** of a day (how many hours, was the break taken) is a question
-about the clock and about what happened, and only HRD knows the second part;
-the **worth** of a day is a ratio of the first to the schedule. Once the
-worth is the ratio, a half-day mark, an outing that ran to 14.00 and a late
-morning are the same arithmetic, and the break becomes the one fact HRD must
-be able to state per day — so it is a checkbox with a reason, not a clock
-window guessed for everybody.
+DEWI's 16/09 (08.00–12.00) raised one question two ways. The first answer
+this session built made the **day smaller**: work ÷ schedule, so a short day
+paid 0,48 of a day and a late morning paid 0,96. Before it shipped the owner
+settled it the other way: a day present is a **whole day**, and what is short
+is a **deduction** — late minutes and early minutes, each at the hour's price.
+Both give similar money on an ordinary day; they differ in what the payslip
+says (*0,48 hari* against *pulang lebih awal 315 menit · Rp 144.375*), in
+what the allowance does (proportional against untouched), and in how a
+half-day mark or an outing reads. Building both would have priced the same
+minutes twice.
 
-Two consequences worth knowing: with no tolerance, arriving late now costs
-its minutes in pay (restated smokes 186 and 195 show it), and a shift or a
-night stays a day (D364) because its "schedule" is the shift, not a span.
-**Rule:** when a count stands in for a measure (days for hours), say which
-measure it stands in for, so the day the owner asks for the measure the
-count can be replaced rather than patched.
-
+The useful part of the first attempt survived: the break as a per-day fact
+HRD states, the weekend lunch, and taking back a typed tap. **Rule:** when a
+rule could be expressed as "the unit is smaller" or "something is taken from
+a whole unit", ask which one the owner means before building, because a
+payslip shows the two differently and only one of them can exist.

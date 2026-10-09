@@ -1,37 +1,40 @@
--- 0246 — hari dibayar menurut jam; istirahat bisa tidak dipotong; tap salah
--- ketik bisa dihapus (D398).
+-- 0246 — hadir dibayar sehari penuh; terlambat dan pulang cepat dipotong per
+-- menit; istirahat bisa tidak dipotong; tap salah ketik bisa dihapus (D398).
 --
--- ── the owner's ask (2026-10-08) ──────────────────────────────────────────
+-- ── the owner's ask (2026-10-08, settled 2026-10-09) ─────────────────────
 --
---   DEWI 16/09, taps 08.00 and 12.00, read 3 jam: *setengah hari sebelum jam
---   istirahat tapi sudah dikurangi 1 jam. perhitungan masih pakai per hari
---   masuk, bukan jam. bagaimana kalau HRD salah input jam tap nya? … kalau
---   bekerja sampai jam 14.00 lalu pulang? tidak bisa disebut setengah hari …
---   berikan juga opsi jika tetap bekerja di jam istirahat, baik ketika
+--   DEWI 16/09, taps 08.00 and 12.00: *setengah hari sebelum jam istirahat
+--   tapi sudah dikurangi 1 jam … bagaimana kalau HRD salah input jam tap
+--   nya? … berikan juga opsi jika tetap bekerja di jam istirahat, baik ketika
 --   overtime ataupun jam makan siang biasa, atau di hari sabtu dan minggu.*
+--   Then, the rule itself: *gaji per jam = gaji pokok + allowance sebulan ÷
+--   160 … dihitung per kehadiran, hadir = digaji 8 jam meski jam aktual cuma
+--   7 atau 8.25 … terlambat dan pulang lebih awal dipotong dalam jam dan
+--   menit … overtime dari hourly rate × 1,5* — no tolerance; 2× past 22.00
+--   and on rest days as before; the break is a per-day checkbox; Sabtu/
+--   Minggu lose their lunch unless ticked.
 --
--- Asked, the owner answered: a short day is paid **in proportion to its
--- hours**, salary and allowance alike, with no tolerance; the break is not
--- placed on the clock — HRD **ticks a day** when the break was worked (or not
--- taken) and the deduction goes; on Sabtu/Minggu the lunch break is taken off
--- too unless ticked.
---
---   * `payroll_line_for`: a complete, unmarked working day worth less than
---     its schedule is worth `work_hours ÷ scheduled_hours` of a day — the day
---     wage times that, the salary's share of the day times that, the
---     allowance of the day times that. Shown per day (`fraction`) and in a
---     warning; for a salary the shortfall sits in `absence_deduction` beside
---     the alpa. A half-day mark keeps its own rule (0,5; D272).
+--   * `payroll_line_for`: a day present is a whole day, whatever its hours.
+--     Minutes before the weekday's end (`early_minutes`) are priced like the
+--     late minutes, per minute of the hour, applied when the rule book's
+--     `early_leave_mode` (beside `late_mode`) is `pro_rata`; both sit under
+--     the run's `late` switch. Shifts and nights keep their own end (D364).
+--   * `hourly_rate`: the hours in a day the hour is figured on are the rule
+--     book's `hourly_day_hours` (8) when it says — (pokok + tunjangan) × 12 ÷
+--     240 ÷ 8 = ÷ 160 for everybody.
 --   * `break_waivers` + `keep_break`: *istirahat tidak dipotong* for a person
---     and a day, with a reason. The day's hours get the break back; the
---     evening's overtime keeps 17.30–18.30; a rest day's overtime keeps its
---     lunch.
---   * A rest day's overtime (from the first tap, 0245) now loses the
---     pattern's break after four hours of work (`rest_break_minutes` into
+--     and a day, with a reason — the day shows its hours with the break back;
+--     the evening's overtime keeps 17.30–18.30; a rest day's overtime keeps
+--     its lunch.
+--   * A rest day's overtime (from the first tap, 0245) loses the pattern's
+--     break after four hours of work (`rest_break_minutes` into
 --     `ot_segments`), unless the day is ticked.
 --   * `voided_scans` + `void_scan`: a tap HRD typed (`source = 'manual'`) is
---     moved out of the record with who, when and why — the reading never sees
---     it again. The machine's and the phone's taps are facts and stay.
+--     moved out of the record with who, when and why. The machine's and the
+--     phone's taps are facts and stay.
+--
+-- The rule-book values themselves (late/early `pro_rata`, grace 0,
+-- `hourly_day_hours` 8) are the owner's and go in as new versions, not here.
 
 /* ── istirahat tidak dipotong ──────────────────────────────────────────── */
 create table ops_hr.break_waivers (
@@ -581,7 +584,59 @@ grant execute on function ops_hr.approve_day_overtime(text, date, numeric, text,
 
 /* ── what a line carries now ── */
 alter type ops_hr.payroll_figures
-  add attribute days_short int cascade;
+  add attribute early_minutes int cascade,
+  add attribute early_days int cascade,
+  add attribute early_priced bigint cascade,
+  add attribute early_deduction bigint cascade;
+
+/* ── an hour of somebody's time — restated from 0231 ──────────────────────
+   0246 (D398): *gaji per jam = (pokok + allowance sebulan) ÷ 160 jam* — the
+   hours in a day the hour is figured on come from the rule book
+   (`hourly_day_hours`, 8) when it says, not from each person's own day, so a
+   12-hour guard's hour is figured on 8 like everybody's. */
+create or replace function ops_hr.hourly_rate(p_employee ops_hr.employees, p_rules jsonb)
+returns ops_hr.hourly_rate_t
+language sql stable set search_path = ops_hr, pg_temp as $$
+  with r as (
+    select
+      greatest(coalesce((p_rules->>'effective_days_per_year')::numeric, 300), 1) as days,
+      greatest(coalesce((p_rules->>'hourly_day_hours')::numeric, p_employee.daily_hours), 1) as hpd,
+      coalesce((p_rules->>'hourly_includes_allowance')::boolean, true)            as with_allow,
+      greatest(coalesce((p_rules->>'monthly_divisor')::numeric, 173), 1)          as divisor,
+      coalesce(p_rules->>'hourly_basis', 'company')                               as basis
+  ),
+  a as (
+    -- In the pay's own unit (D386): a month for a salary, a day otherwise.
+    select r.*,
+      case when r.with_allow then p_employee.allowance_rate else 0 end as allow
+    from r
+  ),
+  y as (
+    select a.*,
+      case p_employee.pay_basis
+        when 'monthly' then (p_employee.base_rate + a.allow) * 12
+        when 'daily'   then (p_employee.base_rate + a.allow) * a.days
+        else                p_employee.base_rate * a.hpd * a.days + a.allow * a.days
+      end as annual
+    from a
+  ),
+  c as (
+    select y.*, round(y.annual / y.days / y.hpd) as company from y
+  ),
+  s as (
+    select c.*,
+      case when p_employee.pay_basis = 'monthly'
+        then round((p_employee.base_rate + c.allow) / c.divisor)
+        else c.company
+      end as statutory
+    from c
+  )
+  select (
+    (case when basis = 'statutory' then statutory else company end)::bigint,
+    basis, company::bigint, statutory::bigint, round(annual)::bigint, with_allow
+  )::ops_hr.hourly_rate_t
+  from s
+$$;
 
 /* ── the payroll line — restated from 0242 ──────────────────────────────
    Changes are marked 0246 (D398). */
@@ -658,14 +713,12 @@ declare
   v_conf         boolean;
   n_unconf       int := 0;
   -- 0246 (D398)
-  v_frac         numeric;
   v_kept         boolean;
-  n_short        int := 0;
-  v_short_days   numeric := 0;
-  v_short_amt    numeric := 0;
-  v_smonth       date;
-  v_mdays        int := 0;
-  v_absence_on   boolean;
+  v_dend         int;
+  v_early_day    int;
+  early_total    int := 0;
+  early_days     int := 0;
+  v_early_mode   text;
 begin
   select * into emp from ops_hr.employees where id = p_employee;
   if not found then return null; end if;
@@ -738,38 +791,13 @@ begin
       d.overtime_hours := 0; d.in_at := null; d.out_at := null;
       n_assumed := n_assumed + 1;
     end if;
-    /* 0246 (D398): a day is worth its hours. HRD's *istirahat tidak
-       dipotong* gives the day its break back first; then a complete, unmarked
-       working day short of its schedule is worth work ÷ schedule of a day —
-       no tolerance, as the owner asked. A half-day mark keeps its 0,5 (D272);
-       a rest day, an assumed day, a shift or a night (D364) and a day outside
-       employment are not cut. */
-    v_frac := null;
+    /* 0246 (D398): HRD's *istirahat tidak dipotong* shows the day's hours
+       with the break given back. A day present is paid as a whole day
+       whatever its hours (the owner: *hadir = digaji 8 jam*); what is short
+       of the schedule is priced below as late and early minutes. */
     v_kept := d.taps > 0 and ops_hr.break_kept(emp.id, d.work_date);
     if v_kept and d.mark_kind is null then
       d.work_hours := d.work_hours + coalesce(d.break_hours, 0);
-    end if;
-    if emp.pay_basis in ('monthly','daily') and d.mark_kind is null and d.state = 'complete'
-       and not coalesce(v_assumed, false) and coalesce(d.scheduled_hours, 0) > 0
-       -- A shift or a night is one day of pay, whichever it was (D364).
-       and d.shift_code is null and not coalesce(d.overnight, false)
-       and d.work_hours < d.scheduled_hours
-       and ops_hr.is_workday_for(v_rules, sc, d.work_date)
-       and (emp.joined_on is null or d.work_date >= emp.joined_on)
-       and (emp.left_on is null or d.work_date <= emp.left_on) then
-      v_frac := round(greatest(d.work_hours, 0) / d.scheduled_hours, 4);
-      d.day_value := v_frac;
-      n_short := n_short + 1;
-      v_short_days := v_short_days + (1 - v_frac);
-      if emp.pay_basis = 'monthly' then
-        if v_smonth is distinct from date_trunc('month', d.work_date)::date then
-          v_smonth := date_trunc('month', d.work_date)::date;
-          v_mdays := ops_hr.month_workdays(v_rules, sc, d.work_date);
-        end if;
-        if v_mdays > 0 then
-          v_short_amt := v_short_amt + emp.base_rate::numeric / v_mdays * (1 - v_frac);
-        end if;
-      end if;
     end if;
 
     out_row.worked_days := out_row.worked_days + d.day_value;
@@ -840,9 +868,7 @@ begin
       -- 0242 (D394): no tap, no mark, nobody has said; and HRD said hadir.
       'unconfirmed', v_unconf,
       'confirmed', v_conf,
-      -- 0246 (D398): what share of a day its hours are worth, and whether
-      -- HRD kept the break.
-      'fraction', v_frac,
+      -- 0246 (D398): HRD kept the break.
       'break_kept', v_kept);
 
     /* What the paid days are made of, so a payslip can say it rather than
@@ -921,9 +947,7 @@ begin
       else
         n_present := n_present + 1;
         allow_units := allow_units + case when d.day_value > 0 then d.day_value else 1 end;
-        -- 0246 (D398): a short day earns the allowance in proportion too.
-        v_allow_amt := v_allow_amt + v_aday * case when v_frac is not null then v_frac
-                                                   when allow_byval and d.day_value > 0
+        v_allow_amt := v_allow_amt + v_aday * case when allow_byval and d.day_value > 0
                                                    then d.day_value else 1 end;
       end if;
     end if;
@@ -954,12 +978,27 @@ begin
       if late_one > 0 then out_row.late_days := out_row.late_days + 1; end if;
     end if;
 
+    /* 0246 (D398): pulang lebih awal — minutes before the weekday's end, on a
+       rule-book working day, unmarked and read whole. Not a shift or a night
+       (their end is the shift's, D364). Priced below by `early_leave_mode`. */
+    v_early_day := 0;
+    if d.out_at is not null and d.mark_kind is null and d.state = 'complete'
+       and d.shift_code is null and not coalesce(d.overnight, false)
+       and ops_hr.is_workday_for(v_rules, sc, d.work_date) then
+      v_dend := ops_hr.minutes_of(ops_hr.schedule_day(sc, d.work_date) -> 'end_minutes');
+      if v_dend is not null then
+        v_early_day := greatest(v_dend - ops_hr.wita_minutes(d.out_at), 0);
+        early_total := early_total + v_early_day;
+        if v_early_day > 0 then early_days := early_days + 1; end if;
+      end if;
+    end if;
+
     /* Hours short of the contracted day. Only for people paid by the day: an
        hourly person is already paid for the hours they were here and a monthly
        salary is a month. A marked day is not a short day, it is a different
        day, and counting it here would deduct twice (D174). */
     if ut_mode <> 'off' and emp.pay_basis = 'daily'
-       and d.mark_kind is null and d.state = 'complete' and v_frac is null then
+       and d.mark_kind is null and d.state = 'complete' then
       gap := emp.daily_hours - d.work_hours;
       if gap > ut_grace then
         short := short + gap;
@@ -971,6 +1010,8 @@ begin
        show duration, lateness and overtime side by side. */
     v_days := jsonb_set(v_days, array[(jsonb_array_length(v_days) - 1)::text, 'late_minutes'],
                         to_jsonb(v_late_day));
+    v_days := jsonb_set(v_days, array[(jsonb_array_length(v_days) - 1)::text, 'early_minutes'],
+                        to_jsonb(v_early_day));
   end loop;
 
   out_row.days := v_days;
@@ -1006,19 +1047,12 @@ begin
               coalesce((c_person ->> 'absence')::boolean, (c_run ->> 'absence')::boolean, true));
     out_row.base_pay  := (v_mb ->> 'amount')::bigint;
     out_row.proration := v_mb -> 'months';
-    /* 0246 (D398): the short days' shortfall, beside the alpa — under the
-       same `absence` switch. */
-    v_absence_on := coalesce((c_person ->> 'absence')::boolean, (c_run ->> 'absence')::boolean, true);
-    if v_absence_on then
-      out_row.base_pay := out_row.base_pay - round(v_short_amt)::bigint;
-    end if;
     /* 0213 (D373): what the alpa took, apart from what the calendar did —
        the salary with nothing marked, less the salary as paid. Zero when the
        `absence` switch is off, because then nothing was taken. */
     v_mb_full := ops_hr.monthly_base(emp.base_rate, v_rules, sc, emp.joined_on, emp.left_on,
                    p_from, p_to, v_unpaid, false);
-    out_row.absence_deduction := (v_mb_full ->> 'amount')::bigint - (v_mb ->> 'amount')::bigint
-                                 + case when v_absence_on then round(v_short_amt)::bigint else 0 end;
+    out_row.absence_deduction := (v_mb_full ->> 'amount')::bigint - (v_mb ->> 'amount')::bigint;
   else
     out_row.absence_deduction := 0;
   end if;
@@ -1089,6 +1123,13 @@ begin
   out_row.late_priced := round((out_row.late_minutes / 60.0) * rate.hourly)::bigint;
   out_row.late_deduction := case when coalesce(v_rules->>'late_mode','manual') = 'pro_rata'
                                  then out_row.late_priced else 0 end;
+  /* 0246 (D398): minutes left early, priced the same way — per minute of
+     the hour, applied when the rule book says `pro_rata`. */
+  v_early_mode := coalesce(v_rules->>'early_leave_mode', 'manual');
+  out_row.early_minutes := early_total;
+  out_row.early_days := early_days;
+  out_row.early_priced := round((early_total / 60.0) * rate.hourly)::bigint;
+  out_row.early_deduction := case when v_early_mode = 'pro_rata' then out_row.early_priced else 0 end;
 
   select coalesce(sum(amount), 0) into out_row.adjustment_total
     from ops_hr.payroll_adjustments a
@@ -1122,14 +1163,14 @@ begin
       when 'base'      then out_row.base_pay
       when 'allowance' then out_row.allowance_pay
       when 'overtime'  then out_row.overtime_pay
-      when 'late'      then out_row.late_deduction
+      when 'late'      then out_row.late_deduction + out_row.early_deduction
       when 'undertime' then out_row.undertime_amount
       else 0 end;
     case v_k
       when 'base'      then out_row.base_pay := 0;
       when 'allowance' then out_row.allowance_pay := 0;
       when 'overtime'  then out_row.overtime_pay := 0;
-      when 'late'      then out_row.late_deduction := 0;
+      when 'late'      then out_row.late_deduction := 0; out_row.early_deduction := 0;
       when 'undertime' then out_row.undertime_amount := 0;
       else null;
     end case;
@@ -1141,7 +1182,6 @@ begin
         then (v_mb ->> 'amount')::bigint
              - (ops_hr.monthly_base(emp.base_rate, v_rules, sc,
                   emp.joined_on, emp.left_on, p_from, p_to, v_unpaid, true) ->> 'amount')::bigint
-             + round(v_short_amt)::bigint
         else 0 end;
     end if;
     v_off := v_off || jsonb_build_object(
@@ -1153,7 +1193,7 @@ begin
   end loop;
 
   out_row.gross := out_row.base_pay + out_row.allowance_pay + out_row.overtime_pay
-                 - out_row.undertime_amount - out_row.late_deduction;
+                 - out_row.undertime_amount - out_row.late_deduction - out_row.early_deduction;
   -- Gross plus everything moved by hand. **Not** what reaches a bank account:
   -- `0051` makes an employee's share of BPJS a deduction from it, and Q56 is
   -- that argument. `take_home` below is the figure that does.
@@ -1202,7 +1242,7 @@ begin
    where a.run_no = p_run_no and a.employee_id = emp.id and a.withdrawn_at is null;
   out_row.additions_total := (out_row.base_pay + out_row.allowance_pay + out_row.overtime_pay
                               + v_adj_pos)::bigint;
-  out_row.deductions_total := (out_row.late_deduction + out_row.undertime_amount
+  out_row.deductions_total := (out_row.late_deduction + out_row.early_deduction + out_row.undertime_amount
                                + out_row.contribution_total + v_adj_neg)::bigint;
 
   -- The contract's spellings for two figures that already exist under another
@@ -1211,7 +1251,6 @@ begin
   out_row.days_open   := out_row.open_days;
   -- 0242 (D394)
   out_row.days_unconfirmed := n_unconf;
-  out_row.days_short := n_short;
   out_row.attendance_exempt := exists (
     select 1 from ops_hr.attendance_exemptions x
      where x.employee_id = emp.id
@@ -1222,10 +1261,6 @@ begin
      figure somebody argues with at the counter. */
   if out_row.open_days - n_unconf > 0 then
     w := w || format('%s hari belum dibaca — belum bernilai sampai ada yang membacanya', out_row.open_days - n_unconf);
-  end if;
-  if n_short > 0 then
-    w := w || format('%s hari kurang jam — dibayar sebanding jam kerjanya (kurang %s hari)',
-                     n_short, round(v_short_days, 2));
   end if;
   if n_unconf > 0 then
     w := w || format('%s hari kerja tanpa tap dan tanpa keterangan — belum dibayar sampai HRD mengonfirmasi hadir atau menandainya', n_unconf);
@@ -1254,6 +1289,10 @@ begin
   end if;
   if n_withheld > 0 and emp.allowance_rate > 0 then
     w := w || format('%s hari tanpa tunjangan — keputusan HRD, alasannya tercetak di slip', n_withheld);
+  end if;
+  if early_total > 0 and v_early_mode = 'manual' then
+    w := w || format('%s menit pulang lebih awal — belum dipotong; Rp %s kalau aturannya dinyalakan',
+                     early_total, out_row.early_priced);
   end if;
   if out_row.late_minutes > 0 and coalesce(v_rules->>'late_mode','manual') = 'manual' then
     w := w || format('%s menit terlambat di luar toleransi — belum dipotong; Rp %s kalau aturannya dinyalakan',

@@ -426,6 +426,11 @@ function PersonBreakdown({ line: l, onClose, onPersonSettings, adjust, period, e
             <Row k={tr(`Late · ${l.late_minutes} min`, `Terlambat · ${l.late_minutes} mnt`)} v={l.late_deduction > 0 ? `(${formatIDR(l.late_deduction)})` : "—"}
               tone={l.late_deduction > 0 ? "minus" : "muted"}
               note={l.late_minutes > 0 && l.late_deduction === 0 ? tr("not deducted under the current rules", "belum dipotong menurut aturan sekarang") : undefined} />
+            {/* 0246 (D398): left before the weekday's end, by the minute. */}
+            <Row k={tr(`Left early · ${l.early_minutes ?? 0} min`, `Pulang lebih awal · ${l.early_minutes ?? 0} mnt`)}
+              v={(l.early_deduction ?? 0) > 0 ? `(${formatIDR(l.early_deduction)})` : "—"}
+              tone={(l.early_deduction ?? 0) > 0 ? "minus" : "muted"}
+              note={(l.early_minutes ?? 0) > 0 && (l.early_deduction ?? 0) === 0 ? tr("not deducted under the current rules", "belum dipotong menurut aturan sekarang") : undefined} />
             <Row k={tr(`Short hours · ${formatNumber(l.undertime_hours)} h`, `Jam kurang · ${formatNumber(l.undertime_hours)} jam`)} v={l.undertime_amount > 0 ? `(${formatIDR(l.undertime_amount)})` : "—"} tone={l.undertime_amount > 0 ? "minus" : "muted"} />
             {l.contributions.map((c) => <Row key={c.scheme} k={c.label} v={`(${formatIDR(c.employee)})`} tone="minus" />)}
             {adjust
@@ -501,14 +506,13 @@ function PersonBreakdown({ line: l, onClose, onPersonSettings, adjust, period, e
                           : truant(d.work_date) ? <span className="font-medium text-rose-700">{tr("truant", "mangkir")}</span>
                           : d.mark ? <span className="text-slate-600">{d.mark}</span>
                             : d.assumed ? <span className="text-slate-500">{tr("assumed", "asumsi")}</span>
-                              : d.fraction != null
-                                ? <span className="font-medium text-amber-700" title={tr("work ÷ schedule", "jam kerja ÷ jam jadwal")}>
-                                    {tr(`${formatNumber(d.fraction)} day`, `${formatNumber(d.fraction)} hari`)}
-                                  </span>
                               : d.day_value > 0 ? <span className="text-emerald-700">{d.day_value === 1 ? tr("present", "hadir") : `${formatNumber(d.day_value)}`}</span>
                                 : <span className="text-slate-400">—</span>}
                         {withheld && <span className="block text-rose-700">{tr("no allowance", "tanpa tunjangan")}</span>}
                         {d.break_kept && <span className="block text-slate-500">{tr("break kept", "istirahat tidak dipotong")}</span>}
+                        {(d.early_minutes ?? 0) > 0 && (
+                          <span className="block text-amber-700">{tr(`left ${d.early_minutes} min early`, `pulang cepat ${d.early_minutes} mnt`)}</span>
+                        )}
                       </td>
                       {canEditDays && (
                         <td className="px-1 py-1">

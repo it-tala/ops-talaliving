@@ -185,14 +185,11 @@ begin
 
   select * into p from ops_hr.payroll_line_for('aaaa1950-0000-0000-0000-000000000001','2026-08-29','2026-09-04');
   -- Sab 2 + Sen 1 + Rab 1 + Kam (merah) 2 + Jum 1 = 7 hari upah.
-  -- 0246 (D398): Jumat's 20 minutes late cost their share of the day — no
-  -- tolerance — so the week is a little under 7 hari upah.
-  assert p.base_pay = 1187413, 'upah 7 hari upah kurang jam telat Jumat, got ' || p.base_pay;
-  assert p.worked_days = 4.96, 'lima hari hadir, Jumat 0,96, got ' || p.worked_days;
+  assert p.base_pay = 7 * 170500, 'upah 7 hari upah, got ' || p.base_pay;
+  assert p.worked_days = 5, 'lima hari hadir, got ' || p.worked_days;
   -- Tunjangan hanya Sen, Rab, Jum (hari x1).
   assert p.allowance_days = 3, 'tunjangan 3 hari, got ' || p.allowance_days;
-  -- 0246 (D398): Jumat's allowance in proportion to its hours, too.
-  assert p.allowance_pay = 29643, 'tunjangan 2 x 10.000 + Jumat 0,96, got ' || p.allowance_pay;
+  assert p.allowance_pay = 30000, 'tunjangan 3 x 10.000, got ' || p.allowance_pay;
   assert p.overtime_pay = 111891 + 175828 + 21313, 'lembur, got ' || p.overtime_pay;
   -- Jumat 07.50: 20 menit, toleransi 15 → 5. Sabtu 07.34 terhadap 08.00: tidak telat.
   assert p.late_minutes = 5, 'telat dari jam masuk hari itu, got ' || p.late_minutes;
@@ -210,9 +207,8 @@ begin
   insert into ops_hr.day_marks (employee_id, work_date, kind, reason, marked_by)
   values ('aaaa1950-0000-0000-0000-000000000001','2026-09-02','half_day','uji','ffffffff-0000-0000-0000-000000019501');
   select * into p from ops_hr.payroll_line_for('aaaa1950-0000-0000-0000-000000000001','2026-08-29','2026-09-04');
-  -- 0246 (D398): less Jumat's late share, as above (6.087 and 357).
-  assert p.base_pay = round(6.5 * 170500) - 6087, 'Rabu setengah: 6,5 hari upah, got ' || p.base_pay;
-  assert p.allowance_pay = 25000 - 357, 'tunjangan 2,5 x 10.000, got ' || p.allowance_pay;
+  assert p.base_pay = round(6.5 * 170500), 'Rabu setengah: 6,5 hari upah, got ' || p.base_pay;
+  assert p.allowance_pay = 25000, 'tunjangan 2,5 x 10.000, got ' || p.allowance_pay;
 end $$;
 
 set local role authenticated;

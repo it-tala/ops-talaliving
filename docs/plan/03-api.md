@@ -527,6 +527,7 @@ make the reveal log record a click.
 | PUT | `/employees/{no}/days/{date}/break` | *istirahat tidak dipotong* (D398): `{keep, reason}` — the day's hours get the break back, the overtime break and a rest day's lunch are kept; undone with a reason — `hrd.update` |
 | DELETE | `/scans/{id}` | a tap HRD typed (`source = manual`), `{reason}` — moved to `voided_scans` with who/when/why; `conflict not_manual` for the machine's or the phone's — `hrd.update` |
 | GET | `/employees/{no}/days/extras?from=&to=` | `[{kind: break_kept\|manual_scan, id, work_date, at, reason}]` (`person_day_extras`) — **HRD/payroll only** |
+| — | payroll line fields | `early_minutes`, `early_days`, `early_priced`, `early_deduction` beside the late ones (D398): minutes before the weekday's end, taken when the rule book's `early_leave_mode` is `pro_rata`; per day `early_minutes` and `break_kept` |
 | POST | `/overtime/{sheet_no}/withdraw` | `{reason}` — turns an HRD staff sheet off (`paid = false`, the reason kept); `conflict not_hrd_session` for a production sheet or an ask — `hrd.update` |
 | GET | `/employees/{no}/overtime?from=&to=` | each night's line on any sheet: `{sheet_no, work_date, kind, via, stage, payable, hours, reason}` (`person_day_overtime`) — **HRD/payroll only** |
 | GET | `/employees/{no}/standing?from=&to=` | one person as HRD reads them (D388): days present, unpaid (alpa), late minutes/days, sick/leave paid, allowance withheld, unread, leave entitlement/taken/remaining, retensi balance. **HRD only** |
