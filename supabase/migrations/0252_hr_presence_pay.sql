@@ -6,7 +6,7 @@
 --   *khusus mbak nuur ejo household tidak dihitung jam nya, dihitung asal ada
 --   bukti kehadiran saja, dibayar full sehari.* Beside it: a pay period of
 --   any length — seven days rather than five — pays a day wage for every day
---   in it the person came, which `payroll_line_for` already does (F251).
+--   in it the person came, which `payroll_line_for` already does (F252).
 --
 --   * `presence_pay` + `set_presence_pay` + `presence_pay_list`: *dibayar per
 --     kehadiran* for somebody paid by the day or the hour, on with a reason,

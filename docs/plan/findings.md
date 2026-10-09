@@ -10139,6 +10139,29 @@ Three smaller things the screen taught:
 **Rule:** anything that orders rows by a timestamp must default to the clock,
 not to the transaction, or two rows written together have no order at all.
 
+## F249 · 2026-10-09 · The person who gives the task out cannot read the table it lives in
+
+Studio Desain S2 makes a drafter's room an ordinary `ops_hr.tasks` row, so
+HRD's whole machinery applies without anybody typing it twice (D402). The
+smoke file then asked the coordinator who had just given the room out to read
+the task back, and got nothing: `ops_hr.tasks` is readable by `hrd.read` and
+by the assignee (`tasks_read_own`), and a production coordinator is neither.
+That is right — chase notes and other people's errands are not theirs — but it
+means the Design screen cannot read the task it made. It reads a definer
+function instead (`design_assignments`), which returns only the columns the
+design needs, for whoever may read the design.
+
+The same shape decided how *nobody closes it by hand* was built. Changing
+`update_task` and the HRD seams to know about design tasks would put the rule
+in three places; one `before update of status` trigger on `ops_hr.tasks`
+refuses the change for everybody with SQLSTATE 23514, which the client already
+turns into a readable refusal, and lets the settling function through with a
+transaction-local flag. Reopen, block and move are untouched.
+
+**Rule:** when a module writes into another module's table, read it back
+through a function that names its columns, and put a cross-module rule on the
+table as a trigger rather than in each seam that writes it.
+
 ## F250 · 2026-10-09 · Two sessions, one number; and a migration with a drop cannot go through the connector
 
 Two sessions merged into `main` three minutes apart on 2026-10-09 and both
@@ -10172,7 +10195,42 @@ for the SQL Editor, then any function body is re-created with `create or
 replace` through the connector and checked by `md5(prosrc)` against the
 ladder.
 
-## F251 · 2026-10-09 · The period was already free; what a day is worth was not
+## F251 · 2026-10-09 · Merged and marked DONE, but never on production
+
+After F250 the whole `ops_*` schema on production was compared with the
+local ladder (`main`): every function by signature and `md5(prosrc)`, every
+table's columns, every view and every enum value. Views, enums and columns
+matched (production only carries three `_…_20261006` backup tables more).
+Two functions did not, and both were behind buttons in the live app:
+
+- `ops_hr.void_scan` (`0246`, D398). Production had parts a, b and c of
+  `0246` and the `voided_scans` table, but not the function: its body moves a
+  typed tap into `voided_scans` and then removes it from `attendance_scans`,
+  and the Supabase connector holds any statement that removes rows or drops
+  objects for a confirmation a session cannot give (F250). The day editor's
+  *Hapus* on a typed tap had nothing to call.
+- `ops_procure.confirm_receipt` (`0205_procure_confirm_receipt_correction`,
+  D363). Never applied; the board row next to it said *0205 applied* because
+  another `0205` (`…_receiving_nota_lines`) was. Since 2026-10-01 the screen
+  sent `p_qty` and `p_condition` to a five-argument function, so a receipt
+  could not be signed for from `/procurement/penerimaan`.
+
+Both are on production now. `confirm_receipt` went through the connector
+with the old overload renamed `confirm_receipt_retired_0205` and closed to
+every role rather than dropped — the same shape as `_retired_0211` and the
+others — so its body is hash-identical. `void_scan` was run by the owner in
+the SQL Editor; it carries CRLF line endings and is identical once they are
+removed. `edit_transaction` differs from the ladder in comment lines only (it
+was applied with comments stripped); its code lines are all present.
+
+**Rule:** a migration counts as applied when its objects on production match
+the ladder, not when `schema_migrations` has a row with its number. After
+applying anything, compare by signature and `md5(prosrc)`. A migration whose
+text removes rows or drops objects goes to the owner for the SQL Editor; a
+drop of a superseded overload is better written as a rename to
+`*_retired_NNNN` plus `revoke`, which the connector runs.
+
+## F252 · 2026-10-09 · The period was already free; what a day is worth was not
 
 Asked to let a day-wage payroll run over *seven days rather than five*, the
 first thing to check was where five came from. Nowhere: `payroll_line_for`
@@ -10196,26 +10254,3 @@ Gross 0.
 none, the complaint is usually about a number the flexible thing produced —
 here a day the clock priced at nothing for somebody whose clock is not the
 point.
-
-## F249 · 2026-10-09 · The person who gives the task out cannot read the table it lives in
-
-Studio Desain S2 makes a drafter's room an ordinary `ops_hr.tasks` row, so
-HRD's whole machinery applies without anybody typing it twice (D402). The
-smoke file then asked the coordinator who had just given the room out to read
-the task back, and got nothing: `ops_hr.tasks` is readable by `hrd.read` and
-by the assignee (`tasks_read_own`), and a production coordinator is neither.
-That is right — chase notes and other people's errands are not theirs — but it
-means the Design screen cannot read the task it made. It reads a definer
-function instead (`design_assignments`), which returns only the columns the
-design needs, for whoever may read the design.
-
-The same shape decided how *nobody closes it by hand* was built. Changing
-`update_task` and the HRD seams to know about design tasks would put the rule
-in three places; one `before update of status` trigger on `ops_hr.tasks`
-refuses the change for everybody with SQLSTATE 23514, which the client already
-turns into a readable refusal, and lets the settling function through with a
-transaction-local flag. Reopen, block and move are untouched.
-
-**Rule:** when a module writes into another module's table, read it back
-through a function that names its columns, and put a cross-module rule on the
-table as a trigger rather than in each seam that writes it.

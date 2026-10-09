@@ -1,7 +1,7 @@
 -- 252_hr_presence_pay.sql — dibayar per kehadiran (0252, D409).
 --
 --   • a seven-day period pays a day wage for every day in it somebody came
---     (F251 — it always did);
+--     (F252 — it always did);
 --   • somebody HRD set *dibayar per kehadiran* is paid a whole day for any
 --     tap: one unpaired tap is not held, late and early are not counted;
 --   • a day with no tap is still nothing;
@@ -62,7 +62,7 @@ set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-000000025201';
 do $$
 declare a jsonb; l ops_hr.payroll_figures;
 begin
-  /* F251: seven days, paid for the four days he came — Saturday too */
+  /* F252: seven days, paid for the four days he came — Saturday too */
   l := ops_hr.payroll_line_for('aaaa2520-0000-0000-0000-000000000002','2026-10-01','2026-10-07');
   assert l.worked_days = 4 and l.base_pay = 400000 and l.gross = 400000,
     format('day wage over seven days: %s days, %s, gross %s', l.worked_days, l.base_pay, l.gross);
