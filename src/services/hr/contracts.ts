@@ -2485,6 +2485,15 @@ export interface PayRules {
    *  left out of lines that say when they started and finished (0244, D396). */
   overtime_break_from_minutes?: number | null;
   overtime_break_to_minutes?: number | null;
+  /** Not stored: folded in per person and day by `ot_rules_for` — a rest
+   *  day's lunch, taken after four hours of overtime (0246, D398). */
+  rest_break_minutes?: number | null;
+  /** *Pulang lebih awal*, priced per minute of the hour like `late_mode`
+   *  (0246, D398). `manual`: shown, not taken. */
+  early_leave_mode?: "manual" | "pro_rata";
+  /** The hours in a day the hour is figured on, for everybody (8 → ÷ 160 a
+   *  month); unset, each person's own `daily_hours` (0246, D398). */
+  hourly_day_hours?: number | null;
   /** Price an overtime hour before rounding it to the rupiah, as the sheet
    *  does (170.500 / 8 = 21.312,5). */
   overtime_exact_hourly?: boolean;
@@ -2697,6 +2706,12 @@ export interface PayrollLine {
    *  what is *not* being deducted (D174, D251). */
   late_days: number;
   late_deduction: number;
+  /** *Pulang lebih awal* (0246, D398): minutes before the weekday's end, the
+   *  days it happened, what `pro_rata` would take, and what is taken. */
+  early_minutes: number;
+  early_days: number;
+  early_priced: number;
+  early_deduction: number;
   /** Every day of the period, for the weekly recap on the payslip (D156). */
   days: PayslipDay[];
   /** Anything a person cannot resolve from the figures alone. */
@@ -2733,6 +2748,10 @@ export interface PayslipDay {
   unconfirmed?: boolean;
   /** HRD confirmed this day as present without a tap (D394). */
   confirmed?: boolean;
+  /** Minutes before the weekday's end the person left (0246, D398). */
+  early_minutes?: number;
+  /** HRD ticked *istirahat tidak dipotong* for this day (D398). */
+  break_kept?: boolean;
 }
 
 /** *Tidak wajib absensi* — a person HRD exempted, with why (0242, D394). */
@@ -2797,6 +2816,10 @@ export interface PersonDayEdits {
   /** Each night's overtime on any sheet, where it has got to and why (0243,
    *  D395). Optional so an older caller still type-checks. */
   overtime?: DayOvertime[];
+  /** Days whose break HRD kept, and the taps HRD typed — the ones the drawer
+   *  can take back (0246, D398). */
+  break_kept?: { id: string; work_date: string; reason: string }[];
+  manual_scans?: { id: string; work_date: string; at: string; reason: string }[];
 }
 
 /** One person's line on one overtime sheet, as the payroll drawer reads it

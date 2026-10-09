@@ -952,6 +952,27 @@ export async function withdrawDayOvertime(
   return fromSeam<{ sheet_no: string }>(SERVICE, data, error);
 }
 
+/** *Istirahat tidak dipotong* for a person and a day, or undone (0246, D398). */
+export async function keepBreak(
+  input: { employee_no: string; work_date: string; keep: boolean; reason: string }, idempotencyKey?: string,
+): Promise<Result<{ kept: boolean }>> {
+  const { data, error } = await db().rpc("keep_break", {
+    p_employee_no: input.employee_no, p_work_date: input.work_date, p_keep: input.keep,
+    p_reason: input.reason, p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<{ kept: boolean }>(SERVICE, data, error);
+}
+
+/** A tap HRD typed wrong, moved out of the record with why (0246, D398). */
+export async function voidScan(
+  input: { scan_id: string; reason: string }, idempotencyKey?: string,
+): Promise<Result<{ work_date: string }>> {
+  const { data, error } = await db().rpc("void_scan", {
+    p_scan_id: input.scan_id, p_reason: input.reason, p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<{ work_date: string }>(SERVICE, data, error);
+}
+
 /** *Hadir tanpa tap* for one day or many (0242, D394): a salaried working day
  *  with no tap and no mark is held until HRD says it was worked, or marks it. */
 export async function confirmPresence(
@@ -1022,19 +1043,25 @@ export async function personDayEdits(
     .from("employees").select("id").eq("employee_no", input.employee_no).maybeSingle();
   if (e1) return fromRows<PersonDayEdits>(SERVICE, null, e1);
   if (!emp) return notFound(SERVICE, "employee_not_found", `No employee ${input.employee_no}.`);
-  const [{ data: marks, error: e2 }, held, { data: ot, error: e3 }] = await Promise.all([
+  const [{ data: marks, error: e2 }, held, { data: ot, error: e3 }, { data: extras, error: e4 }] = await Promise.all([
     db().from("day_marks").select("id,employee_id,work_date,kind,reason,marked_by,marked_at")
       .eq("employee_id", (emp as { id: string }).id)
       .gte("work_date", input.from).lte("work_date", input.to).is("withdrawn_at", null),
     listWithholdings({ employee_no: input.employee_no, from: input.from, to: input.to }),
     db().rpc("person_day_overtime", { p_employee_no: input.employee_no, p_from: input.from, p_to: input.to }),
+    db().rpc("person_day_extras", { p_employee_no: input.employee_no, p_from: input.from, p_to: input.to }),
   ]);
   if (e2) return fromRows<PersonDayEdits>(SERVICE, null, e2);
   if (e3) return fromRows<PersonDayEdits>(SERVICE, null, e3);
+  if (e4) return fromRows<PersonDayEdits>(SERVICE, null, e4);
+  const ex = (extras ?? []) as { kind: string; id: string; work_date: string; at: string; reason: string }[];
   if (held.error) return held as unknown as Result<PersonDayEdits>;
   return ok(SERVICE, {
     marks: (marks ?? []) as DayMark[], withholdings: held.data,
     overtime: ((ot ?? []) as DayOvertime[]).map((o) => ({ ...o, hours: Number(o.hours) })),
+    break_kept: ex.filter((x) => x.kind === "break_kept").map((x) => ({ id: x.id, work_date: x.work_date, reason: x.reason })),
+    manual_scans: ex.filter((x) => x.kind === "manual_scan")
+      .map((x) => ({ id: x.id, work_date: x.work_date, at: x.at, reason: x.reason ?? "" })),
   });
 }
 
