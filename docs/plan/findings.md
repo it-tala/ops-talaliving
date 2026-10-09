@@ -10081,5 +10081,13 @@ review permission, and `doc_kind_drive` has no DWG or item-photo kind.
 either let its own users create those records or link to a place they can
 open, and the check is made as the persona the screen is for, not as an admin
 who holds every grant. The proposal is the kajian
-`docs/analysis/2026-10-09-studio-desain.md` (Studio Desain, S1–S6, Q74–Q80);
+`docs/analysis/2026-10-09-studio-desain.md` (Studio Desain, S1–S3, Q74–Q80);
 S1 closes this finding.
+
+The first draft of that proposal had review stages, reason categories, spec
+snapshots and a task per round. The owner asked for less: *data seakurat
+mungkin, kerja sesedikit mungkin*. The simpler shape turned out to be the more
+accurate one: when progress is derived from what people already do (upload a
+file, tap Final), nothing has to be typed twice and nothing can drift.
+**Rule:** before adding a field somebody must fill, look for the act that
+already implies it.

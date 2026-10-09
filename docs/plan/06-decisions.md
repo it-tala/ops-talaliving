@@ -470,13 +470,13 @@ same state to build on.
 | **Q68 — apakah `INQUIRY` dipecah menjadi tahap brief dan desain?** (kajian F224) | **Tidak.** Tahap awal dibaca dari item desain dan file yang sudah ada pada proyek |
 | **Q69 — jenis file baru dan drive tujuannya** (kajian F224 §4.4) | **Seperti tabel kajian §4.4:** `brief`, `foto_survei`, `proposal`, `notulen`, `kontrak` ke PROJECT MANAGER; `referensi_klien`, `gambar_klien`, `moodboard`, `layout`, `render` ke DRAFTING; asal file (`TALA`/`KLIEN`/`PIHAK_KETIGA`) disimpan pada file. `gambar_jadi` kembali berarti foto barang jadi |
 | **Q73 — apakah satu koleksi/katalog bisa dipakai di lebih dari satu proyek?** (D379) | **Tidak. Koleksi milik satu proyek.** Yang dipakai bersama lintas proyek adalah produk (`product_code`), jadi item yang dijual ulang menunjuk ke produk yang sama. Katalog milik TALA sendiri dicatat sebagai proyek dengan klien internal TALA. Kalau koleksi harus bisa dipakai ulang, koleksi menjadi master tersendiri dan proyek merujuk kepadanya |
-| **Q74 — siapa yang memeriksa gambar sebelum dikirim ke klien?** (kajian Studio Desain) | **Kepala drafter dengan izin baru `production.review` (diberikan IT di Users & access) dan pimpinan.** Pemeriksaan internal boleh dilewati dengan catatan, seperti persetujuan klien (D378) |
-| **Q75 — boleh item desain dibuatkan produk + BOM sebelum dipesan?** (kajian Studio Desain) | **Ya.** Produknya ditandai *dari desain* dan tidak tampil di katalog aktif sampai dipesan |
-| **Q76 — gambar kerja tanpa DWG boleh dirilis ke bengkel?** (kajian Studio Desain) | **Tidak.** Boleh diunggah dan diajukan; rilis butuh DWG dari revisi yang sama |
-| **Q77 — kategori alasan penolakan, dan mana yang dihitung melawan drafter?** (kajian Studio Desain) | **Kesalahan gambar · perubahan dari klien · masukan desain · teknis produksi.** Hanya *kesalahan gambar* yang dihitung di KPI |
-| **Q78 — tugas HRD drafter selesai saat revisi diajukan atau disetujui?** (kajian Studio Desain) | **Saat diajukan.** Putaran berikutnya adalah tugas HRD baru |
+| **Q74 — siapa yang boleh menekan Final / Revisi pada kotak kelengkapan?** (kajian Studio Desain) | **Kepala drafter dan pimpinan (izin baru `production.review`, diberikan IT di Users & access).** Drafter tidak memfinalkan filenya sendiri |
+| **Q75 — boleh item desain dibuatkan produk + BOM sebelum dipesan?** (kajian Studio Desain) | **Ya**, supaya kotak BOM bisa terisi. Produknya ditandai *dari desain* dan tidak tampil di katalog aktif sampai dipesan |
+| **Q76 — enam kotak kelengkapan (gambar kerja PDF, DWG, render, foto item, spesifikasi, BOM) wajib untuk setiap item?** (kajian Studio Desain) | **Ya**, kecuali ditandai *Tidak perlu* dengan alasan satu kalimat |
+| **Q77 — tugas HRD drafter per ruangan atau per item?** (kajian Studio Desain) | **Per ruangan.** Per item hanya kalau satu ruangan dibagi ke beberapa drafter |
+| **Q78 — tugas HRD drafter selesai saat semua kotak terisi atau semua final?** (kajian Studio Desain) | **Semua final** (atau tidak perlu), otomatis. Waktu tunggu pemeriksaan terlihat sebagai *menunggu cek*. Revisi setelah selesai membuat tugas revisi baru |
 | **Q79 — klien → koleksi tanpa proyek?** (kajian Studio Desain) | **Tidak, tetap klien → proyek → koleksi (D379).** Koleksi katalog sendiri memakai proyek internal *TALA KATALOG* |
-| **Q80 — menu sendiri *Desain*, atau tetap di bawah Produksi?** (kajian Studio Desain) | **Menu sendiri**, dibuka untuk penjual dan drafter (`may_design`). `/produksi/desain` dialihkan ke `/desain/tugas` |
+| **Q80 — menu sendiri *Desain*, atau tetap di bawah Produksi?** (kajian Studio Desain) | **Menu sendiri**, dibuka untuk penjual dan drafter (`may_design`). `/produksi/desain` dialihkan ke `/desain/progres` |
 
 ### Closed, for the shape
 
