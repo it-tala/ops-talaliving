@@ -705,7 +705,7 @@ the drafter and for HRD alike; reopening, blocking and moving stay as they are.
 | POST | `/design/assignments` | `{scope: room\|item, ref_no, assignee_no, due_date, note?}` — `assign_design_task` (`may_design`): a new task, or the open one **moved** (another person or date; same person and date is noop). 422 `unknown_scope`, `assignee_unknown` (active employees only), `due_required`, `due_in_past`, `nothing_to_do` (no items), `already_complete`, `item_dropped`; 404 room/item. Answers the project's assignments |
 | GET | `/hr/design-task-progress` | `ops_hr.design_task_progress()`: filled/total per design task — HRD and designers see all, a drafter their own. HRD's task list and *Profil → Tugas* show it, with *Buka di Desain* (`/produksi/desain?room=` / `?item=`) and no *done* button |
 
-### Desain — a gallery link per collection (0251, D406)
+### Desain — a gallery link per collection (0251, D407)
 
 | Method | Path | Notes |
 |---|---|---|

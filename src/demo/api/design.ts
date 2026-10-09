@@ -168,7 +168,7 @@ export async function saveDesignCollection(
 }
 
 /** The collection's gallery link (a Google Photos album): set, change, or
- *  clear with a blank (0251, D406). */
+ *  clear with a blank (0251, D407). */
 export async function setDesignCollectionGallery(
   input: { project_code: string; code: string; url: string | null },
 ): Promise<Result<ProjectDesign>> {
