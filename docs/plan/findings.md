@@ -10138,3 +10138,26 @@ Three smaller things the screen taught:
 
 **Rule:** anything that orders rows by a timestamp must default to the clock,
 not to the transaction, or two rows written together have no order at all.
+
+## F249 · 2026-10-09 · The person who gives the task out cannot read the table it lives in
+
+Studio Desain S2 makes a drafter's room an ordinary `ops_hr.tasks` row, so
+HRD's whole machinery applies without anybody typing it twice (D402). The
+smoke file then asked the coordinator who had just given the room out to read
+the task back, and got nothing: `ops_hr.tasks` is readable by `hrd.read` and
+by the assignee (`tasks_read_own`), and a production coordinator is neither.
+That is right — chase notes and other people's errands are not theirs — but it
+means the Design screen cannot read the task it made. It reads a definer
+function instead (`design_assignments`), which returns only the columns the
+design needs, for whoever may read the design.
+
+The same shape decided how *nobody closes it by hand* was built. Changing
+`update_task` and the HRD seams to know about design tasks would put the rule
+in three places; one `before update of status` trigger on `ops_hr.tasks`
+refuses the change for everybody with SQLSTATE 23514, which the client already
+turns into a readable refusal, and lets the settling function through with a
+transaction-local flag. Reopen, block and move are untouched.
+
+**Rule:** when a module writes into another module's table, read it back
+through a function that names its columns, and put a cross-module rule on the
+table as a trigger rather than in each seam that writes it.
