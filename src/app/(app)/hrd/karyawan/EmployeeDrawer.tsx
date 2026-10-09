@@ -469,13 +469,14 @@ export function EmployeeDrawer({
                 : tr("The hour follows the pay rules.", "Per jam mengikuti aturan penggajian.")}
             </p>
           </div>
-          {/* A salaried person's own monthly deductions (D389). */}
-          {employee && basis === "monthly" && (
-            <div className="sm:col-span-2"><PersonDeductions employeeNo={employee.employee_no} /></div>
+          {/* A person's own monthly deductions (D389); a day wage has no
+              default, only what is written here (D410). */}
+          {employee && (basis === "monthly" || basis === "daily") && (
+            <div className="sm:col-span-2"><PersonDeductions employeeNo={employee.employee_no} dayWage={basis === "daily"} /></div>
           )}
-          {/* Tidak wajib absensi, for a leader who does not tap (D394). */}
-          {employee && basis === "monthly" && (
-            <div className="sm:col-span-2"><AttendanceExempt employeeNo={employee.employee_no} /></div>
+          {/* Tidak wajib absensi, for somebody who does not tap (D394, D410). */}
+          {employee && (basis === "monthly" || basis === "daily") && (
+            <div className="sm:col-span-2"><AttendanceExempt employeeNo={employee.employee_no} dayWage={basis === "daily"} /></div>
           )}
           {/* Dibayar per kehadiran, for a day wage whose hours are not counted (D409). */}
           {employee && basis !== "monthly" && (

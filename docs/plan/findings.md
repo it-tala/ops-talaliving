@@ -10254,3 +10254,28 @@ Gross 0.
 none, the complaint is usually about a number the flexible thing produced —
 here a day the clock priced at nothing for somebody whose clock is not the
 point.
+
+## F253 · 2026-10-10 · Two branches restated the same function from the same base, and production kept the last one
+
+PR #163 (*dibayar per kehadiran*, D409) and PR #167 (a day wage's potongan
+and *tidak wajib absensi*) were written in parallel from the same `main`.
+Both took migration `0252` and decision D409, and both restated
+`ops_hr.payroll_line_for` from the 0246 body. On production the two were
+applied 25 seconds apart on 2026-10-10: #167's `0252` at 05:39:43 (both its
+functions), #163's `0252_hr_presence_pay_b_payroll_line` at 05:40:08. The
+second `create or replace` silently replaced the first: production kept
+#163's `payroll_line_for` and #167's `deduction_defaults_for`, and the exempt
+day wage (#167's half of the line) was gone — nothing failed, nothing said so.
+
+It was caught only because the hashes were checked right after applying, and
+`schema_migrations` showed a neighbour one minute old with the same number.
+#167 was rebuilt on #163: `0253`, D410, `payroll_line_for` = #163's body plus
+the exempt day (a day with **no** tap; #163's is a day with **a** tap, so the
+two rules never meet on one day), and the demo derivation chained the same way.
+
+**Rule:** before applying a migration that restates a function, compare the
+production `md5(prosrc)` with the body the migration was written against, and
+after applying, look at `schema_migrations` for anything applied since the
+branch was cut. A function restated in two open branches is a conflict even
+when git merges the files cleanly — the second branch rebases on the first and
+restates from it.

@@ -68,8 +68,8 @@ export function DeductionDefaults() {
           <p className="text-sm font-semibold text-slate-800">{tr("Default deductions, per month", "Potongan default per bulan")}</p>
           <p className="text-[12px] text-slate-500">
             {tr(
-              "Monthly salaries only, once a month. Generate payroll starts everybody with these; change or remove one per person there, or set a person's own amount in their record.",
-              "Hanya gaji bulanan, sekali sebulan. Buat payroll langsung mengisinya untuk semua orang; ubah atau hapus per orang di sana, atau atur nilai sendiri seseorang di data karyawannya.",
+              "Monthly salaries only, once a month. Generate payroll starts everybody with these; change or remove one per person there, or set a person's own amount in their record. A day wage pays only an amount set in their record.",
+              "Hanya gaji bulanan, sekali sebulan. Buat payroll langsung mengisinya untuk semua orang; ubah atau hapus per orang di sana, atau atur nilai sendiri seseorang di data karyawannya. Karyawan harian hanya dipotong nilai yang diatur di data karyawannya.",
             )}
           </p>
         </div>
@@ -94,9 +94,10 @@ export function DeductionDefaults() {
   );
 }
 
-/** One salaried person's own monthly deductions (D389): blank follows the
- *  default, any number — zero included — is theirs. */
-export function PersonDeductions({ employeeNo }: { employeeNo: string }) {
+/** One person's own monthly deductions (D389): blank follows the default,
+ *  any number — zero included — is theirs. A day wage has no default: blank
+ *  is nothing, and only a number written here is taken (D410). */
+export function PersonDeductions({ employeeNo, dayWage = false }: { employeeNo: string; dayWage?: boolean }) {
   const tr = useTr();
   const { toast } = useToast();
   const { can } = useSession();
@@ -115,7 +116,7 @@ export function PersonDeductions({ employeeNo }: { employeeNo: string }) {
   }, [own]);
 
   if (defaults.status !== "ready" || own.status !== "ready" || defaults.data.length === 0) return null;
-  const def = (k: DeductionKind) => defaults.data.find((d) => d.kind === k)?.amount ?? 0;
+  const def = (k: DeductionKind) => dayWage ? 0 : defaults.data.find((d) => d.kind === k)?.amount ?? 0;
   const saved = (k: DeductionKind) => own.data.find((d) => d.kind === k)?.amount ?? null;
   const changed = DEDUCTION_KINDS.filter((k) => draft[k] !== saved(k));
 
@@ -154,7 +155,9 @@ export function PersonDeductions({ employeeNo }: { employeeNo: string }) {
                 onClick={() => setDraft((d) => ({ ...d, [k]: def(k) }))}
                 className="mt-1 h-9 w-full rounded-lg border border-dashed border-slate-300 px-2 text-left text-[12px] text-slate-500 hover:border-brand-400"
               >
-                {tr(`Default · ${formatIDR(def(k))}`, `Ikut default · ${formatIDR(def(k))}`)}
+                {dayWage
+                  ? tr("None — set an amount", "Tidak dipotong — isi nilai")
+                  : tr(`Default · ${formatIDR(def(k))}`, `Ikut default · ${formatIDR(def(k))}`)}
               </button>
             ) : (
               <div className="mt-1 flex items-center gap-1">
@@ -162,7 +165,7 @@ export function PersonDeductions({ employeeNo }: { employeeNo: string }) {
                 {mayEdit && (
                   <button type="button" onClick={() => setDraft((d) => ({ ...d, [k]: null }))}
                     className="whitespace-nowrap text-[11px] text-slate-500 underline hover:text-slate-700">
-                    {tr("default", "default")}
+                    {dayWage ? tr("none", "hapus") : tr("default", "default")}
                   </button>
                 )}
               </div>
@@ -171,10 +174,15 @@ export function PersonDeductions({ employeeNo }: { employeeNo: string }) {
         ))}
       </div>
       <p className="mt-1.5 text-[11px] text-slate-500">
-        {tr(
-          "Taken once a month on Generate payroll. Zero means this person pays none of it.",
-          "Dipotong sekali sebulan saat Buat payroll. Nol berarti orang ini tidak dipotong.",
-        )}
+        {dayWage
+          ? tr(
+            "Taken once a month, in the pay week that holds the month's last day. A day wage has no default: only what is set here.",
+            "Dipotong sekali sebulan, di minggu gaji yang memuat akhir bulan. Karyawan harian tidak ikut default: hanya nilai yang diisi di sini.",
+          )
+          : tr(
+            "Taken once a month on Generate payroll. Zero means this person pays none of it.",
+            "Dipotong sekali sebulan saat Buat payroll. Nol berarti orang ini tidak dipotong.",
+          )}
       </p>
     </div>
   );
