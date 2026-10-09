@@ -5,7 +5,7 @@
  *  `may_design` — whoever sells (D375) and the drafters.
  */
 import type {
-  DesignApproval, DesignApprovalInput, DesignBox, DesignBoxKey, DesignBoxVersion, DesignCollection,
+  DesignApproval, DesignApprovalInput, DesignAssignInput, DesignAssignment, DesignBox, DesignBoxKey, DesignBoxVersion, DesignCollection,
   DesignItemInput, DesignItemView, DesignProject, DesignRoom, ProjectDesign,
 } from "@/services/design/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -224,4 +224,30 @@ export async function productFromDesignItem(
     p_item_no: input.item_no, p_product_code: input.product_code ?? null, p_category: input.category ?? null,
   });
   return fromSeam<{ product_code: string; existing: boolean }>(SERVICE, data, error);
+}
+
+/* ── Studio Desain S2: a room or an item given out as an HRD task (0250) ─── */
+
+/** The tasks given out from Design, for a project or for all. */
+export async function listDesignAssignments(projectCode?: string | null): Promise<Result<DesignAssignment[]>> {
+  const { data, error } = await db().rpc("design_assignments", { p_project_code: projectCode ?? null });
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, ((data ?? []) as Row[]).map((r) => ({
+    ...(r as unknown as DesignAssignment),
+    filled: Number(r.filled ?? 0),
+    total: Number(r.total ?? 0),
+  })));
+}
+
+/** Give a room or an item to a drafter as an HRD task, or move the open one
+ *  to another person or date. Answers the project's tasks. */
+export async function assignDesignTask(input: DesignAssignInput): Promise<Result<DesignAssignment[]>> {
+  const { data, error } = await db().rpc("assign_design_task", {
+    p_scope: input.scope, p_ref: input.ref_no, p_assignee_no: input.assignee_no,
+    p_due: input.due_date, p_note: input.note ?? null,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  const list = await listDesignAssignments(input.ref_no.split("-")[0]);
+  return list.error ? list : { ...list, meta: res.meta };
 }

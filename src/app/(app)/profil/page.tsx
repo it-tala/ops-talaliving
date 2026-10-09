@@ -30,6 +30,8 @@ import { OvertimeForm } from "../saya/overtime-form";
 import { OvertimeAskDetails, useOvertimeStatus } from "../saya/overtime-ask";
 import { useDayLabel } from "../saya/shared";
 import { tapActionsFor } from "../saya/presensi";
+import { DesignTaskNote, useDesignProgress } from "@/components/hr/design-progress";
+import { isDesignTask } from "@/services/hr/contracts";
 
 /** The profile every account owns (W7) — a different object from every other
  *  screen in this system, because it is the one screen where "which rows may
@@ -492,6 +494,7 @@ function TasksTab({ me }: { me: ReturnType<typeof useLoad<Awaited<ReturnType<typ
     () => (linked ? hr.listTasks({ assignee_no: linked.employee_no }) : Promise.resolve({ data: [] })),
     [linked?.employee_no],
   );
+  const designProgress = useDesignProgress(tasks);
   /* The same narrowing for goals: `list_goals()` hands an HRD account every
      goal, and this page is one person's — narrowed below to the goals with a
      part of theirs, and the goals they put together. */
@@ -589,7 +592,8 @@ function TasksTab({ me }: { me: ReturnType<typeof useLoad<Awaited<ReturnType<typ
               : tr(`"${t.waits_on_title}" is finished — you can start.`, `"${t.waits_on_title}" sudah selesai — bisa dimulai.`)}
           </p>
         )}
-        {t.deliverable && <p className="mt-0.5 text-[12px] text-slate-500">{tr("Deliverable:", "Diserahkan:")} {t.deliverable}</p>}
+        <DesignTaskNote t={t} progress={designProgress} />
+        {t.deliverable && !isDesignTask(t) && <p className="mt-0.5 text-[12px] text-slate-500">{tr("Deliverable:", "Diserahkan:")} {t.deliverable}</p>}
         {t.blocked_reason && t.status === "OPEN" && <p className="mt-0.5 text-[12px] text-amber-700">{tr("Blocked:", "Tertahan:")} {t.blocked_reason}</p>}
         {t.delivered_note && t.status === "DONE" && <p className="mt-0.5 text-[12px] text-emerald-800">{t.delivered_note}</p>}
         {t.status === "OPEN" && (
@@ -604,9 +608,12 @@ function TasksTab({ me }: { me: ReturnType<typeof useLoad<Awaited<ReturnType<typ
                 {tr("Start", "Mulai")}
               </Button>
             )}
-            <Button size="sm" variant="outline" icon={PackageCheck} disabled={isBusy} onClick={() => run(t, "done")}>
-              {tr("Done & hand over", "Selesai & serahkan")}
-            </Button>
+            {/* A design task closes itself when its boxes are filled (D403). */}
+            {!isDesignTask(t) && (
+              <Button size="sm" variant="outline" icon={PackageCheck} disabled={isBusy} onClick={() => run(t, "done")}>
+                {tr("Done & hand over", "Selesai & serahkan")}
+              </Button>
+            )}
             {t.blocked_reason ? (
               <Button size="sm" variant="outline" icon={PlayCircle} disabled={isBusy} onClick={() => run(t, "unblock")}>
                 {tr("Resume", "Lanjutkan")}

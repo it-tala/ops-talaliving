@@ -662,7 +662,24 @@ export type TaskStatus = "OPEN" | "DONE" | "CANCELLED";
 
 /** What a task is for. A public reference, validated at the seam and never
  *  joined across services (ADR-004). */
-export type TaskRefKind = "none" | "work_order" | "project" | "purchase_request";
+export type TaskRefKind = "none" | "work_order" | "project" | "purchase_request"
+  /** A drafter's room (`26003-A-LR`) or item (`26003-A-LR-01`), given out
+   *  from Design. It closes itself when every box is filled; nobody marks it
+   *  done by hand (0250, D402, D403). */
+  | "design_room" | "design_item";
+
+/** Filled / total boxes for a design task (`ops_hr.design_task_progress`,
+ *  0250): HRD monitors (D402), so the progress comes to the task list. */
+export interface DesignTaskProgress {
+  task_no: string;
+  ref_kind: "design_room" | "design_item";
+  ref_no: string;
+  filled: number;
+  total: number;
+}
+
+export const isDesignTask = (t: { ref_kind: TaskRefKind }) =>
+  t.ref_kind === "design_room" || t.ref_kind === "design_item";
 
 export interface Task {
   id: string;

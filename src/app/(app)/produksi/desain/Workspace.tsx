@@ -7,7 +7,8 @@ import { Badge, Button, Card } from "@/components/ui/primitives";
 import { Loaded, useLoad } from "@/components/ui/loaded";
 import { cn } from "@/lib/cn";
 import { design } from "@/demo/api";
-import { boxProgress, type DesignProject } from "@/services/design/contracts";
+import { boxProgress, roomCode, type DesignProject } from "@/services/design/contracts";
+import { AssignmentLine } from "@/components/design/assign-task";
 import { CollectionForm, ItemForm, RoomForm } from "@/components/design/design-board";
 import { BoxBar, BoxChips, ItemBoxes } from "@/components/design/item-boxes";
 import { useTr } from "@/lib/i18n";
@@ -196,8 +197,16 @@ function RoomPanel({
   const tr = useTr();
   const [d, reloadDesign] = useLoad(() => design.getProjectDesign(room.project), [room.project]);
   const [boxes, reloadBoxes] = useLoad(() => design.listDesignBoxes({ project_code: room.project }), [room.project]);
+  const [tasks, reloadTasks] = useLoad(() => design.listDesignAssignments(room.project), [room.project]);
   const [adding, setAdding] = useState(false);
-  const reload = () => { reloadDesign(); reloadBoxes(); onChanged(); };
+  const reload = () => { reloadDesign(); reloadBoxes(); reloadTasks(); onChanged(); };
+  /* A box filled can close a task (D403), so tasks follow the boxes. */
+  const boxesChanged = () => { reloadBoxes(); reloadTasks(); onChanged(); };
+  /* The open task for a scope, else its latest finished one. */
+  const taskFor = (ref: string) => {
+    const list = (tasks.status === "ready" ? tasks.data : []).filter((t) => t.ref_no === ref);
+    return list.find((t) => t.status === "OPEN") ?? list[0];
+  };
   const roomBoxes = useMemo(() => (boxes.status === "ready" ? boxes.data : [])
     .filter((b) => b.collection_code === room.collection && b.room_code === room.room), [boxes, room]);
 
@@ -225,6 +234,12 @@ function RoomPanel({
                 {prog.total > 0 && <BoxBar filled={prog.filled} total={prog.total} />}
                 {canEdit && !adding && (
                   <Button size="sm" icon={Plus} onClick={() => setAdding(true)}>{tr("Item", "Item")}</Button>
+                )}
+                {items.length > 0 && (
+                  <AssignmentLine scope="room" refNo={roomCode(room.project, room.collection, room.room)}
+                    assignment={taskFor(roomCode(room.project, room.collection, room.room))}
+                    complete={prog.total > 0 && prog.filled === prog.total}
+                    canEdit={canEdit} onChanged={reloadTasks} />
                 )}
               </div>
               {adding && (
@@ -292,10 +307,15 @@ function RoomPanel({
                       <ExternalLink className="h-3 w-3" /> {tr("Project page", "Halaman proyek")}
                     </Link>
                   )}
+                  {chosen.status !== "DROPPED" && (
+                    <AssignmentLine scope="item" refNo={chosen.item_no} assignment={taskFor(chosen.item_no)}
+                      complete={(() => { const p = boxProgress(roomBoxes.filter((b) => b.item_no === chosen.item_no)); return p.total > 0 && p.filled === p.total; })()}
+                      canEdit={canEdit} onChanged={reloadTasks} />
+                  )}
                 </div>
                 <div className="p-3">
                   <ItemBoxes itemNo={chosen.item_no} canEdit={canEdit && chosen.status !== "DROPPED"}
-                    canMakeProduct={canMakeProduct} onChanged={() => { reloadBoxes(); onChanged(); }} />
+                    canMakeProduct={canMakeProduct} onChanged={boxesChanged} />
                 </div>
               </Card>
             )}

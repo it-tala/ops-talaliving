@@ -29,6 +29,7 @@ import { settingNumber } from "../settings";
 import { lineCoverage } from "../derive";
 import { officeDay, officeStamp } from "@/lib/office";
 import { activateDesignProduct } from "../design-files";
+import { settleDesignTasksForProduct } from "./design";
 
 const SERVICE = "production" as const;
 
@@ -1181,6 +1182,8 @@ function openDraft(productId: string, by: string, byEmail: string): number {
       detail: { rev, copied_from: from, by: byEmail },
     });
   });
+  /* A BOM revision can fill a design item's last box (0250). */
+  settleDesignTasksForProduct(product.product_code);
   return rev;
 }
 

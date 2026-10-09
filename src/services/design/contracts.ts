@@ -270,3 +270,41 @@ export function boxProgress(boxes: DesignBox[]): { filled: number; total: number
   const live = boxes.filter((b) => !b.dropped);
   return { filled: live.filter((b) => b.state !== "kosong").length, total: live.length };
 }
+
+/* ── Studio Desain S2: a room or an item given out as an HRD task (0250) ─── */
+
+/** One task given out from Design (`ops_procure.design_assignments`). It is an
+ *  ordinary HRD task (D402) that closes itself when every box in its scope is
+ *  filled (D403). */
+export interface DesignAssignment {
+  task_no: string;
+  scope: "room" | "item";
+  /** The room's code (`26003-A-LR`) or the item's number. */
+  ref_no: string;
+  project_code: string;
+  collection_code: string;
+  room_code: string;
+  item_no: string | null;
+  assignee_no: string;
+  assignee_name: string;
+  due_date: string;
+  status: "OPEN" | "DONE" | "CANCELLED";
+  assigned_at: string;
+  done_at: string | null;
+  /** *Tertahan* — set by the drafter in their task list; it keeps the task
+   *  out of their score (D261). */
+  blocked_reason: string | null;
+  filled: number;
+  total: number;
+}
+
+export interface DesignAssignInput {
+  scope: "room" | "item";
+  ref_no: string;
+  assignee_no: string;
+  due_date: string;
+  note?: string | null;
+}
+
+/** A room's public code, as tasks name it. */
+export const roomCode = (project: string, collection: string, room: string) => `${project}-${collection}-${room}`;
