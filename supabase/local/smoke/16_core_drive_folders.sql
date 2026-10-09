@@ -51,8 +51,9 @@ begin
   -- 30 since `0188` added the off-site clock-in photo, in HRD (D332);
   -- 40 since `0217` added the ten kinds of a sale and a design (P1): five in
   -- PROJECT MANAGER, five in DRAFTING; 41 since `0222` added the client's
-  -- approval of a design, in DRAFTING (D378).
-  assert n = 41, format('every kind is mapped, got %s', n);
+  -- approval of a design, in DRAFTING (D378); 42 since `0248` added the
+  -- drafter's DWG, in DRAFTING (D399).
+  assert n = 42, format('every kind is mapped, got %s', n);
 end $$;
 
 /* ── the boundary that had to survive the move ─────────────────────────── */

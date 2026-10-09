@@ -189,7 +189,7 @@ export const NAV: NavSection[] = [
     titleKey: "production",
     icon: Hammer,
     items: [
-      { label: "Design", labelKey: "design", href: "/produksi/desain", icon: PencilRuler, permission: "production.read", badge: "new" },
+      { label: "Design", labelKey: "design", href: "/produksi/desain", icon: PencilRuler, permission: "production.read", orPermission: "project.read", badge: "new" },
       { label: "Who did the work", labelKey: "workAttribution", href: "/produksi/penautan", icon: Link2, permission: "production.read", badge: "new" },
       { label: "Goods at vendors", labelKey: "vendorWork", href: "/produksi/vendor", icon: Factory, permission: "production.read", badge: "new" },
       { label: "Products & BOM", labelKey: "bom", href: "/produksi/bom", icon: ListTree, permission: "production.read", badge: "core" },

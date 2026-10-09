@@ -664,6 +664,28 @@ M30's queue (D179) on the database. A task is for a **design item** (by
 | POST | `/design-tasks/{no}/questions` | `{asked_of, question}` — holds the release until answered |
 | POST | `/design-questions/{id}/answer` | `{answer}` — once (409 `already_answered`) |
 
+### Desain — six boxes per item (Studio Desain S1, 0247/0248, D399–D405)
+
+Replaces the queue above on `/produksi/desain` (its tables stay, unused by the
+screen). Every design item has six boxes — `pdf` (a *Gambar Kerja* file), `dwg`
+(a *DWG* file, new kind `dwg`, DRAFTING, the item's folder), `render`, `foto`
+(a *Gambar Jadi* file), `spec`, `bom` — each **kosong · terisi · tidak_perlu**,
+read from the work: a file filed on the item (`design_item` link; **filing
+again is the next version**, lettered by filing order, the latest counts,
+D399), a spec version, a BOM revision on the item's product. Nothing is
+required and nothing refuses for an empty box (D401). Read and written by
+`may_design`; the product needs `production.create`.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/design/projects` | `v_design_project`: live projects plus any with a design, client, item count. No price |
+| GET | `/design/boxes?project_code=&item_no=` | `v_design_box`: one row per item × box — `state`, `versions`, `latest_label` (`B`, spec `2`, BOM rev), latest file/by/at/note, `spec_body`, `product_code`, `bom_rev`/`bom_draft_rev`/`bom_cost`, skip note/by/at; `dropped` items excluded from progress by the client |
+| GET | `/design/items/{no}/versions` | `v_design_box_version`: every version of every box, oldest first; a file taken off stays listed `removed` and keeps its letter |
+| POST | `/documents/links` | `{…, note?}` — the version's note now reaches `attachment_links.note` |
+| POST | `/design/items/{no}/spec` | `{body, note?}` — `save_design_spec`: a new version. 422 `spec_empty`; the same text again is **noop** |
+| POST | `/design/items/{no}/boxes/{box}/skip` | `{skip, note?}` — `set_design_box_skip`, append-only; *not needed* counts as filled (D403), *needed again* empties it; repeating is **noop**. 422 `unknown_box` |
+| POST | `/design/items/{no}/product` | `{product_code?, category?}` — `product_from_design_item` (D400): code defaults to the item number, an existing product is linked; made **inactive** with `design_item_no`, activated by the first order line naming it (trigger on `project_lines`). 409 `already_product`; 403 without `production.create` |
+
 ## `inventory` — stock and timber
 
 Stock, added M27:

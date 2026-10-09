@@ -79,6 +79,9 @@ export const DOC_KINDS = [
   "Contract / SPK",
   /** The client's yes to a design — a screenshot, a signed print (0222, D378). */
   "Client Approval",
+  /** The drafter's source file, kept beside the PDF it is plotted to — its own
+   *  box on a design item (0247, D399). */
+  "DWG",
   "Others",
 ] as const;
 export type DocKind = (typeof DOC_KINDS)[number];
@@ -132,6 +135,7 @@ export const SUPPORTING_DOC_KINDS: DocKind[] = [
   "Meeting Notes",
   "Contract / SPK",
   "Client Approval",
+  "DWG",
   "Others",
 ];
 
@@ -231,13 +235,14 @@ export const USUAL_ORIGIN: Partial<Record<DocKind, FileOrigin>> = {
   "Meeting Notes": "tala",
   "Contract / SPK": "client",
   "Client Approval": "client",
+  "DWG": "tala",
 };
 
 /** What a design item is filed with (P4): what we drew, what the client
  *  brought, and their approval. */
 export const DESIGN_DOC_KINDS: readonly DocKind[] = [
   "Render", "Client Drawing", "Client Reference", "Moodboard", "Layout / Floor Plan",
-  "Gambar Kerja", "Gambar Jadi", "Client Approval",
+  "Gambar Kerja", "DWG", "Gambar Jadi", "Client Approval",
 ];
 
 /** What a meeting or a visit is filed with (P3): the minutes, the photos, and

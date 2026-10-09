@@ -137,7 +137,7 @@ const SALE_KINDS: Partial<Record<DocKind, [drive: string, task: string]>> = {
 /** The kinds a design item files in its own folder (0222). */
 const ITEM_FOLDER_KINDS: readonly DocKind[] = [
   "Render", "Moodboard", "Layout / Floor Plan", "Client Drawing", "Client Reference",
-  "Gambar Kerja", "Gambar Jadi", "Client Approval",
+  "Gambar Kerja", "DWG", "Gambar Jadi", "Client Approval",
 ];
 const COLLECTION_FOLDER_KINDS: readonly DocKind[] = [
   "Render", "Moodboard", "Layout / Floor Plan", "Client Drawing", "Client Reference",
@@ -294,7 +294,7 @@ export async function uploadToInbox(
  *  the document kind — vendor, amount and line come from where you were
  *  standing when you tapped. */
 export async function link(
-  input: { attachment_id: string; entity: LinkEntity; entity_no: string; kind: DocKind },
+  input: { attachment_id: string; entity: LinkEntity; entity_no: string; kind: DocKind; note?: string | null },
   idempotencyKey?: string,
 ): Promise<Result<AttachmentLink>> {
   await latency();
@@ -342,6 +342,10 @@ export async function link(
   };
   apply((draft) => {
     draft.attachment_links.push(row);
+    /* `attachment_links.note`: what a design version says about itself
+       (0248). The contract's link carries no note, so the sandbox keeps it
+       beside the row. */
+    if (input.note?.trim()) draft.design_link_notes[row.id] = input.note.trim();
     /* A letter that arrives after approval turns the days paid the moment it
        does (D144, 0187's trigger). */
     if (input.entity === "leave_request") carrySickNote(draft, input.entity_no, row.linked_at);

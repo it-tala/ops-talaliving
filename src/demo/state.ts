@@ -16,7 +16,7 @@ import type {
   CashflowLine, CashflowWeekOverride, CashflowReceipt, CashflowOpening, CashflowSettings,
 } from "@/services/accounting/contracts";
 import type { Attachment, AttachmentLink } from "@/services/documents/contracts";
-import type { ApprovalChannel, DesignOrigin } from "@/services/design/contracts";
+import type { ApprovalChannel, DesignBoxKey, DesignOrigin } from "@/services/design/contracts";
 import type {
   Market, Property, PropertyAgent, SalesRep, Referral, ScrapeRow,
 } from "@/services/marketing/contracts";
@@ -203,6 +203,13 @@ export interface DemoState {
   design_rooms: DemoDesignRoom[];
   design_items: DemoDesignItem[];
   design_approvals: DemoDesignApproval[];
+  /** Studio Desain (0248): the specification's versions, *not needed* rows,
+   *  the note a file version was filed with (`attachment_links.note`), and
+   *  the products made from an item before it was ordered (`design_item_no`). */
+  design_item_specs: DemoDesignSpec[];
+  design_box_skips: DemoDesignBoxSkip[];
+  design_link_notes: Record<string, string>;
+  design_products: Record<string, string>;
 
   pr_documents: PrDocument[];
   pr_lines: PrLine[];
@@ -520,6 +527,14 @@ export interface DemoDesignItem {
   length_mm: number | null; width_mm: number | null; height_mm: number | null;
   origin: DesignOrigin; product_code: string | null; note: string | null;
   dropped_at: string | null; drop_reason: string | null; created_at: string; updated_at: string;
+}
+export interface DemoDesignSpec {
+  id: string; item_id: string; version: number; body: string; note: string | null;
+  written_by: string; written_at: string;
+}
+export interface DemoDesignBoxSkip {
+  id: string; item_id: string; box: DesignBoxKey; skipped: boolean; note: string | null;
+  set_by: string; set_at: string;
 }
 export interface DemoDesignApproval {
   id: string; item_id: string; decision: "approved" | "withdrawn"; decided_on: string;

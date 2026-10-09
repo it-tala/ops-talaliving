@@ -10,6 +10,16 @@ import { trxIdByNo } from "./ledger";
  * the record instead of matching to it afterwards (ADR-010).
  */
 export const ATTACHMENTS: Attachment[] = [
+  /* Studio Desain (0248): the drafters' files on 26003's design items. */
+  { id: "att_d1", storage_path: "demo/2026-09/26003-A-LR-01_gambar-kerja.pdf", url: null, filename: "26003-A-LR-01_gambar-kerja.pdf", sha256: "d1d1d1d1d1d1", mime: "application/pdf", bytes: 412_000, uploaded_by: "usr_made", uploaded_at: "2026-09-30T10:00:00+07:00", source: "web", duplicate_suspect: false, origin: "tala" },
+  { id: "att_d2", storage_path: "demo/2026-10/26003-A-LR-01_gambar-kerja-v2.pdf", url: null, filename: "26003-A-LR-01_gambar-kerja-v2.pdf", sha256: "d2d2d2d2d2d2", mime: "application/pdf", bytes: 418_000, uploaded_by: "usr_made", uploaded_at: "2026-10-07T10:00:00+07:00", source: "web", duplicate_suspect: false, origin: "tala" },
+  { id: "att_d3", storage_path: "demo/2026-09/26003-A-LR-01.dwg", url: null, filename: "26003-A-LR-01.dwg", sha256: "d3d3d3d3d3d3", mime: "application/acad", bytes: 1_904_000, uploaded_by: "usr_made", uploaded_at: "2026-09-30T10:01:00+07:00", source: "web", duplicate_suspect: false, origin: "tala" },
+  { id: "att_d4", storage_path: "demo/2026-10/sofa-linen-oatmeal.jpg", url: null, filename: "sofa-linen-oatmeal.jpg", sha256: "d4d4d4d4d4d4", mime: "image/jpeg", bytes: 2_210_000, uploaded_by: "usr_putri", uploaded_at: "2026-10-03T14:00:00+07:00", source: "web", duplicate_suspect: false, origin: "tala" },
+  { id: "att_d5", storage_path: "demo/2026-10/26003-A-LR-02_gambar-kerja.pdf", url: null, filename: "26003-A-LR-02_gambar-kerja.pdf", sha256: "d5d5d5d5d5d5", mime: "application/pdf", bytes: 301_000, uploaded_by: "usr_made", uploaded_at: "2026-10-08T09:00:00+07:00", source: "web", duplicate_suspect: false, origin: "tala" },
+  { id: "att_d6", storage_path: "demo/2026-10/26003-A-LR-02.dwg", url: null, filename: "26003-A-LR-02.dwg", sha256: "d6d6d6d6d6d6", mime: "application/acad", bytes: 1_120_000, uploaded_by: "usr_made", uploaded_at: "2026-10-08T09:01:00+07:00", source: "web", duplicate_suspect: false, origin: "tala" },
+  { id: "att_d7", storage_path: "demo/2026-09/26003-B-DN-01_gambar-kerja.pdf", url: null, filename: "26003-B-DN-01_gambar-kerja.pdf", sha256: "d7d7d7d7d7d7", mime: "application/pdf", bytes: 356_000, uploaded_by: "usr_made", uploaded_at: "2026-09-29T11:00:00+07:00", source: "web", duplicate_suspect: false, origin: "tala" },
+  { id: "att_d8", storage_path: "demo/2026-09/26003-B-DN-01.dwg", url: null, filename: "26003-B-DN-01.dwg", sha256: "d8d8d8d8d8d8", mime: "application/acad", bytes: 1_450_000, uploaded_by: "usr_made", uploaded_at: "2026-09-29T11:01:00+07:00", source: "web", duplicate_suspect: false, origin: "tala" },
+  { id: "att_d9", storage_path: "demo/2026-09/meja-makan-render.jpg", url: null, filename: "meja-makan-render.jpg", sha256: "d9d9d9d9d9d9", mime: "image/jpeg", bytes: 1_980_000, uploaded_by: "usr_putri", uploaded_at: "2026-09-28T15:00:00+07:00", source: "web", duplicate_suspect: false, origin: "tala" },
   { id: "att_01", storage_path: "demo/2026-08/nota-amplas-sejahtera.jpg", url: null, filename: "nota-amplas-sejahtera.jpg", sha256: "9f2a1c77b0e4", mime: "image/jpeg", bytes: 842_113, uploaded_by: "usr_putri", uploaded_at: "2026-08-20T16:05:00+07:00", source: "web", duplicate_suspect: false },
   { id: "att_02", storage_path: "demo/2026-08/bukti-transfer-amplas.jpg", url: null, filename: "bukti-transfer-amplas.jpg", sha256: "3b71ee90aa12", mime: "image/jpeg", bytes: 415_882, uploaded_by: "usr_putri", uploaded_at: "2026-08-20T16:08:00+07:00", source: "web", duplicate_suspect: false },
   { id: "att_03", storage_path: "demo/2026-08/foto-terima-amplas.jpg", url: null, filename: "foto-terima-amplas.jpg", sha256: "cc4410ab7731", mime: "image/jpeg", bytes: 1_204_776, uploaded_by: "usr_made", uploaded_at: "2026-08-25T13:35:00+07:00", source: "chat", duplicate_suspect: false },
@@ -79,6 +89,18 @@ export const ATTACHMENTS: Attachment[] = [
 ];
 
 export const ATTACHMENT_LINKS: AttachmentLink[] = [
+  /* Studio Desain (0248): the sofa's working drawing filed twice (B is the one
+     that counts, D399), its DWG still A; the coffee table drawn; the dining
+     table's drawing, DWG and render. */
+  { id: "lnk_d1", attachment_id: "att_d1", entity: "design_item", entity_no: "26003-A-LR-01", kind: "Gambar Kerja", linked_by: "usr_made", linked_at: "2026-09-30T10:00:00+07:00" },
+  { id: "lnk_d2", attachment_id: "att_d2", entity: "design_item", entity_no: "26003-A-LR-01", kind: "Gambar Kerja", linked_by: "usr_made", linked_at: "2026-10-07T10:00:00+07:00" },
+  { id: "lnk_d3", attachment_id: "att_d3", entity: "design_item", entity_no: "26003-A-LR-01", kind: "DWG", linked_by: "usr_made", linked_at: "2026-09-30T10:01:00+07:00" },
+  { id: "lnk_d4", attachment_id: "att_d4", entity: "design_item", entity_no: "26003-A-LR-01", kind: "Render", linked_by: "usr_putri", linked_at: "2026-10-03T14:00:00+07:00" },
+  { id: "lnk_d5", attachment_id: "att_d5", entity: "design_item", entity_no: "26003-A-LR-02", kind: "Gambar Kerja", linked_by: "usr_made", linked_at: "2026-10-08T09:00:00+07:00" },
+  { id: "lnk_d6", attachment_id: "att_d6", entity: "design_item", entity_no: "26003-A-LR-02", kind: "DWG", linked_by: "usr_made", linked_at: "2026-10-08T09:01:00+07:00" },
+  { id: "lnk_d7", attachment_id: "att_d7", entity: "design_item", entity_no: "26003-B-DN-01", kind: "Gambar Kerja", linked_by: "usr_made", linked_at: "2026-09-29T11:00:00+07:00" },
+  { id: "lnk_d8", attachment_id: "att_d8", entity: "design_item", entity_no: "26003-B-DN-01", kind: "DWG", linked_by: "usr_made", linked_at: "2026-09-29T11:01:00+07:00" },
+  { id: "lnk_d9", attachment_id: "att_d9", entity: "design_item", entity_no: "26003-B-DN-01", kind: "Render", linked_by: "usr_putri", linked_at: "2026-09-28T15:00:00+07:00" },
   /* HR evidence. The surat dokter is what makes a sick day a paid one (D144);
    * the surat lembur is what leadership is actually signing (D145). Same road
    * as every other document here: uploaded once, linked by a named person. */

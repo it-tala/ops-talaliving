@@ -28,6 +28,7 @@ import {
 import { settingNumber } from "../settings";
 import { lineCoverage } from "../derive";
 import { officeDay, officeStamp } from "@/lib/office";
+import { activateDesignProduct } from "../design-files";
 
 const SERVICE = "production" as const;
 
@@ -1135,6 +1136,7 @@ export async function createProductFromOrderLine(
     }
     const row = draft.project_lines.find((l) => l.id === line.id);
     if (row) row.product_code = code;
+    activateDesignProduct(draft, code);
     writeAudit(draft, {
       service: SERVICE, entity: "product", entity_no: code,
       action: "from_order_line", outcome: "ok", reason: null,
