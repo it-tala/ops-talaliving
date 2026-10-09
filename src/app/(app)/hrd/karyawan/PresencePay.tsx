@@ -8,7 +8,7 @@ import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 
-/** *Dibayar per kehadiran* (0251, D406).
+/** *Dibayar per kehadiran* (0252, D407).
  *
  *  Owner: *khusus mbak nuur ejo household tidak dihitung jam nya, dihitung
  *  asal ada bukti kehadiran saja, dibayar full sehari.* For somebody paid by

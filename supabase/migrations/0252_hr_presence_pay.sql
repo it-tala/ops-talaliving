@@ -1,5 +1,5 @@
--- 0251 — dibayar per kehadiran: a day with any tap is a whole day, its hours
--- not counted (D406).
+-- 0252 — dibayar per kehadiran: a day with any tap is a whole day, its hours
+-- not counted (D407).
 --
 -- ── the owner's ask (2026-10-09) ─────────────────────────────────────────
 --
@@ -141,7 +141,7 @@ alter type ops_hr.payroll_figures
   add attribute presence_paid boolean cascade;
 
 /* ── the payroll line — restated from 0246 ──────────────────────────────
-   Changes are marked 0251 (D406). */
+   Changes are marked 0252 (D407). */
 create or replace function ops_hr.payroll_line_for(
   p_employee uuid, p_from date, p_to date, p_run_no text default null)
 returns ops_hr.payroll_figures
@@ -221,7 +221,7 @@ declare
   early_total    int := 0;
   early_days     int := 0;
   v_early_mode   text;
-  -- 0251 (D406)
+  -- 0252 (D407)
   v_po           boolean;
   n_po           int := 0;
 begin
@@ -305,7 +305,7 @@ begin
       d.work_hours := d.work_hours + coalesce(d.break_hours, 0);
     end if;
 
-    /* 0251 (D406): *dibayar per kehadiran* — any tap on the day, the
+    /* 0252 (D407): *dibayar per kehadiran* — any tap on the day, the
        machine's, the phone's or one HRD typed, is the evidence, and the day
        is whole however the taps fall: worth a day, the schedule's hours, no
        minutes late or early. A day with no tap is still nothing. */
@@ -387,7 +387,7 @@ begin
       'confirmed', v_conf,
       -- 0246 (D398): HRD kept the break.
       'break_kept', v_kept,
-      -- 0251 (D406): read whole on its tap alone.
+      -- 0252 (D407): read whole on its tap alone.
       'presence_paid', v_po);
 
     /* What the paid days are made of, so a payslip can say it rather than
@@ -775,7 +775,7 @@ begin
      where x.employee_id = emp.id
        and (x.starts_on is null or x.starts_on <= p_to)
        and (x.ends_on is null or x.ends_on >= p_from));
-  -- 0251 (D406)
+  -- 0252 (D407)
   out_row.presence_paid := emp.pay_basis <> 'monthly' and exists (
     select 1 from ops_hr.presence_pay x
      where x.employee_id = emp.id

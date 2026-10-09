@@ -1035,13 +1035,13 @@ export async function setAttendanceExempt(
   return listAttendanceExemptions();
 }
 
-/** Who is *dibayar per kehadiran* now — HRD's only (0251, D406). */
+/** Who is *dibayar per kehadiran* now — HRD's only (0252, D407). */
 export async function listPresencePay(): Promise<Result<PresencePay[]>> {
   const { data, error } = await db().rpc("presence_pay_list");
   return fromRows<PresencePay[]>(SERVICE, data as never, error);
 }
 
-/** On with a reason, or off with a reason from today on (0251, D406). */
+/** On with a reason, or off with a reason from today on (0252, D407). */
 export async function setPresencePay(
   input: { employee_no: string; on: boolean; reason: string; starts_on?: string | null }, idempotencyKey?: string,
 ): Promise<Result<PresencePay[]>> {

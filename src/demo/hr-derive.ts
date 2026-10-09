@@ -712,7 +712,7 @@ export function payrollLine(
   const days1 = days0.map((d) => (keptDates.has(d.work_date) && d.scans.length > 0 && !d.mark
     ? { ...d, work_hours: Math.round((d.work_hours + (d.break_hours ?? 0)) * 100) / 100 }
     : d));
-  /* 0251 (D406): *dibayar per kehadiran* — any tap on the day is the
+  /* 0252 (D407): *dibayar per kehadiran* — any tap on the day is the
      evidence, and the day is whole however the taps fall: worth a day, the
      schedule's hours, no minutes late or early. A day with no tap is still
      nothing. Same rule as `ops_hr.payroll_line_for`. */
