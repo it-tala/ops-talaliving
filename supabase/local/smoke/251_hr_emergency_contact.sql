@@ -1,4 +1,4 @@
--- 249_hr_emergency_contact.sql — kontak darurat karyawan (D406).
+-- 251_hr_emergency_contact.sql — kontak darurat karyawan (D406).
 --
 -- Yang dibuktikan:
 --   • karyawan baru menyimpan nama, hubungan dan nomor darurat (angka saja);

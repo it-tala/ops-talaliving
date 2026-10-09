@@ -1,4 +1,4 @@
--- 0249 — kontak darurat karyawan (D406).
+-- 0251 — kontak darurat karyawan (D406).
 --
 -- Owner (2026-10-09): *di HRD untuk employee tambahkan kontak darurat.*
 --
@@ -33,7 +33,7 @@
 -- The seam takes three more arguments, so it is dropped and made again (two
 -- overloads with defaults would make every named call ambiguous). The new ones
 -- come last, so every positional call still means what it meant. The body is
--- 0198's with the additions marked `0249`.
+-- 0198's with the additions marked `0251`.
 
 alter table ops_hr.employees
   add column if not exists emergency_name     text,
@@ -52,11 +52,11 @@ alter table ops_hr.employees
            and (emergency_relation is null or emergency_name is not null));
 
 comment on column ops_hr.employees.emergency_name is
-  'Kontak darurat: siapa yang dihubungi bila terjadi sesuatu pada orang ini (0249, D406). Selalu bersama emergency_phone.';
+  'Kontak darurat: siapa yang dihubungi bila terjadi sesuatu pada orang ini (0251, D406). Selalu bersama emergency_phone.';
 comment on column ops_hr.employees.emergency_relation is
-  'Hubungan kontak darurat dengan orang ini — Istri, Ibu, Kakak … (0249). Opsional.';
+  'Hubungan kontak darurat dengan orang ini — Istri, Ibu, Kakak … (0251). Opsional.';
 comment on column ops_hr.employees.emergency_phone is
-  'Nomor kontak darurat, angka saja dengan + di depan bila ada (0249). Bukan nomor orang ini sendiri.';
+  'Nomor kontak darurat, angka saja dengan + di depan bila ada (0251). Bukan nomor orang ini sendiri.';
 
 drop function if exists ops_hr.save_employee(
   text, text, text, text, ops_hr.pay_basis_t, bigint, bigint,
@@ -80,7 +80,7 @@ create function ops_hr.save_employee(
   -- 0198: null leaves it as it is; an empty string clears it.
   p_email           text default null,
   p_phone           text default null,
-  -- 0249: the same — null leaves it, an empty string clears it.
+  -- 0251: the same — null leaves it, an empty string clears it.
   p_emergency_name     text default null,
   p_emergency_relation text default null,
   p_emergency_phone    text default null)
@@ -170,7 +170,7 @@ begin
       jsonb_build_object('field','phone'));
   end if;
 
-  /* 0249: the emergency contact, judged as it will be after this save —
+  /* 0251: the emergency contact, judged as it will be after this save —
      absent is what is stored, blank is none. */
   v_em_name := case when p_emergency_name is null then v_emp.emergency_name
                     else nullif(regexp_replace(btrim(p_emergency_name), '[[:space:]]+', ' ', 'g'), '') end;
@@ -277,7 +277,7 @@ begin
       note            = coalesce(nullif(btrim(coalesce(p_note,'')), ''), note),
       email           = case when p_email is null then email else nullif(v_email, '') end,
       phone           = case when p_phone is null then phone else nullif(v_phone, '') end,
-      -- 0249: already resolved against what was stored.
+      -- 0251: already resolved against what was stored.
       emergency_name     = v_em_name,
       emergency_relation = v_em_rel,
       emergency_phone    = v_em_phone,

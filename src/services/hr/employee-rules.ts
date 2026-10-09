@@ -15,12 +15,12 @@
  *     Lowering it, or leaving it as it was, is never refused — an edit to
  *     somebody's position must not fail over a number nobody touched.
  *
- *  The emergency contact (0249, owner 2026-10-09: *tambahkan kontak darurat*)
+ *  The emergency contact (0251, owner 2026-10-09: *tambahkan kontak darurat*)
  *  is a name and a number together, a relation if known, and never the
  *  person's own number — the day it is needed is the day that phone is not
  *  answering.
  *
- *  `ops_hr.save_employee` (0198, 0249) makes the same refusals with the same codes
+ *  `ops_hr.save_employee` (0198, 0251) makes the same refusals with the same codes
  *  (its comments say D348: written before that number went to inventory —
  *  F202)
  *  and sentences; the demo reads them from here (ADR-009). Pure, imports

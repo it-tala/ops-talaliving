@@ -276,7 +276,7 @@ export async function saveEmployee(
   if (contact) return invalid(SERVICE, contact.code, contact.message, { field: contact.field });
   const email = input.email === undefined ? undefined : normalEmail(input.email) || null;
   const phone = input.phone === undefined ? undefined : normalPhone(input.phone) || null;
-  /* 0249: the emergency contact, judged as it will be after the save (D406). */
+  /* 0251: the emergency contact, judged as it will be after the save (D406). */
   const emergency = emergencyAfter(existing, input);
   const urgent = emergencyProblem(
     emergency, phone === undefined ? existing?.phone ?? null : phone, input.emergency_phone,
