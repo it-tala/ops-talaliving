@@ -14,6 +14,7 @@ gets had twice.
 
 | # | Date | Decision | Why |
 |---|---|---|---|
+| 406 | 2026-10-09 | **Render koleksi lewat link galeri, bukan galeri di dalam ops: setiap koleksi desain punya satu link album Google Photos (`design_collections.gallery_url`, `0251`).** Diisi atau diubah oleh yang mendesain (`may_design`), dikosongkan untuk menghapus; harus berupa alamat web. Tampil di Produksi › Design (kepala ruangan) dan di tab Design halaman proyek, dengan *Salin untuk klien*. Foto tidak disalin ke ops; albumnya tetap di Google Photos. | Owner: *link A* — dipilih karena paling cepat, dan klien bisa membuka album tanpa akun di ops. Pilihan galeri di dalam ops (B) ditawarkan dan tidak dipilih |
 | 405 | 2026-10-09 | **Studio Desain tidak menjadi menu baru: ia menggantikan isi layar Desain yang sudah ada (`/produksi/desain`) di bawah Produksi.** Tab *Ruang kerja* dan *Progres* (Q80). | Owner: *di bawah desain saja*. Drafter sudah menemukan menu itu; yang kurang adalah inputnya (F247) |
 | 404 | 2026-10-09 | **Hierarki tetap klien → proyek → koleksi → ruangan → item (Q79, menegaskan D379).** | Owner: *pakai proyek* |
 | 403 | 2026-10-09 | **Tugas drafter selesai sendiri saat semua kotak kelengkapan di lingkupnya terisi** (atau ditandai *tidak perlu*), bukan saat diperiksa (Q78). Versi baru sesudahnya hanya menambah riwayat; tidak membuka tugas lagi dan tidak membuat tugas revisi. | Owner: *semua kotak terisi*. Tanggal selesai = tanggal kotak terakhir terisi, jadi ketepatan waktu terbaca tanpa ada yang menekan *selesai* |

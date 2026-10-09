@@ -74,6 +74,20 @@ export async function saveDesignCollection(
   return getProjectDesign(input.project_code);
 }
 
+/** The collection's gallery link (a Google Photos album): set, change, or
+ *  clear with a blank (0251, D406). */
+export async function setDesignCollectionGallery(
+  input: { project_code: string; code: string; url: string | null },
+): Promise<Result<ProjectDesign>> {
+  const { data, error } = await db().rpc("set_design_collection_gallery", {
+    p_project_code: input.project_code, p_code: input.code, p_url: input.url ?? null,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  const d = await getProjectDesign(input.project_code);
+  return d.error ? d : { ...d, meta: res.meta };
+}
+
 export async function saveDesignRoom(
   input: { project_code: string; collection_code: string; code: string; name: string; sort?: number | null },
 ): Promise<Result<ProjectDesign>> {

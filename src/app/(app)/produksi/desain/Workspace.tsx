@@ -12,6 +12,7 @@ import { AssignmentLine } from "@/components/design/assign-task";
 import { CollectionForm, ItemForm, RoomForm } from "@/components/design/design-board";
 import { BoxBar, BoxChips, ItemBoxes } from "@/components/design/item-boxes";
 import { useTr } from "@/lib/i18n";
+import { CollectionGallery } from "@/components/design/collection-gallery";
 
 export interface RoomRef { project: string; collection: string; room: string }
 
@@ -230,6 +231,7 @@ function RoomPanel({
                   <h3 className="text-[14px] font-semibold text-slate-800">
                     {c ? `${c.code} · ${c.name}` : room.collection} › {r?.name ?? room.room}
                   </h3>
+                  {c && <CollectionGallery projectCode={room.project} collection={c} canEdit={canEdit} onChanged={reloadDesign} className="mt-1" />}
                 </div>
                 {prog.total > 0 && <BoxBar filled={prog.filled} total={prog.total} />}
                 {canEdit && !adding && (

@@ -14,6 +14,7 @@ import {
 import { useToast } from "@/store/toast";
 import { useLang, useTr } from "@/lib/i18n";
 import { ItemDrawer } from "./item-drawer";
+import { CollectionGallery } from "./collection-gallery";
 
 const inputCls = "h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-[13px] focus:border-brand-400 focus:outline-none";
 
@@ -83,6 +84,7 @@ function CollectionCard({
         {canEdit && !addingRoom && (
           <Button size="sm" variant="outline" icon={Plus} className="ml-auto" onClick={() => setAddingRoom(true)}>{tr("Room", "Ruangan")}</Button>
         )}
+        <CollectionGallery projectCode={projectCode} collection={c} canEdit={canEdit} onChanged={onChanged} className="w-full" />
       </header>
       {addingRoom && (
         <div className="border-b border-slate-100 px-4 py-2.5">
