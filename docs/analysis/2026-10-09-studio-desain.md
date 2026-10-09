@@ -124,7 +124,7 @@ supaya PM juga bisa melihat kelengkapan sebelum membuat quotation.
 |---|---|---|---|
 | **S1** | **Ruang kerja dan enam kotak** di `/produksi/desain`: pohon dengan tombol tambah, unggah = versi otomatis, *tidak perlu*, progres item / ruangan / proyek, tanda DWG tertinggal, *Buat produk & BOM* | jenis file `dwg` dan `foto_item` ke DRAFTING; kolom `design_items.spec` (riwayat lewat audit); `design_slot_skips` (append-only); view `v_design_item_progress`; produk *dari desain* | drafter mengisi dari nol, progres dan kelengkapan terbaca. **Menutup F247** |
 | **S2** | **Tugas dari Desain ke HRD:** tugaskan ruangan / item + tenggat, progres di tugas HRD, selesai sendiri, HRD baca saja; tab Progres per drafter | enum `ref_kind` desain (dipakai di migrasi berikutnya, F161); trigger dari unggahan dan *tidak perlu* | pekerjaan drafter terpantau di HRD tanpa input HRD |
-| **S3** | **Unggah massal per ruangan:** file dicocokkan ke item lewat nomor item di nama file (`26003-A-LR-01.dwg`), yang tidak cocok ditanyakan. Lalu walk dengan tim drafter | — | puluhan file sekali seret |
+| ~~**S3**~~ | **Batal (D408, owner: *tidak perlu unggah masal*).** ~~Unggah massal per ruangan:~~ file dicocokkan ke item lewat nomor item di nama file (`26003-A-LR-01.dwg`), yang tidak cocok ditanyakan. Lalu walk dengan tim drafter | — | puluhan file sekali seret |
 
 Tabel antrean lama `0226` (`design_tasks`, `design_revisions`,
 `design_questions`) kosong di produksi dan tidak dipakai layar baru. Tabel itu
