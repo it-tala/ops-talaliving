@@ -143,11 +143,26 @@ export function initialState(): DemoState {
       { id: "di_1", item_no: "26003-A-LR-01", room_id: "dr_A_LR", seq: 1, name: "Sofa 3 seater", qty: 24, length_mm: 2100, width_mm: 900, height_mm: 780, origin: "tala", product_code: null, note: null, dropped_at: null, drop_reason: null, created_at: "2026-09-26T02:00:00Z", updated_at: "2026-09-26T02:00:00Z" },
       { id: "di_2", item_no: "26003-A-LR-02", room_id: "dr_A_LR", seq: 2, name: "Coffee table", qty: 24, length_mm: 1100, width_mm: 600, height_mm: 420, origin: "adapted", product_code: null, note: "Klien minta lebih rendah, 380 mm", dropped_at: null, drop_reason: null, created_at: "2026-09-26T02:00:00Z", updated_at: "2026-09-26T02:00:00Z" },
       { id: "di_3", item_no: "26003-A-MB-01", room_id: "dr_A_MB", seq: 1, name: "Bed 160 + headboard", qty: 24, length_mm: 1700, width_mm: 2150, height_mm: 1100, origin: "client", product_code: null, note: null, dropped_at: null, drop_reason: null, created_at: "2026-09-26T02:00:00Z", updated_at: "2026-09-26T02:00:00Z" },
-      { id: "di_4", item_no: "26003-B-DN-01", room_id: "dr_B_DN", seq: 1, name: "Dining table 6 seats", qty: 12, length_mm: 1800, width_mm: 900, height_mm: 750, origin: "tala", product_code: null, note: null, dropped_at: null, drop_reason: null, created_at: "2026-09-26T02:00:00Z", updated_at: "2026-09-26T02:00:00Z" },
+      { id: "di_4", item_no: "26003-B-DN-01", room_id: "dr_B_DN", seq: 1, name: "Dining table 6 seats", qty: 12, length_mm: 1800, width_mm: 900, height_mm: 750, origin: "tala", product_code: "PRD-MJ-220", note: null, dropped_at: null, drop_reason: null, created_at: "2026-09-26T02:00:00Z", updated_at: "2026-09-26T02:00:00Z" },
     ],
     design_approvals: [
       { id: "da_1", item_id: "di_4", decision: "approved", decided_on: "2026-10-01", channel: "meeting", client_person: "Bp. Agus", attachment_id: null, evidence_attachment_id: null, note: "Disetujui di meeting lokasi", recorded_by: "usr_rina", recorded_at: "2026-10-01T06:00:00Z" },
     ],
+    /* Studio Desain (0248): the six boxes have something to show — the sofa
+       drawn twice, the coffee table with no render needed, the dining table
+       complete but for its photo, the bed untouched. Files are in
+       ATTACHMENT_LINKS (att_d…). */
+    design_item_specs: [
+      { id: "dsp_1", item_id: "di_1", version: 1, body: "Rangka mahoni oven · busa D32 12 cm · kain linen Oatmeal (14 m) · kaki natural doff", note: null, written_by: "usr_made", written_at: "2026-10-07T03:10:00Z" },
+      { id: "dsp_2", item_id: "di_2", version: 1, body: "Top travertine 20 mm honed · rangka hollow 40×40 powder coat hitam doff", note: null, written_by: "usr_made", written_at: "2026-10-08T02:00:00Z" },
+      { id: "dsp_3", item_id: "di_4", version: 1, body: "Top solid suar 40 mm · kaki besi 60×60 hitam doff · finishing natural", note: null, written_by: "usr_made", written_at: "2026-09-29T04:00:00Z" },
+      { id: "dsp_4", item_id: "di_4", version: 2, body: "Top solid suar 40 mm · kaki besi 60×60 hitam doff · finishing walnut", note: "Finishing diganti walnut di meeting 1 Okt", written_by: "usr_made", written_at: "2026-10-02T04:00:00Z" },
+    ],
+    design_box_skips: [
+      { id: "dbs_1", item_id: "di_2", box: "render", skipped: true, note: "Desain dari referensi klien", set_by: "usr_made", set_at: "2026-10-08T02:05:00Z" },
+    ],
+    design_link_notes: { lnk_d2: "Sandaran turun ke 78 cm, permintaan Pak Agus" },
+    design_products: {},
 
     pr_documents: PR_DOCUMENTS,
     pr_lines: PR_LINES,

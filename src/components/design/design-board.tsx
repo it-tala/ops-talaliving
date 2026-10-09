@@ -184,7 +184,7 @@ function RoomBlock({
   );
 }
 
-function CollectionForm({ projectCode, onDone, onCancel }: { projectCode: string; onDone: () => void; onCancel: () => void }) {
+export function CollectionForm({ projectCode, onDone, onCancel }: { projectCode: string; onDone: () => void; onCancel: () => void }) {
   const tr = useTr();
   const { toast } = useToast();
   const [code, setCode] = useState("");
@@ -217,7 +217,7 @@ function CollectionForm({ projectCode, onDone, onCancel }: { projectCode: string
   );
 }
 
-function RoomForm({
+export function RoomForm({
   projectCode, collectionCode, onDone, onCancel,
 }: { projectCode: string; collectionCode: string; onDone: () => void; onCancel: () => void }) {
   const tr = useTr();

@@ -40,6 +40,7 @@ import {
 import {
   latency, actingUser, canDesign, requireSeller, requireAuthority, requireModule, requireLevel, conflict, replayed, remember, paged,
 } from "./_kit";
+import { activateDesignProduct } from "../design-files";
 
 const SERVICE = "procurement" as const;
 
@@ -621,6 +622,7 @@ export async function saveProjectLine(
         ...values,
       });
     }
+    activateDesignProduct(draft, values.product_code);
     writeAudit(draft, {
       service: SERVICE, entity: "project", entity_no: project.code,
       action: row ? "update_line" : "add_line", outcome: "ok", reason: null,

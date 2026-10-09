@@ -3,12 +3,16 @@
  *  marketing (who sells, D375) or production (the drafters).
  */
 import { ok, invalid, notFound, noop, refused, type Result } from "@/services/_shared/envelope";
-import type {
-  DesignApproval, DesignApprovalInput, DesignCollection, DesignItemInput, DesignItemView,
-  DesignRoom, ProjectDesign,
+import {
+  DESIGN_BOXES,
+  type DesignApproval, type DesignApprovalInput, type DesignBox, type DesignBoxKey, type DesignBoxVersion,
+  type DesignCollection, type DesignItemInput, type DesignItemView, type DesignProject,
+  type DesignRoom, type ProjectDesign,
 } from "@/services/design/contracts";
+import type { DocKind } from "@/services/documents/contracts";
+import { currentBomRev, draftBomRev, productView } from "../production-derive";
 import { getState, apply, newId, writeAudit } from "../store";
-import { latency, actingUser, canDesign } from "./_kit";
+import { latency, actingUser, canDesign, conflict } from "./_kit";
 import { officeToday } from "@/lib/office";
 import type { DemoState, DemoDesignItem } from "../state";
 
@@ -288,4 +292,230 @@ export async function recordDesignApproval(input: DesignApprovalInput): Promise<
     writeAudit(draft, { service: SERVICE, entity: "design_approval", entity_no: i.item_no, action: input.decision, outcome: "ok", reason: null });
   });
   return getDesignItem(i.item_no);
+}
+
+/* ── Studio Desain: six boxes on every item (0248, S1, D399–D405) ──────────
+ *
+ * The sandbox's reading of `v_design_box`, `v_design_box_version` and
+ * `v_design_project`, and of the three seams beside them. */
+
+const BOX_KIND: Record<DesignBoxKey, DocKind | null> = {
+  pdf: "Gambar Kerja", dwg: "DWG", render: "Render", foto: "Gambar Jadi", spec: null, bom: null,
+};
+const userName = (state: DemoState, id: string | null | undefined) => {
+  const u = id ? state.users.find((x) => x.id === id) : undefined;
+  return u ? u.full_name || u.email : null;
+};
+/** A version's letter: its place in filing order, kept when an earlier one
+ *  is taken off (A, B … Z, Z2 …). */
+const letter = (n: number) => (n <= 26 ? String.fromCharCode(64 + n) : `Z${n - 25}`);
+
+function boxVersions(state: DemoState, i: DemoDesignItem, box: DesignBoxKey): DesignBoxVersion[] {
+  if (box === "spec") {
+    return state.design_item_specs.filter((v) => v.item_id === i.id).sort((a, b) => a.version - b.version)
+      .map((v) => ({
+        item_no: i.item_no, box, ordinal: v.version, label: String(v.version), at: v.written_at,
+        by_name: userName(state, v.written_by), note: v.note, attachment_id: null, filename: null,
+        web_view_link: null, body: v.body, removed: false,
+      }));
+  }
+  const kind = BOX_KIND[box];
+  if (!kind) return [];
+  /* The demo keeps unlinked rows out of `attachment_links` — so a removed
+     version is simply absent here, and letters follow what is left. */
+  return state.attachment_links
+    .filter((l) => l.entity === "design_item" && l.entity_no === i.item_no && l.kind === kind)
+    .sort((a, b) => a.linked_at.localeCompare(b.linked_at) || a.id.localeCompare(b.id))
+    .map((l, n) => {
+      const a = state.attachments.find((x) => x.id === l.attachment_id);
+      return {
+        item_no: i.item_no, box, ordinal: n + 1, label: letter(n + 1), at: l.linked_at,
+        by_name: userName(state, l.linked_by), note: state.design_link_notes[l.id] ?? null,
+        attachment_id: l.attachment_id, filename: a?.filename ?? null, web_view_link: a?.web_view_link ?? null,
+        body: null, removed: false,
+      };
+    });
+}
+
+function itemBoxes(state: DemoState, i: DemoDesignItem): DesignBox[] {
+  const v = itemView(state, i);
+  const productCode = v.product_code;
+  const product = productCode ? state.products.find((p) => p.product_code === productCode) : undefined;
+  const pv = product ? productView(state, product, currentBomRev(state, product)) : null;
+  return DESIGN_BOXES.map((b, n) => {
+    const versions = boxVersions(state, i, b.key);
+    const last = versions[versions.length - 1];
+    const skip = state.design_box_skips
+      .filter((s) => s.item_id === i.id && s.box === b.key)
+      .sort((x, y) => y.set_at.localeCompare(x.set_at))[0];
+    const skipped = !!skip?.skipped;
+    const bomRev = b.key === "bom" && product ? currentBomRev(state, product) : null;
+    const bomDraft = b.key === "bom" && product ? draftBomRev(state, product) : null;
+    const filled = b.key === "bom" ? (bomRev ?? bomDraft) != null : versions.length > 0;
+    return {
+      item_no: i.item_no, item_name: i.name, project_code: v.project_code, collection_code: v.collection_code,
+      collection_name: v.collection_name, room_code: v.room_code, room_name: v.room_name, room_sort: v.room_sort, dropped: !!i.dropped_at, box: b.key, sort: n + 1,
+      state: filled ? "terisi" : skipped ? "tidak_perlu" : "kosong",
+      versions: versions.length,
+      latest_label: b.key === "bom" ? (bomRev ?? bomDraft)?.toString() ?? null : last?.label ?? null,
+      latest_at: last?.at ?? null, latest_by: last?.by_name ?? null, latest_note: last?.note ?? null,
+      latest_attachment_id: last?.attachment_id ?? null, latest_filename: last?.filename ?? null,
+      latest_link: last?.web_view_link ?? null, spec_body: last?.body ?? null,
+      product_code: productCode,
+      bom_rev: bomRev, bom_draft_rev: bomDraft,
+      bom_cost: b.key === "bom" && bomRev != null ? pv?.production_cost ?? null : null,
+      skip_note: skipped ? skip!.note : null, skip_by: skipped ? userName(state, skip!.set_by) : null,
+      skip_at: skipped ? skip!.set_at : null,
+    };
+  });
+}
+
+function itemsOf(state: DemoState, filter: { project_code?: string; item_no?: string }): DemoDesignItem[] {
+  return state.design_items.filter((i) => {
+    if (filter.item_no) return i.item_no === filter.item_no;
+    if (filter.project_code) return i.item_no.startsWith(`${filter.project_code}-`);
+    return true;
+  });
+}
+
+/** The projects a drafter works in: live ones, and any with a design. */
+export async function listDesignProjects(): Promise<Result<DesignProject[]>> {
+  await latency();
+  if (!mayDesign("read")) return ok(SERVICE, []);
+  const state = getState();
+  const rows = state.projects
+    .filter((p) => !["LOST", "CANCELLED", "DONE"].includes(p.status ?? "")
+      || state.design_collections.some((c) => c.project_id === p.id))
+    .map((p) => {
+      const cl = p.client_id ? state.clients.find((x) => x.id === p.client_id) : undefined;
+      const cols = state.design_collections.filter((c) => c.project_id === p.id);
+      const rooms = state.design_rooms.filter((r) => cols.some((c) => c.id === r.collection_id));
+      return {
+        project_code: p.code, project_name: p.name, status: p.status ?? "INQUIRY",
+        client_code: cl?.code ?? null, client_display: cl?.name ?? p.client_name ?? null,
+        target_date: p.target_date ?? null,
+        collection_count: cols.length,
+        item_count: state.design_items.filter((i) => !i.dropped_at && rooms.some((r) => r.id === i.room_id)).length,
+      };
+    })
+    /* Projects with no client last, as the live view orders them. */
+    .sort((a, b) => (a.client_display == null ? 1 : 0) - (b.client_display == null ? 1 : 0)
+      || (a.client_display ?? "").localeCompare(b.client_display ?? "") || a.project_code.localeCompare(b.project_code));
+  return ok(SERVICE, rows);
+}
+
+/** Every box of a project's items, or of one item. */
+export async function listDesignBoxes(
+  filter: { project_code?: string; item_no?: string },
+): Promise<Result<DesignBox[]>> {
+  await latency();
+  if (!mayDesign("read")) return ok(SERVICE, []);
+  const state = getState();
+  return ok(SERVICE, itemsOf(state, filter).sort((a, b) => a.item_no.localeCompare(b.item_no))
+    .flatMap((i) => itemBoxes(state, i)));
+}
+
+/** A box's history, oldest first: every file version, or every spec. */
+export async function listDesignBoxVersions(itemNo: string): Promise<Result<DesignBoxVersion[]>> {
+  await latency();
+  if (!mayDesign("read")) return ok(SERVICE, []);
+  const state = getState();
+  const i = state.design_items.find((x) => x.item_no === itemNo);
+  if (!i) return notFound(SERVICE, "design_item_not_found", `Tidak ada item ${itemNo}.`);
+  return ok(SERVICE, DESIGN_BOXES.flatMap((b) => boxVersions(state, i, b.key)));
+}
+
+/** The specification, as a new version. The same text again is not one. */
+export async function saveDesignSpec(
+  input: { item_no: string; body: string; note?: string | null },
+): Promise<Result<DesignBox[]>> {
+  await latency();
+  if (!mayDesign("write")) return denied();
+  const state = getState();
+  const i = state.design_items.find((x) => x.item_no === input.item_no.trim());
+  if (!i) return notFound(SERVICE, "not_found", `Tidak ada item ${input.item_no}.`);
+  const body = input.body.trim();
+  if (!body) {
+    return invalid(SERVICE, "spec_empty",
+      "Spesifikasinya masih kosong. Kotak ini boleh dibiarkan kosong, atau ditandai tidak perlu.", { field: "body" });
+  }
+  const last = state.design_item_specs.filter((v) => v.item_id === i.id).sort((a, b) => b.version - a.version)[0];
+  if (last && last.body === body) return noop(SERVICE, itemBoxes(state, i));
+  const me = actingUser();
+  apply((d) => {
+    d.design_item_specs.push({
+      id: newId("dsp"), item_id: i.id, version: (last?.version ?? 0) + 1, body,
+      note: input.note?.trim() || null, written_by: me.id, written_at: new Date().toISOString(),
+    });
+    writeAudit(d, { service: SERVICE, entity: "design_item", entity_no: i.item_no, action: "save_spec", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, itemBoxes(getState(), i));
+}
+
+/** A box not needed for this item, or needed again. The note is optional. */
+export async function setDesignBoxSkip(
+  input: { item_no: string; box: DesignBoxKey; skip: boolean; note?: string | null },
+): Promise<Result<DesignBox[]>> {
+  await latency();
+  if (!mayDesign("write")) return denied();
+  if (!DESIGN_BOXES.some((b) => b.key === input.box)) {
+    return invalid(SERVICE, "unknown_box", "Kotaknya: pdf, dwg, render, foto, spec, atau bom.", { field: "box" });
+  }
+  const state = getState();
+  const i = state.design_items.find((x) => x.item_no === input.item_no.trim());
+  if (!i) return notFound(SERVICE, "not_found", `Tidak ada item ${input.item_no}.`);
+  const now = state.design_box_skips.filter((s) => s.item_id === i.id && s.box === input.box)
+    .sort((a, b) => b.set_at.localeCompare(a.set_at))[0];
+  if ((now?.skipped ?? false) === input.skip) return noop(SERVICE, itemBoxes(state, i));
+  const me = actingUser();
+  apply((d) => {
+    d.design_box_skips.push({
+      id: newId("dbs"), item_id: i.id, box: input.box, skipped: input.skip,
+      note: input.note?.trim() || null, set_by: me.id, set_at: new Date().toISOString(),
+    });
+    writeAudit(d, { service: SERVICE, entity: "design_item", entity_no: i.item_no, action: "skip_box", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, itemBoxes(getState(), i));
+}
+
+/** A product (and so a BOM) for an item before it is ordered, so a quotation
+ *  can be priced from it (D400). Inactive until an order line names it. */
+export async function productFromDesignItem(
+  input: { item_no: string; product_code?: string | null; category?: string | null },
+): Promise<Result<{ product_code: string; existing: boolean }>> {
+  await latency();
+  const me = actingUser();
+  if (!me.modules.some((m) => m.module === "production" && m.level !== "read")) {
+    return refused(SERVICE, "not_permitted",
+      "Membuat produk dan BOM butuh akses produksi (create) — minta drafter atau kepala produksi.");
+  }
+  const state = getState();
+  const i = state.design_items.find((x) => x.item_no === input.item_no.trim());
+  if (!i) return notFound(SERVICE, "not_found", `Tidak ada item ${input.item_no}.`);
+  if (i.product_code) {
+    return conflict(SERVICE, "already_product",
+      `Item ${i.item_no} sudah punya produk ${i.product_code}. BOM-nya diubah di /produksi/bom.`);
+  }
+  const code = (input.product_code?.trim() || i.item_no).toUpperCase();
+  const existing = state.products.some((p) => p.product_code === code);
+  const now = new Date().toISOString();
+  apply((d) => {
+    if (!existing) {
+      d.products.push({
+        id: newId("prd"), product_code: code, name: i.name,
+        category: input.category?.trim() || "Belum dikategorikan", uom: "pcs", description: null,
+        length_mm: i.length_mm == null ? null : Math.round(i.length_mm),
+        width_mm: i.width_mm == null ? null : Math.round(i.width_mm),
+        height_mm: i.height_mm == null ? null : Math.round(i.height_mm),
+        dimension_note: null, lead_time_days: null, stages: null, labour_cost: null, labour_note: null,
+        active: false, note: `Dari desain ${i.item_no}, belum dipesan.`, created_at: now, updated_at: now,
+      } as DemoState["products"][number]);
+      d.design_products[code] = i.item_no;
+    }
+    const it = d.design_items.find((x) => x.id === i.id)!;
+    it.product_code = code;
+    it.updated_at = now;
+    writeAudit(d, { service: SERVICE, entity: "product", entity_no: code, action: "from_design_item", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, { product_code: code, existing });
 }

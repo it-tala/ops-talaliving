@@ -10109,3 +10109,32 @@ accurate one: when progress is derived from what people already do (upload a
 file, tap Final), nothing has to be typed twice and nothing can drift.
 **Rule:** before adding a field somebody must fill, look for the act that
 already implies it.
+
+## F248 · 2026-10-09 · A version letter is an order, and `now()` has none inside a transaction
+
+Studio Desain S1 letters a box's versions by the order their files were filed
+(A, B, C), so a version keeps its letter when an earlier one is taken off. The
+smoke file filed two PDFs in one block and got *B* pointing at the first file:
+`attachment_links.linked_at` defaulted to `now()`, the transaction's start, so
+both rows had the same instant and the tie was broken by a uuid. On production
+each upload is its own request and the bug would not show, which is exactly why
+it would have stayed. `linked_at` now defaults to `clock_timestamp()` (`0248`),
+the same fix `0226` made for revisions (F228).
+
+Three smaller things the screen taught:
+
+- **The item photo is the kind that already existed.** D150 asked every product
+  to carry a *gambar jadi*, a picture of the finished piece, and the owner's
+  *gambar item / foto* is the same thing. The box files a `gambar_jadi`; only
+  the DWG needed a new kind.
+- **`"~"` does not sort last.** The demo sorted projects with no client by
+  `(name ?? "~").localeCompare(…)`, and locale comparison ignores punctuation,
+  so *No client yet* came first. Nulls are now ordered explicitly, as the live
+  view does with `nullsFirst: false`.
+- **A menu entry takes one alternative permission.** Design opens for
+  `production.read` or `project.read`; a marketing-only account can open the
+  URL (the database reads `may_design`) but has no menu entry. Noted rather
+  than widened: the nav's shape is one `orPermission`.
+
+**Rule:** anything that orders rows by a timestamp must default to the clock,
+not to the transaction, or two rows written together have no order at all.

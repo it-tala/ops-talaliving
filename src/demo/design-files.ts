@@ -35,3 +35,12 @@ export function designItemProgress(state: DemoState, itemId: string) {
     product_code: orders.find((o) => o.product_code)?.product_code ?? null,
   };
 }
+
+/** The sandbox's `project_line_activates_design_product` (0248): a product made
+ *  from a design item before it was ordered joins the catalogue the moment an
+ *  order line names it. Called wherever the demo writes an order line. */
+export function activateDesignProduct(draft: DemoState, productCode: string | null | undefined) {
+  if (!productCode || !(productCode in (draft.design_products ?? {}))) return;
+  const p = draft.products.find((x) => x.product_code === productCode);
+  if (p && !p.active) p.active = true;
+}

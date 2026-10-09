@@ -343,7 +343,7 @@ export async function addLink(
  *  always the one that forgets.
  */
 export async function link(
-  input: { attachment_id: string; entity: LinkEntity; entity_no: string; kind: DocKind },
+  input: { attachment_id: string; entity: LinkEntity; entity_no: string; kind: DocKind; note?: string | null },
   idempotencyKey?: string,
 ): Promise<Result<AttachmentLink>> {
   const sb = supabaseBrowser();
@@ -352,7 +352,7 @@ export async function link(
     p_entity: input.entity,
     p_entity_no: input.entity_no,
     p_kind: input.kind,
-    p_note: null,
+    p_note: input.note?.trim() || null,
     p_key: idempotencyKey ?? null,
   });
   const res = fromSeam<{ link_id: string }>(SERVICE, data, error);

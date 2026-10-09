@@ -165,3 +165,108 @@ export interface DesignApprovalInput {
   evidence_attachment_id?: string | null;
   note?: string | null;
 }
+
+/* ── Studio Desain: six boxes on every item (0248, S1, D399–D405) ─────────── */
+
+/** What a drafter delivers for an item. A box is filled by doing the work — a
+ *  file, a saved specification, a BOM — never by saying so. */
+export type DesignBoxKey = "pdf" | "dwg" | "render" | "foto" | "spec" | "bom";
+
+/** Empty, filled, or not needed for this item (D401: nothing is required, so
+ *  *not needed* exists only to let an item without a render be complete). */
+export type DesignBoxState = "kosong" | "terisi" | "tidak_perlu";
+
+export const DESIGN_BOXES: {
+  key: DesignBoxKey;
+  /** The file kind a box is filled with; null for the spec and the BOM. */
+  kind: "Gambar Kerja" | "DWG" | "Render" | "Gambar Jadi" | null;
+  short: string;
+  label: string;
+  /** What the file picker offers. */
+  accept?: string;
+}[] = [
+  { key: "pdf", kind: "Gambar Kerja", short: "PDF", get label() { return trNow("Working drawing", "Gambar kerja"); }, accept: ".pdf,application/pdf" },
+  { key: "dwg", kind: "DWG", short: "DWG", get label() { return trNow("DWG", "DWG"); }, accept: ".dwg,.dxf" },
+  { key: "render", kind: "Render", short: "R", get label() { return trNow("Render", "Render"); }, accept: "image/*,.pdf" },
+  { key: "foto", kind: "Gambar Jadi", short: "F", get label() { return trNow("Item photo", "Foto item"); }, accept: "image/*,.pdf" },
+  { key: "spec", kind: null, short: "S", get label() { return trNow("Specification", "Spesifikasi"); } },
+  { key: "bom", kind: null, short: "B", get label() { return trNow("BOM", "BOM"); } },
+];
+
+/** One box of one item (`v_design_box`). */
+export interface DesignBox {
+  item_no: string;
+  item_name: string;
+  project_code: string;
+  collection_code: string;
+  collection_name: string;
+  room_code: string;
+  room_name: string;
+  room_sort: number;
+  /** Dropped items are left out of progress. */
+  dropped: boolean;
+  box: DesignBoxKey;
+  sort: number;
+  state: DesignBoxState;
+  /** Files on the box now, or the spec's version count. */
+  versions: number;
+  /** `B` for a file (its place in filing order, kept when an earlier one is
+   *  taken off), `2` for a spec or a BOM revision. The latest is the one that
+   *  counts (D399). */
+  latest_label: string | null;
+  latest_at: string | null;
+  latest_by: string | null;
+  latest_note: string | null;
+  latest_attachment_id: string | null;
+  latest_filename: string | null;
+  latest_link: string | null;
+  spec_body: string | null;
+  /** The item's product: made from it (D400) or named on its order line. */
+  product_code: string | null;
+  bom_rev: number | null;
+  bom_draft_rev: number | null;
+  /** The released BOM's production cost per unit — what a quotation is priced
+   *  from. Not a selling price. */
+  bom_cost: number | null;
+  skip_note: string | null;
+  skip_by: string | null;
+  skip_at: string | null;
+}
+
+/** One version in a box's history (`v_design_box_version`). */
+export interface DesignBoxVersion {
+  item_no: string;
+  box: DesignBoxKey;
+  ordinal: number;
+  label: string;
+  at: string;
+  by_name: string | null;
+  note: string | null;
+  attachment_id: string | null;
+  filename: string | null;
+  web_view_link: string | null;
+  /** A specification's text. */
+  body: string | null;
+  /** A file taken off the item: still history, no longer the latest. */
+  removed: boolean;
+}
+
+/** A project the drafters can work in (`v_design_project`): live, or already
+ *  carrying a design. No price in it. */
+export interface DesignProject {
+  project_code: string;
+  project_name: string;
+  status: string;
+  client_code: string | null;
+  client_display: string | null;
+  target_date: string | null;
+  collection_count: number;
+  item_count: number;
+}
+
+/** Filled boxes over all boxes, for any set of boxes: an item, a room, a
+ *  project. Dropped items do not count. Never stored (A3). */
+export function boxProgress(boxes: DesignBox[]): { filled: number; total: number } {
+  const live = boxes.filter((b) => !b.dropped);
+  return { filled: live.filter((b) => b.state !== "kosong").length, total: live.length };
+}

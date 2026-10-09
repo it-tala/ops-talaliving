@@ -20,7 +20,7 @@ import { getState, apply, newId, nextDocNumber, writeAudit } from "../store";
 import { bomCost, currentBomRev } from "../production-derive";
 import { latency, actingUser, requireSeller, conflict, replayed, remember } from "./_kit";
 import { officeToday } from "@/lib/office";
-import { latestDesignFile } from "../design-files";
+import { activateDesignProduct, latestDesignFile } from "../design-files";
 import type { DemoState } from "../state";
 
 const SERVICE = "procurement" as const;
@@ -509,6 +509,7 @@ export async function decideQuotation(
           note: `dari ${q.quote_no}`, delivery_date: null, quotation_line_id: l.id,
           design_item_id: l.design_item_id ?? null, design_file_id: l.frozen_design_file_id ?? null,
         });
+        activateDesignProduct(draft, l.product_code);
         added++;
       }
       moveProject(draft, q.project_id, "DEAL", ["INQUIRY", "QUOTATION_SENT"], `Quotation ${q.quote_no} disetujui`, user.email);

@@ -136,6 +136,9 @@ const VIEW_CONTRACTS = {
   v_design_room:       "DesignRoom",
   v_design_collection: "DesignCollection",
   v_design_approval:   "DesignApproval",
+  v_design_box:        "DesignBox",
+  v_design_box_version: "DesignBoxVersion",
+  v_design_project:    "DesignProject",
   /* A project from first contact to handover, and the pipeline's numbers
      (0229, P7). */
   v_project_timeline:  "TimelineEvent",
