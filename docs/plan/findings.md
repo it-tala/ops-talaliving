@@ -10059,3 +10059,27 @@ source payroll asks (`is_rest_day`), and a time range that wraps past
 midnight needs a stated condition for wrapping (here 0195's: a finish before
 noon), never "the end is smaller than the start".
 
+
+## F246 · 2026-10-09 · A queue that waits for rows only another module can write
+
+The owner: *`/produksi/desain` tidak ada input.* The tables behind it (P4,
+P6) are in production and empty: 1 client, 5 projects, 0 collections, 0
+design items, 0 drawing tasks, 0 revisions. The screen can only raise a task
+from *gambar belum punya tugas*, which is computed from design items that are
+approved, quoted or ordered. Design items are created only on the Design tab
+of `/proyek/order/[code]`, and the Projects menu opens for `project.read` or
+`marketing.read`. The drafters hold `production`. So the people the queue is
+for cannot reach the only place its rows are born, and the queue waits for
+rows that nobody on its own menu can write. Each piece was right when built;
+the loop only shows from the drafter's chair.
+
+Also read from production: `ops_hr.task_ref_t` is `none, work_order, project,
+purchase_request` (no design task), there is no `production.approve` or
+review permission, and `doc_kind_drive` has no DWG or item-photo kind.
+
+**Rule:** a screen whose list is derived from another module's records must
+either let its own users create those records or link to a place they can
+open, and the check is made as the persona the screen is for, not as an admin
+who holds every grant. The proposal is the kajian
+`docs/analysis/2026-10-09-studio-desain.md` (Studio Desain, S1–S6, Q74–Q80);
+S1 closes this finding.

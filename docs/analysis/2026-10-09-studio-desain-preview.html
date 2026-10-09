@@ -1,0 +1,706 @@
+<title>Studio Desain Preview</title>
+<style>
+/* Layout: an app frame that mirrors ops.talaliving (top bar, screen tabs, cards), with the plan as its first screen.
+   Tokens follow the app's own palette: slate ground, white cards, brand green #2f6b52. */
+:root {
+  --bg: #f1f5f9; --surface: #ffffff; --surface-2: #f8fafc; --fg: #0f172a; --muted: #64748b; --line: #e2e8f0;
+  --brand: #2f6b52; --brand-strong: #275544; --brand-soft: #e3f4ea; --on-brand: #ffffff;
+  --warn: #a15c07; --warn-soft: #fef3c7; --bad: #b42318; --bad-soft: #fee4e2;
+  --info: #1d4ed8; --info-soft: #dbeafe; --violet: #6d28d9; --violet-soft: #ede9fe;
+  --shadow: 0 1px 2px rgb(15 23 42 / .04), 0 1px 3px rgb(15 23 42 / .06);
+  --font: "Segoe UI", "Inter", system-ui, -apple-system, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0b1220; --surface: #121b2c; --surface-2: #0f1727; --fg: #e2e8f0; --muted: #94a3b8; --line: #23304a;
+  --brand: #62b98c; --brand-strong: #9bd5b6; --brand-soft: #16302a; --on-brand: #0b1220;
+  --warn: #fbbf24; --warn-soft: #3a2a06; --bad: #f87171; --bad-soft: #3b1414;
+  --info: #93c5fd; --info-soft: #132a4d; --violet: #c4b5fd; --violet-soft: #2a1f4a;
+  --shadow: 0 1px 2px rgb(0 0 0 / .3); color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0b1220; --surface: #121b2c; --surface-2: #0f1727; --fg: #e2e8f0; --muted: #94a3b8; --line: #23304a;
+  --brand: #62b98c; --brand-strong: #9bd5b6; --brand-soft: #16302a; --on-brand: #0b1220;
+  --warn: #fbbf24; --warn-soft: #3a2a06; --bad: #f87171; --bad-soft: #3b1414;
+  --info: #93c5fd; --info-soft: #132a4d; --violet: #c4b5fd; --violet-soft: #2a1f4a;
+  --shadow: 0 1px 2px rgb(0 0 0 / .3); color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; line-height: 1.45; }
+h1, h2, h3, h4 { text-wrap: balance; margin: 0; }
+p { margin: 0; }
+button, select, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.num { font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--surface); border-bottom: 1px solid var(--line);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 16px; }
+.top .name { font-weight: 700; display: flex; gap: 8px; align-items: center; }
+.top .name .dot { width: 22px; height: 22px; border-radius: 6px; background: var(--brand); color: var(--on-brand); display: grid; place-items: center; font-size: 12px; }
+.seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; background: transparent; padding: 6px 12px; font-size: 13px; }
+.seg button[aria-pressed="true"] { background: var(--brand); color: var(--on-brand); font-weight: 600; }
+.spacer { flex: 1; }
+.sample { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--warn); background: var(--warn-soft); padding: 2px 8px; border-radius: 99px; font-weight: 600; }
+
+main { max-width: 1240px; margin: 0 auto; padding: 20px 16px 72px; }
+.crumb { font-size: 12px; color: var(--muted); }
+.ph { display: grid; gap: 4px; margin-bottom: 16px; }
+.ph h1 { font-size: 22px; }
+.ph p { color: var(--muted); max-width: 75ch; }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); min-width: 0; }
+.card > header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.card > header h3 { font-size: 14px; }
+.card > header .sub { font-size: 12px; color: var(--muted); flex-basis: 100%; }
+.pad { padding: 12px 16px; }
+
+.badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; white-space: nowrap; background: var(--surface-2); color: var(--muted); border: 1px solid var(--line); }
+.b-green { background: var(--brand-soft); color: var(--brand-strong); border-color: transparent; }
+.b-amber { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.b-red { background: var(--bad-soft); color: var(--bad); border-color: transparent; }
+.b-blue { background: var(--info-soft); color: var(--info); border-color: transparent; }
+.b-violet { background: var(--violet-soft); color: var(--violet); border-color: transparent; }
+
+.btn { border: 1px solid var(--brand); background: var(--brand); color: var(--on-brand); border-radius: 8px; padding: 5px 12px; font-size: 13px; font-weight: 600; }
+.btn.out { background: var(--surface); color: var(--brand); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); font-weight: 500; }
+.btn.danger { background: var(--surface); color: var(--bad); border-color: var(--bad); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.sm { padding: 3px 9px; font-size: 12px; }
+.row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+input.in, select.in, textarea.in { height: 32px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 0 8px; font-size: 13px; width: 100%; }
+textarea.in { height: auto; min-height: 56px; padding: 6px 8px; }
+label.f { display: grid; gap: 3px; font-size: 12px; color: var(--muted); min-width: 0; }
+.form { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.form.bad { background: var(--bad-soft); border-color: transparent; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+
+/* workspace */
+.ws { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 14px; align-items: start; }
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+@media (max-width: 860px) { .ws, .two { grid-template-columns: 1fr; } }
+.tree { padding: 6px 0; font-size: 13px; }
+.tree .lvl { display: flex; align-items: center; gap: 6px; padding: 4px 12px; }
+.tree .client { font-weight: 700; padding-top: 10px; }
+.tree .project { padding-left: 20px; font-weight: 600; }
+.tree .coll { padding-left: 30px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.tree button.room { all: unset; cursor: pointer; display: flex; align-items: center; gap: 6px; width: 100%; box-sizing: border-box; padding: 5px 12px 5px 42px; font-size: 13px; }
+.tree button.room:hover { background: var(--surface-2); }
+.tree button.room[aria-current="true"] { background: var(--brand-soft); color: var(--brand-strong); font-weight: 600; }
+.tree .add { all: unset; cursor: pointer; color: var(--brand); font-size: 12px; margin-left: auto; padding: 0 4px; }
+.tree .add:focus-visible { outline: 2px solid var(--brand); }
+.tree .cnt { margin-left: auto; font-size: 11px; color: var(--muted); }
+
+.items { width: 100%; border-collapse: collapse; font-size: 13px; }
+.items th, .items td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.items th { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; background: var(--surface-2); }
+.items tr.pick { cursor: pointer; }
+.items tr.pick:hover td { background: var(--surface-2); }
+.items tr[aria-selected="true"] td { background: var(--brand-soft); }
+.tw { overflow-x: auto; }
+.dots { display: inline-flex; gap: 3px; }
+.dots i { width: 9px; height: 9px; border-radius: 3px; background: var(--line); display: inline-block; }
+.dots i.on { background: var(--brand); }
+.dots i.wa { background: var(--warn); }
+
+.tabs { display: flex; gap: 2px; overflow-x: auto; border-bottom: 1px solid var(--line); padding: 0 10px; }
+.tabs button { border: 0; background: none; padding: 9px 10px; font-size: 13px; color: var(--muted); border-bottom: 2px solid transparent; white-space: nowrap; }
+.tabs button[aria-selected="true"] { color: var(--brand-strong); border-bottom-color: var(--brand); font-weight: 600; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px 16px; }
+.facts dt { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.facts dd { margin: 0; font-size: 13px; }
+.sec { display: grid; gap: 8px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.sec:last-child { border-bottom: 0; }
+.sec h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+
+.track { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.track > .th { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 8px 12px; background: var(--surface-2); border-bottom: 1px solid var(--line); }
+.track > .th b { font-size: 13px; }
+.rev { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 4px 10px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.rev:last-child { border-bottom: 0; }
+.rev .tag { grid-row: span 3; width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; font-weight: 700; font-family: var(--mono); background: var(--surface-2); border: 1px solid var(--line); }
+.rev.latest .tag { background: var(--brand); color: var(--on-brand); border-color: var(--brand); }
+.rev.old { opacity: .78; }
+.file { display: inline-flex; gap: 5px; align-items: center; font-size: 12px; border: 1px solid var(--line); border-radius: 6px; padding: 2px 7px; background: var(--surface); }
+.file .ext { font-family: var(--mono); font-size: 10px; font-weight: 700; padding: 0 4px; border-radius: 4px; background: var(--info-soft); color: var(--info); }
+.file .ext.dwg { background: var(--violet-soft); color: var(--violet); }
+.file .ext.img { background: var(--brand-soft); color: var(--brand-strong); }
+.trail { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; }
+.trail li { display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 6px; font-size: 12px; }
+.trail li::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-top: 5px; }
+.trail li.ok::before { background: var(--brand); }
+.trail li.no::before { background: var(--bad); }
+.trail li.up::before { background: var(--info); }
+.trail .why { color: var(--fg); }
+
+.specs { display: grid; gap: 10px; }
+.specs .g { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 6px 12px; font-size: 13px; }
+@media (max-width: 520px) { .specs .g { grid-template-columns: 1fr; } }
+.specs .g h5 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding-top: 2px; }
+.specs .g dl { margin: 0; display: grid; grid-template-columns: minmax(110px, 40%) 1fr; gap: 3px 10px; }
+.specs .g dt { color: var(--muted); }
+.specs .g dd { margin: 0; }
+
+.note { border-radius: 10px; padding: 9px 12px; font-size: 13px; }
+.note.warn { background: var(--warn-soft); color: var(--warn); }
+.note.info { background: var(--info-soft); color: var(--info); }
+.note.ok { background: var(--brand-soft); color: var(--brand-strong); }
+
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0; }
+.kpis > div { padding: 12px 16px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.kpis dt { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.kpis dd { margin: 2px 0 0; font-size: 22px; font-weight: 700; }
+.kpis dd.warn { color: var(--warn); }
+.kpis p { font-size: 11px; color: var(--muted); }
+
+.load { display: grid; gap: 10px; }
+.person { display: grid; grid-template-columns: 110px minmax(0, 1fr) 90px; gap: 10px; align-items: center; font-size: 13px; }
+@media (max-width: 520px) { .person { grid-template-columns: 80px minmax(0, 1fr) 70px; } }
+.bar { display: flex; height: 18px; border-radius: 5px; overflow: hidden; background: var(--surface-2); border: 1px solid var(--line); }
+.bar span { display: block; height: 100%; }
+.bar .late { background: var(--bad); }
+.bar .week { background: var(--warn); }
+.bar .later { background: var(--brand); }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
+
+ul.q { list-style: none; margin: 0; padding: 0; }
+ul.q li { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+ul.q li:last-child { border-bottom: 0; }
+ul.q .what { flex: 1 1 240px; min-width: 0; }
+ul.q .what b { font-size: 13px; font-weight: 600; display: block; }
+
+/* plan */
+.plan { display: grid; gap: 22px; max-width: 980px; }
+.plan h2 { font-size: 18px; margin-bottom: 8px; }
+.plan p { max-width: 72ch; }
+.pts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.pts div { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; gap: 4px; }
+.pts b { font-size: 14px; }
+.pts .k { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--brand); font-weight: 700; }
+.loop { background: var(--warn-soft); color: var(--warn); border-radius: 12px; padding: 14px 16px; display: grid; gap: 6px; }
+.loop ol { margin: 0; padding-left: 20px; display: grid; gap: 2px; }
+.seq { display: grid; gap: 8px; }
+.ses { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 2px 12px; }
+.ses .n { grid-row: span 2; width: 34px; height: 34px; border-radius: 50%; background: var(--brand); color: var(--on-brand); display: grid; place-items: center; font-weight: 700; font-size: 13px; }
+.ses h3 { font-size: 15px; }
+.ses p { font-size: 13px; color: var(--muted); }
+table.qa { width: 100%; border-collapse: collapse; background: var(--surface); }
+table.qa th, table.qa td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; font-size: 13px; }
+table.qa th { background: var(--surface-2); font-size: 12px; color: var(--muted); }
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 50; background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 13px; max-width: calc(100% - 32px); box-shadow: var(--shadow); }
+@media (prefers-reduced-motion: no-preference) { .toast { animation: up .18s ease-out; } @keyframes up { from { transform: translate(-50%, 8px); opacity: 0; } } }
+</style>
+
+<div class="top">
+  <div class="name"><span class="dot">T</span> ops.talaliving</div>
+  <div class="seg" role="tablist" aria-label="Layar">
+    <button data-screen="plan" aria-pressed="true">Rencana</button>
+    <button data-screen="ws" aria-pressed="false">/desain</button>
+    <button data-screen="board" aria-pressed="false">/desain/tugas</button>
+    <button data-screen="hrd" aria-pressed="false">/hrd/tugas</button>
+  </div>
+  <span class="spacer"></span>
+  <span class="sample">Data contoh</span>
+</div>
+<main id="app"></main>
+<div id="toast" class="toast" hidden></div>
+
+<script>
+(() => {
+const TODAY = "2026-10-09";
+const DRAFTERS = ["Made", "Putri", "Andi"];
+const TRACKS = { kerja: "Gambar kerja", render: "Render", foto: "Foto item", klien: "Dari klien" };
+const CATS = { gambar: "Kesalahan gambar", klien: "Perubahan dari klien", desain: "Masukan desain", teknis: "Teknis produksi" };
+
+const addDays = (d, n) => { const x = new Date(d + "T00:00:00"); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+const addWorkDays = (d, n) => { let x = d; while (n > 0) { x = addDays(x, 1); const w = new Date(x + "T00:00:00").getDay(); if (w !== 0) n--; } return x; };
+const days = (a, b) => Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 864e5);
+const fmt = (d) => { const [y, m, dd] = d.split("-"); return `${+dd} ${["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"][+m - 1]}`; };
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+let hrSeq = 412;
+const hr = []; // ops_hr.tasks mirror
+function hrTask(t, item, note) {
+  const no = `TSK-26-${String(++hrSeq).padStart(4, "0")}`;
+  const row = { no, title: `${TRACKS[t.track]} ${item.no} ${item.name} — putaran ${t.round}`, assignee: t.assignee, due: t.due,
+    status: "OPEN", ref: t.no, item: item.no, detail: note || "", delivered: "", cat: t.cat || null };
+  hr.push(row); t.hr = no; return row;
+}
+
+const rv = (rev, files, at, by, reviews = [], released = null) => ({ rev, files, at, by, reviews, released });
+const f = (name) => ({ name, ext: name.split(".").pop().toLowerCase() });
+
+const data = [
+  { client: "Bapak Hendra", projects: [{ code: "26003", name: "Villa Canggu", target: "2026-11-20", collections: [
+    { code: "A", name: "TYPE 2BR", rooms: [
+      { code: "LR", name: "Living room", items: [
+        { no: "26003-A-LR-01", name: "Sofa 3 dudukan", qty: 2, size: [2200, 950, 820], origin: "tala",
+          specs: { Dimensi: [["Tinggi dudukan", "430 mm"], ["Kedalaman dudukan", "560 mm"]], Material: [["Rangka", "Mahoni oven, KA ≤ 12%"], ["Busa", "Royal foam D32, 12 cm"]], Finishing: [["Kaki", "Natural doff (resep FIN-03)"]], "Kain / kulit": [["Kain", "Linen Oatmeal LX-204, 14 m"]], Hardware: [["Kaki", "Glider anti gores × 6"]] },
+          tracks: {
+            kerja: [rv("A", [f("26003-A-LR-01_revA.pdf"), f("26003-A-LR-01_revA.dwg")], "2026-09-30", "Made",
+                       [{ side: "internal", d: "ok", by: "Wulan (kepala drafter)", at: "2026-10-01" },
+                        { side: "klien", d: "revisi", by: "Pak Hendra · WhatsApp", at: "2026-10-02", cat: "klien", why: "Sandaran 85 cm terlalu tinggi untuk ruang ini, minta 78 cm." }]),
+                    rv("B", [f("26003-A-LR-01_revB.pdf")], "2026-10-07", "Made", [{ side: "internal", d: "ok", by: "Wulan (kepala drafter)", at: "2026-10-08" }])],
+            render: [rv("A", [f("sofa-linen-oatmeal_1.jpg"), f("sofa-linen-oatmeal_2.jpg")], "2026-10-03", "Putri",
+                       [{ side: "internal", d: "ok", by: "Wulan (kepala drafter)", at: "2026-10-03" }, { side: "klien", d: "ok", by: "Pak Hendra · meeting", at: "2026-10-04" }])],
+            foto: [], klien: [rv("A", [f("referensi-sofa-pinterest.jpg")], "2026-09-25", "Rina (sales)")] },
+          bom: { product: "PRD-0331", rev: 1, fromRev: "A", cost: 9850000 },
+          tasks: [{ no: "DSN-0041", track: "kerja", assignee: "Made", due: "2026-10-07", round: 2, cat: "klien" }, { no: "DSN-0042", track: "render", assignee: "Putri", due: "2026-10-03", round: 1 }] },
+        { no: "26003-A-LR-02", name: "Coffee table travertine", qty: 1, size: [1200, 600, 380], origin: "adapted",
+          specs: { Material: [["Top", "Travertine 20 mm, honed"], ["Rangka", "Besi hollow 40×40"]], Finishing: [["Rangka", "Powder coat hitam doff"]] },
+          tracks: { kerja: [rv("A", [f("26003-A-LR-02_revA.pdf"), f("26003-A-LR-02_revA.dwg")], "2026-10-08", "Andi")], render: [], foto: [], klien: [rv("A", [f("coffee-table-ref.jpg")], "2026-09-25", "Rina (sales)")] },
+          bom: { product: null }, tasks: [{ no: "DSN-0043", track: "kerja", assignee: "Andi", due: "2026-10-08", round: 1 }, { no: "DSN-0044", track: "render", assignee: null, due: "2026-10-14", round: 1 }] },
+        { no: "26003-A-LR-03", name: "Rak TV built-in", qty: 1, size: [3000, 450, 2400], origin: "tala",
+          specs: {}, tracks: { kerja: [], render: [], foto: [], klien: [] }, bom: { product: null },
+          tasks: [{ no: "DSN-0045", track: "kerja", assignee: "Made", due: "2026-10-06", round: 1 }] },
+      ] },
+      { code: "BR", name: "Bedroom", items: [
+        { no: "26003-A-BR-01", name: "Ranjang 180 headboard jok", qty: 2, size: [1900, 2150, 1200], origin: "tala",
+          specs: { Material: [["Rangka", "Mahoni"], ["Headboard", "Plywood 18 mm + busa 5 cm"]] },
+          tracks: { kerja: [rv("A", [f("26003-A-BR-01_revA.pdf"), f("26003-A-BR-01_revA.dwg")], "2026-09-28", "Putri",
+                       [{ side: "internal", d: "ok", by: "Wulan (kepala drafter)", at: "2026-09-29" }, { side: "klien", d: "ok", by: "Pak Hendra · email", at: "2026-10-01" }], "2026-10-02")],
+                    render: [], foto: [], klien: [] },
+          bom: { product: "PRD-0332", rev: 1, fromRev: "A", cost: 7420000 }, tasks: [{ no: "DSN-0046", track: "kerja", assignee: "Putri", due: "2026-09-30", round: 1 }, { no: "DSN-0049", track: "render", assignee: "Putri", due: "2026-10-13", round: 1 }] },
+        { no: "26003-A-BR-02", name: "Nakas 2 laci", qty: 4, size: [500, 420, 550], origin: "tala",
+          specs: {}, tracks: { kerja: [], render: [], foto: [], klien: [] }, bom: { product: null }, tasks: [{ no: "DSN-0047", track: "kerja", assignee: null, due: "2026-10-15", round: 1 }] },
+      ] },
+    ] },
+    { code: "B", name: "LOBBY", rooms: [{ code: "LB", name: "Lobby", items: [] }] },
+  ] }] },
+  { client: "PT Arunika", projects: [{ code: "26005", name: "Hotel Ubud", target: "2027-01-15", collections: [
+    { code: "A", name: "DELUXE ROOM", rooms: [{ code: "BR", name: "Bedroom", items: [
+      { no: "26005-A-BR-01", name: "Meja kerja dinding", qty: 24, size: [1100, 450, 750], origin: "client",
+        specs: { Material: [["Top", "HPL Taco walnut"]] },
+        tracks: { kerja: [rv("A", [f("26005-A-BR-01_revA.pdf"), f("26005-A-BR-01_revA.dwg")], "2026-10-02", "Andi",
+                     [{ side: "internal", d: "ok", by: "Wulan (kepala drafter)", at: "2026-10-02" }])], render: [], foto: [], klien: [rv("A", [f("arunika-desk-spec.pdf")], "2026-09-20", "Rina (sales)")] },
+        bom: { product: null }, tasks: [{ no: "DSN-0048", track: "kerja", assignee: "Andi", due: "2026-10-02", round: 1 }, { no: "DSN-0050", track: "render", assignee: "Putri", due: "2026-10-10", round: 1 }, { no: "DSN-0051", track: "foto", assignee: "Andi", due: "2026-10-21", round: 1 }] },
+    ] }] },
+  ] }] },
+];
+
+const allItems = [];
+data.forEach((c) => c.projects.forEach((p) => p.collections.forEach((co) => co.rooms.forEach((r) => r.items.forEach((i) => {
+  i.ctx = { client: c.client, project: p, coll: co, room: r }; allItems.push(i);
+})))));
+
+// HR tasks mirrored from design tasks (S2): closed rounds and open rounds.
+allItems.forEach((i) => i.tasks.forEach((t) => {
+  if (!t.assignee) return;
+  if (t.round === 2) { // a closed first round before it
+    hr.push({ no: `TSK-26-0${300 + hr.length}`, title: `${TRACKS[t.track]} ${i.no} ${i.name} — putaran 1`, assignee: t.assignee, due: "2026-09-30", status: "DONE",
+      ref: t.no, item: i.no, detail: "", delivered: "Rev A diajukan 30 Sep", cat: null });
+  }
+  const row = hrTask(t, i, t.round === 2 ? "Klien: Sandaran 85 cm terlalu tinggi untuk ruang ini, minta 78 cm." : "");
+  const revs = i.tracks[t.track]; const last = revs[revs.length - 1];
+  if (last && last.by === t.assignee && last.at <= t.due + "~") { row.status = "DONE"; row.delivered = `Rev ${last.rev} diajukan ${fmt(last.at)}`; }
+}));
+
+let screen = "plan";
+let sel = { room: "26003-A-LR", item: "26003-A-LR-01", tab: "file" };
+let form = null; // { kind, ... }
+
+function revStatus(r, track) {
+  if (track === "klien") return ["Dari klien, tanpa review", ""];
+  if (r.released) return ["Dirilis ke bengkel", "b-green"];
+  const last = r.reviews[r.reviews.length - 1];
+  if (!last) return ["Diajukan, menunggu cek internal", "b-blue"];
+  if (last.d === "revisi") return [last.side === "klien" ? "Klien minta revisi" : "Dikembalikan internal", "b-amber"];
+  if (last.d === "tolak") return ["Ditolak", "b-red"];
+  if (last.side === "internal") return ["Lolos cek, menunggu klien", "b-violet"];
+  return [track === "kerja" ? "Disetujui klien, siap rilis" : "Disetujui klien", "b-green"];
+}
+function itemStatus(i) {
+  const k = i.tracks.kerja, last = k[k.length - 1];
+  if (!last) return i.tracks.render.length ? ["DRAWN", "b-blue"] : ["CONCEPT", ""];
+  const s = revStatus(last, "kerja")[0];
+  if (s.startsWith("Dirilis")) return ["RILIS", "b-green"];
+  if (s.startsWith("Disetujui")) return ["APPROVED", "b-green"];
+  return ["DRAWN", "b-blue"];
+}
+function openTask(i, track) { return i.tasks.find((t) => t.track === track); }
+function taskDone(i, t) { const h = hr.find((x) => x.no === t.hr); return h && h.status === "DONE"; }
+
+function toast(msg) { const el = document.getElementById("toast"); el.textContent = msg; el.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => { el.hidden = true; }, 3200); }
+
+/* ───────────── screens ───────────── */
+function render() {
+  document.querySelectorAll("[data-screen]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.screen === screen)));
+  const app = document.getElementById("app");
+  app.innerHTML = screen === "plan" ? plan() : screen === "ws" ? workspace() : screen === "board" ? board() : hrd();
+}
+
+function plan() {
+  return `<div class="plan">
+  <div class="ph"><span class="crumb">Kajian 9 Okt 2026 · docs/analysis/2026-10-09-studio-desain.md</span>
+    <h1>Studio Desain: tempat kerja tim drafter</h1>
+    <p>Klien → proyek → koleksi → ruangan → item. Per item: spesifikasi, BOM, gambar kerja PDF + DWG, render, foto, masing-masing dengan revisi dan rekam jejak disetujui/ditolak beserta alasannya. Tugas gambar sekaligus tugas HRD.</p></div>
+
+  <section class="loop"><b>Kenapa /produksi/desain tidak ada input</b>
+    <ol><li>Layar itu hanya membuat tugas dari daftar <i>gambar belum punya tugas</i>.</li>
+    <li>Daftar itu dihitung dari item desain yang disetujui, ditawarkan, atau dipesan.</li>
+    <li>Item desain hanya bisa dibuat di tab Design halaman proyek.</li>
+    <li>Menu Projects hanya untuk akses project/marketing. Drafter memegang akses produksi, jadi tidak bisa sampai ke sana.</li></ol>
+    <span class="small">Di produksi hari ini: 1 klien, 5 proyek, 0 koleksi, 0 item, 0 tugas gambar, 0 revisi. Tabelnya sudah ada (P4, P6), isinya belum.</span></section>
+
+  <section><h2>Coba alurnya</h2><div class="pts">
+    <div><span class="k">/desain</span><b>Ruang kerja</b><span class="small muted">Pohon klien sampai ruangan dengan tombol tambah. Buka Sofa 3 dudukan → File &amp; revisi. Rev B menunggu jawaban klien: coba <i>Minta revisi</i> dengan alasan, lalu lihat tugas HRD putaran 3 muncul.</span>
+      <button class="btn sm out" data-go="ws">Buka ruang kerja</button></div>
+    <div><span class="k">/desain/tugas</span><b>Papan drafter</b><span class="small muted">Apa yang macet, apa yang lewat tenggat, siapa yang penuh dan siapa yang kosong.</span>
+      <button class="btn sm out" data-go="board">Buka papan</button></div>
+    <div><span class="k">/hrd/tugas</span><b>Di HRD</b><span class="small muted">Tugas drafter sebagai tugas HRD biasa: lonceng, rencana harian, Roadmap, KPI. Ditutup oleh Studio, bukan manual.</span>
+      <button class="btn sm out" data-go="hrd">Buka tugas HRD</button></div>
+  </div></section>
+
+  <section><h2>Enam sesi</h2><div class="seq">
+    ${[["S1","Ruang kerja dan input","Menu Desain, pohon dengan tombol tambah di setiap tingkat, halaman item dari bagian yang sudah ada, tugas baru dan tenggat dari layar. Hampir tanpa migrasi. Menutup masalah tanpa input."],
+       ["S2","Tugas gambar = tugas HRD","Pemegang sebagai karyawan; satu tugas HRD per putaran; sinkron satu arah lewat trigger; papan drafter dengan beban per orang."],
+       ["S3","Jalur file, revisi, review","Gambar kerja (PDF + DWG satu revisi), render, foto. Review internal dan klien per revisi, alasan wajib saat ditolak. Jenis file dwg dan foto_item, subfolder Drive per jalur dan revisi."],
+       ["S4","Spesifikasi terstruktur","Baris per kelompok (material, finishing, hardware, kain). Snapshot spesifikasi di setiap revisi yang diajukan."],
+       ["S5","BOM per item","Produk + BOM dari item sebelum dipesan. BOM tahu revisi gambar asalnya; tanda saat BOM tertinggal dari gambar."],
+       ["S6","Riwayat item dan walk","Satu timeline per item dari semua kejadian, lalu dicoba bersama tim drafter."]]
+      .map(([n, h, p]) => `<div class="ses"><span class="n">${n}</span><h3>${h}</h3><p>${p}</p></div>`).join("")}
+  </div></section>
+
+  <section><h2>Pertanyaan untuk owner</h2><p class="small muted" style="margin-bottom:8px">Setiap pertanyaan punya default. S1 bisa dikerjakan tanpa menunggu jawaban.</p>
+  <div class="tablewrap"><table class="qa"><thead><tr><th>#</th><th>Pertanyaan</th><th>Default</th></tr></thead><tbody>
+    ${[["Q74","Siapa yang memeriksa gambar sebelum dikirim ke klien?","Kepala drafter (izin baru production.review) dan pimpinan. Boleh dilewati dengan catatan."],
+       ["Q75","Item boleh dibuatkan produk + BOM sebelum dipesan?","Ya, ditandai dari desain, tidak tampil di katalog aktif sampai dipesan."],
+       ["Q76","Gambar kerja tanpa DWG boleh dirilis ke bengkel?","Tidak. Boleh diajukan, rilis butuh DWG."],
+       ["Q77","Kategori alasan penolakan; mana yang dihitung di KPI drafter?","Kesalahan gambar · perubahan klien · masukan desain · teknis produksi. Hanya kesalahan gambar yang dihitung."],
+       ["Q78","Tugas HRD drafter selesai saat revisi diajukan atau disetujui?","Saat diajukan. Putaran berikutnya tugas baru."],
+       ["Q79","Klien → koleksi tanpa proyek?","Tetap lewat proyek (D379). Koleksi katalog sendiri memakai proyek internal TALA KATALOG."],
+       ["Q80","Menu sendiri Desain, atau di bawah Produksi?","Menu sendiri; /produksi/desain dialihkan ke /desain/tugas."]]
+      .map(([q, a, d]) => `<tr><td class="mono">${q}</td><td>${a}</td><td>${d}</td></tr>`).join("")}
+  </tbody></table></div></section>
+  </div>`;
+}
+
+function workspace() {
+  const room = findRoom(sel.room);
+  const item = allItems.find((i) => i.no === sel.item && i.ctx.room === room) || room.items[0] || null;
+  if (item) sel.item = item.no;
+  return `<div class="ph"><span class="crumb">Desain</span><h1>Ruang kerja</h1>
+    <p>Pilih ruangan di kiri. Setiap tingkat punya tombol tambah, jadi drafter bisa mulai dari nol tanpa akses proyek.</p></div>
+  <div class="ws">
+    <aside class="card"><header><h3>Klien &amp; proyek</h3><button class="btn sm out" data-act="add" data-kind="client" style="margin-left:auto">+ Klien</button></header>
+      <div class="tree">${data.map((c) => `
+        <div class="lvl client">${esc(c.client)}<button class="add" data-act="add" data-kind="project" aria-label="Tambah proyek">+ proyek</button></div>
+        ${c.projects.map((p) => `<div class="lvl project"><span class="mono">${p.code}</span> ${esc(p.name)}<button class="add" data-act="add" data-kind="coll" aria-label="Tambah koleksi">+ koleksi</button></div>
+          ${p.collections.map((co) => `<div class="lvl coll">${co.code} · ${esc(co.name)}<button class="add" data-act="add" data-kind="room" aria-label="Tambah ruangan">+ ruangan</button></div>
+            ${co.rooms.map((r) => { const id = `${p.code}-${co.code}-${r.code}`; return `<button class="room" data-act="room" data-id="${id}" aria-current="${id === sel.room}">${esc(r.name)}<span class="cnt">${r.items.length}</span></button>`; }).join("")}`).join("")}`).join("")}`).join("")}
+      </div>
+      ${form && form.kind === "tree" ? `<div class="pad"><div class="form"><label class="f" for="tree-name">${form.label}<input class="in" id="tree-name" placeholder="${form.ph}"></label>
+        <div class="row"><button class="btn sm" data-act="tree-save">Simpan</button><button class="btn sm ghost" data-act="cancel">Batal</button></div></div></div>` : ""}
+    </aside>
+    <div style="display:grid;gap:14px;min-width:0">
+      <section class="card"><header><h3>${esc(room.ctx.client)} › ${room.ctx.project.code} ${esc(room.ctx.project.name)} › ${room.ctx.coll.code} · ${esc(room.ctx.coll.name)} › ${esc(room.name)}</h3>
+        <button class="btn sm" data-act="add-item" style="margin-left:auto">+ Item</button>
+        <span class="sub">Kotak kecil: gambar kerja · DWG · render · foto · BOM. Hijau ada, kuning perlu tindakan.</span></header>
+        ${form && form.kind === "item" ? itemForm(room) : ""}
+        ${room.items.length === 0 ? `<p class="pad muted small">Belum ada item di ruangan ini. Tambah item pertama dengan <b>+ Item</b>.</p>` : `<div class="tw"><table class="items"><thead><tr><th>Item</th><th>Status</th><th>Kelengkapan</th><th>Tugas</th><th>Tenggat</th></tr></thead><tbody>
+          ${room.items.map((i) => { const st = itemStatus(i); const t = i.tasks.find((x) => !taskDone(i, x)) || i.tasks[0];
+            return `<tr class="pick" data-act="item" data-id="${i.no}" aria-selected="${i.no === sel.item}" tabindex="0">
+            <td><b>${esc(i.name)}</b><div class="mono muted">${i.no} · ${i.qty} pcs</div></td>
+            <td><span class="badge ${st[1]}">${st[0]}</span></td>
+            <td>${dots(i)}</td>
+            <td class="small">${t ? `${TRACKS[t.track]} · ${t.assignee ? esc(t.assignee) : `<span class="badge b-amber">belum dipegang</span>`}` : "—"}</td>
+            <td class="small num">${t ? dueLabel(t, i) : "—"}</td></tr>`; }).join("")}
+        </tbody></table></div>`}
+      </section>
+      ${item ? itemPanel(item) : ""}
+    </div>
+  </div>`;
+}
+
+function itemForm(room) {
+  const n = room.items.length + 1;
+  return `<div class="pad"><div class="form">
+    <div class="small muted">Nomor otomatis: <span class="mono">${room.ctx.project.code}-${room.ctx.coll.code}-${room.code}-${String(n).padStart(2, "0")}</span></div>
+    <div class="grid2"><label class="f" for="it-name">Nama item<input class="in" id="it-name" placeholder="mis. Kabinet dapur atas"></label>
+      <label class="f" for="it-qty">Qty<input class="in" id="it-qty" type="number" value="1" min="1"></label>
+      <label class="f" for="it-size">Ukuran P × L × T (mm)<input class="in" id="it-size" placeholder="2400 × 350 × 700"></label>
+      <label class="f" for="it-origin">Desain dari<select class="in" id="it-origin"><option value="tala">TALA</option><option value="client">Klien</option><option value="adapted">Adaptasi referensi klien</option></select></label>
+      <label class="f" for="it-who">Gambar kerja oleh<select class="in" id="it-who"><option value="">— belum dipegang —</option>${DRAFTERS.map((d) => `<option>${d}</option>`).join("")}</select></label>
+      <label class="f" for="it-due">Tenggat gambar kerja<input class="in" id="it-due" type="date" value="${addWorkDays(TODAY, 5)}"></label></div>
+    <div class="row"><button class="btn sm" data-act="item-save">Simpan item dan buat tugas</button><button class="btn sm ghost" data-act="cancel">Batal</button></div></div></div>`;
+}
+
+function dots(i) {
+  const k = i.tracks.kerja[i.tracks.kerja.length - 1];
+  const hasDwg = k && k.files.some((x) => x.ext === "dwg");
+  const bomLag = i.bom.product && k && i.bom.fromRev !== k.rev;
+  const cells = [[!!k, false, "Gambar kerja PDF"], [hasDwg, k && !hasDwg, "DWG"], [i.tracks.render.length > 0, false, "Render"], [i.tracks.foto.length > 0, false, "Foto"], [!!i.bom.product, bomLag, bomLag ? "BOM tertinggal dari gambar" : "BOM"]];
+  return `<span class="dots" title="${cells.map((c) => c[2] + (c[1] ? " (perlu tindakan)" : c[0] ? " ✓" : " —")).join(", ")}">${cells.map((c) => `<i class="${c[1] ? "wa" : c[0] ? "on" : ""}"></i>`).join("")}</span>`;
+}
+function dueLabel(t, i) {
+  if (taskDone(i, t)) return `<span class="muted">diajukan</span>`;
+  const d = days(TODAY, t.due);
+  return d < 0 ? `<span style="color:var(--bad);font-weight:600">lewat ${-d} hari</span>` : d <= 2 ? `<span style="color:var(--warn);font-weight:600">${fmt(t.due)} · ${d} hari</span>` : fmt(t.due);
+}
+
+function itemPanel(i) {
+  const tabs = [["ring", "Ringkasan"], ["spec", "Spesifikasi"], ["file", "File & revisi"], ["bom", "BOM"], ["task", "Tugas"], ["hist", "Riwayat"]];
+  const body = { ring: tabRing, spec: tabSpec, file: tabFile, bom: tabBom, task: tabTask, hist: tabHist }[sel.tab](i);
+  return `<section class="card" id="item-panel"><header><h3><span class="mono muted">${i.no}</span> · ${esc(i.name)}</h3>
+    <span class="badge ${itemStatus(i)[1]}">${itemStatus(i)[0]}</span><span class="small muted" style="margin-left:auto">/desain/item/${i.no}</span></header>
+    <div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" data-act="tab" data-id="${k}" aria-selected="${sel.tab === k}">${l}</button>`).join("")}</div>
+    ${body}</section>`;
+}
+
+function tabRing(i) {
+  const o = { tala: "TALA", client: "Klien", adapted: "Adaptasi referensi klien" }[i.origin];
+  return `<div class="sec"><dl class="facts">
+    <div><dt>Qty</dt><dd>${i.qty}</dd></div><div><dt>Ukuran P × L × T</dt><dd class="num">${i.size.join(" × ")} mm</dd></div>
+    <div><dt>Desain dari</dt><dd>${o}</dd></div><div><dt>Klien</dt><dd>${esc(i.ctx.client)}</dd></div>
+    <div><dt>Target proyek</dt><dd>${fmt(i.ctx.project.target)}</dd></div><div><dt>Produk</dt><dd>${i.bom.product ? `<span class="mono">${i.bom.product}</span>` : "belum"}</dd></div></dl></div>
+    <div class="sec"><h4>Per jalur</h4>${Object.keys(TRACKS).map((k) => { const r = i.tracks[k][i.tracks[k].length - 1];
+      return `<div class="row small"><b style="min-width:110px">${TRACKS[k]}</b>${r ? `<span class="mono">rev ${r.rev}</span><span class="badge ${revStatus(r, k)[1]}">${revStatus(r, k)[0]}</span>` : `<span class="muted">belum ada</span>`}</div>`; }).join("")}</div>`;
+}
+
+function tabSpec(i) {
+  const groups = Object.entries(i.specs);
+  return `<div class="sec"><div class="row"><h4>Spesifikasi</h4><button class="btn sm out" data-act="spec-add" style="margin-left:auto">+ Baris</button></div>
+    ${form && form.kind === "spec" ? `<div class="form"><div class="grid2">
+      <label class="f" for="sp-g">Kelompok<select class="in" id="sp-g">${["Dimensi", "Material", "Finishing", "Hardware", "Kain / kulit", "Catatan teknis"].map((g) => `<option>${g}</option>`).join("")}</select></label>
+      <label class="f" for="sp-l">Bagian<input class="in" id="sp-l" placeholder="mis. Engsel"></label>
+      <label class="f" for="sp-v">Isi<input class="in" id="sp-v" placeholder="mis. Blum soft-close × 4"></label></div>
+      <div class="row"><button class="btn sm" data-act="spec-save">Simpan</button><button class="btn sm ghost" data-act="cancel">Batal</button></div></div>` : ""}
+    ${groups.length === 0 ? `<p class="small muted">Belum ada spesifikasi. Drafter biasanya mulai dari material dan finishing.</p>` :
+      `<div class="specs">${groups.map(([g, rows]) => `<div class="g"><h5>${g}</h5><dl>${rows.map(([l, v]) => `<dt>${esc(l)}</dt><dd>${esc(v)}</dd>`).join("")}</dl></div>`).join("")}</div>`}
+    <p class="small muted">Setiap revisi gambar kerja yang diajukan menyimpan salinan spesifikasi saat itu, supaya “rev B dibuat dengan finishing apa” tetap bisa dijawab.</p></div>`;
+}
+
+function tabFile(i) {
+  return Object.keys(TRACKS).map((k) => {
+    const revs = i.tracks[k]; const last = revs[revs.length - 1];
+    const t = openTask(i, k);
+    return `<div class="sec"><div class="track"><div class="th"><b>${TRACKS[k]}</b>
+      ${k === "kerja" ? `<span class="small muted">PDF + DWG satu revisi</span>` : ""}
+      ${t && t.assignee ? `<span class="small muted">· ${esc(t.assignee)}</span>` : ""}
+      <button class="btn sm out" data-act="upload" data-id="${k}" style="margin-left:auto">Unggah rev ${nextRev(revs)}</button></div>
+      ${form && form.kind === "upload" && form.track === k ? uploadForm(i, k, revs) : ""}
+      ${revs.length === 0 ? `<p class="pad small muted">Belum ada file.</p>` : revs.slice().reverse().map((r, ix) => revRow(i, k, r, ix === 0)).join("")}
+    </div></div>`;
+  }).join("");
+}
+function nextRev(revs) { return revs.length ? String.fromCharCode(revs[revs.length - 1].rev.charCodeAt(0) + 1) : "A"; }
+function uploadForm(i, k, revs) {
+  return `<div class="pad"><div class="form"><div class="small">Rev <b class="mono">${nextRev(revs)}</b> · disimpan di Drive <span class="mono">…/${i.no}/${TRACKS[k].toUpperCase()}/REV ${nextRev(revs)}</span></div>
+    ${k === "kerja" ? `<label class="f"><span><input type="checkbox" id="up-pdf" checked disabled> PDF (wajib)</span></label><label class="f"><span><input type="checkbox" id="up-dwg" checked> DWG dari revisi yang sama</span></label>` : `<label class="f"><span><input type="checkbox" id="up-img" checked> ${k === "klien" ? "File dari klien" : "Gambar"}</span></label>`}
+    <label class="f" for="up-note">Apa yang berubah<input class="in" id="up-note" placeholder="mis. sandaran turun ke 78 cm"></label>
+    <div class="row"><button class="btn sm" data-act="up-save">Unggah dan ajukan</button><button class="btn sm ghost" data-act="cancel">Batal</button></div></div></div>`;
+}
+function revRow(i, k, r, latest) {
+  const [st, tone] = revStatus(r, k);
+  const lastRev = r.reviews[r.reviews.length - 1];
+  const hasDwg = r.files.some((x) => x.ext === "dwg");
+  let actions = "";
+  if (latest && k !== "klien" && !r.released) {
+    if (!lastRev) actions = `<button class="btn sm" data-act="rev" data-id="${k}" data-d="int-ok">Lolos cek internal</button><button class="btn sm danger" data-act="rev" data-id="${k}" data-d="int-revisi">Kembalikan</button>`;
+    else if (lastRev.side === "internal" && lastRev.d === "ok") actions = `<button class="btn sm" data-act="rev" data-id="${k}" data-d="kl-ok">Klien setuju</button><button class="btn sm danger" data-act="rev" data-id="${k}" data-d="kl-revisi">Klien minta revisi</button><button class="btn sm ghost" data-act="rev" data-id="${k}" data-d="kl-tolak">Klien menolak</button>`;
+    else if (lastRev.side === "klien" && lastRev.d === "ok" && k === "kerja") actions = hasDwg ? `<button class="btn sm" data-act="release" data-id="${k}">Rilis ke bengkel</button>` : `<button class="btn sm" disabled>Rilis ke bengkel</button><span class="small" style="color:var(--warn)">Butuh DWG rev ${r.rev} dulu (Q76)</span>`;
+  }
+  const trail = [`<li class="up"><span>Diunggah ${fmt(r.at)} oleh ${esc(r.by)}${r.note ? ` · <span class="why">${esc(r.note)}</span>` : ""}</span></li>`]
+    .concat(r.reviews.map((v) => `<li class="${v.d === "ok" ? "ok" : "no"}"><span>${v.side === "internal" ? "Cek internal" : "Klien"}: <b>${v.d === "ok" ? "disetujui" : v.d === "revisi" ? "minta revisi" : "ditolak"}</b> · ${fmt(v.at)} · ${esc(v.by)}${v.why ? `<br><span class="why">“${esc(v.why)}”</span> <span class="badge">${CATS[v.cat]}</span>` : ""}</span></li>`))
+    .concat(r.released ? [`<li class="ok"><span><b>Dirilis ke bengkel</b> ${fmt(r.released)}</span></li>`] : []);
+  return `<div class="rev ${latest ? "latest" : "old"}"><span class="tag">${r.rev}</span>
+    <div class="row">${r.files.map((x) => `<span class="file"><span class="ext ${x.ext === "dwg" ? "dwg" : x.ext === "pdf" ? "" : "img"}">${x.ext.toUpperCase()}</span>${esc(x.name)}</span>`).join("")}
+      ${k === "kerja" && !hasDwg ? `<span class="badge b-amber">DWG belum ada</span>` : ""}</div>
+    <div class="row"><span class="badge ${tone}">${st}</span>${!latest ? `<span class="small muted">digantikan rev berikutnya</span>` : ""}</div>
+    <div><ul class="trail">${trail.join("")}</ul>
+      ${form && form.kind === "review" && form.track === k && latest ? reviewForm() : actions ? `<div class="row" style="margin-top:8px">${actions}</div>` : ""}</div></div>`;
+}
+function reviewForm() {
+  const tolak = form.d.endsWith("tolak");
+  return `<div class="form bad" style="margin-top:8px"><div class="small"><b>${form.d.startsWith("int") ? "Kembalikan ke drafter" : tolak ? "Klien menolak" : "Klien minta revisi"}</b>. Alasan wajib; drafter membacanya sebagai instruksi putaran berikutnya.</div>
+    <label class="f" for="rv-why">Alasan / masukan<textarea class="in" id="rv-why" placeholder="mis. tinggi sandaran 78 cm, kaki ganti besi hitam"></textarea></label>
+    <div class="grid2"><label class="f" for="rv-cat">Kategori<select class="in" id="rv-cat">${Object.entries(CATS).map(([k, v]) => `<option value="${k}" ${k === (form.d.startsWith("int") ? "gambar" : "klien") ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+      ${form.d.startsWith("kl") ? `<label class="f" for="rv-ch">Lewat<select class="in" id="rv-ch"><option>WhatsApp</option><option>Meeting</option><option>Email</option></select></label>` : ""}
+      <label class="f" for="rv-due">Tenggat putaran berikutnya<input class="in" id="rv-due" type="date" value="${addWorkDays(TODAY, 3)}"></label></div>
+    <p class="small muted">Hanya <i>Kesalahan gambar</i> yang dihitung di KPI drafter (Q77).</p>
+    <div class="row"><button class="btn sm danger" data-act="rv-save">Simpan dan buka putaran baru</button><button class="btn sm ghost" data-act="cancel">Batal</button></div></div>`;
+}
+
+function tabBom(i) {
+  const k = i.tracks.kerja[i.tracks.kerja.length - 1];
+  if (!i.bom.product) return `<div class="sec"><p>Item ini belum punya produk, jadi belum punya BOM.</p>
+    <div class="row"><button class="btn sm" data-act="bom-make">Buat produk &amp; BOM dari item</button></div>
+    <p class="small muted">Produk dibuat dari nama, ukuran, dan kategori item, ditandai <i>dari desain</i>, dan tidak tampil di katalog aktif sampai dipesan (Q75). Editor BOM-nya sama dengan /produksi/bom, termasuk AI pembaca gambar kerja${k ? ` yang langsung diberi rev ${k.rev} PDF` : ""}.</p></div>`;
+  const lag = k && i.bom.fromRev !== k.rev;
+  return `<div class="sec"><dl class="facts"><div><dt>Produk</dt><dd class="mono">${i.bom.product}</dd></div><div><dt>BOM</dt><dd>rev ${i.bom.rev}</dd></div>
+    <div><dt>Dari gambar kerja</dt><dd>rev ${i.bom.fromRev || "—"}</dd></div><div><dt>Biaya produksi / unit</dt><dd class="num">${i.bom.cost ? "Rp " + i.bom.cost.toLocaleString("id-ID") : "belum dihitung"}</dd></div></dl>
+    ${lag ? `<div class="note warn"><b>BOM tertinggal dari gambar.</b> BOM rev ${i.bom.rev} dibuat dari gambar kerja rev ${i.bom.fromRev}; gambar terbaru rev ${k.rev}. Harga quotation dan kebutuhan bahan masih memakai yang lama.</div>
+      <div class="row"><button class="btn sm" data-act="bom-up">Buka draft BOM dari rev ${k.rev}</button></div>` : `<div class="note ok">BOM sejalan dengan gambar kerja terbaru.</div>`}
+    <p class="small muted">Baris BOM, tarif, dan riwayat revisi dibuka di editor yang sama dengan /produksi/bom.</p></div>`;
+}
+
+function tabTask(i) {
+  return `<div class="sec"><h4>Tugas gambar</h4><p class="small muted">Satu tugas per jalur. Ditugaskan ke karyawan = otomatis jadi tugas HRD. Drafter lepas boleh, tanpa tugas HRD.</p>
+    ${Object.keys(TRACKS).filter((k) => k !== "klien").map((k) => { const t = openTask(i, k); const h = t && hr.filter((x) => x.ref === t.no);
+      return `<div class="track"><div class="th"><b>${TRACKS[k]}</b>${t ? `<span class="mono muted">${t.no} · putaran ${t.round}</span>` : `<span class="small muted">belum ada tugas</span>`}</div>
+      <div class="pad grid2">
+        <label class="f" for="as-${k}">Dipegang<select class="in" id="as-${k}" data-act="assign" data-id="${k}"><option value="">— belum dipegang —</option>${DRAFTERS.map((d) => `<option ${t && t.assignee === d ? "selected" : ""}>${d}</option>`).join("")}<option value="Freelance">Drafter lepas (tanpa HRD)</option></select></label>
+        <label class="f" for="du-${k}">Tenggat<input class="in" type="date" id="du-${k}" data-act="due" data-id="${k}" value="${t ? t.due : addWorkDays(TODAY, 5)}"></label></div>
+      ${h && h.length ? `<div class="pad" style="padding-top:0"><ul class="trail">${h.map((x) => `<li class="${x.status === "DONE" ? "ok" : "up"}"><span>HRD <span class="mono">${x.no}</span> · ${x.status === "DONE" ? `selesai · ${esc(x.delivered)}` : `terbuka · tenggat ${fmt(x.due)}`} · ${esc(x.assignee)}</span></li>`).join("")}</ul></div>` : ""}</div>`; }).join("")}</div>`;
+}
+
+function tabHist(i) {
+  const ev = [];
+  Object.keys(TRACKS).forEach((k) => i.tracks[k].forEach((r) => {
+    ev.push([r.at, `${TRACKS[k]} rev ${r.rev} diunggah oleh ${r.by}`, "up"]);
+    r.reviews.forEach((v) => ev.push([v.at, `${TRACKS[k]} rev ${r.rev}: ${v.side === "internal" ? "cek internal" : "klien"} ${v.d === "ok" ? "menyetujui" : v.d === "revisi" ? "minta revisi" : "menolak"}${v.why ? ` — “${v.why}”` : ""}`, v.d === "ok" ? "ok" : "no"]));
+    if (r.released) ev.push([r.released, `Gambar kerja rev ${r.rev} dirilis ke bengkel`, "ok"]);
+  }));
+  hr.filter((x) => x.item === i.no).forEach((x) => ev.push([x.due, `Tugas HRD ${x.no} ${x.status === "DONE" ? "selesai" : "dibuka"} (${x.assignee})`, "up"]));
+  if (i.bom.product) ev.push(["2026-10-05", `BOM rev ${i.bom.rev} dibuat dari gambar kerja rev ${i.bom.fromRev}`, "up"]);
+  ev.sort((a, b) => b[0].localeCompare(a[0]));
+  return `<div class="sec"><h4>Riwayat</h4><ul class="trail">${ev.map(([d, t, c]) => `<li class="${c}"><span><span class="mono muted">${fmt(d)}</span> ${esc(t)}</span></li>`).join("")}</ul>
+    <p class="small muted">Dibaca dari kejadian yang sudah tersimpan (view), tidak diketik dua kali.</p></div>`;
+}
+
+function board() {
+  const rows = [];
+  allItems.forEach((i) => i.tasks.forEach((t) => rows.push({ i, t, done: taskDone(i, t) })));
+  const unassigned = rows.filter((r) => !r.t.assignee);
+  const late = rows.filter((r) => r.t.assignee && !r.done && days(TODAY, r.t.due) < 0);
+  const waiting = [];
+  allItems.forEach((i) => Object.keys(TRACKS).forEach((k) => { const r = i.tracks[k][i.tracks[k].length - 1]; if (!r || k === "klien" || r.released) return;
+    const l = r.reviews[r.reviews.length - 1];
+    if (!l && days(r.at, TODAY) >= 1) waiting.push({ i, k, r, who: "cek internal", d: days(r.at, TODAY) });
+    else if (l && l.side === "internal" && l.d === "ok") waiting.push({ i, k, r, who: "klien", d: days(l.at, TODAY) }); }));
+  const weekEnd = addDays(TODAY, 7);
+  const load = DRAFTERS.map((p) => { const open = hr.filter((x) => x.assignee === p && x.status === "OPEN");
+    return { p, late: open.filter((x) => x.due < TODAY).length, week: open.filter((x) => x.due >= TODAY && x.due <= weekEnd).length, later: open.filter((x) => x.due > weekEnd).length }; });
+  const max = Math.max(4, ...load.map((l) => l.late + l.week + l.later));
+  return `<div class="ph"><span class="crumb">Desain</span><h1>Papan drafter</h1><p>Apa yang macet, apa yang lewat, siapa yang penuh. Tenggat dari tugas, Job Order terbuka, atau target proyek. Beban dihitung dari tugas HRD tiap orang.</p></div>
+  <div class="card" style="margin-bottom:14px"><dl class="kpis">
+    <div><dt>Menunggu review</dt><dd class="${waiting.length ? "warn" : ""}">${waiting.length}</dd><p>internal atau klien</p></div>
+    <div><dt>Lewat tenggat</dt><dd class="${late.length ? "warn" : ""}">${late.length}</dd><p>belum diajukan</p></div>
+    <div><dt>Belum dipegang</dt><dd class="${unassigned.length ? "warn" : ""}">${unassigned.length}</dd><p>tugas tanpa orang</p></div>
+    <div><dt>Di HRD</dt><dd>${hr.filter((x) => x.status === "OPEN").length}</dd><p>tugas drafter terbuka</p></div></dl></div>
+  <div class="two">
+    <section class="card"><header><h3>Beban per drafter</h3><span class="sub">Tugas HRD terbuka. Seret tugas yang belum dipegang ke orang yang paling kosong.</span></header>
+      <div class="pad load">${load.map((l) => `<div class="person"><b>${l.p}</b><div class="bar" role="img" aria-label="${l.late} lewat, ${l.week} minggu ini, ${l.later} sesudahnya">
+        <span class="late" style="width:${l.late / max * 100}%"></span><span class="week" style="width:${l.week / max * 100}%"></span><span class="later" style="width:${l.later / max * 100}%"></span></div>
+        <span class="small num">${l.late + l.week + l.later} terbuka</span></div>`).join("")}
+        <div class="legend"><span><i style="background:var(--bad)"></i>lewat tenggat</span><span><i style="background:var(--warn)"></i>7 hari ke depan</span><span><i style="background:var(--brand)"></i>sesudahnya</span></div></div></section>
+    <section class="card"><header><h3>Belum dipegang</h3></header><ul class="q">${unassigned.length ? unassigned.map((r) => `<li><span class="what"><b>${esc(r.i.name)} · ${TRACKS[r.t.track]}</b><span class="mono muted">${r.i.no}</span></span>
+      <span class="small">tenggat ${fmt(r.t.due)}</span><select class="in" style="width:auto" data-act="board-assign" data-id="${r.i.no}|${r.t.track}" aria-label="Tugaskan"><option value="">Tugaskan ke…</option>${DRAFTERS.map((d) => `<option>${d}</option>`).join("")}</select></li>`).join("") : `<li class="muted small">Semua tugas sudah dipegang.</li>`}</ul></section>
+  </div>
+  <div class="two" style="margin-top:14px">
+    <section class="card"><header><h3>Lewat tenggat</h3></header><ul class="q">${late.length ? late.map((r) => `<li><span class="what"><b>${esc(r.i.name)} · ${TRACKS[r.t.track]}</b><span class="mono muted">${r.i.no} · putaran ${r.t.round}</span></span><span class="small">${esc(r.t.assignee)}</span><span class="badge b-red">lewat ${-days(TODAY, r.t.due)} hari</span><button class="btn sm out" data-act="open-item" data-id="${r.i.no}">Buka</button></li>`).join("") : `<li class="muted small">Tidak ada yang lewat.</li>`}</ul></section>
+    <section class="card"><header><h3>Menunggu review</h3></header><ul class="q">${waiting.length ? waiting.map((w) => `<li><span class="what"><b>${esc(w.i.name)} · ${TRACKS[w.k]} rev ${w.r.rev}</b><span class="mono muted">${w.i.no}</span></span><span class="badge ${w.d >= (w.who === "klien" ? 5 : 2) ? "b-amber" : ""}">${w.who} · ${w.d} hari</span><button class="btn sm out" data-act="open-item" data-id="${w.i.no}">Buka</button></li>`).join("") : `<li class="muted small">Tidak ada yang menunggu.</li>`}</ul></section>
+  </div>`;
+}
+
+function hrd() {
+  const rows = hr.slice().sort((a, b) => (a.status === b.status ? a.due.localeCompare(b.due) : a.status === "OPEN" ? -1 : 1));
+  return `<div class="ph"><span class="crumb">HRD › Tugas</span><h1>Tugas tim drafter</h1><p>Baris yang sama yang dilihat HRD di /hrd/tugas, Profil → Tugas, Roadmap, dan KPI. Dibuat dan ditutup oleh Studio Desain; HRD membaca dan mengejar, tidak menutup.</p></div>
+  <section class="card"><header><h3>${rows.filter((r) => r.status === "OPEN").length} terbuka · ${rows.filter((r) => r.status === "DONE").length} selesai</h3><span class="sub">Sumber: Desain. Putaran karena perubahan klien bukan kegagalan drafter (Q77).</span></header>
+  <div class="tw"><table class="items"><thead><tr><th>Tugas</th><th>Pemegang</th><th>Tenggat</th><th>Status</th><th>Sumber</th></tr></thead><tbody>
+  ${rows.map((r) => { const d = days(TODAY, r.due); return `<tr><td><b>${esc(r.title)}</b><div class="mono muted">${r.no}</div>${r.detail ? `<div class="small">${esc(r.detail)}</div>` : ""}${r.cat ? `<span class="badge">${CATS[r.cat]}</span>` : ""}</td>
+    <td>${esc(r.assignee)}</td><td class="num small">${fmt(r.due)}${r.status === "OPEN" && d < 0 ? `<div style="color:var(--bad);font-weight:600">lewat ${-d} hari</div>` : ""}</td>
+    <td>${r.status === "DONE" ? `<span class="badge b-green">Selesai</span><div class="small muted">${esc(r.delivered)}</div>` : `<span class="badge b-blue">Terbuka</span>`}</td>
+    <td><span class="mono small">${r.ref}</span><br><button class="btn sm out" data-act="open-item" data-id="${r.item}">Buka di Studio</button><div class="small muted">🔒 ditutup oleh Studio</div></td></tr>`; }).join("")}
+  </tbody></table></div></section>`;
+}
+
+/* ───────────── actions ───────────── */
+function findRoom(id) { const [p, c, r] = id.split("-"); for (const cl of data) for (const pr of cl.projects) if (pr.code === p) for (const co of pr.collections) if (co.code === c) for (const ro of co.rooms) if (ro.code === r) { ro.ctx = { client: cl.client, project: pr, coll: co }; return ro; } }
+function curItem() { return allItems.find((i) => i.no === sel.item); }
+const val = (id) => (document.getElementById(id) || {}).value;
+
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-screen],[data-go],[data-act]"); if (!b) return;
+  if (b.dataset.screen || b.dataset.go) { screen = b.dataset.screen || b.dataset.go; form = null; render(); window.scrollTo(0, 0); return; }
+  const a = b.dataset.act, id = b.dataset.id, i = curItem();
+  if (b.tagName === "SELECT" || (b.tagName === "INPUT" && b.type === "date")) return;
+  if (a === "room") { sel.room = id; sel.item = (findRoom(id).items[0] || {}).no; form = null; }
+  else if (a === "item") { sel.item = id; form = null; }
+  else if (a === "tab") { sel.tab = id; form = null; }
+  else if (a === "cancel") form = null;
+  else if (a === "add") form = { kind: "tree", label: { client: "Nama klien (masuk ke master data klien)", project: "Kode dan nama proyek", coll: "Kode dan nama koleksi", room: "Kode dan nama ruangan" }[b.dataset.kind], ph: { client: "mis. Ibu Laras", project: "26009 Rumah Sanur", coll: "C · TYPE 3BR", room: "KT · Kitchen" }[b.dataset.kind], sub: b.dataset.kind };
+  else if (a === "tree-save") { const v = val("tree-name").trim(); if (!v) return toast("Isi namanya dulu."); toast(`Tersimpan: ${v}. Di preview ini tidak ditambahkan ke pohon.`); form = null; }
+  else if (a === "add-item") form = { kind: "item" };
+  else if (a === "item-save") {
+    const room = findRoom(sel.room), name = val("it-name").trim(); if (!name) return toast("Item dinamai apa?");
+    const no = `${room.ctx.project.code}-${room.ctx.coll.code}-${room.code}-${String(room.items.length + 1).padStart(2, "0")}`;
+    const size = (val("it-size") || "").split(/[^\d]+/).filter(Boolean).map(Number);
+    const it = { no, name, qty: +val("it-qty") || 1, size: size.length === 3 ? size : ["—", "—", "—"], origin: val("it-origin"), specs: {}, tracks: { kerja: [], render: [], foto: [], klien: [] }, bom: { product: null },
+      tasks: [{ no: `DSN-00${49 + allItems.length}`, track: "kerja", assignee: val("it-who") || null, due: val("it-due"), round: 1 }], ctx: { client: room.ctx.client, project: room.ctx.project, coll: room.ctx.coll, room } };
+    room.items.push(it); allItems.push(it); sel.item = no; sel.tab = "task"; form = null;
+    const t = it.tasks[0]; if (t.assignee) { const h = hrTask(t, it); toast(`${no} dibuat. Tugas HRD ${h.no} untuk ${t.assignee}, tenggat ${fmt(t.due)}.`); } else toast(`${no} dibuat. Tugas gambar kerja masuk antrean, belum dipegang.`);
+  }
+  else if (a === "spec-add") form = { kind: "spec" };
+  else if (a === "spec-save") { const g = val("sp-g"), l = val("sp-l").trim(), v = val("sp-v").trim(); if (!l || !v) return toast("Isi bagian dan isinya."); (i.specs[g] = i.specs[g] || []).push([l, v]); form = null; toast("Spesifikasi tersimpan dan tercatat di riwayat."); }
+  else if (a === "upload") form = { kind: "upload", track: id };
+  else if (a === "up-save") {
+    const k = form.track, revs = i.tracks[k], rev = nextRev(revs);
+    const files = k === "kerja" ? [f(`${i.no}_rev${rev}.pdf`)].concat(document.getElementById("up-dwg").checked ? [f(`${i.no}_rev${rev}.dwg`)] : []) : [f(k === "klien" ? `dari-klien-${rev}.jpg` : `${i.no}-${k}-${rev}.jpg`)];
+    const t = openTask(i, k), by = (t && t.assignee) || "Made";
+    revs.push({ rev, files, at: TODAY, by, reviews: [], released: null, note: val("up-note").trim() });
+    let msg = `Rev ${rev} diunggah dan diajukan.`;
+    if (t) { const h = hr.find((x) => x.no === t.hr && x.status === "OPEN"); if (h) { h.status = "DONE"; h.delivered = `Rev ${rev} diajukan ${fmt(TODAY)}`; msg += ` Tugas HRD ${h.no} selesai.`; } }
+    form = null; toast(msg);
+  }
+  else if (a === "rev") {
+    const d = b.dataset.d, r = i.tracks[id][i.tracks[id].length - 1];
+    if (d === "int-ok") { r.reviews.push({ side: "internal", d: "ok", by: "Wulan (kepala drafter)", at: TODAY }); toast(`Rev ${r.rev} lolos cek internal. Menunggu klien.`); }
+    else if (d === "kl-ok") { r.reviews.push({ side: "klien", d: "ok", by: `${i.ctx.client} · WhatsApp`, at: TODAY }); toast(`Klien menyetujui rev ${r.rev}.`); }
+    else form = { kind: "review", track: id, d };
+  }
+  else if (a === "rv-save") {
+    const why = val("rv-why").trim(); if (!why) return toast("Alasan wajib diisi: drafter membacanya sebagai instruksi.");
+    const k = form.track, r = i.tracks[k][i.tracks[k].length - 1], cat = val("rv-cat"), due = val("rv-due");
+    const side = form.d.startsWith("int") ? "internal" : "klien", dd = form.d.endsWith("tolak") ? "tolak" : "revisi";
+    r.reviews.push({ side, d: dd, by: side === "internal" ? "Wulan (kepala drafter)" : `${i.ctx.client} · ${val("rv-ch")}`, at: TODAY, cat, why });
+    let t = openTask(i, k);
+    if (!t) { t = { no: `DSN-00${60 + hr.length}`, track: k, assignee: r.by, due, round: 1 }; i.tasks.push(t); }
+    t.round += 1; t.due = due; t.cat = cat;
+    let msg = `Rev ${r.rev}: ${side === "internal" ? "dikembalikan" : dd === "tolak" ? "ditolak klien" : "klien minta revisi"}.`;
+    if (t.assignee && t.assignee !== "Freelance") { const h = hrTask(t, i, `${side === "internal" ? "Cek internal" : "Klien"}: ${why}`); msg += ` Tugas HRD ${h.no} putaran ${t.round} untuk ${t.assignee}, tenggat ${fmt(due)}.`; }
+    form = null; toast(msg);
+  }
+  else if (a === "release") { const r = i.tracks[id][i.tracks[id].length - 1]; r.released = TODAY; toast(`Rev ${r.rev} dirilis. Bengkel sekarang memotong dari rev ${r.rev}.`); }
+  else if (a === "bom-make") { i.bom = { product: `PRD-0${340 + allItems.indexOf(i)}`, rev: 1, fromRev: (i.tracks.kerja[i.tracks.kerja.length - 1] || {}).rev || null, cost: null }; toast(`Produk ${i.bom.product} dibuat dari item, BOM rev 1 kosong siap diisi.`); }
+  else if (a === "bom-up") { const k = i.tracks.kerja[i.tracks.kerja.length - 1]; i.bom.rev += 1; i.bom.fromRev = k.rev; toast(`Draft BOM rev ${i.bom.rev} dibuka dari gambar kerja rev ${k.rev}.`); }
+  else if (a === "open-item") { const it = allItems.find((x) => x.no === id); sel.room = `${it.ctx.project.code}-${it.ctx.coll.code}-${it.ctx.room.code}`; sel.item = id; sel.tab = "file"; screen = "ws"; form = null; render(); document.getElementById("item-panel")?.scrollIntoView({ block: "start" }); return; }
+  else return;
+  render();
+});
+
+document.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.matches("tr.pick")) e.target.click(); });
+
+document.addEventListener("change", (e) => {
+  const el = e.target, a = el.dataset.act; if (!a) return;
+  if (a === "board-assign") {
+    const [no, k] = el.dataset.id.split("|"); const i = allItems.find((x) => x.no === no); const t = openTask(i, k); if (!el.value) return;
+    t.assignee = el.value; const h = hrTask(t, i); toast(`${TRACKS[k]} ${no} ditugaskan ke ${el.value}. Tugas HRD ${h.no}, lonceng dikirim.`); render(); return;
+  }
+  const i = curItem(), k = el.dataset.id; let t = openTask(i, k);
+  if (a === "assign") {
+    if (!t) { t = { no: `DSN-00${70 + hr.length}`, track: k, assignee: null, due: val(`du-${k}`), round: 1 }; i.tasks.push(t); }
+    const prev = hr.find((x) => x.no === t.hr && x.status === "OPEN");
+    t.assignee = el.value || null;
+    if (!t.assignee) toast("Tugas kembali ke antrean, belum dipegang.");
+    else if (t.assignee === "Freelance") { if (prev) hr.splice(hr.indexOf(prev), 1), t.hr = null; toast("Drafter lepas: tugas tetap di Studio, tidak dibuat di HRD."); }
+    else if (prev) { prev.assignee = t.assignee; toast(`Tugas HRD ${prev.no} pindah ke ${t.assignee}.`); }
+    else { const h = hrTask(t, i); toast(`Tugas HRD ${h.no} dibuat untuk ${t.assignee}, tenggat ${fmt(t.due)}.`); }
+  } else if (a === "due" && t) {
+    t.due = el.value; const h = hr.find((x) => x.no === t.hr && x.status === "OPEN"); if (h) h.due = el.value;
+    toast(`Tenggat ${fmt(el.value)}${h ? `, tugas HRD ${h.no} ikut berubah` : ""}.`);
+  }
+  render();
+});
+
+render();
+})();
+</script>
