@@ -10194,3 +10194,38 @@ its migration on production. A migration with a `drop` is handed to the owner
 for the SQL Editor, then any function body is re-created with `create or
 replace` through the connector and checked by `md5(prosrc)` against the
 ladder.
+
+## F251 · 2026-10-09 · Merged and marked DONE, but never on production
+
+After F250 the whole `ops_*` schema on production was compared with the
+local ladder (`main`): every function by signature and `md5(prosrc)`, every
+table's columns, every view and every enum value. Views, enums and columns
+matched (production only carries three `_…_20261006` backup tables more).
+Two functions did not, and both were behind buttons in the live app:
+
+- `ops_hr.void_scan` (`0246`, D398). Production had parts a, b and c of
+  `0246` and the `voided_scans` table, but not the function: its body moves a
+  typed tap into `voided_scans` and then removes it from `attendance_scans`,
+  and the Supabase connector holds any statement that removes rows or drops
+  objects for a confirmation a session cannot give (F250). The day editor's
+  *Hapus* on a typed tap had nothing to call.
+- `ops_procure.confirm_receipt` (`0205_procure_confirm_receipt_correction`,
+  D363). Never applied; the board row next to it said *0205 applied* because
+  another `0205` (`…_receiving_nota_lines`) was. Since 2026-10-01 the screen
+  sent `p_qty` and `p_condition` to a five-argument function, so a receipt
+  could not be signed for from `/procurement/penerimaan`.
+
+Both are on production now. `confirm_receipt` went through the connector
+with the old overload renamed `confirm_receipt_retired_0205` and closed to
+every role rather than dropped — the same shape as `_retired_0211` and the
+others — so its body is hash-identical. `void_scan` was run by the owner in
+the SQL Editor; it carries CRLF line endings and is identical once they are
+removed. `edit_transaction` differs from the ladder in comment lines only (it
+was applied with comments stripped); its code lines are all present.
+
+**Rule:** a migration counts as applied when its objects on production match
+the ladder, not when `schema_migrations` has a row with its number. After
+applying anything, compare by signature and `md5(prosrc)`. A migration whose
+text removes rows or drops objects goes to the owner for the SQL Editor; a
+drop of a superseded overload is better written as a rename to
+`*_retired_NNNN` plus `revoke`, which the connector runs.
