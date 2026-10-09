@@ -1,4 +1,4 @@
--- procure — a gallery link on a design collection (0251, D406).
+-- procure — a gallery link on a design collection (0251, D407).
 --
 -- DERIVATIONS  the collection reads its link (v_design_collection.gallery_url);
 --              the same link again is a no-op; a blank one clears it; the

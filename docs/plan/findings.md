@@ -10161,3 +10161,36 @@ transaction-local flag. Reopen, block and move are untouched.
 **Rule:** when a module writes into another module's table, read it back
 through a function that names its columns, and put a cross-module rule on the
 table as a trigger rather than in each seam that writes it.
+
+## F250 · 2026-10-09 · Two sessions, one number; and a migration with a drop cannot go through the connector
+
+Two sessions merged into `main` three minutes apart on 2026-10-09 and both
+took the next free numbers: `0251` (the emergency contact, #161, and the
+collection gallery, #162) and **D406**. Duplicate migration numbers are
+harmless here — the ladder sorts by file name and has had pairs since `0038`
+— but a decision number is a reference people quote, and #161 had used D406
+in code and on the board without writing the row, so the only D406 row said
+*gallery*. The later one moved to D407 (#164).
+
+Applying #161's `0251` showed two things about production. The Supabase
+connector holds any statement containing `drop` for a confirmation this
+session cannot give: `apply_migration` and `execute_sql` both time out after
+60 s with nothing reaching Postgres (a `begin; drop function if exists
+pg_temp.…; rollback;` probe did the same), so a migration that drops and
+remakes a seam has to be run by the owner in the SQL Editor. And the SQL
+Editor paste carried CRLF line endings and lost one space and one blank line,
+so `md5(prosrc)` differed from the ladder in comments only. `create or replace`
+of the same signature needs no drop, so the body was made again from the file
+through the connector, which brought the hash back to the ladder's, and the
+migration was written into `supabase_migrations.schema_migrations` by hand.
+
+Meanwhile the merged app already selected `emergency_*` from
+`ops_hr.employees`, so the employee list in production asked for columns that
+did not exist from the merge until the migration ran.
+
+**Rule:** before taking a migration or decision number, fetch `main` again
+and look; a PR whose app code reads a new column is merged only together with
+its migration on production. A migration with a `drop` is handed to the owner
+for the SQL Editor, then any function body is re-created with `create or
+replace` through the connector and checked by `md5(prosrc)` against the
+ladder.

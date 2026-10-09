@@ -518,7 +518,7 @@ export type DemoReceivingInbox = Omit<ReceivingInboxRow, "files" | "resolved_by_
 /* ── a project's design (0222) — the tables, as the demo stores them ── */
 export interface DemoDesignCollection {
   id: string; project_id: string; code: string; name: string; note: string | null; created_at: string;
-  /** 0251, D406. Optional so the fixtures need not name it. */
+  /** 0251, D407. Optional so the fixtures need not name it. */
   gallery_url?: string | null;
 }
 export interface DemoDesignRoom {
