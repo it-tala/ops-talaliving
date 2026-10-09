@@ -269,7 +269,7 @@ export default function GeneratePayrollPage() {
         {/* Walking the period: by the pay week for wages, by the month for
             salaries — a salary is compared month by month (D386). A wage
             period HRD typed walks by its own length, so a run of seven or
-            ten days is followed by the next seven or ten (D407). */}
+            ten days is followed by the next seven or ten (D409). */}
         <div className="flex gap-1.5">
           {group === "monthly" ? (
             <>

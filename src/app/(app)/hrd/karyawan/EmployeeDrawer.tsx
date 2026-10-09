@@ -477,7 +477,7 @@ export function EmployeeDrawer({
           {employee && basis === "monthly" && (
             <div className="sm:col-span-2"><AttendanceExempt employeeNo={employee.employee_no} /></div>
           )}
-          {/* Dibayar per kehadiran, for a day wage whose hours are not counted (D407). */}
+          {/* Dibayar per kehadiran, for a day wage whose hours are not counted (D409). */}
           {employee && basis !== "monthly" && (
             <div className="sm:col-span-2"><PresencePay employeeNo={employee.employee_no} /></div>
           )}

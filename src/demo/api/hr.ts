@@ -2155,7 +2155,7 @@ export async function setAttendanceExempt(
   return listAttendanceExemptions();
 }
 
-/** `ops_hr.presence_pay_list` (0252, D407) — HRD's only. */
+/** `ops_hr.presence_pay_list` (0252, D409) — HRD's only. */
 export async function listPresencePay(): Promise<Result<PresencePay[]>> {
   await latency();
   if (!seesStanding()) return ok(SERVICE, []);
@@ -2170,7 +2170,7 @@ export async function listPresencePay(): Promise<Result<PresencePay[]>> {
   }).sort((a, b) => a.employee_no.localeCompare(b.employee_no)));
 }
 
-/** `ops_hr.set_presence_pay` (0252, D407). */
+/** `ops_hr.set_presence_pay` (0252, D409). */
 export async function setPresencePay(
   input: { employee_no: string; on: boolean; reason: string; starts_on?: string | null },
 ): Promise<Result<PresencePay[]>> {

@@ -1,7 +1,7 @@
--- 252_hr_presence_pay.sql — dibayar per kehadiran (0252, D407).
+-- 252_hr_presence_pay.sql — dibayar per kehadiran (0252, D409).
 --
 --   • a seven-day period pays a day wage for every day in it somebody came
---     (F250 — it always did);
+--     (F251 — it always did);
 --   • somebody HRD set *dibayar per kehadiran* is paid a whole day for any
 --     tap: one unpaired tap is not held, late and early are not counted;
 --   • a day with no tap is still nothing;
@@ -17,7 +17,7 @@ insert into ops_core.user_modules (user_id, module, level) values
 
 -- Office 08.00–17.15 with an hour's break; late and early by the minute.
 insert into ops_hr.pay_rule_sets (version, effective_from, note, rules, created_by) values
- (1, '2026-09-01', 'uji D407', '{
+ (1, '2026-09-01', 'uji D409', '{
    "week_pattern":"5day","late_grace_minutes":0,"late_mode":"pro_rata","early_leave_mode":"pro_rata",
    "undertime_mode":"off","day_reading":"in_out","hours_rounding_minutes":15,
    "overtime_mode":"statutory","workday_tiers":[{"after_hours":0,"multiplier":1.5}],
@@ -62,7 +62,7 @@ set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-000000025201';
 do $$
 declare a jsonb; l ops_hr.payroll_figures;
 begin
-  /* F250: seven days, paid for the four days he came — Saturday too */
+  /* F251: seven days, paid for the four days he came — Saturday too */
   l := ops_hr.payroll_line_for('aaaa2520-0000-0000-0000-000000000002','2026-10-01','2026-10-07');
   assert l.worked_days = 4 and l.base_pay = 400000 and l.gross = 400000,
     format('day wage over seven days: %s days, %s, gross %s', l.worked_days, l.base_pay, l.gross);

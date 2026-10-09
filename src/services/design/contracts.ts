@@ -58,7 +58,7 @@ export interface DesignCollection {
   approved_count: number;
   created_at: string;
   /** The collection's shared gallery — a Google Photos album of the whole
-   *  set's renders, for the team and the client (0251, D406). */
+   *  set's renders, for the team and the client (0251, D407). */
   gallery_url: string | null;
 }
 

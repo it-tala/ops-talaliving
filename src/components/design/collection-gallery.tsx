@@ -13,7 +13,7 @@ const inputCls = "h-8 w-full rounded-lg border border-slate-200 bg-white px-2 te
 
 /** The collection's gallery: a link to a shared Google Photos album of the
  *  whole set's renders, which the team opens here and the client opens from
- *  the link (0251, D406). Nothing is copied into ops; the album is the album. */
+ *  the link (0251, D407). Nothing is copied into ops; the album is the album. */
 export function CollectionGallery({
   projectCode, collection, canEdit, onChanged, className,
 }: {

@@ -313,7 +313,7 @@ export interface DemoState {
     employee_id: string; reason: string; starts_on: string | null; by: string; at: string;
     ends_on: string | null;
   }[];
-  /** Dibayar per kehadiran (0252, D407). Optional so a saved demo from before
+  /** Dibayar per kehadiran (0252, D409). Optional so a saved demo from before
    *  it loads. */
   presence_pay?: {
     employee_id: string; reason: string; starts_on: string | null; by: string; at: string;
@@ -524,7 +524,7 @@ export type DemoReceivingInbox = Omit<ReceivingInboxRow, "files" | "resolved_by_
 /* ── a project's design (0222) — the tables, as the demo stores them ── */
 export interface DemoDesignCollection {
   id: string; project_id: string; code: string; name: string; note: string | null; created_at: string;
-  /** 0251, D406. Optional so the fixtures need not name it. */
+  /** 0251, D409. Optional so the fixtures need not name it. */
   gallery_url?: string | null;
 }
 export interface DemoDesignRoom {
