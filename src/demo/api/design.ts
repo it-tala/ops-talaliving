@@ -87,6 +87,7 @@ function design(state: DemoState, projectCode: string): ProjectDesign | null {
         room_count: rooms.filter((r) => r.collection_id === c.id).length,
         item_count: mine.filter((i) => i.status !== "DROPPED").length,
         approved_count: mine.filter((i) => i.status !== "DROPPED" && i.approval_decision === "approved").length,
+        gallery_url: c.gallery_url ?? null,
       };
     })
     .sort((a, b) => a.code.localeCompare(b.code));
@@ -162,6 +163,30 @@ export async function saveDesignCollection(
       });
     }
     writeAudit(draft, { service: SERVICE, entity: "design_collection", entity_no: `${p.code}-${code}`, action: had ? "update" : "create", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, design(getState(), p.code)!);
+}
+
+/** The collection's gallery link (a Google Photos album): set, change, or
+ *  clear with a blank (0251, D406). */
+export async function setDesignCollectionGallery(
+  input: { project_code: string; code: string; url: string | null },
+): Promise<Result<ProjectDesign>> {
+  await latency();
+  if (!mayDesign("write")) return denied();
+  const state = getState();
+  const p = state.projects.find((x) => x.code === input.project_code.trim());
+  const code = input.code.trim().toUpperCase();
+  const c = p && state.design_collections.find((x) => x.project_id === p.id && x.code === code);
+  if (!p || !c) return notFound(SERVICE, "not_found", `Tidak ada koleksi ${input.project_code}-${code}.`);
+  const url = input.url?.trim() || null;
+  if (url && !/^https?:\/\/\S+$/i.test(url)) {
+    return invalid(SERVICE, "bad_url", "Tempel link lengkap yang diawali https://, mis. link album Google Photos.", { field: "url" });
+  }
+  if ((c.gallery_url ?? null) === url) return noop(SERVICE, design(state, p.code)!);
+  apply((draft) => {
+    draft.design_collections.find((x) => x.id === c.id)!.gallery_url = url;
+    writeAudit(draft, { service: SERVICE, entity: "design_collection", entity_no: `${p.code}-${code}`, action: "set_gallery", outcome: "ok", reason: null });
   });
   return ok(SERVICE, design(getState(), p.code)!);
 }
