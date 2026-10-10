@@ -212,6 +212,7 @@ export function PayrollSheet({
                         {l.pay_basis === "monthly" ? tr("monthly", "bulanan") : l.pay_basis === "daily" ? tr("daily", "harian") : tr("hourly", "per jam")}
                       </Badge>
                       {l.attendance_exempt && <Badge tone="slate">{tr("no attendance required", "tidak wajib absensi")}</Badge>}
+                      {l.presence_paid && <Badge tone="slate">{tr("paid by presence", "dibayar per kehadiran")}</Badge>}
                       {why && <p className="mt-1 text-[11px] text-amber-700">{why}</p>}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2.5 text-right text-[12px]">
@@ -459,6 +460,12 @@ function PersonBreakdown({ line: l, onClose, onPersonSettings, adjust, period, e
                 "Tidak wajib absensi (diatur HRD): hari kerja tanpa tap tetap dibayar.")}
             </p>
           )}
+          {l.presence_paid && (
+            <p className="mb-1.5 text-[12px] text-slate-500">
+              {tr("Paid by presence (set by HRD): a day with any tap is a full day; hours, lateness and early leave are not counted.",
+                "Dibayar per kehadiran (diatur HRD): hari dengan tap apa pun dibayar sehari penuh; jam, terlambat dan pulang cepat tidak dihitung.")}
+            </p>
+          )}
           {canEditDays && (l.days_unconfirmed ?? 0) > 0 && (
             <ConfirmAll employeeNo={l.employee_no}
               dates={l.days.filter((d) => d.unconfirmed).map((d) => d.work_date)} onDone={dayDone} />
@@ -510,6 +517,7 @@ function PersonBreakdown({ line: l, onClose, onPersonSettings, adjust, period, e
                                 : <span className="text-slate-400">—</span>}
                         {withheld && <span className="block text-rose-700">{tr("no allowance", "tanpa tunjangan")}</span>}
                         {d.break_kept && <span className="block text-slate-500">{tr("break kept", "istirahat tidak dipotong")}</span>}
+                        {d.presence_paid && <span className="block text-slate-500">{tr("paid by presence", "dibayar per kehadiran")}</span>}
                         {(d.early_minutes ?? 0) > 0 && (
                           <span className="block text-amber-700">{tr(`left ${d.early_minutes} min early`, `pulang cepat ${d.early_minutes} mnt`)}</span>
                         )}
