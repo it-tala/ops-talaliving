@@ -25,7 +25,7 @@
  */
 import { trNow } from "@/lib/i18n";
 import type {
-  Vendor, VendorView, Item, ItemView, Uom, UomConversion, UomDimension, ItemCategory, ItemPurchase, Project,
+  Vendor, VendorKind, VendorView, Item, ItemView, Uom, UomConversion, UomDimension, ItemCategory, ItemPurchase, Project,
   ItemGroupSuggestion,
   PrLineView, PrApproval, LineNote, LineVariance, ApprovalRequest,
   VendorJourney, RoundSummary, RoundTransfer, VarianceReason, Channel, ApprovalBatchView,
@@ -1011,7 +1011,7 @@ const VENDOR_LIST_COLUMNS =
   "id, code, name, aka, merged_into, is_curated, archived_at, phone, address, pic_name, "
   + "pic_phone, bank_account, bank_account_secondary, npwp, supplied_categories, "
   + "created_by, created_at, updated_at, supplied_category_names, "
-  + "transaction_count, total_spend, last_purchase, open_pr_lines, bought_categories";
+  + "transaction_count, total_spend, last_purchase, open_pr_lines, bought_categories, kind";
 
 export async function listVendorViews(
   opts: { q?: string; include_archived?: boolean } = {},
@@ -1321,11 +1321,14 @@ export async function listProjects(): Promise<Result<Project[]>> {
  *  is a view. `contract_value`, `order_value` and line prices are `numeric`,
  *  which PostgREST may hand back as strings, so each row is shaped by hand. */
 
-interface ProjectRow extends Omit<ProjectView, "contract_value" | "order_value" | "expected_value" | "current_quote_total"> {
+interface ProjectRow extends Omit<ProjectView, "contract_value" | "order_value" | "expected_value" | "current_quote_total"
+  | "current_quote_total_own" | "current_quote_currency"> {
   contract_value: number | string | null;
   order_value: number | string | null;
   expected_value?: number | string | null;
   current_quote_total: number | string | null;
+  current_quote_total_own?: number | string | null;
+  current_quote_currency?: ProjectView["current_quote_currency"];
 }
 
 interface ProjectLineRow extends Omit<ProjectLineView, "qty" | "unit_price" | "product_production_cost" | "job_order_qty" | "job_order_completed"> {
@@ -1345,6 +1348,8 @@ function toProjectView(r: ProjectRow): ProjectView {
     order_value: numOrNull(r.order_value),
     expected_value: numOrNull(r.expected_value ?? null),
     current_quote_total: numOrNull(r.current_quote_total),
+    current_quote_total_own: numOrNull(r.current_quote_total_own ?? null),
+    current_quote_currency: r.current_quote_currency ?? null,
   };
 }
 
@@ -1583,6 +1588,18 @@ export async function curateVendor(id: string, curated: boolean): Promise<Result
   const res = fromSeam(SERVICE, data, error);
   if (res.error) return res;
   return vendorViewByCode(code);
+}
+
+/** What a vendor is to us — supplier, factory, QC or other (0256, O2).
+ *  Procurement's (update). */
+export async function setVendorKind(id: string, kind: VendorKind): Promise<Result<VendorView>> {
+  const code = await codeFor("vendors", id);
+  if (!code) return notFound(SERVICE, "vendor_not_found", "Vendor not found.");
+  const { data, error } = await db().rpc("set_vendor_kind", { p_code: code, p_kind: kind });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  const view = await vendorViewByCode(code);
+  return view.error ? view : { ...view, meta: res.meta };
 }
 
 /** Fold a duplicate spelling into the real vendor.

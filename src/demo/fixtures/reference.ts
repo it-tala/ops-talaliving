@@ -474,6 +474,17 @@ export const VENDORS: Vendor[] = [
     pic_name: null, pic_phone: null,
     bank_account: null, bank_account_secondary: null,
     npwp: null, supplied_categories: [] },
+  /* Partner factories (0256, O2): TALA finds the order, they make it. */
+  { id: "vnd_60", code: "V-0060", name: "CV MEBEL JEPARA MAKMUR", aka: ["JEPARA MAKMUR"], is_curated: true,
+    phone: "0291-591220", address: "Jl. Raya Tahunan Km 3, Jepara",
+    pic_name: "Pak Slamet", pic_phone: "0812-2601-7730",
+    bank_account: "BCA 044-1902-338", bank_account_secondary: null,
+    npwp: null, supplied_categories: [], kind: "factory" },
+  { id: "vnd_61", code: "V-0061", name: "PT FURNICRAFT ASIA", aka: ["FURNICRAFT"], is_curated: true,
+    phone: "+84 28 3822 1190", address: "Binh Duong, Vietnam",
+    pic_name: "Ms. Lan", pic_phone: "+84 90 811 2204",
+    bank_account: null, bank_account_secondary: null,
+    npwp: null, supplied_categories: [], kind: "factory" },
 ];
 
 type ItemSeed = [string, string, string, Item["base_uom"], number | null, number | null, string | null, boolean, Item["kind"]];

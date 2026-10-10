@@ -139,6 +139,10 @@ const VIEW_CONTRACTS = {
   v_design_box:        "DesignBox",
   v_design_box_version: "DesignBoxVersion",
   v_design_project:    "DesignProject",
+  /* A partner factory's offers and prices (0256, O2), numerics converted in
+     `src/lib/api/design.ts`. */
+  v_factory_quote:      "FactoryQuote",
+  v_factory_quote_line: "FactoryQuoteLine",
   /* A project from first contact to handover, and the pipeline's numbers
      (0229, P7). */
   v_project_timeline:  "TimelineEvent",

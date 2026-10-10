@@ -14,10 +14,10 @@ import { Loaded, SourceBadge, useDebounced, useLoad } from "@/components/ui/load
 import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { procurement } from "@/demo/api";
-import type { VendorView } from "@/services/procurement/contracts";
+import { VENDOR_KINDS, type VendorKind, type VendorView } from "@/services/procurement/contracts";
 import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
-import { useTr } from "@/lib/i18n";
+import { useLang, useTr } from "@/lib/i18n";
 
 /** Vendors.
  *
@@ -82,6 +82,13 @@ export default function SuppliersPage() {
   const [renaming, setRenaming] = useState<VendorView | null>(null);
   const [renameTo, setRenameTo] = useState("");
   const [deleting, setDeleting] = useState<VendorView | null>(null);
+  /* Supplier, partner factory, outsourced QC (0256, O2). */
+  const [kindFilter, setKindFilter] = useState<VendorKind | "all">("all");
+  const lang = useLang();
+  const kindLabel = (k: VendorKind) => {
+    const x = VENDOR_KINDS.find((v) => v.code === k)!;
+    return lang === "id" ? x.label_id : x.label;
+  };
 
   const searched = useDebounced(q);
   const [state, reload] = useLoad(
@@ -176,6 +183,14 @@ export default function SuppliersPage() {
     reload();
   }
 
+  async function setKind(v: VendorView, kind: VendorKind) {
+    const res = await procurement.setVendorKind(v.id, kind);
+    if (res.error) { toast("warning", tr("Nothing changed", "Tidak ada yang berubah"), res.error.message); return; }
+    toast("success", tr("Kind saved", "Jenis disimpan"), `${v.name} · ${kindLabel(kind)}`);
+    setSelected(res.data);
+    reload();
+  }
+
   async function curate(v: VendorView, curated: boolean) {
     const res = await procurement.curateVendor(v.id, curated);
     if (res.error) { toast("warning", tr("Nothing changed", "Tidak ada yang berubah"), res.error.message); return; }
@@ -253,6 +268,13 @@ export default function SuppliersPage() {
           )}
         </div>
       ),
+    },
+    {
+      key: "kind",
+      header: tr("Kind", "Jenis"),
+      render: (v) => v.kind === "supplier"
+        ? <span className="text-[12px] text-slate-500">{kindLabel("supplier")}</span>
+        : <Badge tone={v.kind === "factory" ? "brand" : v.kind === "qc" ? "violet" : "slate"}>{kindLabel(v.kind)}</Badge>,
     },
     {
       key: "curated",
@@ -352,9 +374,21 @@ export default function SuppliersPage() {
                     </div>
                   }
                 />
+                <div className="flex flex-wrap gap-1.5 border-b border-slate-100 px-4 py-2">
+                  {(["all", ...VENDOR_KINDS.map((k) => k.code)] as (VendorKind | "all")[]).map((k) => {
+                    const n = k === "all" ? vendors.length : vendors.filter((v) => v.kind === k).length;
+                    return (
+                      <button key={k} type="button" onClick={() => setKindFilter(k)}
+                        className={cn("rounded-full px-2.5 py-0.5 text-[12px] ring-1 ring-inset",
+                          kindFilter === k ? "bg-brand-600 text-white ring-brand-600" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50")}>
+                        {k === "all" ? tr("All", "Semua") : kindLabel(k)} · {n}
+                      </button>
+                    );
+                  })}
+                </div>
                 <DataTable
                   columns={columns}
-                  rows={vendors}
+                  rows={kindFilter === "all" ? vendors : vendors.filter((v) => v.kind === kindFilter)}
                   rowKey={(v) => v.id}
                   onRowClick={open}
                   empty={q ? tr(`Nothing matches “${q}”.`, `Tidak ada yang cocok dengan “${q}”.`) : tr("No vendors yet.", "Belum ada vendor.")}
@@ -508,6 +542,25 @@ export default function SuppliersPage() {
                 </p>
               </div>
             )}
+            <section className="flex flex-wrap items-center gap-2 text-[13px]">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{tr("Kind", "Jenis")}</span>
+              {mayEdit && !selected.merged_into ? (
+                <select value={selected.kind} onChange={(e) => setKind(selected, e.target.value as VendorKind)}
+                  aria-label={tr("Kind", "Jenis")}
+                  className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[13px]">
+                  {VENDOR_KINDS.map((k) => <option key={k.code} value={k.code}>{kindLabel(k.code)}</option>)}
+                </select>
+              ) : (
+                <Badge tone={selected.kind === "factory" ? "brand" : "slate"}>{kindLabel(selected.kind)}</Badge>
+              )}
+              <span className="text-[12px] text-slate-500">
+                {selected.kind === "factory"
+                  ? tr("A partner factory: its price offers are recorded on Procurement › Factory prices.", "Pabrik mitra: penawaran harganya dicatat di Procurement › Harga pabrik.")
+                  : selected.kind === "qc"
+                    ? tr("Outsourced QC.", "QC outsource.")
+                    : tr("Recording a factory price for a supplier makes it a factory.", "Mencatat harga pabrik untuk supplier menjadikannya pabrik.")}
+              </span>
+            </section>
             {!selected.is_curated && !selected.archived_at && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-800">
                 <p className="font-medium">{tr("Not yet curated", "Belum dikurasi")}</p>

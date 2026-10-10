@@ -100,6 +100,9 @@ export const NAV: NavSection[] = [
       { label: "Payment rounds", labelKey: "rounds", href: "/procurement/rounds", icon: HandCoins, permission: "procurement.read" },
       { label: "Purchase Tracker", labelKey: "purchaseTracker", href: "/procurement/tracker", icon: Route, permission: "procurement.read", badge: "new" },
       { label: "Purchase Order", labelKey: "purchaseOrder", href: "/procurement/po", icon: FileText, permission: "procurement.read" },
+      /* What the partner factories quoted per design item (0256, O2). Also
+       * for whoever sees a quotation's cost, who chooses between factories. */
+      { label: "Factory prices", labelKey: "factoryPrices", href: "/procurement/harga-pabrik", icon: Factory, permission: "procurement.read", orPermission: "project.update", badge: "new" },
       { label: "Receiving Report", labelKey: "receivingReport", href: "/procurement/penerimaan", icon: PackageCheck, permission: "procurement.read" },
     ],
   },

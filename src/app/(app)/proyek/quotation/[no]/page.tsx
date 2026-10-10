@@ -9,7 +9,7 @@ import { Badge, Button, Card, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { NumberInput } from "@/components/ui/number-input";
 import { UomOptions } from "@/components/ui/uom-options";
-import { formatIDR, formatNumber } from "@/lib/format";
+import { formatIDR, formatMoney, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { procurement, production, quotation } from "@/demo/api";
 import { ClosingForm } from "@/components/sales/closing-form";
@@ -195,6 +195,7 @@ function Editor({ d, reload, source }: { d: QuotationDetail; reload: () => void;
       )}
 
       <Terms q={q} editable={editable} seeCost={seeCost} onSaved={reload} />
+      <CurrencyBar q={q} rows={d.lines} editable={editable} onSaved={reload} />
       <Lines q={q} rows={d.lines} editable={editable} seeCost={seeCost} onChanged={reload} />
       <Totals q={q} seeCost={seeCost} />
 
@@ -234,7 +235,7 @@ function Editor({ d, reload, source }: { d: QuotationDetail; reload: () => void;
                   <span className="text-slate-500">Rev {r.rev}</span>
                   <span className="text-slate-500">· {QUOTATION_STATUS_LABEL(r.status)}</span>
                   {r.sent_at && <span className="text-slate-400">· {tr("sent", "dikirim")} {r.sent_at.slice(0, 10)}</span>}
-                  <span className="ml-auto tabular-nums text-slate-700">{r.grand_total == null ? "—" : formatIDR(r.grand_total)}</span>
+                  <span className="ml-auto tabular-nums text-slate-700">{r.grand_total == null ? "—" : formatMoney(r.grand_total, r.currency)}</span>
                 </li>
               ))}
             </ul>
@@ -354,6 +355,85 @@ function Terms({ q, editable, seeCost, onSaved }: { q: QuotationView; editable: 
   );
 }
 
+/* ── the currency and the kurs (0256, D414) ──────────────────────────────── */
+
+/** IDR or USD, and the kurs — rupiah per 1 USD, typed by a person, never
+ *  fetched (D181). The kurs converts a cost in the other currency (a factory
+ *  priced in USD on a rupiah quotation, our BOM on a dollar one) and reads a
+ *  USD quotation in rupiah for the pipeline. A USD quotation is not sent
+ *  without it. Its own seam, so the terms form keeps its own. */
+function CurrencyBar({
+  q, rows, editable, onSaved,
+}: { q: QuotationView; rows: QuotationLineView[]; editable: boolean; onSaved: () => void }) {
+  const tr = useTr();
+  const { toast } = useToast();
+  const [cur, setCur] = useState(q.currency);
+  const [rate, setRate] = useState(q.fx_rate == null ? "" : String(q.fx_rate));
+  const [busy, setBusy] = useState(false);
+  const needs = rows.filter((l) => l.cost_needs_rate).length;
+  const rateNum = rate.trim() === "" ? null : Number(rate);
+  const changed = cur !== q.currency || rateNum !== q.fx_rate;
+  const bad = rateNum != null && !(rateNum > 0);
+
+  async function save() {
+    setBusy(true);
+    const res = await quotation.setQuotationCurrency(q.quote_no, cur, rateNum);
+    setBusy(false);
+    if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", tr("Not saved", "Tidak tersimpan"), res.error.message); return; }
+    toast("success", tr("Currency saved", "Mata uang disimpan"),
+      cur === "USD"
+        ? tr(`USD${rateNum ? ` at Rp ${formatNumber(rateNum)}` : " — no kurs yet"}. Prices recalculated.`, `USD${rateNum ? ` dengan kurs Rp ${formatNumber(rateNum)}` : " — kurs belum diisi"}. Harga dihitung ulang.`)
+        : tr("Rupiah. Prices recalculated.", "Rupiah. Harga dihitung ulang."));
+    onSaved();
+  }
+
+  if (!editable) {
+    if (q.currency === "IDR" && q.fx_rate == null) return null;
+    return (
+      <p className="mb-4 text-[12px] text-slate-600">
+        {tr("Currency", "Mata uang")} <strong className="text-slate-800">{q.currency}</strong>
+        {q.fx_rate != null && <> · {tr("kurs", "kurs")} <strong className="tabular-nums text-slate-800">Rp {formatNumber(q.fx_rate)}</strong> / USD</>}
+      </p>
+    );
+  }
+  return (
+    <Card className="mb-4">
+      <div className="flex flex-wrap items-end gap-3 px-4 py-2.5 text-[13px]">
+        <div className="text-xs text-slate-500">{tr("Currency", "Mata uang")}
+          <div className="mt-1 flex overflow-hidden rounded-lg border border-slate-200">
+            {(["IDR", "USD"] as const).map((c) => (
+              <button key={c} type="button" onClick={() => setCur(c)}
+                className={cn("h-8 px-3 text-[13px]", cur === c ? "bg-brand-600 text-white" : "bg-white text-slate-700 hover:bg-slate-50")}>
+                {c}
+              </button>
+            ))}
+          </div>
+        </div>
+        <label className="block text-xs text-slate-500">{tr("Kurs (Rp per 1 USD)", "Kurs (Rp untuk 1 USD)")}
+          <input value={rate} onChange={(e) => setRate(e.target.value.replace(/[^\d.]/g, ""))} inputMode="decimal"
+            placeholder={cur === "USD" ? tr("e.g. 16250", "mis. 16250") : tr("only if a cost is in USD", "hanya bila ada ongkos dalam USD")}
+            className="mt-1 h-8 w-44 rounded-lg border border-slate-200 px-2 text-right text-[13px] tabular-nums focus:border-brand-400 focus:outline-none" />
+        </label>
+        <Button size="sm" icon={Save} disabled={busy || !changed || bad} onClick={save}>{tr("Save", "Simpan")}</Button>
+        <p className="min-w-[16rem] flex-1 text-[11px] text-slate-500">
+          {cur === "USD"
+            ? tr("Prices in USD, to the cent. The kurs reads them in rupiah for the pipeline and the order; it is needed before sending.",
+              "Harga dalam USD, sampai sen. Kurs membaca nilainya dalam rupiah untuk pipeline dan pesanan; wajib diisi sebelum dikirim.")
+            : tr("Prices in rupiah. A kurs is needed only when a factory priced an item in USD.",
+              "Harga dalam rupiah. Kurs hanya perlu bila pabrik memberi harga dalam USD.")}
+        </p>
+        {(needs > 0 || (q.currency === "USD" && q.fx_rate == null)) && (
+          <p className="w-full text-[12px] text-amber-700">
+            {needs > 0
+              ? tr(`${needs} line(s) have a cost in the other currency — fill in the kurs to price them.`, `${needs} baris punya ongkos dalam mata uang lain — isi kurs supaya berharga.`)
+              : tr("Fill in the kurs before sending.", "Isi kurs sebelum dikirim.")}
+          </p>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 const termsOf = (q: QuotationView) => ({
   valid_until: q.valid_until ?? "", marketing_pct: q.marketing_pct, overhead_pct: q.overhead_pct,
   margin_pct: q.margin_pct, vat: q.vat, vat_pct: q.vat_pct, terms: q.terms ?? "", note: q.note ?? "",
@@ -413,7 +493,7 @@ function Lines({
     setBusy(false);
     if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", tr("Not saved", "Tidak tersimpan"), res.error.message); return; }
     toast("success", id ? tr("Line updated", "Baris diperbarui") : tr("Item added", "Item ditambahkan"),
-      `${res.data.description} · ${res.data.unit_price == null ? tr("no price yet", "belum berharga") : formatIDR(res.data.unit_price)}`);
+      `${res.data.description} · ${res.data.unit_price == null ? tr("no price yet", "belum berharga") : formatMoney(res.data.unit_price, q.currency)}`);
     setEditing(null);
     onChanged();
   }
@@ -434,9 +514,10 @@ function Lines({
      figure may be the open draft's); a new line shows its price on save. */
   const saved = editing && editing !== "new" ? rows.find((l) => l.id === editing) : undefined;
   const liveCost = num(d.manual_cost)
-    ?? (saved && !saved.cost_is_manual && saved.product_code === d.product_code.trim().toUpperCase() ? saved.unit_cost : null);
+    ?? (saved && !saved.cost_is_manual
+        && (saved.cost_source === "factory" || saved.product_code === d.product_code.trim().toUpperCase()) ? saved.unit_cost : null);
   const preview = num(d.price) ?? quotePrice(liveCost,
-    num(d.mkt) ?? q.marketing_pct, num(d.ovh) ?? q.overhead_pct, num(d.mrg) ?? q.margin_pct);
+    num(d.mkt) ?? q.marketing_pct, num(d.ovh) ?? q.overhead_pct, num(d.mrg) ?? q.margin_pct, q.currency);
 
   const pctCell = (key: "mkt" | "ovh" | "mrg", inherit: number, label: string) => (
     <input value={d[key]} onChange={(e) => setD({ ...d, [key]: e.target.value })} inputMode="decimal"
@@ -478,8 +559,10 @@ function Lines({
       {seeCost && (
         <td className="px-3 py-2 text-right">
           <input value={d.manual_cost} onChange={(e) => setD({ ...d, manual_cost: e.target.value })} inputMode="numeric"
-            placeholder={saved?.unit_cost != null && !saved.cost_is_manual ? formatNumber(saved.unit_cost) : tr("from BOM", "dari BOM")}
-            aria-label={tr("Manual cost per unit", "Ongkos manual per unit")} title={tr("Empty: from the released BOM", "Kosong: dari BOM yang dirilis")}
+            placeholder={saved?.unit_cost != null && !saved.cost_is_manual ? formatNumber(saved.unit_cost) : tr("factory / BOM", "pabrik / BOM")}
+            aria-label={tr("Manual cost per unit", "Ongkos manual per unit")}
+            title={tr(`Empty: the factory price chosen for the design item, else the released BOM. Typed: in ${q.currency}.`,
+              `Kosong: harga pabrik yang dipilih untuk item desain, kalau tidak ada BOM yang dirilis. Diketik: dalam ${q.currency}.`)}
             className={cn(inputCls, "w-28 text-right")} />
         </td>
       )}
@@ -498,7 +581,7 @@ function Lines({
           title={tr("Empty: calculated by the formula", "Kosong: dihitung dari rumus")} className={cn(inputCls, "w-28 text-right")} />
       </td>
       <td className="px-3 py-2 text-right tabular-nums text-slate-600">
-        {preview == null ? "—" : formatIDR(preview * d.qty)}
+        {preview == null ? "—" : formatMoney(preview * d.qty, q.currency)}
       </td>
       <td className="whitespace-nowrap px-2 py-2 text-right">
         <button onClick={() => save(id)} disabled={busy || (!d.description.trim() && !d.product_code.trim()) || d.qty <= 0}
@@ -586,12 +669,21 @@ function Lines({
                   <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
                     {l.unit_cost == null ? (
                       <span className="text-[12px] text-amber-700">
-                        {l.product_code && l.product_exists ? tr("BOM not released / incomplete", "BOM belum dirilis / belum lengkap") : tr("enter a manual cost", "isi ongkos manual")}
+                        {l.cost_needs_rate
+                          ? tr(`${l.cost_original == null ? "" : formatMoney(l.cost_original, l.cost_currency)} — needs the kurs`, `${l.cost_original == null ? "" : formatMoney(l.cost_original, l.cost_currency)} — perlu kurs`)
+                          : l.product_code && l.product_exists ? tr("BOM not released / incomplete", "BOM belum dirilis / belum lengkap") : tr("record a factory price or a manual cost", "catat harga pabrik atau isi ongkos manual")}
                       </span>
                     ) : (
                       <>
-                        <span className="text-slate-700">{formatIDR(l.unit_cost)}</span>
-                        <span className="block text-[11px] text-slate-400">{l.cost_source === "manual" ? tr("manual", "manual") : tr("from BOM", "dari BOM")}</span>
+                        <span className="text-slate-700">{formatMoney(l.unit_cost, q.currency)}</span>
+                        <span className="block text-[11px] text-slate-400">
+                          {l.cost_source === "manual" ? tr("manual", "manual")
+                            : l.cost_source === "factory" ? tr(`factory · ${l.factory_vendor_name ?? l.factory_quote_no ?? ""}`, `pabrik · ${l.factory_vendor_name ?? l.factory_quote_no ?? ""}`)
+                              : tr("from BOM", "dari BOM")}
+                        </span>
+                        {l.cost_original != null && l.cost_currency && l.cost_currency !== q.currency && (
+                          <span className="block text-[11px] text-slate-400">{formatMoney(l.cost_original, l.cost_currency)}</span>
+                        )}
                       </>
                     )}
                   </td>
@@ -603,15 +695,15 @@ function Lines({
                   </td>
                 )}
                 <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-800">
-                  {l.unit_price == null ? <span className="text-slate-300">—</span> : formatIDR(l.unit_price)}
+                  {l.unit_price == null ? <span className="text-slate-300">—</span> : formatMoney(l.unit_price, q.currency)}
                   {l.unit_price_override != null && seeCost && (
                     <span className="block text-[11px] text-slate-400">
-                      {tr("fixed", "ditetapkan")}{l.computed_unit_price != null && tr(` · formula ${formatIDR(l.computed_unit_price)}`, ` · rumus ${formatIDR(l.computed_unit_price)}`)}
+                      {tr("fixed", "ditetapkan")}{l.computed_unit_price != null && tr(` · formula ${formatMoney(l.computed_unit_price, q.currency)}`, ` · rumus ${formatMoney(l.computed_unit_price, q.currency)}`)}
                     </span>
                   )}
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums text-slate-800">
-                  {l.unit_price == null ? <span className="text-slate-300">—</span> : formatIDR(l.unit_price * l.qty)}
+                  {l.unit_price == null ? <span className="text-slate-300">—</span> : formatMoney(l.unit_price * l.qty, q.currency)}
                 </td>
                 {editable && (
                   <td className="whitespace-nowrap px-2 py-2 text-right">
@@ -635,8 +727,8 @@ function Lines({
       {editable && editing !== null && (
         <p className="border-t border-slate-100 px-4 py-2 text-[11px] text-slate-500">
           {tr(
-            "Leave the cost empty to use the released BOM; leave percentages empty to follow the quotation; fill in the selling price only to set a price outside the formula.",
-            "Kosongkan ongkos untuk memakai BOM yang dirilis; kosongkan persentase untuk ikut quotation; isi harga jual hanya bila ingin menetapkan harga di luar rumus.",
+            "Leave the cost empty to use the factory price chosen for the design item, else the released BOM; leave percentages empty to follow the quotation; fill in the selling price only to set a price outside the formula.",
+            "Kosongkan ongkos untuk memakai harga pabrik yang dipilih untuk item desain, kalau tidak ada BOM yang dirilis; kosongkan persentase untuk ikut quotation; isi harga jual hanya bila ingin menetapkan harga di luar rumus.",
           )}
         </p>
       )}
@@ -662,24 +754,33 @@ function Totals({ q, seeCost }: { q: QuotationView; seeCost: boolean }) {
         {seeCost ? (
           <div className="space-y-1 text-slate-600">
             <p className="text-[11px] uppercase tracking-wide text-slate-400">{tr("Internal — not printed", "Internal — tidak tercetak")}</p>
-            <p>{tr("Total production cost", "Total ongkos produksi")} <strong className="tabular-nums text-slate-800">{q.cost_total == null ? "—" : formatIDR(q.cost_total)}</strong></p>
+            <p>{tr("Total production cost", "Total ongkos produksi")} <strong className="tabular-nums text-slate-800">{q.cost_total == null ? "—" : formatMoney(q.cost_total, q.currency)}</strong></p>
             <p>
               {tr("Selling price − cost", "Selisih harga jual − ongkos")}{" "}
-              <strong className="tabular-nums text-slate-800">{gross == null ? "—" : formatIDR(gross)}</strong>
+              <strong className="tabular-nums text-slate-800">{gross == null ? "—" : formatMoney(gross, q.currency)}</strong>
               {gross != null && q.subtotal ? <span className="text-slate-500">{tr(` (${formatNumber(Math.round((gross / q.subtotal) * 1000) / 10)}% of selling price — covers marketing, overhead and margin)`, ` (${formatNumber(Math.round((gross / q.subtotal) * 1000) / 10)}% dari harga jual — menutup marketing, overhead, dan margin)`)}</span> : null}
             </p>
           </div>
         ) : <span />}
         <table className="text-[13px]">
           <tbody>
-            <tr><td className="pr-6 text-slate-500">{tr("Subtotal", "Subtotal")}</td><td className="text-right tabular-nums">{q.subtotal == null ? "—" : formatIDR(q.subtotal)}</td></tr>
+            <tr><td className="pr-6 text-slate-500">{tr("Subtotal", "Subtotal")}</td><td className="text-right tabular-nums">{q.subtotal == null ? "—" : formatMoney(q.subtotal, q.currency)}</td></tr>
             {q.vat && (
-              <tr><td className="pr-6 text-slate-500">{tr("VAT (PPN)", "PPN")} {formatNumber(q.vat_pct)}%</td><td className="text-right tabular-nums">{q.vat_amount == null ? "—" : formatIDR(q.vat_amount)}</td></tr>
+              <tr><td className="pr-6 text-slate-500">{tr("VAT (PPN)", "PPN")} {formatNumber(q.vat_pct)}%</td><td className="text-right tabular-nums">{q.vat_amount == null ? "—" : formatMoney(q.vat_amount, q.currency)}</td></tr>
             )}
             <tr className="border-t border-slate-200">
               <td className="pr-6 pt-1 font-semibold text-slate-800">{tr("Total", "Total")}</td>
-              <td className="pt-1 text-right text-base font-bold tabular-nums text-slate-900">{q.grand_total == null ? "—" : formatIDR(q.grand_total)}</td>
+              <td className="pt-1 text-right text-base font-bold tabular-nums text-slate-900">{q.grand_total == null ? "—" : formatMoney(q.grand_total, q.currency)}</td>
             </tr>
+            {q.currency === "USD" && (
+              <tr>
+                <td className="pr-6 text-[11px] text-slate-400">{tr("In rupiah", "Dalam rupiah")}</td>
+                <td className="text-right text-[12px] tabular-nums text-slate-500">
+                  {q.grand_total_idr == null ? tr("needs the kurs", "perlu kurs") : `≈ ${formatIDR(q.grand_total_idr)}`}
+                  {q.fx_rate != null && <span className="block text-[11px] text-slate-400">{tr("kurs", "kurs")} Rp {formatNumber(q.fx_rate)}</span>}
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

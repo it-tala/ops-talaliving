@@ -116,6 +116,109 @@ export interface DesignItemView {
   quoted_unit_price: number | null;
   /** An order line carries it. */
   ordered: boolean;
+  /* O2 (0256): the factory offer the item is priced from, for whoever may see
+     factory prices (procurement, project.update); null and 0 for anybody else. */
+  factory_quote_no: string | null;
+  factory_vendor_name: string | null;
+  factory_unit_price: number | null;
+  factory_currency: "IDR" | "USD" | null;
+  factory_lead_time_days: number | null;
+  /** Live offers from any factory for the item. */
+  factory_offers: number;
+}
+
+/* ── Factory prices (0256, O2, kajian F255 §5.3) ─────────────────────────── */
+
+/** One factory's offer for one project — `v_factory_quote`. Append-only: a
+ *  wrong one is voided with a reason, never edited. */
+export interface FactoryQuote {
+  id: string;
+  /** fq-26-10-10_01, minted by the database. */
+  fq_no: string;
+  currency: "IDR" | "USD";
+  quoted_on: string;
+  valid_until: string | null;
+  note: string | null;
+  attachment_id: string | null;
+  attachment_filename: string | null;
+  attachment_url: string | null;
+  voided_at: string | null;
+  void_reason: string | null;
+  vendor_code: string | null;
+  vendor_name: string | null;
+  project_code: string;
+  project_name: string;
+  client_display: string | null;
+  line_count: number;
+  /** Lines that are the chosen offer of their item now. */
+  chosen_count: number;
+  expired: boolean;
+  recorded_by_name: string | null;
+  recorded_at: string;
+}
+
+/** One price in an offer — `v_factory_quote_line`. */
+export interface FactoryQuoteLine {
+  id: string;
+  fq_no: string;
+  quote_id: string;
+  currency: "IDR" | "USD";
+  quoted_on: string;
+  valid_until: string | null;
+  quote_note: string | null;
+  attachment_id: string | null;
+  attachment_filename: string | null;
+  attachment_url: string | null;
+  voided_at: string | null;
+  void_reason: string | null;
+  vendor_code: string | null;
+  vendor_name: string | null;
+  project_code: string;
+  project_name: string;
+  item_no: string;
+  item_name: string;
+  item_qty: number;
+  unit_price: number;
+  lead_time_days: number | null;
+  moq: number | null;
+  note: string | null;
+  /** The offer the item is priced from now. */
+  is_chosen: boolean;
+  /** The newest live offer from this factory for this item. */
+  is_latest: boolean;
+  expired: boolean;
+  recorded_by_name: string | null;
+  recorded_at: string;
+}
+
+export interface FactoryQuoteLineInput {
+  item_no: string;
+  unit_price: number;
+  lead_time_days?: number | null;
+  moq?: number | null;
+  note?: string | null;
+}
+
+export interface FactoryQuoteInput {
+  project_code: string;
+  vendor_code: string;
+  currency: "IDR" | "USD";
+  lines: FactoryQuoteLineInput[];
+  /** The day the factory gave the price; today when left out. */
+  quoted_on?: string | null;
+  valid_until?: string | null;
+  note?: string | null;
+  /** The factory's own paper, uploaded first as a Factory Quotation. */
+  attachment_id?: string | null;
+}
+
+/** What recording an offer did: how many items now price from it, and
+ *  whether the vendor was a supplier that is now a factory. */
+export interface FactoryQuoteResult {
+  fq_no: string;
+  lines: number;
+  chosen: number;
+  vendor_marked_factory: boolean;
 }
 
 export interface DesignApproval {
@@ -189,7 +292,9 @@ export const DESIGN_BOXES: {
   accept?: string;
 }[] = [
   { key: "pdf", kind: "Gambar Kerja", short: "PDF", get label() { return trNow("Working drawing", "Gambar kerja"); }, accept: ".pdf,application/pdf" },
-  { key: "dwg", kind: "DWG", short: "DWG", get label() { return trNow("DWG", "DWG"); }, accept: ".dwg,.dxf" },
+  /* The 3D model the BOM is read from lives here too — SketchUp, 3DM, DWG 3D:
+     one box, any file (Q81, D413). The document kind stays `DWG`. */
+  { key: "dwg", kind: "DWG", short: "DWG", get label() { return trNow("DWG / 3D", "DWG / 3D"); } },
   { key: "render", kind: "Render", short: "R", get label() { return trNow("Render", "Render"); }, accept: "image/*,.pdf" },
   { key: "foto", kind: "Gambar Jadi", short: "F", get label() { return trNow("Item photo", "Foto item"); }, accept: "image/*,.pdf" },
   { key: "spec", kind: null, short: "S", get label() { return trNow("Specification", "Spesifikasi"); } },

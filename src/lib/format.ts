@@ -41,6 +41,16 @@ export function formatIDR(value: number, withSymbol = true): string {
   return withSymbol ? `Rp ${n}` : n;
 }
 
+/** A price in its document's own currency (0256, D414): rupiah to the rupiah,
+ *  dollars to the cent. A USD figure is never shown as rupiah or rounded to
+ *  whole dollars — the two currencies are not added and not confused. */
+export function formatMoney(value: number, currency: "IDR" | "USD" | null | undefined = "IDR"): string {
+  if (currency === "USD") {
+    return `USD ${new Intl.NumberFormat(activeLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)}`;
+  }
+  return formatIDR(value);
+}
+
 /** For chart axes and KPI tiles, where the full number hides the shape of the
  *  data. K / M / B in the English sense — note this is not the Indonesian
  *  scale, where M means miliar. */

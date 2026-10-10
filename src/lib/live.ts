@@ -113,6 +113,7 @@ export const LIVE_ROUTES: readonly string[] = [
   "/master-data/suppliers",
   "/master-data/transaction-types",
   "/master-data/units",
+  "/procurement/harga-pabrik",
   "/procurement/meeting",
   "/procurement/penerimaan",
   "/procurement/po",

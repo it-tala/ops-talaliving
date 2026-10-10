@@ -6,7 +6,7 @@ import { FileSignature, Plus, Search } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { Paged } from "@/components/ui/pager";
-import { formatIDR } from "@/lib/format";
+import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { procurement, quotation } from "@/demo/api";
 import { QUOTATION_STATUSES, type QuotationStatus } from "@/services/quotation/contracts";
@@ -185,7 +185,7 @@ export default function QuotationsPage() {
                               </td>
                               <td className="px-4 py-2 text-slate-600">{x.valid_until ?? "—"}</td>
                               <td className="px-4 py-2 text-right tabular-nums text-slate-800">
-                                {x.grand_total == null ? <span className="text-slate-300">—</span> : formatIDR(x.grand_total)}
+                                {x.grand_total == null ? <span className="text-slate-300">—</span> : formatMoney(x.grand_total, x.currency)}
                                 {x.vat && <span className="block text-[11px] text-slate-400">{tr("incl. VAT (PPN)", "termasuk PPN")}</span>}
                               </td>
                             </tr>

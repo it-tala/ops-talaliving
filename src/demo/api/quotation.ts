@@ -9,12 +9,12 @@
  *  Envelopes are stamped `procurement`, where projects live; the module the
  *  permission is checked against is `project`.
  */
-import { ok, invalid, notFound, type Result } from "@/services/_shared/envelope";
+import { ok, invalid, noop, notFound, type Result } from "@/services/_shared/envelope";
 import type {
   Quotation, QuotationDetail, QuotationInput, QuotationLine, QuotationLineInput,
   QuotationLineView, QuotationView,
 } from "@/services/quotation/contracts";
-import { pctOk, quotePrice, roundHalfAway } from "@/services/quotation/pricing";
+import { moneyIn, pctOk, quotePrice, roundTo } from "@/services/quotation/pricing";
 import type { ProjectStatus } from "@/services/procurement/contracts";
 import { getState, apply, newId, nextDocNumber, writeAudit } from "../store";
 import { bomCost, currentBomRev } from "../production-derive";
@@ -49,17 +49,58 @@ function releasedCost(state: DemoState, code: string | null): { exists: boolean;
   };
 }
 
-function lineView(state: DemoState, q: Quotation, l: QuotationLine, see: boolean): QuotationLineView {
+/** A quotation's currency, for a row saved before there was one (0256). */
+const curOf = (q: Quotation) => q.currency ?? "IDR";
+
+/** The factory offer a line is costed from — the item's chosen one while a
+ *  draft, the frozen one after (0256, `v_quotation_line_basis`). */
+function factoryLineOf(state: DemoState, q: Quotation, l: QuotationLine) {
+  const id = q.status === "DRAFT"
+    ? state.design_items.find((i) => i.id === l.design_item_id)?.factory_line_id ?? null
+    : l.frozen_factory_line_id ?? null;
+  const line = id ? state.factory_quote_lines.find((x) => x.id === id) : undefined;
+  const fq = line ? state.factory_quotes.find((x) => x.id === line.quote_id) : undefined;
+  if (!line || !fq || (q.status === "DRAFT" && fq.voided_at)) return null;
+  return { line, fq, vendor: state.vendors.find((v) => v.id === fq.vendor_id)?.name ?? null };
+}
+
+/** Where a line's cost comes from, in its own currency and in the
+ *  quotation's: typed › factory › BOM (0256, `v_quotation_line_basis`). */
+function costOf(state: DemoState, q: Quotation, l: QuotationLine) {
   const r = releasedCost(state, l.product_code);
+  const f = factoryLineOf(state, q, l);
+  const cur = curOf(q);
+  if (q.status !== "DRAFT") {
+    const factory = l.frozen_cost_source === "factory";
+    return {
+      r, f, source: l.frozen_cost_source, unit: l.frozen_unit_cost,
+      costCurrency: factory && f ? f.fq.currency : cur,
+      original: factory && f ? f.line.unit_price : l.frozen_unit_cost,
+      needsRate: false,
+    };
+  }
+  const source = l.manual_unit_cost != null ? "manual" as const
+    : f ? "factory" as const
+      : r.rev != null && r.cost != null ? "bom" as const : null;
+  const costCurrency = source === "manual" ? cur : source === "factory" ? f!.fq.currency : source === "bom" ? "IDR" as const : null;
+  const original = source === "manual" ? l.manual_unit_cost : source === "factory" ? f!.line.unit_price : source === "bom" ? r.cost : null;
+  const unit = moneyIn(original, costCurrency, cur, q.fx_rate ?? null);
+  return {
+    r, f, source, unit, costCurrency, original,
+    needsRate: original != null && costCurrency !== cur && q.fx_rate == null,
+  };
+}
+
+function lineView(state: DemoState, q: Quotation, l: QuotationLine, see: boolean): QuotationLineView {
+  const c = costOf(state, q, l);
+  const r = c.r;
   const draft = q.status === "DRAFT";
   const mkt = l.marketing_pct ?? q.marketing_pct;
   const ovh = l.overhead_pct ?? q.overhead_pct;
   const mrg = l.margin_pct ?? q.margin_pct;
-  const cost = draft ? (l.manual_unit_cost ?? (r.rev != null ? r.cost : null)) : l.frozen_unit_cost;
-  const source = draft
-    ? (l.manual_unit_cost != null ? "manual" : r.rev != null && r.cost != null ? "bom" : null)
-    : l.frozen_cost_source;
-  const computed = quotePrice(cost, mkt, ovh, mrg);
+  const cost = c.unit;
+  const source = c.source;
+  const computed = quotePrice(cost, mkt, ovh, mrg, curOf(q));
   return {
     id: l.id, quotation_id: q.id, quote_no: q.quote_no, status: q.status,
     line_no: l.line_no, product_code: l.product_code, description: l.description,
@@ -86,6 +127,14 @@ function lineView(state: DemoState, q: Quotation, l: QuotationLine, see: boolean
     line_overhead_pct: see ? l.overhead_pct : null,
     line_margin_pct: see ? l.margin_pct : null,
     ...designOf(state, q, l),
+    currency: curOf(q),
+    fx_rate: q.fx_rate ?? null,
+    cost_currency: see ? c.costCurrency : null,
+    cost_original: see ? c.original : null,
+    factory_line_id: see ? c.f?.line.id ?? null : null,
+    factory_quote_no: see ? c.f?.fq.fq_no ?? null : null,
+    factory_vendor_name: see ? c.f?.vendor ?? null : null,
+    cost_needs_rate: c.needsRate,
   };
 }
 
@@ -127,10 +176,15 @@ function quotationView(state: DemoState, q: Quotation, see: boolean, today: stri
     ? null : lines.reduce((a, l) => a + (l.unit_price ?? 0) * l.qty, 0);
   const costTotal = lines.length === 0 || lines.some((l) => l.unit_cost == null)
     ? null : lines.reduce((a, l) => a + (l.unit_cost ?? 0) * l.qty, 0);
-  const vatAmount = q.vat && subtotal != null ? roundHalfAway(subtotal * q.vat_pct / 100) : null;
+  const vatAmount = q.vat && subtotal != null
+    ? roundTo(subtotal * q.vat_pct / 100, curOf(q) === "USD" ? 2 : 0) : null;
   const leads = lines.map((l) => l.lead_time_days).filter((d): d is number => d != null);
+  const grand = subtotal == null ? null : subtotal + (vatAmount ?? 0);
   return {
     ...q,
+    currency: curOf(q),
+    fx_rate: q.fx_rate ?? null,
+    grand_total_idr: moneyIn(grand, curOf(q), "IDR", q.fx_rate ?? null),
     project_code: p.code,
     project_name: p.name,
     client_name: c?.name ?? p.client_name,
@@ -170,7 +224,7 @@ export function acceptedQuotationTotal(state: DemoState, projectId: string): num
   const q = state.quotations
     .filter((x) => x.project_id === projectId && x.status === "ACCEPTED")
     .sort((a, b) => (b.decided_at ?? "").localeCompare(a.decided_at ?? ""))[0];
-  return q ? quotationView(state, q, false, today).grand_total : null;
+  return q ? quotationView(state, q, false, today).grand_total_idr : null;
 }
 
 function view(quoteNo: string): QuotationView | null {
@@ -228,7 +282,7 @@ export async function getQuotation(quoteNo: string): Promise<Result<QuotationDet
       .sort((a, b) => b.rev - a.rev)
       .map((x) => {
         const v = quotationView(state, x, see, today);
-        return { quote_no: x.quote_no, rev: x.rev, status: x.status, sent_at: x.sent_at, grand_total: v.grand_total };
+        return { quote_no: x.quote_no, rev: x.rev, status: x.status, sent_at: x.sent_at, grand_total: v.grand_total, currency: v.currency };
       }),
   });
 }
@@ -267,6 +321,7 @@ export async function saveQuotation(input: QuotationInput, idempotencyKey?: stri
         vat: !!input.vat, vat_pct: input.vat_pct ?? 11,
         terms: input.terms?.trim() || null, note: input.note?.trim() || null,
         sent_at: null, decided_at: null, decision_reason: null, created_at: new Date().toISOString(),
+        currency: "IDR", fx_rate: null,
       });
       writeAudit(draft, {
         service: SERVICE, entity: "quotation", entity_no: no, action: "create", outcome: "ok", reason: null,
@@ -350,7 +405,7 @@ export async function saveQuotationLine(quoteNo: string, input: QuotationLineInp
         id, quotation_id: q.id, line_no: next, ...fields,
         frozen_unit_cost: null, frozen_cost_source: null, frozen_bom_rev: null,
         frozen_marketing_pct: null, frozen_overhead_pct: null, frozen_margin_pct: null, frozen_unit_price: null,
-        frozen_design_file_id: null,
+        frozen_design_file_id: null, frozen_factory_line_id: null,
       });
     }
   });
@@ -380,6 +435,34 @@ export async function removeQuotationLine(quoteNo: string, lineId: string): Prom
   return ok(SERVICE, { quote_no: q.quote_no });
 }
 
+/** The currency and kurs of a draft (0256, D414). The kurs — rupiah per 1
+ *  USD — is kept whatever the currency: an IDR quotation needs it too when a
+ *  factory priced in USD. */
+export async function setQuotationCurrency(
+  quoteNo: string, currency: QuotationView["currency"], fxRate: number | null,
+): Promise<Result<QuotationView>> {
+  await latency();
+  const denied = requireSeller(SERVICE);
+  if (denied) return denied;
+  const state = getState();
+  const q = state.quotations.find((x) => x.quote_no === quoteNo);
+  if (!q) return notFound(SERVICE, "quotation_not_found", `Tidak ada quotation ${quoteNo}.`);
+  if (q.status !== "DRAFT") return notDraft(q, "Angka yang sudah dikirim tidak diubah. Buat revisi.");
+  if (currency !== "IDR" && currency !== "USD") return invalid(SERVICE, "bad_currency", "Mata uang: IDR atau USD.", { field: "currency" });
+  if (fxRate != null && !(fxRate > 0)) return invalid(SERVICE, "bad_rate", "Kurs: rupiah untuk 1 USD, lebih dari 0.", { field: "fx_rate" });
+  if (curOf(q) === currency && (q.fx_rate ?? null) === fxRate) return noop(SERVICE, view(q.quote_no)!);
+  apply((draft) => {
+    const row = draft.quotations.find((x) => x.id === q.id)!;
+    writeAudit(draft, {
+      service: SERVICE, entity: "quotation", entity_no: q.quote_no, action: "set_currency", outcome: "ok", reason: null,
+      detail: { from: { currency: curOf(q), fx_rate: q.fx_rate ?? null }, to: { currency, fx_rate: fxRate }, by: actingUser().email },
+    });
+    row.currency = currency;
+    row.fx_rate = fxRate;
+  });
+  return ok(SERVICE, view(q.quote_no)!);
+}
+
 /** Freeze every figure and hand it to the client. INQUIRY → QUOTATION_SENT. */
 export async function sendQuotation(quoteNo: string): Promise<Result<QuotationView>> {
   await latency();
@@ -391,11 +474,24 @@ export async function sendQuotation(quoteNo: string): Promise<Result<QuotationVi
   if (q.status !== "DRAFT") return conflict(SERVICE, "not_draft", `${q.quote_no} sudah ${q.status}.`);
   const lines = linesOf(state, q, true);
   if (lines.length === 0) return invalid(SERVICE, "no_lines", "Quotation tanpa item bukan penawaran.", { field: "lines" });
+  /* 0256: a USD offer goes out with its kurs; a cost in the other currency
+     needs the kurs to be a cost at all. */
+  if (curOf(q) === "USD" && q.fx_rate == null) {
+    return invalid(SERVICE, "rate_required",
+      "Quotation dalam USD perlu kurs (Rp untuk 1 USD) sebelum dikirim — kurs itu yang membaca nilainya dalam rupiah.",
+      { field: "fx_rate" });
+  }
+  const unrated = lines.filter((l) => l.cost_needs_rate && l.unit_price_override == null);
+  if (unrated.length) {
+    return invalid(SERVICE, "rate_required",
+      `Isi kurs (Rp untuk 1 USD): ongkos ${unrated.map((l) => `baris ${l.line_no} (${l.description})`).join(", ")} dalam mata uang lain.`,
+      { field: "fx_rate" });
+  }
   const missing = lines.filter((l) => l.cost_missing && l.unit_price_override == null);
   if (missing.length) {
     return invalid(SERVICE, "cost_missing",
       `Belum ada ongkos produksi untuk ${missing.map((l) => `baris ${l.line_no} (${l.description})`).join(", ")}. `
-      + "Rilis BOM-nya, isi ongkos manual, atau tetapkan harga jualnya.", { field: "lines" });
+      + "Rilis BOM-nya, catat harga pabrik, isi ongkos manual, atau tetapkan harga jualnya.", { field: "lines" });
   }
   const today = officeToday();
   if (q.valid_until && q.valid_until < today) {
@@ -413,6 +509,7 @@ export async function sendQuotation(quoteNo: string): Promise<Result<QuotationVi
       l.frozen_margin_pct = v.margin_pct;
       l.frozen_unit_price = v.unit_price;
       l.frozen_design_file_id = l.design_file_id ?? latestDesignFile(draft, l.design_item_id);
+      l.frozen_factory_line_id = v.cost_source === "factory" ? v.factory_line_id : null;
     }
     const row = draft.quotations.find((x) => x.id === q.id)!;
     row.status = "SENT";
@@ -461,7 +558,7 @@ export async function reviseQuotation(quoteNo: string): Promise<Result<Quotation
         ...l, id: newId("ql"), quotation_id: id,
         frozen_unit_cost: null, frozen_cost_source: null, frozen_bom_rev: null,
         frozen_marketing_pct: null, frozen_overhead_pct: null, frozen_margin_pct: null, frozen_unit_price: null,
-        frozen_design_file_id: null,
+        frozen_design_file_id: null, frozen_factory_line_id: null,
       });
     }
     if (q.status === "SENT") draft.quotations.find((x) => x.id === q.id)!.status = "SUPERSEDED";
@@ -503,10 +600,15 @@ export async function decideQuotation(
       let next = Math.max(0, ...draft.project_lines.filter((l) => l.project_id === q.project_id).map((l) => l.line_no));
       for (const l of draft.quotation_lines.filter((x) => x.quotation_id === q.id).sort((a, b) => a.line_no - b.line_no)) {
         if (draft.project_lines.some((x) => x.quotation_line_id === l.id)) continue;
+        /* 0256: an order line is rupiah — a USD price at the kurs it was
+           sent with, and the line says what it was. */
+        const usd = curOf(q) !== "IDR";
         draft.project_lines.push({
           id: newId("pl"), project_id: q.project_id, line_no: ++next, product_code: l.product_code,
-          description: l.description, qty: l.qty, uom: l.uom, unit_price: l.frozen_unit_price,
-          note: `dari ${q.quote_no}`, delivery_date: null, quotation_line_id: l.id,
+          description: l.description, qty: l.qty, uom: l.uom,
+          unit_price: moneyIn(l.frozen_unit_price, curOf(q), "IDR", q.fx_rate ?? null),
+          note: usd ? `dari ${q.quote_no} · ${curOf(q)} ${l.frozen_unit_price?.toFixed(2)} × kurs ${q.fx_rate}` : `dari ${q.quote_no}`,
+          delivery_date: null, quotation_line_id: l.id,
           design_item_id: l.design_item_id ?? null, design_file_id: l.frozen_design_file_id ?? null,
         });
         activateDesignProduct(draft, l.product_code);
@@ -572,7 +674,7 @@ export async function addQuotationLinesFromDesign(
         unit_price_override: null, note: null,
         frozen_unit_cost: null, frozen_cost_source: null, frozen_bom_rev: null,
         frozen_marketing_pct: null, frozen_overhead_pct: null, frozen_margin_pct: null, frozen_unit_price: null,
-        design_item_id: i.id, design_file_id: null, frozen_design_file_id: null,
+        design_item_id: i.id, design_file_id: null, frozen_design_file_id: null, frozen_factory_line_id: null,
       });
       added++;
     }

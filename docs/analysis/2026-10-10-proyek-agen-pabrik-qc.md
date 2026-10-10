@@ -24,8 +24,8 @@
 > Diminta: rancangan yang mudah, sedikit kerja, tetapi datanya akurat dan
 > terekam untuk evaluasi, disesuaikan dengan modul ops yang sudah ada.
 
-Status: **kajian**. O1 dikerjakan 10 Okt. Urutan kerja di §7, pertanyaan
-untuk owner di §8.
+Status: **kajian**. O1 dan O2 dikerjakan 10 Okt (O2: D415). Urutan kerja di §7,
+pertanyaan untuk owner di §8.
 
 > **Pembaruan 10 Okt: owner mengubah Q89 dan Q91 (D414).** *Q88: default, hanya
 > melihat order yang di assign padanya / Q89: manual saja, tidak perlu sistem /
@@ -428,7 +428,7 @@ Tidak ada yang diketik ulang.
 | # | Sesi | Database | Butuh jawaban? |
 |---|---|---|---|
 | **O1** | **Pintu masuk:** *Proyek baru* dan *Klien baru* langsung dari Pipeline dan Design, memakai formulir yang sudah ada. Design menawarkan *buat proyek* saat kosong. Sisa P2: `remove_quotation_line` versi 0219 ke produksi lewat SQL Editor (badannya menghapus baris) | tidak (hanya menerapkan sisa 0219) | tidak |
-| **O2** | **Jenis vendor + harga pabrik per item:** `vendors.kind`, `factory_quotes`, sumber biaya `factory` di quotation, kolom harga pabrik di Design/quotation, mata uang IDR/USD + kurs per dokumen (D414) | ya | — (D414) |
+| **O2** ✓ | **Jenis vendor + harga pabrik per item** *(dikerjakan, D415)*: `vendors.kind`, `factory_quotes`, sumber biaya `factory` di quotation, kolom harga pabrik di Design/quotation, mata uang IDR/USD + kurs per dokumen (D414) | ya | — (D414) |
 | **O3** | **Jalur produksi + order pabrik:** `project_lines.route`, PO ↔ proyek/baris order, buat order pabrik dari baris order `FACTORY`, `ISSUED` → `IN_PRODUCTION`, papan Produksi per proyek | ya | — (D413) |
 | ~~O4~~ | ~~Uang masuk dari klien di kartu proyek~~ **Dibatalkan (D412)** | — | — |
 | **O5** | **Kontainer:** `deliveries.mode` + kolom kontainer, isi per baris order, packing list / B/L | ya | — |

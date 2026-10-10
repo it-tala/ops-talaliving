@@ -99,6 +99,7 @@ export const MESSAGES = {
     meetingBoard: m("Meeting board", "Papan rapat"),
     purchaseTracker: m("Purchase Tracker", "Pelacak pembelian"),
     purchaseOrder: m("Purchase Order", "Purchase Order"),
+    factoryPrices: m("Factory prices", "Harga pabrik"),
     receivingReport: m("Receiving Report", "Laporan penerimaan barang"),
     finishedGoods: m("Finished Goods", "Barang jadi"),
     assets: m("Assets", "Aset"),

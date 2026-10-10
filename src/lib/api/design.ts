@@ -7,6 +7,7 @@
 import type {
   DesignApproval, DesignApprovalInput, DesignAssignInput, DesignAssignment, DesignBox, DesignBoxKey, DesignBoxVersion, DesignCollection,
   DesignItemInput, DesignItemView, DesignProject, DesignRoom, ProjectDesign,
+  FactoryQuote, FactoryQuoteInput, FactoryQuoteLine, FactoryQuoteResult,
 } from "@/services/design/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fail, fromSeam, notFound, ok, type Result } from "./_kit";
@@ -27,6 +28,9 @@ function toItem(r: Row): DesignItemView {
     height_mm: num(r.height_mm),
     quoted_unit_price: num(r.quoted_unit_price),
     ordered: !!r.ordered,
+    factory_unit_price: num(r.factory_unit_price),
+    factory_lead_time_days: num(r.factory_lead_time_days),
+    factory_offers: Number(r.factory_offers ?? 0),
   };
 }
 
@@ -264,4 +268,98 @@ export async function assignDesignTask(input: DesignAssignInput): Promise<Result
   if (res.error) return res;
   const list = await listDesignAssignments(input.ref_no.split("-")[0]);
   return list.error ? list : { ...list, meta: res.meta };
+}
+
+/* ── Factory prices (0256, O2, kajian F255 §5.3) ─────────────────────────── */
+
+function toFactoryQuote(r: Row): FactoryQuote {
+  return {
+    ...(r as unknown as FactoryQuote),
+    line_count: Number(r.line_count ?? 0),
+    chosen_count: Number(r.chosen_count ?? 0),
+    expired: !!r.expired,
+  };
+}
+
+function toFactoryLine(r: Row): FactoryQuoteLine {
+  return {
+    ...(r as unknown as FactoryQuoteLine),
+    item_qty: Number(r.item_qty),
+    unit_price: Number(r.unit_price),
+    lead_time_days: num(r.lead_time_days),
+    moq: num(r.moq),
+    is_chosen: !!r.is_chosen,
+    is_latest: !!r.is_latest,
+    expired: !!r.expired,
+  };
+}
+
+/** The offers, newest first — for a project, or all of them. */
+export async function listFactoryQuotes(filter: { project_code?: string } = {}): Promise<Result<FactoryQuote[]>> {
+  let q = db().from("v_factory_quote").select("*")
+    .order("quoted_on", { ascending: false }).order("recorded_at", { ascending: false });
+  if (filter.project_code) q = q.eq("project_code", filter.project_code);
+  const { data, error } = await q;
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, ((data ?? []) as Row[]).map(toFactoryQuote));
+}
+
+/** The prices — of one offer, one item, or one project — newest first. */
+export async function listFactoryQuoteLines(
+  filter: { fq_no?: string; item_no?: string; project_code?: string } = {},
+): Promise<Result<FactoryQuoteLine[]>> {
+  let q = db().from("v_factory_quote_line").select("*")
+    .order("quoted_on", { ascending: false }).order("recorded_at", { ascending: false }).order("item_no");
+  if (filter.fq_no) q = q.eq("fq_no", filter.fq_no);
+  if (filter.item_no) q = q.eq("item_no", filter.item_no);
+  if (filter.project_code) q = q.eq("project_code", filter.project_code);
+  const { data, error } = await q;
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, ((data ?? []) as Row[]).map(toFactoryLine));
+}
+
+/** One factory's offer, with a price for one or more of a project's items. */
+export async function recordFactoryQuote(
+  input: FactoryQuoteInput, idempotencyKey?: string,
+): Promise<Result<FactoryQuoteResult>> {
+  const { data, error } = await db().rpc("record_factory_quote", {
+    p_project_code: input.project_code,
+    p_vendor_code: input.vendor_code,
+    p_currency: input.currency,
+    p_lines: input.lines.map((l) => ({
+      item_no: l.item_no, unit_price: l.unit_price,
+      lead_time_days: l.lead_time_days ?? null, moq: l.moq ?? null, note: l.note ?? null,
+    })),
+    p_quoted_on: input.quoted_on ?? null,
+    p_valid_until: input.valid_until ?? null,
+    p_note: input.note ?? null,
+    p_attachment_id: input.attachment_id ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const res = fromSeam<FactoryQuoteResult>(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, {
+    fq_no: res.data.fq_no, lines: Number(res.data.lines), chosen: Number(res.data.chosen),
+    vendor_marked_factory: !!res.data.vendor_marked_factory,
+  });
+}
+
+/** Which offer an item is priced from; null for none. */
+export async function chooseFactoryLine(itemNo: string, lineId: string | null): Promise<Result<DesignItemView>> {
+  const { data, error } = await db().rpc("choose_factory_line", { p_item_no: itemNo, p_line_id: lineId });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  const item = await getDesignItem(itemNo);
+  return item.error ? item : { ...item, meta: res.meta };
+}
+
+/** A wrong offer, voided with a reason; what was recorded stays readable. */
+export async function voidFactoryQuote(fqNo: string, reason: string): Promise<Result<FactoryQuote>> {
+  const { data, error } = await db().rpc("void_factory_quote", { p_fq_no: fqNo, p_reason: reason });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  const row = await db().from("v_factory_quote").select("*").eq("fq_no", fqNo).maybeSingle();
+  if (row.error) return fail(SERVICE, row.error);
+  if (!row.data) return notFound(SERVICE, "factory_quote_not_found", `Tidak ada penawaran ${fqNo}.`);
+  return ok(SERVICE, toFactoryQuote(row.data as Row));
 }

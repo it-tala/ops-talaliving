@@ -210,6 +210,10 @@ export interface DemoState {
   design_box_skips: DemoDesignBoxSkip[];
   design_link_notes: Record<string, string>;
   design_products: Record<string, string>;
+  /** A partner factory's offers and their prices per design item (0256, O2).
+   *  Append-only: a wrong offer is voided, never edited. */
+  factory_quotes: DemoFactoryQuote[];
+  factory_quote_lines: DemoFactoryQuoteLine[];
 
   pr_documents: PrDocument[];
   pr_lines: PrLine[];
@@ -535,6 +539,20 @@ export interface DemoDesignItem {
   length_mm: number | null; width_mm: number | null; height_mm: number | null;
   origin: DesignOrigin; product_code: string | null; note: string | null;
   dropped_at: string | null; drop_reason: string | null; created_at: string; updated_at: string;
+  /** The factory offer line the item is priced from (0256). */
+  factory_line_id?: string | null;
+}
+/** `ops_procure.factory_quotes` (0256). */
+export interface DemoFactoryQuote {
+  id: string; fq_no: string; project_id: string; vendor_id: string; currency: "IDR" | "USD";
+  quoted_on: string; valid_until: string | null; note: string | null; attachment_id: string | null;
+  created_by: string; created_at: string;
+  voided_at: string | null; voided_by: string | null; void_reason: string | null;
+}
+/** `ops_procure.factory_quote_lines` (0256). */
+export interface DemoFactoryQuoteLine {
+  id: string; quote_id: string; design_item_id: string; unit_price: number;
+  lead_time_days: number | null; moq: number | null; note: string | null;
 }
 export interface DemoDesignSpec {
   id: string; item_id: string; version: number; body: string; note: string | null;

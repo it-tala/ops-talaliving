@@ -175,6 +175,15 @@ function filingPlace(kind: DocKind, entity?: LinkEntity, entityNo?: string): Fil
     const path = `${client}/${project}/${collection}/${tail}`;
     return { drive: "DRAFTING", path, filed_in: `DRAFTING / ops-talaliving / ${path}` };
   }
+  /* A factory's offer: PROCUREMENT, per client and project (0256, O2). */
+  if (kind === "Factory Quotation") {
+    const p = entity === "project" ? st.projects.find((x) => x.code === entityNo?.trim()) : undefined;
+    const c = p?.client_id ? st.clients.find((x) => x.id === p.client_id) : undefined;
+    const path = p
+      ? `PENAWARAN PABRIK/${c ? segment(`${c.code} ${c.name}`) : segment(p.client_name) ?? "TANPA KLIEN"}/${segment(`${p.code} ${p.name}`)}`
+      : "PENAWARAN PABRIK";
+    return { drive: "PROCUREMENT", path, filed_in: `PROCUREMENT / ops-talaliving / ${path}` };
+  }
   const sale = SALE_KINDS[kind];
   if (!sale) return null;
   /* A meeting's files, in a folder of the meeting (0224). */

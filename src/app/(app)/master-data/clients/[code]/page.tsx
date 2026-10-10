@@ -7,7 +7,7 @@ import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/pri
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { ActivityLog } from "@/components/crm/activity-log";
 import { SalesSummaryStrip } from "@/components/crm/sales-summary";
-import { formatIDR } from "@/lib/format";
+import { formatIDR, formatMoney } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { procurement, quotation } from "@/demo/api";
 import { PROJECT_STATUSES, type ClientView } from "@/services/procurement/contracts";
@@ -106,7 +106,7 @@ export default function ClientPage({ params }: { params: Promise<{ code: string 
                             <span className="block truncate text-[11px] text-slate-500">{q.project_name}</span>
                           </Link>
                           <Badge tone={st.tone}>{st.label}</Badge>
-                          <span className="w-32 text-right tabular-nums text-slate-700">{q.grand_total == null ? "—" : formatIDR(q.grand_total)}</span>
+                          <span className="w-32 text-right tabular-nums text-slate-700">{q.grand_total == null ? "—" : formatMoney(q.grand_total, q.currency)}</span>
                         </li>
                       );
                     })}
