@@ -13,18 +13,24 @@ import { CollectionForm, ItemForm, RoomForm } from "@/components/design/design-b
 import { BoxBar, BoxChips, ItemBoxes } from "@/components/design/item-boxes";
 import { useTr } from "@/lib/i18n";
 import { CollectionGallery } from "@/components/design/collection-gallery";
+import { useCanSell } from "@/lib/sell";
+import { NewProject } from "../../proyek/order/ProjectDrawer";
 
 export interface RoomRef { project: string; collection: string; room: string }
 
 /** Ruang kerja: client › project › collection › room on the left, the room's
  *  items with their six boxes in the middle, and the chosen item's boxes below
  *  (Studio Desain S1, D405). Every level can be added to from here, so the
- *  drafters can start from nothing without the Projects menu (F247). */
+ *  drafters can start from nothing without the Projects menu (F247). Whoever
+ *  may open a sale opens the project here too, with the Projects form, and it
+ *  is chosen at once (O1, F255). */
 export function Workspace({
   canEdit, canMakeProduct, canOpenProject, start,
 }: { canEdit: boolean; canMakeProduct: boolean; canOpenProject: boolean; start: { room?: RoomRef; item?: string } }) {
   const tr = useTr();
-  const [projects] = useLoad(() => design.listDesignProjects(), []);
+  const canSell = useCanSell();
+  const [projects, reloadProjects] = useLoad(() => design.listDesignProjects(), []);
+  const [creating, setCreating] = useState(false);
   const [project, setProject] = useState<string | null>(start.room?.project ?? start.item?.split("-")[0] ?? null);
   const [room, setRoom] = useState<RoomRef | null>(start.room ?? null);
   const [item, setItem] = useState<string | null>(start.item ?? null);
@@ -47,14 +53,24 @@ export function Workspace({
   return (
     <div className="grid items-start gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
       <Card className="overflow-hidden">
-        <div className="border-b border-slate-100 px-4 py-2.5 text-[13px] font-semibold text-slate-800">
-          {tr("Clients & projects", "Klien & proyek")}
+        <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-2 text-[13px] font-semibold text-slate-800">
+          <span className="min-w-0 truncate">{tr("Clients & projects", "Klien & proyek")}</span>
+          {canSell("create") && (
+            <Button size="sm" variant="ghost" icon={Plus} className="shrink-0 whitespace-nowrap" onClick={() => setCreating(true)}>{tr("New project", "Proyek baru")}</Button>
+          )}
         </div>
         <Loaded state={projects}>
           {(ps) => ps.length === 0 ? (
-            <p className="px-4 py-4 text-[12px] text-slate-500">
-              {tr("No live project yet. Projects are opened by sales in Projects.", "Belum ada proyek berjalan. Proyek dibuka oleh sales di menu Projects.")}
-            </p>
+            <div className="px-4 py-4 text-[12px] text-slate-500">
+              <p>{canSell("create")
+                ? tr("No live project yet. Start with the client and the project, then its collections and rooms.",
+                  "Belum ada proyek berjalan. Mulai dengan klien dan proyeknya, lalu koleksi dan ruangannya.")
+                : tr("No live project yet. Projects are opened by leadership or marketing.",
+                  "Belum ada proyek berjalan. Proyek dibuka oleh pimpinan atau marketing.")}</p>
+              {canSell("create") && (
+                <Button size="sm" icon={Plus} className="mt-2" onClick={() => setCreating(true)}>{tr("New project", "Proyek baru")}</Button>
+              )}
+            </div>
           ) : (
             <ProjectTree projects={ps} project={project} room={room} canEdit={canEdit} tick={tick}
               onProject={(code) => { setProject(code); if (room?.project !== code) { setRoom(null); setItem(null); } }}
@@ -62,6 +78,10 @@ export function Workspace({
           )}
         </Loaded>
       </Card>
+      {creating && (
+        <NewProject onClose={() => setCreating(false)} onChanged={reloadProjects}
+          onCreated={(code) => { setProject(code); setRoom(null); setItem(null); }} />
+      )}
 
       <div className="min-w-0 space-y-4">
         {project && room ? (
