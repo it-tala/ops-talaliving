@@ -483,6 +483,17 @@ same state to build on.
 | **Q68 — apakah `INQUIRY` dipecah menjadi tahap brief dan desain?** (kajian F224) | **Tidak.** Tahap awal dibaca dari item desain dan file yang sudah ada pada proyek |
 | **Q69 — jenis file baru dan drive tujuannya** (kajian F224 §4.4) | **Seperti tabel kajian §4.4:** `brief`, `foto_survei`, `proposal`, `notulen`, `kontrak` ke PROJECT MANAGER; `referensi_klien`, `gambar_klien`, `moodboard`, `layout`, `render` ke DRAFTING; asal file (`TALA`/`KLIEN`/`PIHAK_KETIGA`) disimpan pada file. `gambar_jadi` kembali berarti foto barang jadi |
 | **Q73 — apakah satu koleksi/katalog bisa dipakai di lebih dari satu proyek?** (D379) | **Tidak. Koleksi milik satu proyek.** Yang dipakai bersama lintas proyek adalah produk (`product_code`), jadi item yang dijual ulang menunjuk ke produk yang sama. Katalog milik TALA sendiri dicatat sebagai proyek dengan klien internal TALA. Kalau koleksi harus bisa dipakai ulang, koleksi menjadi master tersendiri dan proyek merujuk kepadanya |
+| **Q81 — gambar kerja 3D untuk BOM: file apa, satu kotak atau kotak sendiri?** (kajian F255) | **Satu kotak, berlabel DWG / 3D, menerima semua jenis file.** |
+| **Q82 — D164 masih berlaku? DP klien cukup dibaca dari uang masuk yang dicatat finance?** (kajian F255) | **Ya.** Uang masuk dibaca dari buku besar (IN, berproyek). Order pabrik tanpa DP hanya diperingatkan, tidak diblokir |
+| **Q83 — workshop sendiri tetap memproduksi sebagian order, berdampingan dengan pabrik mitra?** (kajian F255) | **Ya.** Jalur per baris order (`WORKSHOP` / `FACTORY`), default workshop |
+| **Q84 — satu proyek bisa dibagi ke beberapa pabrik?** (kajian F255) | **Bisa.** Satu order pabrik (PO) per pabrik per proyek |
+| **Q85 — masa purna jual 3 bulan dihitung sejak kapan?** (kajian F255) | **Sejak kontainer terakhir order pabrik itu dicatat sampai** (`mark_arrived`) |
+| **Q86 — klaim dalam 3 bulan: fee QC ditahan, dipotong, atau hangus?** (kajian F255) | **Ditahan sampai klaim selesai.** Potongan diketik pimpinan dengan alasan |
+| **Q87 — bentuk fee QC, dan adakah uang muka selama produksi?** (kajian F255) | **Angka per penugasan.** Uang muka boleh dicatat sebagai pembayaran sebagian, sisanya ditahan |
+| **Q88 — QC mengisi laporan sendiri dari HP, atau lewat WA diketik koordinator?** (kajian F255) | **Akun ops sendiri, hanya melihat penugasannya** |
+| **Q89 — 1 QC per 5 kontainer dihitung per order pabrik atau per proyek?** (kajian F255) | **Per order pabrik**, dari perkiraan kontainer di order. Kurang QC hanya diperingatkan |
+| **Q90 — siapa mencatat harga pabrik dan membuat order pabrik?** (kajian F255) | **Procurement mencatat dan membuat, pimpinan menyetujui** (alur PO sekarang) |
+| **Q91 — rupiah saja, atau ada mata uang asing?** (kajian F255) | **Rupiah.** Mata uang ditambahkan nanti kalau dibutuhkan |
 
 ### Closed, for the shape
 
