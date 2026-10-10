@@ -17,6 +17,7 @@ import type { ClientActivityView } from "@/services/crm/contracts";
 import { useCanSell } from "@/lib/sell";
 import { officeToday } from "@/lib/office";
 import { useTr } from "@/lib/i18n";
+import { NewProject } from "../order/ProjectDrawer";
 
 /** The sales pipeline (P2): every sale from the first question to closing,
  *  one card per project.
@@ -33,6 +34,7 @@ export default function PipelinePage() {
   const [projects, reload] = useLoad(() => procurement.listProjectViews(), []);
   const [followUps] = useLoad(() => crm.listActivities({ open_follow_ups: true }), []);
   const [pic, setPic] = useState<string>("ALL");
+  const [creating, setCreating] = useState(false);
 
   return (
     <div>
@@ -44,9 +46,11 @@ export default function PipelinePage() {
           "Setiap penjualan dari pertanyaan pertama sampai closing. Satu kartu satu proyek; buka untuk melihat file, quotation, dan kontaknya.",
         )}
         actions={canSell("create") ? (
-          <Link href="/proyek/order"><Button icon={Plus}>{tr("New inquiry", "Inquiry baru")}</Button></Link>
+          <Button icon={Plus} onClick={() => setCreating(true)}>{tr("New inquiry", "Inquiry baru")}</Button>
         ) : undefined}
       />
+      {/* The same form as Projects › Order, opened here (O1, F255). */}
+      {creating && <NewProject onClose={() => setCreating(false)} onChanged={reload} />}
       <Loaded state={projects} onRetry={reload}>
         {(all) => (
           <Board

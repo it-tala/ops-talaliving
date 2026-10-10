@@ -24,8 +24,27 @@
 > Diminta: rancangan yang mudah, sedikit kerja, tetapi datanya akurat dan
 > terekam untuk evaluasi, disesuaikan dengan modul ops yang sudah ada.
 
-Status: **kajian saja**. Belum ada kode atau migrasi. Urutan kerja di §7,
-pertanyaan untuk owner di §8.
+Status: **kajian**. O1 dikerjakan 10 Okt. Urutan kerja di §7, pertanyaan
+untuk owner di §8.
+
+> **Pembaruan 10 Okt: jawaban owner atas Q82, Q85, Q86, Q87 (D412).**
+> *Masalah uang tidak perlu dikaitkan erat ke sistem, cukup status
+> pekerjaannya saja: apakah belum selesai, diterima klien, atau tertolak,
+> dsb.* Akibatnya untuk kajian ini:
+> - DP klien, fee QC, uang muka, dan rilis pembayaran **tidak dicatat dan
+>   tidak menahan apa pun** di sistem. O4 dibatalkan, dan kolom fee dihapus
+>   dari rancangan QC.
+> - Yang dicatat adalah **status hasil kerja** per order pabrik:
+>   `berjalan → dikirim → sampai → diterima klien`, atau `ditolak klien`
+>   dengan alasan. Klaim klien dicatat sebagai temuan. Masa 3 bulan hanya
+>   **pengingat** sejak barang sampai, supaya ada yang menanyakan *diterima
+>   atau tidak*.
+> - PO tetap dipakai sebagai order pabrik karena di sanalah order disetujui
+>   dan didokumentasikan. Pembayaran ke pabrik tetap di tempat procurement
+>   dan finance membayarnya sekarang, dan alur agen tidak menunggu status
+>   pembayaran apa pun.
+>
+> Bagian di bawah sudah disesuaikan. Yang dicoret ditandai *(D412)*.
 
 ---
 
@@ -63,27 +82,26 @@ pertanyaan untuk owner di §8.
    per proses (`vendor_legs`). Belum ada:
    - harga pabrik per item;
    - order ke pabrik mitra yang terikat ke proyek;
-   - DP klien sebagai syarat mulai;
    - kontainer;
    - QC lapangan dan personelnya;
-   - masa purna jual 3 bulan;
-   - fee QC yang ditahan lalu dirilis.
+   - status hasil kerja setelah barang sampai (diterima atau ditolak klien).
 4. **Usulan: tetap satu kartu proyek dari inquiry sampai purna jual.**
    Tambahkan **jalur produksi per baris order** (*Workshop sendiri* atau
    *Pabrik mitra*), lalu pakai ulang yang sudah ada:
    - **Pabrik mitra** = vendor berjenis pabrik.
-   - **Order pabrik** = PO yang ditautkan ke proyek. Persetujuan pimpinan, DP,
-     termin, dan pembayaran ke pabrik sudah ada di PO.
+   - **Order pabrik** = PO yang ditautkan ke proyek. Persetujuan pimpinan dan
+     dokumen order sudah ada di PO.
    - **Kontainer** = pengiriman (`ops_dlv`) berjenis kontainer.
 
    Yang benar-benar baru hanya **modul QC** (personel, penugasan, laporan
-   harian dari HP, temuan, rilis fee) dan **jam purna jual 3 bulan**. Semua
+   harian dari HP, temuan) dan **status hasil kerja** (diterima / ditolak klien,
+   dengan pengingat 3 bulan sejak sampai). Semua
    angka diketik sekali oleh orang yang melihatnya:
    - harga pabrik oleh purchasing;
    - jumlah jadi oleh QC di pabrik;
    - nomor kontainer oleh logistik.
 
-   Progres, kebutuhan jumlah QC, tanggal rilis fee, dan nilai evaluasi
+   Progres, kebutuhan jumlah QC, tanggal pengingat 3 bulan, dan nilai evaluasi
    dihitung sistem, tidak diketik.
 5. Dikerjakan dalam sembilan sesi kecil (O1–O9, §7). **O1 bisa langsung**
    tanpa jawaban apa pun. O2–O9 menunggu beberapa jawaban di §8, tetapi
@@ -100,15 +118,15 @@ pertanyaan untuk owner di §8.
  KLIEN ◀── quotation (harga dari BOM / harga pabrik) ──▶ PABRIK MITRA ◀── gambar + BOM, minta harga
    │ setuju                                                   │ sanggup (harga, lead time)
    ▼                                                          ▼
- DP KLIEN masuk ─────────────────────────────────────▶ ORDER PABRIK (PO, disetujui pimpinan) → DP ke pabrik
+ DEAL (quotation diterima) ───────────────────────────▶ ORDER PABRIK (PO, disetujui pimpinan)
                                                               │
                                     PRODUKSI DI PABRIK ◀──────┤ QC outsource: 1 QC / 5 kontainer
                                     laporan harian · foto · progres per item · temuan/insiden
                                                               │
                                     MUAT KONTAINER (cek muat QC) ─▶ KIRIM (ETD/ETA, B/L)
                                                               │
-                                    SAMPAI DI KLIEN ─▶ PURNA JUAL 3 BULAN ─┬─ tanpa masalah ─▶ RILIS FEE QC
-                                                                           └─ ada klaim ──────▶ tahan sampai selesai
+                                    SAMPAI DI KLIEN ─▶ pengingat 3 bulan ─┬─ DITERIMA KLIEN
+                                                                          └─ DITOLAK KLIEN (alasan, klaim)
 ```
 
 Tiga hal dari gambaran owner yang menentukan bentuk rancangan:
@@ -172,10 +190,10 @@ Catatan untuk papan README:
 | G2 | Vendor tidak punya jenis: pabrik mitra, QC, dan toko bahan tercampur di 305 baris | Pabrik mitra tidak bisa dipilih atau dievaluasi sebagai pabrik |
 | G3 | Tidak ada **harga pabrik** per item | Negosiasi dengan pabrik tidak terekam. Quotation hanya bisa dihargai dari BOM internal atau biaya manual |
 | G4 | Tidak ada **order ke pabrik untuk satu proyek**. PO tidak punya proyek, dan baris PO tidak menunjuk baris order klien | Siapa mengerjakan item mana, dengan harga berapa, dan kapan janji kirim, tidak terbaca dari proyek |
-| G5 | Tidak ada tanda **DP klien sudah masuk** di proyek. D164 menutup piutang dan invoice klien | Syarat *setelah DP baru produksi* tidak terlihat |
+| G5 | ~~Tidak ada tanda DP klien sudah masuk di proyek~~ | *(D412) Uang tidak dicatat di sistem; tidak dibangun* |
 | G6 | Tidak ada **kontainer**. Pengiriman hanya truk lokal | Ukuran kerja QC (per 5 kontainer) dan jadwal kapal tidak bisa dicatat |
 | G7 | Tidak ada **QC lapangan**: personel, penugasan, laporan, progres, temuan | Pemantauan produksi di pabrik hanya ada di WhatsApp |
-| G8 | Tidak ada **masa purna jual**. Setelah BAST tidak ada yang menghitung 3 bulan | Rilis fee QC tidak punya tanggal dan syarat |
+| G8 | Tidak ada **status hasil kerja setelah sampai**: diterima atau ditolak klien | Tidak terbaca order mana yang tuntas dan mana yang bermasalah. Pembayaran QC diputuskan di luar sistem dari status ini (D412) |
 | G9 | Orang luar tidak punya tempat. `employees` hanya untuk karyawan, dan orang luar hanya muncul sebagai teks bebas | Personel QC tidak bisa dibayar, dinilai, atau diberi akses |
 
 ## 5. Rancangan
@@ -184,7 +202,7 @@ Prinsip yang dipegang:
 - satu kartu proyek;
 - satu angka diketik sekali, di sumbernya;
 - status dan progres dihitung, tidak diketik;
-- **peringatkan, jangan blokir** (A6), kecuali uang yang memang ditahan;
+- **peringatkan, jangan blokir** (A6);
 - semua catatan bertanggal dan append-only, supaya bisa dievaluasi
   belakangan.
 
@@ -253,9 +271,10 @@ PO yang sudah ada dipakai ulang, tidak membuat modul order baru:
 - Kolom yang sudah ada tetap dipakai:
   - tanggal janji kirim (`expected_delivery`);
   - persetujuan pimpinan (`request_po_approval` / `approve_po`);
-  - **DP ke pabrik dan termin** (`po_schedule`: DP / PROGRESS / FINAL);
-  - pembayaran (`post_to_po`);
   - file PO yang ditandatangani pabrik.
+- Termin dan pembayaran ke pabrik (`po_schedule`, `post_to_po`) tetap bisa
+  dipakai procurement dan finance seperti sekarang, tetapi **alur agen tidak
+  membaca dan tidak menunggunya** (D412).
 
 Arti status untuk proyek:
 - **Pabrik sanggup** = PO berstatus `ISSUED`: dikirim dan diterima pabrik.
@@ -264,23 +283,11 @@ Arti status untuk proyek:
 
 Satu proyek boleh punya lebih dari satu order pabrik, satu per pabrik (Q84).
 
-### 5.5 DP klien sebagai syarat mulai (dalam batas D164)
+### 5.5 ~~DP klien sebagai syarat mulai~~ *(D412: tidak dibangun)*
 
-D164 tetap berlaku: tidak ada piutang, tidak ada invoice klien. Yang
-ditambahkan hanyalah **membaca** uang yang sudah dicatat finance:
-
-- Setiap transaksi masuk di buku besar yang diberi proyek (`direction = IN`,
-  `project_id`) tampil di kartu proyek sebagai **uang masuk dari klien**:
-  tanggal, jumlah, dan bukti transfer yang sudah ada di transaksi itu.
-- Kartu proyek menampilkan **DP diterima ✓ / belum**. Saat order pabrik
-  diajukan ke pimpinan sementara belum ada uang masuk untuk proyek itu, ada
-  **peringatan** (tidak memblokir), dan pimpinan memutuskan.
-- Tidak ada angka yang diketik dua kali. Finance tetap mencatat di Akuntansi
-  seperti biasa, cukup memilih proyeknya.
-
-Kalau owner ingin rencana termin klien terlihat (DP 50%, pelunasan sebelum
-kirim), proyeksi cashflow kategori `client` (0239) sudah bisa menampungnya
-tanpa modul baru (Q82).
+Owner: uang tidak dikaitkan erat ke sistem. DP klien tidak dibaca dan tidak
+menjadi syarat. Order pabrik bisa diajukan begitu quotation diterima (DEAL),
+dan pimpinan menyetujuinya seperti PO biasa. D164 tetap berlaku.
 
 ### 5.6 Kontainer = pengiriman berjenis kontainer
 
@@ -307,8 +314,8 @@ Lima tabel. Semuanya kecil.
 
 | Tabel | Isi | Siapa mengisi |
 |---|---|---|
-| `qc_people` | Nama, HP, kota, akun ops (opsional), vendor untuk pembayaran (opsional, membawa rekening bank), aktif/tidak, catatan | Koordinator QC |
-| `qc_assignments` | Orang, order pabrik (dan proyeknya), **kontainer yang ditanggung** (default 5), fee yang disepakati, mulai, selesai | Koordinator QC |
+| `qc_people` | Nama, HP, kota, akun ops (opsional), aktif/tidak, catatan | Koordinator QC |
+| `qc_assignments` | Orang, order pabrik (dan proyeknya), **kontainer yang ditanggung** (default 5), mulai, selesai. Tanpa fee (D412) | Koordinator QC |
 | `qc_reports` | Laporan per kunjungan/hari: tanggal, tahap (`bahan` · `konstruksi` · `finishing` · `packing` · `muat`), catatan, foto. Untuk tahap `muat`, menunjuk kontainer (§5.6) | QC dari HP |
 | `qc_report_lines` | Per baris order: jumlah **lolos** dan **ditolak** pada laporan itu | QC dari HP |
 | `qc_findings` | Temuan/insiden: jenis (`cacat` · `bahan/spek tidak sesuai` · `telat` · `rusak` · `packing` · `lainnya`), tingkat (`minor` · `major` · `kritis`), baris order (opsional), foto, tindakan, status `OPEN → RESOLVED`. Dicatat juga **fasenya**: `produksi`, `muat`, atau `setelah sampai` (klaim klien, §5.8) | QC, koordinator, atau sales untuk klaim klien |
@@ -329,7 +336,7 @@ Akses QC (Q88):
 - QC masuk dengan akun ops miliknya dari HP. PWA karyawan sudah ada.
 - QC hanya melihat **penugasannya sendiri**: order pabrik, gambar kerja PDF
   dari kotak item, BOM, dan laporannya.
-- QC tidak melihat harga jual, harga pabrik, atau fee orang lain.
+- QC tidak melihat harga jual atau harga pabrik.
 - Modul baru `qc`: koordinator `admin`, QC `write` yang dibatasi ke
   penugasannya.
 - Foto laporan disimpan di Drive PROJECT MANAGER, di folder
@@ -340,27 +347,23 @@ Opsional: lokasi saat laporan dikirim dicatat dengan mekanisme tap berlokasi
 yang sudah ada (0188). Itu bukti QC benar-benar ada di pabrik, tanpa kerja
 tambahan dari QC.
 
-### 5.8 Purna jual 3 bulan dan rilis fee QC
+### 5.8 Status hasil kerja setelah barang sampai (D412)
 
-- **Jam purna jual mulai** saat barang sampai di klien: tanggal `mark_arrived`
-  kontainer terakhir order pabrik itu (Q85).
-- **Purna jual selesai** = tanggal itu + 3 bulan. Kartu proyek menampilkan
-  sisa harinya.
+- Setiap **order pabrik** punya status hasil kerja yang dibaca dari data yang
+  sudah ada, ditambah satu keputusan orang:
+  - `berjalan`: ada penugasan QC dan laporan, belum ada kontainer;
+  - `dikirim`: kontainer tercatat (`create_delivery`);
+  - `sampai`: semua kontainer order itu `mark_arrived`;
+  - `diterima klien` atau `ditolak klien`: **dipilih sales/pimpinan**, dengan
+    tanggal, nama orang di pihak klien, dan alasan bila ditolak.
+- **Pengingat 3 bulan.** Tanggal sampai kontainer terakhir + 3 bulan tampil di
+  kartu proyek. Kalau lewat dan status belum dipilih, order itu muncul di
+  daftar *perlu dikonfirmasi*. Ini hanya pengingat, bukan jam uang.
 - **Klaim klien** dicatat sebagai `qc_findings` dengan fase `setelah sampai`.
   Tabel dan layarnya sama dengan temuan produksi, jadi evaluasi bisa
   membandingkan *temuan sebelum kirim* dengan *klaim setelah sampai*.
-- **Fee QC siap dirilis** saat purna jual selesai dan tidak ada klaim yang
-  masih `OPEN` pada order pabrik itu. Ini dihitung sistem dan tampil sebagai
-  daftar **Siap dirilis** untuk finance. Klaim terbuka menahan rilis sampai
-  selesai (Q86).
-- **Rilis tetap keputusan orang**:
-  - finance membayar lewat Akuntansi ke vendor milik QC itu;
-  - transaksinya ditautkan ke penugasan (`released_trx_no`);
-  - potongan karena klaim diketik pimpinan dengan alasan;
-  - tidak ada yang dibayar sendiri oleh sistem.
-- Kalau ada uang muka atau uang jalan QC selama produksi (Q87), dicatat
-  sebagai pembayaran biasa yang ditautkan ke penugasan, dan sisanya yang
-  ditahan.
+- Apakah dan kapan QC dibayar diputuskan **di luar sistem**, dengan melihat
+  status ini. Sistem tidak menyimpan fee, uang muka, atau tanggal rilis.
 
 ### 5.9 Evaluasi: apa yang terekam
 
@@ -370,8 +373,8 @@ Tidak ada yang diketik ulang.
 | Untuk | Yang terbaca |
 |---|---|
 | **Pabrik mitra** | Order per tahun, harga penawaran vs harga jadi, kirim tepat waktu (ETD vs janji), temuan per kontainer, klaim setelah sampai |
-| **Personel QC** | Penugasan, kontainer ditanggung, hari dengan laporan / hari aktif, temuan sebelum kirim, klaim yang lolos ke klien, fee ditahan / dirilis |
-| **Proyek** | Lama tiap tahap (inquiry → deal → produksi → kirim → sampai → purna jual), DP masuk vs order pabrik, margin quotation (hanya pemegang `project.update`) |
+| **Personel QC** | Penugasan, kontainer ditanggung, hari dengan laporan / hari aktif, temuan sebelum kirim, klaim yang lolos ke klien, order yang diterima / ditolak klien |
+| **Proyek** | Lama tiap tahap (inquiry → deal → produksi → kirim → sampai → purna jual), diterima / ditolak klien, margin quotation (hanya pemegang `project.update`) |
 | **Desain** | Kelengkapan kotak dan ketepatan tenggat drafter (sudah ada, S2) |
 
 ### 5.10 Siapa melihat apa
@@ -381,21 +384,21 @@ Tidak ada yang diketik ulang.
 | Klien, proyek, quotation, harga pabrik | `may_sell` (pimpinan + marketing, D375). Harga pabrik juga untuk procurement |
 | Order pabrik (PO) | procurement, dengan persetujuan pimpinan seperti PO sekarang |
 | Kontainer | delivery |
-| QC | modul `qc`. QC hanya penugasannya sendiri. Fee hanya untuk koordinator dan finance |
+| QC | modul `qc`. QC hanya penugasannya sendiri |
 
 ## 6. Yang sengaja tidak diusulkan
 
 - **Modul order produksi terpisah.** PO sudah menyimpan pabrik, baris, harga,
-  persetujuan, termin, dan pembayaran. Membuat tabel kedua berarti dua tempat
-  untuk satu uang.
+  persetujuan, dan dokumen order. Membuat tabel kedua berarti dua tempat untuk
+  satu order.
 - **QC sebagai karyawan.** Payroll, absensi, dan BPJS tidak berlaku. QC adalah
-  orang luar dengan akun dan vendor untuk pembayaran.
-- **Piutang atau invoice klien.** D164 tetap. Hanya uang masuk yang dibaca.
+  orang luar dengan akun.
+- **Uang di dalam alur:** DP klien, fee QC, uang muka, rilis (D412). Yang
+  dicatat status pekerjaannya. D164 tetap.
 - **Status proyek baru.** `IN_PRODUCTION → SHIPPED → DONE` cukup. Purna jual
   adalah tanggal turunan, bukan status.
 - **Tracking kapal otomatis.** ETD/ETA diketik dari B/L.
-- **Wajib-wajib.** Tidak ada yang diblokir kecuali rilis fee, yang memang
-  ditahan menurut aturan owner.
+- **Wajib-wajib.** Tidak ada yang diblokir.
 
 ## 7. Urutan kerja: satu sesi, satu fitur
 
@@ -404,11 +407,11 @@ Tidak ada yang diketik ulang.
 | **O1** | **Pintu masuk:** *Proyek baru* dan *Klien baru* langsung dari Pipeline dan Design, memakai formulir yang sudah ada. Design menawarkan *buat proyek* saat kosong. Sisa P2: `remove_quotation_line` versi 0219 ke produksi lewat SQL Editor (badannya menghapus baris) | tidak (hanya menerapkan sisa 0219) | tidak |
 | **O2** | **Jenis vendor + harga pabrik per item:** `vendors.kind`, `factory_quotes`, sumber biaya `factory` di quotation, kolom harga pabrik di Design/quotation | ya | Q90, Q91 |
 | **O3** | **Jalur produksi + order pabrik:** `project_lines.route`, PO ↔ proyek/baris order, `containers_planned`, buat order pabrik dari baris order `FACTORY`, `ISSUED` → `IN_PRODUCTION`, papan Produksi per proyek | ya | Q83, Q84 |
-| **O4** | **Uang masuk dari klien di kartu proyek:** dibaca dari buku besar, plus peringatan DP saat order pabrik diajukan | view saja | Q82 |
+| ~~O4~~ | ~~Uang masuk dari klien di kartu proyek~~ **Dibatalkan (D412)** | — | — |
 | **O5** | **Kontainer:** `deliveries.mode` + kolom kontainer, isi per baris order, packing list / B/L | ya | — |
-| **O6** | **QC: personel + penugasan:** `ops_qc` schema, modul `qc`, aturan 1 per 5 kontainer (peringatan) | ya | Q87, Q88, Q89 |
+| **O6** | **QC: personel + penugasan:** `ops_qc` schema, modul `qc`, aturan 1 per 5 kontainer (peringatan) | ya | Q88, Q89 |
 | **O7** | **QC dari HP:** laporan harian + foto + jumlah lolos/tolak, temuan/insiden, cek muat kontainer, progres pabrik di papan proyek | ya | — |
-| **O8** | **Purna jual + rilis fee:** jam 3 bulan, klaim klien sebagai temuan *setelah sampai*, daftar *Siap dirilis*, tautan pembayaran | ya | Q85, Q86 |
+| **O8** | **Status hasil kerja:** diterima / ditolak klien per order pabrik, klaim klien sebagai temuan *setelah sampai*, pengingat 3 bulan sejak sampai | ya | — |
 | **O9** | **Evaluasi:** papan pabrik, QC, dan proyek (§5.9) | view saja | — |
 
 O1 bisa dikerjakan sekarang. O2–O5 membuat jalur agen bisa dipakai tanpa QC.
@@ -422,12 +425,12 @@ dijawab.
 | Q | Pertanyaan | Default sampai dijawab |
 |---|---|---|
 | **Q81** | Gambar kerja 3D untuk BOM: filenya apa (SketchUp, 3DM, DWG 3D)? Cukup satu kotak **DWG / 3D**, atau perlu kotak 3D sendiri? | Satu kotak, diberi label **DWG / 3D**, menerima semua jenis file |
-| **Q82** | D164 (*kita tidak handle penagihan ke klien*) masih berlaku? DP klien cukup dibaca dari uang masuk yang dicatat finance, dengan peringatan (bukan blokir) saat order pabrik diajukan tanpa DP? | Ya, dibaca dari buku besar, hanya peringatan |
+| **Q82** | D164 (*kita tidak handle penagihan ke klien*) masih berlaku? DP klien cukup dibaca dari uang masuk yang dicatat finance, dengan peringatan (bukan blokir) saat order pabrik diajukan tanpa DP? | **Dijawab (D412):** uang tidak dikaitkan ke sistem; yang dicatat status pekerjaannya |
 | **Q83** | Apakah workshop sendiri tetap memproduksi sebagian order, berdampingan dengan pabrik mitra? | Ya. Jalur per baris order, default workshop |
 | **Q84** | Bisakah satu proyek dibagi ke beberapa pabrik? | Bisa. Satu order pabrik per pabrik per proyek |
-| **Q85** | Masa 3 bulan dihitung sejak kapan: barang sampai di klien, BAST, atau ETA kapal? | Sejak kontainer terakhir order itu dicatat **sampai** |
-| **Q86** | Kalau ada klaim dalam 3 bulan: fee QC ditahan sampai klaim selesai, dipotong, atau hangus? | Ditahan sampai selesai. Potongan diketik pimpinan dengan alasan |
-| **Q87** | Fee QC: angka per penugasan, per kontainer, atau bulanan? Ada uang muka atau uang jalan selama produksi, atau 100% ditahan sampai rilis? | Angka per penugasan. Uang muka boleh dicatat sebagai pembayaran sebagian, sisanya ditahan |
+| **Q85** | Masa 3 bulan dihitung sejak kapan: barang sampai di klien, BAST, atau ETA kapal? | **Dijawab (D412):** uang tidak dikaitkan ke sistem; yang dicatat status pekerjaannya |
+| **Q86** | Kalau ada klaim dalam 3 bulan: fee QC ditahan sampai klaim selesai, dipotong, atau hangus? | **Dijawab (D412):** uang tidak dikaitkan ke sistem; yang dicatat status pekerjaannya |
+| **Q87** | Fee QC: angka per penugasan, per kontainer, atau bulanan? Ada uang muka atau uang jalan selama produksi, atau 100% ditahan sampai rilis? | **Dijawab (D412):** uang tidak dikaitkan ke sistem; yang dicatat status pekerjaannya |
 | **Q88** | QC mengisi laporan sendiri dari HP (akun ops), atau mengirim lewat WA lalu diketik koordinator? | Akun sendiri, hanya melihat penugasannya |
 | **Q89** | Aturan 1 QC per 5 kontainer dihitung per order pabrik atau per proyek? Jumlah kontainer sudah diketahui saat order? | Per order pabrik, dari perkiraan kontainer di order. Kurang QC hanya diperingatkan |
 | **Q90** | Siapa yang mencatat harga pabrik dan membuat order pabrik: procurement, sales, atau pimpinan? | Procurement mencatat dan membuat, pimpinan menyetujui (alur PO sekarang) |
