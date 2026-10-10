@@ -27,6 +27,15 @@
 Status: **kajian**. O1 dikerjakan 10 Okt. Urutan kerja di §7, pertanyaan
 untuk owner di §8.
 
+> **Pembaruan 10 Okt: owner mengubah Q89 dan Q91 (D414).** *Q88: default, hanya
+> melihat order yang di assign padanya / Q89: manual saja, tidak perlu sistem /
+> Q90: ya / Q91: tambahkan USD juga.*
+> - Rasio 1 QC per 5 kontainer diatur koordinator sendiri. Sistem tidak menghitung
+>   kebutuhan QC dan tidak memperingatkan; `containers_planned` dan *kontainer yang
+>   ditanggung* dihapus dari rancangan (§5.4, §5.7).
+> - Harga bisa dalam **IDR atau USD**, satu mata uang per dokumen, dengan kurs
+>   diketik orang untuk dokumen USD (§5.3).
+>
 > **Pembaruan 10 Okt: Q81, Q83, Q84, Q88–Q91 memakai default (D413).** Owner:
 > *pertanyaannya pakai jawaban default.* Tidak ada sesi yang menunggu jawaban lagi.
 >
@@ -194,7 +203,7 @@ Catatan untuk papan README:
 | G3 | Tidak ada **harga pabrik** per item | Negosiasi dengan pabrik tidak terekam. Quotation hanya bisa dihargai dari BOM internal atau biaya manual |
 | G4 | Tidak ada **order ke pabrik untuk satu proyek**. PO tidak punya proyek, dan baris PO tidak menunjuk baris order klien | Siapa mengerjakan item mana, dengan harga berapa, dan kapan janji kirim, tidak terbaca dari proyek |
 | G5 | ~~Tidak ada tanda DP klien sudah masuk di proyek~~ | *(D412) Uang tidak dicatat di sistem; tidak dibangun* |
-| G6 | Tidak ada **kontainer**. Pengiriman hanya truk lokal | Ukuran kerja QC (per 5 kontainer) dan jadwal kapal tidak bisa dicatat |
+| G6 | Tidak ada **kontainer**. Pengiriman hanya truk lokal | Isi kontainer dan jadwal kapal tidak bisa dicatat |
 | G7 | Tidak ada **QC lapangan**: personel, penugasan, laporan, progres, temuan | Pemantauan produksi di pabrik hanya ada di WhatsApp |
 | G8 | Tidak ada **status hasil kerja setelah sampai**: diterima atau ditolak klien | Tidak terbaca order mana yang tuntas dan mana yang bermasalah. Pembayaran QC diputuskan di luar sistem dari status ini (D412) |
 | G9 | Orang luar tidak punya tempat. `employees` hanya untuk karyawan, dan orang luar hanya muncul sebagai teks bebas | Personel QC tidak bisa dibayar, dinilai, atau diberi akses |
@@ -259,6 +268,21 @@ Satu tabel kecil `ops_procure.factory_quotes`:
   dengan rumus quotation yang sudah ada dan hanya terlihat oleh pemegang
   `project.update`, sama seperti sekarang.
 
+**Mata uang (D414).** Penawaran pabrik, quotation ke klien, dan order pabrik
+masing-masing punya satu `currency`: `IDR` (default) atau `USD`. Semua baris
+dokumen ikut mata uang dokumennya, dan total tidak pernah dijumlahkan lintas mata
+uang.
+- Untuk dokumen USD, orang mengetik **kurs** (rupiah per 1 USD) di dokumen itu,
+  `fx_rate`. Kurs tidak ditebak dan tidak diambil otomatis, sama seperti baris
+  bank USD di akuntansi (D181).
+- Kurs hanya dipakai untuk **membaca** dalam rupiah: margin quotation saat
+  biayanya dalam mata uang lain (biaya BOM selalu rupiah; harga pabrik bisa
+  USD), dan papan evaluasi. Kalau kurs belum diisi, margin tertulis *kurs belum
+  diisi*, bukan angka tebakan.
+- PDF quotation menulis mata uangnya (*USD 1,250.00* atau *Rp 1.250.000*).
+- PO supplier lokal tetap rupiah. Pembayaran USD ke pabrik tetap dicatat
+  akuntansi seperti sekarang dan tidak dibaca alur agen (D412).
+
 Vendor mendapat kolom `kind`: `supplier` (default), `factory`, `qc`, `other`.
 Daftar 305 vendor tidak perlu disentuh. Cukup pabrik mitra yang ditandai.
 
@@ -269,8 +293,8 @@ PO yang sudah ada dipakai ulang, tidak membuat modul order baru:
 - `purchase_orders.project_id`: order ini untuk proyek mana.
 - `po_lines.project_line_id`: baris PO ini mengerjakan baris order klien yang
   mana. Harga pabrik yang dipilih menjadi harga satuan baris PO.
-- `purchase_orders.containers_planned`: perkiraan jumlah kontainer. Angka ini
-  dipakai aturan 1 QC per 5 kontainer.
+- `purchase_orders.currency` dan `fx_rate` (§5.3, D414). Tidak ada perkiraan
+  jumlah kontainer: rasio QC diatur manual (D414).
 - Kolom yang sudah ada tetap dipakai:
   - tanggal janji kirim (`expected_delivery`);
   - persetujuan pimpinan (`request_po_approval` / `approve_po`);
@@ -308,8 +332,7 @@ Yang sudah ada tetap berlaku:
 - `mark_arrived` mencatat tanggal sampai;
 - BAST memindahkan proyek ke `DONE`.
 
-Jumlah kontainer aktual dihitung dari pengiriman ini. Perkiraannya ada di
-order pabrik (§5.4).
+Jumlah kontainer dihitung dari pengiriman ini.
 
 ### 5.7 QC lapangan (modul baru: `ops_qc`)
 
@@ -318,16 +341,13 @@ Lima tabel. Semuanya kecil.
 | Tabel | Isi | Siapa mengisi |
 |---|---|---|
 | `qc_people` | Nama, HP, kota, akun ops (opsional), aktif/tidak, catatan | Koordinator QC |
-| `qc_assignments` | Orang, order pabrik (dan proyeknya), **kontainer yang ditanggung** (default 5), mulai, selesai. Tanpa fee (D412) | Koordinator QC |
+| `qc_assignments` | Orang, order pabrik (dan proyeknya), mulai, selesai, catatan. Rasio 1 QC per 5 kontainer diatur koordinator sendiri (D414). Tanpa fee (D412) | Koordinator QC |
 | `qc_reports` | Laporan per kunjungan/hari: tanggal, tahap (`bahan` · `konstruksi` · `finishing` · `packing` · `muat`), catatan, foto. Untuk tahap `muat`, menunjuk kontainer (§5.6) | QC dari HP |
 | `qc_report_lines` | Per baris order: jumlah **lolos** dan **ditolak** pada laporan itu | QC dari HP |
 | `qc_findings` | Temuan/insiden: jenis (`cacat` · `bahan/spek tidak sesuai` · `telat` · `rusak` · `packing` · `lainnya`), tingkat (`minor` · `major` · `kritis`), baris order (opsional), foto, tindakan, status `OPEN → RESOLVED`. Dicatat juga **fasenya**: `produksi`, `muat`, atau `setelah sampai` (klaim klien, §5.8) | QC, koordinator, atau sales untuk klaim klien |
 
 Yang dihitung, tidak diketik:
 
-- **Kebutuhan QC** = kontainer direncanakan ÷ 5, dibulatkan ke atas. Kalau
-  kontainer yang ditanggung penugasan aktif kurang dari kontainer order
-  pabrik, muncul peringatan di order pabrik dan di papan QC.
 - **Progres produksi pabrik** per baris = jumlah lolos terakhir ÷ jumlah
   dipesan. Angka ini yang tampil di papan Produksi per proyek (§5.1).
 - **Laporan telat**: hari penugasan aktif tanpa laporan. Disorot, tidak
@@ -376,7 +396,7 @@ Tidak ada yang diketik ulang.
 | Untuk | Yang terbaca |
 |---|---|
 | **Pabrik mitra** | Order per tahun, harga penawaran vs harga jadi, kirim tepat waktu (ETD vs janji), temuan per kontainer, klaim setelah sampai |
-| **Personel QC** | Penugasan, kontainer ditanggung, hari dengan laporan / hari aktif, temuan sebelum kirim, klaim yang lolos ke klien, order yang diterima / ditolak klien |
+| **Personel QC** | Penugasan, kontainer yang dimuat selama penugasannya, hari dengan laporan / hari aktif, temuan sebelum kirim, klaim yang lolos ke klien, order yang diterima / ditolak klien |
 | **Proyek** | Lama tiap tahap (inquiry → deal → produksi → kirim → sampai → purna jual), diterima / ditolak klien, margin quotation (hanya pemegang `project.update`) |
 | **Desain** | Kelengkapan kotak dan ketepatan tenggat drafter (sudah ada, S2) |
 
@@ -408,11 +428,11 @@ Tidak ada yang diketik ulang.
 | # | Sesi | Database | Butuh jawaban? |
 |---|---|---|---|
 | **O1** | **Pintu masuk:** *Proyek baru* dan *Klien baru* langsung dari Pipeline dan Design, memakai formulir yang sudah ada. Design menawarkan *buat proyek* saat kosong. Sisa P2: `remove_quotation_line` versi 0219 ke produksi lewat SQL Editor (badannya menghapus baris) | tidak (hanya menerapkan sisa 0219) | tidak |
-| **O2** | **Jenis vendor + harga pabrik per item:** `vendors.kind`, `factory_quotes`, sumber biaya `factory` di quotation, kolom harga pabrik di Design/quotation | ya | — (D413) |
-| **O3** | **Jalur produksi + order pabrik:** `project_lines.route`, PO ↔ proyek/baris order, `containers_planned`, buat order pabrik dari baris order `FACTORY`, `ISSUED` → `IN_PRODUCTION`, papan Produksi per proyek | ya | — (D413) |
+| **O2** | **Jenis vendor + harga pabrik per item:** `vendors.kind`, `factory_quotes`, sumber biaya `factory` di quotation, kolom harga pabrik di Design/quotation, mata uang IDR/USD + kurs per dokumen (D414) | ya | — (D414) |
+| **O3** | **Jalur produksi + order pabrik:** `project_lines.route`, PO ↔ proyek/baris order, buat order pabrik dari baris order `FACTORY`, `ISSUED` → `IN_PRODUCTION`, papan Produksi per proyek | ya | — (D413) |
 | ~~O4~~ | ~~Uang masuk dari klien di kartu proyek~~ **Dibatalkan (D412)** | — | — |
 | **O5** | **Kontainer:** `deliveries.mode` + kolom kontainer, isi per baris order, packing list / B/L | ya | — |
-| **O6** | **QC: personel + penugasan:** `ops_qc` schema, modul `qc`, aturan 1 per 5 kontainer (peringatan) | ya | — (D413) |
+| **O6** | **QC: personel + penugasan:** `ops_qc` schema, modul `qc`, QC hanya melihat order yang ditugaskan; rasio 1 per 5 kontainer manual (D414) | ya | — (D414) |
 | **O7** | **QC dari HP:** laporan harian + foto + jumlah lolos/tolak, temuan/insiden, cek muat kontainer, progres pabrik di papan proyek | ya | — |
 | **O8** | **Status hasil kerja:** diterima / ditolak klien per order pabrik, klaim klien sebagai temuan *setelah sampai*, pengingat 3 bulan sejak sampai | ya | — |
 | **O9** | **Evaluasi:** papan pabrik, QC, dan proyek (§5.9) | view saja | — |
@@ -434,7 +454,7 @@ dijawab.
 | **Q85** | Masa 3 bulan dihitung sejak kapan: barang sampai di klien, BAST, atau ETA kapal? | **Dijawab (D412):** uang tidak dikaitkan ke sistem; yang dicatat status pekerjaannya |
 | **Q86** | Kalau ada klaim dalam 3 bulan: fee QC ditahan sampai klaim selesai, dipotong, atau hangus? | **Dijawab (D412):** uang tidak dikaitkan ke sistem; yang dicatat status pekerjaannya |
 | **Q87** | Fee QC: angka per penugasan, per kontainer, atau bulanan? Ada uang muka atau uang jalan selama produksi, atau 100% ditahan sampai rilis? | **Dijawab (D412):** uang tidak dikaitkan ke sistem; yang dicatat status pekerjaannya |
-| **Q88** | QC mengisi laporan sendiri dari HP (akun ops), atau mengirim lewat WA lalu diketik koordinator? | **Dijawab (D413): default.** Akun sendiri, hanya melihat penugasannya |
-| **Q89** | Aturan 1 QC per 5 kontainer dihitung per order pabrik atau per proyek? Jumlah kontainer sudah diketahui saat order? | **Dijawab (D413): default.** Per order pabrik, dari perkiraan kontainer di order. Kurang QC hanya diperingatkan |
-| **Q90** | Siapa yang mencatat harga pabrik dan membuat order pabrik: procurement, sales, atau pimpinan? | **Dijawab (D413): default.** Procurement mencatat dan membuat, pimpinan menyetujui (alur PO sekarang) |
-| **Q91** | Harga pabrik dan harga ke klien dalam rupiah, atau ada mata uang asing (pabrik atau klien di luar negeri)? | **Dijawab (D413): default.** Rupiah. Mata uang ditambahkan nanti kalau dibutuhkan |
+| **Q88** | QC mengisi laporan sendiri dari HP (akun ops), atau mengirim lewat WA lalu diketik koordinator? | **Dijawab (D414): dikonfirmasi.** Akun sendiri, hanya melihat order yang ditugaskan kepadanya |
+| **Q89** | Aturan 1 QC per 5 kontainer dihitung per order pabrik atau per proyek? Jumlah kontainer sudah diketahui saat order? | **Dijawab (D414): manual.** Koordinator QC mengatur rasionya sendiri; sistem tidak menghitung dan tidak memperingatkan |
+| **Q90** | Siapa yang mencatat harga pabrik dan membuat order pabrik: procurement, sales, atau pimpinan? | **Dijawab (D414): ya.** Procurement mencatat dan membuat, pimpinan menyetujui (alur PO sekarang) |
+| **Q91** | Harga pabrik dan harga ke klien dalam rupiah, atau ada mata uang asing (pabrik atau klien di luar negeri)? | **Dijawab (D414): IDR dan USD.** Satu mata uang per dokumen, kurs diketik orang untuk dokumen USD (§5.3) |
