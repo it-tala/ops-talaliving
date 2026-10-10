@@ -9536,6 +9536,11 @@ marketing-only account cannot remove a line from a draft quotation until then.
 says `delete` (or `drop`, `truncate`) in a part of its own, so the rest is not
 held with it.
 
+**Closed 2026-10-10:** the owner ran that part in the SQL Editor. Production's
+`remove_quotation_line` now gates on `may_sell('update')`; its body equals the
+ladder's once the editor's CR characters are ignored (md5 `89e1f9db…`), and the
+apply is recorded as `0219_procure_pipeline_remove_quotation_line`.
+
 ## F227 · 2026-10-06 · Work with nobody yet is its own table, and a number is not free until every branch says so
 
 **Not a task with two columns made optional.** The ask was a list of work
