@@ -470,11 +470,11 @@ export function EmployeeDrawer({
             </p>
           </div>
           {/* A person's own monthly deductions (D389); a day wage has no
-              default, only what is written here (D410). */}
+              default, only what is written here (D411). */}
           {employee && (basis === "monthly" || basis === "daily") && (
             <div className="sm:col-span-2"><PersonDeductions employeeNo={employee.employee_no} dayWage={basis === "daily"} /></div>
           )}
-          {/* Tidak wajib absensi, for somebody who does not tap (D394, D410). */}
+          {/* Tidak wajib absensi, for somebody who does not tap (D394, D411). */}
           {employee && (basis === "monthly" || basis === "daily") && (
             <div className="sm:col-span-2"><AttendanceExempt employeeNo={employee.employee_no} dayWage={basis === "daily"} /></div>
           )}

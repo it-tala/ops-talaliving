@@ -96,7 +96,7 @@ export function DeductionDefaults() {
 
 /** One person's own monthly deductions (D389): blank follows the default,
  *  any number — zero included — is theirs. A day wage has no default: blank
- *  is nothing, and only a number written here is taken (D410). */
+ *  is nothing, and only a number written here is taken (D411). */
 export function PersonDeductions({ employeeNo, dayWage = false }: { employeeNo: string; dayWage?: boolean }) {
   const tr = useTr();
   const { toast } = useToast();

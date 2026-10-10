@@ -1,4 +1,4 @@
--- 0253 — a day wage's monthly deductions and *tidak wajib absensi* (D410).
+-- 0254 — a day wage's monthly deductions and *tidak wajib absensi* (D411).
 --
 -- ── the owner's ask (2026-10-09) ──────────────────────────────────────────
 --
@@ -23,12 +23,16 @@
 -- what changes is who the readers pay.
 --
 -- Restated: `deduction_defaults_for` (0236) and `payroll_line_for` (0252,
--- *dibayar per kehadiran*), each with the additions marked `0253`.
+-- *dibayar per kehadiran*), each with the additions marked `0253` (see below).
 --
 -- Written as 0252 and applied to production on 2026-10-10 at 05:39 UTC under
 -- that name; 0252_hr_presence_pay (D409) replaced `payroll_line_for` 25
 -- seconds later, so production kept this `deduction_defaults_for` and lost
--- the exempt day. Renumbered 0253 / D410 on top of it (F253).
+-- the exempt day. Rebuilt on top of it and applied again on 2026-10-10 as
+-- `0253_hr_daily_deductions_attendance`; then renumbered 0254 / D411 because
+-- PR #168 had already taken 0253 / D410 / F253 (F254). The comments inside
+-- the two bodies keep the number they were applied under, `0253 (D410)`, and
+-- nothing else, so they stay hash-identical with production.
 
 create or replace function ops_hr.deduction_defaults_for(
   p_from date, p_to date, p_employee_no text default null)

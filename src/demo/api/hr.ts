@@ -1847,7 +1847,7 @@ export async function setEmployeeDeduction(
 /** `ops_hr.deduction_defaults_for`: each salaried person employed in a month
  *  whose last day falls in the period, once per month; a person's own amount
  *  wins; a BPJS default steps aside for an enrolment in that scheme. A day
- *  wage owes only their own amount (0253, D410). */
+ *  wage owes only their own amount (0254, D411). */
 export async function dueDeductions(input: { from: string; to: string }): Promise<Result<DueDeduction[]>> {
   await latency();
   if (!seesStanding()) return ok(SERVICE, []);
@@ -1860,7 +1860,7 @@ export async function dueDeductions(input: { from: string; to: string }): Promis
     const mEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
     if (mEnd < input.from || mEnd > input.to) continue;
     for (const e of state.employees) {
-      // 0253 (D410): a day wage owes only what HRD wrote for them.
+      // 0254 (D411): a day wage owes only what HRD wrote for them.
       if (e.pay_basis !== "monthly" && e.pay_basis !== "daily") continue;
       if (e.joined_on && e.joined_on > mEnd) continue;
       if (e.left_on && e.left_on < mStart) continue;

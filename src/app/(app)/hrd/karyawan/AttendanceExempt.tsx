@@ -16,7 +16,7 @@ import { useTr } from "@/lib/i18n";
  *  it, as salaries were before. On with a reason, off with a reason from
  *  today on — the periods already read stay as they were. HRD's only.
  *  A day wage set here is paid each working day with no tap as a full day
- *  (0253, D410). */
+ *  (0254, D411). */
 export function AttendanceExempt({ employeeNo, dayWage = false }: { employeeNo: string; dayWage?: boolean }) {
   const tr = useTr();
   const { toast } = useToast();

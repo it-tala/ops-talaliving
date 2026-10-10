@@ -10255,7 +10255,7 @@ none, the complaint is usually about a number the flexible thing produced —
 here a day the clock priced at nothing for somebody whose clock is not the
 point.
 
-## F253 · 2026-10-10 · Two branches restated the same function from the same base, and production kept the last one
+## F254 · 2026-10-10 · Two branches restated the same function from the same base, and production kept the last one
 
 PR #163 (*dibayar per kehadiran*, D409) and PR #167 (a day wage's potongan
 and *tidak wajib absensi*) were written in parallel from the same `main`.
@@ -10269,7 +10269,8 @@ day wage (#167's half of the line) was gone — nothing failed, nothing said so.
 
 It was caught only because the hashes were checked right after applying, and
 `schema_migrations` showed a neighbour one minute old with the same number.
-#167 was rebuilt on #163: `0253`, D410, `payroll_line_for` = #163's body plus
+#167 was rebuilt on #163: `0254`, D411 (applied as `0253`; #168 had already
+taken 0253 / D410 / F253), `payroll_line_for` = #163's body plus
 the exempt day (a day with **no** tap; #163's is a day with **a** tap, so the
 two rules never meet on one day), and the demo derivation chained the same way.
 

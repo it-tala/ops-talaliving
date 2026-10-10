@@ -728,7 +728,7 @@ export function payrollLine(
       work_hours: d.scheduled_hours != null ? Math.round(d.scheduled_hours * 100) / 100 : d.work_hours,
     };
   });
-  /* 0253 (D410): a day wage HRD exempted from attendance is paid a working day
+  /* 0254 (D411): a day wage HRD exempted from attendance is paid a working day
      of their pattern with no tap and no mark as a whole day, the way a
      salary's is (D394). Never a day still to come, nor one outside
      employment; with no clock times it is never late, early or short. Same
