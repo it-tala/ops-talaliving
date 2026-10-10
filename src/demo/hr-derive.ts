@@ -720,12 +720,34 @@ export function payrollLine(
   const presenceOn = (key: string) => employee.pay_basis !== "monthly" && presence.some((x) =>
     (x.starts_on === null || x.starts_on <= key) && (x.ends_on === null || x.ends_on >= key));
   const presenceDates = new Set<string>();
-  const days = days1.map((d) => {
+  const days2 = days1.map((d) => {
     if (d.mark || d.scans.length === 0 || assumedDates.has(d.work_date) || !presenceOn(d.work_date)) return d;
     presenceDates.add(d.work_date);
     return {
       ...d, state: "complete" as const, day_value: 1, issues: [],
       work_hours: d.scheduled_hours != null ? Math.round(d.scheduled_hours * 100) / 100 : d.work_hours,
+    };
+  });
+  /* 0254 (D411): a day wage HRD exempted from attendance is paid a working day
+     of their pattern with no tap and no mark as a whole day, the way a
+     salary's is (D394). Never a day still to come, nor one outside
+     employment; with no clock times it is never late, early or short. Same
+     rule as `ops_hr.payroll_line_for`. */
+  const exemptTodayKey = officeToday();
+  const exemptRows = (state.attendance_exemptions ?? []).filter((x) => x.employee_id === employee.id);
+  const exemptDates = new Set<string>();
+  const days = days2.map((d) => {
+    if (employee.pay_basis !== "daily" || assumedDates.has(d.work_date) || d.mark
+      || d.scans.length > 0 || d.day_value > 0 || d.work_date > exemptTodayKey
+      || d.work_date < employee.joined_on || (employee.left_on !== null && d.work_date > employee.left_on)
+      || !isWorkdayFor(state, rules, schedF, d.work_date)
+      || !exemptRows.some((x) => (x.starts_on === null || x.starts_on <= d.work_date)
+        && (x.ends_on === null || x.ends_on >= d.work_date))) return d;
+    exemptDates.add(d.work_date);
+    return {
+      ...d, state: "complete" as const, day_value: 1,
+      work_hours: Math.round((d.scheduled_hours ?? employee.daily_hours) * 100) / 100,
+      overtime_hours: 0, issues: [],
     };
   });
 
@@ -819,7 +841,7 @@ export function payrollLine(
   /* Hours short of the contracted day. Off by default: what a short hour costs
      here has not been stated, and a deduction invented by software reaches
      somebody's pocket (D174). */
-  const under = undertimeOf(days, employee, rules, hourly);
+  const under = undertimeOf(days.filter((d) => !exemptDates.has(d.work_date)), employee, rules, hourly);
 
   /* What the paid days are made of, so a payslip can say it rather than
      showing one total nobody can take apart (D144). */

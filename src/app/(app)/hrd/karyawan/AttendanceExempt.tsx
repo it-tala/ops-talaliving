@@ -14,8 +14,10 @@ import { useTr } from "@/lib/i18n";
  *  karena dia pimpinan maka dia tidak perlu absensi.* Everybody else's working
  *  day with no tap waits for HRD before it is paid; somebody set here is paid
  *  it, as salaries were before. On with a reason, off with a reason from
- *  today on — the periods already read stay as they were. HRD's only. */
-export function AttendanceExempt({ employeeNo }: { employeeNo: string }) {
+ *  today on — the periods already read stay as they were. HRD's only.
+ *  A day wage set here is paid each working day with no tap as a full day
+ *  (0254, D411). */
+export function AttendanceExempt({ employeeNo, dayWage = false }: { employeeNo: string; dayWage?: boolean }) {
   const tr = useTr();
   const { toast } = useToast();
   const { can } = useSession();
@@ -45,9 +47,17 @@ export function AttendanceExempt({ employeeNo }: { employeeNo: string }) {
       <p className="mt-1 text-[12px] text-slate-700">
         {mine
           ? <>{tr("Not required", "Tidak wajib absensi")} — <span className="italic">{mine.reason}</span>{mine.by_name ? ` (${mine.by_name})` : ""}</>
-          : tr("Required — a working day with no tap is held until HRD confirms it.",
-            "Wajib — hari kerja tanpa tap ditahan sampai HRD mengonfirmasinya.")}
+          : dayWage
+            ? tr("Required — a day is paid when it has a tap.", "Wajib — hari dibayar kalau ada tap.")
+            : tr("Required — a working day with no tap is held until HRD confirms it.",
+              "Wajib — hari kerja tanpa tap ditahan sampai HRD mengonfirmasinya.")}
       </p>
+      {dayWage && mine && (
+        <p className="mt-0.5 text-[11px] text-slate-500">
+          {tr("Each working day of the schedule with no tap and no mark is paid as a full day.",
+            "Setiap hari kerja sesuai jadwal tanpa tap dan tanpa tanda dibayar sehari penuh.")}
+        </p>
+      )}
       {mayEdit && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <input

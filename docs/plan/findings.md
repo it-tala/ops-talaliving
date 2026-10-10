@@ -10280,3 +10280,79 @@ transaction.
 **Rule:** when a function's apply is left to somebody else, the screen that
 calls it is broken until they do — say so where the button is, and check the
 function exists before reporting the feature done.
+
+## F254 · 2026-10-10 · Two branches restated the same function from the same base, and production kept the last one
+
+PR #163 (*dibayar per kehadiran*, D409) and PR #167 (a day wage's potongan
+and *tidak wajib absensi*) were written in parallel from the same `main`.
+Both took migration `0252` and decision D409, and both restated
+`ops_hr.payroll_line_for` from the 0246 body. On production the two were
+applied 25 seconds apart on 2026-10-10: #167's `0252` at 05:39:43 (both its
+functions), #163's `0252_hr_presence_pay_b_payroll_line` at 05:40:08. The
+second `create or replace` silently replaced the first: production kept
+#163's `payroll_line_for` and #167's `deduction_defaults_for`, and the exempt
+day wage (#167's half of the line) was gone — nothing failed, nothing said so.
+
+It was caught only because the hashes were checked right after applying, and
+`schema_migrations` showed a neighbour one minute old with the same number.
+#167 was rebuilt on #163: `0254`, D411 (applied as `0253`; #168 had already
+taken 0253 / D410 / F253), `payroll_line_for` = #163's body plus
+the exempt day (a day with **no** tap; #163's is a day with **a** tap, so the
+two rules never meet on one day), and the demo derivation chained the same way.
+
+**Rule:** before applying a migration that restates a function, compare the
+production `md5(prosrc)` with the body the migration was written against, and
+after applying, look at `schema_migrations` for anything applied since the
+branch was cut. A function restated in two open branches is a conflict even
+when git merges the files cleanly — the second branch rebases on the first and
+restates from it.
+
+## F255 · 2026-10-10 · The door was not where the work starts, and the business turned out to be an agent's
+
+The owner asked to *check how a user inputs a new project — it seems there is
+none*. There is one, live since `0111`: **Proyek › Order › Proyek baru**,
+with *Klien baru* inside the same form. Project 25008 (Ryan Tala, 30 Sep) and
+the client LIVINGIKON (superadmin, 9 Oct) were made through it; 25004–25007
+have no creator and were loaded at setup. But the screens where the work actually
+starts do not lead there:
+- *Inquiry baru* on the Pipeline is only a link to the Order page.
+- **Produksi › Design** — where the owner instructs the drafters — has no
+  project button at all, only a sentence saying sales opens projects.
+
+A feature nobody can find from the screen they are on reads as a feature that
+does not exist.
+
+The same conversation corrected the model the project module was built on.
+Every step after DEAL assumed TALA's own workshop makes the order:
+- Job Orders;
+- subcontracting one process at a time (`vendor_legs`);
+- a truck to site;
+- BAST.
+
+The owner describes an **agent**:
+- TALA finds the order;
+- a partner factory elsewhere makes the whole of it, against the same
+  drawings and BOM;
+- outsourced QC people watch production at one per five containers;
+- QC is paid three months after the goods arrive without a problem.
+
+None of that has a place today:
+- no factory price;
+- no order to a factory tied to a project;
+- no containers;
+- no person who is neither employee nor vendor;
+- no clock after arrival.
+
+The kajian (`docs/analysis/2026-10-10-proyek-agen-pabrik-qc.md`) answers it
+by reuse, so that only QC is a new module:
+- a production route per order line;
+- the PO as the factory order;
+- the delivery as the container.
+
+**Rule:** before building "the missing feature", walk to it from the screen
+the owner works on. If the road exists but the door is elsewhere, the fix is
+the door.
+
+**Rule:** when the owner describes the business end to end, check each step
+against what the code assumes happens at that step, not only against the
+tables that exist. A complete road to the wrong place is still a gap.

@@ -133,7 +133,12 @@ function FactsForm({
   );
 }
 
-function NewProject({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
+/** *Proyek baru* — also opened from the Pipeline and from Design, so a project
+ *  starts on the screen where the work starts (O1, F255). `onCreated` hands
+ *  the new code back, so the caller can select it. */
+export function NewProject({ onClose, onChanged, onCreated }: {
+  onClose: () => void; onChanged: () => void; onCreated?: (code: string) => void;
+}) {
   const tr = useTr();
   const canSell = useCanSell();
   const { toast } = useToast();
@@ -152,6 +157,7 @@ function NewProject({ onClose, onChanged }: { onClose: () => void; onChanged: ()
     if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", tr("Not saved", "Tidak tersimpan"), res.error.message); return; }
     toast("success", tr("Project created", "Proyek dibuat"), `${res.data.code} · ${res.data.name} — status Inquiry`);
     onChanged();
+    onCreated?.(res.data.code);
     onClose();
   }
 
