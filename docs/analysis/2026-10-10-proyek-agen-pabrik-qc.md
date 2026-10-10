@@ -27,6 +27,9 @@
 Status: **kajian**. O1 dikerjakan 10 Okt. Urutan kerja di §7, pertanyaan
 untuk owner di §8.
 
+> **Pembaruan 10 Okt: Q81, Q83, Q84, Q88–Q91 memakai default (D413).** Owner:
+> *pertanyaannya pakai jawaban default.* Tidak ada sesi yang menunggu jawaban lagi.
+>
 > **Pembaruan 10 Okt: jawaban owner atas Q82, Q85, Q86, Q87 (D412).**
 > *Masalah uang tidak perlu dikaitkan erat ke sistem, cukup status
 > pekerjaannya saja: apakah belum selesai, diterima klien, atau tertolak,
@@ -405,11 +408,11 @@ Tidak ada yang diketik ulang.
 | # | Sesi | Database | Butuh jawaban? |
 |---|---|---|---|
 | **O1** | **Pintu masuk:** *Proyek baru* dan *Klien baru* langsung dari Pipeline dan Design, memakai formulir yang sudah ada. Design menawarkan *buat proyek* saat kosong. Sisa P2: `remove_quotation_line` versi 0219 ke produksi lewat SQL Editor (badannya menghapus baris) | tidak (hanya menerapkan sisa 0219) | tidak |
-| **O2** | **Jenis vendor + harga pabrik per item:** `vendors.kind`, `factory_quotes`, sumber biaya `factory` di quotation, kolom harga pabrik di Design/quotation | ya | Q90, Q91 |
-| **O3** | **Jalur produksi + order pabrik:** `project_lines.route`, PO ↔ proyek/baris order, `containers_planned`, buat order pabrik dari baris order `FACTORY`, `ISSUED` → `IN_PRODUCTION`, papan Produksi per proyek | ya | Q83, Q84 |
+| **O2** | **Jenis vendor + harga pabrik per item:** `vendors.kind`, `factory_quotes`, sumber biaya `factory` di quotation, kolom harga pabrik di Design/quotation | ya | — (D413) |
+| **O3** | **Jalur produksi + order pabrik:** `project_lines.route`, PO ↔ proyek/baris order, `containers_planned`, buat order pabrik dari baris order `FACTORY`, `ISSUED` → `IN_PRODUCTION`, papan Produksi per proyek | ya | — (D413) |
 | ~~O4~~ | ~~Uang masuk dari klien di kartu proyek~~ **Dibatalkan (D412)** | — | — |
 | **O5** | **Kontainer:** `deliveries.mode` + kolom kontainer, isi per baris order, packing list / B/L | ya | — |
-| **O6** | **QC: personel + penugasan:** `ops_qc` schema, modul `qc`, aturan 1 per 5 kontainer (peringatan) | ya | Q88, Q89 |
+| **O6** | **QC: personel + penugasan:** `ops_qc` schema, modul `qc`, aturan 1 per 5 kontainer (peringatan) | ya | — (D413) |
 | **O7** | **QC dari HP:** laporan harian + foto + jumlah lolos/tolak, temuan/insiden, cek muat kontainer, progres pabrik di papan proyek | ya | — |
 | **O8** | **Status hasil kerja:** diterima / ditolak klien per order pabrik, klaim klien sebagai temuan *setelah sampai*, pengingat 3 bulan sejak sampai | ya | — |
 | **O9** | **Evaluasi:** papan pabrik, QC, dan proyek (§5.9) | view saja | — |
@@ -424,14 +427,14 @@ dijawab.
 
 | Q | Pertanyaan | Default sampai dijawab |
 |---|---|---|
-| **Q81** | Gambar kerja 3D untuk BOM: filenya apa (SketchUp, 3DM, DWG 3D)? Cukup satu kotak **DWG / 3D**, atau perlu kotak 3D sendiri? | Satu kotak, diberi label **DWG / 3D**, menerima semua jenis file |
+| **Q81** | Gambar kerja 3D untuk BOM: filenya apa (SketchUp, 3DM, DWG 3D)? Cukup satu kotak **DWG / 3D**, atau perlu kotak 3D sendiri? | **Dijawab (D413): default.** Satu kotak, diberi label **DWG / 3D**, menerima semua jenis file |
 | **Q82** | D164 (*kita tidak handle penagihan ke klien*) masih berlaku? DP klien cukup dibaca dari uang masuk yang dicatat finance, dengan peringatan (bukan blokir) saat order pabrik diajukan tanpa DP? | **Dijawab (D412):** uang tidak dikaitkan ke sistem; yang dicatat status pekerjaannya |
-| **Q83** | Apakah workshop sendiri tetap memproduksi sebagian order, berdampingan dengan pabrik mitra? | Ya. Jalur per baris order, default workshop |
-| **Q84** | Bisakah satu proyek dibagi ke beberapa pabrik? | Bisa. Satu order pabrik per pabrik per proyek |
+| **Q83** | Apakah workshop sendiri tetap memproduksi sebagian order, berdampingan dengan pabrik mitra? | **Dijawab (D413): default.** Ya. Jalur per baris order, default workshop |
+| **Q84** | Bisakah satu proyek dibagi ke beberapa pabrik? | **Dijawab (D413): default.** Bisa. Satu order pabrik per pabrik per proyek |
 | **Q85** | Masa 3 bulan dihitung sejak kapan: barang sampai di klien, BAST, atau ETA kapal? | **Dijawab (D412):** uang tidak dikaitkan ke sistem; yang dicatat status pekerjaannya |
 | **Q86** | Kalau ada klaim dalam 3 bulan: fee QC ditahan sampai klaim selesai, dipotong, atau hangus? | **Dijawab (D412):** uang tidak dikaitkan ke sistem; yang dicatat status pekerjaannya |
 | **Q87** | Fee QC: angka per penugasan, per kontainer, atau bulanan? Ada uang muka atau uang jalan selama produksi, atau 100% ditahan sampai rilis? | **Dijawab (D412):** uang tidak dikaitkan ke sistem; yang dicatat status pekerjaannya |
-| **Q88** | QC mengisi laporan sendiri dari HP (akun ops), atau mengirim lewat WA lalu diketik koordinator? | Akun sendiri, hanya melihat penugasannya |
-| **Q89** | Aturan 1 QC per 5 kontainer dihitung per order pabrik atau per proyek? Jumlah kontainer sudah diketahui saat order? | Per order pabrik, dari perkiraan kontainer di order. Kurang QC hanya diperingatkan |
-| **Q90** | Siapa yang mencatat harga pabrik dan membuat order pabrik: procurement, sales, atau pimpinan? | Procurement mencatat dan membuat, pimpinan menyetujui (alur PO sekarang) |
-| **Q91** | Harga pabrik dan harga ke klien dalam rupiah, atau ada mata uang asing (pabrik atau klien di luar negeri)? | Rupiah. Mata uang ditambahkan nanti kalau dibutuhkan |
+| **Q88** | QC mengisi laporan sendiri dari HP (akun ops), atau mengirim lewat WA lalu diketik koordinator? | **Dijawab (D413): default.** Akun sendiri, hanya melihat penugasannya |
+| **Q89** | Aturan 1 QC per 5 kontainer dihitung per order pabrik atau per proyek? Jumlah kontainer sudah diketahui saat order? | **Dijawab (D413): default.** Per order pabrik, dari perkiraan kontainer di order. Kurang QC hanya diperingatkan |
+| **Q90** | Siapa yang mencatat harga pabrik dan membuat order pabrik: procurement, sales, atau pimpinan? | **Dijawab (D413): default.** Procurement mencatat dan membuat, pimpinan menyetujui (alur PO sekarang) |
+| **Q91** | Harga pabrik dan harga ke klien dalam rupiah, atau ada mata uang asing (pabrik atau klien di luar negeri)? | **Dijawab (D413): default.** Rupiah. Mata uang ditambahkan nanti kalau dibutuhkan |
