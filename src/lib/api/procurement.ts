@@ -33,7 +33,7 @@ import type {
   ReceivingInboxRow, ReceivingInboxStatus, ReceivingCandidates, ReceivingLineInput,
   ReceivingMatchResult, PoPaymentRequest, ReceivingArchiveResult,
   UomCode, PrCategory, PrDocument,
-  ProjectView, ProjectLineView, ProjectStatus, ProjectStatusChange, Client, ClientView,
+  ProjectView, ProjectLineView, ProjectStatus, PoMoney, ProjectProductionLine, FactoryOrderInput, FactoryOrderResult, ProductionRoute, ProjectStatusChange, Client, ClientView,
   ClosingReason, SalesPerson, TimelineEvent, ProjectOutcome,
 } from "@/services/procurement/contracts";
 import type { DocKind } from "@/services/documents/contracts";
@@ -1474,6 +1474,45 @@ export async function listProjectLines(code: string): Promise<Result<ProjectLine
   return ok(SERVICE, ((data ?? []) as ProjectLineRow[]).map(toProjectLineView));
 }
 
+/** Workshop or factory, for one or more lines of a project (0257, Q83). */
+export async function setLineRoute(
+  input: { project_code: string; line_nos: number[]; route: ProductionRoute },
+): Promise<Result<ProjectLineView[]>> {
+  const { data, error } = await db().rpc("set_line_route", {
+    p_project_code: input.project_code, p_line_nos: input.line_nos, p_route: input.route,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return listProjectLines(input.project_code);
+}
+
+interface ProjectProductionRow extends Omit<ProjectProductionLine, "qty" | "made" | "delivered" | "arrived" | "installed"> {
+  qty: number | string;
+  made: number | string | null;
+  delivered: number | string;
+  arrived: number | string;
+  installed: number | string;
+}
+
+/** The board per project (0257, §5.1): every order line, where it is made,
+ *  how far it is. All projects, or one. */
+export async function listProjectProduction(
+  opts: { project_code?: string } = {},
+): Promise<Result<ProjectProductionLine[]>> {
+  let q = db().from("v_project_production").select("*");
+  if (opts.project_code) q = q.eq("project_code", opts.project_code);
+  const { data, error } = await q.order("project_code", { ascending: false }).order("line_no");
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, ((data ?? []) as ProjectProductionRow[]).map((r) => ({
+    ...r,
+    qty: Number(r.qty),
+    made: numOrNull(r.made),
+    delivered: Number(r.delivered),
+    arrived: Number(r.arrived),
+    installed: Number(r.installed),
+  })));
+}
+
 export async function saveProjectLine(
   input: {
     project_code: string;
@@ -1835,6 +1874,42 @@ export async function issuePo(poNo: string, idempotencyKey?: string): Promise<Re
   return afterPo(poNo, fromSeam(SERVICE, data, error));
 }
 
+/** The kurs of a USD order, while it is a draft (0257, D416). Once issued it
+ *  is the kurs the factory was promised at. */
+export async function setPoFxRate(poNo: string, fxRate: number): Promise<Result<PoDetail>> {
+  const { data, error } = await db().rpc("set_po_fx_rate", { p_po_no: poNo, p_fx_rate: fxRate });
+  return afterPo(poNo, fromSeam(SERVICE, data, error));
+}
+
+/** A factory order from the project's FACTORY lines (0257, §5.4): one
+ *  factory, its price per design item unless one is typed, the lines'
+ *  quantities. A DRAFT, confirmed and issued like any other order. */
+export async function createFactoryOrder(
+  input: FactoryOrderInput, idempotencyKey?: string,
+): Promise<Result<FactoryOrderResult>> {
+  const { data, error } = await db().rpc("create_factory_order", {
+    p_project_code: input.project_code,
+    p_vendor_code: input.vendor_code,
+    p_lines: input.lines.map((l) => ({
+      line_no: l.line_no, qty: l.qty ?? null, unit_price: l.unit_price ?? null,
+    })),
+    p_currency: input.currency,
+    p_fx_rate: input.fx_rate ?? null,
+    p_expected_delivery: input.expected_delivery || null,
+    p_note: input.note ?? null,
+    p_dp_percent: input.dp_percent ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const res = fromSeam<FactoryOrderResult>(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, {
+    po_no: res.data.po_no, lines: Number(res.data.lines), currency: res.data.currency,
+    self_confirmed: !!res.data.self_confirmed,
+    same_factory_order: res.data.same_factory_order ?? null,
+    needs_rate: !!res.data.needs_rate,
+  });
+}
+
 /** An amendment after issue is a **revision**, not an edit (D135): the old line
  *  stays pointing forward, and the vendor is holding a piece of paper that two
  *  of them have to be tellable apart.
@@ -2039,6 +2114,14 @@ export interface PoView extends PurchaseOrder {
   /** Days past the date the vendor promised, when not everything has arrived.
    *  Null without a promise: nothing is late, it is merely absent (D134). */
   days_late: number | null;
+  /** The order's own currency, kurs, own total and project (`PoMoney`,
+   *  0257) — stated here because the view-contract check reads one parent. */
+  currency: PoMoney["currency"];
+  fx_rate: number | null;
+  contract_value_own: number;
+  needs_rate: boolean;
+  project_code: string | null;
+  project_name: string | null;
 }
 
 /** The board.

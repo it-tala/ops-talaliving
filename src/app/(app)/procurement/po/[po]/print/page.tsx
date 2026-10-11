@@ -2,7 +2,7 @@
 
 import { use, useEffect } from "react";
 import { Loaded, useLoad } from "@/components/ui/loaded";
-import { formatIDR, formatNumber } from "@/lib/format";
+import { formatIDR, formatMoney, formatNumber } from "@/lib/format";
 import { procurement } from "@/demo/api";
 import { useBrand } from "@/lib/brand";
 import { useTr, type Tr } from "@/lib/i18n";
@@ -77,6 +77,9 @@ export default function PoPrintPage({ params }: { params: Promise<{ po: string }
               <div>
                 <p className="text-[11px] uppercase tracking-wide text-slate-500">{both("Expected delivery", "Pengiriman diharapkan")}</p>
                 <p className="font-semibold">{d.expected_delivery ?? both("not decided yet", "belum ditentukan")}</p>
+                {d.project_code && (
+                  <p className="mt-2 text-slate-600">{both("Project", "Proyek")}: <span className="font-semibold">{d.project_code} · {d.project_name}</span></p>
+                )}
                 {d.note && <p className="mt-2 text-slate-600">{d.note}</p>}
               </div>
             </div>
@@ -95,8 +98,8 @@ export default function PoPrintPage({ params }: { params: Promise<{ po: string }
                   <tr key={l.po_line_id} className="border-b border-slate-200 align-top">
                     <td className="py-2 pr-3">{l.description}</td>
                     <td className="py-2 text-right tabular-nums">{formatNumber(l.qty)} {l.uom}</td>
-                    <td className="py-2 text-right tabular-nums">{formatIDR(l.unit_price)}</td>
-                    <td className="py-2 text-right tabular-nums">{formatIDR(l.line_total)}</td>
+                    <td className="py-2 text-right tabular-nums">{formatMoney(l.unit_price, d.currency)}</td>
+                    <td className="py-2 text-right tabular-nums">{formatMoney(l.line_total, d.currency)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -104,7 +107,7 @@ export default function PoPrintPage({ params }: { params: Promise<{ po: string }
                 <tr>
                   <td className="py-2 text-right font-semibold" colSpan={3}>Total</td>
                   <td className="py-2 text-right font-bold tabular-nums">
-                    {formatIDR(d.status_view.contract_value)}
+                    {formatMoney(d.contract_value_own, d.currency)}
                   </td>
                 </tr>
               </tfoot>
@@ -117,7 +120,12 @@ export default function PoPrintPage({ params }: { params: Promise<{ po: string }
                   {d.terms.map((t) => (
                     <li key={t.term_no}>
                       {t.kind} — {t.basis === "percent" ? `${t.basis_value}%` : both("fixed amount", "nilai tetap")} ·{" "}
-                      <span className="tabular-nums">{formatIDR(t.amount)}</span>{" "}
+                      <span className="tabular-nums">
+                        {/* The factory reads its own currency; rupiah is how we pay it (D416). */}
+                        {d.currency !== "IDR" && t.basis === "percent"
+                          ? formatMoney(Math.round(d.contract_value_own * t.basis_value) / 100, d.currency)
+                          : formatIDR(t.amount)}
+                      </span>{" "}
                       <span className="text-slate-600">
                         ({t.due_rule === "on_issue" ? both("when the PO is issued", "saat PO diterbitkan")
                           : t.due_rule === "on_delivery" ? both("when the goods are received", "saat barang diterima")

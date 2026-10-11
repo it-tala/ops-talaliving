@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, Scale, ShoppingCart } from "lucide-react";
+import { AlertTriangle, Factory, Hammer, Layers, Scale, ShoppingCart } from "lucide-react";
 import Link from "next/link";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
@@ -9,6 +9,8 @@ import { formatIDR, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { accounting, procurement, production } from "@/demo/api";
 import { useTr } from "@/lib/i18n";
+import { useSession } from "@/store/session";
+import type { ProductionStage, ProjectProductionLine } from "@/services/procurement/contracts";
 
 /** Projected against actual, for one project.
  *
@@ -43,8 +45,8 @@ export default function ProjectCostPage() {
     <div>
       <PageHeader
         breadcrumb={tr("Projects", "Proyek")}
-        title={tr("Production cost: projected vs actual", "Biaya produksi: proyeksi vs aktual")}
-        description={tr("Projection is BOM × quantity ordered. Actual is read from the PRs raised from that BOM, and from spending booked to the project.", "Proyeksi dihitung dari BOM × jumlah yang dipesan. Aktual dibaca dari PR yang dibuat dari BOM itu, dan dari belanja yang dibukukan ke proyek.")}
+        title={tr("Production per project", "Produksi per proyek")}
+        description={tr("Every order line, where it is made — the workshop or a partner factory — and how far it is. Below it, the material cost against the projection.", "Setiap baris order, di mana dikerjakan — workshop atau pabrik mitra — dan sudah sampai mana. Di bawahnya, biaya material dibanding proyeksi.")}
       />
 
       <Loaded state={projects}>
@@ -65,6 +67,7 @@ export default function ProjectCostPage() {
                   </Button>
                 ))}
               </div>
+              {current && <ProductionBoard code={current} />}
               {current && <ProjectCost code={current} />}
             </>
           );
@@ -335,5 +338,150 @@ function ProjectCost({ code }: { code: string }) {
         </Loaded>
       )}
     </Loaded>
+  );
+}
+
+/* ── the board per project (0257, O3, kajian §5.1) ──────────────────────── */
+
+const STAGE: Record<ProductionStage, { en: string; id: string; tone: "slate" | "amber" | "brand" | "green" | "violet" }> = {
+  NO_JOB_ORDER:     { en: "no Job Order yet",    id: "belum ada Job Order",   tone: "amber" },
+  IN_WORK:          { en: "in the workshop",     id: "di workshop",           tone: "brand" },
+  MADE:             { en: "made",                id: "selesai dibuat",        tone: "green" },
+  NO_FACTORY_ORDER: { en: "no factory order yet", id: "belum ada order pabrik", tone: "amber" },
+  ORDER_DRAFT:      { en: "order not issued",    id: "order belum terbit",    tone: "slate" },
+  AT_FACTORY:       { en: "at the factory",      id: "di pabrik",             tone: "violet" },
+  SHIPPED:          { en: "shipped",             id: "dikirim",               tone: "brand" },
+  ARRIVED:          { en: "arrived",             id: "sampai",                tone: "green" },
+};
+
+/** Where each line is made and how far it is. A workshop line reads its Job
+ *  Orders; a factory line reads its factory order — what the factory has
+ *  finished is QC's number (O7), so until then the board says *at the
+ *  factory*, not a count nobody gave. */
+function ProductionBoard({ code }: { code: string }) {
+  const tr = useTr();
+  const { can } = useSession();
+  const [state, reload] = useLoad(() => procurement.listProjectProduction({ project_code: code }), [code]);
+  const openPo = can("procurement.read");
+
+  return (
+    <Card className="mb-4">
+      <CardHeader
+        title={tr("Production progress", "Progres produksi")}
+        subtitle={tr("Workshop lines through Job Orders, factory lines through their factory order. The route is set on the order card.",
+          "Baris workshop lewat Job Order, baris pabrik lewat order pabriknya. Jalurnya diatur di kartu order.")}
+        icon={Layers}
+        action={(
+          <div className="flex items-center gap-2">
+            <SourceBadge state={state} />
+            <Link href={`/proyek/order/${encodeURIComponent(code)}`} className="text-[12px] text-brand-700 hover:underline">
+              {tr("Order card", "Kartu order")}
+            </Link>
+          </div>
+        )}
+      />
+      <Loaded state={state} onRetry={reload} skeletonRows={3}>
+        {(rows) => rows.length === 0 ? (
+          <p className="px-4 py-8 text-center text-[13px] text-slate-500">
+            {tr("No order lines yet. They come from an accepted quotation, or are typed on the order card.",
+              "Belum ada baris order. Baris datang dari quotation yang diterima, atau diketik di kartu order.")}
+          </p>
+        ) : (
+          <>
+            <StageSummary rows={rows} />
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] text-[13px]">
+                <thead>
+                  <tr className="border-y border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
+                    <th className="px-3 py-2 text-left">{tr("Order line", "Baris order")}</th>
+                    <th className="px-3 py-2 text-right">{tr("Qty", "Jumlah")}</th>
+                    <th className="px-3 py-2 text-left">{tr("Made by", "Dikerjakan")}</th>
+                    <th className="px-3 py-2 text-right">{tr("Made", "Jadi")}</th>
+                    <th className="px-3 py-2 text-right">{tr("Shipped / arrived", "Dikirim / sampai")}</th>
+                    <th className="px-3 py-2 text-left">{tr("Where it is", "Posisi")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => <BoardRow key={r.project_line_id} r={r} openPo={openPo} />)}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </Loaded>
+    </Card>
+  );
+}
+
+function StageSummary({ rows }: { rows: ProjectProductionLine[] }) {
+  const tr = useTr();
+  const workshop = rows.filter((r) => r.route === "WORKSHOP").length;
+  const factory = rows.length - workshop;
+  const counts = (Object.keys(STAGE) as ProductionStage[])
+    .map((k) => [k, rows.filter((r) => r.stage === k).length] as const)
+    .filter(([, n]) => n > 0);
+  const late = rows.filter((r) => r.factory_days_late != null).length;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 px-4 py-2.5 text-[12px] text-slate-600">
+      <span className="inline-flex items-center gap-1"><Hammer className="h-3.5 w-3.5 text-slate-400" />{tr(`${workshop} workshop`, `${workshop} workshop`)}</span>
+      <span className="inline-flex items-center gap-1"><Factory className="h-3.5 w-3.5 text-slate-400" />{tr(`${factory} factory`, `${factory} pabrik`)}</span>
+      <span className="text-slate-300">·</span>
+      {counts.map(([k, n]) => <Badge key={k} tone={STAGE[k].tone}>{tr(STAGE[k].en, STAGE[k].id)} · {n}</Badge>)}
+      {late > 0 && <Badge tone="red">{tr(`${late} past the factory's date`, `${late} lewat janji pabrik`)}</Badge>}
+    </div>
+  );
+}
+
+function BoardRow({ r, openPo }: { r: ProjectProductionLine; openPo: boolean }) {
+  const tr = useTr();
+  return (
+    <tr className="border-b border-slate-100 last:border-0 align-top">
+      <td className="px-3 py-2">
+        <span className="text-slate-800">{r.line_no}. {r.description}</span>
+        <span className="block text-[11px] text-slate-400">
+          {[r.product_code, r.design_item_no, r.delivery_date && tr(`ships ${r.delivery_date}`, `kirim ${r.delivery_date}`)].filter(Boolean).join(" · ")}
+        </span>
+      </td>
+      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-700">{formatNumber(r.qty)} {r.uom}</td>
+      <td className="px-3 py-2">
+        {r.route === "WORKSHOP" ? (
+          <span className="text-slate-700">
+            <Hammer className="mr-1 inline h-3.5 w-3.5 text-slate-400" />{tr("Workshop", "Workshop")}
+            {r.job_order_count > 0 && (
+              <Link href={`/produksi/jadwal?project=${encodeURIComponent(r.project_code)}`} className="block text-[11px] text-brand-700 hover:underline">
+                {tr(`${r.job_order_count} Job Order`, `${r.job_order_count} Job Order`)}{r.job_order_open ? tr(` · ${r.job_order_open} open`, ` · ${r.job_order_open} berjalan`) : ""}
+              </Link>
+            )}
+          </span>
+        ) : (
+          <span className="text-slate-700">
+            <Factory className="mr-1 inline h-3.5 w-3.5 text-violet-500" />{r.factory_vendor_name ?? tr("Partner factory", "Pabrik mitra")}
+            {r.factory_po_no && (
+              openPo
+                ? <Link href={`/procurement/po/${encodeURIComponent(r.factory_po_no)}`} className="block font-mono text-[11px] text-brand-700 hover:underline">{r.factory_po_no}</Link>
+                : <span className="block font-mono text-[11px] text-slate-500">{r.factory_po_no}</span>
+            )}
+          </span>
+        )}
+      </td>
+      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-700">
+        {r.made != null ? formatNumber(r.made)
+          : r.route === "FACTORY" ? <span className="text-[11px] text-slate-400" title={tr("Counted by QC at the factory (coming)", "Dihitung QC di pabrik (menyusul)")}>{tr("QC", "QC")}</span>
+            : <span className="text-slate-300">—</span>}
+      </td>
+      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-700">
+        {formatNumber(r.delivered)} / {formatNumber(r.arrived)}
+      </td>
+      <td className="px-3 py-2">
+        <Badge tone={STAGE[r.stage].tone}>{tr(STAGE[r.stage].en, STAGE[r.stage].id)}</Badge>
+        {r.route === "FACTORY" && r.factory_expected_delivery && r.stage === "AT_FACTORY" && (
+          <span className={cn("block text-[11px]", r.factory_days_late != null ? "text-rose-700" : "text-slate-500")}>
+            {r.factory_days_late != null
+              ? tr(`promised ${r.factory_expected_delivery} · ${r.factory_days_late} day(s) late`, `dijanjikan ${r.factory_expected_delivery} · terlambat ${r.factory_days_late} hari`)
+              : tr(`promised ${r.factory_expected_delivery}`, `dijanjikan ${r.factory_expected_delivery}`)}
+          </span>
+        )}
+      </td>
+    </tr>
   );
 }

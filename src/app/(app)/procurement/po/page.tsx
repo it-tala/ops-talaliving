@@ -5,7 +5,7 @@ import { FileText, Plus, Send } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
-import { formatIDR } from "@/lib/format";
+import { formatIDR, formatMoney } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { useTr } from "@/lib/i18n";
 import { procurement } from "@/demo/api";
@@ -40,6 +40,9 @@ export default function PoPage() {
         <div className="max-w-[260px]">
           <p className="font-mono text-[13px] font-medium text-slate-800">{p.po_no}</p>
           <p className="whitespace-normal break-words text-[12px] text-slate-500">{p.vendor_name}</p>
+          {p.project_code && (
+            <p className="text-[11px] text-violet-700">{tr("factory order", "order pabrik")} · {p.project_code} · {p.project_name}</p>
+          )}
           {p.note && <p className="whitespace-normal break-words text-[11px] text-slate-400">{p.note}</p>}
         </div>
       ),
@@ -71,7 +74,10 @@ export default function PoPage() {
       align: "right",
       render: (p) => (
         <span className="whitespace-nowrap tabular-nums text-slate-800">
-          {formatIDR(p.lines.reduce((s, l) => s + l.line_total, 0))}
+          {(p.currency ?? "IDR") === "IDR"
+            ? formatIDR(p.lines.reduce((s, l) => s + l.line_total, 0))
+            : formatMoney(p.contract_value_own, p.currency)}
+          {p.needs_rate && <span className="block text-[11px] text-amber-700">{tr("kurs not typed", "kurs belum diisi")}</span>}
         </span>
       ),
     },

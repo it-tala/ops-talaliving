@@ -330,6 +330,32 @@ appends the chosen offer — `factory_quote_no`, `factory_vendor_name`,
 `factory_offers` — masked to `may_price_factory('read')`. `may_design('read')`
 now includes `procurement.read`.
 
+### Projects — production route and factory orders (O3, 0257, D416)
+
+| Method | Path | Notes |
+|---|---|---|
+| PUT | `/projects/{code}/lines/route` | `{line_nos: int[], route: WORKSHOP\|FACTORY}` — `set_line_route` (`project.update` or `procurement.update`). Same route is **noop**. 422 `unknown_route`, `lines_required`, `line_unknown`; 409 `on_factory_order` (back to the workshop while on a live factory order), `has_job_orders` (to a factory while a Job Order is live) |
+| POST | `/factory-orders` | `{project_code, vendor_code, currency: IDR\|USD, fx_rate?, expected_delivery?, note?, dp_percent?, lines: [{line_no, qty?, unit_price?}]}` — `create_factory_order` (`procurement.create`, idempotent): a DRAFT PO with `project_id`, currency and kurs; each line names its `project_line_id`. Without a price a line takes this factory's price for its design item (`factory_price_of`: the chosen offer when it is this factory's, else its newest live one), converted at the order's kurs. A supplier becomes `factory`; `approve_goods` holders confirm in the same act. Answers `{po_no, lines, currency, project_code, self_confirmed, same_factory_order, needs_rate}`. 422 `project_not_found`, `vendor_required`, `not_factory`, `unknown_currency`, `bad_fx_rate`, `dp_out_of_range`, `lines_required`, `line_named_twice`, `line_unknown`, `not_factory_route`, `bad_qty`, `bad_price`, `price_required` (no offer and no typed price, or an offer in the other currency without a kurs); 409 `project_closed`, `line_already_ordered` |
+| PUT | `/purchase-orders/{po_no}/fx-rate` | `{fx_rate}` — `set_po_fx_rate` (`procurement.update`), draft only. Same kurs is **noop**. 422 `not_foreign`, `bad_fx_rate`; 409 `already_issued` |
+| GET | `/projects/production?project_code=` | `v_project_production`: one row per order line — route, design item, Job Orders, `made` (workshop only; a factory's count is QC's, O7), factory order (`factory_po_no`, status, vendor, promised date, `factory_days_late`), `delivered`/`arrived`/`installed`, `stage` |
+
+`issue_po` now refuses `fx_rate_required` for a USD order without its kurs and
+moves the project of a factory order to `IN_PRODUCTION` (answer carries
+`project_code`, `project_moved`). `amend_po_line` keeps `project_line_id` and
+rounds the total in the order's currency (`po_line_total`). `v_po_status`
+reads `contract_value`, `value_received` and `credit` in **rupiah at the
+order's kurs** (zero while a USD order has none — `needs_rate`) and appends
+`currency`, `fx_rate`, `contract_value_own`, `needs_rate`, `project_id`;
+`v_po_board` appends `currency`, `fx_rate`, `contract_value_own`,
+`needs_rate`, `project_code`, `project_name`, `project_id`; `v_po_detail` the
+same plus `project_line_nos` (PO line → order line); `po_approval_card` adds
+`currency`, `fx_rate`, `contract_value_own`, `project_code`. `v_project_line`
+appends `route`, `design_item_id`, `design_item_no` and the factory order's
+`factory_po_no`, `factory_po_status`, `factory_vendor_code`,
+`factory_vendor_name`, `factory_expected_delivery`, `factory_issued_at`, read
+through the definer `factory_order_of_line` (no price) so project readers see
+it without reading purchase orders.
+
 ### Projects — meetings (P3, 0224)
 
 The client log (0134) stays the one log of contact. Any entry can carry

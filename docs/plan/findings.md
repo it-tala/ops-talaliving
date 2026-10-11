@@ -10380,3 +10380,46 @@ that computes a visible number from it. If the number is visible to more
 people than the input, the input is masked in the view, not refused by the
 table.
 
+## F257 · 2026-10-11 · A second currency belongs at the document's edge, not in the ledger's middle
+
+O3 gave the purchase order a currency. The PO module is the deepest in the
+app: `v_po_status` feeds the terms, billable-now, the vendor journey, the
+tracker, `post_to_po`, `close_po`, the receiving candidates and the approval
+card, and every one of them adds `contract_value` to rupiah that came out of
+a bank. Carrying `USD` through all of them would have meant a currency on
+every payment allocation and a conversion at every sum.
+
+The cut that keeps it small: **lines are in the order's currency, and
+`v_po_status` reads every money figure in rupiah at the order's kurs**
+(`money_in`, which returns a rupiah amount unchanged, so every existing
+order reads exactly as before). Everything downstream of that view kept its
+code. The order's own total is appended (`contract_value_own`) for the
+screens and the paper the factory gets. Two guards make the rupiah figure
+trustworthy: a USD order cannot be issued without its kurs (payments start
+at issue), and the kurs cannot change after it.
+
+Three smaller things the same session taught:
+
+- **A PL/pgSQL `record` variable and a query alias share a namespace.**
+  `declare x record; … from unnest(arr) x(n)` fails at run time with
+  *record "x" is not assigned yet* — the alias resolves to the variable.
+  The static check in `smoke.sh` catches locals that shadow columns, not
+  this.
+- **`security_invoker = true` is not what the guard looks for.** Postgres
+  stores the option as written, and `17_core_view_invoker` checks for `on`.
+  Write `with (security_invoker = on)` as every other view does.
+- **The view-contract check reads one `extends` and no generics.**
+  `interface PoView extends Omit<PurchaseOrder, …>, PoMoney` stopped
+  `check-view-contracts.mjs` with *no interface named PoView*. Restating the
+  fields on the interface is cheaper than teaching a regex TypeScript.
+
+Also: a definer function that returns a factory order's *name, state and
+date* (`factory_order_of_line`) lets the order card and the board say which
+order a line is on to people who may not read purchase orders, without
+widening `po_lines` — whose prices are procurement's — to every project
+reader.
+
+**Rule:** when a document gains a currency, convert at the one view the
+money machinery reads from, keep the document's own figure beside it, and
+refuse the state change after which the conversion matters until the rate
+is there.

@@ -7,7 +7,7 @@ import type {
   PurchaseOrder, PoLine, PoStatusView, Receipt, ReceiptCondition, PrCategory, UomCode,
   VendorView, ItemView, VarianceReason, PrApproval, VendorJourney,
   ApprovalRequestView, ApprovalBatchView, PoDetail, PoApprovalView,
-  ProjectView, ProjectLineView, ProjectStatus, ProjectStatusChange, Client, ClientView,
+  ProjectView, ProjectLineView, ProjectStatus, PoMoney, ProjectProductionLine, FactoryOrderInput, FactoryOrderResult, ProductionRoute, ProjectStatusChange, Client, ClientView,
   ReceivingInboxRow, ReceivingInboxStatus, ReceivingCandidates, ReceivingLineInput,
   ReceivingMatchResult, PoPaymentRequest, ReceivingTrxCandidate, ReceivingPoCandidate,
   ReceivingArchiveResult, ClosingReason, SalesPerson, TimelineEvent, TimelineKind, ProjectOutcome,
@@ -32,7 +32,7 @@ import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "
 import { stockFromReceipt, stockArrival, stockItemUom, registerArrivedAsset } from "./inventory";
 import {
   prLineView, approvalQueue, lineCoverage, roundSummary, poStatus, isApproved,
-  poDetail, poTerms,
+  poDetail, poTerms, poMoney,
   boughtCategories, itemsBoughtFrom, itemSources, purchaseFacts, openLines,
   pendingRequest, byTime, vendorJourney, poJourney,
   varianceOf, currentApproval, lineEvidenceKinds, orderOfLine,
@@ -527,7 +527,7 @@ export async function listSalesPeople(): Promise<Result<SalesPerson[]>> {
     .sort((a, b) => a.full_name.localeCompare(b.full_name)));
 }
 
-function lineView(state: DemoState, project: Project, l: ProjectLine): ProjectLineView {
+function lineView(state: DemoState, project: Project, l: DemoState["project_lines"][number]): ProjectLineView {
   const product = l.product_code ? state.products.find((x) => x.product_code === l.product_code) : undefined;
   const pv = product ? productView(state, product) : null;
   return {
@@ -540,7 +540,282 @@ function lineView(state: DemoState, project: Project, l: ProjectLine): ProjectLi
     product_draft_rev: pv?.draft_rev ?? null,
     product_production_cost: pv?.production_cost ?? null,
     ...jobOrdersOf(state, l.id),
+    route: l.route ?? "WORKSHOP",
+    design_item_no: l.design_item_id ? state.design_items.find((d) => d.id === l.design_item_id)?.item_no ?? null : null,
+    ...factoryOrderOf(state, l.id),
   };
+}
+
+/** The factory order an order line is on (0257's `factory_order_of_line`):
+ *  its name, state and date — never its price. */
+function factoryOrderOf(state: DemoState, lineId: string) {
+  const hit = state.po_lines
+    .filter((o) => o.project_line_id === lineId && o.superseded_by === null)
+    .map((o) => state.purchase_orders.find((p) => p.id === o.po_id && p.status !== "CANCELLED"))
+    .filter((p): p is NonNullable<typeof p> => !!p)
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+  const vendor = hit ? state.vendors.find((v) => v.id === hit.vendor_id) : undefined;
+  return {
+    factory_po_no: hit?.po_no ?? null,
+    factory_po_status: hit?.status ?? null,
+    factory_vendor_code: vendor?.code ?? null,
+    factory_vendor_name: vendor?.name ?? null,
+    factory_expected_delivery: hit?.expected_delivery ?? null,
+    factory_issued_at: hit?.issued_at ?? null,
+  };
+}
+
+/** A line total in the order's currency: to the rupiah, or to the cent. */
+function poLineTotal(qty: number, unitPrice: number, currency?: string): number {
+  return currency === "USD" ? Math.round(qty * unitPrice * 100) / 100 : Math.round(qty * unitPrice);
+}
+
+const rank = { read: 0, write: 1, admin: 2 } as const;
+const holds = (module: string, level: "read" | "write") =>
+  actingUser().modules.some((m) => m.module === module && rank[m.level] >= rank[level]);
+
+/** Workshop or factory, for one or more lines of a project (0257, Q83):
+ *  whoever runs the project, or procurement. */
+export async function setLineRoute(
+  input: { project_code: string; line_nos: number[]; route: ProductionRoute },
+): Promise<Result<ProjectLineView[]>> {
+  await latency();
+  if (!holds("project", "write") && !holds("procurement", "write")) {
+    return refused(SERVICE, "not_permitted", "Memilih workshop atau pabrik untuk baris order perlu akses proyek atau procurement.");
+  }
+  const state = getState();
+  const project = state.projects.find((p) => p.code === input.project_code);
+  if (!project) return notFound(SERVICE, "project_not_found", "Proyek itu tidak ada.");
+  if (input.route !== "WORKSHOP" && input.route !== "FACTORY") {
+    return invalid(SERVICE, "unknown_route", `Jalur ${input.route} tidak dikenal: WORKSHOP atau FACTORY.`, { field: "route" });
+  }
+  if (input.line_nos.length === 0) return invalid(SERVICE, "lines_required", "Pilih baris order yang dipindah.", { field: "lines" });
+  const lines = state.project_lines.filter((l) => l.project_id === project.id);
+  const missing = input.line_nos.find((n) => !lines.some((l) => l.line_no === n));
+  if (missing != null) {
+    return invalid(SERVICE, "line_unknown", `Baris ${missing} tidak ada di proyek ${project.code}.`, { field: "lines", line_no: missing });
+  }
+  const chosen = lines.filter((l) => input.line_nos.includes(l.line_no));
+  for (const l of chosen) {
+    if (input.route === "WORKSHOP") {
+      const po = factoryOrderOf(state, l.id).factory_po_no;
+      if (po) return conflict(SERVICE, "on_factory_order", `Baris ${l.line_no} sudah dipesan ke pabrik di ${po}. Batalkan atau ubah order itu dulu.`, { line_no: l.line_no, po_no: po });
+    } else {
+      const wo = state.work_orders.find((w) => w.project_line_id === l.id && w.status !== "CANCELLED");
+      if (wo) return conflict(SERVICE, "has_job_orders", `Baris ${l.line_no} sudah punya Job Order ${wo.wo_no} di workshop. Batalkan Job Order itu dulu.`, { line_no: l.line_no, wo_no: wo.wo_no });
+    }
+  }
+  const moving = chosen.filter((l) => (l.route ?? "WORKSHOP") !== input.route);
+  if (moving.length === 0) return noop(SERVICE, (await listProjectLines(project.code)).data ?? []);
+  const user = actingUser();
+  apply((draft) => {
+    for (const l of draft.project_lines) if (moving.some((m) => m.id === l.id)) l.route = input.route;
+    writeAudit(draft, {
+      service: SERVICE, entity: "project", entity_no: project.code, action: "route", outcome: "ok", reason: null,
+      detail: { route: input.route, lines: moving.map((l) => l.line_no), by: user.email },
+    });
+  });
+  return listProjectLines(project.code);
+}
+
+/** The board per project (0257's `v_project_production`). */
+export async function listProjectProduction(
+  opts: { project_code?: string } = {},
+): Promise<Result<ProjectProductionLine[]>> {
+  await latency();
+  const state = getState();
+  const today = officeToday();
+  const rows: ProjectProductionLine[] = [];
+  for (const project of state.projects) {
+    if (opts.project_code && project.code !== opts.project_code) continue;
+    for (const l of state.project_lines.filter((x) => x.project_id === project.id).sort((a, b) => a.line_no - b.line_no)) {
+      const v = lineView(state, project, l);
+      const made = v.route === "WORKSHOP" && v.job_order_count > 0 ? v.job_order_completed : null;
+      const shipped = state.delivery_lines
+        .filter((d) => d.project_line_id === l.id)
+        .map((d) => ({ d, dv: state.deliveries.find((x) => x.id === d.delivery_id) }))
+        .filter(({ dv }) => dv && dv.status !== "CANCELLED");
+      const delivered = shipped.reduce((t, { d }) => t + d.qty, 0);
+      const arrived = shipped.filter(({ dv }) => dv!.status === "ARRIVED").reduce((t, { d }) => t + d.qty, 0);
+      const installed = state.installation_lines
+        .filter((i) => i.project_line_id === l.id && state.installations.find((x) => x.id === i.installation_id)?.status === "DONE")
+        .reduce((t, i) => t + i.qty, 0);
+      const stage: ProjectProductionLine["stage"] =
+        arrived >= l.qty ? "ARRIVED"
+          : delivered >= l.qty ? "SHIPPED"
+            : v.route === "WORKSHOP"
+              ? (v.job_order_count === 0 ? "NO_JOB_ORDER" : (made ?? 0) >= l.qty ? "MADE" : "IN_WORK")
+              : !v.factory_po_no ? "NO_FACTORY_ORDER"
+                : v.factory_po_status === "DRAFT" ? "ORDER_DRAFT" : "AT_FACTORY";
+      const late = v.route === "FACTORY" && v.factory_po_status === "ISSUED" && v.factory_expected_delivery
+        && delivered < l.qty && today > v.factory_expected_delivery
+        ? Math.round((Date.parse(today) - Date.parse(v.factory_expected_delivery)) / 86_400_000) : null;
+      rows.push({
+        project_code: project.code, project_name: project.name, project_status: project.status ?? "INQUIRY",
+        project_is_active: project.is_active, project_line_id: l.id, line_no: l.line_no,
+        product_code: l.product_code, description: l.description, qty: l.qty, uom: l.uom,
+        delivery_date: l.delivery_date ?? null, route: v.route, design_item_no: v.design_item_no,
+        job_order_count: v.job_order_count, job_order_open: v.job_order_open, made,
+        factory_po_no: v.factory_po_no, factory_po_status: v.factory_po_status,
+        factory_vendor_name: v.factory_vendor_name, factory_expected_delivery: v.factory_expected_delivery,
+        delivered, arrived, installed, stage, factory_days_late: late,
+      });
+    }
+  }
+  return ok(SERVICE, rows.sort((a, b) => b.project_code.localeCompare(a.project_code) || a.line_no - b.line_no));
+}
+
+/** This factory's price for a design item: the chosen offer when it is this
+ *  factory's, else its newest live one (0257's `factory_price_of`). */
+function factoryPriceOf(state: DemoState, designItemId: string, vendorId: string) {
+  const item = state.design_items.find((d) => d.id === designItemId);
+  return state.factory_quote_lines
+    .filter((fl) => fl.design_item_id === designItemId)
+    .map((fl) => ({ fl, fq: state.factory_quotes.find((q) => q.id === fl.quote_id)! }))
+    .filter(({ fq }) => fq && fq.vendor_id === vendorId && !fq.voided_at)
+    .sort((a, b) => Number(item?.factory_line_id === b.fl.id) - Number(item?.factory_line_id === a.fl.id)
+      || b.fq.quoted_on.localeCompare(a.fq.quoted_on) || b.fq.created_at.localeCompare(a.fq.created_at))
+    .map(({ fl, fq }) => ({ unit_price: fl.unit_price, currency: fq.currency }))[0] ?? null;
+}
+
+function moneyIn(amount: number, from: string, to: string, fx: number | null): number | null {
+  if (from === to) return amount;
+  if (!fx) return null;
+  return from === "IDR" ? Math.round((amount / fx) * 100) / 100 : Math.round(amount * fx);
+}
+
+/** A factory order from the project's FACTORY lines (0257's
+ *  `create_factory_order`). */
+export async function createFactoryOrder(
+  input: FactoryOrderInput, idempotencyKey?: string,
+): Promise<Result<FactoryOrderResult>> {
+  await latency();
+  const cached = replayed<FactoryOrderResult>(SERVICE, "createFactoryOrder", idempotencyKey);
+  if (cached) return cached;
+  if (!holds("procurement", "write")) return refused(SERVICE, "not_permitted", "Membuat order pabrik perlu akses procurement.");
+
+  const state = getState();
+  const project = state.projects.find((p) => p.code === input.project_code);
+  if (!project) return invalid(SERVICE, "project_not_found", `Tidak ada proyek ${input.project_code}.`, { field: "project_code" });
+  if (project.status === "LOST" || project.status === "CANCELLED") {
+    return conflict(SERVICE, "project_closed", `Proyek ${project.code} berstatus ${project.status}; tidak ada yang perlu dibuat.`);
+  }
+  const vendor = state.vendors.find((v) => v.code === input.vendor_code);
+  if (!vendor) return invalid(SERVICE, "vendor_required", "Pilih pabriknya dulu.", { field: "vendor_code" });
+  if (vendor.kind === "qc" || vendor.kind === "other") {
+    return invalid(SERVICE, "not_factory", `${vendor.name} tercatat sebagai ${vendor.kind}, bukan pabrik.`, { field: "vendor_code" });
+  }
+  if (input.currency !== "IDR" && input.currency !== "USD") {
+    return invalid(SERVICE, "unknown_currency", `Mata uang ${input.currency} tidak dipakai: IDR atau USD.`, { field: "currency" });
+  }
+  if (input.fx_rate != null && input.fx_rate <= 0) {
+    return invalid(SERVICE, "bad_fx_rate", "Kurs adalah rupiah untuk 1 USD, lebih dari nol.", { field: "fx_rate" });
+  }
+  const fx = input.currency === "IDR" ? null : input.fx_rate ?? null;
+  if (input.dp_percent != null && (input.dp_percent < 0 || input.dp_percent > 100)) {
+    return invalid(SERVICE, "dp_out_of_range", "DP antara 0 dan 100 persen.", { field: "dp_percent" });
+  }
+  if (input.lines.length === 0) return invalid(SERVICE, "lines_required", "Pilih baris order yang dipesan ke pabrik.", { field: "lines" });
+  const nos = input.lines.map((l) => l.line_no);
+  const twice = nos.find((n, i) => nos.indexOf(n) !== i);
+  if (twice != null) return invalid(SERVICE, "line_named_twice", `Baris ${twice} disebut dua kali.`, { field: "lines" });
+
+  const want: { project_line_id: string; description: string; qty: number; uom: string; unit_price: number }[] = [];
+  for (const x of input.lines) {
+    const l = state.project_lines.find((p) => p.project_id === project.id && p.line_no === x.line_no);
+    if (!l) return invalid(SERVICE, "line_unknown", `Baris ${x.line_no} tidak ada di proyek ${project.code}.`, { field: "lines" });
+    if ((l.route ?? "WORKSHOP") !== "FACTORY") {
+      return invalid(SERVICE, "not_factory_route", `Baris ${l.line_no} dikerjakan workshop. Pindahkan ke jalur pabrik dulu.`, { field: "lines", line_no: l.line_no });
+    }
+    const onPo = factoryOrderOf(state, l.id).factory_po_no;
+    if (onPo) return conflict(SERVICE, "line_already_ordered", `Baris ${l.line_no} sudah dipesan di ${onPo}.`, { line_no: l.line_no, po_no: onPo });
+    const qty = x.qty ?? l.qty;
+    if (!(qty > 0)) return invalid(SERVICE, "bad_qty", `Jumlah baris ${l.line_no} harus lebih dari nol.`, { field: "lines", line_no: l.line_no });
+    let price: number | null = null;
+    let offer: { unit_price: number; currency: string } | null = null;
+    if (x.unit_price != null) {
+      if (!(x.unit_price > 0)) return invalid(SERVICE, "bad_price", `Harga baris ${l.line_no} harus angka lebih dari nol.`, { field: "lines", line_no: l.line_no });
+      price = input.currency === "USD" ? Math.round(x.unit_price * 100) / 100 : Math.round(x.unit_price);
+    } else if (l.design_item_id) {
+      offer = factoryPriceOf(state, l.design_item_id, vendor.id);
+      price = offer ? moneyIn(offer.unit_price, offer.currency, input.currency, fx) : null;
+    }
+    if (price == null) {
+      return invalid(SERVICE, "price_required", offer
+        ? `Harga ${vendor.name} untuk baris ${l.line_no} dalam ${offer.currency}; isi kurs order ini atau ketik harganya.`
+        : `${vendor.name} belum memberi harga untuk baris ${l.line_no}. Ketik harga yang disepakati.`, { field: "lines", line_no: l.line_no });
+    }
+    want.push({
+      project_line_id: l.id, description: [l.product_code, l.description].filter(Boolean).join(" · "),
+      qty, uom: l.uom, unit_price: price,
+    });
+  }
+
+  const same = state.purchase_orders
+    .filter((p) => p.project_id === project.id && p.vendor_id === vendor.id && p.status !== "CANCELLED")
+    .sort((a, b) => a.created_at.localeCompare(b.created_at))[0]?.po_no ?? null;
+  const user = actingUser();
+  const selfConfirm = user.authorities.includes("approve_goods");
+  let poNo = "";
+  apply((draft) => {
+    poNo = nextDocNumber(draft, "po");
+    const poId = newId("po");
+    const now = new Date().toISOString();
+    const v = draft.vendors.find((x) => x.id === vendor.id);
+    if (v && (v.kind ?? "supplier") === "supplier") v.kind = "factory";
+    draft.purchase_orders.unshift({
+      id: poId, po_no: poNo, vendor_id: vendor.id, status: "DRAFT", created_at: now,
+      issued_at: null, issued_by: null, note: input.note?.trim() || null,
+      expected_delivery: input.expected_delivery || null,
+      approval_asked_at: null, approval_asked_by: null, approval_sent_to: null, approval_token: null,
+      self_confirmed: selfConfirm, approved_at: selfConfirm ? now : null, approved_by: selfConfirm ? user.id : null,
+      approval_note: null, revision: 0, sent_revision: 0,
+      project_id: project.id, currency: input.currency, fx_rate: fx,
+    });
+    want.forEach((w, i) => draft.po_lines.push({
+      id: newId("pol"), po_id: poId, line_no: i + 1, item_id: null, description: w.description,
+      qty: w.qty, uom: w.uom, unit_price: w.unit_price, line_total: poLineTotal(w.qty, w.unit_price, input.currency),
+      superseded_by: null, pr_line_id: null, project_line_id: w.project_line_id,
+    }));
+    if (input.dp_percent) {
+      draft.po_schedule.push(
+        { id: newId("pos"), po_id: poId, term_no: `${poNo}-M01`, kind: "DP", basis: "percent", basis_value: input.dp_percent, due_rule: "on_issue", due_date: null },
+        { id: newId("pos"), po_id: poId, term_no: `${poNo}-M02`, kind: "FINAL", basis: "percent", basis_value: 100 - input.dp_percent, due_rule: "on_delivery", due_date: null },
+      );
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "purchase_order", entity_no: poNo, action: "create_factory_order", outcome: "ok", reason: null,
+      detail: { project: project.code, vendor: vendor.code, lines: want.length, currency: input.currency, by: user.email },
+    });
+  });
+  const result: FactoryOrderResult = {
+    po_no: poNo, lines: want.length, currency: input.currency, self_confirmed: selfConfirm,
+    same_factory_order: same, needs_rate: input.currency !== "IDR" && !fx,
+  };
+  remember(SERVICE, "createFactoryOrder", idempotencyKey, result);
+  return ok(SERVICE, result);
+}
+
+/** The kurs of a USD order, while it is a draft (0257's `set_po_fx_rate`). */
+export async function setPoFxRate(poNo: string, fxRate: number): Promise<Result<PoDetail>> {
+  await latency();
+  if (!holds("procurement", "write")) return refused(SERVICE, "not_permitted", "Mengisi kurs order perlu akses procurement.");
+  const state = getState();
+  const po = state.purchase_orders.find((p) => p.po_no === poNo);
+  if (!po) return notFound(SERVICE, "po_not_found", "Order itu tidak ada.");
+  if ((po.currency ?? "IDR") === "IDR") return invalid(SERVICE, "not_foreign", `${poNo} dalam rupiah; tidak perlu kurs.`, { field: "fx_rate" });
+  if (po.status !== "DRAFT") return conflict(SERVICE, "already_issued", `${poNo} sudah diterbitkan dengan kurs ${po.fx_rate ?? "—"}.`);
+  if (!(fxRate > 0)) return invalid(SERVICE, "bad_fx_rate", "Kurs adalah rupiah untuk 1 USD, lebih dari nol.", { field: "fx_rate" });
+  if (po.fx_rate === fxRate) return getPoDetail(poNo);
+  apply((draft) => {
+    const row = draft.purchase_orders.find((p) => p.po_no === poNo);
+    if (row) row.fx_rate = fxRate;
+    writeAudit(draft, {
+      service: SERVICE, entity: "purchase_order", entity_no: poNo, action: "set_fx_rate", outcome: "ok", reason: null,
+      detail: { from: po.fx_rate ?? null, to: fxRate },
+    });
+  });
+  return getPoDetail(poNo);
 }
 
 /** The Job Orders made from one order line (0130's `v_project_line`). */
@@ -1946,6 +2221,14 @@ export interface PoView extends PurchaseOrder {
   /** Days past the date the vendor promised, when not everything has arrived.
    *  Null without a promise: nothing is late, it is merely absent (D134). */
   days_late: number | null;
+  /** The order's own currency, kurs, own total and project (`PoMoney`,
+   *  0257) — stated here because the view-contract check reads one parent. */
+  currency: PoMoney["currency"];
+  fx_rate: number | null;
+  contract_value_own: number;
+  needs_rate: boolean;
+  project_code: string | null;
+  project_name: string | null;
 }
 
 /** Issue a purchase order.
@@ -2118,6 +2401,7 @@ export async function listPo(): Promise<Result<PoView[]>> {
     lines: state.po_lines.filter((l) => l.po_id === po.id && l.superseded_by === null),
     vendor_name: state.vendors.find((v) => v.id === po.vendor_id)?.name ?? "—",
     days_late: poDetail(state, po.id)?.days_late ?? null,
+    ...poMoney(state, po.id),
   })));
 }
 
@@ -2132,6 +2416,7 @@ export async function getPo(poNo: string): Promise<Result<PoView>> {
     lines: state.po_lines.filter((l) => l.po_id === po.id && l.superseded_by === null),
     vendor_name: state.vendors.find((v) => v.id === po.vendor_id)?.name ?? "—",
     days_late: poDetail(state, po.id)?.days_late ?? null,
+    ...poMoney(state, po.id),
   });
 }
 
@@ -3186,6 +3471,12 @@ export async function issuePo(poNo: string, idempotencyKey?: string): Promise<Re
     );
   }
 
+  /* The kurs is what the payments read the order in rupiah by (D416). */
+  if ((po.currency ?? "IDR") !== "IDR" && !po.fx_rate) {
+    return invalid(SERVICE, "fx_rate_required",
+      `${poNo} is in ${po.currency}. Type the kurs (rupiah per 1 ${po.currency}) before issuing it.`, { field: "fx_rate" });
+  }
+
   const user = actingUser();
   apply((draft) => {
     const row = draft.purchase_orders.find((p) => p.po_no === poNo);
@@ -3193,6 +3484,19 @@ export async function issuePo(poNo: string, idempotencyKey?: string): Promise<Re
     row.status = "ISSUED";
     row.issued_at = new Date().toISOString();
     row.issued_by = user.id;
+    row.sent_revision = row.revision;
+    /* The factory said yes: the project is in production (0257, §5.4). */
+    const project = row.project_id ? draft.projects.find((p) => p.id === row.project_id) : undefined;
+    if (project && (["INQUIRY", "QUOTATION_SENT", "DEAL"] as ProjectStatus[]).includes(project.status ?? "INQUIRY")) {
+      const from = project.status ?? "INQUIRY";
+      project.status = "IN_PRODUCTION";
+      project.is_active = true;
+      project.status_changed_at = row.issued_at;
+      draft.project_status_log.push({
+        project_id: project.id, from_status: from, to_status: "IN_PRODUCTION",
+        reason: `Order pabrik ${poNo} diterbitkan`, changed_by: user.email, changed_at: row.issued_at,
+      });
+    }
     writeAudit(draft, {
       service: SERVICE, entity: "purchase_order", entity_no: poNo,
       action: "issue", outcome: "ok", reason: null,
@@ -3285,7 +3589,7 @@ export async function amendPoLine(
       description: input.description?.trim() || old.description,
       qty,
       unit_price,
-      line_total: Math.round(qty * unit_price),
+      line_total: poLineTotal(qty, unit_price, row.currency),
       superseded_by: null as string | null,
     };
     draft.po_lines.push(fresh);

@@ -19,6 +19,7 @@ import type {
   PurchaseFact, CategoryCount, VendorItemSummary, ItemSource, MeetingState,
   VarianceView, LineNote, ApprovalRequest, PoJourney, PoLineJourney, VendorJourney,
   PoTermView, PoTermState, PoDetail,
+  PoMoney,
 } from "@/services/procurement/contracts";
 import { COUNTING_CONDITIONS, PROBLEM_CONDITIONS } from "@/services/procurement/contracts";
 import type {
@@ -653,10 +654,36 @@ export function transactionView(state: DemoState, trx: Transaction): Transaction
 /** Payment and delivery are computed apart and stay apart. "Everything follows
  *  from refusing to collapse them" — a PO can be fully paid and empty, or full
  *  and unpaid, and one progress bar can say neither (A1). */
+/** An amount in the order's own currency, in rupiah at its kurs (0257,
+ *  D416). A rupiah order is unchanged; a USD order without a kurs reads 0,
+ *  which `needs_rate` says is unknown rather than nothing. */
+function poRupiah(po: { currency?: string; fx_rate?: number | null } | undefined, amount: number): number {
+  if (!po || (po.currency ?? "IDR") === "IDR") return amount;
+  return po.fx_rate ? Math.round(amount * po.fx_rate) : 0;
+}
+
+/** An order's own currency, kurs, own total and project (`PoMoney`). */
+export function poMoney(state: DemoState, poId: string): PoMoney {
+  const po = state.purchase_orders.find((p) => p.id === poId);
+  const currency = po?.currency ?? "IDR";
+  const project = po?.project_id ? state.projects.find((p) => p.id === po.project_id) : undefined;
+  const own = state.po_lines
+    .filter((l) => l.po_id === poId && l.superseded_by === null)
+    .reduce((s, l) => s + l.line_total, 0);
+  return {
+    currency,
+    fx_rate: po?.fx_rate ?? null,
+    contract_value_own: Math.round(own * 100) / 100,
+    needs_rate: currency !== "IDR" && !po?.fx_rate,
+    project_code: project?.code ?? null,
+    project_name: project?.name ?? null,
+  };
+}
+
 export function poStatus(state: DemoState, poId: string): PoStatusView {
   const po = state.purchase_orders.find((p) => p.id === poId);
   const lines = state.po_lines.filter((l) => l.po_id === poId && l.superseded_by === null);
-  const contract_value = lines.reduce((s, l) => s + l.line_total, 0);
+  const contract_value = poRupiah(po, lines.reduce((s, l) => s + l.line_total, 0));
 
   const paid_to_date = state.payment_allocations
     .filter((a) => a.superseded_by === null && a.po_no === po?.po_no)
@@ -666,7 +693,7 @@ export function poStatus(state: DemoState, poId: string): PoStatusView {
     })
     .reduce((s, a) => s + a.amount, 0);
 
-  const value_received = lines.reduce((sum, l) => {
+  const value_received = poRupiah(po, lines.reduce((sum, l) => {
     const qty = state.receipts
       .filter((r) => r.po_line_id === l.id && receiptCounts(r))
       .reduce((s, r) => s + r.qty_received, 0);
@@ -676,7 +703,7 @@ export function poStatus(state: DemoState, poId: string): PoStatusView {
      * Counting it here would quietly turn an unasked-for delivery into money
      * they can invoice. */
     return sum + Math.min(qty, l.qty) * l.unit_price;
-  }, 0);
+  }, 0));
 
   const fullyDelivered = lines.length > 0 && lines.every((l) => {
     const qty = state.receipts
@@ -1695,6 +1722,10 @@ export function poDetail(state: DemoState, poId: string): PoDetail | null {
     documents,
     status_view: view,
     close_blockers,
+    ...poMoney(state, poId),
+    project_line_nos: Object.fromEntries(state.po_lines
+      .filter((l) => l.po_id === poId && l.superseded_by === null && l.project_line_id)
+      .map((l) => [String(l.line_no), state.project_lines.find((x) => x.id === l.project_line_id)?.line_no ?? 0])),
   };
 }
 

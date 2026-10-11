@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import {
-  Check, ExternalLink, FileSignature, Hammer, History, ListTree, Package, Pencil, Plus, Save, Trash2, UserPlus, X,
+  Check, ExternalLink, Factory, FileSignature, Hammer, History, ListTree, Package, Pencil, Plus, Save, Trash2, UserPlus, X,
 } from "lucide-react";
 import { Drawer } from "@/components/ui/drawer";
 import { Badge, Button } from "@/components/ui/primitives";
@@ -17,10 +17,11 @@ import { procurement, production, quotation } from "@/demo/api";
 import { QUOTATION_STATUSES } from "@/services/quotation/contracts";
 import {
   PROJECT_STATUSES, PROJECT_STATUS_LABEL,
-  type ClientView, type ProjectLineView, type ProjectStatus, type ProjectView,
+  type ClientView, type ProductionRoute, type ProjectLineView, type ProjectStatus, type ProjectView,
 } from "@/services/procurement/contracts";
 import { ClientDrawer } from "../../master-data/clients/ClientDrawer";
 import { ClosingForm } from "@/components/sales/closing-form";
+import { FactoryOrderForm } from "@/components/procurement/factory-order-form";
 import { SalesCard } from "@/components/sales/sales-card";
 import { useSession } from "@/store/session";
 import { useCanSell } from "@/lib/sell";
@@ -457,6 +458,21 @@ function OrderLines({
   const [newCode, setNewCode] = useState("");
   const [jobbing, setJobbing] = useState<string | null>(null);
   const [job, setJob] = useState<{ qty: number; due: string; route: "IN_HOUSE" | "SUBCON" }>({ qty: 0, due: "", route: "IN_HOUSE" });
+  const [ordering, setOrdering] = useState(false);
+  /* Workshop or factory is the project's call and procurement's, who raises
+     the factory order (0257, Q83); the order itself is procurement's (Q90). */
+  const mayRoute = can("project.update") || can("procurement.update");
+  const mayOrder = can("procurement.create");
+  const unordered = rows.filter((l) => l.route === "FACTORY" && !l.factory_po_no);
+
+  async function route(l: ProjectLineView, to: ProductionRoute) {
+    setBusy(true);
+    const res = await procurement.setLineRoute({ project_code: p.code, line_nos: [l.line_no], route: to });
+    setBusy(false);
+    if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", tr("Not moved", "Tidak dipindah"), res.error.message); return; }
+    toast("success", to === "FACTORY" ? tr("To a partner factory", "Ke pabrik mitra") : tr("To the workshop", "Ke workshop"), l.description);
+    onChanged();
+  }
 
   function startJob(l: ProjectLineView) {
     setJob({
@@ -575,12 +591,29 @@ function OrderLines({
           {tr(`${rows.length} lines`, `${rows.length} baris`)}
           {p.lines_without_item_code > 0 && tr(` · ${p.lines_without_item_code} without an item code yet`, ` · ${p.lines_without_item_code} belum punya item code`)}
         </span>
-        {mayEdit && editing === null && (
-          <Button size="sm" icon={Plus} className="ml-auto" onClick={() => { setD(draftOf(null, p)); setEditing("new"); }}>
-            {tr("Add item", "Tambah item")}
-          </Button>
-        )}
+        <div className="ml-auto flex flex-wrap gap-1.5">
+          {mayOrder && unordered.length > 0 && !ordering && (
+            <Button size="sm" variant="outline" icon={Factory} onClick={() => setOrdering(true)}>
+              {tr(`Factory order (${unordered.length})`, `Order pabrik (${unordered.length})`)}
+            </Button>
+          )}
+          {mayEdit && editing === null && (
+            <Button size="sm" icon={Plus} onClick={() => { setD(draftOf(null, p)); setEditing("new"); }}>
+              {tr("Add item", "Tambah item")}
+            </Button>
+          )}
+        </div>
       </div>
+      {ordering && (
+        <div className="border-b border-slate-100 bg-slate-50/50 px-4 py-3">
+          <p className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-slate-800">
+            <Factory className="h-4 w-4 text-slate-400" /> {tr("Factory order from this project", "Order pabrik dari proyek ini")}
+          </p>
+          <FactoryOrderForm projectCode={p.code} lines={rows}
+            onCancel={() => setOrdering(false)}
+            onDone={() => { setOrdering(false); onChanged(); }} />
+        </div>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full min-w-[820px] border-collapse text-[13px]">
           <thead>
@@ -600,6 +633,7 @@ function OrderLines({
                 <td className="px-3 py-2">
                   <span className="block text-slate-800">{l.description}</span>
                   {l.note && <span className="block text-[11px] text-slate-400">{l.note}</span>}
+                  <RouteChip l={l} canMove={mayRoute && !busy} canOpenPo={can("procurement.read")} onMove={(to) => route(l, to)} />
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-700">
                   {formatNumber(l.qty)} {l.uom}
@@ -629,7 +663,7 @@ function OrderLines({
                           {tr(`${l.job_order_count} Job Order · ${formatNumber(l.job_order_qty)} units · ${formatNumber(l.job_order_completed)} done`, `${l.job_order_count} Job Order · ${formatNumber(l.job_order_qty)} unit · ${formatNumber(l.job_order_completed)} selesai`)}
                         </Link>
                       )}
-                      {l.product_exists && can("production.create") && (jobbing === l.id ? (
+                      {l.route === "WORKSHOP" && l.product_exists && can("production.create") && (jobbing === l.id ? (
                         <div className="mt-1 flex flex-wrap items-center gap-1">
                           <NumberInput size="sm" value={job.qty} min={0} max={999_999} step={1}
                             onChange={(v) => setJob({ ...job, qty: v })} className="!w-16" />
@@ -697,6 +731,46 @@ function OrderLines({
           )}
         </span>
       </div>
+    </div>
+  );
+}
+
+/** Where a line is made (0257): a two-way switch for whoever may move it,
+ *  a label for everybody else, and the factory order it is on. A line on a
+ *  live factory order, or with a live Job Order, is not offered the move —
+ *  the database would refuse it, and says why. */
+function RouteChip({
+  l, canMove, canOpenPo, onMove,
+}: { l: ProjectLineView; canMove: boolean; canOpenPo: boolean; onMove: (to: ProductionRoute) => void }) {
+  const tr = useTr();
+  const locked = l.route === "FACTORY" ? !!l.factory_po_no : l.job_order_count > 0;
+  const label = (r: ProductionRoute) => (r === "FACTORY" ? tr("Factory", "Pabrik") : tr("Workshop", "Workshop"));
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+      {canMove && !locked ? (
+        <span className="inline-flex overflow-hidden rounded-md border border-slate-200" role="group" aria-label={tr("Made by", "Dikerjakan oleh")}>
+          {(["WORKSHOP", "FACTORY"] as const).map((r) => (
+            <button key={r} type="button" onClick={() => r !== l.route && onMove(r)} aria-pressed={l.route === r}
+              className={cn("px-1.5 py-0.5", l.route === r ? "bg-slate-700 text-white" : "bg-white text-slate-500 hover:bg-slate-50")}>
+              {label(r)}
+            </button>
+          ))}
+        </span>
+      ) : (
+        <Badge tone={l.route === "FACTORY" ? "violet" : "slate"}>{label(l.route)}</Badge>
+      )}
+      {l.route === "FACTORY" && (l.factory_po_no ? (
+        <span className="text-slate-500">
+          {canOpenPo
+            ? <Link href={`/procurement/po/${encodeURIComponent(l.factory_po_no)}`} className="font-mono text-brand-700 hover:underline">{l.factory_po_no}</Link>
+            : <span className="font-mono">{l.factory_po_no}</span>}
+          {" · "}{l.factory_vendor_name}
+          {" · "}{l.factory_po_status === "DRAFT" ? tr("draft", "draft") : l.factory_po_status === "ISSUED" ? tr("factory said yes", "pabrik sanggup") : l.factory_po_status?.toLowerCase()}
+          {l.factory_expected_delivery && ` · ${tr("ships", "kirim")} ${l.factory_expected_delivery}`}
+        </span>
+      ) : (
+        <span className="text-amber-700">{tr("no factory order yet", "belum ada order pabrik")}</span>
+      ))}
     </div>
   );
 }
