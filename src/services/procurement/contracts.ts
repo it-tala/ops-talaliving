@@ -382,7 +382,16 @@ export interface ProjectLine {
   /** When this line ships. Per line, because an order that ships in two lots
    *  has two dates (0111). */
   delivery_date?: string | null;
+  /** Where it is made (0257, Q83): the TALA workshop through Job Orders, or a
+   *  partner factory through a factory order. Workshop unless somebody says
+   *  otherwise, so every older line stays where it was. */
+  route?: ProductionRoute;
 }
+
+/** WORKSHOP: Job Orders, subcontracted processes included. FACTORY: a partner
+ *  factory, through a factory order (a PO tied to the project, §5.4). */
+export type ProductionRoute = "WORKSHOP" | "FACTORY";
+export const PRODUCTION_ROUTES: ProductionRoute[] = ["WORKSHOP", "FACTORY"];
 
 /** A project as the order screens read it: the client, and what its lines
  *  add up to. */
@@ -443,6 +452,98 @@ export interface ProjectLineView extends ProjectLine {
   job_order_completed: number;
   /** Still open, of `job_order_count`. */
   job_order_open: number | null;
+  route: ProductionRoute;
+  /** The design item it was ordered as (0225), whose factory price a factory
+   *  order takes. */
+  design_item_no: string | null;
+  /** The factory order this line is on, when it is — its name, state and
+   *  date, for whoever reads the project; never its price (0257). */
+  factory_po_no: string | null;
+  factory_po_status: PoStatus | null;
+  factory_vendor_code: string | null;
+  factory_vendor_name: string | null;
+  factory_expected_delivery: string | null;
+  factory_issued_at: string | null;
+}
+
+/** How far one order line is, on the board per project (0257, §5.1).
+ *  `made` is the workshop's count; what a factory has finished is QC's number
+ *  and arrives with O7, so it is null for a factory line rather than a guess. */
+export type ProductionStage =
+  | "NO_JOB_ORDER" | "IN_WORK" | "MADE"
+  | "NO_FACTORY_ORDER" | "ORDER_DRAFT" | "AT_FACTORY"
+  | "SHIPPED" | "ARRIVED";
+
+export interface ProjectProductionLine {
+  project_code: string;
+  project_name: string;
+  project_status: ProjectStatus;
+  project_is_active: boolean;
+  project_line_id: string;
+  line_no: number;
+  product_code: string | null;
+  description: string;
+  qty: number;
+  uom: string;
+  delivery_date: string | null;
+  route: ProductionRoute;
+  design_item_no: string | null;
+  job_order_count: number;
+  job_order_open: number | null;
+  made: number | null;
+  factory_po_no: string | null;
+  factory_po_status: PoStatus | null;
+  factory_vendor_name: string | null;
+  factory_expected_delivery: string | null;
+  delivered: number;
+  arrived: number;
+  installed: number;
+  stage: ProductionStage;
+  /** Days past the date the factory promised, while it has not shipped. */
+  factory_days_late: number | null;
+}
+
+/** A factory order raised from a project's FACTORY lines (0257). Without a
+ *  unit price a line takes this factory's price for its design item. */
+export interface FactoryOrderInput {
+  project_code: string;
+  vendor_code: string;
+  currency: PoCurrency;
+  fx_rate?: number | null;
+  expected_delivery?: string | null;
+  note?: string | null;
+  dp_percent?: number | null;
+  lines: { line_no: number; qty?: number | null; unit_price?: number | null }[];
+}
+
+export interface FactoryOrderResult {
+  po_no: string;
+  lines: number;
+  currency: PoCurrency;
+  self_confirmed: boolean;
+  /** An earlier live order to the same factory for this project, named so a
+   *  second one is a choice rather than an accident (Q84). */
+  same_factory_order: string | null;
+  needs_rate: boolean;
+}
+
+export type PoCurrency = "IDR" | "USD";
+
+/** An order's own currency (0257, D416). Lines are in it; every figure the
+ *  payment side reads — `status_view`, terms, payments — is rupiah at the
+ *  order's kurs. A supplier PO is rupiah and reads as before. */
+export interface PoMoney {
+  currency: PoCurrency;
+  /** Rupiah per 1 USD, typed on the order. Fixed once it is issued. */
+  fx_rate: number | null;
+  /** Σ line totals in the order's own currency. */
+  contract_value_own: number;
+  /** A USD order nobody has typed the kurs for yet: its rupiah figures are
+   *  zero because they are unknown, not because they are nothing. */
+  needs_rate: boolean;
+  /** The project a factory order is for. Null on a supplier PO. */
+  project_code: string | null;
+  project_name: string | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -931,6 +1032,11 @@ export interface PurchaseOrder {
   /** The revision the vendor has actually been sent. Behind `revision` means
    *  the paper in their hand is out of date. */
   sent_revision: number;
+  /** A factory order's project, currency and kurs (0257). Absent on the
+   *  demo's older fixtures, which are rupiah supplier orders. */
+  project_id?: string | null;
+  currency?: PoCurrency;
+  fx_rate?: number | null;
 }
 
 export interface PoLine {
@@ -947,6 +1053,8 @@ export interface PoLine {
   /** The approved request line this order line buys, when there is one
    *  (B7). Optional in the demo's fixtures, which predate it. */
   pr_line_id?: string | null;
+  /** The client's order line a factory order line makes (0257). */
+  project_line_id?: string | null;
 }
 
 export interface PoScheduleTerm {
@@ -1382,7 +1490,7 @@ export interface PoApprovalView {
   answered: boolean;
 }
 
-export interface PoDetail {
+export interface PoDetail extends PoMoney {
   po_no: string;
   vendor_id: string;
   vendor_name: string;
@@ -1427,6 +1535,8 @@ export interface PoDetail {
   status_view: PoStatusView;
   /** Why this order cannot be closed yet, empty when it can. */
   close_blockers: string[];
+  /** PO line number → the client's order line it makes, on a factory order. */
+  project_line_nos: Record<string, number>;
 }
 
 /* ── a project from first contact to handover (0229, P7) ──────────────── */

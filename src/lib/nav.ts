@@ -178,7 +178,7 @@ export const NAV: NavSection[] = [
       { label: "Projects", labelKey: "orders", href: "/proyek/order", icon: FolderKanban, permission: "project.read", orPermission: "marketing.read", badge: "core" },
       { label: "Quotations", labelKey: "quotations", href: "/proyek/quotation", icon: FileSignature, permission: "project.read", orPermission: "marketing.read", badge: "new" },
       { label: "Client follow-ups", labelKey: "followUps", href: "/proyek/follow-up", icon: BellRing, permission: "project.read", orPermission: "marketing.read", badge: "new" },
-      { label: "Cost vs projection", labelKey: "costVsPlan", href: "/proyek/produksi", icon: Scale, permission: "project.read", badge: "new" },
+      { label: "Production per project", labelKey: "costVsPlan", href: "/proyek/produksi", icon: Scale, permission: "project.read", badge: "new" },
       { label: "Delivery", labelKey: "delivery", href: "/proyek/pengiriman", icon: Truck, permission: "project.read", orPermission: "delivery.read", badge: "new" },
       { label: "Packing boxes & labels", labelKey: "boxes", href: "/proyek/peti", icon: Package, permission: "project.read", orPermission: "delivery.read", badge: "new" },
       { label: "Installation", labelKey: "installation", href: "/proyek/instalasi", icon: Wrench, permission: "project.read", orPermission: "delivery.read", badge: "new" },

@@ -429,7 +429,7 @@ Tidak ada yang diketik ulang.
 |---|---|---|---|
 | **O1** | **Pintu masuk:** *Proyek baru* dan *Klien baru* langsung dari Pipeline dan Design, memakai formulir yang sudah ada. Design menawarkan *buat proyek* saat kosong. Sisa P2: `remove_quotation_line` versi 0219 ke produksi lewat SQL Editor (badannya menghapus baris) | tidak (hanya menerapkan sisa 0219) | tidak |
 | **O2** ✓ | **Jenis vendor + harga pabrik per item** *(dikerjakan, D415)*: `vendors.kind`, `factory_quotes`, sumber biaya `factory` di quotation, kolom harga pabrik di Design/quotation, mata uang IDR/USD + kurs per dokumen (D414) | ya | — (D414) |
-| **O3** | **Jalur produksi + order pabrik:** `project_lines.route`, PO ↔ proyek/baris order, buat order pabrik dari baris order `FACTORY`, `ISSUED` → `IN_PRODUCTION`, papan Produksi per proyek | ya | — (D413) |
+| **O3** ✓ | **Jalur produksi + order pabrik** *(dikerjakan, D416)*: `project_lines.route`, PO ↔ proyek/baris order, buat order pabrik dari baris order `FACTORY`, `ISSUED` → `IN_PRODUCTION`, papan Produksi per proyek | ya | — (D413) |
 | ~~O4~~ | ~~Uang masuk dari klien di kartu proyek~~ **Dibatalkan (D412)** | — | — |
 | **O5** | **Kontainer:** `deliveries.mode` + kolom kontainer, isi per baris order, packing list / B/L | ya | — |
 | **O6** | **QC: personel + penugasan:** `ops_qc` schema, modul `qc`, QC hanya melihat order yang ditugaskan; rasio 1 per 5 kontainer manual (D414) | ya | — (D414) |

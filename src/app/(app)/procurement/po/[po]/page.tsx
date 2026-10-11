@@ -4,13 +4,13 @@ import { use, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft, Banknote, CalendarClock, FileText, Link2, Package, PenLine, Send, Lock,
-  Check, MessageCircle, Printer, Truck,
+  Check, Factory, MessageCircle, Printer, Truck,
 } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { QrCode } from "@/components/ui/qr";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
-import { formatIDR, formatNumber } from "@/lib/format";
+import { formatIDR, formatMoney, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { useTr } from "@/lib/i18n";
 import { procurement } from "@/demo/api";
@@ -52,6 +52,7 @@ export default function PoDetailPage({ params }: { params: Promise<{ po: string 
   const [detail, reload] = useLoad(() => procurement.getPoDetail(poNo), [poNo]);
   const [amending, setAmending] = useState<number | null>(null);
   const [closing, setClosing] = useState(false);
+  const [rate, setRate] = useState("");
   const [busy, setBusy] = useState(false);
   const mayEdit = can("procurement.update");
   const mayApprove = hasAuthority("approve_goods");
@@ -101,8 +102,22 @@ export default function PoDetailPage({ params }: { params: Promise<{ po: string 
     toast(
       "success",
       tr(`${poNo} issued`, `${poNo} diterbitkan`),
-      tr("The deposit is payable and it now counts against what we owe.", "Uang muka sekarang wajib dibayar dan order ini mulai dihitung dalam utang kita."),
+      res.data.project_code
+        ? tr(`The factory has said yes: project ${res.data.project_code} is in production.`, `Pabrik sanggup: proyek ${res.data.project_code} masuk produksi.`)
+        : tr("The deposit is payable and it now counts against what we owe.", "Uang muka sekarang wajib dibayar dan order ini mulai dihitung dalam utang kita."),
     );
+    reload();
+  }
+
+  async function saveRate() {
+    const v = Number(rate);
+    if (!(v > 0)) return;
+    setBusy(true);
+    const res = await procurement.setPoFxRate(poNo, v);
+    setBusy(false);
+    if (res.error) { toast("warning", tr("Kurs not saved", "Kurs tidak tersimpan"), res.error.message); return; }
+    toast("success", tr("Kurs saved", "Kurs tersimpan"), `Rp ${formatNumber(v)} / USD`);
+    setRate("");
     reload();
   }
 
@@ -208,7 +223,7 @@ export default function PoDetailPage({ params }: { params: Promise<{ po: string 
                         variant="outline" icon={MessageCircle}
                         onClick={() => whatsapp(
                           d.vendor_phone,
-                          `Halo${d.vendor_pic ? ` ${d.vendor_pic}` : ""}, berikut PO ${d.po_no} dari ${"PT TALAHOME"} senilai ${formatIDR(d.status_view.contract_value)}${d.expected_delivery ? `, diharapkan tiba ${d.expected_delivery}` : ""}. PDF menyusul. Terima kasih.`,
+                          `Halo${d.vendor_pic ? ` ${d.vendor_pic}` : ""}, berikut PO ${d.po_no} dari ${"PT TALAHOME"} senilai ${formatMoney(d.contract_value_own, d.currency)}${d.expected_delivery ? `, diharapkan tiba ${d.expected_delivery}` : ""}. PDF menyusul. Terima kasih.`,
                         )}
                       >
                         {tr("Send on WhatsApp", "Kirim lewat WhatsApp")}
@@ -327,6 +342,32 @@ export default function PoDetailPage({ params }: { params: Promise<{ po: string 
               </div>
             )}
 
+            {(d.project_code || d.currency !== "IDR") && (
+              <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-violet-200 bg-violet-50/60 px-4 py-2.5 text-[13px] text-violet-900">
+                <Factory className="h-4 w-4 shrink-0" />
+                {d.project_code && (
+                  <span>
+                    {tr("Factory order for", "Order pabrik untuk")}{" "}
+                    <Link href={`/proyek/order/${encodeURIComponent(d.project_code)}`} className="font-medium underline-offset-2 hover:underline">
+                      {d.project_code} · {d.project_name}
+                    </Link>
+                  </span>
+                )}
+                <Badge tone="violet">{d.currency}</Badge>
+                {d.currency !== "IDR" && (d.fx_rate
+                  ? <span>{tr("kurs", "kurs")} Rp {formatNumber(d.fx_rate)} / {d.currency}{d.status !== "DRAFT" && tr(" — fixed when it was issued", " — tetap sejak diterbitkan")}</span>
+                  : <span className="text-amber-800">{tr("kurs not typed yet — needed before it is issued", "kurs belum diisi — wajib sebelum diterbitkan")}</span>)}
+                {d.currency !== "IDR" && d.status === "DRAFT" && mayEdit && (
+                  <span className="ml-auto flex items-center gap-1">
+                    <input value={rate} onChange={(e) => setRate(e.target.value.replace(/[^\d.]/g, ""))} inputMode="decimal"
+                      aria-label={tr("Kurs (Rp per 1 USD)", "Kurs (Rp per 1 USD)")} placeholder={d.fx_rate ? String(d.fx_rate) : tr("Rp per 1 USD", "Rp per 1 USD")}
+                      className="h-8 w-32 rounded-lg border border-violet-200 bg-white px-2 text-[13px] tabular-nums focus:border-brand-400 focus:outline-none" />
+                    <Button size="sm" variant="outline" disabled={busy || !(Number(rate) > 0)} onClick={saveRate}>{tr("Save kurs", "Simpan kurs")}</Button>
+                  </span>
+                )}
+              </div>
+            )}
+
             {d.expected_delivery && (
               <div className={cn(
                 "mb-4 flex flex-wrap items-center gap-2 rounded-xl border px-4 py-2.5 text-[13px]",
@@ -348,7 +389,11 @@ export default function PoDetailPage({ params }: { params: Promise<{ po: string 
             <div className="mb-4 rounded-xl border border-slate-200 bg-white shadow-card">
               <dl className="grid divide-y divide-slate-100 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x">
                 {([
-                  [tr("Contract", "Kontrak"), formatIDR(d.status_view.contract_value), tr(`${d.lines.length} line(s)`, `${d.lines.length} baris`)],
+                  d.currency === "IDR"
+                    ? [tr("Contract", "Kontrak"), formatIDR(d.status_view.contract_value), tr(`${d.lines.length} line(s)`, `${d.lines.length} baris`)]
+                    : [tr("Contract", "Kontrak"), formatMoney(d.contract_value_own, d.currency),
+                      d.needs_rate ? tr("in rupiah once the kurs is typed", "dalam rupiah setelah kurs diisi")
+                        : tr(`≈ ${formatIDR(d.status_view.contract_value)} at the order's kurs`, `≈ ${formatIDR(d.status_view.contract_value)} pada kurs order`)],
                   [tr("Paid", "Dibayar"), formatIDR(d.status_view.paid_to_date), d.status_view.payment_state.toLowerCase()],
                   [tr("Arrived", "Tiba"), formatIDR(d.status_view.value_received), d.status_view.delivery_state.toLowerCase()],
                   [tr("Payable now", "Wajib dibayar sekarang"), formatIDR(d.payable_now), tr("terms whose trigger has fired", "termin yang pemicunya sudah terjadi")],
@@ -464,6 +509,11 @@ export default function PoDetailPage({ params }: { params: Promise<{ po: string 
                             {l.pr_line_no}
                           </Link>
                         )}
+                        {d.project_line_nos?.[String(l.line_no)] != null && (
+                          <span className="mt-0.5 block text-[11px] text-violet-700">
+                            {tr(`order line ${d.project_line_nos[String(l.line_no)]} of ${d.project_code}`, `baris order ${d.project_line_nos[String(l.line_no)]} proyek ${d.project_code}`)}
+                          </span>
+                        )}
                       </span>
                     ),
                   },
@@ -471,10 +521,10 @@ export default function PoDetailPage({ params }: { params: Promise<{ po: string 
                     <span className="whitespace-nowrap text-[13px] text-slate-600">{formatNumber(l.qty)} {l.uom}</span>
                   ) },
                   { key: "price", header: tr("Unit price", "Harga satuan"), align: "right", render: (l) => (
-                    <span className="whitespace-nowrap tabular-nums text-slate-700">{formatIDR(l.unit_price)}</span>
+                    <span className="whitespace-nowrap tabular-nums text-slate-700">{formatMoney(l.unit_price, d.currency)}</span>
                   ) },
                   { key: "total", header: "Total", align: "right", render: (l) => (
-                    <span className="whitespace-nowrap tabular-nums text-slate-800">{formatIDR(l.line_total)}</span>
+                    <span className="whitespace-nowrap tabular-nums text-slate-800">{formatMoney(l.line_total, d.currency)}</span>
                   ) },
                   { key: "recv", header: tr("Received", "Diterima"), align: "right", render: (l) => (
                     <span className="whitespace-nowrap text-[13px] text-slate-600">

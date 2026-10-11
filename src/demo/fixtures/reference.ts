@@ -579,7 +579,9 @@ export const PROJECT_LINES: ProjectLine[] = [
 
   { id: "prl_07", project_id: "prj_25011", line_no: 1, product_code: "PRD-MJ-220", description: "Meja makan untuk restoran, 220×100", qty: 14, uom: "set", unit_price: 41_000_000, note: null },
   { id: "prl_08", project_id: "prj_25011", line_no: 2, product_code: "PRD-KR-STD", description: "Kursi makan jati", qty: 84, uom: "pcs", unit_price: 4_700_000, note: null },
-  { id: "prl_09", project_id: "prj_25011", line_no: 3, product_code: "PRD-RK-DSP", description: "Rak display lobby", qty: 4, uom: "unit", unit_price: 9_500_000, note: null },
+  { id: "prl_09", project_id: "prj_25011", line_no: 3, product_code: "PRD-RK-DSP", description: "Rak display lobby", qty: 4, uom: "unit", unit_price: 9_500_000, note: null,
+    /* Made by a partner factory, and not ordered yet (0257, O3). */
+    route: "FACTORY" },
 
   { id: "prl_10", project_id: "prj_25012", line_no: 1, product_code: "PRD-LM-3P", description: "Lemari arsip 3 pintu", qty: 4, uom: "unit", unit_price: 17_000_000, note: null },
 ];
