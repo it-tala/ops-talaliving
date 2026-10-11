@@ -10335,3 +10335,48 @@ the door.
 **Rule:** when the owner describes the business end to end, check each step
 against what the code assumes happens at that step, not only against the
 tables that exist. A complete road to the wrong place is still a gap.
+
+## F256 · 2026-10-10 · A cost the screen hides is still a cost the database must let the reader compute with
+
+O2 put factory prices into the quotation. The first instinct was to read
+them for procurement and `project.update` only — the people who may see a
+cost (D375). That would have broken the one thing everybody reading a
+quotation is allowed to see: **the price**. `v_quotation_line` runs as the
+reader (`security_invoker`), and a draft's selling price is computed *from*
+the cost inside the view. Hide the factory row from a marketing account and
+the cost under its line is null, the line reads *cost missing*, and the
+price is gone — for that reader only, while the PM sees the full offer. Two
+people looking at the same quotation would see two different totals.
+
+0133 had already said it: cost on screen is a screen rule, not a secret.
+So `factory_quotes` are readable by sellers too, the view masks `unit_cost`,
+`cost_original` and the factory's name to `project.update`, and the screens
+that list factory prices (Procurement › Harga pabrik, the item drawer, the
+chip on the design board) gate on procurement or `project.update`. The page
+was first written without that gate and a marketing account opening its URL
+saw every price. The walk caught it, not the type checker.
+
+Three smaller things the same session taught:
+
+- **PL/pgSQL ends an `IF` condition at the first `THEN`.** `if case when …
+  then … end then` is a syntax error at *end of input*, far from the line
+  that caused it. A `case` inside an `IF` condition goes in parentheses.
+- **SQL does not promise to stop at the first true `OR`.** `jsonb_typeof(x)
+  <> 'number' or (x)::numeric <= 0` may cast a string and throw. A guard
+  that protects a cast is a `case`, not an `or`.
+- **`cn` is `clsx`, not `tailwind-merge`.** `cn("w-full …", "w-32")` keeps
+  both classes and `w-full` wins in the stylesheet, so a width given beside a
+  shared `inputCls` silently does nothing; the factory form's price, lead
+  time and MOQ cells and the kurs field each rendered full width. Cells that
+  sit side by side get a class without `w-full`.
+
+Also: `send_quotation` used to recompute the cost on its own, beside the
+view's computation. Adding a third source and a currency to both would have
+been two places to keep in step; `v_quotation_line_basis` is now the one
+computation the screen and the freeze read.
+
+**Rule:** before narrowing who may read a table, find every invoker view
+that computes a visible number from it. If the number is visible to more
+people than the input, the input is masked in the view, not refused by the
+table.
+

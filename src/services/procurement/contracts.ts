@@ -96,6 +96,18 @@ export type DueRule = "on_issue" | "on_delivery" | "date";
 /* Reference data                                                      */
 /* ------------------------------------------------------------------ */
 
+/** What a vendor is to us (0256, O2): somebody we buy from, a partner factory
+ *  that makes an order for us, an outsourced QC, or something else. Absent on
+ *  an older row means *supplier*. */
+export type VendorKind = "supplier" | "factory" | "qc" | "other";
+
+export const VENDOR_KINDS: { code: VendorKind; label: string; label_id: string }[] = [
+  { code: "supplier", label: "Supplier", label_id: "Supplier" },
+  { code: "factory", label: "Factory", label_id: "Pabrik" },
+  { code: "qc", label: "QC", label_id: "QC" },
+  { code: "other", label: "Other", label_id: "Lainnya" },
+];
+
 export interface Vendor {
   id: string;
   code: string;
@@ -130,6 +142,8 @@ export interface Vendor {
    *  `bought_categories` on the view for what we have actually bought. Useful
    *  precisely where history is silent: a vendor we have not ordered from yet. */
   supplied_categories: string[];
+  /** Supplier unless somebody said otherwise (0256). */
+  kind?: VendorKind;
 }
 
 export interface Uom {
@@ -393,7 +407,12 @@ export interface ProjectView extends Project {
   /** The quotation in play: a draft, or sent and not revised. */
   current_quote_no: string | null;
   current_quote_status: string | null;
+  /** In rupiah — a USD quotation at its own kurs (0256, D414), so the
+   *  pipeline can add them up. Null for a USD draft with no kurs yet. */
   current_quote_total: number | null;
+  /** The same quotation in its own currency, for the card. */
+  current_quote_currency: "IDR" | "USD" | null;
+  current_quote_total_own: number | null;
   /** Why it closed, while it is LOST or CANCELLED. */
   closing_reason_code: ClosingReason | null;
   closing_reason: string | null;
@@ -1198,6 +1217,7 @@ export interface VendorItemSummary {
 
 /** A vendor with what we have actually bought from it. */
 export interface VendorView extends Vendor {
+  kind: VendorKind;
   /** `supplied_categories` resolved to their display names. */
   supplied_category_names: string[];
   transaction_count: number;

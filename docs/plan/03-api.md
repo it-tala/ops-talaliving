@@ -297,6 +297,39 @@ statuses `QUOTED` and `ORDERED` and columns `quote_no`, `quote_status`,
 `quoted_unit_price`, `ordered`; its `product_code` falls back to the order
 line's.
 
+### Projects — factory prices and the quotation's currency (O2, 0255/0256, D414, D415)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/factory-quotes?project_code=` | `v_factory_quote`: one row per offer — factory, project, client, currency, `quoted_on`, `valid_until`, file, `line_count`, `chosen_count`, `expired`, voided and why, who recorded it. Shown to `may_price_factory('read')` (procurement read, or `project.update`); the table is also readable by sellers because a draft's price is computed from it (0133's screen rule) |
+| GET | `/factory-quote-lines?fq_no=&item_no=&project_code=` | `v_factory_quote_line`: one row per price — item, `unit_price` in the offer's currency, lead time, MOQ, `is_chosen` (the item prices from it), `is_latest` (newest live offer from that factory for the item), `expired` |
+| POST | `/factory-quotes` | `{project_code, vendor_code, currency: IDR\|USD, lines: [{item_no, unit_price, lead_time_days?, moq?, note?}], quoted_on?, valid_until?, note?, attachment_id?}` — `record_factory_quote` (`may_price_factory('create')`, idempotent): one offer, every line checked before anything is written. A vendor still `supplier` becomes `factory`. The **first** offer for an item is chosen; a newer one (by `quoted_on`) from the factory already chosen takes over; another factory's waits. Answers `{fq_no, lines, chosen, vendor_marked_factory}`. 422 `vendor_unknown`, `vendor_merged`, `vendor_archived`, `not_factory` (kind `qc`/`other`), `bad_currency`, `bad_validity`, `no_such_file`, `no_lines`, `item_unknown` (not this project's), `item_dropped`, `item_twice`, `bad_price` (a positive number), `bad_lead_time` (whole days ≥ 0), `bad_moq`; 404 project. The file is uploaded first as `Factory Quotation` against the project: PROCUREMENT › ops-talaliving › `PENAWARAN PABRIK/{CLIENT}/{PROJECT}` |
+| PUT | `/design/items/{item_no}/factory-line` | `{line_id \| null}` — `choose_factory_line` (`may_price_factory('update')`): the offer the item is priced from; null for none. Same one is **noop**. 422 `line_not_for_item`; 409 `voided` |
+| POST | `/factory-quotes/{fq_no}/void` | `{reason}` — `void_factory_quote` (`may_price_factory('update')`): never edited, voided; an item priced from it falls back to the same factory's newest live offer, else none (`items_repriced`). A quotation already sent keeps its frozen figures. 422 `reason_required`; 409 `already_voided` |
+| PUT | `/vendors/{code}/kind` | `{kind: supplier\|factory\|qc\|other}` — `set_vendor_kind` (`procurement.update`). Same kind is **noop**. 422 `bad_kind`; 409 `merged`. Read as `v_vendor_view.kind` |
+| PUT | `/quotations/{no}/currency` | `{currency: IDR\|USD, fx_rate?}` — `set_quotation_currency` (`may_sell('update')`), draft only (409 `not_draft`): the kurs is rupiah per 1 USD, typed, never fetched (D181), and kept whatever the currency. 422 `bad_currency`, `bad_rate` |
+
+A draft line's cost is **typed › the chosen factory offer of its design item ›
+the released BOM** (`v_quotation_line_basis`, the one computation the screen and
+the freeze share), converted into the quotation's currency at its kurs
+(`money_in`: USD to the cent, rupiah to the rupiah; null without a kurs, never
+a guess). `v_quotation_line` keeps its columns and appends `currency`,
+`fx_rate`, `cost_currency`, `cost_original`, `factory_line_id`,
+`factory_quote_no`, `factory_vendor_name` (cost readers only) and
+`cost_needs_rate`; `cost_source` gains `factory`. The price is
+`quote_price_in(…, currency)`. `send_quotation` refuses `rate_required` for a
+USD quotation with no kurs or a line whose cost needs one, and freezes
+`frozen_factory_line_id`; `revise_quotation` carries the currency and kurs;
+`decide_quotation` writes **rupiah** order lines at the kurs and says so in the
+line's note. `v_quotation` appends `currency`, `fx_rate`, `grand_total_idr`
+(PPN to the cent in USD); `v_project.current_quote_total` is now rupiah, with
+`current_quote_currency` and `current_quote_total_own` appended;
+`v_project_outcome` reads the accepted total in rupiah. `v_design_item`
+appends the chosen offer — `factory_quote_no`, `factory_vendor_name`,
+`factory_unit_price`, `factory_currency`, `factory_lead_time_days`,
+`factory_offers` — masked to `may_price_factory('read')`. `may_design('read')`
+now includes `procurement.read`.
+
 ### Projects — meetings (P3, 0224)
 
 The client log (0134) stays the one log of contact. Any entry can carry

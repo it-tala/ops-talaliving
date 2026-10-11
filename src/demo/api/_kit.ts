@@ -126,10 +126,21 @@ export { ok, refused, conflict };
 
 /** Whoever sells, or the drafters (production): `ops_procure.may_design`
  *  (0222). Who builds a design, and who reads and closes a meeting's points
- *  (0224). */
+ *  (0224). Procurement reads it too — the drawings are what it sends a
+ *  factory (0256, O2). */
 export function canDesign(level: "read" | "write"): boolean {
   const rank = { read: 0, write: 1, admin: 2 } as const;
   return actingUser().modules.some((m) =>
-    (m.module === "project" || m.module === "marketing" || m.module === "production")
+    ((m.module === "project" || m.module === "marketing" || m.module === "production")
+     || (level === "read" && m.module === "procurement"))
     && rank[m.level] >= rank[level]);
+}
+
+/** `ops_procure.may_price_factory` (0256, O2): procurement at the level asked
+ *  (Q90), or whoever sees a quotation's cost — project write (D375). */
+export function canPriceFactory(level: "read" | "write"): boolean {
+  const rank = { read: 0, write: 1, admin: 2 } as const;
+  return actingUser().modules.some((m) =>
+    (m.module === "procurement" && rank[m.level] >= rank[level])
+    || (m.module === "project" && rank[m.level] >= rank.write));
 }

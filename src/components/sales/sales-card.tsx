@@ -5,7 +5,7 @@ import { Pencil, Save } from "lucide-react";
 import { Button } from "@/components/ui/primitives";
 import { useLoad } from "@/components/ui/loaded";
 import { MoneyInput } from "@/components/ui/money-input";
-import { formatIDR } from "@/lib/format";
+import { formatIDR, formatMoney } from "@/lib/format";
 import { procurement } from "@/demo/api";
 import type { ProjectView } from "@/services/procurement/contracts";
 import { useToast } from "@/store/toast";
@@ -46,9 +46,12 @@ export function SalesCard({ p, canEdit, onChanged }: { p: ProjectView; canEdit: 
     onChanged();
   }
 
-  const quote = p.current_quote_total != null
-    ? `${formatIDR(p.current_quote_total)} · ${p.current_quote_no}`
-    : null;
+  /* A USD quotation in its own currency, with the rupiah the pipeline adds up
+     (0256, D414). */
+  const quote = p.current_quote_no == null || (p.current_quote_total == null && p.current_quote_total_own == null) ? null
+    : p.current_quote_currency === "USD" && p.current_quote_total_own != null
+      ? `${formatMoney(p.current_quote_total_own, "USD")}${p.current_quote_total != null ? ` ≈ ${formatIDR(p.current_quote_total)}` : ""} · ${p.current_quote_no}`
+      : `${formatIDR(p.current_quote_total ?? p.current_quote_total_own ?? 0)} · ${p.current_quote_no}`;
 
   return (
     <div className="rounded-xl border border-slate-200 px-4 py-3">

@@ -10,7 +10,7 @@ import { OpenPoints } from "@/components/crm/meeting-lines";
 import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 import { quotation } from "@/demo/api";
-import { formatIDR, formatNumber } from "@/lib/format";
+import { formatMoney, formatNumber } from "@/lib/format";
 import type { QuotationLineView } from "@/services/quotation/contracts";
 import { cn } from "@/lib/cn";
 import { design, documents } from "@/demo/api";
@@ -23,6 +23,7 @@ import { useToast } from "@/store/toast";
 import { useLang, useTr } from "@/lib/i18n";
 import { ItemForm } from "./design-board";
 import { ItemBoxes } from "./item-boxes";
+import { ItemFactoryPrices } from "./factory-prices";
 import { useSession } from "@/store/session";
 
 const inputCls = "h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-[13px] focus:border-brand-400 focus:outline-none";
@@ -49,6 +50,7 @@ export function ItemDrawer({
               canEdit={canEdit} onChanged={changed} />
             <Approvals i={i} canEdit={canEdit} onChanged={changed} />
             <ItemCompleteness i={i} canEdit={canEdit} />
+            <ItemFactoryPrices i={i} onChanged={changed} />
             <ItemQuotes itemNo={i.item_no} refresh={i.updated_at} />
             <OpenPoints filter={{ item_no: i.item_no }} title={tr("Asked in meetings", "Diminta di meeting")}
               empty={tr("Nothing asked about this item in a meeting yet.", "Belum ada permintaan tentang item ini dari meeting.")} />
@@ -331,7 +333,7 @@ function ItemQuotes({ itemNo, refresh }: { itemNo: string; refresh: string }) {
                   </Link>
                   <Badge tone={l.status === "ACCEPTED" ? "green" : l.status === "SENT" ? "brand" : l.status === "REJECTED" ? "red" : "slate"}>{l.status}</Badge>
                   <span className="text-slate-600">{formatNumber(l.qty)} {l.uom}</span>
-                  <span className="ml-auto tabular-nums text-slate-800">{l.unit_price == null ? "—" : formatIDR(l.unit_price)}</span>
+                  <span className="ml-auto tabular-nums text-slate-800">{l.unit_price == null ? "—" : formatMoney(l.unit_price, l.currency)}</span>
                 </div>
                 <p className="text-[11px] text-slate-500">
                   {l.design_file_name ? tr(`priced on ${l.design_file_name}`, `dihargai dari ${l.design_file_name}`) : tr("no drawing", "tanpa gambar")}

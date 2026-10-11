@@ -2,7 +2,7 @@
 
 import { Fragment, use, useEffect } from "react";
 import { Loaded, useLoad } from "@/components/ui/loaded";
-import { formatIDR, formatNumber } from "@/lib/format";
+import { formatMoney, formatNumber } from "@/lib/format";
 import { quotation } from "@/demo/api";
 import { groupLines, isHeading } from "@/components/sales/quote-design";
 import { useBrand } from "@/lib/brand";
@@ -120,10 +120,10 @@ export default function QuotationPrintPage({ params }: { params: Promise<{ no: s
                       {l.lead_time_days == null ? "—" : both(`${l.lead_time_days} d`, `${l.lead_time_days} hr`)}
                     </td>
                     <td className="whitespace-nowrap py-2 text-right tabular-nums">
-                      {l.unit_price == null ? "—" : formatIDR(l.unit_price)}
+                      {l.unit_price == null ? "—" : formatMoney(l.unit_price, q.currency)}
                     </td>
                     <td className="whitespace-nowrap py-2 text-right tabular-nums">
-                      {l.unit_price == null ? "—" : formatIDR(l.unit_price * l.qty)}
+                      {l.unit_price == null ? "—" : formatMoney(l.unit_price * l.qty, q.currency)}
                     </td>
                   </tr>
                   {l.design_item_no && (i === all.length - 1 || isHeading(all[i + 1])) && (
@@ -132,7 +132,7 @@ export default function QuotationPrintPage({ params }: { params: Promise<{ no: s
                         {both(`Subtotal ${l.room_name ?? ""}`, `Subtotal ${l.room_name ?? ""}`)}
                       </td>
                       <td className="whitespace-nowrap py-1.5 text-right text-[12px] font-medium tabular-nums">
-                        {roomTotal(all, i)}
+                        {roomTotal(all, i, q.currency)}
                       </td>
                     </tr>
                   )}
@@ -142,17 +142,17 @@ export default function QuotationPrintPage({ params }: { params: Promise<{ no: s
               <tfoot>
                 <tr>
                   <td className="pt-2 text-right" colSpan={5}>{both("Subtotal", "Subtotal")}</td>
-                  <td className="pt-2 text-right tabular-nums">{q.subtotal == null ? "—" : formatIDR(q.subtotal)}</td>
+                  <td className="pt-2 text-right tabular-nums">{q.subtotal == null ? "—" : formatMoney(q.subtotal, q.currency)}</td>
                 </tr>
                 {q.vat && (
                   <tr>
                     <td className="text-right" colSpan={5}>{both("VAT (PPN)", "PPN")} {formatNumber(q.vat_pct)}%</td>
-                    <td className="text-right tabular-nums">{q.vat_amount == null ? "—" : formatIDR(q.vat_amount)}</td>
+                    <td className="text-right tabular-nums">{q.vat_amount == null ? "—" : formatMoney(q.vat_amount, q.currency)}</td>
                   </tr>
                 )}
                 <tr>
                   <td className="py-2 text-right font-semibold" colSpan={5}>{both("Total", "Total")}</td>
-                  <td className="py-2 text-right font-bold tabular-nums">{q.grand_total == null ? "—" : formatIDR(q.grand_total)}</td>
+                  <td className="py-2 text-right font-bold tabular-nums">{q.grand_total == null ? "—" : formatMoney(q.grand_total, q.currency)}</td>
                 </tr>
               </tfoot>
             </table>
@@ -198,7 +198,7 @@ export default function QuotationPrintPage({ params }: { params: Promise<{ no: s
 
 /** The room's lines above row `i`, back to its heading — or a dash when one
  *  of them has no price yet. */
-function roomTotal(all: ReturnType<typeof groupLines>, i: number): string {
+function roomTotal(all: ReturnType<typeof groupLines>, i: number, currency: "IDR" | "USD"): string {
   let sum = 0;
   for (let j = i; j >= 0; j--) {
     const x = all[j];
@@ -206,5 +206,5 @@ function roomTotal(all: ReturnType<typeof groupLines>, i: number): string {
     if (x.unit_price == null) return "—";
     sum += x.unit_price * x.qty;
   }
-  return formatIDR(sum);
+  return formatMoney(sum, currency);
 }

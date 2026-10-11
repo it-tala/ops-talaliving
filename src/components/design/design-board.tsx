@@ -6,6 +6,7 @@ import { Badge, Button } from "@/components/ui/primitives";
 import { Loaded, useLoad } from "@/components/ui/loaded";
 import { NumberInput } from "@/components/ui/number-input";
 import { cn } from "@/lib/cn";
+import { formatMoney } from "@/lib/format";
 import { design } from "@/demo/api";
 import {
   DESIGN_ITEM_STATUSES, DESIGN_ORIGINS,
@@ -157,6 +158,13 @@ function RoomBlock({
                     <td className="px-2 py-1.5">
                       <span className="block font-mono text-[11px] text-slate-400">{i.item_no}</span>
                       <span className="text-slate-800">{i.name}</span>
+                      {/* The factory price it is costed from (0256), for whoever may see it. */}
+                      {i.factory_unit_price != null && (
+                        <span className="block truncate text-[11px] text-slate-500">
+                          {tr("Factory", "Pabrik")} · {formatMoney(i.factory_unit_price, i.factory_currency)}
+                          {i.factory_vendor_name && ` · ${i.factory_vendor_name}`}
+                        </span>
+                      )}
                     </td>
                     <td className="px-2 py-1.5 text-right tabular-nums">{i.qty}</td>
                     <td className="px-2 py-1.5 tabular-nums text-slate-600">

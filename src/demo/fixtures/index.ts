@@ -140,8 +140,8 @@ export function initialState(): DemoState {
       { id: "dr_B_DN", collection_id: "dc_26003_B", code: "DN", name: "Dining", sort: 1 },
     ],
     design_items: [
-      { id: "di_1", item_no: "26003-A-LR-01", room_id: "dr_A_LR", seq: 1, name: "Sofa 3 seater", qty: 24, length_mm: 2100, width_mm: 900, height_mm: 780, origin: "tala", product_code: null, note: null, dropped_at: null, drop_reason: null, created_at: "2026-09-26T02:00:00Z", updated_at: "2026-09-26T02:00:00Z" },
-      { id: "di_2", item_no: "26003-A-LR-02", room_id: "dr_A_LR", seq: 2, name: "Coffee table", qty: 24, length_mm: 1100, width_mm: 600, height_mm: 420, origin: "adapted", product_code: null, note: "Klien minta lebih rendah, 380 mm", dropped_at: null, drop_reason: null, created_at: "2026-09-26T02:00:00Z", updated_at: "2026-09-26T02:00:00Z" },
+      { id: "di_1", item_no: "26003-A-LR-01", room_id: "dr_A_LR", seq: 1, name: "Sofa 3 seater", qty: 24, length_mm: 2100, width_mm: 900, height_mm: 780, origin: "tala", product_code: null, note: null, dropped_at: null, drop_reason: null, created_at: "2026-09-26T02:00:00Z", updated_at: "2026-09-26T02:00:00Z", factory_line_id: "fql_1" },
+      { id: "di_2", item_no: "26003-A-LR-02", room_id: "dr_A_LR", seq: 2, name: "Coffee table", qty: 24, length_mm: 1100, width_mm: 600, height_mm: 420, origin: "adapted", product_code: null, note: "Klien minta lebih rendah, 380 mm", dropped_at: null, drop_reason: null, created_at: "2026-09-26T02:00:00Z", updated_at: "2026-09-26T02:00:00Z", factory_line_id: "fql_2" },
       { id: "di_3", item_no: "26003-A-MB-01", room_id: "dr_A_MB", seq: 1, name: "Bed 160 + headboard", qty: 24, length_mm: 1700, width_mm: 2150, height_mm: 1100, origin: "client", product_code: null, note: null, dropped_at: null, drop_reason: null, created_at: "2026-09-26T02:00:00Z", updated_at: "2026-09-26T02:00:00Z" },
       { id: "di_4", item_no: "26003-B-DN-01", room_id: "dr_B_DN", seq: 1, name: "Dining table 6 seats", qty: 12, length_mm: 1800, width_mm: 900, height_mm: 750, origin: "tala", product_code: "PRD-MJ-220", note: null, dropped_at: null, drop_reason: null, created_at: "2026-09-26T02:00:00Z", updated_at: "2026-09-26T02:00:00Z" },
     ],
@@ -163,6 +163,23 @@ export function initialState(): DemoState {
     ],
     design_link_notes: { lnk_d2: "Sandaran turun ke 78 cm, permintaan Pak Agus" },
     design_products: {},
+    /* Two factories asked for the living room (0256, O2): Jepara in rupiah,
+       chosen for both items; Vietnam in dollars for the sofa, not chosen. */
+    factory_quotes: [
+      { id: "fq_1", fq_no: "fq-26-10-06_01", project_id: "prj_26003", vendor_id: "vnd_60", currency: "IDR",
+        quoted_on: "2026-10-06", valid_until: "2026-11-06", note: "Harga franco gudang Jepara, belum packing ekspor",
+        attachment_id: null, created_by: "usr_andi", created_at: "2026-10-06T04:00:00Z",
+        voided_at: null, voided_by: null, void_reason: null },
+      { id: "fq_2", fq_no: "fq-26-10-08_01", project_id: "prj_26003", vendor_id: "vnd_61", currency: "USD",
+        quoted_on: "2026-10-08", valid_until: "2026-10-31", note: "FOB Ho Chi Minh",
+        attachment_id: null, created_by: "usr_andi", created_at: "2026-10-08T03:00:00Z",
+        voided_at: null, voided_by: null, void_reason: null },
+    ],
+    factory_quote_lines: [
+      { id: "fql_1", quote_id: "fq_1", design_item_id: "di_1", unit_price: 6850000, lead_time_days: 45, moq: null, note: null },
+      { id: "fql_2", quote_id: "fq_1", design_item_id: "di_2", unit_price: 2400000, lead_time_days: 30, moq: null, note: null },
+      { id: "fql_3", quote_id: "fq_2", design_item_id: "di_1", unit_price: 395, lead_time_days: 60, moq: 20, note: "Kain dari pabrik" },
+    ],
 
     pr_documents: PR_DOCUMENTS,
     pr_lines: PR_LINES,

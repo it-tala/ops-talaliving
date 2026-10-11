@@ -52,8 +52,9 @@ begin
   -- 40 since `0217` added the ten kinds of a sale and a design (P1): five in
   -- PROJECT MANAGER, five in DRAFTING; 41 since `0222` added the client's
   -- approval of a design, in DRAFTING (D378); 42 since `0248` added the
-  -- drafter's DWG, in DRAFTING (D399).
-  assert n = 42, format('every kind is mapped, got %s', n);
+  -- drafter's DWG, in DRAFTING (D399); 43 since `0256` added a factory's
+  -- price offer, in PROCUREMENT (O2).
+  assert n = 43, format('every kind is mapped, got %s', n);
 end $$;
 
 /* ── the boundary that had to survive the move ─────────────────────────── */

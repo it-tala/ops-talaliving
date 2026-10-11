@@ -57,6 +57,9 @@ function toView(r: Row): QuotationView {
     max_lead_time_days: nn(r.max_lead_time_days),
     expired: !!r.expired,
     is_current: !!r.is_current,
+    currency: (r.currency as QuotationView["currency"]) ?? "IDR",
+    fx_rate: nn(r.fx_rate),
+    grand_total_idr: nn(r.grand_total_idr),
   };
 }
 
@@ -104,6 +107,14 @@ function toLine(r: Row): QuotationLineView {
     design_file_name: s(r.design_file_name),
     latest_design_file_id: s(r.latest_design_file_id),
     design_changed: !!r.design_changed,
+    currency: (r.currency as QuotationLineView["currency"]) ?? "IDR",
+    fx_rate: nn(r.fx_rate),
+    cost_currency: (r.cost_currency as QuotationLineView["cost_currency"]) ?? null,
+    cost_original: nn(r.cost_original),
+    factory_line_id: s(r.factory_line_id),
+    factory_quote_no: s(r.factory_quote_no),
+    factory_vendor_name: s(r.factory_vendor_name),
+    cost_needs_rate: !!r.cost_needs_rate,
   };
 }
 
@@ -131,7 +142,7 @@ export async function getQuotation(quoteNo: string): Promise<Result<QuotationDet
   if (head.error) return head;
   const [lines, revs] = await Promise.all([
     db().from("v_quotation_line").select("*").eq("quote_no", quoteNo).order("line_no"),
-    db().from("v_quotation").select("quote_no, rev, status, sent_at, grand_total")
+    db().from("v_quotation").select("quote_no, rev, status, sent_at, grand_total, currency")
       .eq("project_id", head.data.project_id).order("rev", { ascending: false }),
   ]);
   if (lines.error) return fail(SERVICE, lines.error);
@@ -142,6 +153,7 @@ export async function getQuotation(quoteNo: string): Promise<Result<QuotationDet
     revisions: ((revs.data ?? []) as Row[]).map((r): QuotationRevision => ({
       quote_no: r.quote_no as string, rev: n(r.rev), status: r.status as QuotationRevision["status"],
       sent_at: s(r.sent_at), grand_total: nn(r.grand_total),
+      currency: (r.currency as QuotationRevision["currency"]) ?? "IDR",
     })),
   });
 }
@@ -194,6 +206,20 @@ export async function saveQuotationLine(quoteNo: string, input: QuotationLineInp
 export async function removeQuotationLine(quoteNo: string, lineId: string): Promise<Result<{ quote_no: string }>> {
   const { data, error } = await db().rpc("remove_quotation_line", { p_quote_no: quoteNo, p_line_id: lineId });
   return fromSeam<{ quote_no: string }>(SERVICE, data, error);
+}
+
+/** The currency and kurs of a draft (0256, D414). The kurs — rupiah per 1
+ *  USD — is kept whatever the currency: an IDR quotation needs it too when a
+ *  factory priced in USD. */
+export async function setQuotationCurrency(
+  quoteNo: string, currency: QuotationView["currency"], fxRate: number | null,
+): Promise<Result<QuotationView>> {
+  const { data, error } = await db().rpc("set_quotation_currency", {
+    p_quote_no: quoteNo, p_currency: currency, p_fx_rate: fxRate,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return one(quoteNo);
 }
 
 export async function sendQuotation(quoteNo: string): Promise<Result<QuotationView>> {

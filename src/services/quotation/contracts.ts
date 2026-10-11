@@ -49,9 +49,14 @@ export const QUOTATION_STATUSES: { code: QuotationStatus; label: string; tone: "
 export const QUOTATION_STATUS_LABEL = (s: QuotationStatus): string =>
   QUOTATION_STATUSES.find((x) => x.code === s)?.label ?? s;
 
-/** Where a line's unit cost came from: the released BOM, or typed by hand
- *  for something the catalogue does not cost yet. */
-export type QuoteCostSource = "bom" | "manual";
+/** Where a line's unit cost came from: typed by hand, the partner factory's
+ *  offer chosen for the design item it offers (0256, O2), or the released
+ *  BOM — in that order. */
+export type QuoteCostSource = "bom" | "manual" | "factory";
+
+/** The currency of a document with prices: a quotation, a factory's offer
+ *  (D414). Every line follows its document; no total adds the two. */
+export type Currency = "IDR" | "USD";
 
 export interface Quotation {
   id: string;
@@ -77,6 +82,11 @@ export interface Quotation {
   /** Why the client said no. Required on a rejection. */
   decision_reason: string | null;
   created_at: string;
+  /** IDR or USD (0256, D414). */
+  currency: Currency;
+  /** Rupiah per 1 USD, typed by a person, never fetched (D181). Converts a
+   *  cost in the other currency; a USD quotation is not sent without it. */
+  fx_rate: number | null;
 }
 
 /** A quotation as the screens read it — `v_quotation`. */
@@ -104,6 +114,9 @@ export interface QuotationView extends Quotation {
   expired: boolean;
   /** The revision still in play: a draft, or sent and not revised. */
   is_current: boolean;
+  /** `grand_total` in rupiah, at the quotation's kurs when it is USD — what
+   *  the pipeline and a won project's value add up (D414). */
+  grand_total_idr: number | null;
 }
 
 /** A line as the screens read it — `v_quotation_line`. While the quotation is
@@ -164,6 +177,17 @@ export interface QuotationLineView {
   latest_design_file_id: string | null;
   /** The item has been drawn again since this line's drawing. */
   design_changed: boolean;
+  /* O2 (0256): the quotation's currency and kurs; for a cost reader, the cost
+     in its own currency and the factory offer it came from. */
+  currency: Currency;
+  fx_rate: number | null;
+  cost_currency: Currency | null;
+  cost_original: number | null;
+  factory_line_id: string | null;
+  factory_quote_no: string | null;
+  factory_vendor_name: string | null;
+  /** The cost is in the other currency and the quotation has no kurs yet. */
+  cost_needs_rate: boolean;
 }
 
 /** One revision in a project's quotation history. */
@@ -173,6 +197,7 @@ export interface QuotationRevision {
   status: QuotationStatus;
   sent_at: string | null;
   grand_total: number | null;
+  currency: Currency;
 }
 
 export interface QuotationDetail {
@@ -243,4 +268,6 @@ export interface QuotationLine {
   design_item_id?: string | null;
   design_file_id?: string | null;
   frozen_design_file_id?: string | null;
+  /** The factory offer the cost came from, frozen at send (0256). */
+  frozen_factory_line_id?: string | null;
 }

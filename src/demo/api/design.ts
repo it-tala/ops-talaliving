@@ -8,11 +8,12 @@ import {
   type DesignApproval, type DesignApprovalInput, type DesignAssignInput, type DesignAssignment, type DesignBox, type DesignBoxKey, type DesignBoxVersion,
   type DesignCollection, type DesignItemInput, type DesignItemView, type DesignProject,
   type DesignRoom, type ProjectDesign,
+  type FactoryQuote, type FactoryQuoteInput, type FactoryQuoteLine, type FactoryQuoteResult,
 } from "@/services/design/contracts";
 import type { DocKind } from "@/services/documents/contracts";
 import { currentBomRev, draftBomRev, productView } from "../production-derive";
 import { getState, apply, newId, nextDocNumber, writeAudit } from "../store";
-import { latency, actingUser, canDesign, conflict } from "./_kit";
+import { latency, actingUser, canDesign, canPriceFactory, conflict, replayed, remember } from "./_kit";
 import { officeToday } from "@/lib/office";
 import type { DemoState, DemoDesignItem } from "../state";
 
@@ -66,6 +67,25 @@ function itemView(state: DemoState, i: DemoDesignItem): DesignItemView {
     quote_status: quoted?.q.status ?? null,
     quoted_unit_price: quoted?.l.frozen_unit_price ?? null,
     ordered: orders.length > 0,
+    ...factoryOf(state, i),
+  };
+}
+
+/** The item's chosen factory offer (0256) — for whoever may see factory
+ *  prices; nothing for anybody else, as `v_design_item` masks it. */
+function factoryOf(state: DemoState, i: DemoDesignItem) {
+  const see = canPriceFactory("read");
+  const line = i.factory_line_id ? state.factory_quote_lines.find((l) => l.id === i.factory_line_id) : undefined;
+  const q = line ? state.factory_quotes.find((x) => x.id === line.quote_id && !x.voided_at) : undefined;
+  const offers = state.factory_quote_lines.filter((l) => l.design_item_id === i.id
+    && state.factory_quotes.some((x) => x.id === l.quote_id && !x.voided_at)).length;
+  return {
+    factory_quote_no: see && q ? q.fq_no : null,
+    factory_vendor_name: see && q ? state.vendors.find((v) => v.id === q.vendor_id)?.name ?? null : null,
+    factory_unit_price: see && q && line ? line.unit_price : null,
+    factory_currency: see && q ? q.currency : null,
+    factory_lead_time_days: see && q && line ? line.lead_time_days : null,
+    factory_offers: see ? offers : 0,
   };
 }
 
@@ -712,4 +732,261 @@ export function settleDesignTasksForProduct(productCode: string) {
       settleDesignTasks(i.item_no);
     }
   }
+}
+
+/* ── Factory prices (0256, O2, kajian F255 §5.3) ──────────────────────────
+ *
+ * The same rules as `record_factory_quote`, `choose_factory_line` and
+ * `void_factory_quote`: one offer for one or more of a project's items; a
+ * supplier given one becomes a factory; the first offer for an item is chosen
+ * on its own, a newer one from the same factory takes over, another factory's
+ * waits to be chosen; a wrong offer is voided with a reason and the item falls
+ * back to the same factory's newest live offer. */
+
+/** Who may read the prices: `may_price_factory('read') or may_sell('read')`. */
+function mayReadFactory(): boolean {
+  return canPriceFactory("read") || actingUser().modules.some((m) => m.module === "project" || m.module === "marketing");
+}
+
+function quoteNewer(a: { quoted_on: string; created_at: string }, b: { quoted_on: string; created_at: string }): boolean {
+  return a.quoted_on > b.quoted_on || (a.quoted_on === b.quoted_on && a.created_at > b.created_at);
+}
+
+function factoryQuoteView(state: DemoState, q: DemoState["factory_quotes"][number]): FactoryQuote {
+  const p = state.projects.find((x) => x.id === q.project_id)!;
+  const cl = p.client_id ? state.clients.find((x) => x.id === p.client_id) : undefined;
+  const v = state.vendors.find((x) => x.id === q.vendor_id);
+  const att = q.attachment_id ? state.attachments.find((a) => a.id === q.attachment_id) : undefined;
+  const lines = state.factory_quote_lines.filter((l) => l.quote_id === q.id);
+  return {
+    id: q.id, fq_no: q.fq_no, currency: q.currency, quoted_on: q.quoted_on, valid_until: q.valid_until,
+    note: q.note, attachment_id: q.attachment_id, attachment_filename: att?.filename ?? null,
+    attachment_url: att?.url ?? null, voided_at: q.voided_at, void_reason: q.void_reason,
+    vendor_code: v?.code ?? null, vendor_name: v?.name ?? null,
+    project_code: p.code, project_name: p.name, client_display: cl?.name ?? p.client_name,
+    line_count: lines.length,
+    chosen_count: lines.filter((l) => state.design_items.some((i) => i.factory_line_id === l.id)).length,
+    expired: q.valid_until != null && q.valid_until < officeToday(),
+    recorded_by_name: userName(state, q.created_by), recorded_at: q.created_at,
+  };
+}
+
+function factoryLineView(state: DemoState, l: DemoState["factory_quote_lines"][number]): FactoryQuoteLine {
+  const q = state.factory_quotes.find((x) => x.id === l.quote_id)!;
+  const head = factoryQuoteView(state, q);
+  const item = state.design_items.find((i) => i.id === l.design_item_id)!;
+  const newer = state.factory_quote_lines.some((o) => {
+    if (o.id === l.id || o.design_item_id !== l.design_item_id) return false;
+    const oq = state.factory_quotes.find((x) => x.id === o.quote_id)!;
+    return oq.vendor_id === q.vendor_id && !oq.voided_at && quoteNewer(oq, q);
+  });
+  return {
+    id: l.id, fq_no: q.fq_no, quote_id: q.id, currency: q.currency, quoted_on: q.quoted_on,
+    valid_until: q.valid_until, quote_note: q.note,
+    attachment_id: head.attachment_id, attachment_filename: head.attachment_filename, attachment_url: head.attachment_url,
+    voided_at: q.voided_at, void_reason: q.void_reason,
+    vendor_code: head.vendor_code, vendor_name: head.vendor_name,
+    project_code: head.project_code, project_name: head.project_name,
+    item_no: item.item_no, item_name: item.name, item_qty: item.qty,
+    unit_price: l.unit_price, lead_time_days: l.lead_time_days, moq: l.moq, note: l.note,
+    is_chosen: item.factory_line_id === l.id,
+    is_latest: !q.voided_at && !newer,
+    expired: head.expired,
+    recorded_by_name: head.recorded_by_name, recorded_at: q.created_at,
+  };
+}
+
+/** The offers, newest first — for a project, or all of them. */
+export async function listFactoryQuotes(filter: { project_code?: string } = {}): Promise<Result<FactoryQuote[]>> {
+  await latency();
+  const state = getState();
+  if (!mayReadFactory()) return ok(SERVICE, []);
+  const p = filter.project_code ? state.projects.find((x) => x.code === filter.project_code) : undefined;
+  if (filter.project_code && !p) return ok(SERVICE, []);
+  return ok(SERVICE, state.factory_quotes
+    .filter((q) => !p || q.project_id === p.id)
+    .map((q) => factoryQuoteView(state, q))
+    .sort((a, b) => b.quoted_on.localeCompare(a.quoted_on) || b.recorded_at.localeCompare(a.recorded_at)));
+}
+
+/** The prices — of one offer, one item, or one project — newest first. */
+export async function listFactoryQuoteLines(
+  filter: { fq_no?: string; item_no?: string; project_code?: string } = {},
+): Promise<Result<FactoryQuoteLine[]>> {
+  await latency();
+  const state = getState();
+  if (!mayReadFactory()) return ok(SERVICE, []);
+  return ok(SERVICE, state.factory_quote_lines
+    .map((l) => factoryLineView(state, l))
+    .filter((l) => (!filter.fq_no || l.fq_no === filter.fq_no)
+      && (!filter.item_no || l.item_no === filter.item_no)
+      && (!filter.project_code || l.project_code === filter.project_code))
+    .sort((a, b) => b.quoted_on.localeCompare(a.quoted_on) || b.recorded_at.localeCompare(a.recorded_at)
+      || a.item_no.localeCompare(b.item_no)));
+}
+
+export async function recordFactoryQuote(
+  input: FactoryQuoteInput, idempotencyKey?: string,
+): Promise<Result<FactoryQuoteResult>> {
+  await latency();
+  const cached = replayed<FactoryQuoteResult>(SERVICE, "recordFactoryQuote", idempotencyKey);
+  if (cached) return cached;
+  if (!canPriceFactory("write")) {
+    return refused(SERVICE, "not_permitted", "Mencatat harga pabrik butuh akses procurement (create) atau pimpinan proyek (project update).");
+  }
+  const state = getState();
+  const p = state.projects.find((x) => x.code === input.project_code?.trim());
+  if (!p) return notFound(SERVICE, "project_not_found", `Tidak ada proyek ${input.project_code}.`);
+  const v = state.vendors.find((x) => x.code === input.vendor_code?.trim());
+  if (!v) return invalid(SERVICE, "vendor_unknown", `Tidak ada vendor ${input.vendor_code}.`, { field: "vendor_code" });
+  if (v.merged_into) return invalid(SERVICE, "vendor_merged", `${v.name} sudah digabung ke vendor lain — pilih vendor yang dipakai sekarang.`, { field: "vendor_code" });
+  if (v.archived_at) return invalid(SERVICE, "vendor_archived", `${v.name} sudah diarsipkan.`, { field: "vendor_code" });
+  const kind = v.kind ?? "supplier";
+  if (kind === "qc" || kind === "other") {
+    return invalid(SERVICE, "not_factory",
+      `${v.name} tercatat sebagai ${kind}, bukan pabrik. Ubah jenisnya di Master data › Supplier kalau memang pabrik.`,
+      { field: "vendor_code" });
+  }
+  if (input.currency !== "IDR" && input.currency !== "USD") {
+    return invalid(SERVICE, "bad_currency", "Mata uang: IDR atau USD.", { field: "currency" });
+  }
+  const on = input.quoted_on || officeToday();
+  if (input.valid_until && input.valid_until < on) {
+    return invalid(SERVICE, "bad_validity", "Berlaku sampai tidak bisa sebelum tanggal penawarannya.", { field: "valid_until" });
+  }
+  if (input.attachment_id && !state.attachments.some((a) => a.id === input.attachment_id)) {
+    return invalid(SERVICE, "no_such_file", "File penawaran itu tidak ada.", { field: "attachment_id" });
+  }
+  if (!input.lines?.length) return invalid(SERVICE, "no_lines", "Harga untuk item mana? Isi minimal satu item.", { field: "lines" });
+  const seen = new Set<string>();
+  const items: DemoDesignItem[] = [];
+  for (const l of input.lines) {
+    const item = itemsOf(state, { project_code: p.code }).find((i) => i.item_no === l.item_no?.trim());
+    if (!item) {
+      return invalid(SERVICE, "item_unknown", `${l.item_no || "(kosong)"} bukan item desain proyek ${p.code}.`,
+        { field: "item_no", item_no: l.item_no });
+    }
+    if (item.dropped_at) {
+      return invalid(SERVICE, "item_dropped", `Item ${item.item_no} sudah dikeluarkan dari desain.`, { field: "item_no", item_no: item.item_no });
+    }
+    if (seen.has(item.id)) return invalid(SERVICE, "item_twice", `Item ${item.item_no} tertulis dua kali.`, { field: "item_no", item_no: item.item_no });
+    if (!(typeof l.unit_price === "number" && l.unit_price > 0)) {
+      return invalid(SERVICE, "bad_price", `Harga satuan item ${item.item_no} harus lebih dari 0.`, { field: "unit_price", item_no: item.item_no });
+    }
+    if (l.lead_time_days != null && !(Number.isInteger(l.lead_time_days) && l.lead_time_days >= 0)) {
+      return invalid(SERVICE, "bad_lead_time", `Lead time item ${item.item_no}: jumlah hari, 0 atau lebih.`, { field: "lead_time_days", item_no: item.item_no });
+    }
+    if (l.moq != null && !(l.moq > 0)) {
+      return invalid(SERVICE, "bad_moq", `MOQ item ${item.item_no} harus lebih dari 0, atau kosong.`, { field: "moq", item_no: item.item_no });
+    }
+    seen.add(item.id);
+    items.push(item);
+  }
+  const user = actingUser();
+  let fqNo = "";
+  let chosen = 0;
+  const marked = kind === "supplier";
+  apply((draft) => {
+    if (marked) draft.vendors.find((x) => x.id === v.id)!.kind = "factory";
+    fqNo = nextDocNumber(draft, "fq");
+    const now = new Date().toISOString();
+    const q = {
+      id: newId("fq"), fq_no: fqNo, project_id: p.id, vendor_id: v.id, currency: input.currency,
+      quoted_on: on, valid_until: input.valid_until || null, note: input.note?.trim() || null,
+      attachment_id: input.attachment_id || null, created_by: user.id, created_at: now,
+      voided_at: null, voided_by: null, void_reason: null,
+    };
+    draft.factory_quotes.push(q);
+    input.lines.forEach((l, n) => {
+      const id = newId("fql");
+      draft.factory_quote_lines.push({
+        id, quote_id: q.id, design_item_id: items[n].id, unit_price: l.unit_price,
+        lead_time_days: l.lead_time_days ?? null, moq: l.moq ?? null, note: l.note?.trim() || null,
+      });
+      const it = draft.design_items.find((x) => x.id === items[n].id)!;
+      const cur = it.factory_line_id ? draft.factory_quote_lines.find((x) => x.id === it.factory_line_id) : undefined;
+      const curQ = cur ? draft.factory_quotes.find((x) => x.id === cur.quote_id) : undefined;
+      if (!curQ || curQ.voided_at || (curQ.vendor_id === v.id && curQ.quoted_on <= on)) {
+        it.factory_line_id = id;
+        it.updated_at = now;
+        chosen++;
+      }
+    });
+    writeAudit(draft, {
+      service: SERVICE, entity: "factory_quote", entity_no: fqNo, action: "create", outcome: "ok", reason: null,
+      detail: { project: p.code, vendor: v.code, lines: input.lines.length, by: user.email },
+    });
+  });
+  const res: FactoryQuoteResult = { fq_no: fqNo, lines: input.lines.length, chosen, vendor_marked_factory: marked };
+  remember(SERVICE, "recordFactoryQuote", idempotencyKey, res);
+  return ok(SERVICE, res);
+}
+
+/** Which offer an item is priced from; null for none. */
+export async function chooseFactoryLine(itemNo: string, lineId: string | null): Promise<Result<DesignItemView>> {
+  await latency();
+  if (!canPriceFactory("write")) {
+    return refused(SERVICE, "not_permitted", "Memilih harga pabrik butuh akses procurement (update) atau pimpinan proyek (project update).");
+  }
+  const state = getState();
+  const i = state.design_items.find((x) => x.item_no === itemNo.trim());
+  if (!i) return notFound(SERVICE, "design_item_not_found", `Tidak ada item ${itemNo}.`);
+  if (lineId) {
+    const l = state.factory_quote_lines.find((x) => x.id === lineId);
+    if (!l || l.design_item_id !== i.id) {
+      return invalid(SERVICE, "line_not_for_item", `Penawaran itu bukan untuk item ${i.item_no}.`, { field: "line_id" });
+    }
+    const q = state.factory_quotes.find((x) => x.id === l.quote_id)!;
+    if (q.voided_at) return conflict(SERVICE, "voided", `Penawaran ${q.fq_no} sudah dibatalkan.`);
+  }
+  if ((i.factory_line_id ?? null) === lineId) return noop(SERVICE, itemView(state, i));
+  apply((draft) => {
+    const it = draft.design_items.find((x) => x.id === i.id)!;
+    it.factory_line_id = lineId;
+    it.updated_at = new Date().toISOString();
+    writeAudit(draft, {
+      service: SERVICE, entity: "design_item", entity_no: i.item_no, action: "choose_factory", outcome: "ok", reason: null,
+      detail: { line_id: lineId, by: actingUser().email },
+    });
+  });
+  const s = getState();
+  return ok(SERVICE, itemView(s, s.design_items.find((x) => x.id === i.id)!));
+}
+
+/** A wrong offer, voided with a reason; what was recorded stays readable. */
+export async function voidFactoryQuote(fqNo: string, reason: string): Promise<Result<FactoryQuote>> {
+  await latency();
+  if (!canPriceFactory("write")) {
+    return refused(SERVICE, "not_permitted", "Membatalkan penawaran pabrik butuh akses procurement (update) atau pimpinan proyek (project update).");
+  }
+  const state = getState();
+  const q = state.factory_quotes.find((x) => x.fq_no === fqNo.trim());
+  if (!q) return notFound(SERVICE, "factory_quote_not_found", `Tidak ada penawaran ${fqNo}.`);
+  if (q.voided_at) return conflict(SERVICE, "already_voided", `${q.fq_no} sudah dibatalkan.`);
+  if (!reason?.trim()) {
+    return invalid(SERVICE, "reason_required", "Kenapa dibatalkan? Salah ketik harga, salah item, atau salah pabrik.", { field: "reason" });
+  }
+  const user = actingUser();
+  apply((draft) => {
+    const row = draft.factory_quotes.find((x) => x.id === q.id)!;
+    const now = new Date().toISOString();
+    row.voided_at = now;
+    row.voided_by = user.id;
+    row.void_reason = reason.trim();
+    const mine = new Set(draft.factory_quote_lines.filter((l) => l.quote_id === q.id).map((l) => l.id));
+    for (const it of draft.design_items.filter((x) => x.factory_line_id && mine.has(x.factory_line_id))) {
+      const fallback = draft.factory_quote_lines
+        .map((l) => ({ l, oq: draft.factory_quotes.find((x) => x.id === l.quote_id)! }))
+        .filter(({ l, oq }) => l.design_item_id === it.id && oq.vendor_id === q.vendor_id && !oq.voided_at)
+        .sort((a, b) => (quoteNewer(a.oq, b.oq) ? -1 : 1))[0];
+      it.factory_line_id = fallback?.l.id ?? null;
+      it.updated_at = now;
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "factory_quote", entity_no: q.fq_no, action: "void", outcome: "ok", reason: reason.trim(),
+      detail: { by: user.email },
+    });
+  });
+  const s = getState();
+  return ok(SERVICE, factoryQuoteView(s, s.factory_quotes.find((x) => x.id === q.id)!));
 }

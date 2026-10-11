@@ -82,6 +82,9 @@ export const DOC_KINDS = [
   /** The drafter's source file, kept beside the PDF it is plotted to — its own
    *  box on a design item (0247, D399). */
   "DWG",
+  /** A partner factory's price offer — the PDF, the price list photo, the
+   *  WhatsApp screenshot — filed in PROCUREMENT with the offer (0256, O2). */
+  "Factory Quotation",
   "Others",
 ] as const;
 export type DocKind = (typeof DOC_KINDS)[number];
@@ -136,6 +139,7 @@ export const SUPPORTING_DOC_KINDS: DocKind[] = [
   "Contract / SPK",
   "Client Approval",
   "DWG",
+  "Factory Quotation",
   "Others",
 ];
 

@@ -4,7 +4,8 @@ import type { QuotationView } from "@/services/quotation/contracts";
 import type { SalesSummary } from "./contracts";
 
 export function salesSummary(rows: QuotationView[]): SalesSummary {
-  const value = (xs: QuotationView[]) => xs.reduce((a, q) => a + (q.grand_total ?? 0), 0);
+  /* In rupiah: a USD quotation at its own kurs (0256, D414). */
+  const value = (xs: QuotationView[]) => xs.reduce((a, q) => a + (q.grand_total_idr ?? 0), 0);
   const open = rows.filter((q) => q.status === "SENT" && q.is_current);
   const accepted = rows.filter((q) => q.status === "ACCEPTED");
   const rejected = rows.filter((q) => q.status === "REJECTED");

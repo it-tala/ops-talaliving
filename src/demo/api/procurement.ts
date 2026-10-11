@@ -12,7 +12,7 @@ import type {
   ReceivingMatchResult, PoPaymentRequest, ReceivingTrxCandidate, ReceivingPoCandidate,
   ReceivingArchiveResult, ClosingReason, SalesPerson, TimelineEvent, TimelineKind, ProjectOutcome,
 } from "@/services/procurement/contracts";
-import { CLOSING_REASONS } from "@/services/procurement/contracts";
+import { CLOSING_REASONS, VENDOR_KINDS, type VendorKind } from "@/services/procurement/contracts";
 import { acceptedQuotationTotal, currentQuotation } from "./quotation";
 import { officeToday } from "@/lib/office";
 import { RECEIPT_CONDITIONS } from "@/services/procurement/contracts";
@@ -288,7 +288,10 @@ function saleOf(state: DemoState, p: Project) {
     days_in_status: days,
     current_quote_no: q?.quote_no ?? null,
     current_quote_status: q?.status ?? null,
-    current_quote_total: q?.grand_total ?? null,
+    /* In rupiah, a USD quotation at its own kurs (0256); its own figure below. */
+    current_quote_total: q?.grand_total_idr ?? null,
+    current_quote_currency: q?.currency ?? null,
+    current_quote_total_own: q?.grand_total ?? null,
     closing_reason_code: closing?.reason_code ?? null,
     closing_reason: closing?.reason ?? null,
     closed_at: closing?.changed_at ?? null,
@@ -2230,6 +2233,7 @@ function vendorView(state: ReturnType<typeof getState>, v: Vendor): VendorView {
   const trx = state.transactions.filter((t) => t.vendor_id && ids.has(t.vendor_id) && t.status !== "VOID");
   return {
     ...v,
+    kind: v.kind ?? "supplier",
     supplied_category_names: v.supplied_categories.map(
       (c) => state.item_categories.find((x) => x.code === c)?.name ?? c,
     ),
@@ -2294,6 +2298,28 @@ export async function curateVendor(id: string, curated: boolean): Promise<Result
   apply((draft) => {
     draft.vendors.find((x) => x.id === id)!.is_curated = curated;
     writeAudit(draft, { service: SERVICE, entity: "vendor", entity_no: v.code, action: curated ? "curate" : "uncurate", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, vendorView(getState(), getState().vendors.find((x) => x.id === id)!));
+}
+
+/** What a vendor is to us — supplier, factory, QC or other (0256, O2).
+ *  Procurement's (update). A merged row is changed through the one it went
+ *  into. */
+export async function setVendorKind(id: string, kind: VendorKind): Promise<Result<VendorView>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "procurement", "write");
+  if (denied) return denied;
+  const v = getState().vendors.find((x) => x.id === id);
+  if (!v) return notFound(SERVICE, "vendor_not_found", "Vendor not found.");
+  if (!VENDOR_KINDS.some((k) => k.code === kind)) {
+    return invalid(SERVICE, "bad_kind", "Jenis vendor: supplier, factory (pabrik), qc, atau other.", { field: "kind" });
+  }
+  if (v.merged_into) return conflict(SERVICE, "merged", `${v.name} sudah digabung ke vendor lain — ubah vendor yang dipakai sekarang.`);
+  if ((v.kind ?? "supplier") === kind) return noop(SERVICE, vendorView(getState(), v));
+  apply((draft) => {
+    draft.vendors.find((x) => x.id === id)!.kind = kind;
+    writeAudit(draft, { service: SERVICE, entity: "vendor", entity_no: v.code, action: "set_kind", outcome: "ok", reason: null,
+      detail: { from: v.kind ?? "supplier", to: kind } });
   });
   return ok(SERVICE, vendorView(getState(), getState().vendors.find((x) => x.id === id)!));
 }

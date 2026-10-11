@@ -11,7 +11,7 @@ import { Loaded, useLoad } from "@/components/ui/loaded";
 import { MoneyInput } from "@/components/ui/money-input";
 import { NumberInput } from "@/components/ui/number-input";
 import { UomOptions } from "@/components/ui/uom-options";
-import { formatIDR, formatNumber } from "@/lib/format";
+import { formatIDR, formatMoney, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { procurement, production, quotation } from "@/demo/api";
 import { QUOTATION_STATUSES } from "@/services/quotation/contracts";
@@ -339,7 +339,7 @@ function Quotations({ code }: { code: string }) {
               !x.is_current && x.status !== "ACCEPTED" && "opacity-60")}>
             <span className="font-mono text-[11px]">{x.quote_no}</span>
             <Badge tone={st.tone}>{st.label}</Badge>
-            {x.grand_total != null && <span className="tabular-nums text-[12px] text-slate-600">{formatIDR(x.grand_total)}</span>}
+            {x.grand_total != null && <span className="tabular-nums text-[12px] text-slate-600">{formatMoney(x.grand_total, x.currency)}</span>}
           </Link>
         );
       })}
