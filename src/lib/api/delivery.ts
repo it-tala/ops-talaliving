@@ -10,6 +10,7 @@
  *  not a `ServiceName` (see `src/demo/api/index.ts`).
  */
 import type {
+  ContainerInput, ContainerUpdate,
   BoxLine, BoxView, DeliveryView, FulfilmentLine, FulfilmentView, Handover,
   InstallationView, SnagSeverity, SnagView,
 } from "@/services/delivery/contracts";
@@ -164,6 +165,16 @@ async function deliveryViews(filter: { project_code?: string; delivery_no?: stri
       lines: mine,
       total_qty: n(r.total_qty),
       warnings: deliveryWarnings(d, mine.length, today),
+      delivery_mode: ((r.delivery_mode as string | null) ?? "truck") as DeliveryView["delivery_mode"],
+      po_no: (r.po_no as string | null) ?? null,
+      container_no: (r.container_no as string | null) ?? null,
+      seal_no: (r.seal_no as string | null) ?? null,
+      container_size: (r.container_size as DeliveryView["container_size"]) ?? null,
+      etd: (r.etd as string | null) ?? null,
+      eta: (r.eta as string | null) ?? null,
+      bl_no: (r.bl_no as string | null) ?? null,
+      container_docs: ((r.container_docs as DeliveryView["container_docs"] | null) ?? []),
+      days_past_eta: r.days_past_eta == null ? null : n(r.days_past_eta),
     };
   }));
 }
@@ -204,6 +215,50 @@ export async function markArrived(
     p_delivery_no: input.delivery_no, p_received_by: input.received_by,
     p_surat_jalan_attachment_id: input.surat_jalan_attachment_id || null,
     p_photo_attachment_id: input.photo_attachment_id || null,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return getDelivery(input.delivery_no);
+}
+
+/** A container loaded for a project (0259, O5): `create_delivery`'s checks
+ *  and moves, and the container on top. Warnings — a check digit that does not
+ *  match — come back beside the delivery, not as a refusal. */
+export async function createContainer(
+  input: ContainerInput, idempotencyKey?: string,
+): Promise<Result<DeliveryView & { load_warnings: string[] }>> {
+  const { data, error } = await db().rpc("create_container", {
+    p_project_code: input.project_code, p_loaded_on: input.loaded_on || null, p_lines: input.lines,
+    p_container_no: input.container_no, p_seal_no: input.seal_no ?? null,
+    p_container_size: input.container_size ?? null, p_po_no: input.po_no ?? null,
+    p_etd: input.etd || null, p_eta: input.eta || null, p_bl_no: input.bl_no ?? null,
+    p_note: input.note ?? null, p_key: idempotencyKey ?? null,
+  });
+  const res = fromSeam<{ delivery_no: string; warnings?: string[] }>(SERVICE, data, error);
+  if (res.error) return res;
+  const view = await getDelivery(res.data.delivery_no);
+  if (view.error) return view;
+  return ok(SERVICE, { ...view.data, load_warnings: res.data.warnings ?? [] });
+}
+
+/** The container's details as they become known, until it arrives. */
+export async function updateContainer(input: ContainerUpdate): Promise<Result<DeliveryView>> {
+  const { data, error } = await db().rpc("update_container", {
+    p_delivery_no: input.delivery_no, p_container_no: input.container_no,
+    p_seal_no: input.seal_no || null, p_container_size: input.container_size || null,
+    p_etd: input.etd || null, p_eta: input.eta || null, p_bl_no: input.bl_no || null,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return getDelivery(input.delivery_no);
+}
+
+/** A packing list or B/L, already uploaded against the delivery, linked to it. */
+export async function fileContainerDoc(
+  input: { delivery_no: string; kind: "packing_list" | "bill_of_lading"; attachment_id: string },
+): Promise<Result<DeliveryView>> {
+  const { data, error } = await db().rpc("file_container_doc", {
+    p_delivery_no: input.delivery_no, p_kind: input.kind, p_attachment_id: input.attachment_id,
   });
   const res = fromSeam(SERVICE, data, error);
   if (res.error) return res;

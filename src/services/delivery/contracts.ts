@@ -56,6 +56,59 @@ export interface Delivery {
   cancelled_reason: string | null;
   created_by: string;
   created_at: string;
+  /** A container instead of a lorry (0259, O5). Absent on the demo's older
+   *  fixtures, which are all trucks. */
+  delivery_mode?: DeliveryMode;
+  po_id?: string | null;
+  container_no?: string | null;
+  seal_no?: string | null;
+  container_size?: ContainerSize | null;
+  etd?: string | null;
+  eta?: string | null;
+  bl_no?: string | null;
+}
+
+/** How it travels (0259). A container carries an order's goods by sea; the
+ *  number of containers is counted from these rows, never typed (D414). */
+export type DeliveryMode = "truck" | "container";
+export type ContainerSize = "20" | "40" | "40HC";
+export const CONTAINER_SIZES: ContainerSize[] = ["20", "40", "40HC"];
+
+/** A container's paper, filed against the delivery (0259). */
+export interface ContainerDoc {
+  attachment_id: string;
+  kind: "packing_list" | "bill_of_lading";
+  filename: string;
+  url: string | null;
+  linked_at: string;
+}
+
+/** A container loaded for a project (0259's `create_container`). */
+export interface ContainerInput {
+  project_code: string;
+  loaded_on: string;
+  container_no: string;
+  seal_no?: string | null;
+  container_size?: ContainerSize | null;
+  /** The factory order it was loaded from; its lines are the order's lines. */
+  po_no?: string | null;
+  etd?: string | null;
+  eta?: string | null;
+  bl_no?: string | null;
+  note?: string | null;
+  lines: { project_line_id: string; qty: number; note?: string | null }[];
+}
+
+/** What can change while it is at sea (0259's `update_container`): every
+ *  value is the one the screen holds, so an empty one clears. */
+export interface ContainerUpdate {
+  delivery_no: string;
+  container_no: string;
+  seal_no: string | null;
+  container_size: ContainerSize | null;
+  etd: string | null;
+  eta: string | null;
+  bl_no: string | null;
 }
 
 export interface DeliveryLine {
@@ -358,6 +411,18 @@ export interface DeliveryView extends Delivery {
   /** Said plainly: no surat jalan, nobody named as receiver, sitting in
    *  transit for a week. */
   warnings: string[];
+  delivery_mode: DeliveryMode;
+  /** The factory order a container was loaded from, by number. */
+  po_no: string | null;
+  container_no: string | null;
+  seal_no: string | null;
+  container_size: ContainerSize | null;
+  etd: string | null;
+  eta: string | null;
+  bl_no: string | null;
+  container_docs: ContainerDoc[];
+  /** Days past the ETA while it has not arrived; null otherwise. */
+  days_past_eta: number | null;
 }
 
 export interface InstallationView extends Installation {

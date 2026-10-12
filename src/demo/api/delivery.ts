@@ -16,8 +16,9 @@
 import { ok, invalid, notFound, noop, isOk, type Result } from "@/services/_shared/envelope";
 import type {
   DeliveryView, InstallationView, SnagView, FulfilmentView,
-  SnagSeverity, BoxView,
+  SnagSeverity, BoxView, ContainerInput, ContainerUpdate,
 } from "@/services/delivery/contracts";
+import { checkDigitWarning, cleanContainerNo, containerNoShapeOk } from "@/services/delivery/container";
 import { getState, apply, newId, nextDocNumber, writeAudit } from "../store";
 import {
   fulfilmentView, fulfilmentViews, deliveryView, installationView, snagView,
@@ -247,6 +248,158 @@ export async function markArrived(
       action: "arrive", outcome: "ok", reason: null,
       detail: { received_by: input.received_by.trim(), by: user.email },
     });
+  });
+  return getDelivery(d.delivery_no);
+}
+
+/* ── containers (0259, O5) ────────────────────────────────────────────── */
+
+/** The container's own fields, checked the same way on the way in and on
+ *  every correction — `ops_dlv.container_fields_refusal`. */
+function containerRefusal(
+  state: DemoState, deliveryNo: string | null, no: string | null, size: string | null,
+  etd: string | null | undefined, eta: string | null | undefined,
+): Result<never> | null {
+  if (!no) {
+    return invalid(SERVICE, "container_no_required", "Nomor kontainernya berapa? Tertulis di pintu kontainer: empat huruf, tujuh angka.", { field: "container_no" });
+  }
+  if (!containerNoShapeOk(no)) {
+    return invalid(SERVICE, "bad_container_no",
+      `${no} bukan nomor kontainer: empat huruf (yang keempat U, J atau Z) lalu tujuh angka, mis. MSKU1234565.`, { field: "container_no" });
+  }
+  if (size && !["20", "40", "40HC"].includes(size)) {
+    return invalid(SERVICE, "bad_size", `Ukuran ${size} tidak dikenal: 20, 40 atau 40HC.`, { field: "container_size" });
+  }
+  if (etd && eta && eta < etd) return invalid(SERVICE, "eta_before_etd", "ETA tidak bisa sebelum ETD.", { field: "eta" });
+  const clash = state.deliveries.find((d) => d.container_no === no && (d.status === "DRAFT" || d.status === "IN_TRANSIT")
+    && d.delivery_no !== deliveryNo);
+  if (clash) {
+    return conflict(SERVICE, "container_in_use",
+      `Kontainer ${no} masih dalam perjalanan di ${clash.delivery_no}. Satu kontainer tidak bisa di dua kapal.`, { delivery_no: clash.delivery_no });
+  }
+  return null;
+}
+
+const upperOrNull = (v: string | null | undefined) => (v ?? "").trim().toUpperCase() || null;
+
+/** A container loaded for a project: `createDelivery`'s checks and moves, then
+ *  the container on top (0259's `create_container`). */
+export async function createContainer(
+  input: ContainerInput, idempotencyKey?: string,
+): Promise<Result<DeliveryView & { load_warnings: string[] }>> {
+  await latency();
+  const cached = replayed<DeliveryView & { load_warnings: string[] }>(SERVICE, "createContainer", idempotencyKey);
+  if (cached) return cached;
+  const denied = requireModule(SERVICE, "delivery");
+  if (denied) return denied;
+  const state = getState();
+  const project = state.projects.find((p) => p.code === input.project_code);
+  if (!project) return notFound(SERVICE, "project_not_found", `Tidak ada proyek ${input.project_code}.`);
+  const no = cleanContainerNo(input.container_no);
+  const size = upperOrNull(input.container_size);
+  const bad = containerRefusal(state, null, no, size, input.etd, input.eta);
+  if (bad) return bad;
+
+  let poId: string | null = null;
+  if (input.po_no?.trim()) {
+    const po = state.purchase_orders.find((p) => p.po_no === input.po_no!.trim());
+    if (!po || po.project_id !== project.id) {
+      return invalid(SERVICE, "po_not_this_project", `${input.po_no} bukan order pabrik proyek ${project.code}.`, { field: "po_no" });
+    }
+    if (po.status === "CANCELLED") return conflict(SERVICE, "po_cancelled", `${po.po_no} sudah dibatalkan.`);
+    const onOrder = new Set(state.po_lines.filter((o) => o.po_id === po.id && o.superseded_by === null).map((o) => o.project_line_id));
+    const off = input.lines.find((l) => !onOrder.has(l.project_line_id));
+    if (off) {
+      const ln = state.project_lines.find((p) => p.id === off.project_line_id)?.line_no ?? "?";
+      return invalid(SERVICE, "line_not_on_order", `Baris ${ln} tidak ada di ${po.po_no}. Kontainer dari satu order pabrik memuat baris order itu.`, { field: "lines" });
+    }
+    poId = po.id;
+  }
+
+  const made = await createDelivery({
+    project_code: project.code, dispatched_on: input.loaded_on, lines: input.lines, note: input.note ?? null,
+  });
+  if (made.error) return made;
+  apply((draft) => {
+    const row = draft.deliveries.find((d) => d.delivery_no === made.data.delivery_no);
+    if (!row) return;
+    Object.assign(row, {
+      delivery_mode: "container", po_id: poId, container_no: no, seal_no: upperOrNull(input.seal_no),
+      container_size: size, etd: input.etd || null, eta: input.eta || null, bl_no: upperOrNull(input.bl_no),
+    });
+    writeAudit(draft, {
+      service: SERVICE, entity: "delivery", entity_no: row.delivery_no, action: "load_container", outcome: "ok", reason: null,
+      detail: { container_no: no, po_id: poId, etd: input.etd ?? null, eta: input.eta ?? null },
+    });
+  });
+  const view = await getDelivery(made.data.delivery_no);
+  if (view.error) return view;
+  const warning = checkDigitWarning(no!);
+  const out = { ...view.data, load_warnings: warning ? [warning] : [] };
+  remember(SERVICE, "createContainer", idempotencyKey, out);
+  return ok(SERVICE, out);
+}
+
+/** The container's details as they become known, until it arrives. */
+export async function updateContainer(input: ContainerUpdate): Promise<Result<DeliveryView>> {
+  await latency();
+  const denied = requireModule(SERVICE, "delivery");
+  if (denied) return denied;
+  const state = getState();
+  const d = state.deliveries.find((x) => x.delivery_no === input.delivery_no);
+  if (!d) return notFound(SERVICE, "delivery_not_found", `Tidak ada pengiriman ${input.delivery_no}.`);
+  if ((d.delivery_mode ?? "truck") !== "container") {
+    return invalid(SERVICE, "not_a_container", `${d.delivery_no} adalah pengiriman truk, bukan kontainer.`);
+  }
+  if (d.status === "ARRIVED" || d.status === "CANCELLED") {
+    return conflict(SERVICE, "closed", `${d.delivery_no} sudah ${d.status === "ARRIVED" ? "sampai" : "dibatalkan"}; datanya tidak diubah lagi.`);
+  }
+  const no = cleanContainerNo(input.container_no);
+  const size = upperOrNull(input.container_size);
+  const bad = containerRefusal(state, d.delivery_no, no, size, input.etd, input.eta);
+  if (bad) return bad;
+  const next = {
+    container_no: no, seal_no: upperOrNull(input.seal_no), container_size: size,
+    etd: input.etd || null, eta: input.eta || null, bl_no: upperOrNull(input.bl_no),
+  };
+  const same = (Object.keys(next) as (keyof typeof next)[]).every((k) => (d[k] ?? null) === next[k]);
+  if (same) return noop(SERVICE, (await getDelivery(d.delivery_no)).data!);
+  apply((draft) => {
+    const row = draft.deliveries.find((x) => x.id === d.id);
+    if (row) Object.assign(row, next);
+    writeAudit(draft, {
+      service: SERVICE, entity: "delivery", entity_no: d.delivery_no, action: "update_container", outcome: "ok", reason: null,
+      detail: { from: { container_no: d.container_no, etd: d.etd, eta: d.eta, bl_no: d.bl_no }, to: next },
+    });
+  });
+  return getDelivery(d.delivery_no);
+}
+
+/** A packing list or B/L, already uploaded against the delivery, linked to it. */
+export async function fileContainerDoc(
+  input: { delivery_no: string; kind: "packing_list" | "bill_of_lading"; attachment_id: string },
+): Promise<Result<DeliveryView>> {
+  await latency();
+  const denied = requireModule(SERVICE, "delivery");
+  if (denied) return denied;
+  const state = getState();
+  const d = state.deliveries.find((x) => x.delivery_no === input.delivery_no);
+  if (!d) return notFound(SERVICE, "delivery_not_found", `Tidak ada pengiriman ${input.delivery_no}.`);
+  if ((d.delivery_mode ?? "truck") !== "container") {
+    return invalid(SERVICE, "not_a_container", `${d.delivery_no} adalah pengiriman truk; packing list dan B/L milik kontainer.`);
+  }
+  if (!state.attachments.some((a) => a.id === input.attachment_id)) {
+    return invalid(SERVICE, "no_such_file", "File itu tidak ada. Unggah dulu.", { field: "attachment_id" });
+  }
+  const label = input.kind === "packing_list" ? "Packing List" : "Bill of Lading";
+  const user = actingUser();
+  apply((draft) => {
+    if (draft.attachment_links.some((k) => k.attachment_id === input.attachment_id && k.entity === "delivery"
+      && k.entity_no === d.delivery_no && k.kind === label)) return;
+    draft.attachment_links.push({
+      attachment_id: input.attachment_id, entity: "delivery", entity_no: d.delivery_no, kind: label,
+      linked_by: user.id, linked_at: new Date().toISOString(),
+    } as DemoState["attachment_links"][number]);
   });
   return getDelivery(d.delivery_no);
 }

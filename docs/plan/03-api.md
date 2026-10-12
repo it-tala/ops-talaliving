@@ -330,6 +330,20 @@ appends the chosen offer — `factory_quote_no`, `factory_vendor_name`,
 `factory_offers` — masked to `may_price_factory('read')`. `may_design('read')`
 now includes `procurement.read`.
 
+### Delivery — containers (O5, 0258/0259, D417)
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/containers` | `{project_code, loaded_on, container_no, seal_no?, container_size?: 20\|40\|40HC, po_no?, etd?, eta?, bl_no?, note?, lines: [{project_line_id, qty, note?}]}` — `create_container` (`delivery.create`, idempotent): runs `create_delivery` (lines against ready-to-ship, project to SHIPPED), then records the container on it (`delivery_mode = container`). The number is cleaned (spaces, dashes, case) and must be ISO 6346-shaped; a mismatching check digit comes back in `warnings`. Answers `{delivery_no, container_no, project_moved, warnings}`. 422 `container_no_required`, `bad_container_no`, `bad_size`, `eta_before_etd`, `po_not_this_project`, `line_not_on_order`, and `create_delivery`'s refusals; 409 `container_in_use` (live elsewhere), `po_cancelled` |
+| PUT | `/containers/{delivery_no}` | `{container_no, seal_no, container_size, etd, eta, bl_no}` — `update_container` (`delivery.update`): every value as the screen holds it, null clears; until it arrives. Same values is **noop**. 422 `not_a_container` and the field refusals above; 409 `closed`, `container_in_use` |
+| POST | `/containers/{delivery_no}/documents` | `{kind: packing_list\|bill_of_lading, attachment_id}` — `file_container_doc` (`delivery.update`): links a file uploaded as `Packing List` / `Bill of Lading` against the delivery (PROJECT MANAGER › ops-talaliving › `PENGIRIMAN/{CLIENT}/{PROJECT}`). 422 `not_a_container`, `unknown_kind`, `no_such_file` |
+
+`v_delivery` appends `delivery_mode`, `po_no` (through the definer `po_no_of`,
+so logistics sees the number without reading orders), `container_no`,
+`seal_no`, `container_size`, `etd`, `eta`, `bl_no`, `container_docs` and
+`days_past_eta`. `drive_context` resolves a `delivery` to its project's client
+and project folders.
+
 ### Projects — production route and factory orders (O3, 0257, D416)
 
 | Method | Path | Notes |

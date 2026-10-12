@@ -189,6 +189,28 @@ export function deliveryView(state: DemoState, d: Delivery, today: string): Deli
     lines,
     total_qty: lines.reduce((s, l) => s + l.qty, 0),
     warnings,
+    delivery_mode: d.delivery_mode ?? "truck",
+    po_no: d.po_id ? state.purchase_orders.find((p) => p.id === d.po_id)?.po_no ?? null : null,
+    container_no: d.container_no ?? null,
+    seal_no: d.seal_no ?? null,
+    container_size: d.container_size ?? null,
+    etd: d.etd ?? null,
+    eta: d.eta ?? null,
+    bl_no: d.bl_no ?? null,
+    /* The container's papers (0259's `container_docs`). */
+    container_docs: state.attachment_links
+      .filter((k) => k.entity === "delivery" && k.entity_no === d.delivery_no
+        && (k.kind === "Packing List" || k.kind === "Bill of Lading"))
+      .map((k) => {
+        const a = state.attachments.find((x) => x.id === k.attachment_id);
+        return {
+          attachment_id: k.attachment_id,
+          kind: (k.kind === "Packing List" ? "packing_list" : "bill_of_lading") as "packing_list" | "bill_of_lading",
+          filename: a?.filename ?? k.attachment_id, url: a?.url ?? null, linked_at: k.linked_at,
+        };
+      }),
+    days_past_eta: d.delivery_mode === "container" && d.eta && d.status === "IN_TRANSIT" && today > d.eta
+      ? Math.round((Date.parse(today) - Date.parse(d.eta)) / 86_400_000) : null,
   };
 }
 

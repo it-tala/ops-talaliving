@@ -184,6 +184,16 @@ function filingPlace(kind: DocKind, entity?: LinkEntity, entityNo?: string): Fil
       : "PENAWARAN PABRIK";
     return { drive: "PROCUREMENT", path, filed_in: `PROCUREMENT / ops-talaliving / ${path}` };
   }
+  /* A container's papers: PROJECT MANAGER, per client and project (0259, O5). */
+  if (kind === "Packing List" || kind === "Bill of Lading") {
+    const d = entity === "delivery" ? st.deliveries.find((x) => x.delivery_no === entityNo?.trim()) : undefined;
+    const p = d ? st.projects.find((x) => x.code === d.project_code) : undefined;
+    const c = p?.client_id ? st.clients.find((x) => x.id === p.client_id) : undefined;
+    const path = p
+      ? `PENGIRIMAN/${c ? segment(`${c.code} ${c.name}`) : segment(p.client_name) ?? "TANPA KLIEN"}/${segment(`${p.code} ${p.name}`)}`
+      : "PENGIRIMAN";
+    return { drive: "PROJECT MANAGER", path, filed_in: `PROJECT MANAGER / ops-talaliving / ${path}` };
+  }
   const sale = SALE_KINDS[kind];
   if (!sale) return null;
   /* A meeting's files, in a folder of the meeting (0224). */
