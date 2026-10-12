@@ -10423,3 +10423,29 @@ reader.
 money machinery reads from, keep the document's own figure beside it, and
 refuse the state change after which the conversion matters until the rate
 is there.
+
+## F258 · 2026-10-12 · A column name is global to the shadowing check, and a validator that answers in envelopes writes
+
+O5 added `deliveries.mode`. The column touched nothing in HR, yet the smoke
+run's static check failed on four HR migrations (`0050`, `0195`, `0244`,
+`0246`): each has a PL/pgSQL local called `mode`, and the check refuses any
+local that shares a name with **any** column, because Postgres only resolves
+the ambiguity at run time and only on the branch that reaches it. Renaming
+four old functions to make room for a new column would have been the wrong
+way round; the column is `delivery_mode`.
+
+The second failure was quieter. The container's field checks were factored
+into `container_fields_refusal`, declared `stable` because it "only reads".
+But it answers with `ops_core.invalid(...)` / `ops_core.conflict(...)`, and
+those envelopes are logged — a write. `175_core_upload_read_write` caught it:
+a stable function reachable through PostgREST runs in a read-only
+transaction there, and the first refusal would have thrown instead of
+answering.
+
+Also: a container number has a check digit (ISO 6346), and it was tempting to
+refuse a mismatch. It is warned instead (A6): the number is copied from a
+photo of a door, and a rule that refuses the number painted on the steel is
+the one that will be overridden by typing a different, wrong one.
+
+**Rule:** before adding a column, grep the PL/pgSQL locals for its name; and a
+helper that returns an envelope is `volatile`, whatever else it does.

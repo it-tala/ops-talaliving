@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Truck, AlertTriangle, PackageCheck, Paperclip, Factory } from "lucide-react";
+import { Truck, AlertTriangle, PackageCheck, Paperclip, Factory, Ship } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { Paged } from "@/components/ui/pager";
@@ -10,6 +10,7 @@ import { cn } from "@/lib/cn";
 import { delivery } from "@/demo/api";
 import { DELIVERY_STATUS_LABEL, type DeliveryStatus, type FulfilmentView } from "@/services/delivery/contracts";
 import { FileEvidence } from "@/components/ui/file-evidence";
+import { ContainerDrawer, ContainerPanel } from "@/components/delivery/containers";
 import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
 import { officeToday } from "@/lib/office";
@@ -37,6 +38,8 @@ export default function DeliveryPage() {
   const [ful, reloadFul] = useLoad(() => delivery.listFulfilment(), []);
   const [rows, reload] = useLoad(() => delivery.listDeliveries(), []);
   const [open, setOpen] = useState<FulfilmentView | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [show, setShow] = useState<"all" | "container" | "truck">("all");
   const mayEdit = can("delivery.create");
 
   function refresh() { reloadFul(); reload(); }
@@ -47,6 +50,9 @@ export default function DeliveryPage() {
         breadcrumb={tr("Projects", "Proyek")}
         title={tr("Delivery", "Pengiriman")}
         description={tr("What is finished and still here, what is on the road, and what has been signed for on site. A delivery note for goods not yet made is refused — a promise like that is found out on site.", "Yang sudah jadi dan masih di sini, yang sedang di jalan, dan yang sudah ditandatangani di lokasi. Surat jalan untuk barang yang belum jadi ditolak — janji seperti itu ketahuannya di lokasi.")}
+        actions={mayEdit && ful.status === "ready" && ful.data.length > 0 && (
+          <Button icon={Ship} variant="outline" onClick={() => setLoading(true)}>{tr("Load a container", "Muat kontainer")}</Button>
+        )}
       />
 
       <Loaded state={ful} onRetry={reloadFul}>
@@ -146,13 +152,31 @@ export default function DeliveryPage() {
       </Loaded>
 
       <Loaded state={rows} onRetry={reload}>
-        {(all) => (
+        {(every) => {
+          /* Containers are counted from these rows, never typed (D414). */
+          const boxes = every.filter((d) => d.delivery_mode === "container");
+          const atSea = boxes.filter((d) => d.status === "IN_TRANSIT").length;
+          const all = every.filter((d) => show === "all" || d.delivery_mode === show);
+          return (
           <Card>
             <CardHeader
-              title={tr(`${all.length} deliveries`, `${all.length} pengiriman`)}
+              title={tr(`${every.length} deliveries`, `${every.length} pengiriman`)}
               subtitle={tr("Newest first. Deliveries that left and were never recorded as arrived are flagged — not because the truck is lost, but because nobody wrote it down.", "Terbaru di atas. Yang berangkat dan tidak pernah dicatat sampai ditandai — bukan karena truknya hilang, tapi karena tidak ada yang menulisnya.")}
               icon={Truck}
-              action={<SourceBadge state={rows} />}
+              action={(
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <SourceBadge state={rows} />
+                  {(["all", "container", "truck"] as const).map((k) => (
+                    <button key={k} type="button" onClick={() => setShow(k)}
+                      className={cn("rounded-full border px-2.5 py-0.5 text-[12px]",
+                        show === k ? "border-slate-700 bg-slate-700 text-white" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50")}>
+                      {k === "all" ? tr("All", "Semua")
+                        : k === "container" ? tr(`Containers · ${boxes.length}${atSea ? ` (${atSea} at sea)` : ""}`, `Kontainer · ${boxes.length}${atSea ? ` (${atSea} di laut)` : ""}`)
+                          : tr(`Trucks · ${every.length - boxes.length}`, `Truk · ${every.length - boxes.length}`)}
+                    </button>
+                  ))}
+                </div>
+              )}
             />
             <Paged rows={all} pageSize={15} unit={tr("deliveries", "pengiriman")}>
               {(page) => (
@@ -161,6 +185,7 @@ export default function DeliveryPage() {
                     <li key={d.id} className="px-5 py-3">
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                         <Badge tone={TONE[d.status]}>{DELIVERY_STATUS_LABEL[d.status]}</Badge>
+                        {d.delivery_mode === "container" && <Badge tone="brand">{tr("Container", "Kontainer")}</Badge>}
                         <span className="min-w-[180px] flex-1">
                           <span className="block text-[13px] font-medium text-slate-800">{d.project_name}</span>
                           <span className="block font-mono text-[10px] text-slate-400">
@@ -190,6 +215,7 @@ export default function DeliveryPage() {
                           </li>
                         ))}
                       </ul>
+                      {d.delivery_mode === "container" && <ContainerPanel d={d} mayEdit={mayEdit} onChanged={refresh} />}
                       {d.warnings.map((w) => (
                         <p key={w} className="mt-1 flex items-start gap-1.5 text-[11px] text-amber-800">
                           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{w}
@@ -201,8 +227,13 @@ export default function DeliveryPage() {
               )}
             </Paged>
           </Card>
-        )}
+          );
+        }}
       </Loaded>
+
+      {loading && ful.status === "ready" && (
+        <ContainerDrawer projects={ful.data} onClose={() => setLoading(false)} onDone={() => { setLoading(false); refresh(); }} />
+      )}
 
       {open && <DispatchDrawer project={open} onClose={() => setOpen(null)} onDone={() => { setOpen(null); refresh(); }} />}
     </div>

@@ -85,6 +85,10 @@ export const DOC_KINDS = [
   /** A partner factory's price offer — the PDF, the price list photo, the
    *  WhatsApp screenshot — filed in PROCUREMENT with the offer (0256, O2). */
   "Factory Quotation",
+  /** A container's papers: what is in it, and the shipping line's receipt
+   *  for it — filed with the delivery in PROJECT MANAGER (0259, O5). */
+  "Packing List",
+  "Bill of Lading",
   "Others",
 ] as const;
 export type DocKind = (typeof DOC_KINDS)[number];
@@ -140,6 +144,8 @@ export const SUPPORTING_DOC_KINDS: DocKind[] = [
   "Client Approval",
   "DWG",
   "Factory Quotation",
+  "Packing List",
+  "Bill of Lading",
   "Others",
 ];
 
@@ -204,7 +210,9 @@ export type LinkEntity =
   | "design_collection"
   /** An entry of the client log, by its id — a meeting's minutes, the
    *  whiteboard photo, the sketch the client handed over (0224, P3). */
-  | "client_activity";
+  | "client_activity"
+  /** A delivery, by its number — a container's packing list and B/L (0259, O5). */
+  | "delivery";
 
 /** Who made a file (0217): us, the client, or somebody the client brought —
  *  their architect or designer. A property of the file, wherever it is
