@@ -542,6 +542,8 @@ export interface DemoDesignItem {
   length_mm: number | null; width_mm: number | null; height_mm: number | null;
   origin: DesignOrigin; product_code: string | null; note: string | null;
   dropped_at: string | null; drop_reason: string | null; created_at: string; updated_at: string;
+  /** The client's own code for the item (0262, D419). */
+  client_item_code?: string | null;
   /** The factory offer line the item is priced from (0256). */
   factory_line_id?: string | null;
 }

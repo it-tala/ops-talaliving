@@ -74,7 +74,7 @@ begin
 
   -- its files, in its folder
   assert ops_core.drive_path_for_record('render', 'design_item', '26951-A-LR-01')
-       = 'CL-0951 PT CONTOH DESIGN/26951 RESIDENCE DESIGN/KOLEKSI A TYPE 2BR · 24 UNIT/LIVING ROOM/26951-A-LR-01 SOFA 3 SEATER',
+       = 'CL-0951 PT CONTOH DESIGN/26951 RESIDENCE DESIGN/KOLEKSI A TYPE 2BR · 24 UNIT/26951-A-LR-01 SOFA 3 SEATER',  -- no room level since 0262 (D419)
     'an item''s folder, got ' || ops_core.drive_path_for_record('render', 'design_item', '26951-A-LR-01');
   assert ops_core.drive_path_for_record('moodboard', 'design_collection', '26951-A')
        = 'CL-0951 PT CONTOH DESIGN/26951 RESIDENCE DESIGN/KOLEKSI A TYPE 2BR · 24 UNIT/00 KOLEKSI',
@@ -130,7 +130,7 @@ begin
   assert ops_core.said_ok(r), 'dropped: ' || r::text;
   assert (select status from ops_procure.v_design_item where item_no = '26951-A-LR-02') = 'DROPPED', 'dropped reads';
   select to_jsonb(x) into v from ops_procure.v_design_collection x where project_code = '26951' and code = 'A';
-  assert (v->>'item_count')::int = 1 and (v->>'room_count')::int = 1 and (v->>'approved_count')::int = 0,
+  assert (v->>'item_count')::int = 1 and (v->>'room_count')::int = 2 /* LR and the collection's own 00 (0262) */ and (v->>'approved_count')::int = 0,
     'the collection counts what is in it: ' || v::text;
   r := ops_procure.set_design_item_dropped('26951-A-LR-02', false);
   assert ops_core.said_ok(r) and (select status from ops_procure.v_design_item where item_no = '26951-A-LR-02') = 'DRAWN',
@@ -144,7 +144,7 @@ declare r jsonb;
 begin
   r := ops_procure.save_design_room('26951', 'A', 'MB', 'Master bedroom');
   assert ops_core.said_ok(r), 'a drafter adds a room: ' || r::text;
-  r := ops_procure.save_design_item('26951', 'A', 'MB', 'Bed 160', 24, 'client');
+  r := ops_procure.save_design_item('26951', 'A', 'MB', 'Bed 160', 24, 'client', p_client_item_code => 'BED-160');
   assert r->'data'->>'item_no' = '26951-A-MB-01', 'and an item: ' || r::text;
   assert (select count(*) from ops_procure.v_design_item where project_code = '26951') = 3, 'and reads the design';
 end $$;

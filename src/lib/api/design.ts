@@ -108,7 +108,7 @@ export async function saveDesignItem(input: DesignItemInput): Promise<Result<Des
   const { data, error } = await db().rpc("save_design_item", {
     p_project_code: input.project_code,
     p_collection_code: input.collection_code,
-    p_room_code: input.room_code,
+    p_room_code: input.room_code ?? null,
     p_name: input.name,
     p_qty: input.qty,
     p_origin: input.origin,
@@ -117,10 +117,18 @@ export async function saveDesignItem(input: DesignItemInput): Promise<Result<Des
     p_height_mm: input.height_mm ?? null,
     p_note: input.note ?? null,
     p_item_no: input.item_no ?? null,
+    p_client_item_code: input.client_item_code ?? null,
   });
   const res = fromSeam<{ item_no: string }>(SERVICE, data, error);
   if (res.error) return res;
   return getDesignItem(res.data.item_no);
+}
+
+/** Remove an item typed by mistake — refused once anything hangs on it
+ *  (0262, D419); such an item is dropped with a reason instead. */
+export async function removeDesignItem(itemNo: string): Promise<Result<{ item_no: string }>> {
+  const { data, error } = await db().rpc("remove_design_item", { p_item_no: itemNo });
+  return fromSeam<{ item_no: string }>(SERVICE, data, error);
 }
 
 /** Take an item out of the design (with a reason), or put it back. */
