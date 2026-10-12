@@ -29,12 +29,45 @@
 -- VOID rows count for nothing and get no balance (null): a voided row did
 -- not move money, and printing the balance beside it would read as if it did.
 --
+-- ── from today, not backwards ──────────────────────────────────────────────
+--
+-- Owner, the same day: *untuk transaksi lama jika belum pernah ada saldo
+-- tersimpan maka biarkan kosong, mulai dari transaksi baru per hari ini.*
+-- Rows dated before `ledger_balance_from` (setting, 2026-10-12) show no
+-- balance. They still **count**: the first new row starts from the account's
+-- balance with every old row in it, so the last row stays equal to
+-- `v_account_balance` — only the figure beside the old rows is left empty,
+-- because nobody ever checked them against a bank and printing one would
+-- claim they had been. The cut is on `trx_date`, the order the ledger is read
+-- in, so the empty rows are one block at the bottom rather than scattered.
+--
+-- *Edit nilai juga meng-edit nilai balance di setiap transaksi di atasnya*
+-- holds by construction: nothing is stored, so correcting an amount moves the
+-- balance of every later row the next time the ledger is read.
+--
 -- ── cost ───────────────────────────────────────────────────────────────────
 --
 -- The window runs over the whole table on every read, because no filter can
 -- be pushed beneath it without changing the sum. At this business's volume
 -- (a few thousand rows a year) that is milliseconds; it is written down so the
 -- day it is not, the fix is a materialised checkpoint, not a stored column.
+
+insert into ops_core.settings (key, value, note) values
+  ('ledger_balance_from', '"2026-10-12"'::jsonb,
+   'The first trx_date that shows a balance before/after in the ledger (D428). Older rows count '
+   'towards it but show none: nobody checked them against a bank. Move it to widen or narrow.')
+on conflict (key) do nothing;
+
+create or replace function ops_acct.ledger_balance_from()
+returns date
+language sql stable security definer set search_path = ops_core, pg_temp as $$
+  select coalesce((select (value #>> '{}')::date from ops_core.settings
+                    where key = 'ledger_balance_from'), '2026-10-12'::date)
+$$;
+comment on function ops_acct.ledger_balance_from() is
+  'ops_core.settings.ledger_balance_from as a date: rows dated before it show no running balance (D428).';
+revoke execute on function ops_acct.ledger_balance_from() from public;
+grant  execute on function ops_acct.ledger_balance_from() to authenticated;
 
 create or replace view ops_acct.v_transaction as
  SELECT t.id,
@@ -93,12 +126,14 @@ create or replace view ops_acct.v_transaction as
                     CASE WHEN x.direction = 'IN'::ops_acct.direction_t THEN x.amount_idr ELSE - x.amount_idr END AS signed_amount
                    FROM ops_acct.transactions x
                   WHERE x.status <> 'VOID'::ops_acct.trx_status_t) r
-             JOIN ops_acct.accounts ra ON ra.id = r.account_id) rb ON rb.id = t.id
+             JOIN ops_acct.accounts ra ON ra.id = r.account_id) rb
+       ON rb.id = t.id AND t.trx_date >= ops_acct.ledger_balance_from()
   WHERE ops_acct.account_rows_readable(acc.custody);
 
 comment on column ops_acct.v_transaction.balance_before is
   'The account''s balance just before this row: opening + every earlier non-void row, '
-  'by trx_date then trx_no. Null on a VOID row. Computed, never stored (D428).';
+  'by trx_date then trx_no. Null on a VOID row and on a row dated before '
+  'ledger_balance_from(). Computed, never stored (D428).';
 comment on column ops_acct.v_transaction.balance_after is
   'balance_before ± this row. The last row on an account equals v_account_balance.balance.';
 

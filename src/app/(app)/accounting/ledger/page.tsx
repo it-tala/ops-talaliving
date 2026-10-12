@@ -89,7 +89,19 @@ export default function LedgerPage() {
   }
 
   function balanceCell(t: TransactionView, value: number | null) {
-    if (value === null) return <span className="text-slate-300">—</span>;
+    /* Null on a VOID row, and on a row dated before the day balances begin
+       (`ledger_balance_from`, 2026-10-12): the old rows were never checked
+       against a bank, so no figure is printed beside them (D428). */
+    if (value === null) {
+      return (
+        <span
+          className="text-slate-300"
+          title={t.status === "VOID"
+            ? tr("Voided — moved no money", "Dibatalkan — tidak memindahkan uang")
+            : tr("Before balances began on this ledger", "Sebelum saldo mulai dicatat di buku besar")}
+        >—</span>
+      );
+    }
     const short = value < 0 && cashAccounts.has(t.account_id);
     return (
       <span

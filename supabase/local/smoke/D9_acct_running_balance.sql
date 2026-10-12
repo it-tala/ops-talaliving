@@ -3,7 +3,8 @@
 --
 -- Computed, never stored: a row posted late with an earlier date, an amount
 -- corrected with Edit and a VOID each move every balance below them, and the
--- last row always agrees with `v_account_balance`.
+-- last row always agrees with `v_account_balance`. Rows dated before
+-- `ledger_balance_from` show none, but still count towards the rows after.
 
 begin;
 
@@ -28,6 +29,29 @@ select v.trx_no, v.trx_date::date, a.id, v.direction::ops_acct.direction_t, v.am
 update ops_acct.transactions
    set status = 'VOID', void_reason = 'salah input', void_by = 'ffffffff-0000-0000-0000-00000000e267', void_at = now()
  where trx_no = 'trx-rb-4';
+
+-- From the setting's day (2026-10-12): the old rows show nothing, the first
+-- new one starts from everything before it.
+insert into ops_acct.transactions (trx_no, trx_date, account_id, direction, amount_idr,
+                                   type_code, description, source_ref, posted_by)
+select 'trx-rb-10', '2026-10-12', a.id, 'IN', 50000, 'OFFICE', 'hari ini', 'trx-rb-10',
+       'ffffffff-0000-0000-0000-00000000e267'
+  from ops_acct.accounts a where a.code = 'SMOKE RB';
+
+do $$
+declare b record;
+begin
+  assert ops_acct.ledger_balance_from() = '2026-10-12', 'the ledger shows balances from 2026-10-12';
+  assert (select count(*) from ops_acct.v_transaction
+           where trx_no in ('trx-rb-1','trx-rb-2','trx-rb-3') and balance_after is null) = 3,
+    'rows before the start show no balance';
+  select balance_before, balance_after into b from ops_acct.v_transaction where trx_no = 'trx-rb-10';
+  assert b.balance_before = 1000000 and b.balance_after = 1050000,
+    'the first new row starts from the old rows'' total';
+end $$;
+
+-- Widened to the whole test month for the arithmetic below.
+update ops_core.settings set value = '"2026-10-01"' where key = 'ledger_balance_from';
 
 do $$
 declare b record;
@@ -64,7 +88,9 @@ begin
   assert b.balance_before = 1150000 and b.balance_after = 850000, 'the edited amount moves the rest';
   assert (select balance_after from ops_acct.v_transaction_detail where trx_no = 'trx-rb-3') = 850000,
     'the drawer carries it';
-  assert (select balance from ops_acct.v_account_balance where code = 'SMOKE RB') = 850000,
+  select balance_before, balance_after into b from ops_acct.v_transaction where trx_no = 'trx-rb-10';
+  assert b.balance_before = 850000 and b.balance_after = 900000, 'and every row after it';
+  assert (select balance from ops_acct.v_account_balance where code = 'SMOKE RB') = 900000,
     'the last row is the account''s balance';
 end $$;
 

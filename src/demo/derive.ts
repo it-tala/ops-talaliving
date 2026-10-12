@@ -46,7 +46,7 @@ import { officeToday, officeDay, officeStamp } from "@/lib/office";
 import { contributionRoll } from "./hr-derive";
 import type { ContributionScheme, ContributionAuditGroup } from "@/services/hr/contracts";
 import { SCHEME_LABELS, COMPUTED_SCHEMES } from "@/services/hr/contracts";
-import { settingNumber } from "./settings";
+import { settingNumber, settingText } from "./settings";
 import { applySubscriptions, settleUnplanned, subscriptionRows } from "@/services/accounting/subscriptions";
 
 /** One definition, read from settings — never a literal repeated in three
@@ -648,12 +648,19 @@ export function transactionView(state: DemoState, trx: Transaction): Transaction
   };
 }
 
+/** `ledger_balance_from` (0267): rows dated before it show no balance —
+ *  they were never checked against a bank — but still count towards the
+ *  rows after it. */
+const LEDGER_BALANCE_FROM = "2026-10-12";
+
 /** `v_transaction.balance_before` / `balance_after` (0267, D428): opening
  *  plus every earlier non-void row on the same account, in ledger order.
  *  Worked out from the rows each time rather than cached — a seam builds a
  *  view from its draft and keeps writing, and a cached sum would outlive it. */
 function balanceAround(state: DemoState, trx: Transaction) {
-  if (trx.status === "VOID") return { balance_before: null, balance_after: null };
+  if (trx.status === "VOID" || trx.trx_date < settingText(state, "ledger.balance_from", LEDGER_BALANCE_FROM)) {
+    return { balance_before: null, balance_after: null };
+  }
   const account = state.accounts.find((a) => a.id === trx.account_id);
   const balance_before = state.transactions.reduce(
     (sum, t) => t.account_id === trx.account_id && t.status !== "VOID" && byLedgerOrder(t, trx) < 0
