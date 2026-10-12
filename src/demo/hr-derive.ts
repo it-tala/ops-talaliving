@@ -1839,7 +1839,7 @@ export function kpiView(
   const logLines = state.work_log.filter((l) =>
     l.employee_id === employee.id && l.work_date >= from && l.work_date <= to);
   if (logLines.length > 0) {
-    notes.push(`${logLines.filter((l) => l.task_id === null).length} dari ${logLines.length} entri laporan harian adalah pekerjaan dadakan — dibaca sebagai konteks, tidak dinilai.`);
+    notes.push(`${logLines.filter(isDadakan).length} dari ${logLines.length} entri laporan harian adalah pekerjaan dadakan — dibaca sebagai konteks, tidak dinilai.`);
   }
 
   return {
@@ -1899,27 +1899,46 @@ export function dailyLogCoverage(
       m.work_date === d && (m.employee_id === employee.id || m.employee_id === null) && m.kind !== "half_day");
     if (marked) continue;
     expected += 1;
-    if (state.work_log.some((l) => l.employee_id === employee.id && l.work_date === d)) logged += 1;
+    if (state.work_log.some((l) => l.employee_id === employee.id && l.work_date === d && reportedOn(l))) logged += 1;
   }
   return { expected, logged, counted_from, counted_to };
 }
 
+/** Dadakan: neither a task nor one of the person's own items (D427). */
+export function isDadakan(l: Pick<WorkLog, "task_id" | "item_id">): boolean {
+  return l.task_id === null && (l.item_id ?? null) === null;
+}
+
+/** The office day a line was first written. */
+export function writtenOn(l: Pick<WorkLog, "created_at">): string {
+  return officeDay(new Date(l.created_at));
+}
+
+/** Reported, not only planned: written or last touched on or after its day
+ *  (`daily_log_coverage`, 0267). */
+export function reportedOn(l: WorkLog): boolean {
+  return officeDay(new Date(l.updated_at ?? l.created_at)) >= l.work_date;
+}
+
 /** A log line with its task and goal named — `v_work_log`, transcribed. */
-export function workLogView(state: DemoState, l: WorkLog, today = officeToday()): WorkLogEntry {
+export function workLogView(state: DemoState, l: WorkLog, mineId: string | null = null): WorkLogEntry {
   const emp = state.employees.find((e) => e.id === l.employee_id);
   const t = l.task_id ? state.tasks.find((x) => x.id === l.task_id) ?? null : null;
+  const it = l.item_id ? (state.work_items ?? []).find((x) => x.id === l.item_id) ?? null : null;
   const g = t?.goal_id ? state.goals.find((x) => x.id === t.goal_id) ?? null : null;
   const promoted = l.promoted_task_id ? state.tasks.find((x) => x.id === l.promoted_task_id) ?? null : null;
   return {
     id: l.id, work_date: l.work_date, employee_id: l.employee_id,
     employee_no: emp?.employee_no ?? "—", employee_name: emp?.full_name ?? "—",
-    kind: l.task_id === null ? "dadakan" : "tugas",
+    kind: l.task_id !== null ? "tugas" : it ? "item" : "dadakan",
     task_no: t?.task_no ?? null, task_title: t?.title ?? null, task_status: t?.status ?? null,
     goal_no: g?.goal_no ?? null, goal_title: g?.title ?? null, goal_rank: g?.rank ?? null,
     summary: l.summary, progress: l.progress, requested_by: l.requested_by, hours: l.hours,
     created_at: l.created_at, updated_at: l.updated_at,
-    editable: l.work_date === today && l.promoted_task_id === null,
+    editable: l.promoted_task_id === null && mineId !== null && l.employee_id === mineId,
     promoted_task_no: promoted?.task_no ?? null,
+    item_id: it?.id ?? null, item_title: it?.title ?? null, item_status: it?.status ?? null,
+    written_on: writtenOn(l),
   };
 }
 
@@ -1929,11 +1948,11 @@ export function workLogRoster(state: DemoState, date: string): WorkLogRosterRow[
   return state.employees
     .filter((e) => e.active && owesDailyLog(state, e))
     .map((e): WorkLogRosterRow => {
-      const lines = state.work_log.filter((l) => l.employee_id === e.id && l.work_date === date);
+      const lines = state.work_log.filter((l) => l.employee_id === e.id && l.work_date === date && reportedOn(l));
       const mark = state.day_marks.find((m) =>
         m.work_date === date && (m.employee_id === e.id || m.employee_id === null));
       const sum = (xs: WorkLog[]) => xs.reduce((a, l) => a + (l.hours ?? 0), 0);
-      const dadakan = lines.filter((l) => l.task_id === null);
+      const dadakan = lines.filter(isDadakan);
       return {
         employee_no: e.employee_no, full_name: e.full_name, unit: e.unit, position: e.position,
         scheduled: !isRestDay(state, activePayRules(state, date).rules, date),
@@ -1958,6 +1977,9 @@ export function workEvidence(
     .map((l) => workLogView(state, l));
   const dadakan = lines.filter((l) => l.kind === "dadakan");
   const onTasks = lines.filter((l) => l.kind === "tugas");
+  const onItems = lines.filter((l) => l.kind === "item");
+  const byItem = new Map<string, WorkLogEntry[]>();
+  for (const l of onItems) byItem.set(l.item_id!, [...(byItem.get(l.item_id!) ?? []), l]);
   const sumH = (xs: WorkLogEntry[]) => xs.reduce((a, l) => a + (l.hours ?? 0), 0);
   const byTask = new Map<string, WorkLogEntry[]>();
   for (const l of onTasks) byTask.set(l.task_no!, [...(byTask.get(l.task_no!) ?? []), l]);
@@ -1975,10 +1997,13 @@ export function workEvidence(
     has_account: owesDailyLog(state, employee),
     days_expected: cov.expected, days_logged: cov.logged, counted_from: cov.counted_from,
     coverage: cov.expected === 0 ? null : Math.round((cov.logged / cov.expected) * 100),
-    entries: lines.length, task_entries: onTasks.length, dadakan_entries: dadakan.length,
+    entries: lines.length, task_entries: onTasks.length, item_entries: onItems.length,
+    dadakan_entries: dadakan.length,
     dadakan_share: lines.length === 0 ? null : Math.round((dadakan.length / lines.length) * 100),
-    hours_task: sumH(onTasks), hours_dadakan: sumH(dadakan),
+    hours_task: sumH(onTasks), hours_item: sumH(onItems), hours_dadakan: sumH(dadakan),
     entries_without_hours: lines.filter((l) => l.hours === null).length,
+    written_later: lines.filter((l) => l.written_on > l.work_date).length,
+    written_ahead: lines.filter((l) => l.written_on < l.work_date).length,
     promoted: lines.filter((l) => l.promoted_task_no !== null).length,
     first_day: days[0] ?? null, last_day: days[days.length - 1] ?? null,
     tasks: [...byTask.entries()].map(([task_no, ls]) => {
@@ -1990,6 +2015,14 @@ export function workEvidence(
         last_progress: latest.progress,
       };
     }).sort((a, b) => b.days - a.days || a.task_no.localeCompare(b.task_no)),
+    items: [...byItem.values()].map((ls) => {
+      const latest = [...ls].sort((a, b) =>
+        b.work_date.localeCompare(a.work_date) || b.created_at.localeCompare(a.created_at))[0];
+      return {
+        title: latest.item_title ?? "—", status: latest.item_status ?? "aktif",
+        days: new Set(ls.map((l) => l.work_date)).size, last_progress: latest.progress,
+      };
+    }).sort((a, b) => b.days - a.days || a.title.localeCompare(b.title)),
     requesters: [...byAsker.entries()].map(([requested_by, entries]) => ({ requested_by, entries }))
       .sort((a, b) => b.entries - a.entries || a.requested_by.localeCompare(b.requested_by)),
     goals: [...byGoal.entries()].map(([goal_no, g]) => ({ goal_no, title: g.title, entries: g.entries }))

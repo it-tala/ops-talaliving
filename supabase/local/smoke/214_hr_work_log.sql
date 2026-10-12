@@ -1,9 +1,9 @@
 -- 214_hr_work_log.sql — laporan harian, dan ukuran yang dibangun di atasnya.
 --
 -- Yang dibuktikan:
---   • hanya orangnya sendiri yang menulis lognya, hanya untuk hari ini;
---     kemarin tidak bisa diubah atau dihapus; HRD tidak punya jalan untuk
---     menulis log siapa pun;
+--   • hanya orangnya sendiri yang menulis lognya; HRD tidak punya jalan
+--     untuk menulis log siapa pun (sejak 0267/D427 hari lain boleh diisi dan
+--     diubah — lihat D9_hr_work_log_week);
 --   • entri tugas hanya untuk tugas sendiri, satu per tugas per hari;
 --     dadakan wajib menyebut siapa yang meminta;
 --   • staf membaca lognya sendiri saja, HRD membaca semua;
@@ -107,8 +107,7 @@ begin
   assert a ->> 'outcome' = 'ok', a::text;
 end $$;
 
-/* Kemarin, ditulis langsung oleh pemilik database — satu-satunya cara ia bisa
-   ada, karena seamnya selalu memakai hari ini. */
+/* Kemarin, disisipkan langsung oleh pemilik database sebagai data awal. */
 reset role;
 insert into ops_hr.work_log (id, employee_id, work_date, summary, progress, requested_by, created_by)
 values ('bbbb2130-0000-0000-0000-000000000001','aaaa2130-0000-0000-0000-000000000001',
@@ -119,11 +118,13 @@ set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-000000021302';
 do $$
 declare a jsonb;
 begin
+  -- Sejak 0267 (D427) catatan hari lain boleh diubah oleh orangnya sendiri;
+  -- tanggalnya tetap. Hapus dan isi ke depan dibuktikan di D9_hr_work_log_week.
   a := ops_hr.log_work('Kemarin, diubah', 'selesai', null, 'Pak Evin', null,
                        'bbbb2130-0000-0000-0000-000000000001');
-  assert a -> 'error' ->> 'code' = 'past_day', a::text;
-  a := ops_hr.remove_work_log('bbbb2130-0000-0000-0000-000000000001');
-  assert a -> 'error' ->> 'code' = 'past_day', a::text;
+  assert a ->> 'outcome' = 'ok', a::text;
+  assert (select work_date from ops_hr.work_log where id = 'bbbb2130-0000-0000-0000-000000000001')
+         = ops_core.office_day() - 1, 'mengubah catatan kemarin memindahkan tanggalnya';
 end $$;
 
 /* ── Budi: tidak bisa menyentuh atau membaca log Sari ──────────────────── */
@@ -175,7 +176,7 @@ begin
   assert r.task_no = (select val from k where key = 'sari_task') and r.editable,
     'catatan tugas tidak tersambung ke tugasnya';
   select * into r from ops_hr.v_work_log where work_date < ops_core.office_day();
-  assert not r.editable, 'catatan kemarin terbaca bisa diubah';
+  assert r.editable, 'catatan kemarin milik sendiri terbaca tidak bisa diubah (D427)';
 
   v := ops_hr.work_evidence('B-2131', ops_core.office_day() - 30, ops_core.office_day());
   assert (v ->> 'entries')::int = 3, v::text;
@@ -320,7 +321,7 @@ end $$;
 reset role;
 do $$
 begin
-  assert not has_function_privilege('anon', 'ops_hr.log_work(text,text,text,text,numeric,uuid)', 'EXECUTE'), 'log_work terbuka untuk anon';
+  assert not has_function_privilege('anon', 'ops_hr.log_work(text,text,text,text,numeric,uuid,uuid,date)', 'EXECUTE'), 'log_work terbuka untuk anon';
   assert not has_function_privilege('anon', 'ops_hr.kpi_board(date,date,text)', 'EXECUTE'), 'kpi_board terbuka untuk anon';
 end $$;
 

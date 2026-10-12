@@ -53,6 +53,7 @@ import type {
   TaskStatus, TaskRefKind, TaskView, TaskCadence, TaskRoutineView, DesignTaskProgress,
   TaskAction, GoalView, GoalBoardTask, BacklogItem, CandidateGoal, TaskPlanDay, MyPlanLine,
   WorkLogEntry, WorkLogRosterRow, WorkEvidence, WorkProgress, KpiView,
+  WorkItemView, WorkItemStatus, WorkWeek,
   Sex, Education, Citizenship, MaritalStatus, EmployeeIdentityView, WlkpRecap,
   TapReading, TapSelfResult, LocationJudgement, WorkSite, LocatedTapView, TapKind,
   EmployeeAccount, ScanImportResult,
@@ -2946,9 +2947,10 @@ export async function assignBacklogItem(
 /* ------------------------------------------------------------------ */
 //
 // Writes go through `log_work` / `remove_work_log`, which take the person from
-// the account link and the day from the office clock — there is no argument
-// here to name anybody else or another day, by design. Reads are `v_work_log`
-// under RLS: a person their own lines, HRD and payroll everybody's.
+// the account link — there is no argument here to name anybody else, by
+// design. The day is any in the window (D427: back, and ahead as personal
+// planning). Reads are `v_work_log` under RLS: a person their own lines, HRD
+// and payroll everybody's.
 
 export async function listWorkLog(
   input: { from: string; to: string; employee_no?: string },
@@ -2969,12 +2971,15 @@ async function workLogById(id: string): Promise<Result<WorkLogEntry>> {
   return ok(SERVICE, data as unknown as WorkLogEntry);
 }
 
-/** New (no `entry_id`) or a change to one of today's own lines. A line with
- *  no `task_no` is dadakan and needs `requested_by`. */
+/** New (no `entry_id`) or a change to one of the reader's own lines. A line
+ *  is for a task (`task_no`), an item (`item_id`), or neither — dadakan, which
+ *  needs `requested_by`. `work_date` null is today (or the line's own day). */
 export async function logWork(
   input: {
     entry_id?: string | null;
     task_no?: string | null;
+    item_id?: string | null;
+    work_date?: string | null;
     summary: string;
     progress: WorkProgress;
     requested_by?: string | null;
@@ -2988,6 +2993,8 @@ export async function logWork(
     p_requested_by: input.requested_by ?? null,
     p_hours: input.hours ?? null,
     p_entry: input.entry_id ?? null,
+    p_item: input.item_id ?? null,
+    p_work_date: input.work_date ?? null,
   });
   const said = fromSeam<{ entry_id: string }>(SERVICE, data, error);
   if (said.error) return said as unknown as Result<WorkLogEntry>;
@@ -2999,6 +3006,56 @@ export async function removeWorkLog(
 ): Promise<Result<{ entry_id: string }>> {
   const { data, error } = await db().rpc("remove_work_log", { p_entry: input.entry_id });
   return fromSeam<{ entry_id: string }>(SERVICE, data, error);
+}
+
+/** A person's own items (D427): the reader's, or — for HRD and payroll —
+ *  `employee_no`'s. Open ones first. */
+export async function listWorkItems(
+  input: { employee_no?: string } = {},
+): Promise<Result<WorkItemView[]>> {
+  let q = db().from("v_work_items").select("*")
+    .order("status", { ascending: true })
+    .order("title", { ascending: true });
+  if (input.employee_no) q = q.eq("employee_no", input.employee_no);
+  const { data, error } = await q;
+  return fromRows<WorkItemView[]>(SERVICE, data as never, error);
+}
+
+/** New (no `item_id`, a title) or a change of title or status. */
+export async function saveWorkItem(
+  input: { item_id?: string | null; title?: string | null; status?: WorkItemStatus | null },
+): Promise<Result<WorkItemView>> {
+  const { data, error } = await db().rpc("save_work_item", {
+    p_item: input.item_id ?? null, p_title: input.title ?? null, p_status: input.status ?? null,
+  });
+  const said = fromSeam<{ item_id: string }>(SERVICE, data, error);
+  if (said.error) return said as unknown as Result<WorkItemView>;
+  const back = await db().from("v_work_items").select("*").eq("id", said.data.item_id).maybeSingle();
+  if (back.error) return fromRows<WorkItemView>(SERVICE, null as never, back.error);
+  if (!back.data) return notFound(SERVICE, "work_item_not_found", "Item tersimpan tapi tidak terbaca kembali.");
+  return ok(SERVICE, back.data as unknown as WorkItemView);
+}
+
+/** A week's summary for one row: `item_id`, `task_no`, or neither (the
+ *  dadakan / lainnya row). Empty clears it. */
+export async function saveWorkWeekNote(
+  input: { week_start: string; summary: string; item_id?: string | null; task_no?: string | null },
+): Promise<Result<{ week_start: string; summary: string | null }>> {
+  const { data, error } = await db().rpc("save_work_week_note", {
+    p_week_start: input.week_start, p_summary: input.summary,
+    p_item: input.item_id ?? null, p_task_no: input.task_no ?? null,
+  });
+  return fromSeam<{ week_start: string; summary: string | null }>(SERVICE, data, error);
+}
+
+/** The calendar a week of somebody's log is drawn on, and its summaries. */
+export async function getWorkWeek(
+  input: { employee_no: string; week_start: string },
+): Promise<Result<WorkWeek>> {
+  const { data, error } = await db().rpc("work_week", {
+    p_employee_no: input.employee_no, p_week_start: input.week_start,
+  });
+  return fromRows<WorkWeek>(SERVICE, data as WorkWeek, error);
 }
 
 /** HRD: a dadakan line becomes a task for the same person. */
