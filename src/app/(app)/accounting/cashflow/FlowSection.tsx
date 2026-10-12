@@ -12,6 +12,7 @@ import type { Cashflow, CashflowCell, CashflowRow, Direction } from "@/services/
 import { CASHFLOW_IN_CATEGORIES, CASHFLOW_OUT_CATEGORIES } from "@/services/accounting/contracts";
 import { CATEGORY_LABEL, STATE_TONE, dayLabel, monthLabel, scheduleLabel, signed, weekLabel } from "./shared";
 import { SectionHead } from "./SectionHead";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 type Mode = "week" | "month";
 
@@ -171,7 +172,7 @@ export function FlowSection({
         </div>
 
         <div className="overflow-x-auto">
-          <table className={cn("w-full border-collapse", mode === "week" ? "min-w-[720px] sm:min-w-[860px]" : "min-w-[1500px]")}>
+          <ExcelTable className={cn("w-full border-collapse", mode === "week" ? "min-w-[720px] sm:min-w-[860px]" : "min-w-[1500px]")}>
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/70">
                 <th className="sticky left-0 z-10 w-[150px] bg-slate-50 px-3 py-2 text-left sm:w-[240px] sm:px-4 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
@@ -306,7 +307,7 @@ export function FlowSection({
                 })}
               </tr>
             </tbody>
-          </table>
+          </ExcelTable>
         </div>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-100 px-4 py-2.5 text-[11px] text-slate-500">

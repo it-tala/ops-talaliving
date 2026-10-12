@@ -16,6 +16,7 @@ import { useTr } from "@/lib/i18n";
 import { CollectionGallery } from "@/components/design/collection-gallery";
 import { useCanSell } from "@/lib/sell";
 import { NewProject, ProjectDrawer } from "../../proyek/order/ProjectDrawer";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** A collection in the tree. `room` is the collection's one room, `00`, since
  *  rooms left the screens (D419); tasks given for the whole collection name it
@@ -295,7 +296,7 @@ function RoomPanel({
                 </p>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[520px] border-collapse text-[13px]">
+                  <ExcelTable className="w-full min-w-[520px] border-collapse text-[13px]">
                     <thead>
                       <tr className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
                         <th className="px-4 py-1.5 text-left">{tr("Item", "Item")}</th>
@@ -325,7 +326,7 @@ function RoomPanel({
                         );
                       })}
                     </tbody>
-                  </table>
+                  </ExcelTable>
                 </div>
               )}
             </Card>

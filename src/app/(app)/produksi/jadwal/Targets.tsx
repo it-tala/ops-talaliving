@@ -15,6 +15,7 @@ import { officeToday } from "@/lib/office";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** Who may set a target (D356): leadership, HRD or production — the same
  *  question the seam asks, so the button is never offered to be refused. */
@@ -60,7 +61,7 @@ function TargetTable({ rows, multiDay }: { rows: DailyTargetView[]; multiDay: bo
   }
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[600px] text-[12px]">
+      <ExcelTable className="w-full min-w-[600px] text-[12px]">
         <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-400">
           <tr>
             {multiDay && <th className="px-3 py-1.5 font-medium">{tr("Date", "Tanggal")}</th>}
@@ -110,7 +111,7 @@ function TargetTable({ rows, multiDay }: { rows: DailyTargetView[]; multiDay: bo
             );
           })}
         </tbody>
-      </table>
+      </ExcelTable>
     </div>
   );
 }

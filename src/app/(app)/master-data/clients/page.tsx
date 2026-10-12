@@ -11,6 +11,7 @@ import type { ClientView } from "@/services/procurement/contracts";
 import { ClientDrawer } from "./ClientDrawer";
 import { useCanSell } from "@/lib/sell";
 import { useTr } from "@/lib/i18n";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** The client master (0111).
  *
@@ -66,9 +67,9 @@ export default function ClientsPage() {
               `${c.code} ${c.name} ${c.contact_name ?? ""} ${c.phone ?? ""}`.toLowerCase().includes(q.toLowerCase()));
             return (
               <Paged rows={rows} pageSize={25} unit={tr("clients", "klien")}>
-                {(shown) => (
+                {(shown, _offset, showAll) => (
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[640px] border-collapse text-[13px]">
+                    <ExcelTable showAll={showAll} className="w-full min-w-[640px] border-collapse text-[13px]">
                       <thead>
                         <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
                           <th className="px-4 py-2 text-left">{tr("Client", "Klien")}</th>
@@ -113,7 +114,7 @@ export default function ClientsPage() {
                           </td></tr>
                         )}
                       </tbody>
-                    </table>
+                    </ExcelTable>
                   </div>
                 )}
               </Paged>

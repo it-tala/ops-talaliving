@@ -12,6 +12,7 @@ import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
 import { officeToday } from "@/lib/office";
 import { useTr } from "@/lib/i18n";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** Where every job actually stands, and the signature that ends one.
  *
@@ -113,7 +114,7 @@ export default function HandoverPage() {
                 </ul>
 
                 <div className="hidden overflow-x-auto sm:block">
-                  <table className="w-full min-w-[720px] border-collapse text-[13px]">
+                  <ExcelTable className="w-full min-w-[720px] border-collapse text-[13px]">
                     <thead>
                       <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
                         <th className="px-4 py-2 text-left">{tr("What the client ordered", "Yang dipesan klien")}</th>
@@ -156,7 +157,7 @@ export default function HandoverPage() {
                         </tr>
                       ))}
                     </tbody>
-                  </table>
+                  </ExcelTable>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-slate-100 px-4 py-2.5 text-[12px]">

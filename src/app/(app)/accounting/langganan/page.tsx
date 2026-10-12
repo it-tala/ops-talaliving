@@ -16,6 +16,7 @@ import { useToast } from "@/store/toast";
 import { useTr, type Message } from "@/lib/i18n";
 import { SubscriptionDrawer } from "./SubscriptionDrawer";
 import { PayModal, usd } from "./PayModal";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 const CYCLE: Record<SubscriptionView["cycle"], Message> = {
   monthly: { en: "Monthly", id: "Bulanan" },
@@ -101,7 +102,7 @@ export default function SubscriptionsPage() {
                   <p className="px-5 py-8 text-[13px] text-slate-500">{tr("No subscriptions yet.", "Belum ada langganan.")}</p>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[980px] border-collapse text-[13px]">
+                    <ExcelTable className="w-full min-w-[980px] border-collapse text-[13px]">
                       <thead>
                         <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
                           <th className="px-4 py-2 text-left">{tr("Service", "Layanan")}</th>
@@ -184,12 +185,13 @@ export default function SubscriptionsPage() {
                                 </td>
                               </tr>
                               {open === s.id && (
-                                <tr className="border-b border-slate-100 bg-slate-50/50">
+                                /* Its payments download from their own table. */
+                                <tr data-no-export className="border-b border-slate-100 bg-slate-50/50">
                                   <td colSpan={8} className="px-4 py-3">
                                     {s.payments.length === 0 ? (
                                       <p className="text-[12px] text-slate-500">{tr("No payment recorded yet.", "Belum ada pembayaran tercatat.")}</p>
                                     ) : (
-                                      <table className="w-full max-w-2xl text-[12px]">
+                                      <ExcelTable className="w-full max-w-2xl text-[12px]">
                                         <thead><tr className="text-left text-[10px] uppercase tracking-wide text-slate-400">
                                           <th className="py-1 pr-3">{tr("Billing", "Tagihan")}</th>
                                           <th className="py-1 pr-3">{tr("Charged", "Ditagih")}</th>
@@ -215,7 +217,7 @@ export default function SubscriptionsPage() {
                                             </tr>
                                           ))}
                                         </tbody>
-                                      </table>
+                                      </ExcelTable>
                                     )}
                                     {s.note && <p className="mt-2 text-[12px] text-slate-500">{s.note}</p>}
                                   </td>
@@ -225,7 +227,7 @@ export default function SubscriptionsPage() {
                           );
                         })}
                       </tbody>
-                    </table>
+                    </ExcelTable>
                   </div>
                 )}
                 <p className="border-t border-slate-100 px-5 py-2 text-[11px] text-slate-500">

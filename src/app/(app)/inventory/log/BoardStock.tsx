@@ -13,6 +13,7 @@ import { BOARD_MOVE_LABEL, type BoardMoveKind, type BoardStockView } from "@/ser
 import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
 import { useTr } from "@/lib/i18n";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** The rack, and what leaves it.
  *
@@ -54,8 +55,8 @@ export function BoardStock({ onUsed }: { onUsed: () => void }) {
               />
               <div className="overflow-x-auto">
                 <Paged rows={onHand} pageSize={20} unit={tr("sizes", "ukuran")}>
-                  {(page) => (
-                    <table className="w-full min-w-[880px] border-collapse text-[13px]">
+                  {(page, _offset, showAll) => (
+                    <ExcelTable showAll={showAll} className="w-full min-w-[880px] border-collapse text-[13px]">
                       <thead>
                         <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
                           <th className="px-4 py-2 text-left">{tr("Species · size", "Jenis · ukuran")}</th>
@@ -116,7 +117,7 @@ export function BoardStock({ onUsed }: { onUsed: () => void }) {
                           </tr>
                         ))}
                       </tbody>
-                    </table>
+                    </ExcelTable>
                   )}
                 </Paged>
               </div>

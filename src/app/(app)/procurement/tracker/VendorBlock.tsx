@@ -275,6 +275,7 @@ function OrderBlock({ po, onChanged }: { po: PoJourney; onChanged: () => void })
     {
       key: "act",
       header: "",
+      export: false,
       render: (l) => (
         <div onClick={(e) => e.stopPropagation()}>
           <Button

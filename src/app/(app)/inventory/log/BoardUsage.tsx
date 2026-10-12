@@ -8,6 +8,7 @@ import { formatIDR, formatNumber } from "@/lib/format";
 import { inventory } from "@/demo/api";
 import { useTr } from "@/lib/i18n";
 import { BOARD_MOVE_LABEL, type BoardMoveKind } from "@/services/inventory/contracts";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 const TONE: Record<BoardMoveKind, "green" | "brand" | "slate" | "amber" | "red"> = {
   sawn: "green", issue: "brand", return: "slate", adjust: "amber", scrap: "red",
@@ -44,8 +45,8 @@ export function BoardUsage({ reloadKey }: { reloadKey: number }) {
             />
             <div className="overflow-x-auto">
               <Paged rows={rows} pageSize={25} unit={tr("movements", "pergerakan")}>
-                {(page) => (
-                  <table className="w-full min-w-[900px] border-collapse text-[13px]">
+                {(page, _offset, showAll) => (
+                  <ExcelTable showAll={showAll} className="w-full min-w-[900px] border-collapse text-[13px]">
                     <thead>
                       <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
                         <th className="px-4 py-2 text-left">{tr("Date", "Tanggal")}</th>
@@ -93,7 +94,7 @@ export function BoardUsage({ reloadKey }: { reloadKey: number }) {
                         </tr>
                       ))}
                     </tbody>
-                  </table>
+                  </ExcelTable>
                 )}
               </Paged>
             </div>

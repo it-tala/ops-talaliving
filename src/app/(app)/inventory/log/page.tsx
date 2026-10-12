@@ -15,6 +15,7 @@ import { BoardUsage } from "./BoardUsage";
 import { NotaImport } from "./NotaImport";
 import { TimberMonthRecap } from "./TimberMonthRecap";
 import { useTr, type Message } from "@/lib/i18n";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** Timber: what came in as logs, what came out as boards, and what the wood
  *  actually costs.
@@ -47,7 +48,7 @@ export default function TimberPage() {
   const [vendors, reloadVendors] = useLoad(() => inventory.timberByVendor(), []);
   const [open, setOpen] = useState<string | null>(null);
   /* Pembelian log bertambah terus; daftarnya dipaginasi (D157). */
-  const { shown: loads, pager } = usePaged(
+  const { shown: loads, pager, showAll } = usePaged(
     purchases.status === "ready" ? purchases.data : [],
     15,
     tr("loads", "kiriman"),
@@ -130,7 +131,7 @@ export default function TimberPage() {
                 action={<SourceBadge state={vendors} />}
               />
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[880px] border-collapse whitespace-nowrap text-[13px]">
+                <ExcelTable showAll={showAll} className="w-full min-w-[880px] border-collapse whitespace-nowrap text-[13px]">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
                       <th className="px-4 py-2 text-left">{tr("Vendor · species", "Vendor · jenis")}</th>
@@ -201,7 +202,7 @@ export default function TimberPage() {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </ExcelTable>
               </div>
               {cheapest && cheapestLog && cheapest.vendor_id !== cheapestLog.vendor_id && (
                 <p className="flex items-start gap-2 border-t border-slate-100 bg-amber-50/70 px-4 py-2.5 text-[12px] text-amber-900">

@@ -15,6 +15,7 @@ import { SalesSummaryStrip } from "@/components/crm/sales-summary";
 import { useCanSell } from "@/lib/sell";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** Every quotation, newest first (0133).
  *
@@ -141,9 +142,9 @@ export default function QuotationsPage() {
                 </label>
               </div>
               <Paged rows={shown} pageSize={20} unit={tr("quotations", "quotation")}>
-                {(page) => (
+                {(page, _offset, showAll) => (
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[860px] border-collapse text-[13px]">
+                    <ExcelTable showAll={showAll} className="w-full min-w-[860px] border-collapse text-[13px]">
                       <thead>
                         <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
                           <th className="px-4 py-2 text-left">{tr("Quotation", "Quotation")}</th>
@@ -197,7 +198,7 @@ export default function QuotationsPage() {
                           </td></tr>
                         )}
                       </tbody>
-                    </table>
+                    </ExcelTable>
                   </div>
                 )}
               </Paged>

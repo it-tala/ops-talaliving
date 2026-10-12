@@ -6,6 +6,7 @@ import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { formatIDR, formatNumber } from "@/lib/format";
 import { inventory } from "@/demo/api";
 import { useLang, useTr } from "@/lib/i18n";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** How much timber cost, month by month — for reporting to leadership rather
  *  than for choosing a vendor (`0157`).
@@ -37,7 +38,7 @@ export function TimberMonthRecap({ reloadKey }: { reloadKey: number }) {
       <Loaded state={months} skeletonRows={3}>
         {(rows) => (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] border-collapse whitespace-nowrap text-[13px]">
+            <ExcelTable className="w-full min-w-[720px] border-collapse whitespace-nowrap text-[13px]">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
                   <th className="px-4 py-2 text-left">{tr("Month", "Bulan")}</th>
@@ -84,7 +85,7 @@ export function TimberMonthRecap({ reloadKey }: { reloadKey: number }) {
                   </tr>
                 )}
               </tbody>
-            </table>
+            </ExcelTable>
           </div>
         )}
       </Loaded>

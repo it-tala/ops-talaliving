@@ -13,6 +13,7 @@ import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 import { WorkEvidencePanel } from "@/components/hr/work-evidence";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** The KPI analyzer and the task tracker — the owner asked for both, and they
  *  are one screen because one is the evidence for the other (D260, D261).
@@ -329,7 +330,7 @@ export default function KpiPage() {
               icon={ListChecks}
             />
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[880px] border-collapse text-[13px]">
+              <ExcelTable className="w-full min-w-[880px] border-collapse text-[13px]">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
                     <th className="px-4 py-2 text-left">{tr("Task", "Tugas")}</th>
@@ -401,7 +402,7 @@ export default function KpiPage() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </ExcelTable>
             </div>
 
             {mayEdit && (

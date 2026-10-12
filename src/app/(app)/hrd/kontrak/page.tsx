@@ -12,6 +12,7 @@ import type { ContractView } from "@/services/hr/contracts";
 import { useSession } from "@/store/session";
 import { useTr, type Message } from "@/lib/i18n";
 import { NewContract } from "./NewContract";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** Kontrak kerja — bukan folder PDF, melainkan jawaban atas *apa isinya*.
  *
@@ -110,8 +111,8 @@ export default function ContractsPage() {
                   }
                 />
                 <Paged rows={shown} pageSize={20} unit={tr("contracts", "kontrak")}>
-                  {(page) => (
-                    <table className="w-full text-sm">
+                  {(page, _offset, showAll) => (
+                    <ExcelTable showAll={showAll} className="w-full text-sm">
                       <thead className="border-b border-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-400">
                         <tr>
                           <th className="px-4 py-2 font-medium">{tr("Employee", "Karyawan")}</th>
@@ -131,7 +132,7 @@ export default function ContractsPage() {
                           </td></tr>
                         )}
                       </tbody>
-                    </table>
+                    </ExcelTable>
                   )}
                 </Paged>
               </Card>

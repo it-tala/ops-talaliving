@@ -17,6 +17,7 @@ import { useToast } from "@/store/toast";
 import { useLang, useTr } from "@/lib/i18n";
 import { ItemDrawer } from "./item-drawer";
 import { CollectionGallery } from "./collection-gallery";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 const inputCls = "h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-[13px] focus:border-brand-400 focus:outline-none";
 
@@ -150,7 +151,7 @@ function ItemTable({
   const lang = useLang();
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[900px] table-fixed border-collapse text-[13px]">
+      <ExcelTable className="w-full min-w-[900px] table-fixed border-collapse text-[13px]">
         {/* Fixed widths, so every collection's table lines up under the one
             above; the item column keeps the rest, and on a phone the table
             scrolls rather than squeezing it. */}
@@ -231,7 +232,7 @@ function ItemTable({
             );
           })}
         </tbody>
-      </table>
+      </ExcelTable>
     </div>
   );
 }

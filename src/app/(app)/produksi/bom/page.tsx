@@ -12,6 +12,7 @@ import { production } from "@/demo/api";
 import { useSession } from "@/store/session";
 import { ProductDrawer } from "./ProductDrawer";
 import { useTr } from "@/lib/i18n";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** Master data: what we sell and make, what each one is made of, and what
  *  one unit costs us to make.
@@ -124,9 +125,9 @@ export default function BomPage() {
                 </div>
                 {/* Katalog produk tumbuh terus; tabelnya dipaginasi (D157). */}
                 <Paged rows={rows} pageSize={20} unit={tr("products", "produk")}>
-                  {(shown) => (
+                  {(shown, _offset, showAll) => (
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[760px] border-collapse text-[13px]">
+                    <ExcelTable showAll={showAll} className="w-full min-w-[760px] border-collapse text-[13px]">
                       <thead>
                         <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
                           <th className="px-4 py-2 text-left">{tr("Product", "Produk")}</th>
@@ -190,7 +191,7 @@ export default function BomPage() {
                           <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-500">{tr("Nothing matches.", "Tidak ada yang cocok.")}</td></tr>
                         )}
                       </tbody>
-                    </table>
+                    </ExcelTable>
                   </div>
                   )}
                 </Paged>

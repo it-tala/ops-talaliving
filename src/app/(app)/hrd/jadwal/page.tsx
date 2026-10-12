@@ -17,6 +17,7 @@ import {
   SATPAM_SHIFTS, type ScheduleDay, type ScheduleShift,
 } from "@/services/hr/schedule-rules";
 import type { UnitScheduleDefault, WorkSchedule } from "@/services/hr/contracts";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** Working patterns, and who is on them (Q53, D279).
  *
@@ -109,7 +110,7 @@ export default function SchedulePage() {
                 }
               />
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] text-[13px]">
+                <ExcelTable className="w-full min-w-[720px] text-[13px]">
                   <thead>
                     <tr className="border-b border-slate-100 text-left text-[10px] uppercase tracking-wide text-slate-400">
                       <th className="px-5 py-2 font-medium">{tr("Pattern", "Pola")}</th>
@@ -206,7 +207,7 @@ export default function SchedulePage() {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </ExcelTable>
               </div>
               {d.schedules.filter((sc) => sc.hours.blocked_by).map((sc) => (
                 <p key={sc.code} className="border-t border-slate-100 px-5 py-2 text-[12px] text-amber-800">
@@ -354,7 +355,7 @@ function UnitDefaults({
         <p className="px-5 pb-4 text-[12px] text-slate-500">{tr("No units yet.", "Belum ada unit.")}</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[520px] text-[13px]">
+          <ExcelTable className="w-full min-w-[520px] text-[13px]">
             <thead>
               <tr className="border-b border-slate-100 text-left text-[10px] uppercase tracking-wide text-slate-400">
                 <th className="px-5 py-2 font-medium">{tr("Unit", "Unit")}</th>
@@ -384,7 +385,7 @@ function UnitDefaults({
                 </tr>
               ))}
             </tbody>
-          </table>
+          </ExcelTable>
         </div>
       )}
     </Card>
