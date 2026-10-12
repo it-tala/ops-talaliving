@@ -10475,3 +10475,13 @@ Two smaller things the same session taught:
 
 **Rule:** when access is per assignment, every definer function that returns
 an assignment's content checks the assignment, not the record it hangs off.
+
+**Postscript (applying to production).** The hash comparison found two
+foreign keys on production — `qc_people.user_id`, `qc_assignments.po_id` —
+that the local ladder lacked. `rebuild.sh` drops the schemas it knows by
+name, and `ops_qc` was not on the list: the old local `ops_qc` survived,
+`drop schema ops_core cascade` took its foreign keys into the dropped
+schemas with it, and `create table if not exists` kept the stripped tables.
+Production was right; the local proof was stale. `ops_qc` is now in
+`rebuild.sh`, `check_shadowing.sh` and `check_schema_isolation.sh`. **A new
+schema goes into the three local scripts in the migration's own PR.**
