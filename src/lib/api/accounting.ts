@@ -739,6 +739,7 @@ export async function editTransaction(
     project_code?: string | null;
     type_code?: string;
     account_code?: string;
+    direction?: "IN" | "OUT";
     reason?: string;
   },
   idempotencyKey?: string,
@@ -751,6 +752,7 @@ export async function editTransaction(
     p_project_code: input.project_code ?? null,
     p_type_code: input.type_code ?? null,
     p_account_code: input.account_code ?? null,
+    p_direction: input.direction ?? null,
     p_reason: input.reason ?? null,
     p_key: idempotencyKey ?? null,
   });

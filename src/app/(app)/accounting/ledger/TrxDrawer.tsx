@@ -99,6 +99,7 @@ export function TrxDrawer({
   const [editProject, setEditProject] = useState("");
   const [editType, setEditType] = useState("");
   const [editAccount, setEditAccount] = useState("");
+  const [editDirection, setEditDirection] = useState<"IN" | "OUT">("OUT");
   const [refs, setRefs] = useState<{
     vendors: { id: string; code: string; name: string }[];
     projects: { id: string; code: string; name: string }[];
@@ -227,6 +228,7 @@ export function TrxDrawer({
     setEditReason("");
     setEditType(trx!.type_code);
     setEditAccount(trx!.account_code);
+    setEditDirection(trx!.direction);
     setVoidOpen(false);
     setEditOpen(true);
     await loadRefs();
@@ -240,7 +242,10 @@ export function TrxDrawer({
   const projectChanged = !!trx && !!refs && editProject !== currentProjectCode;
   const typeChanged = !!trx && editType !== trx.type_code;
   const accountChanged = !!trx && !!editAccount && editAccount !== trx.account_code;
-  const anyChanged = amountChanged || descChanged || vendorChanged || projectChanged || typeChanged || accountChanged;
+  const directionChanged = !!trx && editDirection !== trx.direction;
+  const anyChanged = amountChanged || descChanged || vendorChanged || projectChanged || typeChanged || accountChanged || directionChanged;
+  /* The balance moves with either, so both owe a remark (`0101`, `0268`). */
+  const reasonRequired = amountChanged || directionChanged;
   /* Where the row can go: active accounts in the same currency — a rupiah
      amount has no rate to land on the dollar account with (`0204`) — plus
      the one it is on now, so the select can show it even if it was closed. */
@@ -262,6 +267,7 @@ export function TrxDrawer({
       ...(projectChanged ? { project_code: editProject } : {}),
       ...(typeChanged ? { type_code: editType } : {}),
       ...(accountChanged ? { account_code: editAccount } : {}),
+      ...(directionChanged ? { direction: editDirection } : {}),
       ...(editReason.trim() ? { reason: editReason.trim() } : {}),
     });
     setBusy(false);
@@ -369,6 +375,44 @@ export function TrxDrawer({
             <p className="flex items-center gap-2 text-[13px] font-semibold text-slate-800">
               <Pencil className="h-4 w-4" /> {tr("Edit this entry", "Edit entri ini")}
             </p>
+            {/* IN/OUT (`0268`, D429): a row typed the wrong way round is off
+                by twice its amount in every balance after it. */}
+            <div>
+              <p className="block text-xs text-slate-600">{tr("In / out", "Masuk / keluar")}</p>
+              <div className="mt-1 inline-flex overflow-hidden rounded-lg border border-slate-200" role="group">
+                {(["IN", "OUT"] as const).map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    id={`trx-edit-direction-${d.toLowerCase()}`}
+                    aria-pressed={editDirection === d}
+                    disabled={trx.allocated_total > 0 && d !== trx.direction}
+                    onClick={() => setEditDirection(d)}
+                    className={cn(
+                      "px-4 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+                      editDirection === d
+                        ? d === "IN" ? "bg-emerald-600 text-white" : "bg-slate-700 text-white"
+                        : "bg-white text-slate-600 hover:bg-slate-50",
+                    )}
+                  >
+                    {d === "IN" ? tr("IN", "MASUK") : tr("OUT", "KELUAR")}
+                  </button>
+                ))}
+              </div>
+              {trx.allocated_total > 0 && (
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {tr("This row pays request lines or orders, so it stays OUT.", "Baris ini membayar permintaan atau PO, jadi tetap KELUAR.")}
+                </p>
+              )}
+              {directionChanged && (
+                <p className="mt-1 text-[11px] text-amber-700">
+                  {tr(
+                    `Was ${trx.direction}. The ${trx.account_code} balance after this row moves by ${formatIDR(trx.amount_idr * 2)}.`,
+                    `Sebelumnya ${trx.direction === "IN" ? "MASUK" : "KELUAR"}. Saldo ${trx.account_code} setelah baris ini bergeser ${formatIDR(trx.amount_idr * 2)}.`,
+                  )}
+                </p>
+              )}
+            </div>
             <div>
               <label htmlFor="trx-edit-amount" className="block text-xs text-slate-600">{tr("Amount", "Jumlah")}</label>
               <MoneyInput id="trx-edit-amount" value={editAmount} onChange={setEditAmount} className="mt-1" />
@@ -487,7 +531,7 @@ export function TrxDrawer({
 
             <div>
               <label htmlFor="trx-edit-reason" className="block text-xs text-slate-600">
-                {tr("Remarks", "Keterangan")} {amountChanged ? <span className="text-rose-700">{tr("— required when the amount changes", "— wajib bila jumlah berubah")}</span> : tr("(optional)", "(opsional)")}
+                {tr("Remarks", "Keterangan")} {reasonRequired ? <span className="text-rose-700">{tr("— required when the amount or in/out changes", "— wajib bila jumlah atau masuk/keluar berubah")}</span> : tr("(optional)", "(opsional)")}
               </label>
               <textarea
                 id="trx-edit-reason"
@@ -503,7 +547,7 @@ export function TrxDrawer({
               <Button
                 size="sm"
                 disabled={busy || !anyChanged || editAmount <= 0 || !editDesc.trim()
-                  || (amountChanged && !editReason.trim())}
+                  || (reasonRequired && !editReason.trim())}
                 onClick={saveEdit}
               >
                 {tr("Save changes", "Simpan perubahan")}

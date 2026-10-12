@@ -551,6 +551,9 @@ export async function editTransaction(
     /** Which account the money moved through (`0204`). No clearing case —
      *  money always moved through somewhere. */
     account_code?: string;
+    /** IN ↔ OUT (`0268`, D429). Needs a remark; refused on a row matched to
+     *  a bank statement or paying request lines or orders. */
+    direction?: "IN" | "OUT";
     reason?: string;
   },
   idempotencyKey?: string,
@@ -644,9 +647,34 @@ export async function editTransaction(
     accTo = a;
   }
 
+  /* IN/OUT (`0268`). It turns the row's effect on the balance around by
+     twice its amount: the bank statement says which way the money went,
+     money that came in paid for nothing, and a leadership balance is
+     `approve_funds`' (D87). */
+  const direction = input.direction ?? trx.direction;
+  if (direction !== "IN" && direction !== "OUT") {
+    return invalid(SERVICE, "no_such_direction", "Direction is IN or OUT.", { field: "direction" });
+  }
+  if (direction !== trx.direction) {
+    if (state.statement_lines.some((l) => l.trx_no === trx.trx_no && (l.status === "matched" || l.status === "booked"))) {
+      return conflict(SERVICE, "statement_matched", "This row is matched to a bank statement line, so the bank says whether money came in or went out. Unmatch it first.");
+    }
+    if (state.payment_allocations.some((a) => a.trx_id === trx.id && a.superseded_by === null)) {
+      return conflict(SERVICE, "direction_allocated", "This row pays request lines or orders. Money that came in paid for nothing — take the allocations off first.");
+    }
+    if (accFrom.custody === "leadership" || accTo.custody === "leadership") {
+      const denied = requireAuthority(SERVICE, "approve_funds");
+      if (denied) return denied;
+    }
+    if (!reason) {
+      return invalid(SERVICE, "reason_required", "A remark is required when IN/OUT changes — say why it was recorded the wrong way.", { field: "reason" });
+    }
+  }
+
   if (amount === trx.amount_idr && description === trx.description
       && vendorId === trx.vendor_id && projectId === trx.project_id
-      && typeCode === trx.type_code && accTo.id === accFrom.id) {
+      && typeCode === trx.type_code && accTo.id === accFrom.id
+      && direction === trx.direction) {
     return ok(SERVICE, transactionView(state, trx));
   }
 
@@ -693,6 +721,9 @@ export async function editTransaction(
   if (accTo.id !== accFrom.id) {
     Object.assign(detail, { account_before: accFrom.code, account_after: accTo.code });
   }
+  if (direction !== trx.direction) {
+    Object.assign(detail, { direction_before: trx.direction, direction_after: direction });
+  }
 
   apply((draft) => {
     const t = draft.transactions.find((x) => x.id === trx.id)!;
@@ -702,6 +733,7 @@ export async function editTransaction(
     t.project_id = projectId;
     t.type_code = typeCode as typeof t.type_code;
     t.account_id = accTo.id;
+    t.direction = direction;
     if (syncLine) {
       const l = draft.transaction_lines.find((x) => x.id === syncLine)!;
       l.amount = amount;
