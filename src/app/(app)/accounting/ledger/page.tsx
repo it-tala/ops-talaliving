@@ -72,12 +72,36 @@ export default function LedgerPage() {
     { keepPrevious: true },
   );
   const mayPost = hasAuthority("post_ledger");
+  /* Which accounts hold cash. A card account owes money by design, so only a
+     cash or bank account going below zero is the mark of a wrong figure. */
+  const [accountList] = useLoad(() => accounting.listAccounts(), []);
+  const cashAccounts = new Set(
+    accountList.status === "ready"
+      ? accountList.data.filter((a) => a.custody === "accounting").map((a) => a.account_id)
+      : [],
+  );
 
   function filter(next: () => void) {
     /* Any change of filter is a new first page — staying on page 4 of a list
        that no longer has four pages shows an empty table and no reason. */
     setPage(0);
     next();
+  }
+
+  function balanceCell(t: TransactionView, value: number | null) {
+    if (value === null) return <span className="text-slate-300">—</span>;
+    const short = value < 0 && cashAccounts.has(t.account_id);
+    return (
+      <span
+        title={short
+          ? tr(`${t.account_code} below zero — check this amount, or a row missing before it`,
+               `${t.account_code} minus — cek nominal ini, atau ada baris sebelumnya yang belum dicatat`)
+          : t.account_code}
+        className={cn("whitespace-nowrap tabular-nums text-[13px]", short ? "font-medium text-rose-700" : "text-slate-600")}
+      >
+        {formatIDR(value)}
+      </span>
+    );
   }
 
   const columns: Column<TransactionView>[] = [
@@ -130,6 +154,22 @@ export default function LedgerPage() {
           )}
         </div>
       ),
+    },
+    /* The account's balance either side of the row, like the spreadsheet's
+       balance columns (D428). Computed by the database, so a row posted late
+       or corrected moves every balance after it. It is how a mistyped figure
+       is found: the first row where ours stops agreeing with the bank. */
+    {
+      key: "balance_before",
+      header: tr("Balance before", "Saldo sebelum"),
+      align: "right",
+      render: (t) => balanceCell(t, t.balance_before),
+    },
+    {
+      key: "balance_after",
+      header: tr("Balance after", "Saldo sesudah"),
+      align: "right",
+      render: (t) => balanceCell(t, t.balance_after),
     },
     {
       key: "evidence",

@@ -550,6 +550,11 @@ export function TrxDrawer({
         <dl className="space-y-2.5">
           {([
             [tr("Amount", "Jumlah"), formatIDR(trx.amount_idr)],
+            /* D428: the account's balance either side of this row. */
+            ...(trx.balance_after !== null && trx.balance_before !== null
+              ? [[tr(`${trx.account_code} balance`, `Saldo ${trx.account_code}`),
+                  `${formatIDR(trx.balance_before)} → ${formatIDR(trx.balance_after)}`]]
+              : []),
             [tr("Type", "Jenis"), trx.type_code],
             [tr("Vendor", "Vendor"), trx.vendor_name ?? "—"],
             [tr("Posted", "Diposting"), `${trx.posted_at.slice(0, 10)}`],

@@ -411,6 +411,7 @@ async function readBack(trxNo: string, known: Partial<TransactionView> = {}): Pr
     remark: null, status: "POSTED", source_ref: "", posted_by: "", posted_at: "",
     void_reason: null, allocated_total: 0, unallocated: 0, evidence_count: 0,
     has_payment_proof: false, has_receipt_doc: false, pr_line_nos: [], expects_allocation: false,
+    balance_before: null, balance_after: null,
     ...known,
     trx_no: trxNo,
   });

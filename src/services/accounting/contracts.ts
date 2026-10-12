@@ -431,6 +431,12 @@ export interface TransactionView extends Transaction {
    *  always should. Without the distinction the ledger flags two thirds of a
    *  normal month as a problem, and people learn to ignore the flag (D83). */
   expects_allocation: boolean;
+  /** The account's balance just before this row and just after it — opening
+   *  plus every earlier non-void row on the same account, by `trx_date` then
+   *  `trx_no`. Computed, never stored, so a row posted late or corrected moves
+   *  every balance after it (D428). Null on a VOID row. */
+  balance_before: number | null;
+  balance_after: number | null;
 }
 
 /** One allocation, with enough of the line to read it without a second call. */

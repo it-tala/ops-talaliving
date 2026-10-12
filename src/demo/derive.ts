@@ -644,6 +644,26 @@ export function transactionView(state: DemoState, trx: Transaction): Transaction
      * electricity bill are money leaving for reasons nobody raises a PR for,
      * and flagging them would drown the rows that matter (D83). */
     expects_allocation: trx.direction === "OUT" && expectsDecision(state, trx.type_code),
+    ...balanceAround(state, trx),
+  };
+}
+
+/** `v_transaction.balance_before` / `balance_after` (0267, D428): opening
+ *  plus every earlier non-void row on the same account, in ledger order.
+ *  Worked out from the rows each time rather than cached — a seam builds a
+ *  view from its draft and keeps writing, and a cached sum would outlive it. */
+function balanceAround(state: DemoState, trx: Transaction) {
+  if (trx.status === "VOID") return { balance_before: null, balance_after: null };
+  const account = state.accounts.find((a) => a.id === trx.account_id);
+  const balance_before = state.transactions.reduce(
+    (sum, t) => t.account_id === trx.account_id && t.status !== "VOID" && byLedgerOrder(t, trx) < 0
+      ? sum + (t.direction === "IN" ? t.amount_idr : -t.amount_idr)
+      : sum,
+    account?.opening_balance ?? 0,
+  );
+  return {
+    balance_before,
+    balance_after: balance_before + (trx.direction === "IN" ? trx.amount_idr : -trx.amount_idr),
   };
 }
 
