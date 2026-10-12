@@ -65,6 +65,7 @@ export const MESSAGES = {
     quotations: m("Quotations", "Quotation"),
     followUps: m("Client follow-ups", "Follow-up klien"),
     costVsPlan: m("Production per project", "Produksi per proyek"),
+    evaluation: m("Evaluation", "Evaluasi"),
     delivery: m("Delivery", "Pengiriman"),
     boxes: m("Packing boxes & labels", "Peti & label"),
     installation: m("Installation", "Instalasi"),

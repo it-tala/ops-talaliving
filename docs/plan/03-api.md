@@ -331,6 +331,14 @@ appends the chosen offer — `factory_quote_no`, `factory_vendor_name`,
 `factory_offers` — masked to `may_price_factory('read')`. `may_design('read')`
 now includes `procurement.read`.
 
+### Projects — evaluation boards (O9, 0266, D424)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/evaluation/factories?year=` | `eval_factories` (definer; `procurement.read` or `project.update`): per factory — `orders`, `orders_in_year`, `priced_lines` and `price_diff_pct` (ordered − quoted ÷ quoted, same currency only), `promised_shipped`, `shipped_on_time`, `avg_days_late` (first container out vs the order's promised day), `containers`, `findings_before`, `findings_serious`, `findings_per_container`, `claims`, `orders_accepted`, `orders_rejected` |
+| GET | `/evaluation/qc-people` | `eval_qc_people` (definer; `ops_qc.sees_all`): per person — `assignments`, `orders`, `active_days`, `report_days`, `report_rate`, `reports`, `last_report_on`, `containers_while_watching`, `findings_raised`, `findings_serious`, `claims_on_orders`, `orders_accepted`, `orders_rejected` |
+| GET | `/evaluation/projects` | `eval_projects` (definer; `project.read`): per project — `opened_on`, `deal_on`, `production_on`, `shipped_on`, `arrived_on`, `done_on` and the days between, `factory_orders`, `orders_accepted`, `orders_rejected`, `claims`, `deal_value`, `deal_currency`, `margin_pct` (only with `project.update`) |
+
 ### Projects — what became of a factory order (O8, 0265, D422)
 
 | Method | Path | Notes |

@@ -36,6 +36,7 @@ import type {
   ProjectView, ProjectLineView, ProjectStatus, PoMoney, ProjectProductionLine, FactoryOrderInput, FactoryOrderResult, ProductionRoute, ProjectStatusChange, Client, ClientView,
   ClosingReason, SalesPerson, TimelineEvent, ProjectOutcome,
   FactoryOrderOutcome, FactoryVerdict, ClientVerdictInput, ClientVerdict,
+  FactoryEvaluation, QcPersonEvaluation, ProjectEvaluation,
 } from "@/services/procurement/contracts";
 import type { DocKind } from "@/services/documents/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -2490,4 +2491,45 @@ export async function recordClientVerdict(
   const res = fromSeam<{ po_no: string; verdict: ClientVerdict; warnings?: string[] }>(SERVICE, data, error);
   if (res.error) return res;
   return ok(SERVICE, { po_no: res.data.po_no ?? input.po_no, verdict: res.data.verdict ?? input.verdict, warnings: res.data.warnings ?? [] });
+}
+
+/* ── the evaluation boards (0266, O9) ───────────────────────────────────── */
+
+const numOrNull2 = (v: unknown) => (v == null ? null : Number(v));
+function numeric<T>(rows: unknown, nums: string[], nullable: string[]): T[] {
+  return ((rows ?? []) as Record<string, unknown>[]).map((r) => {
+    const out: Record<string, unknown> = { ...r };
+    for (const k of nums) out[k] = r[k] == null ? 0 : Number(r[k]);
+    for (const k of nullable) out[k] = numOrNull2(r[k]);
+    return out as T;
+  });
+}
+
+/** Partner factories (procurement or project.update). */
+export async function evalFactories(opts: { year?: number } = {}): Promise<Result<FactoryEvaluation[]>> {
+  const { data, error } = await db().rpc("eval_factories", { p_year: opts.year ?? null });
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, numeric<FactoryEvaluation>(data,
+    ["orders", "orders_in_year", "priced_lines", "promised_shipped", "shipped_on_time", "containers",
+     "findings_before", "findings_serious", "claims", "orders_accepted", "orders_rejected"],
+    ["price_diff_pct", "avg_days_late", "findings_per_container"]));
+}
+
+/** QC people (whoever sees every assignment). */
+export async function evalQcPeople(): Promise<Result<QcPersonEvaluation[]>> {
+  const { data, error } = await db().rpc("eval_qc_people");
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, numeric<QcPersonEvaluation>(data,
+    ["assignments", "orders", "active_days", "report_days", "reports", "containers_while_watching",
+     "findings_raised", "findings_serious", "claims_on_orders", "orders_accepted", "orders_rejected"],
+    ["report_rate"]));
+}
+
+/** Projects (project readers; margin with project.update). */
+export async function evalProjects(): Promise<Result<ProjectEvaluation[]>> {
+  const { data, error } = await db().rpc("eval_projects");
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, numeric<ProjectEvaluation>(data,
+    ["factory_orders", "orders_accepted", "orders_rejected", "claims"],
+    ["days_to_deal", "days_to_production", "days_to_ship", "days_to_arrive", "deal_value", "margin_pct"]));
 }

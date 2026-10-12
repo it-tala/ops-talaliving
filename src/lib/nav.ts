@@ -179,6 +179,9 @@ export const NAV: NavSection[] = [
       { label: "Quotations", labelKey: "quotations", href: "/proyek/quotation", icon: FileSignature, permission: "project.read", orPermission: "marketing.read", badge: "new" },
       { label: "Client follow-ups", labelKey: "followUps", href: "/proyek/follow-up", icon: BellRing, permission: "project.read", orPermission: "marketing.read", badge: "new" },
       { label: "Production per project", labelKey: "costVsPlan", href: "/proyek/produksi", icon: Scale, permission: "project.read", badge: "new" },
+      /* Factories, QC people and projects, read from what O2–O8 record
+       * (0266, O9); each board says what its reader may see. */
+      { label: "Evaluation", labelKey: "evaluation", href: "/proyek/evaluasi", icon: Gauge, permission: "project.read", orPermission: "procurement.read", badge: "new" },
       { label: "Delivery", labelKey: "delivery", href: "/proyek/pengiriman", icon: Truck, permission: "project.read", orPermission: "delivery.read", badge: "new" },
       { label: "Packing boxes & labels", labelKey: "boxes", href: "/proyek/peti", icon: Package, permission: "project.read", orPermission: "delivery.read", badge: "new" },
       { label: "Installation", labelKey: "installation", href: "/proyek/instalasi", icon: Wrench, permission: "project.read", orPermission: "delivery.read", badge: "new" },
