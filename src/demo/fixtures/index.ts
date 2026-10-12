@@ -188,6 +188,7 @@ export function initialState(): DemoState {
     qc_reports: [],
     qc_report_lines: [],
     qc_findings: [],
+    factory_order_verdicts: [],
     factory_quote_lines: [
       { id: "fql_1", quote_id: "fq_1", design_item_id: "di_1", unit_price: 6850000, lead_time_days: 45, moq: null, note: null },
       { id: "fql_2", quote_id: "fq_1", design_item_id: "di_2", unit_price: 2400000, lead_time_days: 30, moq: null, note: null },

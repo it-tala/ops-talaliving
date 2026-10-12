@@ -11,11 +11,12 @@ import type {
   ReceivingInboxRow, ReceivingInboxStatus, ReceivingCandidates, ReceivingLineInput,
   ReceivingMatchResult, PoPaymentRequest, ReceivingTrxCandidate, ReceivingPoCandidate,
   ReceivingArchiveResult, ClosingReason, SalesPerson, TimelineEvent, TimelineKind, ProjectOutcome,
+  FactoryOrderOutcome, FactoryVerdict, ClientVerdictInput, ClientVerdict,
 } from "@/services/procurement/contracts";
 import { CLOSING_REASONS, VENDOR_KINDS, type VendorKind } from "@/services/procurement/contracts";
 import { acceptedQuotationTotal, currentQuotation } from "./quotation";
 import { lineProgressOf } from "./qc";
-import { officeToday } from "@/lib/office";
+import { officeDay, officeToday } from "@/lib/office";
 import { RECEIPT_CONDITIONS } from "@/services/procurement/contracts";
 import type { DemoState, DemoReceivingInbox } from "../state";
 import { productView, workOrderView, joReferenceProblem } from "../production-derive";
@@ -4706,4 +4707,141 @@ export async function listProjectOutcomes(): Promise<Result<ProjectOutcome[]>> {
       closing_reason_code: status === "LOST" || status === "CANCELLED" ? (lostLog?.reason_code ?? null) : null,
     } as ProjectOutcome;
   }));
+}
+
+/* ── what became of a factory order after it arrived (0265, O8, D421) ───── */
+
+/** Last arrival + 3 months, as Postgres adds an interval to a date. */
+function plusThreeMonths(day: string): string {
+  const [y, m, d] = day.split("-").map(Number);
+  const target = new Date(Date.UTC(y, m - 1 + 3, 1));
+  const last = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+  target.setUTCDate(Math.min(d, last));
+  return target.toISOString().slice(0, 10);
+}
+const daysFrom = (from: string, to: string) => Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
+const readsOutcomes = () => holds("project", "read") || holds("procurement", "read")
+  || actingUser().modules.some((m) => m.module === "qc" && m.level === "admin");
+
+function latestVerdict(state: DemoState, poId: string) {
+  return state.factory_order_verdicts.filter((v) => v.po_id === poId).at(-1) ?? null;
+}
+
+/** Every live factory order with its work state (0265's `factory_outcomes`). */
+export async function listFactoryOutcomes(opts: { project_code?: string } = {}): Promise<Result<FactoryOrderOutcome[]>> {
+  await latency();
+  if (!readsOutcomes()) return ok(SERVICE, []);
+  const state = getState();
+  const today = officeToday();
+  const rows: FactoryOrderOutcome[] = [];
+  for (const po of state.purchase_orders) {
+    if (!po.project_id || po.status === "CANCELLED") continue;
+    const pj = state.projects.find((x) => x.id === po.project_id);
+    if (!pj || (opts.project_code && pj.code !== opts.project_code.trim())) continue;
+    const cl = pj.client_id ? state.clients.find((x) => x.id === pj.client_id) : undefined;
+    const boxes = state.deliveries.filter((d) => d.po_id === po.id && d.delivery_mode === "container" && d.status !== "CANCELLED");
+    const arrivedDays = boxes.filter((d) => d.status === "ARRIVED" && d.received_at).map((d) => officeDay(new Date(d.received_at!))).sort();
+    const allOn = boxes.length > 0 && arrivedDays.length === boxes.length ? arrivedDays.at(-1)! : null;
+    const v = latestVerdict(state, po.id);
+    const reminder = allOn ? plusThreeMonths(allOn) : null;
+    const findings = state.qc_findings.filter((f) => f.po_id === po.id);
+    const before = findings.filter((f) => f.phase !== "after_arrival");
+    const claims = findings.filter((f) => f.phase === "after_arrival");
+    rows.push({
+      po_no: po.po_no, po_status: po.status, project_code: pj.code, project_name: pj.name,
+      client_name: cl?.name ?? pj.client_name ?? null,
+      vendor_name: state.vendors.find((x) => x.id === po.vendor_id)?.name ?? "—",
+      issued_at: po.issued_at ?? null, expected_delivery: po.expected_delivery ?? null,
+      container_count: boxes.length, containers_arrived: arrivedDays.length,
+      first_arrived_on: arrivedDays[0] ?? null, last_arrived_on: allOn,
+      work_state: v ? v.verdict : allOn ? "ARRIVED" : boxes.length > 0 ? "SHIPPED" : po.status === "DRAFT" ? "ORDER_DRAFT" : "IN_PRODUCTION",
+      reminder_on: reminder, days_to_reminder: reminder ? daysFrom(today, reminder) : null,
+      needs_confirmation: !v && !!reminder && today >= reminder,
+      verdict: v?.verdict ?? null, verdict_on: v?.decided_on ?? null, verdict_client_person: v?.client_person ?? null,
+      verdict_reason: v?.reason ?? null,
+      verdict_recorded_by: v ? state.users.find((u) => u.id === v.recorded_by)?.full_name ?? null : null,
+      verdict_recorded_at: v?.recorded_at ?? null,
+      findings_before: before.length, findings_before_open: before.filter((f) => f.status === "OPEN").length,
+      claims_total: claims.length, claims_open: claims.filter((f) => f.status === "OPEN").length,
+      qc_names: state.qc_assignments.filter((a) => a.po_id === po.id && !a.cancelled_at)
+        .map((a) => state.qc_people.find((p) => p.id === a.person_id)?.name ?? "").sort().join(", ") || null,
+    });
+  }
+  return ok(SERVICE, rows.sort((a, b) => b.project_code.localeCompare(a.project_code) || a.po_no.localeCompare(b.po_no)));
+}
+
+/** Every decision on one order, newest first (0265's `factory_verdict_history`). */
+export async function listFactoryVerdictHistory(poNo: string): Promise<Result<FactoryVerdict[]>> {
+  await latency();
+  if (!readsOutcomes()) return ok(SERVICE, []);
+  const state = getState();
+  const po = state.purchase_orders.find((x) => x.po_no === poNo.trim());
+  if (!po) return ok(SERVICE, []);
+  return ok(SERVICE, state.factory_order_verdicts.filter((v) => v.po_id === po.id).slice().reverse().map((v) => ({
+    verdict: v.verdict, decided_on: v.decided_on, client_person: v.client_person, reason: v.reason, note: v.note,
+    recorded_by: state.users.find((u) => u.id === v.recorded_by)?.full_name ?? null, recorded_at: v.recorded_at,
+  })));
+}
+
+/** Accepted or rejected by the client (0265's `record_client_verdict`). */
+export async function recordClientVerdict(
+  input: ClientVerdictInput, idempotencyKey?: string,
+): Promise<Result<{ po_no: string; verdict: ClientVerdict; warnings: string[] }>> {
+  await latency();
+  const cached = replayed<{ po_no: string; verdict: ClientVerdict; warnings: string[] }>(SERVICE, "recordClientVerdict", idempotencyKey);
+  if (cached) return cached;
+  if (!holds("project", "write")) {
+    return refused(SERVICE, "not_permitted", "Keputusan klien atas order pabrik dicatat oleh pengelola proyek (project update).");
+  }
+  const state = getState();
+  const po = state.purchase_orders.find((x) => x.po_no === input.po_no?.trim());
+  if (!po || !po.project_id) return invalid(SERVICE, "order_unknown", `Tidak ada order pabrik ${input.po_no || "—"}.`, { field: "po_no" });
+  if (po.status === "CANCELLED") return conflict(SERVICE, "order_cancelled", `${po.po_no} sudah dibatalkan.`);
+  const verdict = (input.verdict ?? "").toUpperCase() as ClientVerdict;
+  if (verdict !== "ACCEPTED" && verdict !== "REJECTED") {
+    return invalid(SERVICE, "unknown_verdict", "Diterima atau ditolak klien?", { field: "verdict" });
+  }
+  const boxes = state.deliveries.filter((d) => d.po_id === po.id && d.delivery_mode === "container" && d.status !== "CANCELLED");
+  const arrivedDays = boxes.filter((d) => d.status === "ARRIVED" && d.received_at).map((d) => officeDay(new Date(d.received_at!))).sort();
+  if (arrivedDays.length === 0) {
+    return conflict(SERVICE, "not_arrived", `Belum ada kontainer ${po.po_no} yang sampai di klien. Keputusan klien dicatat setelah barang sampai.`);
+  }
+  const warnings: string[] = [];
+  if (arrivedDays.length < boxes.length) warnings.push(`${boxes.length - arrivedDays.length} dari ${boxes.length} kontainer ${po.po_no} belum sampai.`);
+  if (!input.decided_on) return invalid(SERVICE, "date_required", "Tanggal berapa klien memutuskan?", { field: "decided_on" });
+  if (input.decided_on > officeToday()) {
+    return invalid(SERVICE, "date_in_future", "Keputusan tidak bisa untuk hari yang belum datang.", { field: "decided_on" });
+  }
+  if (input.decided_on < arrivedDays[0]) {
+    return invalid(SERVICE, "before_arrival", `Kontainer pertama sampai ${arrivedDays[0]}; keputusan klien tidak bisa sebelum itu.`, { field: "decided_on" });
+  }
+  if (!input.client_person?.trim()) {
+    return invalid(SERVICE, "client_person_required", "Siapa di pihak klien yang memutuskan?", { field: "client_person" });
+  }
+  if (verdict === "REJECTED" && !input.reason?.trim()) {
+    return invalid(SERVICE, "reason_required", "Kenapa ditolak klien? Alasannya dibaca saat evaluasi.", { field: "reason" });
+  }
+  const last = latestVerdict(state, po.id);
+  if (last && last.verdict === verdict && last.decided_on === input.decided_on && last.client_person === input.client_person.trim()
+      && (last.reason ?? null) === (input.reason?.trim() || null)) {
+    return noop(SERVICE, { po_no: po.po_no, verdict, warnings });
+  }
+  if (last) {
+    warnings.push(`Menggantikan keputusan sebelumnya (${last.verdict === "ACCEPTED" ? "diterima" : "ditolak"}, ${last.decided_on}, ${last.client_person}); yang lama tetap tercatat.`);
+  }
+  const by = actingUser();
+  apply((draft) => {
+    draft.factory_order_verdicts.push({
+      id: newId("fov"), po_id: po.id, verdict, decided_on: input.decided_on, client_person: input.client_person.trim(),
+      reason: input.reason?.trim() || null, note: input.note?.trim() || null, recorded_by: by.id,
+      recorded_at: new Date().toISOString(),
+    });
+    writeAudit(draft, {
+      service: SERVICE, entity: "factory_order", entity_no: po.po_no, action: "verdict", outcome: "ok",
+      reason: input.reason?.trim() || null, detail: { verdict, decided_on: input.decided_on, client_person: input.client_person.trim() },
+    });
+  });
+  const result = { po_no: po.po_no, verdict, warnings };
+  remember(SERVICE, "recordClientVerdict", idempotencyKey, result);
+  return ok(SERVICE, result);
 }

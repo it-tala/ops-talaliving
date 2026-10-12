@@ -1602,3 +1602,78 @@ export interface ProjectOutcome {
   days_in_status: number | null;
   closing_reason_code: ClosingReason | null;
 }
+
+/* ── what became of a factory order after it arrived (0265, O8, D421) ───── */
+
+/** Read, not typed: ORDER_DRAFT · IN_PRODUCTION (issued, no container yet) ·
+ *  SHIPPED (a container, not all arrived) · ARRIVED (all arrived) · then the
+ *  client's ACCEPTED or REJECTED, which a person chooses. */
+export type FactoryWorkState = "ORDER_DRAFT" | "IN_PRODUCTION" | "SHIPPED" | "ARRIVED" | "ACCEPTED" | "REJECTED";
+export const FACTORY_WORK_STATE_LABELS: Record<FactoryWorkState, Message> = {
+  ORDER_DRAFT: { en: "Order not issued", id: "Order belum terbit" },
+  IN_PRODUCTION: { en: "In production", id: "Berjalan" },
+  SHIPPED: { en: "Shipped", id: "Dikirim" },
+  ARRIVED: { en: "Arrived", id: "Sampai" },
+  ACCEPTED: { en: "Accepted by client", id: "Diterima klien" },
+  REJECTED: { en: "Rejected by client", id: "Ditolak klien" },
+};
+export const FACTORY_WORK_STATE_LABEL = bilingual(FACTORY_WORK_STATE_LABELS);
+export type ClientVerdict = "ACCEPTED" | "REJECTED";
+
+/** One factory order as whoever reads the project sees it — its name,
+ *  factory, containers, reminder, the client's decision, and its findings
+ *  before shipping against claims after. Never a price. */
+export interface FactoryOrderOutcome {
+  po_no: string;
+  po_status: PoStatus;
+  project_code: string;
+  project_name: string;
+  client_name: string | null;
+  vendor_name: string;
+  issued_at: string | null;
+  expected_delivery: string | null;
+  container_count: number;
+  containers_arrived: number;
+  first_arrived_on: string | null;
+  /** The day the last container arrived, once all have. */
+  last_arrived_on: string | null;
+  work_state: FactoryWorkState;
+  /** Last arrival + 3 months (D412): a reminder, not a money clock. */
+  reminder_on: string | null;
+  days_to_reminder: number | null;
+  /** Past the reminder with no decision — *perlu dikonfirmasi*. */
+  needs_confirmation: boolean;
+  verdict: ClientVerdict | null;
+  verdict_on: string | null;
+  verdict_client_person: string | null;
+  verdict_reason: string | null;
+  verdict_recorded_by: string | null;
+  verdict_recorded_at: string | null;
+  findings_before: number;
+  findings_before_open: number;
+  claims_total: number;
+  claims_open: number;
+  qc_names: string | null;
+}
+
+export interface ClientVerdictInput {
+  po_no: string;
+  verdict: ClientVerdict;
+  decided_on: string;
+  /** Who said it on the client's side. */
+  client_person: string;
+  /** Required when rejected. */
+  reason?: string | null;
+  note?: string | null;
+}
+
+/** One decision in an order's history — a later one replaces it, both kept. */
+export interface FactoryVerdict {
+  verdict: ClientVerdict;
+  decided_on: string;
+  client_person: string;
+  reason: string | null;
+  note: string | null;
+  recorded_by: string | null;
+  recorded_at: string;
+}
