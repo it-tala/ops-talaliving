@@ -228,6 +228,24 @@ export function acceptedQuotationTotal(state: DemoState, projectId: string): num
   return q ? quotationView(state, q, false, today).grand_total_idr : null;
 }
 
+/** The accepted offer for the evaluation board (0266): its total, currency
+ *  and, for whoever sees costs, its margin over the lines that carry both. */
+export function acceptedQuotationEval(state: DemoState, projectId: string, see: boolean) {
+  const q = state.quotations
+    .filter((x) => x.project_id === projectId && x.status === "ACCEPTED")
+    .sort((a, b) => (b.decided_at ?? "").localeCompare(a.decided_at ?? ""))[0];
+  if (!q) return { grand_total: null, currency: null, margin_pct: null };
+  const v = quotationView(state, q, false, officeToday());
+  let margin: number | null = null;
+  if (see) {
+    const both = linesOf(state, q, true).filter((l) => l.unit_cost != null && l.unit_price != null);
+    const price = both.reduce((t, l) => t + l.qty * (l.unit_price ?? 0), 0);
+    const cost = both.reduce((t, l) => t + l.qty * (l.unit_cost ?? 0), 0);
+    margin = both.length && price ? Math.round((1000 * (price - cost)) / price) / 10 : null;
+  }
+  return { grand_total: v.grand_total, currency: v.currency, margin_pct: margin };
+}
+
 function view(quoteNo: string): QuotationView | null {
   const state = getState();
   const q = state.quotations.find((x) => x.quote_no === quoteNo);

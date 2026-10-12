@@ -435,7 +435,7 @@ Tidak ada yang diketik ulang.
 | **O6** ✓ | **QC: personel + penugasan** *(dikerjakan, D418)*: `ops_qc` schema, modul `qc`, QC hanya melihat order yang ditugaskan; rasio 1 per 5 kontainer manual (D414) | ya | — (D414) |
 | **O7** ✓ | **QC dari HP** *(dikerjakan, D420)*: laporan harian + foto + jumlah lolos/tolak, temuan/insiden, cek muat kontainer, progres pabrik di papan proyek | ya | — |
 | **O8** ✓ | **Status hasil kerja** *(dikerjakan, D422)*: diterima / ditolak klien per order pabrik, klaim klien sebagai temuan *setelah sampai*, pengingat 3 bulan sejak sampai | ya | — |
-| **O9** | **Evaluasi:** papan pabrik, QC, dan proyek (§5.9) | view saja | — |
+| **O9** ✓ | **Evaluasi** *(dikerjakan, D424)*: papan pabrik, QC, dan proyek (§5.9) | view saja | — |
 
 O1 bisa dikerjakan sekarang. O2–O5 membuat jalur agen bisa dipakai tanpa QC.
 O6–O8 adalah modul QC. O9 dikerjakan setelah ada data.

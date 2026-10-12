@@ -1677,3 +1677,81 @@ export interface FactoryVerdict {
   recorded_by: string | null;
   recorded_at: string;
 }
+
+/* ── the evaluation boards (0266, O9, kajian §5.9) ─────────────────────── */
+
+/** A partner factory, read from its orders, containers, QC findings and the
+ *  client's decisions. Prices compared only in the order's own currency. */
+export interface FactoryEvaluation {
+  vendor_code: string;
+  vendor_name: string;
+  vendor_kind: string;
+  orders: number;
+  orders_in_year: number;
+  /** Order lines whose price could be set beside this factory's quote. */
+  priced_lines: number;
+  /** Average of (ordered − quoted) ÷ quoted, in per cent. */
+  price_diff_pct: number | null;
+  /** Orders with a promised day and a container out. */
+  promised_shipped: number;
+  shipped_on_time: number;
+  avg_days_late: number | null;
+  containers: number;
+  findings_before: number;
+  findings_serious: number;
+  findings_per_container: number | null;
+  claims: number;
+  orders_accepted: number;
+  orders_rejected: number;
+}
+
+/** A QC person, read from their assignments, reports and findings. */
+export interface QcPersonEvaluation {
+  person_code: string;
+  person_name: string;
+  is_active: boolean;
+  assignments: number;
+  orders: number;
+  /** Days on the job so far, over every assignment. */
+  active_days: number;
+  /** Distinct days with a live report. */
+  report_days: number;
+  /** report_days ÷ active_days, in per cent. */
+  report_rate: number | null;
+  reports: number;
+  last_report_on: string | null;
+  containers_while_watching: number;
+  findings_raised: number;
+  findings_serious: number;
+  /** Claims after arrival on the orders they watched — what got through. */
+  claims_on_orders: number;
+  orders_accepted: number;
+  orders_rejected: number;
+}
+
+/** A project's stages, from the logged moves and deliveries — null where a
+ *  stage is not reached, never a guess. */
+export interface ProjectEvaluation {
+  project_code: string;
+  project_name: string;
+  client_name: string | null;
+  status: string;
+  opened_on: string | null;
+  deal_on: string | null;
+  production_on: string | null;
+  shipped_on: string | null;
+  arrived_on: string | null;
+  done_on: string | null;
+  days_to_deal: number | null;
+  days_to_production: number | null;
+  days_to_ship: number | null;
+  days_to_arrive: number | null;
+  factory_orders: number;
+  orders_accepted: number;
+  orders_rejected: number;
+  claims: number;
+  deal_value: number | null;
+  deal_currency: string | null;
+  /** The accepted quotation's margin — only for whoever sees costs. */
+  margin_pct: number | null;
+}

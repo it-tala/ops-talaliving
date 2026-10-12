@@ -12,9 +12,10 @@ import type {
   ReceivingMatchResult, PoPaymentRequest, ReceivingTrxCandidate, ReceivingPoCandidate,
   ReceivingArchiveResult, ClosingReason, SalesPerson, TimelineEvent, TimelineKind, ProjectOutcome,
   FactoryOrderOutcome, FactoryVerdict, ClientVerdictInput, ClientVerdict,
+  FactoryEvaluation, QcPersonEvaluation, ProjectEvaluation,
 } from "@/services/procurement/contracts";
 import { CLOSING_REASONS, VENDOR_KINDS, type VendorKind } from "@/services/procurement/contracts";
-import { acceptedQuotationTotal, currentQuotation } from "./quotation";
+import { acceptedQuotationEval, acceptedQuotationTotal, currentQuotation } from "./quotation";
 import { lineProgressOf } from "./qc";
 import { officeDay, officeToday } from "@/lib/office";
 import { RECEIPT_CONDITIONS } from "@/services/procurement/contracts";
@@ -4844,4 +4845,145 @@ export async function recordClientVerdict(
   const result = { po_no: po.po_no, verdict, warnings };
   remember(SERVICE, "recordClientVerdict", idempotencyKey, result);
   return ok(SERVICE, result);
+}
+
+/* ── the evaluation boards (0266, O9, kajian §5.9) ─────────────────────── */
+
+const round1 = (n: number) => Math.round(n * 10) / 10;
+const qcAdmin = () => actingUser().modules.some((m) => m.module === "qc" && m.level === "admin");
+/** `ops_qc.sees_all`: the coordinator, project editors, procurement. */
+const seesAllQc = () => qcAdmin() || holds("project", "write") || holds("procurement", "read");
+const factoryOrders = (state: DemoState) => state.purchase_orders.filter((p) => p.project_id && p.status !== "CANCELLED");
+const containersOf = (state: DemoState, poId: string) =>
+  state.deliveries.filter((d) => d.po_id === poId && d.delivery_mode === "container" && d.status !== "CANCELLED");
+function verdictsOf(state: DemoState, poIds: string[]) {
+  return poIds.map((id) => latestVerdict(state, id)?.verdict ?? null);
+}
+
+/** Partner factories (0266's `eval_factories`): procurement or project.update. */
+export async function evalFactories(opts: { year?: number } = {}): Promise<Result<FactoryEvaluation[]>> {
+  await latency();
+  if (!(holds("procurement", "read") || holds("project", "write"))) return ok(SERVICE, []);
+  const state = getState();
+  const year = opts.year ?? Number(officeToday().slice(0, 4));
+  const pos = factoryOrders(state);
+  return ok(SERVICE, state.vendors
+    .filter((v) => v.kind === "factory" || pos.some((p) => p.vendor_id === v.id))
+    .map((v) => {
+      const mine = pos.filter((p) => p.vendor_id === v.id);
+      const diffs: number[] = [];
+      for (const po of mine) {
+        for (const o of state.po_lines.filter((l) => l.po_id === po.id && l.superseded_by === null)) {
+          const pl = o.project_line_id ? state.project_lines.find((x) => x.id === o.project_line_id) : undefined;
+          if (!pl?.design_item_id) continue;
+          const fp = factoryPriceOf(state, pl.design_item_id, v.id);
+          if (fp && fp.currency === (po.currency ?? "IDR") && fp.unit_price > 0) diffs.push(((o.unit_price - fp.unit_price) / fp.unit_price) * 100);
+        }
+      }
+      const outs = mine.map((po) => ({
+        promised: po.expected_delivery ?? null,
+        out: containersOf(state, po.id).map((d) => d.dispatched_on).sort()[0] ?? null,
+      }));
+      const promised = outs.filter((o) => o.out && o.promised);
+      const late = promised.filter((o) => o.out! > o.promised!).map((o) => daysFrom(o.promised!, o.out!));
+      const containers = mine.reduce((t, po) => t + containersOf(state, po.id).length, 0);
+      const findings = state.qc_findings.filter((f) => mine.some((po) => po.id === f.po_id));
+      const before = findings.filter((f) => f.phase !== "after_arrival");
+      const verdicts = verdictsOf(state, mine.map((p) => p.id));
+      return {
+        vendor_code: v.code, vendor_name: v.name, vendor_kind: v.kind ?? "supplier",
+        orders: mine.length,
+        orders_in_year: mine.filter((p) => Number(officeDay(new Date(p.issued_at ?? p.created_at)).slice(0, 4)) === year).length,
+        priced_lines: diffs.length,
+        price_diff_pct: diffs.length ? round1(diffs.reduce((a, b) => a + b, 0) / diffs.length) : null,
+        promised_shipped: promised.length,
+        shipped_on_time: promised.filter((o) => o.out! <= o.promised!).length,
+        avg_days_late: late.length ? round1(late.reduce((a, b) => a + b, 0) / late.length) : null,
+        containers,
+        findings_before: before.length,
+        findings_serious: before.filter((f) => f.severity !== "minor").length,
+        findings_per_container: containers ? Math.round((before.length / containers) * 100) / 100 : null,
+        claims: findings.length - before.length,
+        orders_accepted: verdicts.filter((x) => x === "ACCEPTED").length,
+        orders_rejected: verdicts.filter((x) => x === "REJECTED").length,
+      };
+    })
+    .sort((a, b) => b.orders - a.orders || a.vendor_name.localeCompare(b.vendor_name)));
+}
+
+/** QC people (0266's `eval_qc_people`): whoever sees every assignment. */
+export async function evalQcPeople(): Promise<Result<QcPersonEvaluation[]>> {
+  await latency();
+  if (!seesAllQc()) return ok(SERVICE, []);
+  const state = getState();
+  const today = officeToday();
+  return ok(SERVICE, state.qc_people.map((p) => {
+    const asg = state.qc_assignments.filter((a) => a.person_id === p.id && !a.cancelled_at)
+      .map((a) => ({ ...a, until: (a.ends_on && a.ends_on < today) ? a.ends_on : today }));
+    const active = asg.reduce((t, a) => t + Math.max(0, daysFrom(a.starts_on, a.until) + 1), 0);
+    const reports = state.qc_reports.filter((r) => !r.cancelled_at && asg.some((a) => a.id === r.assignment_id));
+    const days = new Set(reports.map((r) => r.report_date)).size;
+    const poIds = [...new Set(asg.map((a) => a.po_id))];
+    const watched = new Set<string>();
+    for (const a of asg) {
+      for (const d of containersOf(state, a.po_id)) if (d.dispatched_on >= a.starts_on && d.dispatched_on <= a.until) watched.add(d.id);
+    }
+    const raised = state.qc_findings.filter((f) => f.phase !== "after_arrival" && asg.some((a) => a.id === f.assignment_id));
+    const verdicts = verdictsOf(state, poIds);
+    return {
+      person_code: p.code, person_name: p.name, is_active: p.is_active,
+      assignments: asg.length, orders: poIds.length, active_days: active, report_days: days,
+      report_rate: active > 0 ? Math.round((100 * days) / active) : null,
+      reports: reports.length, last_report_on: reports.map((r) => r.report_date).sort().at(-1) ?? null,
+      containers_while_watching: watched.size,
+      findings_raised: raised.length, findings_serious: raised.filter((f) => f.severity !== "minor").length,
+      claims_on_orders: state.qc_findings.filter((f) => f.phase === "after_arrival" && poIds.includes(f.po_id)).length,
+      orders_accepted: verdicts.filter((x) => x === "ACCEPTED").length,
+      orders_rejected: verdicts.filter((x) => x === "REJECTED").length,
+    };
+  }).sort((a, b) => Number(b.is_active) - Number(a.is_active) || a.person_name.localeCompare(b.person_name)));
+}
+
+/** Projects (0266's `eval_projects`): project readers; margin with project.update. */
+export async function evalProjects(): Promise<Result<ProjectEvaluation[]>> {
+  await latency();
+  if (!holds("project", "read")) return ok(SERVICE, []);
+  const state = getState();
+  const seeCost = holds("project", "write");
+  const firstLog = (projectId: string, to: string[]) => {
+    const l = state.project_status_log.filter((x) => x.project_id === projectId && to.includes(x.to_status))
+      .sort((a, b) => a.changed_at.localeCompare(b.changed_at))[0];
+    return l ? officeDay(new Date(l.changed_at)) : null;
+  };
+  const span = (a: string | null, b: string | null) => (a && b ? daysFrom(a, b) : null);
+  return ok(SERVICE, state.projects.map((p) => {
+    /* The sandbox's projects carry no creation time: the first logged move,
+       else the current status's, is when it opened (as listProjectOutcomes). */
+    const first = state.project_status_log.filter((l) => l.project_id === p.id).sort((a, b) => a.changed_at.localeCompare(b.changed_at))[0];
+    const openedAt = first?.changed_at ?? p.status_changed_at ?? null;
+    const opened = openedAt ? officeDay(new Date(openedAt)) : null;
+    const deal = firstLog(p.id, ["DEAL", "IN_PRODUCTION", "SHIPPED", "DONE"]);
+    const prod = firstLog(p.id, ["IN_PRODUCTION", "SHIPPED", "DONE"]);
+    const done = firstLog(p.id, ["DONE"]);
+    const dels = state.deliveries.filter((d) => d.project_code === p.code && d.status !== "CANCELLED");
+    const shipped = dels.map((d) => d.dispatched_on).sort()[0] ?? null;
+    const arrived = dels.length > 0 && dels.every((d) => d.status === "ARRIVED" && d.received_at)
+      ? dels.map((d) => officeDay(new Date(d.received_at!))).sort().at(-1)! : null;
+    const fos = factoryOrders(state).filter((po) => po.project_id === p.id);
+    const verdicts = verdictsOf(state, fos.map((po) => po.id));
+    const deal$ = acceptedQuotationEval(state, p.id, seeCost);
+    const cl = p.client_id ? state.clients.find((c) => c.id === p.client_id) : undefined;
+    return {
+      project_code: p.code, project_name: p.name, client_name: cl?.name ?? p.client_name ?? null,
+      status: p.status ?? (p.is_active ? "IN_PRODUCTION" : "DONE"),
+      opened_on: opened, deal_on: deal, production_on: prod, shipped_on: shipped, arrived_on: arrived, done_on: done,
+      days_to_deal: span(opened, deal), days_to_production: span(deal, prod),
+      days_to_ship: span(prod, shipped), days_to_arrive: span(shipped, arrived),
+      factory_orders: fos.length,
+      orders_accepted: verdicts.filter((x) => x === "ACCEPTED").length,
+      orders_rejected: verdicts.filter((x) => x === "REJECTED").length,
+      claims: state.qc_findings.filter((f) => f.phase === "after_arrival" && fos.some((po) => po.id === f.po_id)).length,
+      deal_value: deal$.grand_total, deal_currency: deal$.currency, margin_pct: seeCost ? deal$.margin_pct : null,
+    };
+  }).sort((a, b) => b.project_code.localeCompare(a.project_code)));
 }
