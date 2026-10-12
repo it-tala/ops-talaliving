@@ -331,6 +331,31 @@ appends the chosen offer — `factory_quote_no`, `factory_vendor_name`,
 `factory_offers` — masked to `may_price_factory('read')`. `may_design('read')`
 now includes `procurement.read`.
 
+### Field QC — reports, findings, loading check (O7, 0263/0264, D420)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/qc/reports?assign_no=&po_no=&include_cancelled=` | `v_qc_report`: day, `stage` (material · construction · finishing · packing · loading), note, person, `is_mine`, order and project (`order_of`), `container_no` (`container_label`), `line_count`, `passed_total`, `rejected_total`, `photo_count`. A QC reads only their own assignment's reports |
+| POST | `/qc/reports` | `{assign_no, report_date, stage, lines: [{line_no, passed, rejected?}], note?, delivery_no?, photo_ids?}` — `submit_qc_report` (the assigned QC or `qc.coordinate`, idempotent). `passed` is how many have passed **so far**; `rejected` this visit's. Photos are `Foto QC` files uploaded against `qc_assignment`, linked to `qc_report`. Answers `{report_no, warnings}` (no photo; loading without a container; fewer passed than the last report at the same stage). 422 `date_required`, `date_in_future`, `outside_assignment`, `unknown_stage`, `bad_lines`, `line_not_on_order`, `line_twice`, `bad_count`, `passed_over_ordered`, `container_only_at_loading`, `container_not_this_order`, `no_such_file`; 409 `assignment_cancelled`; 404 |
+| POST | `/qc/reports/{report_no}/photos` | `{photo_ids}` — `add_qc_report_photos`. 422 `no_photos`, `no_such_file`; 409 `report_cancelled` |
+| POST | `/qc/reports/{report_no}/cancel` | `{reason}` — `cancel_qc_report`: kept, no longer counted. 422 `reason_required`; 409 `already_cancelled` |
+| GET | `/qc/reports/{report_no}/lines` | `report_lines` (definer): each line's passed and rejected against what the order asked for |
+| GET | `/qc/assignments/{assign_no}/progress` | `assignment_progress` → `line_progress` (definer): per live order line, `passed` at the latest live report, its `qc_stage`, `reported_on`, `report_no`, `rejected_total`, `open_findings` |
+| GET | `/qc/assignments/{assign_no}/containers` | `order_containers` (definer): containers loaded from the assignment's order, for the loading check |
+| GET | `/qc/findings?po_no=&status=` | `v_qc_finding`: `phase` (production · loading · after_arrival), `finding_kind`, `severity` (minor · major · critical), description, status, resolution, line, report, container, `raised_by_name`, `resolved_by_name`, `photo_count`. A QC reads every finding of an order they watch |
+| POST | `/qc/findings` | `{po_no, phase, kind, severity, description, line_no?, report_no?, delivery_no?, photo_ids?}` — `raise_qc_finding` (idempotent): production and loading by a QC watching the order or `qc.coordinate`; after arrival (the client's claim, O8) by `qc.coordinate` or `project.update`. 422 `order_unknown`, `unknown_phase`, `unknown_kind`, `unknown_severity`, `description_required`, `line_not_on_order`, `report_not_this_order`, `container_not_this_order`, `no_such_file`; 403 `not_permitted` |
+| POST | `/qc/findings/{finding_no}/resolve` | `{resolution}` — `resolve_qc_finding`. 422 `resolution_required`; 409 `already_resolved` |
+
+`v_qc_assignment` appends `last_report_on`, `report_count`,
+`days_without_report` (live assignments: today − the last report's day, or
+the day before it started) and `open_findings`. `v_project_production` reads a
+factory line's `made` from QC (`project_line_qc`), moves it to `MADE` once
+passed in full, and appends `qc_stage`, `qc_reported_on`, `qc_open_findings`.
+`create_container` appends `load_warnings` to its `warnings` when the order is
+watched by QC: lines not passed in full, major/critical findings open.
+`drive_context` resolves a `qc_assignment` to its order's project; `foto_qc`
+files go to PROJECT MANAGER `{CLIENT}/{PROJECT}/QC/{YYYY-MM-DD}`.
+
 ### Field QC — team and assignments (O6, 0260/0261, D418)
 
 Schema `ops_qc`, module `qc` (`qc.read`, `qc.create`, `qc.update`, admin-only
@@ -370,7 +395,7 @@ and project folders.
 | PUT | `/projects/{code}/lines/route` | `{line_nos: int[], route: WORKSHOP\|FACTORY}` — `set_line_route` (`project.update` or `procurement.update`). Same route is **noop**. 422 `unknown_route`, `lines_required`, `line_unknown`; 409 `on_factory_order` (back to the workshop while on a live factory order), `has_job_orders` (to a factory while a Job Order is live) |
 | POST | `/factory-orders` | `{project_code, vendor_code, currency: IDR\|USD, fx_rate?, expected_delivery?, note?, dp_percent?, lines: [{line_no, qty?, unit_price?}]}` — `create_factory_order` (`procurement.create`, idempotent): a DRAFT PO with `project_id`, currency and kurs; each line names its `project_line_id`. Without a price a line takes this factory's price for its design item (`factory_price_of`: the chosen offer when it is this factory's, else its newest live one), converted at the order's kurs. A supplier becomes `factory`; `approve_goods` holders confirm in the same act. Answers `{po_no, lines, currency, project_code, self_confirmed, same_factory_order, needs_rate}`. 422 `project_not_found`, `vendor_required`, `not_factory`, `unknown_currency`, `bad_fx_rate`, `dp_out_of_range`, `lines_required`, `line_named_twice`, `line_unknown`, `not_factory_route`, `bad_qty`, `bad_price`, `price_required` (no offer and no typed price, or an offer in the other currency without a kurs); 409 `project_closed`, `line_already_ordered` |
 | PUT | `/purchase-orders/{po_no}/fx-rate` | `{fx_rate}` — `set_po_fx_rate` (`procurement.update`), draft only. Same kurs is **noop**. 422 `not_foreign`, `bad_fx_rate`; 409 `already_issued` |
-| GET | `/projects/production?project_code=` | `v_project_production`: one row per order line — route, design item, Job Orders, `made` (workshop only; a factory's count is QC's, O7), factory order (`factory_po_no`, status, vendor, promised date, `factory_days_late`), `delivered`/`arrived`/`installed`, `stage` |
+| GET | `/projects/production?project_code=` | `v_project_production`: one row per order line — route, design item, Job Orders, `made` (workshop's Job Orders, or QC's latest passed count for a factory line — 0264), factory order (`factory_po_no`, status, vendor, promised date, `factory_days_late`), `delivered`/`arrived`/`installed`, `stage` |
 
 `issue_po` now refuses `fx_rate_required` for a USD order without its kurs and
 moves the project of a factory order to `IN_PRODUCTION` (answer carries

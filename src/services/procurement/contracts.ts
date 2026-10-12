@@ -5,6 +5,7 @@
  */
 
 import { bilingual, trNow, type Message } from "@/lib/i18n";
+import type { QcStage } from "@/services/qc/contracts";
 
 /* ------------------------------------------------------------------ */
 /* Vocabulary                                                          */
@@ -467,8 +468,9 @@ export interface ProjectLineView extends ProjectLine {
 }
 
 /** How far one order line is, on the board per project (0257, §5.1).
- *  `made` is the workshop's count; what a factory has finished is QC's number
- *  and arrives with O7, so it is null for a factory line rather than a guess. */
+ *  `made` is the workshop's count, or for a factory line QC's passed count at
+ *  the latest report (0264, O7) — null until QC has counted, never a guess.
+ *  MADE once that count reaches what was ordered. */
 export type ProductionStage =
   | "NO_JOB_ORDER" | "IN_WORK" | "MADE"
   | "NO_FACTORY_ORDER" | "ORDER_DRAFT" | "AT_FACTORY"
@@ -501,6 +503,12 @@ export interface ProjectProductionLine {
   stage: ProductionStage;
   /** Days past the date the factory promised, while it has not shipped. */
   factory_days_late: number | null;
+  /** For a factory line, QC's latest report on it (0264, O7): its stage, its
+   *  day, and the findings still open on the line. `made` is that report's
+   *  passed count. Null for a workshop line. */
+  qc_stage: QcStage | null;
+  qc_reported_on: string | null;
+  qc_open_findings: number | null;
 }
 
 /** A factory order raised from a project's FACTORY lines (0257). Without a

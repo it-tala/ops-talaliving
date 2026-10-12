@@ -10523,3 +10523,29 @@ orphaned every one of them.
 **Rule:** before generating an identifier, ask whether the thing already has
 one. And an edit that exists but sits behind the drawer is, to the person
 looking at the row, an edit that does not exist.
+
+## F261 · 2026-10-12 · A row a QC cannot read is a null, not an error
+
+O7's smoke asked for the order's progress as Sari, the second QC, with
+`line_progress((select id from purchase_orders where po_no = …))`. A QC reads
+no purchase orders, so the subquery returned **null**, `line_progress(null)`
+returned no rows, and the assertion failed with no message — the message was
+built from the same empty query. Nothing was wrong with the function; the
+test had asked as somebody who could not see the key it passed in. The
+smoke now keeps the order's id from the moment procurement created it.
+
+The same session taught two smaller things:
+
+- **A helper called only from seams need not be a definer.** `link_photos`
+  was written `security definer` and revoked from `authenticated`, and A2
+  refused it: a definer function nobody signed in can execute puts the
+  boundary in two places. Inside a definer seam an ordinary function already
+  runs as the seam's owner, so the helper is now plain.
+- **A view replaced to append columns must restate every column.** 0263
+  appends QC's columns to `v_qc_assignment` and `v_project_production`, so
+  both were copied whole from the migrations that last defined them (0261,
+  0257) and changed only by additions and the factory line's `made`.
+
+**Rule:** in a smoke, take every key from the person who can read it, before
+switching to the person under test; and give every `assert` a message that
+does not depend on the query it is checking.

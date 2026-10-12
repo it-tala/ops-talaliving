@@ -15,6 +15,7 @@ import { latency, actingUser, conflict, replayed, remember } from "./_kit";
 import { settingNumber } from "../settings";
 import { selfEmployeeId, carrySickNote } from "../self-link";
 import { settleDesignTasks } from "./design";
+import { officeToday } from "@/lib/office";
 
 const SERVICE = "documents" as const;
 
@@ -192,6 +193,18 @@ function filingPlace(kind: DocKind, entity?: LinkEntity, entityNo?: string): Fil
     const path = p
       ? `PENGIRIMAN/${c ? segment(`${c.code} ${c.name}`) : segment(p.client_name) ?? "TANPA KLIEN"}/${segment(`${p.code} ${p.name}`)}`
       : "PENGIRIMAN";
+    return { drive: "PROJECT MANAGER", path, filed_in: `PROJECT MANAGER / ops-talaliving / ${path}` };
+  }
+  /* A QC's photo: PROJECT MANAGER, per client, project and day (0264, O7). */
+  if (kind === "Foto QC") {
+    const a = entity === "qc_assignment" ? st.qc_assignments.find((x) => x.assign_no === entityNo?.trim()) : undefined;
+    const po = a ? st.purchase_orders.find((x) => x.id === a.po_id) : undefined;
+    const p = po?.project_id ? st.projects.find((x) => x.id === po.project_id)
+      : entity === "project" ? st.projects.find((x) => x.code === entityNo?.trim()) : undefined;
+    const c = p?.client_id ? st.clients.find((x) => x.id === p.client_id) : undefined;
+    const path = p
+      ? `${c ? segment(`${c.code} ${c.name}`) : segment(p.client_name) ?? "TANPA KLIEN"}/${segment(`${p.code} ${p.name}`)}/QC/${officeToday()}`
+      : "QC";
     return { drive: "PROJECT MANAGER", path, filed_in: `PROJECT MANAGER / ops-talaliving / ${path}` };
   }
   const sale = SALE_KINDS[kind];
