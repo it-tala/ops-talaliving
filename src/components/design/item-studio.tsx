@@ -69,7 +69,7 @@ export function ItemStudioDrawer({
     ? `${[i.length_mm, i.width_mm, i.height_mm].map((v) => v ?? "—").join(" × ")} mm` : null;
 
   return (
-    <Drawer open onClose={onClose} width="max-w-[1400px]"
+    <Drawer open onClose={onClose} width="lg:max-w-[max(80vw,1400px)]"
       title={i ? <span><span className="font-mono text-[13px] text-slate-500">{itemCode(i)}</span> · {i.name}</span> : itemNo}
       subtitle={i ? [`${tr("Collection", "Koleksi")} ${i.collection_code} · ${i.collection_name}`, size, `${i.qty} pcs`].filter(Boolean).join(" · ") : undefined}>
       <Loaded state={boxes} onRetry={refresh}>
@@ -88,8 +88,18 @@ export function ItemStudioDrawer({
             </div>
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
               <div className="space-y-4 lg:sticky lg:top-0 lg:self-start">
-                <FilesPanel itemNo={itemNo} rows={rows} history={history} productCode={productCode}
+                {/* What the BOM is read off, large: the render above, the
+                    working drawing below (D423). */}
+                <FileBox boxKey="render" height={360} itemNo={itemNo} rows={rows} history={history} productCode={productCode}
                   canEdit={canEdit && !dropped} onChanged={refresh} />
+                <FileBox boxKey="pdf" height={600} itemNo={itemNo} rows={rows} history={history} productCode={productCode}
+                  canEdit={canEdit && !dropped} onChanged={refresh} />
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <FileBox boxKey="dwg" height={180} compact itemNo={itemNo} rows={rows} history={history} productCode={productCode}
+                    canEdit={canEdit && !dropped} onChanged={refresh} />
+                  <FileBox boxKey="foto" height={180} compact itemNo={itemNo} rows={rows} history={history} productCode={productCode}
+                    canEdit={canEdit && !dropped} onChanged={refresh} />
+                </div>
                 <SpecPanel b={rows.find((b) => b.box === "spec")} history={history.filter((v) => v.box === "spec")}
                   canEdit={canEdit && !dropped} onChanged={refresh} />
               </div>
@@ -109,18 +119,21 @@ export function ItemStudioDrawer({
 
 /* ── the files ───────────────────────────────────────────────────────────── */
 
-function FilesPanel({
-  itemNo, rows, history, productCode, canEdit, onChanged,
+/** One kind of file on the item — render, working drawing, DWG / 3D or
+ *  photo: its latest version shown (and turnable), every version one click
+ *  away, upload and *not needed* in its header. */
+function FileBox({
+  boxKey, height, compact, itemNo, rows, history, productCode, canEdit, onChanged,
 }: {
+  boxKey: DesignBoxKey; height: number; compact?: boolean;
   itemNo: string; rows: DesignBox[]; history: DesignBoxVersion[]; productCode: string | null;
   canEdit: boolean; onChanged: () => void;
 }) {
   const tr = useTr();
   const { toast } = useToast();
-  const [key, setKey] = useState<DesignBoxKey>("pdf");
-  const def = FILE_BOXES.find((d) => d.key === key)!;
-  const b = rows.find((x) => x.box === key);
-  const list = history.filter((v) => v.box === key && !v.removed).reverse();
+  const def = FILE_BOXES.find((d) => d.key === boxKey)!;
+  const b = rows.find((x) => x.box === boxKey);
+  const list = history.filter((v) => v.box === boxKey && !v.removed).reverse();
   const [pick, setPick] = useState<string | null>(null);
   const shown = list.find((v) => v.attachment_id === pick) ?? list[0] ?? null;
   const fileRef = useRef<HTMLInputElement>(null);
@@ -128,14 +141,15 @@ function FilesPanel({
   const [mode, setMode] = useState<null | "upload" | "skip">(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
-  const next = nextLabel(history.filter((v) => v.box === key).length + 1);
+  const next = nextLabel(history.filter((v) => v.box === boxKey).length + 1);
+  const Icon = boxKey === "pdf" ? FileText : boxKey === "dwg" ? Box : ImageIcon;
 
   /* The PDF has a version filed after the latest DWG: the source is behind
      the drawing the workshop reads. A flag, never a refusal. */
   const lastLive = (k: DesignBoxKey) => history.filter((v) => v.box === k && !v.removed).at(-1);
   const pdf = lastLive("pdf");
   const dwg = lastLive("dwg");
-  const dwgBehind = key === "dwg" && pdf && dwg && pdf.at > dwg.at ? { pdf: pdf.label, dwg: dwg.label } : null;
+  const dwgBehind = boxKey === "dwg" && pdf && dwg && pdf.at > dwg.at ? { pdf: pdf.label, dwg: dwg.label } : null;
 
   function cancel() { setMode(null); setFile(null); setNote(""); }
 
@@ -147,7 +161,7 @@ function FilesPanel({
     const link = await documents.link({ attachment_id: up.data.id, entity: "design_item", entity_no: itemNo, kind: def.kind, note: note.trim() || null });
     if (link.error) { setBusy(false); toast("warning", tr(`${file.name} is in Drive but not on the item`, `${file.name} ada di Drive tetapi belum tertaut ke item`), link.error.message); return; }
     /* The BOM reads the same drawing: file it on the product too. */
-    const pk = PRODUCT_KIND[key];
+    const pk = PRODUCT_KIND[boxKey];
     if (productCode && pk) {
       const pl = await production.attachProductDrawing({ product_code: productCode, attachment_id: up.data.id, kind: pk });
       if (pl.error) toast("warning", tr("Saved on the item, not on the product", "Tersimpan di item, belum di produk"), pl.error.message);
@@ -162,7 +176,7 @@ function FilesPanel({
 
   async function skip(on: boolean) {
     setBusy(true);
-    const r = await design.setDesignBoxSkip({ item_no: itemNo, box: key, skip: on, note: on ? note.trim() || null : null });
+    const r = await design.setDesignBoxSkip({ item_no: itemNo, box: boxKey, skip: on, note: on ? note.trim() || null : null });
     setBusy(false);
     if (r.error) { toast("warning", tr("Not saved", "Tidak tersimpan"), r.error.message); return; }
     toast("success", on ? tr(`${def.label}: not needed`, `${def.label}: tidak perlu`) : tr(`${def.label}: needed again`, `${def.label}: perlu lagi`));
@@ -176,43 +190,35 @@ function FilesPanel({
   } : null;
 
   return (
-    <div className="rounded-xl border border-slate-200 px-3 py-3">
-      <div className="flex flex-wrap items-center gap-1.5">
-        {FILE_BOXES.map((d) => {
-          const st = rows.find((x) => x.box === d.key)?.state ?? "kosong";
-          const n = history.filter((v) => v.box === d.key && !v.removed).length;
-          const Icon = d.key === "pdf" ? FileText : d.key === "dwg" ? Box : ImageIcon;
-          return (
-            <button key={d.key} onClick={() => { setKey(d.key); setPick(null); cancel(); }}
-              className={cn("inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] font-medium",
-                key === d.key ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-100",
-                st === "tidak_perlu" && key !== d.key && "text-slate-400 line-through")}>
-              <Icon className="h-3.5 w-3.5" /> {d.label}
-              <span className="tabular-nums opacity-70">{n}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {canEdit && mode === null && b && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {b.state !== "tidak_perlu" && (
-            <>
-              <input ref={fileRef} type="file" accept={def.accept} className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0] ?? null; e.target.value = ""; if (f) { setFile(f); setMode("upload"); } }} />
-              <Button size="sm" variant="outline" icon={FileUp} onClick={() => fileRef.current?.click()}>
-                {list.length ? tr(`Upload version ${next}`, `Unggah versi ${next}`) : tr("Upload", "Unggah")}
+    <section className={cn("rounded-xl border px-3 py-3", b?.state === "tidak_perlu" ? "border-dashed border-slate-300 bg-slate-50/60" : "border-slate-200")}>
+      <header className="flex flex-wrap items-center gap-1.5">
+        <Icon className="h-4 w-4 text-slate-400" />
+        <h4 className="text-[13px] font-semibold text-slate-800">{def.label}</h4>
+        {b?.state === "terisi" && shown && <Badge tone="green">{tr(`version ${shown.label}`, `versi ${shown.label}`)}</Badge>}
+        {b?.state === "tidak_perlu" && <Badge tone="slate">{tr("not needed", "tidak perlu")}</Badge>}
+        {canEdit && mode === null && b && (
+          <div className="ml-auto flex flex-wrap gap-1">
+            {b.state !== "tidak_perlu" && (
+              <>
+                <input ref={fileRef} type="file" accept={def.accept} className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0] ?? null; e.target.value = ""; if (f) { setFile(f); setMode("upload"); } }} />
+                <Button size="sm" variant="outline" icon={FileUp} onClick={() => fileRef.current?.click()}>
+                  {list.length ? (compact ? tr(`Version ${next}`, `Versi ${next}`) : tr(`Upload version ${next}`, `Unggah versi ${next}`)) : tr("Upload", "Unggah")}
+                </Button>
+              </>
+            )}
+            {b.state === "kosong" && (
+              <Button size="sm" variant="ghost" icon={MinusCircle} onClick={() => setMode("skip")} aria-label={tr("Not needed", "Tidak perlu")}>
+                {!compact && tr("Not needed", "Tidak perlu")}
               </Button>
-            </>
-          )}
-          {b.state === "kosong" && (
-            <Button size="sm" variant="ghost" icon={MinusCircle} onClick={() => setMode("skip")}>{tr("Not needed", "Tidak perlu")}</Button>
-          )}
-          {b.state === "tidak_perlu" && (
-            <Button size="sm" variant="ghost" icon={RotateCcw} onClick={() => skip(false)} disabled={busy}>{tr("Needed again", "Perlu lagi")}</Button>
-          )}
-        </div>
-      )}
+            )}
+            {b.state === "tidak_perlu" && (
+              <Button size="sm" variant="ghost" icon={RotateCcw} onClick={() => skip(false)} disabled={busy}>{tr("Needed again", "Perlu lagi")}</Button>
+            )}
+          </div>
+        )}
+      </header>
+
       {mode === "upload" && file && (
         <div className="mt-2 space-y-2 rounded-lg bg-slate-50 p-2">
           <p className="truncate text-[12px] text-slate-600">{file.name} → {tr(`version ${next}`, `versi ${next}`)}</p>
@@ -241,25 +247,26 @@ function FilesPanel({
         </p>
       )}
 
-      <div className="mt-3">
+      <div className="mt-2">
         {b?.state === "tidak_perlu" ? (
-          <div className="flex h-[140px] flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 text-center text-[12px] text-slate-500">
+          <p className="text-[12px] text-slate-500">
             {b.skip_note || tr("Not needed for this item.", "Tidak perlu untuk item ini.")}
-            {b.skip_by && <span className="text-slate-400">{b.skip_by}, {when(b.skip_at)}</span>}
-          </div>
+            {b.skip_by && <span className="text-slate-400"> · {b.skip_by}, {when(b.skip_at)}</span>}
+          </p>
         ) : entry ? (
           <>
             {/* A DWG or a 3D model has no preview: the viewer offers it as a link. */}
-            <DrawingViewer key={entry.attachment_id} d={entry} />
+            <DrawingViewer key={entry.attachment_id} d={entry} height={height} />
             <p className="mt-1.5 truncate text-[11px] text-slate-500">
-              {tr(`version ${shown!.label}`, `versi ${shown!.label}`)} · {entry.filename} · {when(shown!.at)}{shown!.by_name ? ` · ${shown!.by_name}` : ""}
+              {entry.filename} · {when(shown!.at)}{shown!.by_name ? ` · ${shown!.by_name}` : ""}
               {shown!.note && <> · “{shown!.note}”</>}
             </p>
           </>
         ) : (
-          <div className="flex h-[200px] flex-col items-center justify-center rounded-xl border border-dashed border-amber-200 bg-amber-50 px-4 text-center text-[12px] text-amber-800">
+          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-amber-200 bg-amber-50 px-4 text-center text-[12px] text-amber-800"
+            style={{ height: Math.min(height, compact ? 90 : 160) }}>
             {tr(`No ${def.label.toLowerCase()} yet.`, `Belum ada ${def.label.toLowerCase()}.`)}
-            {key === "pdf" && tr(" The BOM is built from this drawing — upload it first if you have one.", " BOM disusun dari gambar ini — unggah dulu kalau ada.")}
+            {boxKey === "pdf" && tr(" The BOM is built from this drawing — upload it first if you have one.", " BOM disusun dari gambar ini — unggah dulu kalau ada.")}
           </div>
         )}
       </div>
@@ -281,7 +288,7 @@ function FilesPanel({
           ))}
         </ol>
       )}
-    </div>
+    </section>
   );
 }
 

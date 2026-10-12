@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle, Calculator, Check, Coins, ExternalLink, FileText, GitBranch, HardHat, ImageIcon, Layers,
-  Link2, Loader2, Lock, Package, Paperclip, Pencil, Plus, RotateCcw, Ruler, Save, Search, Sparkles, Trash2, X,
+  Link2, Loader2, Lock, Package, Paperclip, Pencil, Plus, RotateCcw, RotateCw, Ruler, Save, Search, Sparkles, Trash2, X,
 } from "lucide-react";
 import { Drawer } from "@/components/ui/drawer";
 import { Badge, Button } from "@/components/ui/primitives";
@@ -161,7 +161,7 @@ function ExistingProduct({
 
   return (
     <Drawer
-      open onClose={onClose} width="max-w-[1400px]"
+      open onClose={onClose} width="lg:max-w-[max(80vw,1400px)]"
       title={product.status === "ready" ? product.data.name : productCode}
       subtitle={product.status === "ready"
         ? `${product.data.product_code} · ${product.data.category} · per ${product.data.uom}${product.data.dimension ? ` · ${product.data.dimension}` : ""}`
@@ -210,49 +210,105 @@ function driveId(url: string | null): string | null {
   return m ? m[1] : null;
 }
 
-export function DrawingViewer({ d }: { d: ProductDrawingEntry }) {
+/** A quarter turn a viewer remembers per file, in this browser only: a
+ *  drawing scanned sideways stays upright the next time it is opened. */
+function useRotation(attachmentId: string): [number, (step: 1 | -1) => void] {
+  const key = `ops.drawing-rotation.${attachmentId}`;
+  const [deg, setDeg] = useState(() => {
+    try { return Number(window.localStorage.getItem(key)) || 0; } catch { return 0; }
+  });
+  const turn = (step: 1 | -1) => setDeg((d) => {
+    const next = (d + step * 90 + 360) % 360;
+    try { window.localStorage.setItem(key, String(next)); } catch { /* storage blocked: rotate for now only */ }
+    return next;
+  });
+  return [deg, turn];
+}
+
+/** Turns its child by a quarter, inside a box of fixed height. On its side
+ *  the child is laid out at the box's height by its width, so a landscape
+ *  sheet turned upright still fills the box rather than spilling out. */
+function Rotated({ deg, height, children }: { deg: number; height: number; children: React.ReactNode }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setWidth(e.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const side = deg === 90 || deg === 270;
+  const w = side ? height : width;
+  const h = side ? width : height;
+  return (
+    <div ref={box} className="relative w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-50" style={{ height }}>
+      {width > 0 && (
+        <div className="absolute" style={{
+          width: w, height: h, left: (width - w) / 2, top: (height - h) / 2,
+          transform: `rotate(${deg}deg)`, transition: "transform 150ms ease",
+        }}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function DrawingViewer({ d, height = 460 }: { d: ProductDrawingEntry; height?: number }) {
   const tr = useTr();
   const [failed, setFailed] = useState(false);
+  const [deg, turn] = useRotation(d.attachment_id);
   const id = driveId(d.url);
   const isImage = (d.mime ?? "").startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(d.filename);
+  const canShow = (id && !isImage) || (isImage && d.url && !failed);
 
-  /* Any Drive file that is not known to be a picture — a PDF, or a pasted
-     Drive link whose type we were never told — goes to Drive's own previewer,
-     which renders both. */
-  if (id && !isImage) {
+  if (!canShow) {
     return (
-      <iframe
-        src={`https://drive.google.com/file/d/${id}/preview`} title={d.filename}
-        className="h-[460px] w-full rounded-xl border border-slate-200 bg-slate-50"
-      />
+      <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 text-center"
+        style={{ height: Math.min(height, 260) }}>
+        <FileText className="h-6 w-6 text-slate-400" />
+        <p className="text-[13px] font-medium text-slate-700">{d.filename}</p>
+        {d.url ? (
+          <a href={d.url} target="_blank" rel="noreferrer"
+            className="inline-flex items-center gap-1 text-[12px] font-medium text-brand-700 hover:underline">
+            {tr("Open in a new tab", "Buka di tab baru")} <ExternalLink className="h-3 w-3" />
+          </a>
+        ) : (
+          <p className="text-[11px] text-slate-400">{tr("No preview available for this file yet.", "Pratinjau belum tersedia untuk berkas ini.")}</p>
+        )}
+      </div>
     );
   }
-  if (isImage && d.url && !failed) {
-    /* Through this application, as the service account, after the database
-       has said this person may read the attachment (F175). */
-    const src = id ? `/api/documents/thumb/${encodeURIComponent(d.attachment_id)}?w=1600` : d.url;
-    return (
-      <a href={d.url} target="_blank" rel="noreferrer" title={tr("Open full size", "Buka ukuran penuh")}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={src} alt={d.filename} onError={() => setFailed(true)}
-          className="h-[460px] w-full rounded-xl border border-slate-200 bg-slate-50 object-contain"
-        />
-      </a>
-    );
-  }
+
   return (
-    <div className="flex h-[260px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 text-center">
-      <FileText className="h-6 w-6 text-slate-400" />
-      <p className="text-[13px] font-medium text-slate-700">{d.filename}</p>
-      {d.url ? (
-        <a href={d.url} target="_blank" rel="noreferrer"
-          className="inline-flex items-center gap-1 text-[12px] font-medium text-brand-700 hover:underline">
-          {tr("Open in a new tab", "Buka di tab baru")} <ExternalLink className="h-3 w-3" />
-        </a>
-      ) : (
-        <p className="text-[11px] text-slate-400">{tr("No preview available for this file yet.", "Pratinjau belum tersedia untuk berkas ini.")}</p>
-      )}
+    <div className="group relative">
+      <Rotated deg={deg} height={height}>
+        {/* Any Drive file that is not known to be a picture — a PDF, or a
+            pasted Drive link whose type we were never told — goes to Drive's
+            own previewer, which renders both. A picture comes through this
+            application, as the service account, after the database has said
+            this person may read the attachment (F175). */}
+        {id && !isImage ? (
+          <iframe src={`https://drive.google.com/file/d/${id}/preview`} title={d.filename} className="h-full w-full bg-slate-50" />
+        ) : (
+          <a href={d.url!} target="_blank" rel="noreferrer" title={tr("Open full size", "Buka ukuran penuh")} className="block h-full w-full">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={id ? `/api/documents/thumb/${encodeURIComponent(d.attachment_id)}?w=1600` : d.url!} alt={d.filename}
+              onError={() => setFailed(true)} className="block h-full w-full object-contain" />
+          </a>
+        )}
+      </Rotated>
+      <div className="absolute left-2 top-2 flex gap-1 rounded-lg bg-white/90 p-0.5 shadow-sm ring-1 ring-slate-200">
+        <button type="button" onClick={() => turn(-1)} aria-label={tr("Rotate left", "Putar ke kiri")} title={tr("Rotate left", "Putar ke kiri")}
+          className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100"><RotateCcw className="h-3.5 w-3.5" /></button>
+        <button type="button" onClick={() => turn(1)} aria-label={tr("Rotate right", "Putar ke kanan")} title={tr("Rotate right", "Putar ke kanan")}
+          className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100"><RotateCw className="h-3.5 w-3.5" /></button>
+        {d.url && (
+          <a href={d.url} target="_blank" rel="noreferrer" aria-label={tr("Open in a new tab", "Buka di tab baru")} title={tr("Open in a new tab", "Buka di tab baru")}
+            className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100"><ExternalLink className="h-3.5 w-3.5" /></a>
+        )}
+      </div>
     </div>
   );
 }

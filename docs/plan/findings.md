@@ -10610,3 +10610,21 @@ and every reader orders by it.
 
 **Rule:** an append-only table whose newest row is the current state orders
 by a sequence, never by a timestamp defaulted to `now()`.
+
+## F264 · 2026-10-12 · A sideways drawing is turned in the viewer, not in the file
+
+The owner asked for rotation on the PDF preview. Drawings arrive as scans and
+exports, and a landscape sheet saved upright (or a phone photo of a print)
+is read with a tilted head until somebody re-saves it. Rotating the file
+would mean a new version of the drawing that is the same drawing — a
+version history that lies about what changed. So the turn is the viewer's:
+the Drive previewer (or the picture) is laid out at the box's height by its
+width and rotated a quarter, so a landscape sheet turned upright still fills
+the box. It is remembered per file in that browser only; nothing is
+written, and two people may look at the same sheet two ways.
+
+The width followed the same reasoning in reverse: *80% of the screen* on the
+owner's 1920 px screen is wider than the 1400 px the drawer had, but on a
+1600 px laptop it is narrower, and the BOM's subtotal column was cut off at
+once. `max(80vw, 1400px)` gives the owner the width asked for and never
+takes width away from anybody.
