@@ -10628,3 +10628,19 @@ owner's 1920 px screen is wider than the 1400 px the drawer had, but on a
 1600 px laptop it is narrower, and the BOM's subtotal column was cut off at
 once. `max(80vw, 1400px)` gives the owner the width asked for and never
 takes width away from anybody.
+
+## F265 · 2026-10-12 · A breakpoint answers how wide the screen is, not how wide the box is
+
+`CollectionForm` lays out four fields across from the `sm` breakpoint up.
+On the project's Design tab that is right: the form has the page's width.
+In the Design tree it sits in a 260 px column on a 1366 px screen, so `sm`
+was true and four fields went across a column that holds one — and the
+tree, scrolling sideways to show them, cut every project name in half. The
+form now takes `compact` where it is placed in a narrow box, and the tree
+refuses to scroll sideways at all.
+
+The same screen had no way to correct a wrong name: a collection could be
+renamed only from the project page, and a project only from Projects ›
+Order. Both are now a pencil where the name is read, and the project one
+opens the Projects drawer itself rather than a second form with its own
+idea of which fields a project has.

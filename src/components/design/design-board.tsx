@@ -237,10 +237,11 @@ function ItemTable({
 }
 
 /** A new collection, or an existing one renamed (its code is fixed: it is in
- *  every item number). */
+ *  every item number). `compact` stacks the fields, for a narrow column such
+ *  as the Design tree, where four across would spill out of it. */
 export function CollectionForm({
-  projectCode, collection, onDone, onCancel,
-}: { projectCode: string; collection?: DesignCollection; onDone: () => void; onCancel: () => void }) {
+  projectCode, collection, onDone, onCancel, compact,
+}: { projectCode: string; collection?: DesignCollection; onDone: () => void; onCancel: () => void; compact?: boolean }) {
   const tr = useTr();
   const { toast } = useToast();
   const [code, setCode] = useState(collection?.code ?? "");
@@ -256,7 +257,8 @@ export function CollectionForm({
     onDone();
   }
   return (
-    <div className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50/60 p-3 sm:grid-cols-[110px_1fr_1fr_auto]">
+    <div className={cn("grid min-w-0 gap-2 rounded-xl border border-slate-200 bg-slate-50/60 p-3",
+      !compact && "sm:grid-cols-[110px_1fr_1fr_auto]")}>
       <label className="text-xs text-slate-500">{tr("Code", "Kode")}
         <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="LV232" disabled={!!collection}
           className={cn(inputCls, "mt-1 font-mono disabled:bg-slate-100 disabled:text-slate-500")} />
@@ -267,12 +269,12 @@ export function CollectionForm({
       <label className="text-xs text-slate-500">{tr("Note", "Catatan")}
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder={tr("e.g. finish LCO046 Burnt Amber", "mis. finishing LCO046 Burnt Amber")} className={cn(inputCls, "mt-1")} />
       </label>
-      <div className="flex items-end gap-1.5">
+      <div className={cn("flex items-end gap-1.5", compact && "justify-end")}>
         <Button size="sm" variant="ghost" onClick={onCancel} disabled={busy}>{tr("Cancel", "Batal")}</Button>
         <Button size="sm" icon={Save} onClick={save} disabled={busy}>{tr("Save", "Simpan")}</Button>
       </div>
       {collection && (
-        <p className="text-[11px] text-slate-500 sm:col-span-4">
+        <p className={cn("text-[11px] text-slate-500", !compact && "sm:col-span-4")}>
           {tr("The code stays: it is in every item number of this collection.", "Kode tetap: kode ini ada di nomor setiap item koleksi ini.")}
         </p>
       )}
