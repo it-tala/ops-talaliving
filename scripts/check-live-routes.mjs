@@ -54,7 +54,7 @@ const LIVE_TS = join(ROOT, "src/lib/live.ts");
    it is what screens import. */
 const ALL_SERVICES = [
   "identity", "procurement", "accounting", "documents",
-  "hr", "production", "inventory", "marketing", "delivery", "quotation", "crm", "design", "assistant",
+  "hr", "production", "inventory", "marketing", "delivery", "quotation", "crm", "design", "assistant", "qc",
 ];
 
 /* Implemented = exported by `src/lib/api/index.ts`. Read rather than assumed,
@@ -332,6 +332,10 @@ const MODULE_OF = {
      pseudo-module and opens exactly when `identity`, `hr` and `documents`
      answer every call it makes. */
   saya: "profil",
+  /* `/qc` (0261, O6): the field QC team. Its own module, held dark below until
+     `ops_qc` is applied **and exposed** in the API settings — the same order
+     `marketing` opened in (D315, D316). */
+  qc: "qc",
 };
 
 /* The modules this deployment opens. Procurement and accounting are the two the

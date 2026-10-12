@@ -28,6 +28,9 @@ export type ModuleName =
    *  module because the people who pack and fit are not the people who change
    *  a client's order — the BAST stays `project.handover`. */
   | "delivery"
+  /** The outsourced field QC team (0260, O6): the coordinator holds `admin`,
+   *  a QC holds `write` and sees only the factory orders assigned to them. */
+  | "qc"
   | "it"
   | "settings";
 
@@ -50,7 +53,7 @@ export type Authority =
 
 export const MODULES: ModuleName[] = [
   "dashboard", "hrd", "payroll", "procurement", "inventory", "accounting",
-  "marketing", "project", "production", "delivery", "it", "settings",
+  "marketing", "project", "production", "delivery", "qc", "it", "settings",
 ];
 
 export const MODULE_LABELS: Record<ModuleName, Message> = {
@@ -64,6 +67,7 @@ export const MODULE_LABELS: Record<ModuleName, Message> = {
   project: { en: "Projects", id: "Proyek" },
   production: { en: "Production", id: "Produksi" },
   delivery: { en: "Delivery", id: "Pengiriman" },
+  qc: { en: "Field QC", id: "QC lapangan" },
   it: { en: "IT", id: "IT" },
   settings: { en: "Settings", id: "Pengaturan" },
 };

@@ -138,10 +138,18 @@ export const USERS: DemoUser[] = [
       { module: "project", level: "admin" },
       { module: "production", level: "admin" },
       { module: "delivery", level: "admin" },
+      { module: "qc", level: "admin" },
       { module: "it", level: "admin" },
       { module: "settings", level: "admin" },
     ],
     authorities: ["approve_goods", "approve_funds", "approve_overtime", "post_ledger", "resolve_inbox"],
+  },
+  {
+    /* A field QC: an outsider with an ops account, `qc: write`, who sees only
+       the factory orders he is sent to watch (0261, O6, Q88). */
+    id: "usr_yudi", email: "yudi.qc@gmail.com", full_name: "Yudi Santoso (QC)", is_active: true,
+    modules: [{ module: "qc", level: "write" }],
+    authorities: [],
   },
 ];
 

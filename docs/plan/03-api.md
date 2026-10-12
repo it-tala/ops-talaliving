@@ -330,6 +330,24 @@ appends the chosen offer — `factory_quote_no`, `factory_vendor_name`,
 `factory_offers` — masked to `may_price_factory('read')`. `may_design('read')`
 now includes `procurement.read`.
 
+### Field QC — team and assignments (O6, 0260/0261, D418)
+
+Schema `ops_qc`, module `qc` (`qc.read`, `qc.create`, `qc.update`, admin-only
+`qc.coordinate`). Envelopes are stamped `qc` in the database and `production`
+in the app.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/qc/people?include_inactive=` | `v_qc_person`: code, name, phone, city, active, `account_email`, `account_qc_level` (through the definer `account_qc_level`), `active_assignments`, `total_assignments`. A QC sees only themselves |
+| POST/PUT | `/qc/people[/{code}]` | `{name, phone?, city?, note?, user_email?}` — `save_qc_person` (`qc.coordinate`): every field as the form holds it; an empty email unlinks. Linking grants `qc: write` when the account holds nothing in `qc` (`granted_qc_write`). 422 `name_required`, `account_unknown`; 409 `account_taken`; 404 |
+| PUT | `/qc/people/{code}/active` | `{active, reason?}` — `set_qc_person_active` (`qc.coordinate`): switching off needs a reason (422 `reason_required`); live assignments are said in `warnings`, not refused. Same state is **noop** |
+| GET | `/qc/assignments?person_code=&po_no=&project_code=&include_cancelled=` | `v_qc_assignment`: assignment, person, `is_mine`, and the order as a QC may read it (`order_of`: number, status, factory and address, project, client, promised date, `line_count`, `container_count`) — never a price. `state` PLANNED · ACTIVE · ENDED · CANCELLED. A QC sees only their own live ones; the coordinator, `project.update` and `procurement.read` see all |
+| GET | `/qc/assignments/{assign_no}/lines` | `assignment_lines` (definer): the order's lines, the client's order line, design item, product code, and the newest `gambar_kerja` of the item. Empty unless the assignment is the caller's or the caller sees all |
+| GET | `/qc/assignable-orders` | `assignable_orders` (definer): live factory orders with who already watches each, for whoever sees all |
+| POST | `/qc/assignments` | `{person_code, po_no, starts_on, ends_on?, note?}` — `assign_qc` (`qc.coordinate`, idempotent): `assign_no` `qca-…`, `account_linked`, `others_on_order`. 422 `person_unknown`, `order_unknown`, `not_factory_order`, `start_required`, `end_before_start`; 409 `person_inactive`, `order_closed`, `already_assigned` |
+| PUT | `/qc/assignments/{assign_no}/end` | `{ends_on}` — `end_qc_assignment` (`qc.coordinate`). 422 `end_before_start`; 409 `cancelled`; same date **noop** |
+| POST | `/qc/assignments/{assign_no}/cancel` | `{reason}` — `cancel_qc_assignment` (`qc.coordinate`): kept, with its reason. 422 `reason_required`; 409 `already_cancelled` |
+
 ### Delivery — containers (O5, 0258/0259, D417)
 
 | Method | Path | Notes |

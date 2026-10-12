@@ -73,6 +73,8 @@ export * as crm from "./crm";
 /* A project's design (0222): collections, rooms, items and the client's
    approval. Stamped `procurement`, checked against `may_design`. */
 export * as design from "./design";
+/* The field QC team (0261, O6). */
+export * as qc from "./qc";
 
 /* ## `marketing` is exported (D316)
  *

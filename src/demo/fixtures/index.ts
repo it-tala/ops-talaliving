@@ -175,6 +175,15 @@ export function initialState(): DemoState {
         attachment_id: null, created_by: "usr_andi", created_at: "2026-10-08T03:00:00Z",
         voided_at: null, voided_by: null, void_reason: null },
     ],
+    /* The field QC team (0261, O6): Yudi signs in from his phone; Sari has
+       no account yet. Nobody is sent anywhere until a factory order exists. */
+    qc_people: [
+      { id: "qcp_1", code: "QC-001", name: "Yudi Santoso", phone: "0812-3456-7801", city: "Jepara",
+        user_id: "usr_yudi", is_active: true, inactive_reason: null, note: null, created_at: "2026-10-11T02:00:00Z" },
+      { id: "qcp_2", code: "QC-002", name: "Sari Dewi", phone: "0813-2222-1100", city: "Cirebon",
+        user_id: null, is_active: true, inactive_reason: null, note: "Spesialis finishing", created_at: "2026-10-11T02:05:00Z" },
+    ],
+    qc_assignments: [],
     factory_quote_lines: [
       { id: "fql_1", quote_id: "fq_1", design_item_id: "di_1", unit_price: 6850000, lead_time_days: 45, moq: null, note: null },
       { id: "fql_2", quote_id: "fq_1", design_item_id: "di_2", unit_price: 2400000, lead_time_days: 30, moq: null, note: null },
