@@ -145,6 +145,8 @@ export const LIVE_ROUTES: readonly string[] = [
   "/proyek/quotation/[no]",
   "/proyek/quotation/[no]/print",
   "/proyek/serah-terima",
+  "/qc",
+  "/qc/tim",
   "/saya",
 ];
 
