@@ -331,6 +331,17 @@ appends the chosen offer — `factory_quote_no`, `factory_vendor_name`,
 `factory_offers` — masked to `may_price_factory('read')`. `may_design('read')`
 now includes `procurement.read`.
 
+### Projects — what became of a factory order (O8, 0265, D422)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/factory-orders/outcomes?project_code=` | `factory_outcomes` (definer; `project.read`, `procurement.read` or QC's leadership): every live factory order — name, factory, project, client, issued, promised, `container_count`, `containers_arrived`, `first_arrived_on`, `last_arrived_on` (once all arrived), `work_state` (ORDER_DRAFT · IN_PRODUCTION · SHIPPED · ARRIVED · ACCEPTED · REJECTED), `reminder_on` (last arrival + 3 months), `days_to_reminder`, `needs_confirmation`, the latest decision (`verdict`, `verdict_on`, `verdict_client_person`, `verdict_reason`, `verdict_recorded_by`, `verdict_recorded_at`), `findings_before`/`findings_before_open`, `claims_total`/`claims_open`, `qc_names`. Never a price |
+| GET | `/factory-orders/{po_no}/verdicts` | `factory_verdict_history` (definer): every decision, newest first |
+| POST | `/factory-orders/{po_no}/verdict` | `{verdict: ACCEPTED\|REJECTED, decided_on, client_person, reason?, note?}` — `record_client_verdict` (`project.update`, idempotent): append-only, the newest holds. Answers `{po_no, verdict, warnings}` (containers still at sea; replacing an earlier decision). Same decision **noop**. 422 `order_unknown` (also a supplier PO), `unknown_verdict`, `date_required`, `date_in_future`, `before_arrival`, `client_person_required`, `reason_required`; 409 `order_cancelled`, `not_arrived` |
+
+Client claims are `POST /qc/findings` with `phase: after_arrival` (0264),
+photos uploaded as `Foto QC` against the project.
+
 ### Field QC — reports, findings, loading check (O7, 0263/0264, D420)
 
 | Method | Path | Notes |

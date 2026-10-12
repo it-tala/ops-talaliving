@@ -10595,3 +10595,18 @@ to an item and to the product made from it is.
 
 **Rule:** when a screen has a box whose only content is a link to another
 screen, the two screens are probably one.
+## F263 · 2026-10-12 · "The latest" is not `order by recorded_at` when two rows share a transaction
+
+O8 keeps the client's decisions append-only and reads the newest as the one
+that holds. The first draft ordered by `recorded_at desc`. The smoke recorded
+*rejected*, then *accepted*, in one transaction — and the board still said
+*rejected*: `now()` is the transaction's start, so both rows carried the same
+`recorded_at`, and which came "first" was the planner's choice. In
+production two clicks are two transactions, so it would rarely show — which
+is exactly why it would have been believed when it did.
+
+`factory_order_verdicts` now has `seq bigint generated always as identity`,
+and every reader orders by it.
+
+**Rule:** an append-only table whose newest row is the current state orders
+by a sequence, never by a timestamp defaulted to `now()`.

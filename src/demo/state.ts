@@ -220,6 +220,7 @@ export interface DemoState {
   qc_reports: DemoQcReport[];
   qc_report_lines: DemoQcReportLine[];
   qc_findings: DemoQcFinding[];
+  factory_order_verdicts: DemoFactoryVerdict[];
 
   pr_documents: PrDocument[];
   pr_lines: PrLine[];
@@ -591,6 +592,11 @@ export interface DemoQcFinding {
   severity: "minor" | "major" | "critical"; description: string;
   status: "OPEN" | "RESOLVED"; resolution: string | null; resolved_at: string | null; resolved_by: string | null;
   created_by: string; created_at: string;
+}
+/** `ops_procure.factory_order_verdicts` (0265): append-only, latest wins. */
+export interface DemoFactoryVerdict {
+  id: string; po_id: string; verdict: "ACCEPTED" | "REJECTED"; decided_on: string; client_person: string;
+  reason: string | null; note: string | null; recorded_by: string; recorded_at: string;
 }
 /** `ops_procure.factory_quote_lines` (0256). */
 export interface DemoFactoryQuoteLine {

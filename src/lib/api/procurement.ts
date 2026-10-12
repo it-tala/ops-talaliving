@@ -35,6 +35,7 @@ import type {
   UomCode, PrCategory, PrDocument,
   ProjectView, ProjectLineView, ProjectStatus, PoMoney, ProjectProductionLine, FactoryOrderInput, FactoryOrderResult, ProductionRoute, ProjectStatusChange, Client, ClientView,
   ClosingReason, SalesPerson, TimelineEvent, ProjectOutcome,
+  FactoryOrderOutcome, FactoryVerdict, ClientVerdictInput, ClientVerdict,
 } from "@/services/procurement/contracts";
 import type { DocKind } from "@/services/documents/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -2436,4 +2437,57 @@ export async function listProjectOutcomes(): Promise<Result<ProjectOutcome[]>> {
     days_to_deal: r.days_to_deal == null ? null : Number(r.days_to_deal),
     days_in_status: r.days_in_status == null ? null : Number(r.days_in_status),
   })));
+}
+
+/* ── what became of a factory order after it arrived (0265, O8, D422) ───── */
+
+type OutRow = Record<string, unknown>;
+const nn = (v: unknown) => (v == null ? 0 : Number(v));
+const sn = (v: unknown) => (v == null ? null : String(v));
+
+/** Every live factory order with its work state, containers, reminder,
+ *  decision and claims — through a definer function, because a project
+ *  reader does not read purchase orders. Never a price. */
+export async function listFactoryOutcomes(opts: { project_code?: string } = {}): Promise<Result<FactoryOrderOutcome[]>> {
+  const { data, error } = await db().rpc("factory_outcomes", { p_project_code: opts.project_code ?? null });
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, ((data ?? []) as OutRow[]).map((r) => ({
+    po_no: String(r.po_no), po_status: String(r.po_status) as FactoryOrderOutcome["po_status"],
+    project_code: String(r.project_code), project_name: String(r.project_name), client_name: sn(r.client_name),
+    vendor_name: String(r.vendor_name), issued_at: sn(r.issued_at), expected_delivery: sn(r.expected_delivery),
+    container_count: nn(r.container_count), containers_arrived: nn(r.containers_arrived),
+    first_arrived_on: sn(r.first_arrived_on), last_arrived_on: sn(r.last_arrived_on),
+    work_state: String(r.work_state) as FactoryOrderOutcome["work_state"],
+    reminder_on: sn(r.reminder_on), days_to_reminder: r.days_to_reminder == null ? null : nn(r.days_to_reminder),
+    needs_confirmation: !!r.needs_confirmation,
+    verdict: (sn(r.verdict) as ClientVerdict | null) ?? null, verdict_on: sn(r.verdict_on),
+    verdict_client_person: sn(r.verdict_client_person), verdict_reason: sn(r.verdict_reason),
+    verdict_recorded_by: sn(r.verdict_recorded_by), verdict_recorded_at: sn(r.verdict_recorded_at),
+    findings_before: nn(r.findings_before), findings_before_open: nn(r.findings_before_open),
+    claims_total: nn(r.claims_total), claims_open: nn(r.claims_open), qc_names: sn(r.qc_names),
+  })));
+}
+
+/** Every decision on one order, newest first. */
+export async function listFactoryVerdictHistory(poNo: string): Promise<Result<FactoryVerdict[]>> {
+  const { data, error } = await db().rpc("factory_verdict_history", { p_po_no: poNo });
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, ((data ?? []) as OutRow[]).map((r) => ({
+    verdict: String(r.verdict) as ClientVerdict, decided_on: String(r.decided_on), client_person: String(r.client_person),
+    reason: sn(r.reason), note: sn(r.note), recorded_by: sn(r.recorded_by), recorded_at: String(r.recorded_at),
+  })));
+}
+
+/** Accepted or rejected by the client (`project.update`). */
+export async function recordClientVerdict(
+  input: ClientVerdictInput, idempotencyKey?: string,
+): Promise<Result<{ po_no: string; verdict: ClientVerdict; warnings: string[] }>> {
+  const { data, error } = await db().rpc("record_client_verdict", {
+    p_po_no: input.po_no, p_verdict: input.verdict, p_decided_on: input.decided_on || null,
+    p_client_person: input.client_person, p_reason: input.reason ?? null, p_note: input.note ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const res = fromSeam<{ po_no: string; verdict: ClientVerdict; warnings?: string[] }>(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, { po_no: res.data.po_no ?? input.po_no, verdict: res.data.verdict ?? input.verdict, warnings: res.data.warnings ?? [] });
 }

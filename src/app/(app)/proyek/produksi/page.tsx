@@ -12,6 +12,7 @@ import { useTr } from "@/lib/i18n";
 import { useSession } from "@/store/session";
 import type { ProductionStage, ProjectProductionLine } from "@/services/procurement/contracts";
 import { QC_STAGE_LABEL } from "@/services/qc/contracts";
+import { FactoryOutcomes, NeedsConfirmation } from "@/components/procurement/factory-outcomes";
 
 /** Projected against actual, for one project.
  *
@@ -55,6 +56,8 @@ export default function ProjectCostPage() {
           const current = code ?? all.find((p) => p.is_active)?.code ?? all[0]?.code ?? null;
           return (
             <>
+              {/* Factory orders three months past arrival with no decision (0265, O8). */}
+              <NeedsConfirmation onPick={setCode} />
               <div className="mb-4 flex flex-wrap gap-1.5">
                 {all.map((p) => (
                   <Button
@@ -69,6 +72,7 @@ export default function ProjectCostPage() {
                 ))}
               </div>
               {current && <ProductionBoard code={current} />}
+              {current && <FactoryOutcomes code={current} />}
               {current && <ProjectCost code={current} />}
             </>
           );
