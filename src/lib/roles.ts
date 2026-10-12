@@ -41,6 +41,9 @@ export const PERMISSION_CATALOG: Record<ModuleName, readonly string[]> = {
   project: ["read", "create", "update", "handover"],
   production: ["read", "create", "update", "schedule"],
   delivery: ["read", "create", "update"],
+  /* `coordinate` keeps the team and sends people (O6); `create`/`update` are
+     a QC's own reports (O7), on their own assignments only. */
+  qc: ["read", "create", "update", "coordinate"],
   it: ["read", "update", "manage_users", "manage_roles", "purge_activity", "manage_drives"],
   settings: ["read", "update"],
 } as const;
@@ -56,7 +59,7 @@ export const PERMISSION_CATALOG: Record<ModuleName, readonly string[]> = {
  *  `manage_drives` (D314, F166) repoints a shared drive's folder or moves a
  *  kind of document to another drive — `doc_kind_drive` is the personal-data
  *  boundary, so it sits with `manage_roles`, not with `update`. */
-const ADMIN_ONLY = new Set(["manage_users", "manage_roles", "purge_activity", "plan_cash", "manage_drives"]);
+const ADMIN_ONLY = new Set(["manage_users", "manage_roles", "purge_activity", "plan_cash", "manage_drives", "coordinate"]);
 
 export const LEVELS: ModuleLevel[] = ["read", "write", "admin"];
 

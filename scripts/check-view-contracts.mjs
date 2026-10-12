@@ -111,6 +111,8 @@ const VIEW_CONTRACTS = {
   v_project:         "ProjectView",
   v_project_line:    "ProjectLineView",
   v_project_production: "ProjectProductionLine",
+  v_qc_person:       "QcPerson",
+  v_qc_assignment:   "QcAssignment",
   /* Read as rows and assembled by `deriveWorkOrderView`; the contract is the
      derived view, not the row. */
   v_work_order:      null,

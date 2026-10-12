@@ -31,6 +31,7 @@ import * as demoQuotation from "./quotation";
 import * as demoCrm from "./crm";
 import * as demoDesign from "./design";
 import * as demoAssistant from "./assistant";
+import * as demoQc from "./qc";
 
 import * as liveIdentity from "@/lib/api/identity";
 import * as liveProcurement from "@/lib/api/procurement";
@@ -45,6 +46,7 @@ import * as liveQuotation from "@/lib/api/quotation";
 import * as liveCrm from "@/lib/api/crm";
 import * as liveDesign from "@/lib/api/design";
 import * as liveMarketing from "@/lib/api/marketing";
+import * as liveQc from "@/lib/api/qc";
 
 export const identity = swap("identity", demoIdentity, liveIdentity);
 export const procurement = swap("procurement", demoProcurement, liveProcurement);
@@ -83,6 +85,9 @@ export const crm = swap("procurement", demoCrm, liveCrm);
    `procurement`, where projects live. */
 export const design = swap("procurement", demoDesign, liveDesign);
 export const assistant = swap("procurement", demoAssistant, liveAssistant);
+/* The field QC team (0261, O6). Stamped `production`, like `delivery`: the
+   factory a QC watches is where the order is made. */
+export const qc = swap("production", demoQc, liveQc);
 
 export { isOk } from "@/services/_shared/envelope";
 export type { Result, ApiError, Outcome } from "@/services/_shared/envelope";

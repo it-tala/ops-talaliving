@@ -10449,3 +10449,39 @@ the one that will be overridden by typing a different, wrong one.
 
 **Rule:** before adding a column, grep the PL/pgSQL locals for its name; and a
 helper that returns an envelope is `volatile`, whatever else it does.
+
+## F259 · 2026-10-12 · A gate on the order is not a gate on the assignment
+
+O6's first draft let a QC read an assignment's lines if they could read **the
+order** — `may_see_order(po_id)`: anybody assigned to it. Two QCs on one
+factory order then read each other's assignments through the lines
+function, because the question asked was *may you see this order*, not *is
+this yours*. The smoke caught it only because it asked Yudi for Sari's
+assignment on the same order and expected nothing. The lines function now
+asks the assignment: `sees_all()` or the assignment's person is the caller.
+
+Two smaller things the same session taught:
+
+- **`user_modules` is IT's to read.** The team view showed each account's
+  `qc` level by reading `user_modules` directly, and it came back null for
+  the coordinator, who is not IT. A narrow definer helper
+  (`account_qc_level`) answers the one row the coordinator needs, gated to
+  whoever sees the team.
+- **A new schema is two switches, not one.** Applying `ops_qc` creates it;
+  PostgREST answers only for schemas listed in *Exposed schemas*. The routes
+  are mapped to the `qc` module in `check-live-routes.mjs` but left out of
+  `LIVE_MODULES`, so a live build keeps them dark until the owner has
+  flipped the second switch — the same order `marketing` opened in (D316).
+
+**Rule:** when access is per assignment, every definer function that returns
+an assignment's content checks the assignment, not the record it hangs off.
+
+**Postscript (applying to production).** The hash comparison found two
+foreign keys on production — `qc_people.user_id`, `qc_assignments.po_id` —
+that the local ladder lacked. `rebuild.sh` drops the schemas it knows by
+name, and `ops_qc` was not on the list: the old local `ops_qc` survived,
+`drop schema ops_core cascade` took its foreign keys into the dropped
+schemas with it, and `create table if not exists` kept the stripped tables.
+Production was right; the local proof was stale. `ops_qc` is now in
+`rebuild.sh`, `check_shadowing.sh` and `check_schema_isolation.sh`. **A new
+schema goes into the three local scripts in the migration's own PR.**

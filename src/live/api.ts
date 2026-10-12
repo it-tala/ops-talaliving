@@ -26,6 +26,7 @@ import * as liveQuotation from "@/lib/api/quotation";
 import * as liveCrm from "@/lib/api/crm";
 import * as liveDesign from "@/lib/api/design";
 import * as liveMarketing from "@/lib/api/marketing";
+import * as liveQc from "@/lib/api/qc";
 
 type Api = typeof import("@/demo/api");
 
@@ -42,12 +43,13 @@ export const quotation = liveOnly<Api["quotation"]>("procurement", liveQuotation
 export const crm = liveOnly<Api["crm"]>("procurement", liveCrm);
 export const design = liveOnly<Api["design"]>("procurement", liveDesign);
 export const assistant = liveOnly<Api["assistant"]>("procurement", liveAssistant);
+export const qc = liveOnly<Api["qc"]>("production", liveQc);
 
 /* A service added to the switchboard and forgotten here is a live build where
    that import is `undefined`. This makes it a compile error instead. */
 const everyService: Record<Exclude<keyof Api, "isOk">, unknown> = {
   identity, procurement, accounting, documents, inventory, production, hr,
-  marketing, delivery, quotation, crm, design, assistant,
+  marketing, delivery, quotation, crm, design, assistant, qc,
 };
 void everyService;
 

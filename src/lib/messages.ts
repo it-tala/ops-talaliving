@@ -71,6 +71,9 @@ export const MESSAGES = {
     handover: m("Handover", "Serah terima"),
 
     production: m("Production", "Produksi"),
+    qc: m("Field QC", "QC lapangan"),
+    qcAssignments: m("QC assignments", "Penugasan QC"),
+    qcTeam: m("QC team", "Tim QC"),
     design: m("Design", "Desain"),
     workAttribution: m("Who did the work", "Penautan nama"),
     vendorWork: m("Goods at vendors", "Barang di vendor"),

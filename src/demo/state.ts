@@ -214,6 +214,9 @@ export interface DemoState {
    *  Append-only: a wrong offer is voided, never edited. */
   factory_quotes: DemoFactoryQuote[];
   factory_quote_lines: DemoFactoryQuoteLine[];
+  /** The field QC team and who watches which factory order (0261, O6). */
+  qc_people: DemoQcPerson[];
+  qc_assignments: DemoQcAssignment[];
 
   pr_documents: PrDocument[];
   pr_lines: PrLine[];
@@ -548,6 +551,17 @@ export interface DemoFactoryQuote {
   quoted_on: string; valid_until: string | null; note: string | null; attachment_id: string | null;
   created_by: string; created_at: string;
   voided_at: string | null; voided_by: string | null; void_reason: string | null;
+}
+/** `ops_qc.qc_people` (0261). */
+export interface DemoQcPerson {
+  id: string; code: string; name: string; phone: string | null; city: string | null;
+  user_id: string | null; is_active: boolean; inactive_reason: string | null; note: string | null;
+  created_at: string;
+}
+/** `ops_qc.qc_assignments` (0261). */
+export interface DemoQcAssignment {
+  id: string; assign_no: string; person_id: string; po_id: string; starts_on: string; ends_on: string | null;
+  note: string | null; created_at: string; cancelled_at: string | null; cancel_reason: string | null;
 }
 /** `ops_procure.factory_quote_lines` (0256). */
 export interface DemoFactoryQuoteLine {

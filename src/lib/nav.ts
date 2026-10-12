@@ -8,7 +8,7 @@ import {
   FolderKanban, Hammer, Truck, Wrench, Stamp, Package,
   PencilRuler, ListTree, ListChecks, CalendarClock, Link2,
   Cpu, ScrollText, Activity, UserCog, KeyRound, HardDrive, Clock, Scale, Factory,
-  Settings, FlaskConical, MessagesSquare, Route, ShieldCheck, Gauge, MessageSquareOff, Database, Ruler, FolderTree, Tags, MonitorSmartphone, Building2, type LucideIcon,
+  Settings, FlaskConical, MessagesSquare, Route, ShieldCheck, Gauge, MessageSquareOff, Database, Ruler, FolderTree, Tags, MonitorSmartphone, Building2, ClipboardCheck, UserCheck, type LucideIcon,
 } from "lucide-react";
 
 /** Menu sebagai DATA, bukan JSX.
@@ -199,6 +199,18 @@ export const NAV: NavSection[] = [
       { label: "BOM rates", labelKey: "bomRates", href: "/produksi/rate", icon: Coins, permission: "production.read", badge: "new" },
       { label: "Job Orders", labelKey: "schedule", href: "/produksi/jadwal", icon: CalendarClock, permission: "production.read", badge: "new" },
       { label: "Job trail", labelKey: "jobTrail", href: "/produksi/jejak", icon: Route, permission: "production.read", badge: "new" },
+    ],
+  },
+  {
+    /* The outsourced field QC team (0261, O6). A QC sees only their own
+       assignments; the coordinator keeps the team; leadership and procurement
+       read every assignment. */
+    title: "Field QC",
+    titleKey: "qc",
+    icon: ClipboardCheck,
+    items: [
+      { label: "QC assignments", labelKey: "qcAssignments", href: "/qc", icon: ClipboardCheck, permission: "qc.read", orPermission: "procurement.read", badge: "new" },
+      { label: "QC team", labelKey: "qcTeam", href: "/qc/tim", icon: UserCheck, permission: "qc.coordinate", badge: "new" },
     ],
   },
   {
