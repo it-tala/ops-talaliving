@@ -9,6 +9,7 @@ import { cn } from "@/lib/cn";
 import { production } from "@/demo/api";
 import type { VendorLegView } from "@/services/production/contracts";
 import { useTr } from "@/lib/i18n";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** Where our things are, vendor by vendor (W6, D280).
  *
@@ -141,7 +142,7 @@ export default function VendorTrackingPage() {
               action={<SourceBadge state={records} />}
             />
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[680px] text-[13px]">
+              <ExcelTable className="w-full min-w-[680px] text-[13px]">
                 <thead>
                   <tr className="border-b border-slate-100 text-left text-[10px] uppercase tracking-wide text-slate-400">
                     <th className="px-5 py-2 font-medium">Vendor</th>
@@ -186,7 +187,7 @@ export default function VendorTrackingPage() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </ExcelTable>
             </div>
           </Card>
         )}

@@ -9,6 +9,7 @@ import { officeToday } from "@/lib/office";
 import { BoxBar } from "@/components/design/item-boxes";
 import { useTr } from "@/lib/i18n";
 import type { RoomRef } from "./Workspace";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** Progres: every project and collection, filled boxes over all, and what is still
  *  empty by kind of box — read from the boxes, never typed (A3, S1). Who is
@@ -110,7 +111,7 @@ function ProjectCard({ p, boxes, tasks, onOpenRoom }: { p: DesignProject; boxes:
         <BoxBar filled={total.filled} total={total.total} />
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[680px] border-collapse text-[13px]">
+        <ExcelTable className="w-full min-w-[680px] border-collapse text-[13px]">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
               <th className="px-4 py-1.5 text-left">{tr("Collection", "Koleksi")}</th>
@@ -166,7 +167,7 @@ function ProjectCard({ p, boxes, tasks, onOpenRoom }: { p: DesignProject; boxes:
               );
             })}
           </tbody>
-        </table>
+        </ExcelTable>
       </div>
     </Card>
   );

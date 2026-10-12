@@ -12,6 +12,7 @@ import {
   type JobTrail, type TrailStage,
 } from "@/services/production/contracts";
 import { useTr } from "@/lib/i18n";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** One number, the whole story (`0171`, D312).
  *
@@ -126,7 +127,7 @@ function Trail({ no, onOpen }: { no: string; onOpen: (n: string) => void }) {
                 icon={Route}
               />
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[860px] border-collapse text-[12.5px]">
+                <ExcelTable className="w-full min-w-[860px] border-collapse text-[12.5px]">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
                       <th className="px-4 py-2 text-left">{tr("Time", "Waktu")}</th>
@@ -171,7 +172,7 @@ function Trail({ no, onOpen }: { no: string; onOpen: (n: string) => void }) {
                       <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-500">{tr("No events recorded yet.", "Belum ada kejadian yang tercatat.")}</td></tr>
                     )}
                   </tbody>
-                </table>
+                </ExcelTable>
               </div>
             </Card>
           </>

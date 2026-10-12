@@ -15,6 +15,7 @@ import {
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useT, useTr, type Message, type Tr } from "@/lib/i18n";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** Wajib Lapor Ketenagakerjaan — the six answers the form needs, and the tables
  *  it is transcribed from (D304).
@@ -201,7 +202,7 @@ export default function WlkpPage() {
                   return (
                     <Card key={d.key}>
                       <CardHeader title={t(d.title)} subtitle={d.note ? t(d.note) : undefined} icon={ClipboardList} />
-                      <table className="w-full text-[13px]">
+                      <ExcelTable className="w-full text-[13px]">
                         <tbody className="divide-y divide-slate-100">
                           {rows.map((b) => (
                             <tr key={b.key} className={cn(b.key === "tidak_diketahui" && "bg-amber-50/50")}>
@@ -220,7 +221,7 @@ export default function WlkpPage() {
                             </td>
                           </tr>
                         </tbody>
-                      </table>
+                      </ExcelTable>
                     </Card>
                   );
                 })}

@@ -16,6 +16,7 @@ import { useSession } from "@/store/session";
 import { ProductMoveForm } from "./ProductMoveForm";
 import { batchKey, batchLabel } from "./batch";
 import { useTr } from "@/lib/i18n";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** Finished goods (`0170`) — what the workshop made, on a rack until it ships.
  *
@@ -129,9 +130,9 @@ export default function FinishedGoodsPage() {
                   }
                 />
                 <Paged rows={shown} pageSize={20} unit={tr("batches", "batch")}>
-                  {(page) => (
+                  {(page, _offset, showAll) => (
                     <div className="overflow-x-auto">
-                      <table className="w-full min-w-[900px] border-collapse text-[13px]">
+                      <ExcelTable showAll={showAll} className="w-full min-w-[900px] border-collapse text-[13px]">
                         <thead>
                           <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
                             <th className="px-4 py-2 text-left">{tr("Product", "Produk")}</th>
@@ -158,7 +159,7 @@ export default function FinishedGoodsPage() {
                             </td></tr>
                           )}
                         </tbody>
-                      </table>
+                      </ExcelTable>
                     </div>
                   )}
                 </Paged>
@@ -212,7 +213,7 @@ function BatchRow({ row: r, open, onToggle }: { row: ProductStockRow; open: bool
         </td>
       </tr>
       {open && (
-        <tr className="border-b border-slate-200 bg-slate-50/60">
+        <tr data-no-export className="border-b border-slate-200 bg-slate-50/60">
           <td colSpan={7} className="px-4 py-3"><BatchHistory row={r} /></td>
         </tr>
       )}
@@ -232,7 +233,7 @@ function BatchHistory({ row }: { row: ProductStockRow }) {
             <p className="mb-1.5 flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-slate-400">
               <History className="h-3.5 w-3.5" /> {tr("This batch's history", "Riwayat batch ini")}
             </p>
-            <table className="w-full text-[12px]">
+            <ExcelTable className="w-full text-[12px]">
               <tbody>
                 {mine.map((m) => (
                   <tr key={`${m.move_no}-${m.location}-${m.qty}`} className="border-t border-slate-100">
@@ -250,7 +251,7 @@ function BatchHistory({ row }: { row: ProductStockRow }) {
                   <tr><td className="py-2 text-slate-500">{tr("No moves yet.", "Belum ada gerak.")}</td></tr>
                 )}
               </tbody>
-            </table>
+            </ExcelTable>
           </div>
         );
       }}

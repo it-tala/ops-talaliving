@@ -16,6 +16,7 @@ import {
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** The register of who is enrolled in what — HRD's, and accounting's to audit
  *  (owner, D259).
@@ -202,7 +203,7 @@ export default function ContributionsPage() {
                   )}
                   {open === roll.scheme && (
                     <div className="overflow-x-auto border-t border-slate-100">
-                      <table className="w-full min-w-[760px] border-collapse text-[13px]">
+                      <ExcelTable className="w-full min-w-[760px] border-collapse text-[13px]">
                         <thead>
                           <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
                             <th className="px-4 py-2 text-left">{tr("Name", "Nama")}</th>
@@ -248,7 +249,7 @@ export default function ContributionsPage() {
                             </td></tr>
                           )}
                         </tbody>
-                      </table>
+                      </ExcelTable>
                     </div>
                   )}
                 </Card>
@@ -285,7 +286,7 @@ export default function ContributionsPage() {
                       icon={ShieldCheck}
                     />
                     <div className="overflow-x-auto">
-                      <table className="w-full min-w-[820px] border-collapse text-[13px]">
+                      <ExcelTable className="w-full min-w-[820px] border-collapse text-[13px]">
                         <thead>
                           <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
                             <th className="px-4 py-2 text-left">{tr("Name", "Nama")}</th>
@@ -332,7 +333,7 @@ export default function ContributionsPage() {
                             </tr>
                           ))}
                         </tbody>
-                      </table>
+                      </ExcelTable>
                     </div>
 
                     {mayEdit && (

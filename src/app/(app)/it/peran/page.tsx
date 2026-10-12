@@ -10,6 +10,7 @@ import {
   PERMISSION_CATALOG, describeGrant, IT_ACCESS_RULE,
 } from "@/lib/roles";
 import { useTr } from "@/lib/i18n";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** What each level actually unlocks, and who holds which decision.
  *
@@ -77,7 +78,7 @@ export default function RolesPage() {
           icon={Table2}
         />
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] border-collapse text-[13px]">
+          <ExcelTable className="w-full min-w-[720px] border-collapse text-[13px]">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
                 <th className="px-4 py-2 text-left">{tr("Module", "Modul")}</th>
@@ -100,7 +101,7 @@ export default function RolesPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </ExcelTable>
         </div>
         <p className="border-t border-slate-100 px-4 py-2 text-[11px] text-slate-500">
           {tr("This catalogue is code", "Katalog ini adalah kode")} (<span className="font-mono">src/lib/roles.ts</span>),{" "}

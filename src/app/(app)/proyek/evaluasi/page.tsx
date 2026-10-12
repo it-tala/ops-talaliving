@@ -9,6 +9,7 @@ import { cn } from "@/lib/cn";
 import { formatNumber } from "@/lib/format";
 import { officeToday } from "@/lib/office";
 import { useTr } from "@/lib/i18n";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** Projects › Evaluation (0266, O9, kajian F255 §5.9).
  *
@@ -90,7 +91,7 @@ function Factories() {
             "Belum ada yang bisa ditampilkan — belum ada order pabrik, atau harga bukan untuk akses Anda (procurement dan pimpinan).")} />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-[13px]">
+            <ExcelTable className="w-full min-w-[860px] text-[13px]">
               <thead>
                 <tr className="border-y border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
                   <th className={th}>{tr("Factory", "Pabrik")}</th>
@@ -128,7 +129,7 @@ function Factories() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </ExcelTable>
           </div>
         )}
       </Loaded>
@@ -154,7 +155,7 @@ function QcPeople() {
             "Belum ada yang bisa ditampilkan — belum ada tim QC, atau papan QC untuk koordinator, pimpinan, dan procurement.")} />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[820px] text-[13px]">
+            <ExcelTable className="w-full min-w-[820px] text-[13px]">
               <thead>
                 <tr className="border-y border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
                   <th className={th}>{tr("Person", "Personel")}</th>
@@ -187,7 +188,7 @@ function QcPeople() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </ExcelTable>
           </div>
         )}
       </Loaded>
@@ -213,7 +214,7 @@ function Projects() {
           <Empty text={tr("No projects to show.", "Belum ada proyek untuk ditampilkan.")} />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-[13px]">
+            <ExcelTable className="w-full min-w-[900px] text-[13px]">
               <thead>
                 <tr className="border-y border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
                   <th className={th}>{tr("Project", "Proyek")}</th>
@@ -248,7 +249,7 @@ function Projects() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </ExcelTable>
           </div>
         )}
       </Loaded>

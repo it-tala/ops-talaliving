@@ -15,18 +15,22 @@ const DEFAULT_PAGE_SIZE = 25;
 
 export function usePaged<T>(rows: T[], pageSize = DEFAULT_PAGE_SIZE, unit?: string) {
   const [page, setPage] = useState(0);
+  /* On for the one frame an Excel download reads the table: the file is the
+     whole list, not the page on screen (`ExcelTable`'s `showAll`). */
+  const [all, setAll] = useState(false);
   const pages = Math.max(Math.ceil(rows.length / pageSize), 1);
 
   /* Filtering down to three rows must not leave somebody on page seven. */
   useEffect(() => { setPage(0); }, [rows.length, pageSize]);
 
   const current = Math.min(page, pages - 1);
-  const offset = current * pageSize;
-  const shown = useMemo(() => rows.slice(offset, offset + pageSize), [rows, offset, pageSize]);
+  const offset = all ? 0 : current * pageSize;
+  const shown = useMemo(() => (all ? rows : rows.slice(offset, offset + pageSize)), [rows, offset, pageSize, all]);
 
   return {
     shown,
     offset,
+    showAll: setAll,
     pager: rows.length > pageSize
       ? (
         <Pager
@@ -96,8 +100,9 @@ export function Paged<T>({
   rows: T[];
   pageSize?: number;
   unit?: string;
-  children: (shown: T[], offset: number) => React.ReactNode;
+  /** `showAll` goes to `ExcelTable`, so its download is every row. */
+  children: (shown: T[], offset: number, showAll: (on: boolean) => void) => React.ReactNode;
 }) {
-  const { shown, offset, pager } = usePaged(rows, pageSize, unit);
-  return <>{children(shown, offset)}{pager}</>;
+  const { shown, offset, pager, showAll } = usePaged(rows, pageSize, unit);
+  return <>{children(shown, offset, showAll)}{pager}</>;
 }

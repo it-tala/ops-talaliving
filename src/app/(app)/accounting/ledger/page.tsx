@@ -16,6 +16,7 @@ import { CashPosition } from "./CashPosition";
 import { NewEntry } from "./NewEntry";
 import { useSession } from "@/store/session";
 import { useTr } from "@/lib/i18n";
+import { allPages } from "@/lib/xlsx-export";
 
 /** The ledger: every row of money, and what each one is attached to.
  *
@@ -236,6 +237,17 @@ export default function LedgerPage() {
                 rows={visible}
                 rowKey={(t) => t.id}
                 onRowClick={(t) => setSelected(t.trx_no)}
+                exportName={tr("Ledger", "Buku besar")}
+                /* The screen holds one page; the file is every row under the
+                   same filters. */
+                exportRows={() => allPages((limit, offset) => accounting.listTransactions({
+                  account_id: accountId || undefined,
+                  type_code: typeCode || undefined,
+                  q: searched || undefined,
+                  include_void: showVoid,
+                  limit,
+                  offset,
+                }))}
                 empty={q || accountId || typeCode ? tr("Nothing matches those filters.", "Tidak ada yang cocok dengan filter itu.") : tr("The ledger is empty.", "Buku besar masih kosong.")}
               />
               <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 px-4 py-2.5">

@@ -10,6 +10,7 @@ import { production } from "@/demo/api";
 import type { BomRateView, FinishingSystem } from "@/services/production/contracts";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** Each finishing system in the business's recipes (`finishing_recipes`),
  *  totalled per m², offered as a `finishing` rate (0193, D338).
@@ -162,7 +163,7 @@ export function FinishingCandidates({
                       {tr("Recipe steps", "Langkah resep")}
                     </summary>
                     <div className="mt-1.5 overflow-x-auto">
-                      <table className="w-full min-w-[560px] border-collapse text-[12px]">
+                      <ExcelTable className="w-full min-w-[560px] border-collapse text-[12px]">
                         <thead>
                           <tr className="border-b border-slate-200 text-[10px] uppercase tracking-wide text-slate-500">
                             <th className="px-2 py-1 text-left">{tr("Step", "Langkah")}</th>
@@ -192,7 +193,7 @@ export function FinishingCandidates({
                             </tr>
                           ))}
                         </tbody>
-                      </table>
+                      </ExcelTable>
                     </div>
                   </details>
                 </li>

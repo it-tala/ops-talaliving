@@ -537,7 +537,7 @@ export default function PoDetailPage({ params }: { params: Promise<{ po: string 
                     </Badge>
                   ) },
                   ...(mayEdit && d.status !== "CLOSED" ? [{
-                    key: "amend", header: "", align: "right" as const,
+                    key: "amend", header: "", align: "right" as const, export: false,
                     render: (l: typeof d.lines[number]) => (
                       <Button variant="ghost" size="sm" icon={PenLine} onClick={() => setAmending(l.line_no)}>
                         {tr("Amend", "Ubah")}
