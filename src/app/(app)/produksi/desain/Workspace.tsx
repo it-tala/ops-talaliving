@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ExternalLink, FolderOpen, Layers, Plus } from "lucide-react";
+import { ExternalLink, FolderOpen, Layers, Pencil, Plus } from "lucide-react";
 import { Badge, Button, Card } from "@/components/ui/primitives";
 import { Loaded, useLoad } from "@/components/ui/loaded";
 import { cn } from "@/lib/cn";
@@ -15,7 +15,7 @@ import { ItemStudioDrawer } from "@/components/design/item-studio";
 import { useTr } from "@/lib/i18n";
 import { CollectionGallery } from "@/components/design/collection-gallery";
 import { useCanSell } from "@/lib/sell";
-import { NewProject } from "../../proyek/order/ProjectDrawer";
+import { NewProject, ProjectDrawer } from "../../proyek/order/ProjectDrawer";
 
 /** A collection in the tree. `room` is the collection's one room, `00`, since
  *  rooms left the screens (D419); tasks given for the whole collection name it
@@ -92,6 +92,7 @@ export function Workspace({
         {project && room ? (
           <RoomPanel key={`${room.project}-${room.collection}-${room.room}`} room={room} item={item} onItem={setItem}
             onChanged={() => setTick((t) => t + 1)}
+            onProjectChanged={() => { reloadProjects(); setTick((t) => t + 1); }}
             canEdit={canEdit} canMakeProduct={canMakeProduct} canOpenProject={canOpenProject} />
         ) : (
           <Card className="px-5 py-10 text-center text-[13px] text-slate-500">
@@ -118,7 +119,7 @@ function ProjectTree({
     byClient.set(k, [...(byClient.get(k) ?? []), p]);
   }
   return (
-    <nav className="max-h-[45vh] overflow-y-auto py-1.5 text-[13px] lg:max-h-[70vh]">
+    <nav className="max-h-[45vh] overflow-y-auto overflow-x-hidden py-1.5 text-[13px] lg:max-h-[70vh]">
       {[...byClient.entries()].map(([client, ps]) => (
         <div key={client} className="pb-1">
           <p className="px-4 pb-0.5 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{client}</p>
@@ -183,7 +184,7 @@ function ProjectRooms({
             )}
             {canEdit && (adding ? (
               <div className="py-1.5 pr-2">
-                <CollectionForm projectCode={projectCode} onDone={() => { setAdding(false); reload(); }} onCancel={() => setAdding(false)} />
+                <CollectionForm compact projectCode={projectCode} onDone={() => { setAdding(false); reload(); }} onCancel={() => setAdding(false)} />
               </div>
             ) : (
               <button onClick={() => setAdding(true)} className="mt-1 rounded px-2 py-0.5 text-[12px] text-brand-700 hover:bg-brand-50">
@@ -198,12 +199,17 @@ function ProjectRooms({
 }
 
 function RoomPanel({
-  room, item, onItem, onChanged, canEdit, canMakeProduct, canOpenProject,
+  room, item, onItem, onChanged, onProjectChanged, canEdit, canMakeProduct, canOpenProject,
 }: {
   room: RoomRef; item: string | null; onItem: (no: string | null) => void; onChanged: () => void;
+  /** The project's own facts changed: the tree's names follow. */
+  onProjectChanged: () => void;
   canEdit: boolean; canMakeProduct: boolean; canOpenProject: boolean;
 }) {
   const tr = useTr();
+  const canSell = useCanSell();
+  const [renaming, setRenaming] = useState(false);
+  const [editingProject, setEditingProject] = useState(false);
   const [d, reloadDesign] = useLoad(() => design.getProjectDesign(room.project), [room.project]);
   const [boxes, reloadBoxes] = useLoad(() => design.listDesignBoxes({ project_code: room.project }), [room.project]);
   const [tasks, reloadTasks] = useLoad(() => design.listDesignAssignments(room.project), [room.project]);
@@ -232,11 +238,26 @@ function RoomPanel({
             <Card>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-100 px-4 py-3">
                 <div className="min-w-0 flex-1">
-                  <p className="text-[11px] text-slate-500">
-                    {first?.client_display ?? ""}{first?.client_display ? " › " : ""}{room.project} {first?.project_name ?? ""}
+                  <p className="flex min-w-0 items-center gap-1 text-[11px] text-slate-500">
+                    <span className="truncate">
+                      {first?.client_display ?? ""}{first?.client_display ? " › " : ""}{room.project} {c?.project_name ?? first?.project_name ?? ""}
+                    </span>
+                    {/* A project typed wrong is corrected with the Projects form (name, client, dates). */}
+                    {canSell("update") && (
+                      <button onClick={() => setEditingProject(true)} aria-label={tr("Edit project", "Ubah proyek")} title={tr("Edit project", "Ubah proyek")}
+                        className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                    )}
                   </p>
-                  <h3 className="text-[14px] font-semibold text-slate-800">
-                    {c ? `${c.code} · ${c.name}` : room.collection}
+                  <h3 className="flex min-w-0 items-center gap-1.5 text-[14px] font-semibold text-slate-800">
+                    <span className="truncate">{c ? `${c.code} · ${c.name}` : room.collection}</span>
+                    {canEdit && c && !renaming && (
+                      <button onClick={() => setRenaming(true)} aria-label={tr("Edit collection", "Ubah koleksi")} title={tr("Edit collection", "Ubah koleksi")}
+                        className="shrink-0 rounded p-0.5 font-normal text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </h3>
                   {c && <CollectionGallery projectCode={room.project} collection={c} canEdit={canEdit} onChanged={reloadDesign} className="mt-1" />}
                 </div>
@@ -251,6 +272,16 @@ function RoomPanel({
                     canEdit={canEdit} onChanged={reloadTasks} />
                 )}
               </div>
+              {renaming && c && (
+                <div className="border-b border-slate-100 px-4 py-2.5">
+                  <CollectionForm projectCode={room.project} collection={c}
+                    onDone={() => { setRenaming(false); reload(); }} onCancel={() => setRenaming(false)} />
+                </div>
+              )}
+              {editingProject && (
+                <ProjectDrawer code={room.project} onClose={() => setEditingProject(false)}
+                  onChanged={() => { reload(); onProjectChanged(); }} />
+              )}
               {adding && (
                 <div className="border-b border-slate-100 px-4 py-2.5">
                   <ItemForm projectCode={room.project} collectionCode={room.collection}
