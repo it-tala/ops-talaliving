@@ -1,6 +1,6 @@
 -- 0265_procure_factory_outcomes.sql — what became of a factory order after it
 -- arrived: accepted or rejected by the client, the client's claims, and the
--- three-month reminder (O8, kajian F255 §5.8, D412, D421).
+-- three-month reminder (O8, kajian F255 §5.8, D412, D422).
 --
 -- Every factory order (O3: a PO with a project) has a work state, read from
 -- what is already recorded, plus one decision a person makes:

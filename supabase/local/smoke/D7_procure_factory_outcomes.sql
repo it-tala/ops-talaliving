@@ -1,5 +1,5 @@
 -- procure — what became of a factory order after it arrived (0265, O8,
--- kajian F255 §5.8, D412, D421).
+-- kajian F255 §5.8, D412, D422).
 --
 -- DERIVATIONS  the work state is read: ORDER_DRAFT, IN_PRODUCTION, SHIPPED
 --              (a container, not all arrived), ARRIVED (all arrived), then the

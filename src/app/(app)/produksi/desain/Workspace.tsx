@@ -10,7 +10,8 @@ import { design } from "@/demo/api";
 import { boxProgress, itemCode, roomCode, type DesignProject } from "@/services/design/contracts";
 import { AssignmentLine } from "@/components/design/assign-task";
 import { CollectionForm, ItemForm, collectionItems } from "@/components/design/design-board";
-import { BoxBar, BoxChips, ItemBoxes } from "@/components/design/item-boxes";
+import { BoxBar, BoxChips } from "@/components/design/item-boxes";
+import { ItemStudioDrawer } from "@/components/design/item-studio";
 import { useTr } from "@/lib/i18n";
 import { CollectionGallery } from "@/components/design/collection-gallery";
 import { useCanSell } from "@/lib/sell";
@@ -22,7 +23,8 @@ import { NewProject } from "../../proyek/order/ProjectDrawer";
 export interface RoomRef { project: string; collection: string; room: string }
 
 /** Ruang kerja: client › project › collection on the left, the collection's
- *  items with their six boxes in the middle, and the chosen item's boxes below
+ *  items with their six boxes in the middle; an item opens in a drawer laid
+ *  out like a product on Production → BOM, its files beside its BOM (D421)
  *  (Studio Desain S1, D405, D419). Every level can be added to from here, so the
  *  drafters can start from nothing without the Projects menu (F247). Whoever
  *  may open a sale opens the project here too, with the Projects form, and it
@@ -298,33 +300,13 @@ function RoomPanel({
             </Card>
 
             {chosen && (
-              <Card>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-slate-100 px-4 py-3">
-                  <h3 className="min-w-0 flex-1 text-[14px] font-semibold text-slate-800">
-                    <span className="font-mono text-[12px] font-normal text-slate-500">{itemCode(chosen)}</span> · {chosen.name}
-                  </h3>
-                  <span className="text-[12px] tabular-nums text-slate-500">
-                    {chosen.length_mm || chosen.width_mm || chosen.height_mm
-                      ? `${[chosen.length_mm, chosen.width_mm, chosen.height_mm].map((v) => v ?? "—").join(" × ")} mm · ` : ""}
-                    {chosen.qty} pcs
-                  </span>
-                  {canOpenProject && (
-                    <Link href={`/proyek/order/${encodeURIComponent(room.project)}`}
-                      className="inline-flex items-center gap-1 text-[12px] text-brand-700 hover:underline">
-                      <ExternalLink className="h-3 w-3" /> {tr("Project page", "Halaman proyek")}
-                    </Link>
-                  )}
-                  {chosen.status !== "DROPPED" && (
-                    <AssignmentLine scope="item" refNo={chosen.item_no} assignment={taskFor(chosen.item_no)}
-                      complete={(() => { const p = boxProgress(roomBoxes.filter((b) => b.item_no === chosen.item_no)); return p.total > 0 && p.filled === p.total; })()}
-                      canEdit={canEdit} onChanged={reloadTasks} />
-                  )}
-                </div>
-                <div className="p-3">
-                  <ItemBoxes itemNo={chosen.item_no} canEdit={canEdit && chosen.status !== "DROPPED"}
-                    canMakeProduct={canMakeProduct} onChanged={boxesChanged} />
-                </div>
-              </Card>
+              <ItemStudioDrawer itemNo={chosen.item_no} canEdit={canEdit} canMakeProduct={canMakeProduct}
+                showProject={canOpenProject}
+                onClose={() => onItem(null)} onChanged={() => { reloadDesign(); boxesChanged(); }}
+                header={(i, complete) => i.status !== "DROPPED" && (
+                  <AssignmentLine scope="item" refNo={i.item_no} assignment={taskFor(i.item_no)}
+                    complete={complete} canEdit={canEdit} onChanged={reloadTasks} compact />
+                )} />
             )}
           </>
         );

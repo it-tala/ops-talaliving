@@ -1603,7 +1603,7 @@ export interface ProjectOutcome {
   closing_reason_code: ClosingReason | null;
 }
 
-/* ── what became of a factory order after it arrived (0265, O8, D421) ───── */
+/* ── what became of a factory order after it arrived (0265, O8, D422) ───── */
 
 /** Read, not typed: ORDER_DRAFT · IN_PRODUCTION (issued, no container yet) ·
  *  SHIPPED (a container, not all arrived) · ARRIVED (all arrived) · then the

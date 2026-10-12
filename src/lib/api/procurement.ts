@@ -2439,7 +2439,7 @@ export async function listProjectOutcomes(): Promise<Result<ProjectOutcome[]>> {
   })));
 }
 
-/* ── what became of a factory order after it arrived (0265, O8, D421) ───── */
+/* ── what became of a factory order after it arrived (0265, O8, D422) ───── */
 
 type OutRow = Record<string, unknown>;
 const nn = (v: unknown) => (v == null ? 0 : Number(v));

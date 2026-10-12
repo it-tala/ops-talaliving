@@ -18,7 +18,7 @@ import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 
 /** What became of each factory order after it arrived (0265, O8, kajian §5.8,
- *  D412, D421).
+ *  D412, D422).
  *
  *  The state is read — in production, shipped, arrived — and then a person
  *  says what the client said: accepted, or rejected and why. The day the last

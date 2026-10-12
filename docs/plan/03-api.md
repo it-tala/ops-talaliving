@@ -331,7 +331,7 @@ appends the chosen offer — `factory_quote_no`, `factory_vendor_name`,
 `factory_offers` — masked to `may_price_factory('read')`. `may_design('read')`
 now includes `procurement.read`.
 
-### Projects — what became of a factory order (O8, 0265, D421)
+### Projects — what became of a factory order (O8, 0265, D422)
 
 | Method | Path | Notes |
 |---|---|---|
@@ -654,7 +654,10 @@ make the reveal log record a click.
 | GET | `/employees/{no}/overtime/{date}/preview?from=&until=` | what approving would pay, range by range: `[{from_minutes, until_minutes, seg_from, seg_until, hours, multiplier, hourly, amount}]` (`overtime_preview`) — **HRD/payroll only** |
 | PUT | `/employees/{no}/days/{date}/break` | *istirahat tidak dipotong* (D398): `{keep, reason}` — the day's hours get the break back, the overtime break and a rest day's lunch are kept; undone with a reason — `hrd.update` |
 | GET/PUT | `/attendance/presence-pay` | who is *dibayar per kehadiran* now (D409) — `[{employee_no, full_name, reason, starts_on, by_name, at}]` (`presence_pay_list`); PUT `{employee_no, on, reason, starts_on?}` — on, or off from today on; `conflict monthly` for a salary — `hrd.update`. Line field `presence_paid`, day field `presence_paid` |
-| DELETE | `/scans/{id}` | a tap HRD typed (`source = manual`), `{reason}` — moved to `voided_scans` with who/when/why; `conflict not_manual` for the machine's or the phone's — `hrd.update` |
+| DELETE | `/scans/{id}` | any tap (D398; any source since D410), `{reason}` — moved to `voided_scans` with who/when/why — `hrd.update` |
+| PATCH | `/scans/{id}` | change a tap (D410): `{work_date, time, kind \| null, reason}` (`edit_scan`) — it becomes HRD's (`source = manual`); the old time/kind/source/reason kept in `scan_edits`; `conflict unchanged \| already_recorded` — `hrd.update` |
+| GET | `/employees/{no}/days/scans?from=&to=` | every tap: `[{id, work_date, at, source, kind, reason, edited_from}]` (`person_day_scans`) — **HRD/payroll only** |
+| PUT | `/overtime/{sheet_no}/times` | change an evening HRD approved (D410): `{from_minutes, until_minutes, reason}` (`revise_day_overtime`) — the old sheet off (*Diubah: …*) and a new one approved in one transaction; `{sheet_no, hours, replaced}`; day field `from_minutes`/`until_minutes` (`person_day_overtime_times`) — `hrd.update` |
 | GET | `/employees/{no}/days/extras?from=&to=` | `[{kind: break_kept\|manual_scan, id, work_date, at, reason}]` (`person_day_extras`) — **HRD/payroll only** |
 | — | payroll line fields | `early_minutes`, `early_days`, `early_priced`, `early_deduction` beside the late ones (D398): minutes before the weekday's end, taken when the rule book's `early_leave_mode` is `pro_rata`; per day `early_minutes` and `break_kept` |
 | POST | `/overtime/{sheet_no}/withdraw` | `{reason}` — turns an HRD staff sheet off (`paid = false`, the reason kept); `conflict not_hrd_session` for a production sheet or an ask — `hrd.update` |

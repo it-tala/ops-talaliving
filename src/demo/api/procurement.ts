@@ -4709,7 +4709,7 @@ export async function listProjectOutcomes(): Promise<Result<ProjectOutcome[]>> {
   }));
 }
 
-/* ── what became of a factory order after it arrived (0265, O8, D421) ───── */
+/* ── what became of a factory order after it arrived (0265, O8, D422) ───── */
 
 /** Last arrival + 3 months, as Postgres adds an interval to a date. */
 function plusThreeMonths(day: string): string {
