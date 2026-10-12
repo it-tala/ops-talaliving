@@ -10485,3 +10485,41 @@ schemas with it, and `create table if not exists` kept the stripped tables.
 Production was right; the local proof was stale. `ops_qc` is now in
 `rebuild.sh`, `check_shadowing.sh` and `check_schema_isolation.sh`. **A new
 schema goes into the three local scripts in the migration's own PR.**
+## F260 · 2026-10-12 · A number we made up for a thing that already had one, and a board with no way to say "that was wrong"
+
+The owner opened 25009 (Mindi for Living Ikon) and could not fix what had
+been typed. Three things it taught.
+
+**The edit existed; nobody could find it.** Correcting an item meant opening
+its drawer and pressing *Ubah* inside the facts — two clicks away from the
+row, and nothing on the board said the row could be changed at all. A
+collection could not be renamed from anywhere, so `LV463 · 5' Queen Bed` (an
+item's name typed into the collection's) had no road back. And an item typed
+by mistake could only be *dropped*, which keeps it on the board, faded, with
+a reason — the right answer for something that was offered to the client,
+and the wrong one for a typo. Now the pencil is on the row, the collection
+has one, and an item nothing hangs on can be removed; anything with a file,
+an approval, a quotation line, a factory price, a task or a meeting point is
+refused **with the list**, so the person knows why and what to do instead.
+
+**A client's catalogue already numbers its items.** `LV232-B01 Queen Bed` is
+Living Ikon's code; the system turned it into `25009-LV232-B-01`, a number
+nobody at the client would recognise and the drafters had to translate back.
+The code the client uses is the item's name on every screen, the quotation
+print and the Drive folder now — typed, never generated. It is a column of
+its own, not the item number: item numbers are unique across the whole
+system, and the same client will order the same collection again under
+another project.
+
+**Rooms were a level nobody used, and removing a level is not the same as
+deleting a table.** The drafters' tree (D379) had a room between collection
+and item; on the only project with design data, every collection had one
+room or none. Twelve views and functions join through `design_rooms`, so
+each collection keeps exactly one internal room (`00`) and the screens stop
+showing it. Item numbers did not change when items moved into it — files,
+tasks and quotation lines are filed by number, and a renumbering would have
+orphaned every one of them.
+
+**Rule:** before generating an identifier, ask whether the thing already has
+one. And an edit that exists but sits behind the drawer is, to the person
+looking at the row, an edit that does not exist.

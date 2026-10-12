@@ -164,6 +164,8 @@ export interface QuotationLineView {
      drawing its price rests on — the line's pick or the item's latest while a
      draft, frozen once sent. */
   design_item_no: string | null;
+  /** The client's own code for the item, when it has one (0262, D419). */
+  design_client_code: string | null;
   design_item_name: string | null;
   collection_code: string | null;
   collection_name: string | null;

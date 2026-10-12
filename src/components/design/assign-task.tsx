@@ -23,7 +23,7 @@ function addDays(d: string, n: number): string {
   return x.toLocaleDateString("en-CA");
 }
 
-/** Who holds a room or an item and by when — an ordinary HRD task given out
+/** Who holds a collection (its one room, D419) or an item and by when — an ordinary HRD task given out
  *  from Design, closing itself when every box is filled (0250, D402, D403). */
 export function AssignmentLine({
   scope, refNo, assignment, complete, canEdit, onChanged, compact,
@@ -69,7 +69,7 @@ export function AssignmentLine({
         {canEdit && !open && (a?.status === "OPEN" || !complete) && (
           <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-brand-700 hover:bg-brand-50">
             <UserPlus className="h-3.5 w-3.5" />
-            {!a ? tr(scope === "room" ? "Give this room" : "Give this item", scope === "room" ? "Tugaskan ruangan" : "Tugaskan item")
+            {!a ? tr(scope === "room" ? "Give this collection" : "Give this item", scope === "room" ? "Tugaskan koleksi" : "Tugaskan item")
               : a.status === "OPEN" ? tr("Change", "Ubah") : tr("Give again", "Tugaskan lagi")}
           </button>
         )}
@@ -131,8 +131,8 @@ function AssignForm({
       <input value={note} onChange={(e) => setNote(e.target.value)} className={inputCls}
         placeholder={tr("Note for the drafter (optional)", "Catatan untuk drafter (boleh kosong)")} />
       <p className="text-[11px] text-slate-500">
-        {tr("One HRD task for the whole " + (scope === "room" ? "room" : "item") + ". HRD only monitors; it closes itself when every box is filled.",
-          "Satu tugas HRD untuk " + (scope === "room" ? "seluruh ruangan" : "item ini") + ". HRD hanya memantau; selesai sendiri saat semua kotak terisi.")}
+        {tr("One HRD task for the whole " + (scope === "room" ? "collection" : "item") + ". HRD only monitors; it closes itself when every box is filled.",
+          "Satu tugas HRD untuk " + (scope === "room" ? "seluruh koleksi" : "item ini") + ". HRD hanya memantau; selesai sendiri saat semua kotak terisi.")}
       </p>
       <div className="flex justify-end gap-1.5">
         <Button size="sm" variant="ghost" onClick={onCancel} disabled={busy}>{tr("Cancel", "Batal")}</Button>

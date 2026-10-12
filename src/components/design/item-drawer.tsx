@@ -15,7 +15,7 @@ import type { QuotationLineView } from "@/services/quotation/contracts";
 import { cn } from "@/lib/cn";
 import { design, documents } from "@/demo/api";
 import {
-  APPROVAL_CHANNELS, DESIGN_ITEM_STATUSES, DESIGN_ORIGINS,
+  APPROVAL_CHANNELS, DESIGN_ITEM_STATUSES, DESIGN_ORIGINS, itemCode,
   type ApprovalChannel, type DesignApproval, type DesignItemView,
 } from "@/services/design/contracts";
 import type { AttachmentView } from "@/services/documents/contracts";
@@ -40,13 +40,13 @@ export function ItemDrawer({
 
   return (
     <Drawer open onClose={onClose} width="max-w-2xl"
-      title={item ? <span><span className="font-mono text-[13px] text-slate-500">{item.item_no}</span> · {item.name}</span> : itemNo}
-      subtitle={item ? `${tr("Collection", "Koleksi")} ${item.collection_code} · ${item.collection_name} › ${item.room_name}` : undefined}>
+      title={item ? <span><span className="font-mono text-[13px] text-slate-500">{itemCode(item)}</span> · {item.name}</span> : itemNo}
+      subtitle={item ? `${tr("Collection", "Koleksi")} ${item.collection_code} · ${item.collection_name}` : undefined}>
       <Loaded state={state} onRetry={reload}>
         {(i) => (
           <div className="space-y-5">
-            <Facts i={i} canEdit={canEdit} onChanged={changed} />
-            <SaleFiles targets={[{ entity: "design_item", entity_no: i.item_no, label: i.item_no }]}
+            <Facts i={i} canEdit={canEdit} onChanged={changed} onRemoved={() => { onChanged(); onClose(); }} />
+            <SaleFiles targets={[{ entity: "design_item", entity_no: i.item_no, label: itemCode(i) }]}
               canEdit={canEdit} onChanged={changed} />
             <Approvals i={i} canEdit={canEdit} onChanged={changed} />
             <ItemCompleteness i={i} canEdit={canEdit} />
@@ -61,7 +61,9 @@ export function ItemDrawer({
   );
 }
 
-function Facts({ i, canEdit, onChanged }: { i: DesignItemView; canEdit: boolean; onChanged: () => void }) {
+function Facts({ i, canEdit, onChanged, onRemoved }: {
+  i: DesignItemView; canEdit: boolean; onChanged: () => void; onRemoved: () => void;
+}) {
   const tr = useTr();
   const lang = useLang();
   const { toast } = useToast();
@@ -86,8 +88,8 @@ function Facts({ i, canEdit, onChanged }: { i: DesignItemView; canEdit: boolean;
 
   if (editing) {
     return (
-      <ItemForm projectCode={i.project_code} collectionCode={i.collection_code} roomCode={i.room_code} item={i}
-        onDone={() => { setEditing(false); onChanged(); }} onCancel={() => setEditing(false)} />
+      <ItemForm projectCode={i.project_code} collectionCode={i.collection_code} item={i}
+        onDone={() => { setEditing(false); onChanged(); }} onCancel={() => setEditing(false)} onRemoved={onRemoved} />
     );
   }
 

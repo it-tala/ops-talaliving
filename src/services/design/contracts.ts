@@ -2,7 +2,8 @@
  *  files and the client's approval (`ops_procure`, 0222, P4).
  *
  *  The order is the drafters' own: client → project → collection / catalogue →
- *  room → item (D379). An item is what is drawn and offered before anything is
+ *  item (D379; rooms left the screens in D419 — each collection keeps one
+ *  internal room, code `00`, so the database joins still hold). An item is what is drawn and offered before anything is
  *  ordered; it becomes a **product** — with a BOM and Job Orders — once it is
  *  (P5). Its status is read from its files and approvals, never typed (A3).
  */
@@ -33,6 +34,11 @@ export const DESIGN_ITEM_STATUSES: {
   { code: "ORDERED", get label() { return trNow("Ordered", "Dipesan"); }, tone: "green" },
   { code: "DROPPED", get label() { return trNow("Dropped", "Dikeluarkan"); }, tone: "red" },
 ];
+
+/** What an item is called on screen: the client's code when it has one, else
+ *  our number (D419). */
+export const itemCode = (i: { item_no: string; client_item_code?: string | null }): string =>
+  i.client_item_code || i.item_no;
 
 export type ApprovalChannel = "whatsapp" | "meeting" | "email" | "signed" | "other";
 
@@ -74,8 +80,12 @@ export interface DesignRoom {
 
 export interface DesignItemView {
   id: string;
-  /** 26007-A-LR-01: project, collection, room, number in the room. */
+  /** 25009-LV232-01: project, collection, number — the internal key files
+   *  and tasks are filed by. Older items carry a room (26007-A-LR-01). */
   item_no: string;
+  /** The client's own code for the item (LV232-B01), typed, never generated
+   *  (0262, D419). Required when the client designed it. */
+  client_item_code: string | null;
   seq: number;
   name: string;
   qty: number;
@@ -247,7 +257,10 @@ export interface ProjectDesign {
 export interface DesignItemInput {
   project_code: string;
   collection_code: string;
-  room_code: string;
+  /** Left out: the collection's own room (D419). */
+  room_code?: string | null;
+  /** The client's code; required when `origin` is `client`. */
+  client_item_code?: string | null;
   name: string;
   qty: number;
   origin: DesignOrigin;
@@ -255,7 +268,7 @@ export interface DesignItemInput {
   width_mm?: number | null;
   height_mm?: number | null;
   note?: string | null;
-  /** Given: corrects that item (it never moves room). Left out: a new one. */
+  /** Given: corrects that item (it never moves collection). Left out: a new one. */
   item_no?: string | null;
 }
 

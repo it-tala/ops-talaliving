@@ -147,6 +147,7 @@ function designOf(state: DemoState, q: Quotation, l: QuotationLine) {
   const eff = q.status === "DRAFT" ? (l.design_file_id ?? latest) : (l.frozen_design_file_id ?? null);
   return {
     design_item_no: item?.item_no ?? null,
+    design_client_code: item?.client_item_code ?? null,
     design_item_name: item?.name ?? null,
     collection_code: col?.code ?? null,
     collection_name: col?.name ?? null,
