@@ -319,6 +319,11 @@ export interface DemoState {
     withdrawn_at: string | null;
   }[];
   voided_scans?: { id: string; employee_id: string; work_date: string; at: string; reason: string; voided_at: string }[];
+  /** Taps HRD changed, and what they were (0253, D410). */
+  scan_edits?: {
+    scan_id: string; old_at: string; old_kind: string | null; old_source: string;
+    new_at: string; new_kind: string | null; reason: string; by: string; at: string;
+  }[];
   attendance_exemptions?: {
     employee_id: string; reason: string; starts_on: string | null; by: string; at: string;
     ends_on: string | null;

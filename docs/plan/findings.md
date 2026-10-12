@@ -10260,6 +10260,32 @@ none, the complaint is usually about a number the flexible thing produced —
 here a day the clock priced at nothing for somebody whose clock is not the
 point.
 
+## F253 · 2026-10-09 · "Cannot be changed" was three things: a missing function, a grey button, and no edit
+
+*Salah input tap dan overtime tidak bisa diubah* had no screenshot, so each
+road a change takes was checked against production rather than guessed:
+
+1. **Hapus tap** called `void_scan`, which was never applied: 0246 went to
+   production in parts and the part with a `delete` in it is held at the
+   tool's confirmation gate, left for the SQL Editor. The button failed for
+   everybody until the owner ran it there (F251).
+2. **Every button in the day editor waits for a reason**, and the reason
+   field was the last thing in the editor, below the status options. Tambah
+   tap, Hapus, Batalkan and Setujui all sat grey with nothing saying why.
+3. **There was no edit.** A tap could be added or (if HRD typed it) taken
+   out; a machine or phone tap could not be touched; an approved evening
+   could be cancelled and approved again only by hand, two steps that leave
+   the night unpaid between them.
+
+Fixes: the reason first with a sentence under it; `edit_scan` for any tap
+(an UPDATE, so it is not held at the gate; what it was kept in
+`scan_edits`); `void_scan` for any tap; `revise_day_overtime` in one
+transaction.
+
+**Rule:** when a function's apply is left to somebody else, the screen that
+calls it is broken until they do — say so where the button is, and check the
+function exists before reporting the feature done.
+
 ## F254 · 2026-10-10 · Two branches restated the same function from the same base, and production kept the last one
 
 PR #163 (*dibayar per kehadiran*, D409) and PR #167 (a day wage's potongan
