@@ -332,9 +332,9 @@ const MODULE_OF = {
      pseudo-module and opens exactly when `identity`, `hr` and `documents`
      answer every call it makes. */
   saya: "profil",
-  /* `/qc` (0261, O6): the field QC team. Its own module, held dark below until
-     `ops_qc` is applied **and exposed** in the API settings — the same order
-     `marketing` opened in (D315, D316). */
+  /* `/qc` (0261, O6): the field QC team. Its own module, held dark until
+     `ops_qc` was applied **and exposed** in the API settings — the same order
+     `marketing` opened in (D315, D316). Open since D425. */
   qc: "qc",
 };
 
@@ -391,6 +391,8 @@ const LIVE_MODULES = [
      on (0163–0166 add policies and seams to `ops_core`/`ops_hr`, not a new
      one). */
   "profil",
+  /* `ops_qc` applied (0261–0264, O6–O7) and exposed, 2026-10-12 (D425). */
+  "qc",
 ];
 
 const IMPL = Object.fromEntries(LIVE.map((s) => [s, implementedFunctions(s)]));
