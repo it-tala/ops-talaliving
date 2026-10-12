@@ -26,6 +26,7 @@ import { RateForm } from "../rate/RateForm";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useTr, type Message } from "@/lib/i18n";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** One product: its gambar kerja on the left, what one unit is made of on the
  *  right, and what that comes to at the bottom (owner's brief, 2026-09-23).
@@ -699,7 +700,7 @@ function BomTable(props: PartProps & { onSuggest: () => void; suggesting: boolea
       {adding && <AddLine {...props} onDone={() => setAdding(false)} />}
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] border-collapse text-[13px]">
+        <ExcelTable className="w-full min-w-[760px] border-collapse text-[13px]">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
               <th className="px-3 py-2 text-left">{tr("Component", "Komponen")}</th>
@@ -747,7 +748,7 @@ function BomTable(props: PartProps & { onSuggest: () => void; suggesting: boolea
               </td></tr>
             </tbody>
           )}
-        </table>
+        </ExcelTable>
       </div>
     </div>
   );

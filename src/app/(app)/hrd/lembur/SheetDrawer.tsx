@@ -18,6 +18,7 @@ import { useDecisionLine } from "../../saya/overtime-ask";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** One sheet, in full — and the one place the two kinds visibly differ.
  *
@@ -159,7 +160,7 @@ export function SheetDrawer({
 
             {/* Who, how long, doing what — and for production, on which order. */}
             <div className="overflow-x-auto rounded-xl border border-slate-200">
-              <table className="w-full border-collapse text-[13px]">
+              <ExcelTable className="w-full border-collapse text-[13px]">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
                     <th className="px-3 py-2 text-left">{tr("Name", "Nama")}</th>
@@ -215,7 +216,7 @@ export function SheetDrawer({
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </ExcelTable>
             </div>
 
             {/* The paper. Signed sheet for production, screenshot for staff. */}

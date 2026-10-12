@@ -16,6 +16,7 @@ import { MonthDrawer } from "./MonthDrawer";
 import { DuePanel } from "./DuePanel";
 import { useTr } from "@/lib/i18n";
 import { isSubscriptionLine } from "@/services/accounting/subscriptions";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** Will the money last, and what is due next.
  *
@@ -276,7 +277,7 @@ function Grid({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[1520px] border-collapse">
+      <ExcelTable className="w-full min-w-[1520px] border-collapse">
         <thead>{head}</thead>
         <tbody>
           <tr className="bg-emerald-50/40">
@@ -350,7 +351,7 @@ function Grid({
             ))}
           </tr>
         </tbody>
-      </table>
+      </ExcelTable>
     </div>
   );
 }

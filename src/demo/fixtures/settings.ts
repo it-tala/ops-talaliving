@@ -126,7 +126,7 @@ export const APP_SETTINGS: AppSetting[] = [
   {
     key: "hr.work_log_window_days", group: "operations",
     label: "Laporan harian bisa diisi sejauh",
-    help: "Berapa hari ke belakang dan ke depan sebuah catatan laporan harian boleh diberi tanggal (D427). Hari yang diisi belakangan tetap terlihat sebagai ditulis belakangan; rencana ke depan baru dihitung terisi setelah dibuka lagi pada harinya.",
+    help: "Berapa hari ke belakang dan ke depan sebuah catatan laporan harian boleh diberi tanggal (D428). Hari yang diisi belakangan tetap terlihat sebagai ditulis belakangan; rencana ke depan baru dihitung terisi setelah dibuka lagi pada harinya.",
     kind: "number", value: "366", default_value: "366",
     unit: "hari", choices: null, reach: "forward",
     locked_reason: null, managed_at: null, affects: ["Laporan harian"],

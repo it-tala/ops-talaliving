@@ -13,6 +13,7 @@ import { CLOSED_PROJECT_STATUSES, PROJECT_STATUSES, type ProjectStatus } from "@
 import { useCanSell } from "@/lib/sell";
 import { useTr } from "@/lib/i18n";
 import { ProjectDrawer } from "./ProjectDrawer";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** The customer's orders (0111).
  *
@@ -95,9 +96,9 @@ export default function ProjectsPage() {
                 </label>
               </div>
               <Paged rows={rows} pageSize={20} unit={tr("projects", "proyek")}>
-                {(shown) => (
+                {(shown, _offset, showAll) => (
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[900px] border-collapse text-[13px]">
+                    <ExcelTable showAll={showAll} className="w-full min-w-[900px] border-collapse text-[13px]">
                       <thead>
                         <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
                           <th className="px-4 py-2 text-left">{tr("Project", "Proyek")}</th>
@@ -151,7 +152,7 @@ export default function ProjectsPage() {
                           <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-500">{tr("No projects here.", "Tidak ada proyek di sini.")}</td></tr>
                         )}
                       </tbody>
-                    </table>
+                    </ExcelTable>
                   </div>
                 )}
               </Paged>

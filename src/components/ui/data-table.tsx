@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { Pager } from "./pager";
 import { useTr } from "@/lib/i18n";
+import { ExcelButton, useExcelExport } from "./excel-export";
 
 export interface Column<T> {
   key: string;
@@ -11,6 +12,9 @@ export interface Column<T> {
   align?: "left" | "right" | "center";
   className?: string;
   render: (row: T, index: number) => React.ReactNode;
+  /** `false` for a column that is a control, not data (an action button) —
+   *  left out of the Excel download. */
+  export?: boolean;
 }
 
 /** How many rows a screen shows at once.
@@ -37,6 +41,8 @@ export function DataTable<T>({
   footer,
   pageSize = DEFAULT_PAGE_SIZE,
   paginate = true,
+  exportName,
+  exportRows,
 }: {
   columns: Column<T>[];
   rows: T[];
@@ -49,33 +55,51 @@ export function DataTable<T>({
   pageSize?: number;
   /** Off only where the whole set is the point — a slip, a printed sheet. */
   paginate?: boolean;
+  /** File and sheet name for *Unduh Excel*; the page and card title when
+   *  left out. */
+  exportName?: string;
+  /** For a list paged at the server, where `rows` is only this page: every
+   *  row under the same filters, fetched when the download is asked for. */
+  exportRows?: () => Promise<T[]>;
 }) {
   const tr = useTr();
   const alignClass = (a?: "left" | "right" | "center") =>
     a === "right" ? "text-right" : a === "center" ? "text-center" : "text-left";
 
   const [page, setPage] = useState(0);
+  /* Every row, for the one frame the Excel download reads the table — the
+     file is the whole list, never just the page on screen. */
+  const [all, setAll] = useState(false);
+  const [fetched, setFetched] = useState<T[] | null>(null);
+  const tableRef = useRef<HTMLTableElement>(null);
+  const excel = useExcelExport(tableRef, {
+    name: exportName,
+    showAll: exportRows
+      ? async (on) => { setFetched(on ? await exportRows() : null); setAll(on); }
+      : paginate ? setAll : undefined,
+  });
   const pages = paginate ? Math.max(Math.ceil(rows.length / pageSize), 1) : 1;
 
   /* A filter that shortens the list must not leave somebody staring at an
      empty page seven. */
   useEffect(() => { setPage(0); }, [rows.length, pageSize]);
   const current = Math.min(page, pages - 1);
-  const offset = paginate ? current * pageSize : 0;
+  const offset = paginate && !all ? current * pageSize : 0;
   const shown = useMemo(
-    () => (paginate ? rows.slice(offset, offset + pageSize) : rows),
-    [rows, offset, pageSize, paginate],
+    () => (fetched && all ? fetched : paginate && !all ? rows.slice(offset, offset + pageSize) : rows),
+    [rows, offset, pageSize, paginate, all, fetched],
   );
 
   return (
     <div>
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-sm">
+        <table ref={tableRef} className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50/70">
               {columns.map((col) => (
                 <th
                   key={col.key}
+                  data-no-export={col.export === false ? "" : undefined}
                   className={cn(
                     "whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500",
                     alignClass(col.align),
@@ -111,6 +135,7 @@ export function DataTable<T>({
                   {columns.map((col) => (
                     <td
                       key={col.key}
+                      data-no-export={col.export === false ? "" : undefined}
                       className={cn(
                         dense ? "px-4 py-2" : "px-4 py-3",
                         "whitespace-nowrap text-slate-700",
@@ -142,6 +167,7 @@ export function DataTable<T>({
           onPage={setPage}
         />
       )}
+      {rows.length > 0 && <ExcelButton onClick={excel.run} busy={excel.busy} />}
     </div>
   );
 }

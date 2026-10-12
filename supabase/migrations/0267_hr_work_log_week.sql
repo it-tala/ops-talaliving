@@ -1,5 +1,5 @@
 -- 0267 — laporan harian seperti lembar kerja: item jangka panjang, isi mundur
--- dan ke depan, ringkasan per minggu (D427).
+-- dan ke depan, ringkasan per minggu (D428).
 --
 -- ── the ask ────────────────────────────────────────────────────────────────
 --
@@ -52,7 +52,7 @@
 
 insert into ops_core.settings (key, value, note) values
   ('hr.work_log_window_days', '366'::jsonb,
-   'How many days back and ahead of today a daily-log line may be dated (D427).');
+   'How many days back and ahead of today a daily-log line may be dated (D428).');
 
 /* ── item jangka panjang ─────────────────────────────────────────────────── */
 create table ops_hr.work_items (
@@ -71,7 +71,7 @@ create unique index work_items_title_once on ops_hr.work_items (employee_id, low
 alter table ops_hr.work_items enable row level security;
 
 comment on table ops_hr.work_items is
-  'A person''s own long-running rows of the daily log — the sheet''s major items (D427).';
+  'A person''s own long-running rows of the daily log — the sheet''s major items (D428).';
 
 create policy work_items_read on ops_hr.work_items for select to authenticated
   using (ops_core.has_permission('hrd.read')
@@ -153,7 +153,7 @@ create unique index work_week_notes_once on ops_hr.work_week_notes
 alter table ops_hr.work_week_notes enable row level security;
 
 comment on table ops_hr.work_week_notes is
-  'Ringkasan minggu: the person''s own summary of a week, per row of the daily log (D427).';
+  'Ringkasan minggu: the person''s own summary of a week, per row of the daily log (D428).';
 
 create policy work_week_notes_read on ops_hr.work_week_notes for select to authenticated
   using (ops_core.has_permission('hrd.read')

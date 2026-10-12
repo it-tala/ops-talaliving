@@ -13,6 +13,7 @@ import { useLoad } from "@/components/ui/loaded";
 import { AdjustSection, ConfirmAll, DayEditor, type AdjustEditor } from "./SheetEditors";
 import { useTr } from "@/lib/i18n";
 import { officeClock } from "@/lib/office";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** Payroll as one sheet (0213, D373).
  *
@@ -165,7 +166,7 @@ export function PayrollSheet({
           ) : undefined}
         />
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[980px] text-[13px]">
+          <ExcelTable className="w-full min-w-[980px] text-[13px]">
             <thead className="border-y border-slate-100 bg-slate-50/60 text-left text-[11px] uppercase tracking-wide text-slate-500">
               <tr>
                 {selectable && <th className="w-10 px-3 py-2" />}
@@ -276,7 +277,7 @@ export function PayrollSheet({
                 </tr>
               </tfoot>
             )}
-          </table>
+          </ExcelTable>
         </div>
       </Card>
 
@@ -471,7 +472,7 @@ function PersonBreakdown({ line: l, onClose, onPersonSettings, adjust, period, e
               dates={l.days.filter((d) => d.unconfirmed).map((d) => d.work_date)} onDone={dayDone} />
           )}
           <div className="overflow-x-auto rounded-lg border border-slate-200">
-            <table className="w-full min-w-[560px] text-[12px]">
+            <ExcelTable className="w-full min-w-[560px] text-[12px]">
               <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-2 py-1.5">{tr("Day", "Hari")}</th>
@@ -564,7 +565,7 @@ function PersonBreakdown({ line: l, onClose, onPersonSettings, adjust, period, e
                   <td colSpan={canEditDays ? 2 : 1} />
                 </tr>
               </tfoot>
-            </table>
+            </ExcelTable>
           </div>
         </section>
 

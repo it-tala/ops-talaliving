@@ -4385,7 +4385,7 @@ export async function listWorkLog(
 
 /** Writing a line — `ops_hr.log_work` (0267), same checks in the same order.
  *  The person is the signed-in account's employee; the day is any in the
- *  window (D427), today when not given. */
+ *  window (D428), today when not given. */
 export async function logWork(
   input: {
     entry_id?: string | null;
@@ -4565,7 +4565,7 @@ export async function promoteWorkLog(
   return ok(SERVICE, taskView(after, after.tasks.find((x) => x.task_no === made.data.task_no)!));
 }
 
-/* ── item jangka panjang dan ringkasan minggu (D427) ─────────────────── */
+/* ── item jangka panjang dan ringkasan minggu (D428) ─────────────────── */
 
 function workItemView(state: DemoState, it: (DemoState["work_items"] & object)[number]): WorkItemView {
   const lines = state.work_log.filter((l) => l.item_id === it.id);

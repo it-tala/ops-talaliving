@@ -8,7 +8,7 @@ import type { WorkItem, WorkLog } from "@/services/hr/contracts";
  *  many days. Putri has no lines at all, and that measure reads as what it is.
  *  Nothing here is dated today: today is the reader's to write.
  */
-/** Andi's own long-running rows (D427) — the sheet's *major items*. One is
+/** Andi's own long-running rows (D428) — the sheet's *major items*. One is
  *  closed, the way the sheet marks a row *Deprecated*. */
 export const WORK_ITEMS: WorkItem[] = [
   { id: "wit_001", employee_id: "emp_04", title: "Database vendor kayu", status: "aktif",

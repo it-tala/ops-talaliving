@@ -1145,7 +1145,7 @@ export type WorkProgress = "lanjut" | "selesai" | "tertahan";
 
 /** One line of somebody's day, as stored (`ops_hr.work_log`).
  *
- *  Written by the person only. Since D427 any day in the window — back, and
+ *  Written by the person only. Since D428 any day in the window — back, and
  *  ahead as personal planning — and changeable later; the record keeps when
  *  it was written instead (`created_at`), and a day counts as *logged* only
  *  once a line for it was written or touched on or after it. A line is for a
@@ -1158,7 +1158,7 @@ export interface WorkLog {
   employee_id: string;
   work_date: string;
   task_id: string | null;
-  /** One of the person's own items (D427). Never together with `task_id`. */
+  /** One of the person's own items (D428). Never together with `task_id`. */
   item_id: string | null;
   summary: string;
   progress: WorkProgress;
@@ -1196,7 +1196,7 @@ export interface WorkLogEntry {
   hours: number | null;
   created_at: string;
   updated_at: string | null;
-  /** The reader's own line, not made a task — any day (D427). */
+  /** The reader's own line, not made a task — any day (D428). */
   editable: boolean;
   promoted_task_no: string | null;
   item_id: string | null;
@@ -1210,7 +1210,7 @@ export interface WorkLogEntry {
 export type WorkItemStatus = "aktif" | "selesai" | "dihentikan";
 
 /** A person's own long-running row of the daily log — the sheet's *major
- *  item* (`ops_hr.work_items`, D427). Named in their own words, picked from
+ *  item* (`ops_hr.work_items`, D428). Named in their own words, picked from
  *  the same dropdown as tasks and dadakan. */
 export interface WorkItem {
   id: string;
@@ -1288,7 +1288,7 @@ export interface WorkLogRosterRow {
   /** Cuti, sakit, izin, libur, mangkir, setengah hari — or null. */
   mark_kind: string | null;
   /** Lines reported on the day or later — a plan not yet come back to is
-   *  not counted (D427). */
+   *  not counted (D428). */
   entries: number;
   /** Planned work: a task or the person's own item. */
   task_entries: number;
@@ -1331,7 +1331,7 @@ export interface WorkEvidence {
   hours_dadakan: number;
   entries_without_hours: number;
   /** Lines written after their own day, and lines written ahead of it as a
-   *  plan (D427) — printed, never scored. */
+   *  plan (D428) — printed, never scored. */
   written_later: number;
   written_ahead: number;
   /** Dadakan entries HRD turned into tasks. */

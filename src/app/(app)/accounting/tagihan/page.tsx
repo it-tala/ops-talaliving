@@ -12,6 +12,7 @@ import { accounting } from "@/demo/api";
 import type { CashCellState, MonthlyBill } from "@/services/accounting/contracts";
 import { SCHEME_LABEL } from "@/services/hr/contracts";
 import { useTr, type Message, type Tr } from "@/lib/i18n";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 const STATE_TONE: Record<CashCellState, "red" | "amber" | "green" | "slate" | "brand"> = {
   OVERDUE: "red", DUE: "amber", PAID: "green", PARTIAL: "amber", PLANNED: "slate", SKIPPED: "slate",
@@ -261,7 +262,7 @@ function Section({ title, subtitle, icon, rows, tone, muted }: {
     <Card className={cn("mb-4", tone === "red" && "border-rose-200")}>
       <CardHeader title={title} subtitle={subtitle} icon={icon} />
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[820px] border-collapse text-[13px]">
+        <ExcelTable className="w-full min-w-[820px] border-collapse text-[13px]">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
               <th className="px-4 py-2 text-left">{tr("Date", "Tanggal")}</th>
@@ -355,7 +356,7 @@ function Section({ title, subtitle, icon, rows, tone, muted }: {
               </tr>
             ))}
           </tbody>
-        </table>
+        </ExcelTable>
       </div>
     </Card>
   );

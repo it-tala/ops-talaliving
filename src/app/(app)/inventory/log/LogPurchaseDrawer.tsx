@@ -18,6 +18,7 @@ import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import { officeToday } from "@/lib/office";
 import { useTr } from "@/lib/i18n";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** One delivery of logs: every stick measured, every board that came out.
  *
@@ -162,7 +163,7 @@ export function LogPurchaseDrawer({
                 <Truck className="h-3.5 w-3.5" /> {tr("Costs besides the wood", "Biaya di luar kayu")} ({p.costs.length})
               </p>
               <div className="overflow-x-auto rounded-xl border border-slate-200">
-                <table className="w-full border-collapse text-[12px]">
+                <ExcelTable className="w-full border-collapse text-[12px]">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/70 text-[10px] uppercase tracking-wide text-slate-500">
                       <th className="px-3 py-1.5 text-left">{tr("Kind", "Jenis")}</th>
@@ -190,7 +191,7 @@ export function LogPurchaseDrawer({
                       </td></tr>
                     )}
                   </tbody>
-                </table>
+                </ExcelTable>
               </div>
               {mayEdit && (
                 <div className="mt-2 grid gap-2 sm:grid-cols-3">
@@ -246,7 +247,7 @@ export function LogPurchaseDrawer({
                 <TreePine className="h-3.5 w-3.5" /> {tr("Logs", "Batang")} ({p.logs.length})
               </p>
               <div className="overflow-x-auto rounded-xl border border-slate-200">
-                <table className="w-full border-collapse text-[12px]">
+                <ExcelTable className="w-full border-collapse text-[12px]">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/70 text-[10px] uppercase tracking-wide text-slate-500">
                       <th className="px-3 py-1.5 text-left">{tr("Tag", "Tanda")}</th>
@@ -273,7 +274,7 @@ export function LogPurchaseDrawer({
                       <tr><td colSpan={5} className="px-3 py-4 text-center text-slate-500">{tr("No logs measured yet.", "Belum ada batang yang diukur.")}</td></tr>
                     )}
                   </tbody>
-                </table>
+                </ExcelTable>
               </div>
               {mayEdit && (
                 <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_90px_90px_auto]">
@@ -297,7 +298,7 @@ export function LogPurchaseDrawer({
                 <Layers className="h-3.5 w-3.5" /> {tr("Boards", "Papan")} ({tr(`${p.boards.reduce((a, b) => a + b.qty, 0)} pieces`, `${p.boards.reduce((a, b) => a + b.qty, 0)} lembar`)})
               </p>
               <div className="overflow-x-auto rounded-xl border border-slate-200">
-                <table className="w-full border-collapse text-[12px]">
+                <ExcelTable className="w-full border-collapse text-[12px]">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/70 text-[10px] uppercase tracking-wide text-slate-500">
                       <th className="px-3 py-1.5 text-left">{tr("Size", "Ukuran")}</th>
@@ -331,7 +332,7 @@ export function LogPurchaseDrawer({
                       <tr><td colSpan={5} className="px-3 py-4 text-center text-slate-500">{tr("No boards reported yet.", "Belum ada papan yang dilaporkan.")}</td></tr>
                     )}
                   </tbody>
-                </table>
+                </ExcelTable>
               </div>
               {mayEdit && (
                 <>

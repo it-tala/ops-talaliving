@@ -10645,7 +10645,21 @@ Order. Both are now a pencil where the name is read, and the project one
 opens the Projects drawer itself rather than a second form with its own
 idea of which fields a project has.
 
-## F266 · 2026-10-12 · A rule that forbids can often become a rule that records
+## F266 · 2026-10-12 · A download of the page you are on is a download of the wrong thing
+
+Every table pages (D157), so the obvious export — read the table off the
+screen — hands over rows 1–25 and says nothing about the other thirty. The
+ledger made it sharper: it is paged at the server, so the browser never even
+holds the rest. The export therefore asks for the whole list first (all rows
+rendered for the one frame it reads, or fetched under the same filters for a
+server-paged list) and only then reads. Reading the rendered table rather
+than keeping a second column list per screen is what made 78 tables
+tractable in one change — and the price of that is that a cell is whatever
+the screen shows, so stacked lines (a name over its code) are joined with
+` · ` instead of running together as `n8n Cloudn8n`, and `Rp 1,250,000` is
+turned back into a number in the locale in force, or Excel cannot sum it.
+
+## F267 · 2026-10-12 · A rule that forbids can often become a rule that records
 
 D371 made the daily log *today only*, because a log that can be written the
 night before a review is not evidence. The owner's sheet works the other

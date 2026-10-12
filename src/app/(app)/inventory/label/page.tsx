@@ -13,6 +13,7 @@ import { officeToday } from "@/lib/office";
 import { inventory } from "@/demo/api";
 import { ASSET_OWNERSHIP_LABELS, type LabelKind, type LabelSource } from "@/services/inventory/contracts";
 import { useTr } from "@/lib/i18n";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** Inventory → Labels (D321).
  *
@@ -218,7 +219,7 @@ export default function LabelPage() {
                 </p>
               ) : (
                 <div className="max-h-[520px] overflow-y-auto">
-                  <table className="w-full text-[13px]">
+                  <ExcelTable className="w-full text-[13px]">
                     <thead className="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
                       <tr>
                         <th className="w-8 px-3 py-2">
@@ -250,7 +251,7 @@ export default function LabelPage() {
                         </tr>
                       ))}
                     </tbody>
-                  </table>
+                  </ExcelTable>
                 </div>
               )}
             </Loaded>

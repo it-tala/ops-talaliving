@@ -1904,7 +1904,7 @@ export function dailyLogCoverage(
   return { expected, logged, counted_from, counted_to };
 }
 
-/** Dadakan: neither a task nor one of the person's own items (D427). */
+/** Dadakan: neither a task nor one of the person's own items (D428). */
 export function isDadakan(l: Pick<WorkLog, "task_id" | "item_id">): boolean {
   return l.task_id === null && (l.item_id ?? null) === null;
 }

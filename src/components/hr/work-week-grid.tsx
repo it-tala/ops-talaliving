@@ -12,7 +12,7 @@ import type { WorkLogEntry, WorkItemView, WorkWeek } from "@/services/hr/contrac
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 
-/** The Monday of the week a day falls in (D427: weeks start on Monday). */
+/** The Monday of the week a day falls in (D428: weeks start on Monday). */
 export function weekStartOf(day: string): string {
   const wd = new Date(`${day}T00:00:00Z`).getUTCDay();
   return addDays(day, -((wd + 6) % 7));
@@ -48,7 +48,7 @@ function rowKeyOf(l: WorkLogEntry): string {
 }
 
 /** Laporan harian **per minggu** — the shape of the personal work-plan sheet
- *  (D427): one row per item, task or dadakan; a week summary, then Senin to
+ *  (D428): one row per item, task or dadakan; a week summary, then Senin to
  *  Minggu. Days the person does not work are shaded; an office holiday is
  *  named. Lines dated ahead of when they were written are plans and read as
  *  such.

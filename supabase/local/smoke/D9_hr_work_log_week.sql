@@ -1,4 +1,4 @@
--- D9_hr_work_log_week.sql — laporan harian seperti lembar kerja (0267, D427).
+-- D9_hr_work_log_week.sql — laporan harian seperti lembar kerja (0267, D428).
 --
 -- Yang dibuktikan:
 --   • item jangka panjang milik orangnya sendiri: dibuat, dipilih untuk

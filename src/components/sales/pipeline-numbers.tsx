@@ -8,6 +8,7 @@ import { officeToday } from "@/lib/office";
 import { procurement } from "@/demo/api";
 import type { ProjectOutcome, ProjectStatus } from "@/services/procurement/contracts";
 import { useTr } from "@/lib/i18n";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 const DAY = 86_400_000;
 const within = (day: string | null, months: number, today: string) =>
@@ -96,7 +97,7 @@ function AgeByStage({ open }: { open: ProjectOutcome[] }) {
   return (
     <div>
       <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">{tr("Age in stage", "Umur di tahap")}</h3>
-      <table className="w-full text-[13px]">
+      <ExcelTable className="w-full text-[13px]">
         <thead>
           <tr className="text-[11px] text-slate-400">
             <th className="py-1 text-left font-normal">{tr("Stage", "Tahap")}</th>
@@ -120,7 +121,7 @@ function AgeByStage({ open }: { open: ProjectOutcome[] }) {
             );
           })}
         </tbody>
-      </table>
+      </ExcelTable>
     </div>
   );
 }
@@ -146,7 +147,7 @@ function WinTable({
       {sorted.length === 0 ? (
         <p className="text-[12px] text-slate-400">{tr("Nothing recorded yet.", "Belum ada catatan.")}</p>
       ) : (
-        <table className="w-full text-[13px]">
+        <ExcelTable className="w-full text-[13px]">
           <thead>
             <tr className="text-[11px] text-slate-400">
               <th className="py-1 text-left font-normal" />
@@ -169,7 +170,7 @@ function WinTable({
               </tr>
             ))}
           </tbody>
-        </table>
+        </ExcelTable>
       )}
     </div>
   );

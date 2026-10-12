@@ -20,6 +20,7 @@ import { actualHours } from "@/services/hr/on-site";
 import { ImportScans } from "./ImportScans";
 import { DayDrawer } from "./DayDrawer";
 import { MarkDay } from "./MarkDay";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /* Leaflet reads `window`, so the map is never rendered on the server (D361). */
 const TapMap = dynamic(() => import("@/components/attendance/tap-map").then((m) => m.TapMap), {
@@ -427,7 +428,7 @@ function PeopleGrid({
   const tr = useTr();
   const members = s.employees.filter((e) => (e.pay_basis === "monthly") === (group === "monthly"));
   /* Pages by person like every table (D157). */
-  const { shown: people, pager } = usePaged(members, 12);
+  const { shown: people, pager, showAll } = usePaged(members, 12);
   const lineOf = new Map((pay ?? []).map((l) => [l.employee_no, l]));
   if (members.length === 0) return null;
 
@@ -456,7 +457,7 @@ function PeopleGrid({
         action={<SourceBadge state={sheetState} />}
       />
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] border-collapse">
+        <ExcelTable showAll={showAll} className="w-full min-w-[760px] border-collapse">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50/70">
               <th className="sticky left-0 z-10 bg-slate-50/70 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
@@ -572,7 +573,7 @@ function PeopleGrid({
               </td>
             </tr>
           </tfoot>
-        </table>
+        </ExcelTable>
       </div>
       {payFailed && (
         <p className="border-t border-slate-100 px-4 py-2 text-[12px] text-amber-800">

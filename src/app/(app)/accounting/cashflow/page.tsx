@@ -23,6 +23,7 @@ import { WeekDialog } from "./WeekDialog";
 import { OpeningDrawer } from "./OpeningDrawer";
 import { SettingsDrawer } from "./SettingsDrawer";
 import { SectionHead } from "./SectionHead";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** Leadership's cashflow (D392) — *kapan kita kehabisan dana, dan apakah kita
  *  underbudget atau aman*.
@@ -412,7 +413,7 @@ function MonthChain({ cf, month, onMonth }: { cf: Cashflow; month: string; onMon
         icon={Landmark}
       />
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse" style={{ minWidth: `${200 + cols.length * 104}px` }}>
+        <ExcelTable className="w-full border-collapse" style={{ minWidth: `${200 + cols.length * 104}px` }}>
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50/70">
               <th className="sticky left-0 z-10 w-[170px] bg-slate-50 px-4 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500 sm:w-[200px]">
@@ -477,7 +478,7 @@ function MonthChain({ cf, month, onMonth }: { cf: Cashflow; month: string; onMon
               </tr>
             ))}
           </tbody>
-        </table>
+        </ExcelTable>
       </div>
       {cf.undated_obligations > 0 && (
         <p className="border-t border-slate-100 px-4 py-2.5 text-[12px] text-slate-500">

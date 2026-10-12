@@ -2,7 +2,7 @@
 --
 -- Yang dibuktikan:
 --   • hanya orangnya sendiri yang menulis lognya; HRD tidak punya jalan
---     untuk menulis log siapa pun (sejak 0267/D427 hari lain boleh diisi dan
+--     untuk menulis log siapa pun (sejak 0267/D428 hari lain boleh diisi dan
 --     diubah — lihat D9_hr_work_log_week);
 --   • entri tugas hanya untuk tugas sendiri, satu per tugas per hari;
 --     dadakan wajib menyebut siapa yang meminta;
@@ -118,7 +118,7 @@ set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-000000021302';
 do $$
 declare a jsonb;
 begin
-  -- Sejak 0267 (D427) catatan hari lain boleh diubah oleh orangnya sendiri;
+  -- Sejak 0267 (D428) catatan hari lain boleh diubah oleh orangnya sendiri;
   -- tanggalnya tetap. Hapus dan isi ke depan dibuktikan di D9_hr_work_log_week.
   a := ops_hr.log_work('Kemarin, diubah', 'selesai', null, 'Pak Evin', null,
                        'bbbb2130-0000-0000-0000-000000000001');
@@ -176,7 +176,7 @@ begin
   assert r.task_no = (select val from k where key = 'sari_task') and r.editable,
     'catatan tugas tidak tersambung ke tugasnya';
   select * into r from ops_hr.v_work_log where work_date < ops_core.office_day();
-  assert r.editable, 'catatan kemarin milik sendiri terbaca tidak bisa diubah (D427)';
+  assert r.editable, 'catatan kemarin milik sendiri terbaca tidak bisa diubah (D428)';
 
   v := ops_hr.work_evidence('B-2131', ops_core.office_day() - 30, ops_core.office_day());
   assert (v ->> 'entries')::int = 3, v::text;

@@ -19,13 +19,13 @@ const NEW_ITEM = "__new_item__";
 const ITEM = "item:";
 
 /** *Hari ini* — what the person did, in their own words (D371), laid out the
- *  way the personal work-plan sheet is (D427).
+ *  way the personal work-plan sheet is (D428).
  *
  *  Pick the task it was for, one of your own long-running items, or
  *  *dadakan* with who asked; say how far it got; hours if you know them. Any
  *  day can be written — past days, and coming ones as your own plan. The
  *  record keeps when a line was written, and a planned day counts as logged
- *  only once you come back to it on the day (D427).
+ *  only once you come back to it on the day (D428).
  *
  *  *Selesai* here does not close a task. Closing still takes the hand-over
  *  note (D368), and the button for it sits right beside the line, so the two

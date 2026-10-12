@@ -2948,7 +2948,7 @@ export async function assignBacklogItem(
 //
 // Writes go through `log_work` / `remove_work_log`, which take the person from
 // the account link — there is no argument here to name anybody else, by
-// design. The day is any in the window (D427: back, and ahead as personal
+// design. The day is any in the window (D428: back, and ahead as personal
 // planning). Reads are `v_work_log` under RLS: a person their own lines, HRD
 // and payroll everybody's.
 
@@ -3008,7 +3008,7 @@ export async function removeWorkLog(
   return fromSeam<{ entry_id: string }>(SERVICE, data, error);
 }
 
-/** A person's own items (D427): the reader's, or — for HRD and payroll —
+/** A person's own items (D428): the reader's, or — for HRD and payroll —
  *  `employee_no`'s. Open ones first. */
 export async function listWorkItems(
   input: { employee_no?: string } = {},

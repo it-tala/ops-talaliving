@@ -23,6 +23,7 @@ import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 import { FloorHourly } from "./ProgressPanels";
 import { TargetsTab } from "./Targets";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /* ── the project manager's line (D352) ────────────────────────────────── */
 
@@ -317,7 +318,7 @@ function PeopleTable({ rows, present, stageOrder, roster }: {
   if (people.length === 0) return <p className="px-3 py-3 text-[13px] text-slate-500">{tr("Nobody has recorded work here yet.", "Belum ada yang mencatat pekerjaan di sini.")}</p>;
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[560px] text-[12px]">
+      <ExcelTable className="w-full min-w-[560px] text-[12px]">
         <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-400">
           <tr>
             <th className="px-3 py-1.5 font-medium">{tr("Name", "Nama")}</th>
@@ -384,7 +385,7 @@ function PeopleTable({ rows, present, stageOrder, roster }: {
             );
           })}
         </tbody>
-      </table>
+      </ExcelTable>
     </div>
   );
 }

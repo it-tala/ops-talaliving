@@ -13,6 +13,7 @@ import {
 } from "@/services/production/progress-view";
 import { officeToday, OFFICE_TZ } from "@/lib/office";
 import { useTr } from "@/lib/i18n";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** How the Job Order moved over time: per day, or hour by hour within a day
  *  (D351). The hourly view starts from where the order stood that morning, and
@@ -72,7 +73,7 @@ function ByDay({ entries, stages, qty }: { entries: ProgressEntry[]; stages: str
   const rows = useMemo(() => progressByDay(entries).reverse(), [entries]);
   return (
     <div className="overflow-x-auto rounded-xl border border-slate-200">
-      <table className="w-full min-w-[480px] text-[12px]">
+      <ExcelTable className="w-full min-w-[480px] text-[12px]">
         <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-400">
           <tr>
             <th className="px-3 py-1.5 font-medium">{tr("Date", "Tanggal")}</th>
@@ -92,7 +93,7 @@ function ByDay({ entries, stages, qty }: { entries: ProgressEntry[]; stages: str
             </tr>
           ))}
         </tbody>
-      </table>
+      </ExcelTable>
     </div>
   );
 }
@@ -107,7 +108,7 @@ function ByHour({ entries, stages, qty, day }: { entries: ProgressEntry[]; stage
   return (
     <div>
       <div className="overflow-x-auto rounded-xl border border-slate-200">
-        <table className="w-full min-w-[480px] text-[12px]">
+        <ExcelTable className="w-full min-w-[480px] text-[12px]">
           <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-400">
             <tr>
               <th className="px-3 py-1.5 font-medium">{tr(`Hour (${OFFICE_TZ.short})`, `Jam (${OFFICE_TZ.short})`)}</th>
@@ -156,7 +157,7 @@ function ByHour({ entries, stages, qty, day }: { entries: ProgressEntry[]; stage
               </tr>
             )}
           </tbody>
-        </table>
+        </ExcelTable>
       </div>
       <p className="mt-1 text-[11px] text-slate-500">
         {tr(

@@ -15,6 +15,7 @@ import { useSession } from "@/store/session";
 import { useTr } from "@/lib/i18n";
 import { EmployeeDrawer } from "./EmployeeDrawer";
 import { DeductionDefaults } from "./DeductionDefaults";
+import { allPages } from "@/lib/xlsx-export";
 
 /** Who works here, and what a day of their time costs.
  *
@@ -343,6 +344,12 @@ export default function EmployeesPage() {
                           dense columns={columns} rows={lv.rows} rowKey={(e) => e.employee_no}
                           paginate={false}
                           onRowClick={(e) => mayEdit && setEditing(e)}
+                          exportName={tr("Who have left", "Yang sudah keluar")}
+                          /* Ten on screen; the file is everybody who matches. */
+                          exportRows={() => allPages(async (limit, offset) => {
+                            const r = await hr.listLeavers({ offset, limit, q: leftQ });
+                            return r.error ? r : { data: r.data.rows, meta: { page: { total: r.data.total } } };
+                          }, 100)}
                           empty={leftQ
                             ? tr("Nobody who has left matches.", "Tidak ada yang sudah keluar yang cocok.")
                             : tr("Nobody has left.", "Belum ada yang keluar.")}

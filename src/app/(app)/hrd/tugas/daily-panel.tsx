@@ -18,7 +18,7 @@ const MARK_LABEL: Record<string, [string, string]> = {
 };
 
 /** Laporan harian — one day, everybody who can log (D371), and per person a
- *  week the way the work-plan sheet reads it (D427, read-only here).
+ *  week the way the work-plan sheet reads it (D428, read-only here).
  *
  *  Opens on who has **not** logged, because that is the line somebody acts on.
  *  A day off or a marked day with no log is not a missing log, and the row

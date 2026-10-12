@@ -13,6 +13,7 @@ import { useSession } from "@/store/session";
 import type { ProductionStage, ProjectProductionLine } from "@/services/procurement/contracts";
 import { QC_STAGE_LABEL } from "@/services/qc/contracts";
 import { FactoryOutcomes, NeedsConfirmation } from "@/components/procurement/factory-outcomes";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** Projected against actual, for one project.
  *
@@ -213,7 +214,7 @@ function ProjectCost({ code }: { code: string }) {
                                 action={<SourceBadge state={lines} />}
                               />
                               <div className="overflow-x-auto">
-                                <table className="w-full min-w-[720px] border-collapse text-[13px]">
+                                <ExcelTable className="w-full min-w-[720px] border-collapse text-[13px]">
                                   <thead>
                                     <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
                                       <th className="px-4 py-2 text-left">{tr("Item", "Item")}</th>
@@ -255,7 +256,7 @@ function ProjectCost({ code }: { code: string }) {
                                       </td></tr>
                                     )}
                                   </tbody>
-                                </table>
+                                </ExcelTable>
                               </div>
                             </Card>
 
@@ -395,7 +396,7 @@ function ProductionBoard({ code }: { code: string }) {
           <>
             <StageSummary rows={rows} />
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] text-[13px]">
+              <ExcelTable className="w-full min-w-[760px] text-[13px]">
                 <thead>
                   <tr className="border-y border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
                     <th className="px-3 py-2 text-left">{tr("Order line", "Baris order")}</th>
@@ -409,7 +410,7 @@ function ProductionBoard({ code }: { code: string }) {
                 <tbody>
                   {rows.map((r) => <BoardRow key={r.project_line_id} r={r} openPo={openPo} />)}
                 </tbody>
-              </table>
+              </ExcelTable>
             </div>
           </>
         )}

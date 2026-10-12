@@ -17,6 +17,7 @@ import { useSession } from "@/store/session";
 import { useTr } from "@/lib/i18n";
 import { RateForm } from "./RateForm";
 import { FinishingCandidates } from "./FinishingCandidates";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** The estimator's price list a BOM is costed from (0182, D324).
  *
@@ -116,7 +117,7 @@ export default function BomRatesPage() {
                 </label>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[760px] border-collapse text-[13px]">
+                <ExcelTable className="w-full min-w-[760px] border-collapse text-[13px]">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
                       <th className="px-4 py-2 text-left">{tr("Rate", "Rate")}</th>
@@ -178,7 +179,7 @@ export default function BomRatesPage() {
                       </td></tr>
                     )}
                   </tbody>
-                </table>
+                </ExcelTable>
               </div>
             </Card>
           );

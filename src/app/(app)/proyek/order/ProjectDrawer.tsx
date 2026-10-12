@@ -27,6 +27,7 @@ import { useSession } from "@/store/session";
 import { useCanSell } from "@/lib/sell";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
+import { ExcelTable } from "@/components/ui/excel-export";
 
 /** One customer's order: who ordered, where it stands, what they ordered and
  *  when it ships — and, per line, the item code the BOM is written against
@@ -615,7 +616,7 @@ function OrderLines({
         </div>
       )}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[820px] border-collapse text-[13px]">
+        <ExcelTable className="w-full min-w-[820px] border-collapse text-[13px]">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-wide text-slate-500">
               <th className="px-3 py-2 text-left">{tr("Item", "Item")}</th>
@@ -715,7 +716,7 @@ function OrderLines({
               </td></tr>
             )}
           </tbody>
-        </table>
+        </ExcelTable>
       </div>
       <div className="flex flex-wrap justify-end gap-x-8 gap-y-1 border-t border-slate-100 px-4 py-2.5 text-[12px] text-slate-600">
         <span>
