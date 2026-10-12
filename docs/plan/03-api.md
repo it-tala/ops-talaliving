@@ -475,6 +475,7 @@ quotation, and nothing in this system produces either yet (Q37).
 | GET | `/transaction-types` | the thirteen, with `is_purchase` — which decides whether a row is expected to name what it bought and who from |
 | GET | `/transactions/{trx_no}/history` | the audit trail of one row, with what changed field by field (D84) |
 | GET | `/transactions/{trx_no}` | one call: the row, its lines, its allocations (each naming the request line it settled), and the PR/PO path. A drawer that needs three calls renders in three stages |
+| PATCH | `/transactions/{trx_no}` | correct a row in place (`edit_transaction`): amount and description (`0101`), vendor / project / type (`0105`), account (`0204`), **IN/OUT** (`0269`, D430). A remark is required for the amount and for IN/OUT. **409** `statement_matched` (amount, account, IN/OUT), `direction_allocated` (IN/OUT on a row paying request lines or orders), `transaction_void`. Balances after it move by themselves (`0268`) |
 | POST | `/transactions/{trx_no}/void` | amount → 0, reason mandatory. Reversible |
 | POST | `/transactions/{trx_no}/complete` | mark COMPLETED. §10.1 item 15 — never built in v1, built here |
 | POST | `/allocations` | `{trx_no, pr_line_no, amount, method}`. **422 if Σ allocations would exceed the transaction** (A9) |

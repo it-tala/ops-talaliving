@@ -10679,3 +10679,18 @@ kind of line (*item*) breaks every place that read *dadakan* as
 mirrors of all three. The demo now has one `isDadakan()` helper so the next
 kind does not have to find them again.
 
+## F268 · 2026-10-12 · A running balance the system computes can never disagree with itself
+
+The spreadsheet's balance columns caught a mistyped amount because somebody
+compared them with something **outside** the sheet — the bank's balance, the
+cash in the drawer. A balance computed from the rows is always the rows'
+arithmetic, so on its own it proves nothing: type 3.805.921 instead of
+3.508.921 and every balance below moves with it, perfectly consistent. What
+makes it a tool for finding errors is a second, independent figure beside it
+— the rekening koran's `balance_after` (already imported per line, 0019, and
+never compared with the ledger) and a counted petty-cash balance — and the
+first row where the two stop agreeing. That is the next step, and it is the
+part that actually finds the mistake. The other honest signal available
+today is a cash or bank account going below zero, which is now red on the
+row.
+

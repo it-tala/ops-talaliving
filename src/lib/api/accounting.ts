@@ -411,6 +411,7 @@ async function readBack(trxNo: string, known: Partial<TransactionView> = {}): Pr
     remark: null, status: "POSTED", source_ref: "", posted_by: "", posted_at: "",
     void_reason: null, allocated_total: 0, unallocated: 0, evidence_count: 0,
     has_payment_proof: false, has_receipt_doc: false, pr_line_nos: [], expects_allocation: false,
+    balance_before: null, balance_after: null,
     ...known,
     trx_no: trxNo,
   });
@@ -738,6 +739,7 @@ export async function editTransaction(
     project_code?: string | null;
     type_code?: string;
     account_code?: string;
+    direction?: "IN" | "OUT";
     reason?: string;
   },
   idempotencyKey?: string,
@@ -750,6 +752,7 @@ export async function editTransaction(
     p_project_code: input.project_code ?? null,
     p_type_code: input.type_code ?? null,
     p_account_code: input.account_code ?? null,
+    p_direction: input.direction ?? null,
     p_reason: input.reason ?? null,
     p_key: idempotencyKey ?? null,
   });

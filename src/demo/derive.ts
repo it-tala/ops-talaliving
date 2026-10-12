@@ -46,7 +46,7 @@ import { officeToday, officeDay, officeStamp } from "@/lib/office";
 import { contributionRoll } from "./hr-derive";
 import type { ContributionScheme, ContributionAuditGroup } from "@/services/hr/contracts";
 import { SCHEME_LABELS, COMPUTED_SCHEMES } from "@/services/hr/contracts";
-import { settingNumber } from "./settings";
+import { settingNumber, settingText } from "./settings";
 import { applySubscriptions, settleUnplanned, subscriptionRows } from "@/services/accounting/subscriptions";
 
 /** One definition, read from settings — never a literal repeated in three
@@ -644,6 +644,33 @@ export function transactionView(state: DemoState, trx: Transaction): Transaction
      * electricity bill are money leaving for reasons nobody raises a PR for,
      * and flagging them would drown the rows that matter (D83). */
     expects_allocation: trx.direction === "OUT" && expectsDecision(state, trx.type_code),
+    ...balanceAround(state, trx),
+  };
+}
+
+/** `ledger_balance_from` (0268): rows dated before it show no balance —
+ *  they were never checked against a bank — but still count towards the
+ *  rows after it. */
+const LEDGER_BALANCE_FROM = "2026-10-12";
+
+/** `v_transaction.balance_before` / `balance_after` (0268, D429): opening
+ *  plus every earlier non-void row on the same account, in ledger order.
+ *  Worked out from the rows each time rather than cached — a seam builds a
+ *  view from its draft and keeps writing, and a cached sum would outlive it. */
+function balanceAround(state: DemoState, trx: Transaction) {
+  if (trx.status === "VOID" || trx.trx_date < settingText(state, "ledger.balance_from", LEDGER_BALANCE_FROM)) {
+    return { balance_before: null, balance_after: null };
+  }
+  const account = state.accounts.find((a) => a.id === trx.account_id);
+  const balance_before = state.transactions.reduce(
+    (sum, t) => t.account_id === trx.account_id && t.status !== "VOID" && byLedgerOrder(t, trx) < 0
+      ? sum + (t.direction === "IN" ? t.amount_idr : -t.amount_idr)
+      : sum,
+    account?.opening_balance ?? 0,
+  );
+  return {
+    balance_before,
+    balance_after: balance_before + (trx.direction === "IN" ? trx.amount_idr : -trx.amount_idr),
   };
 }
 
