@@ -44,9 +44,12 @@
 --
 -- ── Applying this to production ───────────────────────────────────────────
 --
--- `remove_design_item` deletes one row, and only an item nothing refers to;
--- the Supabase connector holds any statement with that word for confirmation
--- (F226). The data step moves items between rooms and touches no number.
+-- As in 0219: run the `drop function` of the 11-argument `save_design_item`
+-- as `alter function … rename to save_design_item_retired_0262` + `revoke all
+-- … from public, anon, authenticated`. `remove_design_item` deletes one row,
+-- and only an item nothing refers to; the Supabase connector holds any
+-- statement with that word, so it goes through the SQL Editor (F226). The
+-- data step moves items between rooms and touches no number.
 
 -- ── 1. the client's code ──────────────────────────────────────────────────
 
