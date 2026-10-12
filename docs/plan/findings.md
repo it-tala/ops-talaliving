@@ -10549,3 +10549,23 @@ The same session taught two smaller things:
 **Rule:** in a smoke, take every key from the person who can read it, before
 switching to the person under test; and give every `assert` a message that
 does not depend on the query it is checking.
+
+## F262 · 2026-10-12 · Two screens for one object make the person carry it between them
+
+The drafter's item had six boxes on Production → Design; the product it
+becomes had its drawing and BOM on Production → BOM. The BOM box on the
+item only said *open the BOM*, and the working drawing the drafter uploaded
+to the item was not the drawing the product's AI read — the product had its
+own drawing list, empty, so *AI suggestion* answered "upload the working
+drawing first" for a drawing that was already uploaded one screen away.
+
+The owner's ask was layout (*ganti struktur ini ke side bar*), but the
+cause was that the record was split. The fix is both: the item opens in the
+product drawer's shape, the BOM half **is** the product drawer's BOM (one
+set of components, one hook), and the drawings the BOM reads are filed on
+the product as well as the item. No migration: an attachment may already be
+linked to more than one record, which is exactly what a drawing that belongs
+to an item and to the product made from it is.
+
+**Rule:** when a screen has a box whose only content is a link to another
+screen, the two screens are probably one.

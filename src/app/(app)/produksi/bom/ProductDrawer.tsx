@@ -67,14 +67,10 @@ type SuggestState =
 
 type Settle = (res: { error?: { status: number; message: string } | null }, done: string, detail?: string) => boolean;
 
-function ExistingProduct({
-  productCode, onClose, onChanged, autoSuggest,
-}: {
-  productCode: string;
-  onClose: () => void;
-  onChanged: () => void;
-  autoSuggest?: boolean;
-}) {
+/** Everything the BOM half of a product needs, shared by the product drawer
+ *  and a design item's drawer (D421): the product, the AI's proposal, and one
+ *  answer handler for every write. */
+export function useProductBom(productCode: string, onChanged: () => void, autoSuggest?: boolean) {
   const tr = useTr();
   const { can } = useSession();
   const { toast } = useToast();
@@ -121,6 +117,47 @@ function ExistingProduct({
     setBusy(true);
     try { return await fn(); } finally { setBusy(false); }
   };
+  return { product, reload, mayEdit, busy, run, settle, suggest, setSuggest, runSuggest, onChanged };
+}
+
+export type ProductBom = ReturnType<typeof useProductBom>;
+
+/** The right half of a product: its revision, the AI's proposal, the list,
+ *  and what one unit costs. */
+export function BomColumn({ ctx, p }: { ctx: ProductBom; p: ProductView }) {
+  const { mayEdit, busy, run, settle, suggest, setSuggest, runSuggest, reload, onChanged } = ctx;
+  return (
+    <div className="min-w-0 space-y-4">
+      <RevisionBar p={p} mayEdit={mayEdit} busy={busy} run={run} settle={settle} />
+      {suggest.status !== "idle" && (
+        <SuggestionPanel
+          key={suggest.status === "ready" ? suggest.run : suggest.status}
+          p={p} state={suggest} busy={busy} run={run}
+          onRetry={() => void runSuggest(p.gambar_kerja?.attachment_id, p.gambar_kerja?.filename)}
+          onClose={() => setSuggest({ status: "idle" })}
+          onAdded={() => { reload(); onChanged(); }}
+        />
+      )}
+      <BomTable
+        p={p} mayEdit={mayEdit} busy={busy} run={run} settle={settle}
+        suggesting={suggest.status === "loading"}
+        onSuggest={() => void runSuggest(p.gambar_kerja?.attachment_id, p.gambar_kerja?.filename)}
+      />
+      <CostSummary p={p} mayEdit={mayEdit} busy={busy} run={run} settle={settle} />
+    </div>
+  );
+}
+
+function ExistingProduct({
+  productCode, onClose, onChanged, autoSuggest,
+}: {
+  productCode: string;
+  onClose: () => void;
+  onChanged: () => void;
+  autoSuggest?: boolean;
+}) {
+  const ctx = useProductBom(productCode, onChanged, autoSuggest);
+  const { product, reload, mayEdit, busy, run, settle, runSuggest } = ctx;
 
   return (
     <Drawer
@@ -132,7 +169,7 @@ function ExistingProduct({
     >
       <Loaded state={product} onRetry={reload}>
         {(p) => (
-          <div className="grid gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
             <div className="space-y-4 lg:sticky lg:top-0 lg:self-start">
               <DrawingPanel
                 p={p} mayEdit={mayEdit} busy={busy} run={run} settle={settle}
@@ -146,24 +183,7 @@ function ExistingProduct({
               />
               <ProductFacts p={p} mayEdit={mayEdit} busy={busy} run={run} settle={settle} />
             </div>
-            <div className="min-w-0 space-y-4">
-              <RevisionBar p={p} mayEdit={mayEdit} busy={busy} run={run} settle={settle} />
-              {suggest.status !== "idle" && (
-                <SuggestionPanel
-                  key={suggest.status === "ready" ? suggest.run : suggest.status}
-                  p={p} state={suggest} busy={busy} run={run}
-                  onRetry={() => void runSuggest(p.gambar_kerja?.attachment_id, p.gambar_kerja?.filename)}
-                  onClose={() => setSuggest({ status: "idle" })}
-                  onAdded={() => { reload(); onChanged(); }}
-                />
-              )}
-              <BomTable
-                p={p} mayEdit={mayEdit} busy={busy} run={run} settle={settle}
-                suggesting={suggest.status === "loading"}
-                onSuggest={() => void runSuggest(p.gambar_kerja?.attachment_id, p.gambar_kerja?.filename)}
-              />
-              <CostSummary p={p} mayEdit={mayEdit} busy={busy} run={run} settle={settle} />
-            </div>
+            <BomColumn ctx={ctx} p={p} />
           </div>
         )}
       </Loaded>
@@ -190,7 +210,7 @@ function driveId(url: string | null): string | null {
   return m ? m[1] : null;
 }
 
-function DrawingViewer({ d }: { d: ProductDrawingEntry }) {
+export function DrawingViewer({ d }: { d: ProductDrawingEntry }) {
   const tr = useTr();
   const [failed, setFailed] = useState(false);
   const id = driveId(d.url);

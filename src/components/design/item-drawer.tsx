@@ -15,16 +15,15 @@ import type { QuotationLineView } from "@/services/quotation/contracts";
 import { cn } from "@/lib/cn";
 import { design, documents } from "@/demo/api";
 import {
-  APPROVAL_CHANNELS, DESIGN_ITEM_STATUSES, DESIGN_ORIGINS, itemCode,
+  APPROVAL_CHANNELS, DESIGN_ITEM_STATUSES, DESIGN_ORIGINS, boxProgress, itemCode,
   type ApprovalChannel, type DesignApproval, type DesignItemView,
 } from "@/services/design/contracts";
 import type { AttachmentView } from "@/services/documents/contracts";
 import { useToast } from "@/store/toast";
 import { useLang, useTr } from "@/lib/i18n";
 import { ItemForm } from "./design-board";
-import { ItemBoxes } from "./item-boxes";
+import { BoxBar, BoxChips } from "./item-boxes";
 import { ItemFactoryPrices } from "./factory-prices";
-import { useSession } from "@/store/session";
 
 const inputCls = "h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-[13px] focus:border-brand-400 focus:outline-none";
 
@@ -355,21 +354,27 @@ function ItemQuotes({ itemNo, refresh }: { itemNo: string; refresh: string }) {
   );
 }
 
-/** The item's six boxes (0248, Studio Desain S1): the same panel the
- *  drafters work in on Production → Design, so sales and drafters read one
- *  record. */
-function ItemCompleteness({ i, canEdit }: { i: DesignItemView; canEdit: boolean }) {
+/** How complete the item is (0248), and the way to its drawings and BOM:
+ *  one drawer on Production → Design, laid out like a product on
+ *  Production → BOM (D421), so sales and drafters read one record. */
+function ItemCompleteness({ i }: { i: DesignItemView; canEdit: boolean }) {
   const tr = useTr();
-  const { can } = useSession();
+  const [boxes] = useLoad(() => design.listDesignBoxes({ item_no: i.item_no }), [i.item_no, i.updated_at]);
+  const rows = boxes.status === "ready" ? boxes.data : [];
+  const p = boxProgress(rows);
   return (
     <section>
       <div className="mb-1.5 flex items-center gap-2">
-        <h3 className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">{tr("Completeness", "Kelengkapan")}</h3>
-        <Link href={`/produksi/desain?item=${encodeURIComponent(i.item_no)}`} className="ml-auto text-[12px] text-brand-700 hover:underline">
-          {tr("Open in Design", "Buka di Desain")}
+        <h3 className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">{tr("Drawings & BOM", "Gambar & BOM")}</h3>
+      </div>
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 px-3 py-2.5">
+        <BoxChips boxes={rows} />
+        {p.total > 0 && <BoxBar filled={p.filled} total={p.total} />}
+        <Link href={`/produksi/desain?item=${encodeURIComponent(i.item_no)}`}
+          className="ml-auto inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-[12px] font-medium text-brand-700 hover:bg-brand-50">
+          {tr("Open drawings & BOM", "Buka gambar & BOM")}
         </Link>
       </div>
-      <ItemBoxes itemNo={i.item_no} canEdit={canEdit && i.status !== "DROPPED"} canMakeProduct={can("production.create")} />
     </section>
   );
 }
