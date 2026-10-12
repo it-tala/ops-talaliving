@@ -11,6 +11,7 @@ import { accounting, procurement, production } from "@/demo/api";
 import { useTr } from "@/lib/i18n";
 import { useSession } from "@/store/session";
 import type { ProductionStage, ProjectProductionLine } from "@/services/procurement/contracts";
+import { QC_STAGE_LABEL } from "@/services/qc/contracts";
 
 /** Projected against actual, for one project.
  *
@@ -346,7 +347,7 @@ function ProjectCost({ code }: { code: string }) {
 const STAGE: Record<ProductionStage, { en: string; id: string; tone: "slate" | "amber" | "brand" | "green" | "violet" }> = {
   NO_JOB_ORDER:     { en: "no Job Order yet",    id: "belum ada Job Order",   tone: "amber" },
   IN_WORK:          { en: "in the workshop",     id: "di workshop",           tone: "brand" },
-  MADE:             { en: "made",                id: "selesai dibuat",        tone: "green" },
+  MADE:             { en: "made / passed QC",    id: "selesai / lolos QC",    tone: "green" },
   NO_FACTORY_ORDER: { en: "no factory order yet", id: "belum ada order pabrik", tone: "amber" },
   ORDER_DRAFT:      { en: "order not issued",    id: "order belum terbit",    tone: "slate" },
   AT_FACTORY:       { en: "at the factory",      id: "di pabrik",             tone: "violet" },
@@ -355,9 +356,9 @@ const STAGE: Record<ProductionStage, { en: string; id: string; tone: "slate" | "
 };
 
 /** Where each line is made and how far it is. A workshop line reads its Job
- *  Orders; a factory line reads its factory order — what the factory has
- *  finished is QC's number (O7), so until then the board says *at the
- *  factory*, not a count nobody gave. */
+ *  Orders; a factory line reads its factory order, and what the factory has
+ *  finished is QC's passed count at the latest report (0263, O7) — until QC
+ *  has counted, the board says so rather than a count nobody gave. */
 function ProductionBoard({ code }: { code: string }) {
   const tr = useTr();
   const { can } = useSession();
@@ -466,8 +467,15 @@ function BoardRow({ r, openPo }: { r: ProjectProductionLine; openPo: boolean }) 
       </td>
       <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-700">
         {r.made != null ? formatNumber(r.made)
-          : r.route === "FACTORY" ? <span className="text-[11px] text-slate-400" title={tr("Counted by QC at the factory (coming)", "Dihitung QC di pabrik (menyusul)")}>{tr("QC", "QC")}</span>
+          : r.route === "FACTORY" ? <span className="text-[11px] text-slate-400" title={tr("Counted by QC at the factory", "Dihitung QC di pabrik")}>{tr("not counted", "belum dihitung")}</span>
             : <span className="text-slate-300">—</span>}
+        {/* A factory line's count is QC's latest report (0263, O7). */}
+        {r.route === "FACTORY" && r.qc_stage && (
+          <span className="block text-[11px] text-slate-500">{tr("QC", "QC")} · {QC_STAGE_LABEL[r.qc_stage]}{r.qc_reported_on && ` · ${r.qc_reported_on}`}</span>
+        )}
+        {r.route === "FACTORY" && (r.qc_open_findings ?? 0) > 0 && (
+          <span className="block text-[11px] text-amber-700">{tr(`${r.qc_open_findings} open finding(s)`, `${r.qc_open_findings} temuan terbuka`)}</span>
+        )}
       </td>
       <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-700">
         {formatNumber(r.delivered)} / {formatNumber(r.arrived)}

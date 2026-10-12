@@ -14,6 +14,7 @@ import type {
 } from "@/services/procurement/contracts";
 import { CLOSING_REASONS, VENDOR_KINDS, type VendorKind } from "@/services/procurement/contracts";
 import { acceptedQuotationTotal, currentQuotation } from "./quotation";
+import { lineProgressOf } from "./qc";
 import { officeToday } from "@/lib/office";
 import { RECEIPT_CONDITIONS } from "@/services/procurement/contracts";
 import type { DemoState, DemoReceivingInbox } from "../state";
@@ -630,7 +631,11 @@ export async function listProjectProduction(
     if (opts.project_code && project.code !== opts.project_code) continue;
     for (const l of state.project_lines.filter((x) => x.project_id === project.id).sort((a, b) => a.line_no - b.line_no)) {
       const v = lineView(state, project, l);
-      const made = v.route === "WORKSHOP" && v.job_order_count > 0 ? v.job_order_completed : null;
+      /* A factory line's `made` is QC's passed count at the latest report (0263, O7). */
+      const fo = v.route === "FACTORY" && v.factory_po_no ? state.purchase_orders.find((p) => p.po_no === v.factory_po_no) : undefined;
+      const foLine = fo ? state.po_lines.find((o) => o.po_id === fo.id && o.superseded_by === null && o.project_line_id === l.id) : undefined;
+      const qcLine = fo && foLine ? lineProgressOf(state, fo.id).find((g) => g.line_no === foLine.line_no) : undefined;
+      const made = v.route === "WORKSHOP" ? (v.job_order_count > 0 ? v.job_order_completed : null) : qcLine?.passed ?? null;
       const shipped = state.delivery_lines
         .filter((d) => d.project_line_id === l.id)
         .map((d) => ({ d, dv: state.deliveries.find((x) => x.id === d.delivery_id) }))
@@ -646,7 +651,8 @@ export async function listProjectProduction(
             : v.route === "WORKSHOP"
               ? (v.job_order_count === 0 ? "NO_JOB_ORDER" : (made ?? 0) >= l.qty ? "MADE" : "IN_WORK")
               : !v.factory_po_no ? "NO_FACTORY_ORDER"
-                : v.factory_po_status === "DRAFT" ? "ORDER_DRAFT" : "AT_FACTORY";
+                : v.factory_po_status === "DRAFT" ? "ORDER_DRAFT"
+                  : (made ?? 0) >= l.qty ? "MADE" : "AT_FACTORY";
       const late = v.route === "FACTORY" && v.factory_po_status === "ISSUED" && v.factory_expected_delivery
         && delivered < l.qty && today > v.factory_expected_delivery
         ? Math.round((Date.parse(today) - Date.parse(v.factory_expected_delivery)) / 86_400_000) : null;
@@ -659,6 +665,9 @@ export async function listProjectProduction(
         factory_po_no: v.factory_po_no, factory_po_status: v.factory_po_status,
         factory_vendor_name: v.factory_vendor_name, factory_expected_delivery: v.factory_expected_delivery,
         delivered, arrived, installed, stage, factory_days_late: late,
+        qc_stage: v.route === "FACTORY" ? qcLine?.qc_stage ?? null : null,
+        qc_reported_on: v.route === "FACTORY" ? qcLine?.reported_on ?? null : null,
+        qc_open_findings: v.route === "FACTORY" ? qcLine?.open_findings ?? 0 : null,
       });
     }
   }

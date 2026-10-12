@@ -1,12 +1,14 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { Ban, CalendarCheck, ChevronDown, ChevronRight, ClipboardCheck, FileText, Plus, Save } from "lucide-react";
+import { AlertTriangle, Ban, CalendarCheck, ChevronDown, ChevronRight, ClipboardCheck, Flag, Plus, Save, Send } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { qc } from "@/demo/api";
 import { cn } from "@/lib/cn";
-import { formatNumber } from "@/lib/format";
+import {
+  FindingForm, FindingList, ProgressLines, ReportForm, ReportList, ReportingBadge, useProgress,
+} from "@/components/qc/reports";
 import { officeToday } from "@/lib/office";
 import {
   QC_ASSIGNMENT_STATE_LABEL, type QcAssignment, type QcAssignmentState,
@@ -21,7 +23,9 @@ import { useTr } from "@/lib/i18n";
  *  their phone and sees only what they were sent to watch: the order, its
  *  factory and project, its lines and the working drawing of each — never a
  *  price. The coordinator sends people here; leadership and procurement read
- *  every assignment. Daily reports, findings and progress come with O7. */
+ *  every assignment. From the factory the QC sends reports — how many have
+ *  passed so far, photos — and findings; the latest report is the order's
+ *  progress, here and on the project board (0263, O7, D419). */
 
 const TONE: Record<QcAssignmentState, "slate" | "green" | "amber" | "red"> = {
   PLANNED: "amber", ACTIVE: "green", ENDED: "slate", CANCELLED: "red",
@@ -94,14 +98,24 @@ function AssignmentRow({ a, coordinator, onChanged }: { a: QcAssignment; coordin
   const tr = useTr();
   const { toast } = useToast();
   const [open, setOpen] = useState(a.is_mine && a.state === "ACTIVE");
+  const [tick, setTick] = useState(0);
   const [lines, reloadLines] = useLoad(
     () => (open ? qc.listAssignmentLines(a.assign_no) : Promise.resolve({ data: null })), [open, a.assign_no]);
+  const [progress] = useProgress(a.assign_no, open, tick);
+  const [form, setForm] = useState<"report" | "finding" | null>(null);
   const [ending, setEnding] = useState(false);
   const [endsOn, setEndsOn] = useState(a.ends_on ?? officeToday());
   const [cancelling, setCancelling] = useState(false);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const live = a.state !== "CANCELLED";
+  /* The QC on it, or the coordinator, reports and records findings; not
+     before it starts (0263's `submit_qc_report`). */
+  const mayWrite = live && (a.is_mine || coordinator);
+  const mayReport = mayWrite && a.state !== "PLANNED";
+  const lineRows = lines.status === "ready" ? lines.data ?? [] : [];
+  const progressRows = progress.status === "ready" ? progress.data ?? [] : [];
+  const changed = () => { setTick((n) => n + 1); onChanged(); };
 
   async function saveEnd() {
     setBusy(true);
@@ -129,6 +143,12 @@ function AssignmentRow({ a, coordinator, onChanged }: { a: QcAssignment; coordin
         </button>
         <Badge tone={TONE[a.state]}>{QC_ASSIGNMENT_STATE_LABEL[a.state]}</Badge>
         {a.is_mine && <Badge tone="brand">{tr("Mine", "Tugas saya")}</Badge>}
+        <ReportingBadge a={a} />
+        {a.open_findings > 0 && (
+          <span className="inline-flex items-center gap-1 text-[12px] text-amber-700">
+            <AlertTriangle className="h-3.5 w-3.5" />{tr(`${a.open_findings} open finding(s)`, `${a.open_findings} temuan terbuka`)}
+          </span>
+        )}
         <span className="text-slate-600">{a.project_code} · {a.project_name}</span>
         <span className="font-mono text-[11px] text-slate-400">{a.po_no}</span>
         <span className="ml-auto text-[12px] text-slate-600">{a.person_name}{a.person_city && ` · ${a.person_city}`}</span>
@@ -139,6 +159,7 @@ function AssignmentRow({ a, coordinator, onChanged }: { a: QcAssignment; coordin
           a.expected_delivery && tr(`factory promised ${a.expected_delivery}`, `janji pabrik ${a.expected_delivery}`),
           tr(`${a.line_count} line(s)`, `${a.line_count} baris`),
           a.container_count > 0 && tr(`${a.container_count} container(s)`, `${a.container_count} kontainer`),
+          a.report_count > 0 && tr(`${a.report_count} report(s), last ${a.last_report_on}`, `${a.report_count} laporan, terakhir ${a.last_report_on}`),
           a.client_name,
           a.note,
         ].filter(Boolean).join(" · ")}
@@ -147,34 +168,38 @@ function AssignmentRow({ a, coordinator, onChanged }: { a: QcAssignment; coordin
       </p>
 
       {open && (
-        <div className="mt-2 pl-5">
+        <div className="mt-2 space-y-3 pl-5">
           <Loaded state={lines} onRetry={reloadLines} skeletonRows={1}>
-            {(rows) => (rows ?? []).length === 0 ? (
-              <p className="text-[12px] text-slate-500">{tr("No lines to show.", "Tidak ada baris.")}</p>
-            ) : (
-              <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
-                {(rows ?? []).map((l) => (
-                  <li key={l.line_no} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
-                    <span className="min-w-[180px] flex-1">
-                      <span className="block text-slate-800">{l.line_no}. {l.description}</span>
-                      <span className="block text-[11px] text-slate-400">
-                        {[l.design_item_no, l.product_code, l.project_line_no != null && tr(`order line ${l.project_line_no}`, `baris order ${l.project_line_no}`)].filter(Boolean).join(" · ")}
-                      </span>
-                    </span>
-                    <span className="tabular-nums text-slate-700">{formatNumber(l.qty)} {l.uom}</span>
-                    {l.drawing_filename ? (
-                      l.drawing_url
-                        ? <a href={l.drawing_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[12px] text-brand-700 hover:underline"><FileText className="h-3.5 w-3.5" />{l.drawing_filename}</a>
-                        : <span className="inline-flex items-center gap-1 text-[12px] text-slate-600"><FileText className="h-3.5 w-3.5" />{l.drawing_filename}</span>
-                    ) : <span className="text-[11px] text-amber-700">{tr("no working drawing yet", "gambar kerja belum ada")}</span>}
-                  </li>
-                ))}
-              </ul>
-            )}
+            {() => <ProgressLines lines={lineRows} progress={progressRows} />}
           </Loaded>
 
+          {mayWrite && form === null && (
+            <div className="flex flex-wrap items-center gap-2">
+              {mayReport && <Button size="sm" icon={Send} onClick={() => setForm("report")}>{tr("Send a report", "Kirim laporan")}</Button>}
+              <Button size="sm" variant="outline" icon={Flag} onClick={() => setForm("finding")}>{tr("Record a finding", "Catat temuan")}</Button>
+            </div>
+          )}
+          {form === "report" && lines.status === "ready" && progress.status === "ready" && (
+            <ReportForm a={a} lines={lineRows} progress={progressRows}
+              onDone={() => { setForm(null); changed(); }} onCancel={() => setForm(null)} />
+          )}
+          {form === "finding" && lines.status === "ready" && (
+            <FindingForm a={a} lines={lineRows} onDone={() => { setForm(null); changed(); }} onCancel={() => setForm(null)} />
+          )}
+
+          <section>
+            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">{tr("Reports", "Laporan")}</p>
+            <ReportList a={a} mayWrite={mayWrite} onChanged={changed} />
+          </section>
+          {a.po_no && (
+            <section>
+              <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">{tr("Findings on this order", "Temuan di order ini")}</p>
+              <FindingList poNo={a.po_no} mayResolve={mayWrite} refresh={tick} onChanged={changed} />
+            </section>
+          )}
+
           {coordinator && live && (
-            <div className="mt-2 flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2">
               {ending ? (
                 <>
                   <input type="date" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} aria-label={tr("Ends on", "Selesai tanggal")}

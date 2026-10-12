@@ -217,6 +217,9 @@ export interface DemoState {
   /** The field QC team and who watches which factory order (0261, O6). */
   qc_people: DemoQcPerson[];
   qc_assignments: DemoQcAssignment[];
+  qc_reports: DemoQcReport[];
+  qc_report_lines: DemoQcReportLine[];
+  qc_findings: DemoQcFinding[];
 
   pr_documents: PrDocument[];
   pr_lines: PrLine[];
@@ -562,6 +565,25 @@ export interface DemoQcPerson {
 export interface DemoQcAssignment {
   id: string; assign_no: string; person_id: string; po_id: string; starts_on: string; ends_on: string | null;
   note: string | null; created_at: string; cancelled_at: string | null; cancel_reason: string | null;
+}
+/** `ops_qc.qc_reports` (0263). */
+export interface DemoQcReport {
+  id: string; report_no: string; assignment_id: string; report_date: string;
+  stage: "material" | "construction" | "finishing" | "packing" | "loading";
+  delivery_id: string | null; note: string | null; created_by: string; created_at: string;
+  cancelled_at: string | null; cancel_reason: string | null;
+}
+/** `ops_qc.qc_report_lines` (0263): passed is a running count (D419). */
+export interface DemoQcReportLine { report_id: string; line_no: number; passed: number; rejected: number }
+/** `ops_qc.qc_findings` (0263). */
+export interface DemoQcFinding {
+  id: string; finding_no: string; po_id: string; assignment_id: string | null; report_id: string | null;
+  delivery_id: string | null; line_no: number | null;
+  phase: "production" | "loading" | "after_arrival";
+  finding_kind: "defect" | "spec_mismatch" | "late" | "damaged" | "packing" | "other";
+  severity: "minor" | "major" | "critical"; description: string;
+  status: "OPEN" | "RESOLVED"; resolution: string | null; resolved_at: string | null; resolved_by: string | null;
+  created_by: string; created_at: string;
 }
 /** `ops_procure.factory_quote_lines` (0256). */
 export interface DemoFactoryQuoteLine {

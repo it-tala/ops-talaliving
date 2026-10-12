@@ -27,6 +27,7 @@ import {
 import { latency, actingUser, requireModule, conflict, replayed, remember } from "./_kit";
 import { officeToday } from "@/lib/office";
 import type { DemoState } from "../state";
+import { loadWarningsOf } from "./qc";
 import type { ProjectStatus } from "@/services/procurement/contracts";
 
 const SERVICE = "production" as const;
@@ -335,7 +336,9 @@ export async function createContainer(
   const view = await getDelivery(made.data.delivery_no);
   if (view.error) return view;
   const warning = checkDigitWarning(no!);
-  const out = { ...view.data, load_warnings: warning ? [warning] : [] };
+  /* Ready to load? Said, never refused (0263's `load_warnings`, O7). */
+  const qcWarnings = poId ? loadWarningsOf(getState(), poId) : [];
+  const out = { ...view.data, load_warnings: [...(warning ? [warning] : []), ...qcWarnings] };
   remember(SERVICE, "createContainer", idempotencyKey, out);
   return ok(SERVICE, out);
 }
