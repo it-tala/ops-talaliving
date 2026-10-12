@@ -50,6 +50,7 @@ function itemView(state: DemoState, i: DemoDesignItem): DesignItemView {
   return {
     ...i,
     product_code: i.product_code ?? orders.find((o) => o.product_code)?.product_code ?? null,
+    client_item_code: i.client_item_code ?? null,
     room_code: r.code, room_name: r.name, room_sort: r.sort,
     collection_code: c.code, collection_name: c.name,
     project_code: p.code, project_name: p.name,
@@ -123,6 +124,22 @@ function design(state: DemoState, projectCode: string): ProjectDesign | null {
   return { collections, rooms: roomViews, items };
 }
 
+/** The collection's one room (code 00, named after it), made on first use —
+ *  as `collection_room` does (0262, D419). */
+function collectionRoom(draft: DemoState, collectionId: string) {
+  const had = draft.design_rooms.find((r) => r.collection_id === collectionId && r.code === "00");
+  if (had) return had;
+  const c = draft.design_collections.find((x) => x.id === collectionId)!;
+  const room = { id: newId("dr"), collection_id: collectionId, code: "00", name: c.name, sort: 0 };
+  draft.design_rooms.push(room);
+  return room;
+}
+
+function projectOfItem(state: DemoState, i: DemoDesignItem): string | undefined {
+  const r = state.design_rooms.find((x) => x.id === i.room_id);
+  return state.design_collections.find((c) => c.id === r?.collection_id)?.project_id;
+}
+
 export async function getProjectDesign(projectCode: string): Promise<Result<ProjectDesign>> {
   await latency();
   if (!mayDesign("read")) return ok(SERVICE, { collections: [], rooms: [], items: [] });
@@ -170,17 +187,21 @@ export async function saveDesignCollection(
   if (!p) return notFound(SERVICE, "not_found", `Tidak ada proyek ${input.project_code}.`);
   const code = input.code.trim().toUpperCase();
   if (!CODE.test(code)) {
-    return invalid(SERVICE, "bad_code", "Kode koleksi 1–6 huruf atau angka, mis. A, B, KAT1. Kode ini masuk ke nomor setiap item.", { field: "code" });
+    return invalid(SERVICE, "bad_code", "Kode koleksi 1–6 huruf atau angka, mis. A, B, LV232. Kode ini masuk ke nomor setiap item.", { field: "code" });
   }
-  if (!input.name.trim()) return invalid(SERVICE, "name_required", "Koleksinya dinamai apa? mis. TYPE 2BR.", { field: "name" });
+  if (!input.name.trim()) return invalid(SERVICE, "name_required", "Koleksinya dinamai apa? mis. LEXI COLLECTION.", { field: "name" });
   apply((draft) => {
     const had = draft.design_collections.find((c) => c.project_id === p.id && c.code === code);
-    if (had) { had.name = input.name.trim(); had.note = input.note?.trim() || null; }
-    else {
+    if (had) {
+      had.name = input.name.trim(); had.note = input.note?.trim() || null;
+      collectionRoom(draft, had.id).name = had.name;
+    } else {
+      const id = newId("dc");
       draft.design_collections.push({
-        id: newId("dc"), project_id: p.id, code, name: input.name.trim(),
+        id, project_id: p.id, code, name: input.name.trim(),
         note: input.note?.trim() || null, created_at: new Date().toISOString(),
       });
+      collectionRoom(draft, id);
     }
     writeAudit(draft, { service: SERVICE, entity: "design_collection", entity_no: `${p.code}-${code}`, action: had ? "update" : "create", outcome: "ok", reason: null });
   });
@@ -243,47 +264,106 @@ export async function saveDesignItem(input: DesignItemInput): Promise<Result<Des
   await latency();
   if (!mayDesign("write")) return denied();
   const name = input.name.trim();
-  if (!name) return invalid(SERVICE, "name_required", "Itemnya apa? mis. Sofa 3 seater.", { field: "name" });
+  const clientCode = input.client_item_code?.trim() || null;
+  if (!name) return invalid(SERVICE, "name_required", "Itemnya apa? mis. Queen Bed.", { field: "name" });
   if (!(input.qty > 0)) return invalid(SERVICE, "qty_required", "Berapa unit?", { field: "qty" });
   if (!["tala", "client", "adapted"].includes(input.origin)) {
     return invalid(SERVICE, "unknown_origin", "Siapa yang mendesain: tala, client, atau adapted (dari referensi klien)?", { field: "origin" });
+  }
+  if (input.origin === "client" && !clientCode) {
+    return invalid(SERVICE, "client_code_required", "Desain dari klien memakai kode item klien, mis. LV232-B01. Kodenya tidak dibuat sistem.", { field: "client_item_code" });
+  }
+  if (clientCode && clientCode.length > 40) {
+    return invalid(SERVICE, "bad_client_code", "Kode item klien paling panjang 40 huruf.", { field: "client_item_code" });
   }
   for (const v of [input.length_mm, input.width_mm, input.height_mm]) {
     if (v != null && !(v > 0)) return invalid(SERVICE, "bad_size", "Ukuran dalam mm, lebih dari nol — atau kosongkan.", { field: "length_mm" });
   }
   const state = getState();
   const now = new Date().toISOString();
-  if (input.item_no) {
-    const i = state.design_items.find((x) => x.item_no === input.item_no);
-    if (!i) return notFound(SERVICE, "not_found", `Tidak ada item ${input.item_no}.`);
+  const existing = input.item_no ? state.design_items.find((x) => x.item_no === input.item_no) : undefined;
+  if (input.item_no && !existing) return notFound(SERVICE, "not_found", `Tidak ada item ${input.item_no}.`);
+  const p = existing
+    ? state.projects.find((x) => x.id === projectOfItem(state, existing))
+    : state.projects.find((x) => x.code === input.project_code.trim());
+  const c = existing ? undefined
+    : p && state.design_collections.find((x) => x.project_id === p.id && x.code === input.collection_code.trim().toUpperCase());
+  if (!existing && (!p || !c)) {
+    return notFound(SERVICE, "not_found", `Tidak ada koleksi ${input.project_code}-${input.collection_code}.`);
+  }
+  /* The client's code names one item in the project. */
+  if (clientCode && p) {
+    const taken = state.design_items.find((x) => x.id !== existing?.id && projectOfItem(state, x) === p.id
+      && (x.client_item_code ?? "").toUpperCase() === clientCode.toUpperCase());
+    if (taken) {
+      return conflict(SERVICE, "client_code_taken", `Kode ${clientCode} sudah dipakai item lain di proyek ini.`, { field: "client_item_code", item_no: taken.item_no });
+    }
+  }
+  if (existing) {
     apply((draft) => {
-      const row = draft.design_items.find((x) => x.id === i.id)!;
+      const row = draft.design_items.find((x) => x.id === existing.id)!;
       Object.assign(row, {
-        name, qty: input.qty, origin: input.origin,
+        name, qty: input.qty, origin: input.origin, client_item_code: clientCode,
         length_mm: input.length_mm ?? null, width_mm: input.width_mm ?? null, height_mm: input.height_mm ?? null,
         note: input.note?.trim() || null, updated_at: now,
       });
     });
-    return getDesignItem(i.item_no);
+    return getDesignItem(existing.item_no);
   }
-  const p = state.projects.find((x) => x.code === input.project_code.trim());
-  const c = p && state.design_collections.find((x) => x.project_id === p.id && x.code === input.collection_code.trim().toUpperCase());
-  const r = c && state.design_rooms.find((x) => x.collection_id === c.id && x.code === input.room_code.trim().toUpperCase());
-  if (!p || !c || !r) {
-    return notFound(SERVICE, "not_found", `Tidak ada ruangan ${input.project_code}-${input.collection_code}-${input.room_code}.`);
-  }
-  const seq = Math.max(0, ...state.design_items.filter((x) => x.room_id === r.id).map((x) => x.seq)) + 1;
-  const itemNo = `${p.code}-${c.code}-${r.code}-${String(seq).padStart(2, "0")}`;
+  const roomCodeIn = input.room_code?.trim().toUpperCase() || "";
+  let itemNo = "";
   apply((draft) => {
+    const r = roomCodeIn
+      ? draft.design_rooms.find((x) => x.collection_id === c!.id && x.code === roomCodeIn)
+      : collectionRoom(draft, c!.id);
+    if (!r) return;
+    let seq = Math.max(0, ...draft.design_items.filter((x) => x.room_id === r.id).map((x) => x.seq)) + 1;
+    const numberOf = (n: number) => roomCodeIn
+      ? `${p!.code}-${c!.code}-${r.code}-${String(n).padStart(2, "0")}`
+      : `${p!.code}-${c!.code}-${String(n).padStart(2, "0")}`;
+    while (draft.design_items.some((x) => x.item_no === numberOf(seq))) seq++;
+    itemNo = numberOf(seq);
     draft.design_items.push({
       id: newId("di"), item_no: itemNo, room_id: r.id, seq, name, qty: input.qty,
       length_mm: input.length_mm ?? null, width_mm: input.width_mm ?? null, height_mm: input.height_mm ?? null,
-      origin: input.origin, product_code: null, note: input.note?.trim() || null,
+      origin: input.origin, client_item_code: clientCode, product_code: null, note: input.note?.trim() || null,
       dropped_at: null, drop_reason: null, created_at: now, updated_at: now,
     });
     writeAudit(draft, { service: SERVICE, entity: "design_item", entity_no: itemNo, action: "create", outcome: "ok", reason: null });
   });
+  if (!itemNo) {
+    return notFound(SERVICE, "not_found", `Tidak ada ruangan ${input.project_code}-${input.collection_code}-${roomCodeIn}.`);
+  }
   return getDesignItem(itemNo);
+}
+
+/** An item typed by mistake, removed — only while nothing hangs on it
+ *  (`remove_design_item`, 0262, D419). Anything else is dropped with a reason. */
+export async function removeDesignItem(itemNo: string): Promise<Result<{ item_no: string }>> {
+  await latency();
+  if (!mayDesign("write")) return denied();
+  const state = getState();
+  const i = state.design_items.find((x) => x.item_no === itemNo);
+  if (!i) return notFound(SERVICE, "not_found", `Tidak ada item ${itemNo}.`);
+  const uses = [
+    state.attachment_links.some((l) => l.entity === "design_item" && l.entity_no === i.item_no) && "file",
+    state.design_approvals.some((a) => a.item_id === i.id) && "persetujuan klien",
+    state.quotation_lines.some((l) => l.design_item_id === i.id) && "quotation",
+    state.project_lines.some((l) => l.design_item_id === i.id) && "baris order",
+    state.factory_quote_lines.some((l) => l.design_item_id === i.id) && "harga pabrik",
+    state.meeting_points.some((m) => m.design_item_id === i.id) && "butir meeting",
+    (state.design_item_specs.some((x) => x.item_id === i.id) || state.design_box_skips.some((x) => x.item_id === i.id)) && "kotak Studio Desain",
+    state.tasks.some((t) => t.ref_kind === "design_item" && t.ref_no === i.item_no) && "tugas",
+  ].filter(Boolean) as string[];
+  if (uses.length) {
+    return conflict(SERVICE, "item_in_use",
+      `Item ini sudah punya ${uses.join(", ")}, jadi tidak bisa dihapus. Keluarkan dari desain dengan alasan.`, { uses });
+  }
+  apply((draft) => {
+    draft.design_items = draft.design_items.filter((x) => x.id !== i.id);
+    writeAudit(draft, { service: SERVICE, entity: "design_item", entity_no: i.item_no, action: "remove", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, { item_no: i.item_no });
 }
 
 export async function setDesignItemDropped(

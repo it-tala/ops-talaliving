@@ -1,8 +1,8 @@
--- 0263_qc_reports_findings.sql — what a QC sends from the factory: the daily
+-- 0264_qc_reports_findings.sql — what a QC sends from the factory: the daily
 -- report with its photos and counts, the findings, the check at loading; and
 -- what is read from it — the factory's progress on the project board, the
 -- days a QC has not reported, whether an order is ready to load (O7, kajian
--- F255 §5.7, D419).
+-- F255 §5.7, D420).
 --
 --   qc_reports       one visit: the day, the stage (material · construction ·
 --                    finishing · packing · loading), a note, photos; at loading,
@@ -12,7 +12,7 @@
 --                    far** and how many were rejected on this visit. Passed is
 --                    a running count, not a day's increment, so two QCs on one
 --                    order and a re-check do not add up to more than was made
---                    (D419). The latest report is the factory's progress.
+--                    (D420). The latest report is the factory's progress.
 --   qc_findings      a defect, a wrong material, a delay, damage, bad packing:
 --                    its phase (production · loading · after_arrival — the last
 --                    is the client's claim, O8), severity, photos, and OPEN →

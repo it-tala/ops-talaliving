@@ -96,6 +96,7 @@ function toLine(r: Row): QuotationLineView {
     line_overhead_pct: nn(r.line_overhead_pct),
     line_margin_pct: nn(r.line_margin_pct),
     design_item_no: s(r.design_item_no),
+    design_client_code: s(r.design_client_code),
     design_item_name: s(r.design_item_name),
     collection_code: s(r.collection_code),
     collection_name: s(r.collection_name),

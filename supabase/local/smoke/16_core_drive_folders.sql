@@ -55,7 +55,7 @@ begin
   -- drafter's DWG, in DRAFTING (D399); 43 since `0256` added a factory's
   -- price offer, in PROCUREMENT (O2); 45 since `0258` added a container's
   -- packing list and bill of lading, in PROJECT MANAGER (O5); 46 since
-  -- `0262` added a QC's photo from the factory, in PROJECT MANAGER (O7).
+  -- `0263` added a QC's photo from the factory, in PROJECT MANAGER (O7).
   assert n = 46, format('every kind is mapped, got %s', n);
 end $$;
 

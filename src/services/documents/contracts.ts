@@ -90,7 +90,7 @@ export const DOC_KINDS = [
   "Packing List",
   "Bill of Lading",
   /** A QC's photo from the factory — filed with the project in PROJECT
-   *  MANAGER, by day, then linked to the report or finding (0263, O7). */
+   *  MANAGER, by day, then linked to the report or finding (0264, O7). */
   "Foto QC",
   "Others",
 ] as const;
@@ -218,9 +218,9 @@ export type LinkEntity =
   /** A delivery, by its number — a container's packing list and B/L (0259, O5). */
   | "delivery"
   /** A QC assignment, by `qca-…` — where a QC's photos are uploaded, so they
-   *  land in the project's QC folder by day (0261, 0263). */
+   *  land in the project's QC folder by day (0261, 0264). */
   | "qc_assignment"
-  /** A QC report or finding, by its number — the photos it shows (0263, O7). */
+  /** A QC report or finding, by its number — the photos it shows (0264, O7). */
   | "qc_report"
   | "qc_finding";
 

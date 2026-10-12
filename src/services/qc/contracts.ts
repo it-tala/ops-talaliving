@@ -6,7 +6,7 @@
  *  — the order, its factory and project, its lines and working drawings, never
  *  a price (Q88). From the factory they send reports — photos, a stage, how
  *  many have passed so far — and findings; the latest report is the factory's
- *  progress on the project board (0263, O7, D419).
+ *  progress on the project board (0264, O7, D420).
  */
 
 import { bilingual, type Message } from "@/lib/i18n";
@@ -84,7 +84,7 @@ export interface QcAssignment {
   line_count: number;
   container_count: number;
   state: QcAssignmentState;
-  /** The day of the latest live report on this assignment (0263). */
+  /** The day of the latest live report on this assignment (0264). */
   last_report_on: string | null;
   report_count: number;
   /** On a live assignment: days since the last report (or since the day
@@ -139,7 +139,7 @@ export interface QcAssignableOrder {
   qc_names: string | null;
 }
 
-/* ── reports and findings (0263, O7, D419) ──────────────────────────────── */
+/* ── reports and findings (0264, O7, D420) ──────────────────────────────── */
 
 /** Where the work is when the QC looks at it. `loading` is the check at the
  *  container door, and names the container. */
@@ -183,7 +183,7 @@ export interface QcReport {
 
 /** A line as the QC counts it: `passed` is how many have passed **so far**,
  *  not today's increment, so two QCs and a re-check never add up to more than
- *  was made (D419); `rejected` is this visit's. */
+ *  was made (D420); `rejected` is this visit's. */
 export interface QcReportLineInput {
   line_no: number;
   passed: number;

@@ -94,8 +94,8 @@ export default function QuotationPrintPage({ params }: { params: Promise<{ no: s
                 </tr>
               </thead>
               <tbody>
-                {/* By collection and room, the order the client's design is in
-                    (P5); a subtotal under each room. */}
+                {/* By collection, the order the client's design is in (P5,
+                    D419); a subtotal under each collection. */}
                 {groupLines(lines).map((l, i, all) => isHeading(l) ? (
                   <tr key={`h-${l.key}`} className="border-b border-slate-300">
                     <td colSpan={6} className="pb-1 pt-3 text-[12px] font-semibold uppercase tracking-wide text-slate-700">
@@ -110,7 +110,7 @@ export default function QuotationPrintPage({ params }: { params: Promise<{ no: s
                       {l.description}
                       {(l.design_item_no || l.product_code) && (
                         <span className="block font-mono text-[11px] text-slate-500">
-                          {[l.design_item_no, l.product_code].filter(Boolean).join(" · ")}
+                          {[l.design_client_code ?? l.design_item_no, l.product_code].filter(Boolean).join(" · ")}
                         </span>
                       )}
                       {l.note && <span className="block text-[12px] text-slate-600">{l.note}</span>}
@@ -129,10 +129,10 @@ export default function QuotationPrintPage({ params }: { params: Promise<{ no: s
                   {l.design_item_no && (i === all.length - 1 || isHeading(all[i + 1])) && (
                     <tr className="border-b border-slate-300">
                       <td colSpan={5} className="py-1.5 text-right text-[12px] text-slate-600">
-                        {both(`Subtotal ${l.room_name ?? ""}`, `Subtotal ${l.room_name ?? ""}`)}
+                        {both(`Subtotal ${l.collection_name ?? ""}`, `Subtotal ${l.collection_name ?? ""}`)}
                       </td>
                       <td className="whitespace-nowrap py-1.5 text-right text-[12px] font-medium tabular-nums">
-                        {roomTotal(all, i, q.currency)}
+                        {groupTotal(all, i, q.currency)}
                       </td>
                     </tr>
                   )}
@@ -196,9 +196,9 @@ export default function QuotationPrintPage({ params }: { params: Promise<{ no: s
   );
 }
 
-/** The room's lines above row `i`, back to its heading — or a dash when one
+/** The collection's lines above row `i`, back to its heading — or a dash when one
  *  of them has no price yet. */
-function roomTotal(all: ReturnType<typeof groupLines>, i: number, currency: "IDR" | "USD"): string {
+function groupTotal(all: ReturnType<typeof groupLines>, i: number, currency: "IDR" | "USD"): string {
   let sum = 0;
   for (let j = i; j >= 0; j--) {
     const x = all[j];

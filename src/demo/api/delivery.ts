@@ -336,7 +336,7 @@ export async function createContainer(
   const view = await getDelivery(made.data.delivery_no);
   if (view.error) return view;
   const warning = checkDigitWarning(no!);
-  /* Ready to load? Said, never refused (0263's `load_warnings`, O7). */
+  /* Ready to load? Said, never refused (0264's `load_warnings`, O7). */
   const qcWarnings = poId ? loadWarningsOf(getState(), poId) : [];
   const out = { ...view.data, load_warnings: [...(warning ? [warning] : []), ...qcWarnings] };
   remember(SERVICE, "createContainer", idempotencyKey, out);

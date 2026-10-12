@@ -1,5 +1,5 @@
-/** Field QC in the demo — the same rules as `ops_qc` (0261, O6, D418; 0263,
- *  O7, D419).
+/** Field QC in the demo — the same rules as `ops_qc` (0261, O6, D418; 0264,
+ *  O7, D420).
  *
  *  The coordinator (`qc: admin`) keeps the team and sends people to factory
  *  orders; leadership and procurement read every assignment; a QC reads only
@@ -71,7 +71,7 @@ function assignmentView(state: DemoState, a: DemoState["qc_assignments"][number]
   };
 }
 
-/** 0263's columns on `v_qc_assignment`: when it last reported, what is open. */
+/** 0264's columns on `v_qc_assignment`: when it last reported, what is open. */
 function reportingOf(state: DemoState, a: DemoState["qc_assignments"][number]) {
   const today = officeToday();
   const live = state.qc_reports.filter((r) => r.assignment_id === a.id && !r.cancelled_at);
@@ -320,7 +320,7 @@ export async function listAssignableOrders(): Promise<Result<QcAssignableOrder[]
     }));
 }
 
-/* ── reports, findings, progress (0263, O7, D419) ───────────────────────── */
+/* ── reports, findings, progress (0264, O7, D420) ───────────────────────── */
 
 /** `ops_qc.my_assignment`: the signed-in QC's own live assignment, or anybody
  *  who sees every one. */

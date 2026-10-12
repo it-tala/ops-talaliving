@@ -357,7 +357,7 @@ const STAGE: Record<ProductionStage, { en: string; id: string; tone: "slate" | "
 
 /** Where each line is made and how far it is. A workshop line reads its Job
  *  Orders; a factory line reads its factory order, and what the factory has
- *  finished is QC's passed count at the latest report (0263, O7) — until QC
+ *  finished is QC's passed count at the latest report (0264, O7) — until QC
  *  has counted, the board says so rather than a count nobody gave. */
 function ProductionBoard({ code }: { code: string }) {
   const tr = useTr();
@@ -469,7 +469,7 @@ function BoardRow({ r, openPo }: { r: ProjectProductionLine; openPo: boolean }) 
         {r.made != null ? formatNumber(r.made)
           : r.route === "FACTORY" ? <span className="text-[11px] text-slate-400" title={tr("Counted by QC at the factory", "Dihitung QC di pabrik")}>{tr("not counted", "belum dihitung")}</span>
             : <span className="text-slate-300">—</span>}
-        {/* A factory line's count is QC's latest report (0263, O7). */}
+        {/* A factory line's count is QC's latest report (0264, O7). */}
         {r.route === "FACTORY" && r.qc_stage && (
           <span className="block text-[11px] text-slate-500">{tr("QC", "QC")} · {QC_STAGE_LABEL[r.qc_stage]}{r.qc_reported_on && ` · ${r.qc_reported_on}`}</span>
         )}

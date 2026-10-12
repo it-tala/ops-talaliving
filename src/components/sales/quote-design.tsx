@@ -5,7 +5,7 @@ import { AlertTriangle, Layers, X } from "lucide-react";
 import { Button } from "@/components/ui/primitives";
 import { cn } from "@/lib/cn";
 import { design, documents, quotation } from "@/demo/api";
-import type { DesignItemView } from "@/services/design/contracts";
+import { itemCode, type DesignItemView } from "@/services/design/contracts";
 import type { AttachmentView } from "@/services/documents/contracts";
 import type { QuotationLineView } from "@/services/quotation/contracts";
 import { useToast } from "@/store/toast";
@@ -44,7 +44,7 @@ export function QuoteFromDesign({
   const groups = useMemo(() => {
     const m = new Map<string, DesignItemView[]>();
     for (const i of items) {
-      const k = `${i.collection_code}|${i.room_sort}|${i.room_code}`;
+      const k = i.collection_code;
       m.set(k, [...(m.get(k) ?? []), i]);
     }
     return [...m.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, xs]) => xs);
@@ -76,14 +76,14 @@ export function QuoteFromDesign({
       ) : (
         <div className="grid gap-2 sm:grid-cols-2">
           {groups.map((xs) => (
-            <div key={`${xs[0].collection_code}-${xs[0].room_code}`} className="rounded-lg border border-slate-200 bg-white p-2">
+            <div key={xs[0].collection_code} className="rounded-lg border border-slate-200 bg-white p-2">
               <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                {xs[0].collection_code} · {xs[0].collection_name} › {xs[0].room_name}
+                {xs[0].collection_code} · {xs[0].collection_name}
               </p>
               {xs.map((i) => (
                 <label key={i.item_no} className={cn("flex items-center gap-2 py-0.5 text-[13px]", already.has(i.item_no) && "text-slate-400")}>
                   <input type="checkbox" disabled={already.has(i.item_no)} checked={picked.has(i.item_no)} onChange={() => toggle(i.item_no)} />
-                  <span className="font-mono text-[11px] text-slate-400">{i.item_no}</span>
+                  <span className="font-mono text-[11px] text-slate-400">{itemCode(i)}</span>
                   <span>{i.name}</span>
                   <span className="text-[11px] text-slate-400">× {i.qty}</span>
                   {already.has(i.item_no) && <span className="text-[11px]">{tr("on this quotation", "sudah di quotation ini")}</span>}
@@ -159,7 +159,7 @@ export function LineDesignPicker({
       <select value={itemNo} onChange={(e) => onChange(e.target.value, "")} aria-label={tr("Design item", "Item desain")}
         className={cn(cls, "max-w-[220px]")}>
         <option value="">{tr("— no design item —", "— bukan item desain —")}</option>
-        {items.map((i) => <option key={i.item_no} value={i.item_no}>{i.item_no} · {i.name}</option>)}
+        {items.map((i) => <option key={i.item_no} value={i.item_no}>{itemCode(i)} · {i.name}</option>)}
       </select>
       {itemNo && (
         <select value={fileId} onChange={(e) => onChange(itemNo, e.target.value)} aria-label={tr("Drawing", "Gambar")}
@@ -176,23 +176,23 @@ export function LineDesignPicker({
   );
 }
 
-/** Lines in the drafters' order: collection → room, then whatever is not a
- *  design item. Returns the rows with a heading before each new group. */
+/** Lines in the drafters' order: by collection (D419; within it, the order
+ *  the items were added), then whatever is not a design item. Returns the rows with a heading before each new group. */
 export function groupLines<T extends QuotationLineView>(rows: T[]): ({ heading: string; key: string } | T)[] {
   if (!rows.some((r) => r.design_item_no)) return rows;
   const sorted = [...rows].sort((a, b) => {
-    const ka = a.design_item_no ? `0|${a.collection_code}|${String(a.room_sort ?? 0).padStart(4, "0")}|${a.room_code}` : "1";
-    const kb = b.design_item_no ? `0|${b.collection_code}|${String(b.room_sort ?? 0).padStart(4, "0")}|${b.room_code}` : "1";
+    const ka = a.design_item_no ? `0|${a.collection_code}` : "1";
+    const kb = b.design_item_no ? `0|${b.collection_code}` : "1";
     return ka.localeCompare(kb) || a.line_no - b.line_no;
   });
   const out: ({ heading: string; key: string } | T)[] = [];
   let last = "";
   for (const r of sorted) {
-    const key = r.design_item_no ? `${r.collection_code}|${r.room_code}` : "__other";
+    const key = r.design_item_no ? `${r.collection_code}` : "__other";
     if (key !== last) {
       out.push({
         key,
-        heading: r.design_item_no ? `${r.collection_code} · ${r.collection_name} › ${r.room_name}` : "",
+        heading: r.design_item_no ? `${r.collection_code} · ${r.collection_name}` : "",
       });
       last = key;
     }

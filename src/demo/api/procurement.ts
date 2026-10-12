@@ -631,7 +631,7 @@ export async function listProjectProduction(
     if (opts.project_code && project.code !== opts.project_code) continue;
     for (const l of state.project_lines.filter((x) => x.project_id === project.id).sort((a, b) => a.line_no - b.line_no)) {
       const v = lineView(state, project, l);
-      /* A factory line's `made` is QC's passed count at the latest report (0263, O7). */
+      /* A factory line's `made` is QC's passed count at the latest report (0264, O7). */
       const fo = v.route === "FACTORY" && v.factory_po_no ? state.purchase_orders.find((p) => p.po_no === v.factory_po_no) : undefined;
       const foLine = fo ? state.po_lines.find((o) => o.po_id === fo.id && o.superseded_by === null && o.project_line_id === l.id) : undefined;
       const qcLine = fo && foLine ? lineProgressOf(state, fo.id).find((g) => g.line_no === foLine.line_no) : undefined;

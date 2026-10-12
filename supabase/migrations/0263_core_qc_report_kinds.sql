@@ -1,4 +1,4 @@
--- 0262_core_qc_report_kinds.sql — the records a QC report and a finding are,
+-- 0263_core_qc_report_kinds.sql — the records a QC report and a finding are,
 -- and the kind of file a QC photo is (O7, kajian F255 §5.7).
 --
 --   link_entity_t  `qc_report`, `qc_finding` — a photo is linked to the report
@@ -9,7 +9,7 @@
 --
 -- Their own migration because a value added by `alter type … add value`
 -- cannot be used in the same transaction (F161). Tables, folders and seams are
--- `0263`.
+-- `0264`.
 
 alter type ops_core.link_entity_t add value if not exists 'qc_report';
 alter type ops_core.link_entity_t add value if not exists 'qc_finding';

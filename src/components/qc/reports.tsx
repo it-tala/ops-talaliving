@@ -18,7 +18,7 @@ import {
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 
-/** Field QC from the factory (0263, O7, kajian §5.7, D419).
+/** Field QC from the factory (0264, O7, kajian §5.7, D420).
  *
  *  What a QC does on an assignment from their phone: count how many pieces
  *  have passed so far, photograph them, say what is wrong. The latest report
@@ -145,7 +145,7 @@ function PhotoLinks({ entity, no }: { entity: "qc_report" | "qc_finding"; no: st
 /* ── the report ─────────────────────────────────────────────────────────── */
 
 /** One visit's report, from the phone. Passed is how many have passed **so
- *  far** — prefilled with the last count — not today's increment (D419). */
+ *  far** — prefilled with the last count — not today's increment (D420). */
 export function ReportForm({ a, lines, progress, onDone, onCancel }: {
   a: QcAssignment; lines: QcAssignmentLine[]; progress: QcLineProgress[]; onDone: () => void; onCancel: () => void;
 }) {

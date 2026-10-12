@@ -545,6 +545,8 @@ export interface DemoDesignItem {
   length_mm: number | null; width_mm: number | null; height_mm: number | null;
   origin: DesignOrigin; product_code: string | null; note: string | null;
   dropped_at: string | null; drop_reason: string | null; created_at: string; updated_at: string;
+  /** The client's own code for the item (0262, D419). */
+  client_item_code?: string | null;
   /** The factory offer line the item is priced from (0256). */
   factory_line_id?: string | null;
 }
@@ -566,16 +568,16 @@ export interface DemoQcAssignment {
   id: string; assign_no: string; person_id: string; po_id: string; starts_on: string; ends_on: string | null;
   note: string | null; created_at: string; cancelled_at: string | null; cancel_reason: string | null;
 }
-/** `ops_qc.qc_reports` (0263). */
+/** `ops_qc.qc_reports` (0264). */
 export interface DemoQcReport {
   id: string; report_no: string; assignment_id: string; report_date: string;
   stage: "material" | "construction" | "finishing" | "packing" | "loading";
   delivery_id: string | null; note: string | null; created_by: string; created_at: string;
   cancelled_at: string | null; cancel_reason: string | null;
 }
-/** `ops_qc.qc_report_lines` (0263): passed is a running count (D419). */
+/** `ops_qc.qc_report_lines` (0264): passed is a running count (D420). */
 export interface DemoQcReportLine { report_id: string; line_no: number; passed: number; rejected: number }
-/** `ops_qc.qc_findings` (0263). */
+/** `ops_qc.qc_findings` (0264). */
 export interface DemoQcFinding {
   id: string; finding_no: string; po_id: string; assignment_id: string | null; report_id: string | null;
   delivery_id: string | null; line_no: number | null;

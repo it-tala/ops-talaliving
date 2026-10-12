@@ -1,5 +1,5 @@
--- qc — reports, findings and the loading check from the factory (0262/0263,
--- O7, kajian F255 §5.7, D419).
+-- qc — reports, findings and the loading check from the factory (0263/0264,
+-- O7, kajian F255 §5.7, D420).
 --
 -- DERIVATIONS  a report's passed count is a running count: the latest report
 --              is the factory's progress, whichever QC sent it, and the

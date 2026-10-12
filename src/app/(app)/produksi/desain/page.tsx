@@ -19,8 +19,10 @@ import { Progress } from "./Progress";
  *  required (D399, D401). It replaces the drawing queue (M30, P6), which waited
  *  for design items the drafters had no way to create (F247).
  *
- *  `?item=26003-A-LR-01` opens on an item, `?room=26003-A-LR` on a room (the
- *  link an HRD design task carries); `?tab=progress` on the progress. */
+ *  `?item=25009-LV232-01` opens on an item and its collection,
+ *  `?room=25009-LV232-00` on a collection (the link an HRD design task
+ *  carries; older tasks name a room, which opens its collection — D419);
+ *  `?tab=progress` on the progress. */
 export default function DesignPage() {
   const tr = useTr();
   const { can } = useSession();
@@ -35,13 +37,13 @@ export default function DesignPage() {
     const q = new URLSearchParams(window.location.search);
     const item = q.get("item");
     if (item) {
-      const [project, collection, room] = item.split("-");
-      setStart({ item, room: project && collection && room ? { project, collection, room } : undefined });
+      const [project, collection] = item.split("-");
+      setStart({ item, room: project && collection ? { project, collection, room: "00" } : undefined });
     }
     const room = q.get("room");
     if (!item && room) {
-      const [project, collection, code] = room.split("-");
-      if (project && collection && code) setStart({ room: { project, collection, room: code } });
+      const [project, collection] = room.split("-");
+      if (project && collection) setStart({ room: { project, collection, room: "00" } });
     }
     if (q.get("tab") === "progress") setTab("progress");
     setReady(true);

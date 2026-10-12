@@ -195,7 +195,7 @@ function filingPlace(kind: DocKind, entity?: LinkEntity, entityNo?: string): Fil
       : "PENGIRIMAN";
     return { drive: "PROJECT MANAGER", path, filed_in: `PROJECT MANAGER / ops-talaliving / ${path}` };
   }
-  /* A QC's photo: PROJECT MANAGER, per client, project and day (0263, O7). */
+  /* A QC's photo: PROJECT MANAGER, per client, project and day (0264, O7). */
   if (kind === "Foto QC") {
     const a = entity === "qc_assignment" ? st.qc_assignments.find((x) => x.assign_no === entityNo?.trim()) : undefined;
     const po = a ? st.purchase_orders.find((x) => x.id === a.po_id) : undefined;

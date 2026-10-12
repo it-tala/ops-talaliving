@@ -7,20 +7,23 @@ import { Badge, Button, Card } from "@/components/ui/primitives";
 import { Loaded, useLoad } from "@/components/ui/loaded";
 import { cn } from "@/lib/cn";
 import { design } from "@/demo/api";
-import { boxProgress, roomCode, type DesignProject } from "@/services/design/contracts";
+import { boxProgress, itemCode, roomCode, type DesignProject } from "@/services/design/contracts";
 import { AssignmentLine } from "@/components/design/assign-task";
-import { CollectionForm, ItemForm, RoomForm } from "@/components/design/design-board";
+import { CollectionForm, ItemForm, collectionItems } from "@/components/design/design-board";
 import { BoxBar, BoxChips, ItemBoxes } from "@/components/design/item-boxes";
 import { useTr } from "@/lib/i18n";
 import { CollectionGallery } from "@/components/design/collection-gallery";
 import { useCanSell } from "@/lib/sell";
 import { NewProject } from "../../proyek/order/ProjectDrawer";
 
+/** A collection in the tree. `room` is the collection's one room, `00`, since
+ *  rooms left the screens (D419); tasks given for the whole collection name it
+ *  (`<project>-<collection>-00`). */
 export interface RoomRef { project: string; collection: string; room: string }
 
-/** Ruang kerja: client › project › collection › room on the left, the room's
+/** Ruang kerja: client › project › collection on the left, the collection's
  *  items with their six boxes in the middle, and the chosen item's boxes below
- *  (Studio Desain S1, D405). Every level can be added to from here, so the
+ *  (Studio Desain S1, D405, D419). Every level can be added to from here, so the
  *  drafters can start from nothing without the Projects menu (F247). Whoever
  *  may open a sale opens the project here too, with the Projects form, and it
  *  is chosen at once (O1, F255). */
@@ -63,8 +66,8 @@ export function Workspace({
           {(ps) => ps.length === 0 ? (
             <div className="px-4 py-4 text-[12px] text-slate-500">
               <p>{canSell("create")
-                ? tr("No live project yet. Start with the client and the project, then its collections and rooms.",
-                  "Belum ada proyek berjalan. Mulai dengan klien dan proyeknya, lalu koleksi dan ruangannya.")
+                ? tr("No live project yet. Start with the client and the project, then its collections.",
+                  "Belum ada proyek berjalan. Mulai dengan klien dan proyeknya, lalu koleksinya.")
                 : tr("No live project yet. Projects are opened by leadership or marketing.",
                   "Belum ada proyek berjalan. Proyek dibuka oleh pimpinan atau marketing.")}</p>
               {canSell("create") && (
@@ -91,8 +94,8 @@ export function Workspace({
         ) : (
           <Card className="px-5 py-10 text-center text-[13px] text-slate-500">
             <FolderOpen className="mx-auto mb-2 h-6 w-6 text-slate-300" />
-            {tr("Choose a room on the left. A project with no design yet starts with a collection, then its rooms.",
-              "Pilih ruangan di kiri. Proyek yang belum punya desain dimulai dengan koleksi, lalu ruangannya.")}
+            {tr("Choose a collection on the left. A project with no design yet starts with a collection.",
+              "Pilih koleksi di kiri. Proyek yang belum punya desain dimulai dengan koleksi.")}
           </Card>
         )}
       </div>
@@ -144,61 +147,44 @@ function ProjectRooms({
   const [d, reload] = useLoad(() => design.getProjectDesign(projectCode), [projectCode, tick]);
   const [boxes] = useLoad(() => design.listDesignBoxes({ project_code: projectCode }), [projectCode, tick]);
 
-  /* A project opened with no room chosen opens its first room that has items
-     (else its first room), so the screen is never empty for no reason. */
+  /* A project opened with no collection chosen opens its first collection
+     that has items (else its first), so the screen is never empty for no reason. */
   useEffect(() => {
     if (d.status !== "ready" || (room && room.project === projectCode)) return;
     const pd = d.data;
-    const withItems = pd.rooms.find((r) => pd.items.some((i) => i.collection_code === r.collection_code && i.room_code === r.code));
-    const first = withItems ?? pd.rooms[0];
-    if (first) onRoom({ project: projectCode, collection: first.collection_code, room: first.code });
+    const first = pd.collections.find((c) => pd.items.some((i) => i.collection_code === c.code)) ?? pd.collections[0];
+    if (first) onRoom({ project: projectCode, collection: first.code, room: "00" });
   }, [d, room, projectCode, onRoom]);
-  const [adding, setAdding] = useState<null | "collection" | string>(null);
+  const [adding, setAdding] = useState(false);
   const all = boxes.status === "ready" ? boxes.data : [];
   return (
     <div className="border-l-2 border-slate-100 pb-1 pl-3 ml-5">
       <Loaded state={d} onRetry={reload} skeletonRows={1}>
         {(pd) => (
           <>
-            {pd.collections.map((c) => (
-              <div key={c.code}>
-                <div className="flex items-center gap-1 px-2 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  <Layers className="h-3 w-3" /> <span className="truncate">{c.code} · {c.name}</span>
-                  {canEdit && adding !== c.code && (
-                    <button onClick={() => setAdding(c.code)} className="ml-auto rounded px-1 font-normal normal-case text-brand-700 hover:bg-brand-50"
-                      aria-label={tr("Add a room", "Tambah ruangan")}>+ {tr("room", "ruangan")}</button>
-                  )}
-                </div>
-                {adding === c.code && (
-                  <div className="py-1.5 pr-2">
-                    <RoomForm projectCode={projectCode} collectionCode={c.code}
-                      onDone={() => { setAdding(null); reload(); }} onCancel={() => setAdding(null)} />
-                  </div>
-                )}
-                {pd.rooms.filter((r) => r.collection_code === c.code).map((r) => {
-                  const prog = boxProgress(all.filter((b) => b.collection_code === c.code && b.room_code === r.code));
-                  const active = room?.project === projectCode && room.collection === c.code && room.room === r.code;
-                  return (
-                    <button key={r.code} onClick={() => onRoom({ project: projectCode, collection: c.code, room: r.code })}
-                      aria-current={active}
-                      className={cn("flex w-full items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-slate-50",
-                        active && "bg-brand-50 font-semibold text-brand-800")}>
-                      <span className="min-w-0 flex-1 truncate">{r.name}</span>
-                      <span className="text-[11px] tabular-nums text-slate-400">{prog.total ? `${prog.filled}/${prog.total}` : "—"}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            ))}
-            {pd.collections.length === 0 && adding !== "collection" && (
+            {pd.collections.map((c) => {
+              const prog = boxProgress(all.filter((b) => b.collection_code === c.code));
+              const active = room?.project === projectCode && room.collection === c.code;
+              return (
+                <button key={c.code} onClick={() => onRoom({ project: projectCode, collection: c.code, room: "00" })}
+                  aria-current={active}
+                  className={cn("flex w-full items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-slate-50",
+                    active && "bg-brand-50 font-semibold text-brand-800")}>
+                  <Layers className="h-3 w-3 shrink-0 text-slate-400" />
+                  <span className="min-w-0 flex-1 truncate">{c.code} · {c.name}</span>
+                  <span className="text-[11px] tabular-nums text-slate-400">{prog.total ? `${prog.filled}/${prog.total}` : "—"}</span>
+                </button>
+              );
+            })}
+            {pd.collections.length === 0 && !adding && (
               <p className="px-2 py-1 text-[12px] text-slate-400">{tr("No design yet.", "Belum ada desain.")}</p>
             )}
-            {canEdit && (adding === "collection" ? (
+            {canEdit && (adding ? (
               <div className="py-1.5 pr-2">
-                <CollectionForm projectCode={projectCode} onDone={() => { setAdding(null); reload(); }} onCancel={() => setAdding(null)} />
+                <CollectionForm projectCode={projectCode} onDone={() => { setAdding(false); reload(); }} onCancel={() => setAdding(false)} />
               </div>
             ) : (
-              <button onClick={() => setAdding("collection")} className="mt-1 rounded px-2 py-0.5 text-[12px] text-brand-700 hover:bg-brand-50">
+              <button onClick={() => setAdding(true)} className="mt-1 rounded px-2 py-0.5 text-[12px] text-brand-700 hover:bg-brand-50">
                 + {tr("collection", "koleksi")}
               </button>
             ))}
@@ -229,14 +215,13 @@ function RoomPanel({
     return list.find((t) => t.status === "OPEN") ?? list[0];
   };
   const roomBoxes = useMemo(() => (boxes.status === "ready" ? boxes.data : [])
-    .filter((b) => b.collection_code === room.collection && b.room_code === room.room), [boxes, room]);
+    .filter((b) => b.collection_code === room.collection), [boxes, room]);
 
   return (
     <Loaded state={d} onRetry={reload}>
       {(pd) => {
         const c = pd.collections.find((x) => x.code === room.collection);
-        const r = pd.rooms.find((x) => x.collection_code === room.collection && x.code === room.room);
-        const items = pd.items.filter((i) => i.collection_code === room.collection && i.room_code === room.room);
+        const items = collectionItems(pd, room.collection);
         const chosen = items.find((i) => i.item_no === item) ?? null;
         const prog = boxProgress(roomBoxes);
         const first = items[0];
@@ -249,7 +234,7 @@ function RoomPanel({
                     {first?.client_display ?? ""}{first?.client_display ? " › " : ""}{room.project} {first?.project_name ?? ""}
                   </p>
                   <h3 className="text-[14px] font-semibold text-slate-800">
-                    {c ? `${c.code} · ${c.name}` : room.collection} › {r?.name ?? room.room}
+                    {c ? `${c.code} · ${c.name}` : room.collection}
                   </h3>
                   {c && <CollectionGallery projectCode={room.project} collection={c} canEdit={canEdit} onChanged={reloadDesign} className="mt-1" />}
                 </div>
@@ -266,14 +251,14 @@ function RoomPanel({
               </div>
               {adding && (
                 <div className="border-b border-slate-100 px-4 py-2.5">
-                  <ItemForm projectCode={room.project} collectionCode={room.collection} roomCode={room.room}
+                  <ItemForm projectCode={room.project} collectionCode={room.collection}
                     onDone={(i) => { setAdding(false); reload(); onItem(i.item_no); }} onCancel={() => setAdding(false)} />
                 </div>
               )}
               {items.length === 0 ? (
                 <p className="px-4 py-6 text-center text-[13px] text-slate-500">
-                  {tr("No items in this room yet. Add the first with + Item — its six boxes appear empty, and none is required.",
-                    "Belum ada item di ruangan ini. Tambah yang pertama dengan + Item — enam kotaknya muncul kosong, dan tidak ada yang wajib.")}
+                  {tr("No items in this collection yet. Add the first with + Item — its six boxes appear empty, and none is required.",
+                    "Belum ada item di koleksi ini. Tambah yang pertama dengan + Item — enam kotaknya muncul kosong, dan tidak ada yang wajib.")}
                 </p>
               ) : (
                 <div className="overflow-x-auto">
@@ -298,7 +283,7 @@ function RoomPanel({
                               i.item_no === item && "bg-brand-50/70", dropped && "opacity-60")}>
                             <td className="px-4 py-2">
                               <span className="block text-slate-800">{i.name}</span>
-                              <span className="font-mono text-[11px] text-slate-400">{i.item_no} · {i.qty} pcs</span>
+                              <span className="font-mono text-[11px] text-slate-400">{itemCode(i)} · {i.qty} pcs</span>
                               {dropped && <Badge tone="red" className="ml-2">{tr("dropped", "dikeluarkan")}</Badge>}
                             </td>
                             <td className="px-2 py-2"><BoxChips boxes={mine} /></td>
@@ -316,7 +301,7 @@ function RoomPanel({
               <Card>
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-slate-100 px-4 py-3">
                   <h3 className="min-w-0 flex-1 text-[14px] font-semibold text-slate-800">
-                    <span className="font-mono text-[12px] font-normal text-slate-500">{chosen.item_no}</span> · {chosen.name}
+                    <span className="font-mono text-[12px] font-normal text-slate-500">{itemCode(chosen)}</span> · {chosen.name}
                   </h3>
                   <span className="text-[12px] tabular-nums text-slate-500">
                     {chosen.length_mm || chosen.width_mm || chosen.height_mm

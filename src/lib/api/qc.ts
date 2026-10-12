@@ -1,5 +1,5 @@
 /** Field QC against the real database — schema `ops_qc` (0261, O6, D418;
- *  0263, O7, D419).
+ *  0264, O7, D420).
  *
  *  Reads are the two views, which run as the reader: a QC gets their own
  *  assignments back and nothing else, leadership and procurement get all of
@@ -149,7 +149,7 @@ export async function listAssignableOrders(): Promise<Result<QcAssignableOrder[]
   })));
 }
 
-/* ── reports, findings, progress (0263, O7, D419) ───────────────────────── */
+/* ── reports, findings, progress (0264, O7, D420) ───────────────────────── */
 
 function toReport(r: Row): QcReport {
   return {

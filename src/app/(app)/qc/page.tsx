@@ -25,7 +25,7 @@ import { useTr } from "@/lib/i18n";
  *  price. The coordinator sends people here; leadership and procurement read
  *  every assignment. From the factory the QC sends reports — how many have
  *  passed so far, photos — and findings; the latest report is the order's
- *  progress, here and on the project board (0263, O7, D419). */
+ *  progress, here and on the project board (0264, O7, D420). */
 
 const TONE: Record<QcAssignmentState, "slate" | "green" | "amber" | "red"> = {
   PLANNED: "amber", ACTIVE: "green", ENDED: "slate", CANCELLED: "red",
@@ -110,7 +110,7 @@ function AssignmentRow({ a, coordinator, onChanged }: { a: QcAssignment; coordin
   const [busy, setBusy] = useState(false);
   const live = a.state !== "CANCELLED";
   /* The QC on it, or the coordinator, reports and records findings; not
-     before it starts (0263's `submit_qc_report`). */
+     before it starts (0264's `submit_qc_report`). */
   const mayWrite = live && (a.is_mine || coordinator);
   const mayReport = mayWrite && a.state !== "PLANNED";
   const lineRows = lines.status === "ready" ? lines.data ?? [] : [];

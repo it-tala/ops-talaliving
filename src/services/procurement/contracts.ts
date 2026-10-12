@@ -469,7 +469,7 @@ export interface ProjectLineView extends ProjectLine {
 
 /** How far one order line is, on the board per project (0257, §5.1).
  *  `made` is the workshop's count, or for a factory line QC's passed count at
- *  the latest report (0263, O7) — null until QC has counted, never a guess.
+ *  the latest report (0264, O7) — null until QC has counted, never a guess.
  *  MADE once that count reaches what was ordered. */
 export type ProductionStage =
   | "NO_JOB_ORDER" | "IN_WORK" | "MADE"
@@ -503,7 +503,7 @@ export interface ProjectProductionLine {
   stage: ProductionStage;
   /** Days past the date the factory promised, while it has not shipped. */
   factory_days_late: number | null;
-  /** For a factory line, QC's latest report on it (0263, O7): its stage, its
+  /** For a factory line, QC's latest report on it (0264, O7): its stage, its
    *  day, and the findings still open on the line. `made` is that report's
    *  passed count. Null for a workshop line. */
   qc_stage: QcStage | null;
