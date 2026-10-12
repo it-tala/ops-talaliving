@@ -18,6 +18,7 @@ import type {
   Task, TaskView, TaskRefKind, KpiView, DesignTaskProgress,
   TaskAction, Goal, GoalView, GoalBoardTask, BacklogItem, CandidateGoal, TaskPlanDay, MyPlanLine,
   WorkLog, WorkLogEntry, WorkLogRosterRow, WorkEvidence, WorkProgress,
+  WorkItemView, WorkItemStatus, WorkWeek, WorkWeekDay,
   ContractKind, ClauseKind, ClauseChecklistItem, EmploymentContract,
   ContractView, ContractDetail, ContractClause, ClauseConflict, TimesheetTotal, DayState,
   EffectiveDaysCalendar, EmployeeAccount, ScanImportResult,
@@ -39,14 +40,15 @@ import {
   contributionRoll, allRolls,
   taskView, taskViews, taskRoutineView, taskRoutineViews, kpiView, kpiViews, weekdayOf,
   goalViews, goalBoardRows,
-  workLogView, workLogRoster as workLogRosterRows, workEvidence as workEvidenceOf,
+  workLogView, workLogRoster as workLogRosterRows, workEvidence as workEvidenceOf, isDadakan,
   employeeIdentityViews, wlkpRecap,
   membersOf, groupPeople, paidElsewhere as paidElsewhereRun,
   monthWorkdays, allowanceDayExact, hourlyRate, enrolledIn, dayOvertimeWindow, isRestDayOn, otRulesFor,
 } from "../hr-derive";
 import { latency, actingUser, requireModule, requireLevel, requireAuthority, conflict, replayed, remember, canDesign } from "./_kit";
 import { designScopeProgress } from "./design";
-import { OFFICE_TZ, officeClock, officeToday as sharedOfficeToday, officeStamp } from "@/lib/office";
+import { OFFICE_TZ, officeClock, officeDay as sharedOfficeDay, officeToday as sharedOfficeToday, officeStamp } from "@/lib/office";
+import { settingNumber } from "../settings";
 import { carrySickNote } from "../self-link";
 import { CADENCE_LABELS, addDays, daysBetween, taskPeriodsBetween, ageOn } from "@/services/hr/task-periods";
 import {
@@ -4375,19 +4377,21 @@ export async function listWorkLog(
   const rows = state.work_log
     .filter((l) => l.work_date >= input.from && l.work_date <= input.to)
     .filter((l) => (wide ? true : mine !== null && l.employee_id === mine.id))
-    .map((l) => workLogView(state, l))
+    .map((l) => workLogView(state, l, mine?.id ?? null))
     .filter((v) => !input.employee_no || v.employee_no === input.employee_no)
     .sort((a, b) => b.work_date.localeCompare(a.work_date) || a.created_at.localeCompare(b.created_at));
   return ok(SERVICE, rows);
 }
 
-/** Writing today's log — `ops_hr.log_work`, same checks in the same order.
- *  The person is the signed-in account's employee and the day is today:
- *  there is no way to write for anybody else, or for another day. */
+/** Writing a line — `ops_hr.log_work` (0267), same checks in the same order.
+ *  The person is the signed-in account's employee; the day is any in the
+ *  window (D428), today when not given. */
 export async function logWork(
   input: {
     entry_id?: string | null;
     task_no?: string | null;
+    item_id?: string | null;
+    work_date?: string | null;
     summary: string;
     progress: WorkProgress;
     requested_by?: string | null;
@@ -4401,6 +4405,21 @@ export async function logWork(
     return refused(SERVICE, "no_employee_link",
       "Akun ini belum tertaut ke data karyawan, jadi tidak bisa mengisi laporan harian. Minta HRD menautkannya.");
   }
+  const w = input.entry_id ? state.work_log.find((l) => l.id === input.entry_id && l.employee_id === me.id) : undefined;
+  if (input.entry_id) {
+    if (!w) return notFound(SERVICE, "work_log_not_found", "Catatan itu tidak ada di laporan Anda.");
+    if (w.promoted_task_id) {
+      return conflict(SERVICE, "already_promoted", "HRD sudah menjadikan catatan ini tugas. Perubahan berikutnya dicatat di tugas itu.");
+    }
+  }
+  const today = officeToday();
+  const day = input.work_date || w?.work_date || today;
+  const window = settingNumber(state, "hr.work_log_window_days", 366);
+  if (Math.abs(daysBetween(today, day)) > window) {
+    return invalid(SERVICE, "date_out_of_range",
+      `Tanggal ${day} terlalu jauh dari hari ini — laporan bisa diisi sampai ${window} hari ke belakang atau ke depan.`,
+      { field: "work_date" });
+  }
   if (!input.summary?.trim()) {
     return invalid(SERVICE, "summary_required", "Apa yang dikerjakan? Satu kalimat yang bisa dibaca orang lain.",
       { field: "summary" });
@@ -4412,8 +4431,11 @@ export async function logWork(
   if (hours !== null && (hours <= 0 || hours > 16)) {
     return invalid(SERVICE, "hours_invalid", "Jam kerja diisi antara 0,5 dan 16, atau dikosongkan.", { field: "hours" });
   }
-  const today = officeToday();
+  if (input.task_no?.trim() && input.item_id) {
+    return invalid(SERVICE, "task_or_item", "Pilih satu: tugas, item jangka panjang, atau dadakan.", { field: "task" });
+  }
   let taskId: string | null = null;
+  let itemId: string | null = null;
   let asker: string | null = null;
   if (input.task_no?.trim()) {
     const t = state.tasks.find((x) => x.task_no === input.task_no!.trim());
@@ -4422,10 +4444,22 @@ export async function logWork(
       return refused(SERVICE, "task_not_yours",
         "Laporan harian hanya untuk tugas Anda sendiri. Pekerjaan untuk tugas orang lain dicatat sebagai dadakan, dengan nama yang meminta.");
     }
-    if (t.status === "CANCELLED" || (t.status === "DONE" && t.done_at?.slice(0, 10) !== today)) {
-      return conflict(SERVICE, "task_closed", `${t.task_no} sudah ${t.status.toLowerCase()}.`);
+    if (t.status === "CANCELLED") return conflict(SERVICE, "task_closed", `${t.task_no} sudah dibatalkan.`);
+    const doneOn = t.done_at ? sharedOfficeDay(new Date(t.done_at)) : null;
+    if (t.status === "DONE" && doneOn !== null && day > doneOn) {
+      return conflict(SERVICE, "task_closed",
+        `${t.task_no} sudah selesai pada ${doneOn} — catatan sesudahnya tidak bisa untuk tugas itu.`);
     }
     taskId = t.id;
+  } else if (input.item_id) {
+    const it = (state.work_items ?? []).find((x) => x.id === input.item_id && x.employee_id === me.id);
+    if (!it) return notFound(SERVICE, "work_item_not_found", "Item itu tidak ada di daftar Anda.");
+    const closedOn = it.closed_at ? sharedOfficeDay(new Date(it.closed_at)) : null;
+    if (it.status !== "aktif" && closedOn !== null && day > closedOn) {
+      return conflict(SERVICE, "item_closed",
+        `"${it.title}" sudah ${it.status} pada ${closedOn}. Aktifkan lagi kalau masih dikerjakan.`);
+    }
+    itemId = it.id;
   } else {
     if (!input.requested_by?.trim()) {
       return invalid(SERVICE, "requested_by_required",
@@ -4433,53 +4467,44 @@ export async function logWork(
     }
     asker = input.requested_by.trim();
   }
+  if (state.work_log.some((l) => l.employee_id === me.id && l.work_date === day && l.id !== input.entry_id
+        && ((taskId !== null && l.task_id === taskId) || (itemId !== null && l.item_id === itemId)))) {
+    return conflict(SERVICE, "already_logged",
+      `Sudah ada catatan untuk itu pada ${day}. Ubah catatan yang ada, jangan membuat yang kedua.`);
+  }
 
   const user = actingUser();
   let id = input.entry_id ?? "";
-  if (!input.entry_id) {
-    if (taskId && state.work_log.some((l) => l.employee_id === me.id && l.work_date === today && l.task_id === taskId)) {
-      return conflict(SERVICE, "already_logged",
-        "Tugas ini sudah dicatat hari ini. Ubah catatan yang ada, jangan membuat yang kedua.");
-    }
+  if (!w) {
     apply((draft) => {
       id = newId("wlg");
       draft.work_log.push({
-        id, employee_id: me.id, work_date: today, task_id: taskId,
+        id, employee_id: me.id, work_date: day, task_id: taskId, item_id: itemId,
         summary: input.summary.trim(), progress: input.progress, requested_by: asker, hours,
         created_by: user.id, created_at: new Date().toISOString(), updated_at: null,
         promoted_task_id: null, promoted_by: null, promoted_at: null,
       });
       writeAudit(draft, {
         service: SERVICE, entity: "work_log", entity_no: id, action: "log", outcome: "ok", reason: null,
-        detail: { task: input.task_no ?? null, progress: input.progress, requested_by: asker, hours, by: user.email },
+        detail: { work_date: day, task: input.task_no ?? null, item: itemId, progress: input.progress,
+                  requested_by: asker, hours, by: user.email },
       });
     });
   } else {
-    const w = state.work_log.find((l) => l.id === input.entry_id && l.employee_id === me.id);
-    if (!w) return notFound(SERVICE, "work_log_not_found", "Catatan itu tidak ada di laporan Anda.");
-    if (w.work_date !== today) {
-      return conflict(SERVICE, "past_day", `Catatan ${w.work_date} sudah menjadi riwayat. Laporan hanya bisa diubah pada harinya.`);
-    }
-    if (w.promoted_task_id) {
-      return conflict(SERVICE, "already_promoted", "HRD sudah menjadikan catatan ini tugas. Perubahan berikutnya dicatat di tugas itu.");
-    }
-    if (taskId && taskId !== w.task_id
-        && state.work_log.some((l) => l.employee_id === me.id && l.work_date === today && l.task_id === taskId)) {
-      return conflict(SERVICE, "already_logged", "Tugas itu sudah punya catatan hari ini.");
-    }
     apply((draft) => {
       const row = draft.work_log.find((l) => l.id === w.id);
       if (!row) return;
-      row.task_id = taskId; row.summary = input.summary.trim(); row.progress = input.progress;
+      row.work_date = day; row.task_id = taskId; row.item_id = itemId;
+      row.summary = input.summary.trim(); row.progress = input.progress;
       row.requested_by = asker; row.hours = hours; row.updated_at = new Date().toISOString();
       writeAudit(draft, {
         service: SERVICE, entity: "work_log", entity_no: w.id, action: "edit", outcome: "ok", reason: null,
-        detail: { before: { summary: w.summary, progress: w.progress }, by: user.email },
+        detail: { before: { work_date: w.work_date, summary: w.summary, progress: w.progress }, by: user.email },
       });
     });
   }
   const after = getState();
-  return ok(SERVICE, workLogView(after, after.work_log.find((l) => l.id === id)!));
+  return ok(SERVICE, workLogView(after, after.work_log.find((l) => l.id === id)!, me.id));
 }
 
 export async function removeWorkLog(
@@ -4490,9 +4515,6 @@ export async function removeWorkLog(
   const me = myEmployee(state);
   const w = me ? state.work_log.find((l) => l.id === input.entry_id && l.employee_id === me.id) : undefined;
   if (!w) return notFound(SERVICE, "work_log_not_found", "Catatan itu tidak ada di laporan Anda.");
-  if (w.work_date !== officeToday()) {
-    return conflict(SERVICE, "past_day", `Catatan ${w.work_date} sudah menjadi riwayat dan tidak bisa dihapus.`);
-  }
   if (w.promoted_task_id) {
     return conflict(SERVICE, "already_promoted", "HRD sudah menjadikan catatan ini tugas, jadi catatannya tetap.");
   }
@@ -4519,7 +4541,7 @@ export async function promoteWorkLog(
   const state = getState();
   const w = state.work_log.find((l) => l.id === input.entry_id);
   if (!w) return notFound(SERVICE, "work_log_not_found", "Catatan itu tidak ada.");
-  if (w.task_id !== null) return conflict(SERVICE, "not_dadakan", "Catatan ini sudah untuk sebuah tugas.");
+  if (!isDadakan(w)) return conflict(SERVICE, "not_dadakan", "Catatan ini bukan dadakan — sudah untuk sebuah tugas atau item.");
   if (w.promoted_task_id) return conflict(SERVICE, "already_promoted", "Catatan ini sudah dijadikan tugas.");
   const emp = state.employees.find((e) => e.id === w.employee_id)!;
   const made = await createTask({
@@ -4541,6 +4563,177 @@ export async function promoteWorkLog(
   });
   const after = getState();
   return ok(SERVICE, taskView(after, after.tasks.find((x) => x.task_no === made.data.task_no)!));
+}
+
+/* ── item jangka panjang dan ringkasan minggu (D428) ─────────────────── */
+
+function workItemView(state: DemoState, it: (DemoState["work_items"] & object)[number]): WorkItemView {
+  const lines = state.work_log.filter((l) => l.item_id === it.id);
+  return {
+    id: it.id, employee_id: it.employee_id,
+    employee_no: state.employees.find((e) => e.id === it.employee_id)?.employee_no ?? "—",
+    title: it.title, status: it.status, created_at: it.created_at, closed_at: it.closed_at,
+    entries: lines.length,
+    last_date: lines.reduce<string | null>((m, l) => (m === null || l.work_date > m ? l.work_date : m), null),
+  };
+}
+
+/** `v_work_items` under its read policy: HRD and payroll anybody's, a person
+ *  their own. */
+export async function listWorkItems(
+  input: { employee_no?: string } = {},
+): Promise<Result<WorkItemView[]>> {
+  await latency();
+  const state = getState();
+  const wide = requireModule(SERVICE, "hrd") === null || requireModule(SERVICE, "payroll") === null;
+  const mine = myEmployee(state);
+  return ok(SERVICE, (state.work_items ?? [])
+    .filter((it) => (wide ? true : mine !== null && it.employee_id === mine.id))
+    .map((it) => workItemView(state, it))
+    .filter((v) => !input.employee_no || v.employee_no === input.employee_no)
+    .sort((a, b) => a.status.localeCompare(b.status) || a.title.localeCompare(b.title)));
+}
+
+/** `ops_hr.save_work_item`: new, or a change of title or status. */
+export async function saveWorkItem(
+  input: { item_id?: string | null; title?: string | null; status?: WorkItemStatus | null },
+): Promise<Result<WorkItemView>> {
+  await latency();
+  const state = getState();
+  const me = myEmployee(state);
+  if (!me) return refused(SERVICE, "no_employee_link", "Akun ini belum tertaut ke data karyawan. Minta HRD menautkannya.");
+  const status = input.status ?? null;
+  if (status !== null && !["aktif", "selesai", "dihentikan"].includes(status)) {
+    return invalid(SERVICE, "unknown_status", "Statusnya aktif, selesai, atau dihentikan.", { field: "status" });
+  }
+  const title = input.title?.trim() || null;
+  if (title !== null && title.length > 120) {
+    return invalid(SERVICE, "title_too_long", "Nama item paling panjang 120 huruf.", { field: "title" });
+  }
+  const items = state.work_items ?? [];
+  if (title !== null && items.some((i) => i.employee_id === me.id && i.title.toLowerCase() === title.toLowerCase()
+        && i.id !== input.item_id)) {
+    return conflict(SERVICE, "title_taken", `Anda sudah punya item "${title}".`);
+  }
+  const user = actingUser();
+  const now = new Date().toISOString();
+  let id = input.item_id ?? "";
+  if (!input.item_id) {
+    if (title === null) {
+      return invalid(SERVICE, "title_required", 'Beri nama itemnya — mis. "Google Workspace" atau "Sistem HRD".',
+        { field: "title" });
+    }
+    apply((draft) => {
+      id = newId("wit");
+      draft.work_items = draft.work_items ?? [];
+      draft.work_items.push({ id, employee_id: me.id, title, status: "aktif", created_by: user.id, created_at: now, closed_at: null });
+      writeAudit(draft, { service: SERVICE, entity: "work_item", entity_no: id, action: "create", outcome: "ok",
+        reason: null, detail: { title, by: user.email } });
+    });
+  } else {
+    const it = items.find((i) => i.id === input.item_id && i.employee_id === me.id);
+    if (!it) return notFound(SERVICE, "work_item_not_found", "Item itu tidak ada di daftar Anda.");
+    apply((draft) => {
+      const row = (draft.work_items ?? []).find((i) => i.id === it.id);
+      if (!row) return;
+      const next = status ?? row.status;
+      row.closed_at = next === "aktif" ? null : status !== null && status !== it.status ? now : row.closed_at;
+      row.title = title ?? row.title;
+      row.status = next;
+      writeAudit(draft, { service: SERVICE, entity: "work_item", entity_no: it.id, action: "edit", outcome: "ok",
+        reason: null, detail: { before: { title: it.title, status: it.status }, by: user.email } });
+    });
+  }
+  const after = getState();
+  return ok(SERVICE, workItemView(after, (after.work_items ?? []).find((i) => i.id === id)!));
+}
+
+function isMonday(day: string): boolean {
+  return new Date(`${day}T00:00:00Z`).getUTCDay() === 1;
+}
+
+/** `ops_hr.save_work_week_note`: one summary per person, week and row. */
+export async function saveWorkWeekNote(
+  input: { week_start: string; summary: string; item_id?: string | null; task_no?: string | null },
+): Promise<Result<{ week_start: string; summary: string | null }>> {
+  await latency();
+  const state = getState();
+  const me = myEmployee(state);
+  if (!me) return refused(SERVICE, "no_employee_link", "Akun ini belum tertaut ke data karyawan. Minta HRD menautkannya.");
+  if (!input.week_start || !isMonday(input.week_start)) {
+    return invalid(SERVICE, "not_monday", "Minggu dimulai hari Senin.", { field: "week_start" });
+  }
+  const window = settingNumber(state, "hr.work_log_window_days", 366);
+  if (Math.abs(daysBetween(officeToday(), input.week_start)) > window + 7) {
+    return invalid(SERVICE, "date_out_of_range", `Minggu ${input.week_start} terlalu jauh dari hari ini.`,
+      { field: "week_start" });
+  }
+  if (input.item_id && input.task_no?.trim()) {
+    return invalid(SERVICE, "task_or_item", "Satu ringkasan untuk satu baris: tugas, item, atau dadakan.", { field: "row" });
+  }
+  const itemId = input.item_id ?? null;
+  if (itemId && !(state.work_items ?? []).some((i) => i.id === itemId && i.employee_id === me.id)) {
+    return notFound(SERVICE, "work_item_not_found", "Item itu tidak ada di daftar Anda.");
+  }
+  let taskId: string | null = null;
+  if (input.task_no?.trim()) {
+    const t = state.tasks.find((x) => x.task_no === input.task_no!.trim() && x.assignee_id === me.id);
+    if (!t) return notFound(SERVICE, "task_not_found", `Tidak ada tugas ${input.task_no} milik Anda.`);
+    taskId = t.id;
+  }
+  const text = input.summary.trim() || null;
+  const user = actingUser();
+  apply((draft) => {
+    draft.work_week_notes = draft.work_week_notes ?? [];
+    const row = draft.work_week_notes.find((n) => n.employee_id === me.id && n.week_start === input.week_start
+      && n.item_id === itemId && n.task_id === taskId);
+    const now = new Date().toISOString();
+    if (row) { row.summary = text; row.updated_by = user.id; row.updated_at = now; }
+    else if (text !== null) {
+      draft.work_week_notes.push({ id: newId("wwn"), employee_id: me.id, week_start: input.week_start,
+        item_id: itemId, task_id: taskId, summary: text, updated_by: user.id, updated_at: now });
+    }
+  });
+  return ok(SERVICE, { week_start: input.week_start, summary: text });
+}
+
+/** `ops_hr.work_week`: seven days from a Monday and the week's summaries. */
+export async function getWorkWeek(
+  input: { employee_no: string; week_start: string },
+): Promise<Result<WorkWeek>> {
+  await latency();
+  const state = getState();
+  const emp = state.employees.find((e) => e.employee_no === input.employee_no);
+  if (!emp) return notFound(SERVICE, "employee_not_found", `Tidak ada karyawan ${input.employee_no}.`);
+  const mine = myEmployee(state);
+  const wide = requireModule(SERVICE, "hrd") === null || requireModule(SERVICE, "payroll") === null;
+  if (!wide && mine?.id !== emp.id) {
+    return refused(SERVICE, "not_permitted", "Laporan harian orang lain butuh akses HRD.");
+  }
+  if (!isMonday(input.week_start)) return invalid(SERVICE, "not_monday", "Minggu dimulai hari Senin.", { field: "week_start" });
+  const days: WorkWeekDay[] = [];
+  for (let i = 0; i < 7; i += 1) {
+    const d = addDays(input.week_start, i);
+    const holiday = state.day_marks.find((m) => m.work_date === d && m.employee_id === null && m.kind === "holiday");
+    const mark = state.day_marks.find((m) => m.work_date === d && m.employee_id === emp.id);
+    days.push({
+      date: d, works: worksOn(state, emp.id, d), rest: isRestDayOn(state, d),
+      holiday: holiday?.reason ?? null, mark_kind: mark?.kind ?? null, mark_reason: mark?.reason ?? null,
+    });
+  }
+  const notes = (state.work_week_notes ?? [])
+    .filter((n) => n.employee_id === emp.id && n.week_start === input.week_start && n.summary !== null)
+    .sort((a, b) => a.updated_at.localeCompare(b.updated_at))
+    .map((n) => {
+      const t = n.task_id ? state.tasks.find((x) => x.id === n.task_id) ?? null : null;
+      return { item_id: n.item_id, task_no: t?.task_no ?? null, task_title: t?.title ?? null,
+               summary: n.summary!, updated_at: n.updated_at };
+    });
+  return ok(SERVICE, {
+    employee_no: emp.employee_no, full_name: emp.full_name,
+    week_start: input.week_start, week_end: addDays(input.week_start, 6),
+    mine: mine?.id === emp.id, days, notes,
+  });
 }
 
 export async function workLogRoster(

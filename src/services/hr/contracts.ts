@@ -1145,16 +1145,21 @@ export type WorkProgress = "lanjut" | "selesai" | "tertahan";
 
 /** One line of somebody's day, as stored (`ops_hr.work_log`).
  *
- *  Written by the person only, for the office day it is written on, and
- *  changeable only that day: a record that can be filled in the night before
- *  a review is not evidence for one. `task_id` null is **dadakan** — work
- *  nobody assigned through the board — and then `requested_by` is required,
- *  because *dadakan* without a name excuses anything. */
+ *  Written by the person only. Since D428 any day in the window — back, and
+ *  ahead as personal planning — and changeable later; the record keeps when
+ *  it was written instead (`created_at`), and a day counts as *logged* only
+ *  once a line for it was written or touched on or after it. A line is for a
+ *  task (`task_id`), for one of the person's own long-running items
+ *  (`item_id`), or neither: **dadakan** — work nobody assigned — and then
+ *  `requested_by` is required, because *dadakan* without a name excuses
+ *  anything. */
 export interface WorkLog {
   id: string;
   employee_id: string;
   work_date: string;
   task_id: string | null;
+  /** One of the person's own items (D428). Never together with `task_id`. */
+  item_id: string | null;
   summary: string;
   progress: WorkProgress;
   requested_by: string | null;
@@ -1178,7 +1183,7 @@ export interface WorkLogEntry {
   employee_id: string;
   employee_no: string;
   employee_name: string;
-  kind: "tugas" | "dadakan";
+  kind: "tugas" | "item" | "dadakan";
   task_no: string | null;
   task_title: string | null;
   task_status: TaskStatus | null;
@@ -1191,9 +1196,84 @@ export interface WorkLogEntry {
   hours: number | null;
   created_at: string;
   updated_at: string | null;
-  /** Today's, and not yet made a task — the only lines anybody can change. */
+  /** The reader's own line, not made a task — any day (D428). */
   editable: boolean;
   promoted_task_no: string | null;
+  item_id: string | null;
+  item_title: string | null;
+  item_status: WorkItemStatus | null;
+  /** The office day the line was first written: after `work_date` is a late
+   *  entry, before it is a plan. */
+  written_on: string;
+}
+
+export type WorkItemStatus = "aktif" | "selesai" | "dihentikan";
+
+/** A person's own long-running row of the daily log — the sheet's *major
+ *  item* (`ops_hr.work_items`, D428). Named in their own words, picked from
+ *  the same dropdown as tasks and dadakan. */
+export interface WorkItem {
+  id: string;
+  employee_id: string;
+  title: string;
+  status: WorkItemStatus;
+  created_by: string;
+  created_at: string;
+  closed_at: string | null;
+}
+
+/** `v_work_items`: an item with how much it has been used. */
+export interface WorkItemView {
+  id: string;
+  employee_id: string;
+  employee_no: string;
+  title: string;
+  status: WorkItemStatus;
+  created_at: string;
+  closed_at: string | null;
+  entries: number;
+  last_date: string | null;
+}
+
+/** *Ringkasan minggu* as stored (`ops_hr.work_week_notes`). Both row keys
+ *  null is the *dadakan / lainnya* row; a cleared summary is null. */
+export interface WorkWeekNote {
+  id: string;
+  employee_id: string;
+  /** A Monday. */
+  week_start: string;
+  item_id: string | null;
+  task_id: string | null;
+  summary: string | null;
+  updated_by: string;
+  updated_at: string;
+}
+
+/** One day of the week grid (`work_week`). */
+export interface WorkWeekDay {
+  date: string;
+  /** The person works it: not a rest day, not off on their schedule, not
+   *  marked (a half day still works). */
+  works: boolean;
+  /** A rest day of the week pattern or an office holiday. */
+  rest: boolean;
+  /** The office holiday's reason, if it is one. */
+  holiday: string | null;
+  mark_kind: string | null;
+  mark_reason: string | null;
+}
+
+/** The calendar a week of the log is drawn on, and its summaries. */
+export interface WorkWeek {
+  employee_no: string;
+  full_name: string;
+  week_start: string;
+  week_end: string;
+  /** The reader's own week — the only one they can write in. */
+  mine: boolean;
+  days: WorkWeekDay[];
+  notes: { item_id: string | null; task_no: string | null; task_title: string | null;
+           summary: string; updated_at: string }[];
 }
 
 /** One person's day, for HRD: who logged, and how much was dadakan. */
@@ -1207,7 +1287,10 @@ export interface WorkLogRosterRow {
   scheduled: boolean;
   /** Cuti, sakit, izin, libur, mangkir, setengah hari — or null. */
   mark_kind: string | null;
+  /** Lines reported on the day or later — a plan not yet come back to is
+   *  not counted (D428). */
   entries: number;
+  /** Planned work: a task or the person's own item. */
   task_entries: number;
   dadakan_entries: number;
   hours: number;
@@ -1239,18 +1322,25 @@ export interface WorkEvidence {
   coverage: number | null;
   entries: number;
   task_entries: number;
+  item_entries: number;
   dadakan_entries: number;
   /** 0–100 of entries, or null with no entries. */
   dadakan_share: number | null;
   hours_task: number;
+  hours_item: number;
   hours_dadakan: number;
   entries_without_hours: number;
+  /** Lines written after their own day, and lines written ahead of it as a
+   *  plan (D428) — printed, never scored. */
+  written_later: number;
+  written_ahead: number;
   /** Dadakan entries HRD turned into tasks. */
   promoted: number;
   first_day: string | null;
   last_day: string | null;
   tasks: { task_no: string; title: string; status: TaskStatus; goal_title: string | null;
            days: number; last_progress: WorkProgress }[];
+  items: { title: string; status: WorkItemStatus; days: number; last_progress: WorkProgress }[];
   requesters: { requested_by: string; entries: number }[];
   goals: { goal_no: string; title: string; entries: number }[];
 }
