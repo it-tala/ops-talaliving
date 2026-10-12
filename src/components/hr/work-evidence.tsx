@@ -69,12 +69,16 @@ export function WorkEvidencePanel({
                   {tr(`${e.entries} entries: `, `${e.entries} entri: `)}
                   <strong className="text-slate-800">{tr(`${e.task_entries} on assigned tasks`, `${e.task_entries} untuk tugas yang diberikan`)}</strong>
                   {", "}
+                  {e.item_entries > 0 && <>
+                    <strong className="text-slate-800">{tr(`${e.item_entries} on own items`, `${e.item_entries} untuk item sendiri`)}</strong>
+                    {", "}
+                  </>}
                   <strong className="text-amber-800">{tr(`${e.dadakan_entries} dadakan`, `${e.dadakan_entries} dadakan`)}</strong>
                   {e.dadakan_share !== null && <> ({e.dadakan_share}%)</>}
-                  {(e.hours_task > 0 || e.hours_dadakan > 0) && (
+                  {(e.hours_task > 0 || e.hours_item > 0 || e.hours_dadakan > 0) && (
                     <span className="text-slate-400">
-                      {" · "}{tr(`${formatNumber(e.hours_task)} h on tasks, ${formatNumber(e.hours_dadakan)} h dadakan`,
-                                 `${formatNumber(e.hours_task)} jam tugas, ${formatNumber(e.hours_dadakan)} jam dadakan`)}
+                      {" · "}{tr(`${formatNumber(e.hours_task)} h on tasks, ${formatNumber(e.hours_item)} h on items, ${formatNumber(e.hours_dadakan)} h dadakan`,
+                                 `${formatNumber(e.hours_task)} jam tugas, ${formatNumber(e.hours_item)} jam item, ${formatNumber(e.hours_dadakan)} jam dadakan`)}
                       {e.entries_without_hours > 0 && tr(` (${e.entries_without_hours} entries without hours)`, ` (${e.entries_without_hours} entri tanpa jam)`)}
                     </span>
                   )}
@@ -87,6 +91,16 @@ export function WorkEvidencePanel({
                   {tr("The dadakan share is context, not a score: being interrupted is not the fault of the interrupted.",
                       "Porsi dadakan adalah konteks, bukan nilai: diinterupsi bukan kesalahan yang diinterupsi.")}
                 </p>
+                {(e.written_later > 0 || e.written_ahead > 0) && (
+                  <p className="mt-0.5 text-[11px] text-slate-500">
+                    {tr(`${e.written_later} written after their day, ${e.written_ahead} written ahead as a plan`,
+                        `${e.written_later} ditulis sesudah harinya, ${e.written_ahead} ditulis di muka sebagai rencana`)}
+                    <span className="text-slate-400">
+                      {tr(" · a plan counts as logged only once it is opened again on or after its day",
+                          " · rencana baru dihitung terisi setelah dibuka lagi pada harinya atau sesudahnya")}
+                    </span>
+                  </p>
+                )}
               </div>
             )}
 
@@ -103,6 +117,25 @@ export function WorkEvidencePanel({
                         {" · "}{tr("last:", "terakhir:")} {tr(...PROGRESS_LABEL[t.last_progress])}
                         {t.status === "DONE" && tr(" · task closed", " · tugas ditutup")}
                         {t.goal_title && <> · {t.goal_title}</>}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {e.items.length > 0 && (
+              <div>
+                <p className="text-[11px] font-medium text-slate-500">{tr("Own long-running items", "Item jangka panjang sendiri")}</p>
+                <ul className="mt-0.5 space-y-0.5">
+                  {e.items.map((t) => (
+                    <li key={t.title}>
+                      <Link2 className="mr-1 inline h-3 w-3 text-slate-400" />
+                      {t.title}
+                      <span className="text-slate-400">
+                        {" · "}{tr(`${t.days} days`, `${t.days} hari`)}
+                        {" · "}{tr("last:", "terakhir:")} {tr(...PROGRESS_LABEL[t.last_progress])}
+                        {t.status !== "aktif" && <> · {t.status}</>}
                       </span>
                     </li>
                   ))}

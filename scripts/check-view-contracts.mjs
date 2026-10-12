@@ -262,6 +262,8 @@ const VIEW_CONTRACTS = {
   v_leave_request: "LeaveRequestView",
   v_task:          "TaskView",
   v_work_log:      "WorkLogEntry",
+  /* A person's own items with their use (0267, D428). */
+  v_work_items:    "WorkItemView",
   /* Which account is which employee (D329): IT links, HR reads. */
   v_employee_account: "EmployeeAccount",
   v_task_routine:  "TaskRoutineView",

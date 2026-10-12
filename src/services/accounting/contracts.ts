@@ -434,7 +434,7 @@ export interface TransactionView extends Transaction {
   /** The account's balance just before this row and just after it — opening
    *  plus every earlier non-void row on the same account, by `trx_date` then
    *  `trx_no`. Computed, never stored, so a row posted late or corrected moves
-   *  every balance after it (D428). Null on a VOID row. */
+   *  every balance after it (D429). Null on a VOID row. */
   balance_before: number | null;
   balance_after: number | null;
 }

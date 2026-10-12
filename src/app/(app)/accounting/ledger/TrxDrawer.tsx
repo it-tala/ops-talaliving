@@ -244,7 +244,7 @@ export function TrxDrawer({
   const accountChanged = !!trx && !!editAccount && editAccount !== trx.account_code;
   const directionChanged = !!trx && editDirection !== trx.direction;
   const anyChanged = amountChanged || descChanged || vendorChanged || projectChanged || typeChanged || accountChanged || directionChanged;
-  /* The balance moves with either, so both owe a remark (`0101`, `0268`). */
+  /* The balance moves with either, so both owe a remark (`0101`, `0269`). */
   const reasonRequired = amountChanged || directionChanged;
   /* Where the row can go: active accounts in the same currency — a rupiah
      amount has no rate to land on the dollar account with (`0204`) — plus
@@ -375,7 +375,7 @@ export function TrxDrawer({
             <p className="flex items-center gap-2 text-[13px] font-semibold text-slate-800">
               <Pencil className="h-4 w-4" /> {tr("Edit this entry", "Edit entri ini")}
             </p>
-            {/* IN/OUT (`0268`, D429): a row typed the wrong way round is off
+            {/* IN/OUT (`0269`, D430): a row typed the wrong way round is off
                 by twice its amount in every balance after it. */}
             <div>
               <p className="block text-xs text-slate-600">{tr("In / out", "Masuk / keluar")}</p>
@@ -594,7 +594,7 @@ export function TrxDrawer({
         <dl className="space-y-2.5">
           {([
             [tr("Amount", "Jumlah"), formatIDR(trx.amount_idr)],
-            /* D428: the account's balance either side of this row. */
+            /* D429: the account's balance either side of this row. */
             ...(trx.balance_after !== null && trx.balance_before !== null
               ? [[tr(`${trx.account_code} balance`, `Saldo ${trx.account_code}`),
                   `${formatIDR(trx.balance_before)} → ${formatIDR(trx.balance_after)}`]]

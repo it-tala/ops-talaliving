@@ -648,12 +648,12 @@ export function transactionView(state: DemoState, trx: Transaction): Transaction
   };
 }
 
-/** `ledger_balance_from` (0267): rows dated before it show no balance —
+/** `ledger_balance_from` (0268): rows dated before it show no balance —
  *  they were never checked against a bank — but still count towards the
  *  rows after it. */
 const LEDGER_BALANCE_FROM = "2026-10-12";
 
-/** `v_transaction.balance_before` / `balance_after` (0267, D428): opening
+/** `v_transaction.balance_before` / `balance_after` (0268, D429): opening
  *  plus every earlier non-void row on the same account, in ledger order.
  *  Worked out from the rows each time rather than cached — a seam builds a
  *  view from its draft and keeps writing, and a cached sum would outlive it. */

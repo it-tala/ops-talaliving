@@ -1,5 +1,5 @@
--- 0267_acct_running_balance.sql — every ledger row shows the account's
--- balance before and after it (D428).
+-- 0268_acct_running_balance.sql — every ledger row shows the account's
+-- balance before and after it (D429).
 --
 -- Owner, 2026-10-12: *di tabel ledger pastikan ada kolom balance_before
 -- balance after … gunanya untuk cek transaksi-nya apakah valid atau salah
@@ -54,7 +54,7 @@
 
 insert into ops_core.settings (key, value, note) values
   ('ledger_balance_from', '"2026-10-12"'::jsonb,
-   'The first trx_date that shows a balance before/after in the ledger (D428). Older rows count '
+   'The first trx_date that shows a balance before/after in the ledger (D429). Older rows count '
    'towards it but show none: nobody checked them against a bank. Move it to widen or narrow.')
 on conflict (key) do nothing;
 
@@ -65,7 +65,7 @@ language sql stable security definer set search_path = ops_core, pg_temp as $$
                     where key = 'ledger_balance_from'), '2026-10-12'::date)
 $$;
 comment on function ops_acct.ledger_balance_from() is
-  'ops_core.settings.ledger_balance_from as a date: rows dated before it show no running balance (D428).';
+  'ops_core.settings.ledger_balance_from as a date: rows dated before it show no running balance (D429).';
 revoke execute on function ops_acct.ledger_balance_from() from public;
 grant  execute on function ops_acct.ledger_balance_from() to authenticated;
 
@@ -133,7 +133,7 @@ create or replace view ops_acct.v_transaction as
 comment on column ops_acct.v_transaction.balance_before is
   'The account''s balance just before this row: opening + every earlier non-void row, '
   'by trx_date then trx_no. Null on a VOID row and on a row dated before '
-  'ledger_balance_from(). Computed, never stored (D428).';
+  'ledger_balance_from(). Computed, never stored (D429).';
 comment on column ops_acct.v_transaction.balance_after is
   'balance_before ± this row. The last row on an account equals v_account_balance.balance.';
 

@@ -1,7 +1,7 @@
--- acct — IN/OUT corrected with Edit (0268, D429).
+-- acct — IN/OUT corrected with Edit (0269, D430).
 --
 --   a row typed OUT that was money in -> edit(direction IN, remark) -> ok;
---     the balance after it moves by twice its amount (0267), the audit
+--     the balance after it moves by twice its amount (0268), the audit
 --     carries direction before/after
 --   REFUSALS  no remark; not IN or OUT; a row paying a request line; a row
 --             matched to a bank statement line
@@ -23,23 +23,23 @@ insert into ops_acct.transactions (id, trx_no, trx_date, account_id, direction, 
 select v.id::uuid, v.no, v.d::date, a.id, 'OUT', v.amt, 'SUPPLIERS', v.no, v.no,
        'ffffffff-0000-0000-0000-00000000e268'
   from ops_acct.accounts a,
-       (values ('55550000-0000-0000-0000-000000026801','trx-dir-1','2026-10-12', 200000),
-               ('55550000-0000-0000-0000-000000026802','trx-dir-2','2026-10-13', 100000),
-               ('55550000-0000-0000-0000-000000026803','trx-dir-3','2026-10-13', 300000),
-               ('55550000-0000-0000-0000-000000026804','trx-dir-4','2026-10-13',  50000)) v(id, no, d, amt)
+       (values ('55550000-0000-0000-0000-000000026901','trx-dir-1','2026-10-12', 200000),
+               ('55550000-0000-0000-0000-000000026902','trx-dir-2','2026-10-13', 100000),
+               ('55550000-0000-0000-0000-000000026903','trx-dir-3','2026-10-13', 300000),
+               ('55550000-0000-0000-0000-000000026904','trx-dir-4','2026-10-13',  50000)) v(id, no, d, amt)
  where a.code = 'SMOKE DIR';
 
 insert into ops_acct.payment_allocations (trx_id, pr_line_no, amount, allocated_by) values
-  ('55550000-0000-0000-0000-000000026803','pr-26-10-13_01-L01', 300000,'ffffffff-0000-0000-0000-00000000e268');
+  ('55550000-0000-0000-0000-000000026903','pr-26-10-13_01-L01', 300000,'ffffffff-0000-0000-0000-00000000e268');
 
 insert into ops_acct.bank_statements (id, account_id, period_start, period_end, opening_balance,
                                       closing_balance, filename, uploaded_by, statement_no)
-select '66660000-0000-0000-0000-000000026801', a.id, '2026-10-01', '2026-10-31', 0, 0, 'rk.pdf',
+select '66660000-0000-0000-0000-000000026901', a.id, '2026-10-01', '2026-10-31', 0, 0, 'rk.pdf',
        'ffffffff-0000-0000-0000-00000000e268', 'st-dir-1'
   from ops_acct.accounts a where a.code = 'SMOKE DIR';
 insert into ops_acct.statement_lines (statement_id, line_no, value_date, direction, amount, amount_idr,
                                       raw_description, status, trx_no)
-values ('66660000-0000-0000-0000-000000026801', 1, '2026-10-13', 'OUT', 50000, 50000,
+values ('66660000-0000-0000-0000-000000026901', 1, '2026-10-13', 'OUT', 50000, 50000,
         'TRSF', 'matched', 'trx-dir-4');
 
 set local role authenticated;

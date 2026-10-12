@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowUpRight, ClipboardList, Zap } from "lucide-react";
+import { ArrowUpRight, CalendarRange, ClipboardList, Zap } from "lucide-react";
+import { WorkWeekGrid, weekStartOf } from "@/components/hr/work-week-grid";
 import { Badge, Button, Card } from "@/components/ui/primitives";
 import { Loaded, useLoad } from "@/components/ui/loaded";
 import { cn } from "@/lib/cn";
@@ -16,7 +17,8 @@ const MARK_LABEL: Record<string, [string, string]> = {
   sick: ["sick", "sakit"], leave: ["leave", "cuti"], permit: ["permit", "izin"],
 };
 
-/** Laporan harian — one day, everybody who can log (D371).
+/** Laporan harian — one day, everybody who can log (D371), and per person a
+ *  week the way the work-plan sheet reads it (D428, read-only here).
  *
  *  Opens on who has **not** logged, because that is the line somebody acts on.
  *  A day off or a marked day with no log is not a missing log, and the row
@@ -37,6 +39,7 @@ export function DailyPanel({ goals, mayCreate, onChanged }: {
   const [roster, reloadRoster] = useLoad(() => hr.workLogRoster({ date }), [date]);
   const [lines, reloadLines] = useLoad(() => hr.listWorkLog({ from: date, to: date }), [date]);
   const [open, setOpen] = useState<string | null>(null);
+  const [weekOf, setWeekOf] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [promoting, setPromoting] = useState<{ id: string; due: string; goal: string } | null>(null);
 
@@ -55,8 +58,8 @@ export function DailyPanel({ goals, mayCreate, onChanged }: {
     <div>
       <p className="mb-3 rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3 text-[13px] text-slate-700">
         {tr(
-          "What each person did on a day, in their own words: for which task, or dadakan and who asked. The log is the basis of the daily-log measure and of the performance advisory (PA). It is written only by the person and only on the day itself — HRD reads it, never edits it.",
-          "Apa yang dikerjakan setiap orang pada satu hari, dengan kata-katanya sendiri: untuk tugas mana, atau dadakan dan siapa yang meminta. Laporan ini dasar ukuran laporan harian dan performance advisory (PA). Hanya ditulis oleh orangnya sendiri dan hanya pada hari itu — HRD membacanya, tidak pernah mengubahnya.",
+          "What each person did on a day, in their own words: for which task or own item, or dadakan and who asked. The log is the basis of the daily-log measure and of the performance advisory (PA). Only the person writes it — a past day too, or a coming one as a plan — and each line shows when it was written; a planned day counts once it is reported on. HRD reads it, never edits it.",
+          "Apa yang dikerjakan setiap orang pada satu hari, dengan kata-katanya sendiri: untuk tugas atau item sendiri, atau dadakan dan siapa yang meminta. Laporan ini dasar ukuran laporan harian dan performance advisory (PA). Hanya ditulis oleh orangnya sendiri — boleh untuk hari yang lewat, atau ke depan sebagai rencana — dan tiap catatan menunjukkan kapan ditulis; hari yang direncanakan baru dihitung setelah dilaporkan. HRD membacanya, tidak pernah mengubahnya.",
         )}
       </p>
 
@@ -111,7 +114,7 @@ export function DailyPanel({ goals, mayCreate, onChanged }: {
                           : <Badge tone="red">{tr("not logged", "belum mengisi")}</Badge>
                       ) : (
                         <span className="flex items-center gap-1.5 text-[12px] text-slate-600">
-                          <Badge tone="brand">{tr(`${r.task_entries} task`, `${r.task_entries} tugas`)}</Badge>
+                          <Badge tone="brand">{tr(`${r.task_entries} planned`, `${r.task_entries} terencana`)}</Badge>
                           {r.dadakan_entries > 0 && <Badge tone="amber">{tr(`${r.dadakan_entries} dadakan`, `${r.dadakan_entries} dadakan`)}</Badge>}
                           {r.hours > 0 && <span className="text-slate-400">{tr(`${r.hours} h`, `${r.hours} jam`)}</span>}
                         </span>
@@ -119,6 +122,17 @@ export function DailyPanel({ goals, mayCreate, onChanged }: {
                     </button>
                     {open === r.employee_no && (
                       <div className="border-t border-slate-100 bg-slate-50/50 px-5 py-2">
+                        <div className="py-1">
+                          <Button size="sm" variant="ghost" icon={CalendarRange}
+                            onClick={() => setWeekOf(weekOf === r.employee_no ? null : r.employee_no)}>
+                            {weekOf === r.employee_no ? tr("Hide the week", "Tutup minggu") : tr("See the week", "Lihat per minggu")}
+                          </Button>
+                        </div>
+                        {weekOf === r.employee_no && (
+                          <div className="mb-2 rounded-lg border border-slate-200 bg-white">
+                            <WorkWeekGrid employeeNo={r.employee_no} initialWeek={weekStartOf(date)} />
+                          </div>
+                        )}
                         {mine.length === 0 ? (
                           <p className="py-2 text-[13px] text-slate-500">{tr("No lines on this day.", "Tidak ada catatan pada hari ini.")}</p>
                         ) : (
@@ -128,15 +142,24 @@ export function DailyPanel({ goals, mayCreate, onChanged }: {
                                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                                   {l.kind === "dadakan"
                                     ? <Badge tone="amber"><Zap className="mr-0.5 inline h-3 w-3" />{tr("dadakan", "dadakan")}</Badge>
-                                    : <Badge tone="brand">{l.goal_rank !== null ? `#${l.goal_rank}` : tr("task", "tugas")}</Badge>}
-                                  <span className="text-slate-800">{l.task_title ?? l.summary}</span>
+                                    : l.kind === "item"
+                                      ? <Badge tone="slate">{tr("item", "item")}</Badge>
+                                      : <Badge tone="brand">{l.goal_rank !== null ? `#${l.goal_rank}` : tr("task", "tugas")}</Badge>}
+                                  <span className="text-slate-800">{l.task_title ?? l.item_title ?? l.summary}</span>
                                   <span className={cn("text-[12px]",
                                     l.progress === "selesai" ? "text-emerald-700" : l.progress === "tertahan" ? "text-amber-700" : "text-slate-500")}>
                                     {l.progress}
                                   </span>
                                   {l.hours !== null && <span className="text-[12px] text-slate-400">{tr(`${l.hours} h`, `${l.hours} jam`)}</span>}
                                 </div>
-                                {l.task_title && <p className="text-slate-600">{l.summary}</p>}
+                                {(l.task_title ?? l.item_title) && <p className="text-slate-600">{l.summary}</p>}
+                                {l.written_on !== l.work_date && (
+                                  <p className="text-[11px] text-slate-400">
+                                    {l.written_on > l.work_date
+                                      ? tr(`written later, on ${l.written_on}`, `ditulis belakangan, ${l.written_on}`)
+                                      : tr(`written ahead, on ${l.written_on}`, `ditulis di muka, ${l.written_on}`)}
+                                  </p>
+                                )}
                                 {l.requested_by && <p className="text-[12px] text-slate-500">{tr("asked by", "diminta oleh")} {l.requested_by}</p>}
                                 {l.promoted_task_no && (
                                   <p className="text-[12px] text-slate-500">

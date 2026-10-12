@@ -10659,7 +10659,27 @@ the screen shows, so stacked lines (a name over its code) are joined with
 ` · ` instead of running together as `n8n Cloudn8n`, and `Rp 1,250,000` is
 turned back into a number in the locale in force, or Excel cannot sum it.
 
-## F267 · 2026-10-12 · A running balance the system computes can never disagree with itself
+## F267 · 2026-10-12 · A rule that forbids can often become a rule that records
+
+D371 made the daily log *today only*, because a log that can be written the
+night before a review is not evidence. The owner's sheet works the other
+way: people fill a missed day and write the coming week as a plan, and the
+owner asked for the same (D427). Lifting the ban outright would have thrown
+away the reason for it. Instead the reason moved into the record: every line
+keeps the office day it was first written (`written_on`), the PA evidence
+counts lines written after their day and ahead of it, and a day only counts
+as *logged* once a line for it was written or touched on or after that day.
+A plan left untouched stays a plan.
+
+Two smaller lessons from the same change. `create or replace view` resets a
+view's options, so `security_invoker` had to be set again after adding the
+new columns — smoke `17_core_view_invoker` caught it at once. And a third
+kind of line (*item*) breaks every place that read *dadakan* as
+`task_id is null`: the KPI note, the roster, the evidence and the demo's
+mirrors of all three. The demo now has one `isDadakan()` helper so the next
+kind does not have to find them again.
+
+## F268 · 2026-10-12 · A running balance the system computes can never disagree with itself
 
 The spreadsheet's balance columns caught a mistyped amount because somebody
 compared them with something **outside** the sheet — the bank's balance, the

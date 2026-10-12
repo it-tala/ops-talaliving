@@ -33,7 +33,7 @@ import { ASSETS, ASSET_CATEGORIES, ASSET_SERVICES } from "./assets";
 import { PAY_RULE_SETS } from "./payrules";
 import { CONTRIBUTION_RATES, ENROLMENTS } from "./contributions";
 import { GOALS, TASKS, TASK_ROUTINES } from "./tasks";
-import { WORK_LOG } from "./worklog";
+import { WORK_ITEMS, WORK_LOG } from "./worklog";
 import { BACKLOG } from "./backlog";
 import { EMPLOYEE_IDENTITIES } from "./identity";
 import { EMPLOYEE_DOCUMENTS, LEAVE_REQUESTS } from "./hrfiles";
@@ -254,6 +254,8 @@ export function initialState(): DemoState {
     task_routines: TASK_ROUTINES,
     goals: GOALS,
     work_log: WORK_LOG,
+    work_items: WORK_ITEMS,
+    work_week_notes: [],
     backlog: BACKLOG,
     employee_identities: EMPLOYEE_IDENTITIES,
     /* Five of the six office personas are also on the roster (W7), and Karjo

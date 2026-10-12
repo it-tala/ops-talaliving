@@ -1,6 +1,6 @@
--- 0268_acct_edit_direction.sql — IN/OUT corrected with Edit (D429).
+-- 0269_acct_edit_direction.sql — IN/OUT corrected with Edit (D430).
 --
--- Owner, 2026-10-12, right after the ledger got its balance columns (D428):
+-- Owner, 2026-10-12, right after the ledger got its balance columns (D429):
 -- *tambahkan edit IN/OUT juga.* A row typed as OUT that was really money in
 -- is off by twice its amount in every balance after it, and until now the
 -- only fix was VOID and post again — a new number, the evidence attached
@@ -17,7 +17,7 @@
 --     by a receipt. Take them off first.
 --   * **A leadership account → `approve_funds`** (D87), like the account.
 --
--- Because the balances are computed (0267), every later row's balance moves
+-- Because the balances are computed (0268), every later row's balance moves
 -- by itself; nothing else is written.
 --
 -- `p_direction` is appended after `p_account_code` (0105's rule).
@@ -169,7 +169,7 @@ begin
     end if;
   end if;
 
-  /* ── the direction (0268) ─────────────────────────────────────────────
+  /* ── the direction (0269) ─────────────────────────────────────────────
    *
    * IN ↔ OUT turns the row's effect on the balance around by twice its
    * amount, so it is guarded like the amount and the account together: a
@@ -351,7 +351,7 @@ grant execute on function ops_acct.edit_transaction(
 
 comment on function ops_acct.edit_transaction(text, numeric, text, text, text, text, text, text, text, text) is
   'Correcting a ledger row in place. Amount and description since 0101; vendor, project and type '
-  'since 0105, by code, where null keeps and '''' clears; the account since 0204; IN/OUT since 0268, '
+  'since 0105, by code, where null keeps and '''' clears; the account since 0204; IN/OUT since 0269, '
   'refused when matched to a statement or when the row pays request lines or orders, and needing a '
   'remark. Account and direction need approve_funds on a leadership account. New arguments are '
-  'appended after p_key so positional callers keep their meaning. (0268)';
+  'appended after p_key so positional callers keep their meaning. (0269)';

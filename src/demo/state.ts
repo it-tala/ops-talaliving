@@ -29,7 +29,7 @@ import type {
   Employee, AttendanceScan, WorkSite, LocationVerdict, DayMark, OvertimeSheet, OvertimeLine, PayrollRun, PayComponents,
   PayrollAdjustment, PayRuleSet, EmployeeDocument, LeaveRequest,
   AllowanceWithholding, ContributionRate, Enrolment, Task,
-  EmploymentContract, ContractClause, ClauseChecklistItem, TaskRoutine, Goal, WorkLog,
+  EmploymentContract, ContractClause, ClauseChecklistItem, TaskRoutine, Goal, WorkLog, WorkItem, WorkWeekNote,
   EmployeeIdentity,
 } from "@/services/hr/contracts";
 import type {
@@ -493,6 +493,10 @@ export interface DemoState {
   backlog?: DemoBacklog[];
   /** Rencana per hari (D384): `ops_hr.task_plans`. Optional, like the above. */
   task_plans?: { task_id: string; plan_date: string; target: string | null; updated_by: string; updated_at: string }[];
+  /** Item jangka panjang (D428): `ops_hr.work_items`. Optional, like the above. */
+  work_items?: WorkItem[];
+  /** Ringkasan minggu (D428): `ops_hr.work_week_notes`. Optional, like the above. */
+  work_week_notes?: WorkWeekNote[];
 
   /** The `core.doc_numbers` table: prefix + office day -> sequence.
    *  The database mints every identifier (ADR-005), and here the store is the

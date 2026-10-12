@@ -551,7 +551,7 @@ export async function editTransaction(
     /** Which account the money moved through (`0204`). No clearing case —
      *  money always moved through somewhere. */
     account_code?: string;
-    /** IN ↔ OUT (`0268`, D429). Needs a remark; refused on a row matched to
+    /** IN ↔ OUT (`0269`, D430). Needs a remark; refused on a row matched to
      *  a bank statement or paying request lines or orders. */
     direction?: "IN" | "OUT";
     reason?: string;
@@ -647,7 +647,7 @@ export async function editTransaction(
     accTo = a;
   }
 
-  /* IN/OUT (`0268`). It turns the row's effect on the balance around by
+  /* IN/OUT (`0269`). It turns the row's effect on the balance around by
      twice its amount: the bank statement says which way the money went,
      money that came in paid for nothing, and a leadership balance is
      `approve_funds`' (D87). */

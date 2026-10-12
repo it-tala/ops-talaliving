@@ -91,7 +91,7 @@ export default function LedgerPage() {
   function balanceCell(t: TransactionView, value: number | null) {
     /* Null on a VOID row, and on a row dated before the day balances begin
        (`ledger_balance_from`, 2026-10-12): the old rows were never checked
-       against a bank, so no figure is printed beside them (D428). */
+       against a bank, so no figure is printed beside them (D429). */
     if (value === null) {
       return (
         <span
@@ -168,7 +168,7 @@ export default function LedgerPage() {
       ),
     },
     /* The account's balance either side of the row, like the spreadsheet's
-       balance columns (D428). Computed by the database, so a row posted late
+       balance columns (D429). Computed by the database, so a row posted late
        or corrected moves every balance after it. It is how a mistyped figure
        is found: the first row where ours stops agreeing with the bank. */
     {

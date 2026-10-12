@@ -1,5 +1,5 @@
 -- acct — every ledger row carries the account's balance before and after it
--- (0267, D428).
+-- (0268, D429).
 --
 -- Computed, never stored: a row posted late with an earlier date, an amount
 -- corrected with Edit and a VOID each move every balance below them, and the
