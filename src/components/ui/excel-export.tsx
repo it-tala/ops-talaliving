@@ -8,13 +8,13 @@ import { downloadTable, guessTableName, readTable } from "@/lib/xlsx-export";
 
 /** The one button every table in ops carries: *Unduh Excel*.
  *
- *  Small and at the table's foot, so it is there when wanted and never the
- *  loudest thing on a screen whose job is something else. Hidden in print —
- *  a printed sheet has no use for a download link. */
+ *  Small, and at the table's **head**: at its foot it sat under 25 rows of
+ *  ledger, 2,600 px down, and the owner looked for it and did not find it.
+ *  Hidden in print — a printed sheet has no use for a download link. */
 export function ExcelButton({ onClick, busy, className }: { onClick: () => void | Promise<void>; busy?: boolean; className?: string }) {
   const tr = useTr();
   return (
-    <div className={cn("flex justify-end px-3 py-1.5 print:hidden", className)} data-no-export>
+    <div className={cn("flex justify-end px-3 py-1 print:hidden", className)} data-no-export>
       <button
         type="button"
         onClick={() => void onClick()}
@@ -74,7 +74,7 @@ export function useExcelExport(
   return { run, busy, exporting: pending };
 }
 
-/** A `<table>` that carries the download button underneath it.
+/** A `<table>` that carries the download button above it.
  *
  *  Drop-in for a hand-built table: same attributes, same children. `name`
  *  becomes the file and sheet name (today's date is added); without it the
@@ -94,8 +94,8 @@ export function ExcelTable({
   const { run, busy } = useExcelExport(ref, { name, showAll });
   return (
     <>
-      <table ref={ref} {...props}>{children}</table>
       <ExcelButton onClick={run} busy={busy} className={barClassName} />
+      <table ref={ref} {...props}>{children}</table>
     </>
   );
 }
