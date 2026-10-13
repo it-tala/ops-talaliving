@@ -92,6 +92,7 @@ export function DataTable<T>({
 
   return (
     <div>
+      {rows.length > 0 && <ExcelButton onClick={excel.run} busy={excel.busy} />}
       <div className="overflow-x-auto">
         <table ref={tableRef} className="w-full border-collapse text-sm">
           <thead>
@@ -167,7 +168,6 @@ export function DataTable<T>({
           onPage={setPage}
         />
       )}
-      {rows.length > 0 && <ExcelButton onClick={excel.run} busy={excel.busy} />}
     </div>
   );
 }

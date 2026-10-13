@@ -10694,3 +10694,13 @@ part that actually finds the mistake. The other honest signal available
 today is a cash or bank account going below zero, which is now red on the
 row.
 
+## F269 · 2026-10-13 · A button nobody scrolls to is a button that is not there
+
+U1 put *Unduh Excel* at the foot of every table, next to the pager, on the
+reasoning that it is a secondary action. On the ledger that foot is 25 rows
+down — 2,600 px on a laptop, 4,100 px on a phone — and the owner opened the
+ledger, looked, and reported there was no button. The browser walk had
+*clicked* it and counted it, which proves it exists, not that anyone can see
+it. It now sits at the table's head, right-aligned under the card title, on
+every table. A check that a control works is not a check that it is found.
+
