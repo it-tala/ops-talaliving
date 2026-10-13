@@ -48,6 +48,46 @@ stand) and `docs/plan/07-ways-of-working.md` (the loop). Decisions are in
   `drive_paths` row in its migration. The drive itself is still chosen only by
   `ops_core.doc_kind_drive` — that is the personal-data boundary (0035).
 
+### Automated data collection records every layer it can see (D431)
+
+> *every automated data collection should record every layer of information
+> to help trace back an incident or anomaly detection* (D431, 2026-10-13)
+
+Any record the system captures **on its own** at the moment something
+happens — an attendance tap (`tap_self`), a reader/biometric import, a
+location reading, an upload, a sign-in, a webhook — stores, beside the
+business fact, **everything that was observable about where it came from**,
+so an incident can be traced back and anomalies (one phone clocking in for
+two people, a tap from an unknown network, a spoofed GPS point) can be found
+later. At minimum, per event:
+
+| Layer | What to store | Where it comes from |
+|---|---|---|
+| Who | `auth.uid()`, the employee/record it is for, the session id | the seam, never the client |
+| When | server time (`now()`), and the device's own clock if sent | server; client clock only as a second reading |
+| Network | client IP (`x-forwarded-for` first hop / `cf-connecting-ip`), and the full forwarded chain | read **inside the seam** from `current_setting('request.headers', true)` — never a parameter the client fills in |
+| Device / app | user agent, platform, a stable per-install device id (generated once, kept in the app's storage), app build, PWA vs browser, screen, language, timezone | sent by the client as a `jsonb` context; stored as given |
+| Place | GPS lat/lng/accuracy, and the verdict against the site (0188) | the phone, read once at the event |
+| Evidence | photo, note, file ids | as today |
+| Source | `source` (`self`/`import`/`manual`), import file, reader serial and verify mode | the importer |
+
+- **Store it raw, as a side table or `jsonb` column next to the fact**
+  (like `scan_locations`, 1:1 with the scan), append-only. Collecting is
+  never a reason to **refuse** the event: missing layers are stored as
+  missing and flagged, not blocked (A6, F267).
+- **A header the server reads beats a value the client reports.** Anything a
+  client sends (device id, local clock) is evidence, not proof — label it
+  that way and never base a decision on it alone.
+- **MAC addresses are not collectable** from a web app/PWA: browsers never
+  expose them, and IP traffic only carries the MAC of the last router hop.
+  The per-install device id is the stand-in. Only a native app or the
+  office Wi-Fi/router logs can give a MAC; do not promise one.
+- **It is personal data** (UU PDP 27/2022): readable only by the record's
+  owner and the module's admins (the same RLS as the fact), kept in the
+  module's schema, and employees are told it is collected.
+- A new feature that collects data automatically is not done until its
+  migration stores these layers and the review screen can show them.
+
 ## Working conventions
 
 - Two API layers must match: `src/lib/api/*` (real, Supabase) and
