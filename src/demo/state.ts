@@ -140,6 +140,21 @@ export interface DemoScanLocation {
   photo_id: string | null;
 }
 
+/** `ops_hr.scan_traces` (0270, D431): every layer a phone tap was seen
+ *  with. The sandbox has no request headers, so `ip` and `user_agent` are what
+ *  the browser can say about itself — the database reads them instead. */
+export interface DemoScanTrace {
+  scan_id: string;
+  ip: string | null;
+  user_agent: string | null;
+  device_id: string | null;
+  device_at: string | null;
+  app_build: string | null;
+  on_site_network: boolean | null;
+  network_site_code: string | null;
+  client: Record<string, unknown> | null;
+}
+
 /** One row of `ops_hr.shift_picks` (0206). */
 export interface DemoShiftPick {
   id: string;
@@ -291,6 +306,7 @@ export interface DemoState {
   /** A phone tap's reading, 1:1 with its scan (0188). The judgement is stored
    *  as it was at the tap, the way the database stores it. */
   scan_locations: DemoScanLocation[];
+  scan_traces: DemoScanTrace[];
   /** What HRD says about a day that no reader can know (D142). */
   day_marks: DayMark[];
   /** HRD's word on which shift a day was, for somebody on shifts (D364,

@@ -13,6 +13,7 @@ import { OFFICE_TZ, officeClock } from "@/lib/office";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
+import { tapClientContext } from "@/lib/device";
 
 /** A presensi tap from the phone that says where it was made (D332).
  *
@@ -25,6 +26,10 @@ import { cn } from "@/lib/cn";
  *  answers `off_site_needs_note` and this component shows the form: the
  *  location it has, an optional photo, and a required note. The same tap is
  *  then written with those attached, and flagged for HRD. Never refused.
+ *
+ *  Every tap also carries what the phone can say about itself
+ *  (`tapClientContext`, D431): a per-install device id, its own clock, the
+ *  build. The address and user agent are read by the database, not sent.
  *
  *  Self-contained so it can sit in `/profil` and `/saya` (D331). The parent
  *  names the button and hears about a written tap. Since D369 the parent may
@@ -187,7 +192,7 @@ export function LocatedTap({
     const reading = await readOnce();
     setPhase({ at: "sending", kind });
     const res = await hr.tapSelf(
-      { lat: reading.lat, lng: reading.lng, accuracy_m: reading.accuracy_m, kind }, newKey());
+      { lat: reading.lat, lng: reading.lng, accuracy_m: reading.accuracy_m, kind, client: tapClientContext() }, newKey());
     if (!res.error) return written(res.data, reading.denied);
     if ((res.error.code === "off_site_needs_note" || res.error.code === "away_needs_note") && res.error.detail) {
       setPhase({ at: "form", reading, where: res.error.detail as unknown as LocationJudgement, kind });
@@ -216,7 +221,7 @@ export function LocatedTap({
     setPhase({ at: "sending", kind });
     const res = await hr.tapSelf({
       lat: reading.lat, lng: reading.lng, accuracy_m: reading.accuracy_m,
-      note: note.trim(), photo_id: photo?.id ?? null, kind,
+      note: note.trim(), photo_id: photo?.id ?? null, kind, client: tapClientContext(),
     }, newKey());
     if (!res.error) return written(res.data, reading.denied);
     setPhase({ at: "form", reading, where: phase.where, kind });
@@ -399,8 +404,8 @@ export function LocatedTap({
       <p className="flex items-start justify-center gap-1.5 text-[11px] leading-snug text-slate-500" data-testid="privacy-note">
         <ShieldCheck className="mt-px h-3.5 w-3.5 shrink-0" />
         {tr(
-          "Your location is read once, when you press the button — never tracked.",
-          "Lokasi dibaca sekali, saat tombol ditekan — tidak dilacak.",
+          "Each tap records your location, network address and device — read once, when you press the button, never tracked.",
+          "Setiap tap mencatat lokasi, alamat jaringan, dan perangkat Anda — dibaca sekali saat tombol ditekan, tidak dilacak.",
         )}
       </p>
     </div>

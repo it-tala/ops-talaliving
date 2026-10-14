@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Camera, ChevronLeft, Crosshair, MapPin, MapPinned, Pencil, Plus, Save, Trash2, Warehouse } from "lucide-react";
+import { Camera, ChevronLeft, Crosshair, MapPin, MapPinned, Pencil, Plus, Save, Smartphone, Trash2, Warehouse, Wifi } from "lucide-react";
 import Link from "next/link";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, useLoad } from "@/components/ui/loaded";
@@ -26,6 +26,11 @@ import { cn } from "@/lib/cn";
  *  judge — each already written and carrying the person's note, never refused
  *  (D326, answer 1). Nothing here changes what a day is worth: taps stay facts,
  *  and HRD's day marks on `/hrd/absensi` decide the day (D142).
+ *
+ *  Each tap also shows its trace (0270, D431): the address the server saw,
+ *  whether that was a site's office network, and the phone's own device id.
+ *  One device tapping for two people is flagged; off the office network is
+ *  shown and not flagged, because on mobile data that is most taps.
  */
 const ZONE = OFFICE_TZ.short;
 
@@ -75,8 +80,8 @@ export default function LocatedTapsPage() {
         <CardHeader
           title={tr("Taps to look at", "Tap yang perlu dilihat")}
           subtitle={tr(
-            `Outside the area, no location, or a location too loose to tell. Times in ${OFFICE_TZ.short}.`,
-            `Di luar area, tanpa lokasi, atau lokasi kurang tepat. Jam dalam ${OFFICE_TZ.short}.`,
+            `Outside the area, no location, a location too loose to tell, or one phone used by more than one person. Times in ${OFFICE_TZ.short}.`,
+            `Di luar area, tanpa lokasi, lokasi kurang tepat, atau satu HP dipakai lebih dari satu orang. Jam dalam ${OFFICE_TZ.short}.`,
           )}
           icon={MapPinned}
         />
@@ -156,6 +161,7 @@ function TapRow({ r }: { r: LocatedTapView }) {
           {r.accuracy_m !== null && <> · ±{Math.round(r.accuracy_m)} m</>}
         </p>
         {r.note && <p className="mt-1 text-slate-800">“{r.note}”</p>}
+        <TraceLine r={r} />
         {r.lat !== null && r.lng !== null && (
           <a href={mapLink(r.lat, r.lng)} target="_blank" rel="noreferrer"
              className="mt-1 inline-flex items-center gap-1 text-[12px] text-brand-700 underline">
@@ -165,6 +171,60 @@ function TapRow({ r }: { r: LocatedTapView }) {
       </div>
     </li>
   );
+}
+
+/** The tap's trace (0270, D431), in one line: the network it came from and
+ *  the device that sent it. The address and the office-network reading are
+ *  the server's; the device is the phone's own word. */
+function TraceLine({ r }: { r: LocatedTapView }) {
+  const tr = useTr();
+  if (r.ip === null && r.device_id === null) {
+    return (
+      <p className="mt-1 text-[12px] text-slate-400" data-testid="trace-none">
+        {tr("No network or device recorded (tap from before these were kept).", "Jaringan dan perangkat tidak tercatat (tap sebelum ini disimpan).")}
+      </p>
+    );
+  }
+  const clockSkew = r.device_at ? Math.round((Date.parse(r.device_at) - Date.parse(r.at)) / 60_000) : null;
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-slate-500" data-testid="trace">
+      {(r.device_people ?? 0) > 1 && (
+        <Badge tone="red">{tr(`One phone, ${r.device_people} people`, `Satu HP, ${r.device_people} orang`)}</Badge>
+      )}
+      {r.on_site_network === true && (
+        <Badge tone="green">{tr(`Office network ${r.network_site_code ?? ""}`, `Jaringan kantor ${r.network_site_code ?? ""}`)}</Badge>
+      )}
+      {r.on_site_network === false && <Badge tone="slate">{tr("Not an office network", "Bukan jaringan kantor")}</Badge>}
+      {r.device_new === true && <Badge tone="slate">{tr("New device", "Perangkat baru")}</Badge>}
+      {r.ip && (
+        <span className="inline-flex items-center gap-1"><Wifi className="h-3.5 w-3.5" /><span className="font-mono">{r.ip}</span></span>
+      )}
+      {r.device_id && (
+        <span className="inline-flex items-center gap-1" title={r.user_agent ?? undefined}>
+          <Smartphone className="h-3.5 w-3.5" />
+          <span className="font-mono">{r.device_id.slice(0, 8)}</span>
+          {r.user_agent && <span className="max-w-[16rem] truncate">{shortAgent(r.user_agent)}</span>}
+        </span>
+      )}
+      {clockSkew !== null && Math.abs(clockSkew) >= 5 && (
+        <span className="text-amber-700">
+          {tr(`phone clock ${clockSkew > 0 ? "+" : ""}${clockSkew} min`, `jam HP ${clockSkew > 0 ? "+" : ""}${clockSkew} mnt`)}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** `Android 14 · Chrome` from a user agent — enough to tell two phones apart
+ *  at a glance; the whole string is on hover. */
+function shortAgent(ua: string): string {
+  const os = /Android [\d.]+/.exec(ua)?.[0]
+    ?? (/iPhone OS ([\d_]+)/.exec(ua)?.[1] ? `iOS ${/iPhone OS ([\d_]+)/.exec(ua)![1].replace(/_/g, ".")}` : null)
+    ?? (/Windows NT/.test(ua) ? "Windows" : /Mac OS X/.test(ua) ? "macOS" : /Linux/.test(ua) ? "Linux" : null);
+  const browser = /SamsungBrowser/.test(ua) ? "Samsung Internet"
+    : /EdgA?\//.test(ua) ? "Edge" : /CriOS|Chrome\//.test(ua) ? "Chrome"
+    : /FxiOS|Firefox\//.test(ua) ? "Firefox" : /Safari\//.test(ua) ? "Safari" : null;
+  return [os, browser].filter(Boolean).join(" · ") || ua.slice(0, 40);
 }
 
 /* ── the sites ──────────────────────────────────────────────────────────── */
@@ -227,6 +287,12 @@ function SitesCard({ sites, mayEdit, onSaved }: { sites: WorkSite[]; mayEdit: bo
                           {tr("map", "peta")}
                         </a></>
                     : tr("point not set", "titik belum diatur")}
+                </p>
+                <p className="mt-0.5 flex items-center gap-1 text-slate-500" data-testid="site-networks">
+                  <Wifi className="h-3.5 w-3.5" />
+                  {w.networks.length > 0
+                    ? <span className="font-mono">{w.networks.map((n) => n.replace(/\/(32|128)$/, "")).join(", ")}</span>
+                    : tr("office network not set", "jaringan kantor belum diatur")}
                 </p>
               </div>
               {mayEdit && (
@@ -334,7 +400,9 @@ function SiteForm({
     lng: site?.lng?.toString() ?? "",
     radius_m: String(site?.radius_m ?? DEFAULT_SITE_RADIUS_M),
     active: site?.active ?? true,
+    networks: (site?.networks ?? []).map((n) => n.replace(/\/(32|128)$/, "")).join("\n"),
   }));
+  const [netBusy, setNetBusy] = useState(false);
   const [fix, setFix] = useState<{ accuracy_m: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const code = draft.code.trim().toUpperCase();
@@ -347,6 +415,27 @@ function SiteForm({
     });
   }
 
+  /** The address this browser reaches the database from — the office line,
+   *  when HRD presses it standing on the office Wi-Fi. */
+  async function addMyNetwork() {
+    setNetBusy(true);
+    const res = await hr.myNetwork();
+    setNetBusy(false);
+    if (res.error || !res.data.ip) {
+      toast("warning", tr("Network not read", "Jaringan tidak terbaca"), res.error?.message ?? "");
+      return;
+    }
+    const ip = res.data.ip;
+    setDraft((d) => {
+      const list = d.networks.split(/[\s,]+/).filter(Boolean);
+      return list.includes(ip) ? d : { ...d, networks: [...list, ip].join("\n") };
+    });
+    if (res.data.site_code && res.data.site_code !== site?.code) {
+      toast("warning", tr("Already another location's network", "Sudah jaringan lokasi lain"),
+        tr(`${ip} is already named on ${res.data.site_code}.`, `${ip} sudah tercatat di ${res.data.site_code}.`));
+    }
+  }
+
   async function save() {
     setBusy(true);
     const res = await hr.saveWorkSite({
@@ -355,8 +444,18 @@ function SiteForm({
       lng: draft.lng.trim() === "" ? null : Number(draft.lng),
       radius_m: Number(draft.radius_m), active: draft.active,
     });
+    if (res.error) { setBusy(false); toast("warning", tr("Not saved", "Tidak tersimpan"), res.error.message); return; }
+    const nets = draft.networks.split(/[\s,]+/).filter(Boolean);
+    const before = (site?.networks ?? []).map((n) => n.replace(/\/(32|128)$/, ""));
+    if (nets.join(",") !== before.join(",")) {
+      const n = await hr.setSiteNetworks(res.data.code, nets);
+      if (n.error) {
+        setBusy(false);
+        toast("warning", tr("Location saved, network not", "Lokasi tersimpan, jaringan belum"), n.error.message);
+        return;
+      }
+    }
     setBusy(false);
-    if (res.error) { toast("warning", tr("Not saved", "Tidak tersimpan"), res.error.message); return; }
     toast("success", site ? tr("Location saved", "Lokasi tersimpan") : tr("Location added", "Lokasi ditambahkan"),
       `${res.data.name} · ${res.data.radius_m} m`);
     onSaved();
@@ -417,6 +516,23 @@ function SiteForm({
             </a>
           )}
         </div>
+        <label className="text-[13px] font-medium text-slate-700 sm:col-span-2">
+          {tr("Office network (public internet address)", "Jaringan kantor (alamat internet publik)")}
+          <textarea className={cn(field, "font-mono")} rows={2} value={draft.networks} disabled={!mayEdit}
+            placeholder="203.0.113.10" data-testid="site-networks-input"
+            onChange={(e) => setDraft({ ...draft, networks: e.target.value })} />
+          <span className="mt-1 flex flex-wrap items-center gap-2 text-[11px] font-normal text-slate-500">
+            {tr(
+              "One per line. A tap from this address was made on this location's Wi-Fi — what fake GPS cannot move. Press the button while connected to the office Wi-Fi.",
+              "Satu per baris. Tap dari alamat ini dibuat lewat Wi-Fi lokasi ini — yang tidak bisa dipindah GPS palsu. Tekan tombolnya sambil tersambung ke Wi-Fi kantor.",
+            )}
+            {mayEdit && (
+              <Button size="sm" variant="outline" icon={Wifi} disabled={netBusy} onClick={addMyNetwork}>
+                {netBusy ? tr("Reading…", "Membaca…") : tr("Use my current network", "Pakai jaringan saya sekarang")}
+              </Button>
+            )}
+          </span>
+        </label>
       </div>
       <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-5 py-3">
         {mayEdit && (

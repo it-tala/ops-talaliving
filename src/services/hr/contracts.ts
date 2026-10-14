@@ -3115,6 +3115,32 @@ export interface LocationJudgement {
   needs_note: boolean;
 }
 
+/** What the phone says about itself at a tap (0270, D431). **Evidence, not
+ *  proof**: a phone can say anything. The address, user agent and session
+ *  are read by the server from the request and are never sent from here. */
+export interface TapClientContext {
+  /** Made once per install and kept in the browser's storage. A MAC address
+   *  is not readable from a web app; this is the stand-in. */
+  device_id: string | null;
+  /** The phone's own clock, beside the server's. */
+  device_at: string;
+  app_build: string | null;
+  /** `standalone` when opened as the installed app. */
+  display_mode: "standalone" | "browser";
+  platform: string | null;
+  language: string | null;
+  timezone: string | null;
+  /** `412x915@2.6`. */
+  screen: string | null;
+}
+
+/** `ops_hr.my_network` — the caller's own address as the server sees it. */
+export interface MyNetwork {
+  ip: string | null;
+  /** The site whose office network that address is, if any. */
+  site_code: string | null;
+}
+
 export interface TapSelfResult {
   id: string;
   at: string;
@@ -3137,6 +3163,8 @@ export interface WorkSite {
   lng: number | null;
   radius_m: number;
   active: boolean;
+  /** Public addresses of the site's internet line (0270, D431): `203.0.113.10/32`. */
+  networks: string[];
   updated_at: string;
 }
 
@@ -3168,6 +3196,24 @@ export interface LocatedTapView {
   photo_filename: string | null;
   /** What the tap said it was (D369). */
   kind: TapKind | null;
+  /* ── the trace (0270, D431) ── */
+  /** Read by the server. Null when the request carried none. */
+  ip: string | null;
+  user_agent: string | null;
+  /** Said by the phone: evidence, not proof. */
+  device_id: string | null;
+  device_at: string | null;
+  app_build: string | null;
+  /** On a site's office network at the tap. Null: no address, or no site
+   *  names a network yet. */
+  on_site_network: boolean | null;
+  network_site_code: string | null;
+  /** How many people this device tapped for within 30 days of the tap. More
+   *  than one is flagged. Null without a device id. */
+  device_people: number | null;
+  /** This person's first tap from this device. A lead, not a verdict: a
+   *  cleared browser is a new device. */
+  device_new: boolean | null;
 }
 
 /** The weekday a week starts on when the rule book does not say: **Jumat**

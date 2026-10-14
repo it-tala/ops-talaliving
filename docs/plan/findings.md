@@ -10704,3 +10704,26 @@ ledger, looked, and reported there was no button. The browser walk had
 it. It now sits at the table's head, right-aligned under the card title, on
 every table. A check that a control works is not a check that it is found.
 
+## F270 · 2026-10-14 · A trace is worth what it can tell apart, not what it stores
+
+Asked to "store every layer" of a phone tap, the honest test for each layer
+was **how often it is unusual when nobody is cheating**. The IP address on
+its own is close to useless: on mobile data it is the carrier's shared
+address (CGNAT), the same for thousands of phones. It only means something
+compared with one known fact, *this is the office line*. So `0270` stores
+the address but asks a different question of it: was it one of the site's
+`networks`? Even then, being off the office network is the normal case for a
+worker on mobile data. Flagging it would flag most rows, and a flag on most
+rows is a flag nobody reads. It is shown, not flagged. What *is* rare when
+honest is one device tapping for two people, so that is the flag.
+
+Three smaller lessons. The client IP has to be read **in the seam** from
+`request.headers`, never sent as a parameter: a value the phone fills in is
+a value the phone can fake. `x-forwarded-for` is the weakest of the three
+headers because a client can prepend to it, so it is the last fallback after
+`cf-connecting-ip` and `x-real-ip`. And keeping "every header" would have
+stored the session's own bearer token in a table HRD can read. The trace
+keeps named headers only. The production header names are Supabase's and
+were not observed from this container: after `0270` is applied, the first
+real tap should be checked to have a non-null `ip`.
+

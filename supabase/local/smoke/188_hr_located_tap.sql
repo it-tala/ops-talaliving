@@ -221,10 +221,10 @@ begin
            where n.nspname = 'ops_hr' and p.proname = 'tap_self') = 1,
     'tap_self is overloaded — PostgREST cannot choose between them';
   assert has_function_privilege('authenticated',
-    'ops_hr.tap_self(double precision,double precision,double precision,text,uuid,text,text)','execute'),
+    'ops_hr.tap_self(double precision,double precision,double precision,text,uuid,text,text,jsonb)','execute'),
     'authenticated cannot call tap_self';
   assert not has_function_privilege('anon',
-    'ops_hr.tap_self(double precision,double precision,double precision,text,uuid,text,text)','execute'),
+    'ops_hr.tap_self(double precision,double precision,double precision,text,uuid,text,text,jsonb)','execute'),
     'anon can call tap_self';
   assert has_function_privilege('authenticated',
     'ops_hr.save_work_site(text,text,double precision,double precision,integer,boolean,text)','execute'),

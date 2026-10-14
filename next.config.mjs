@@ -43,6 +43,9 @@ const liveBuild =
 const nextConfig = {
   reactStrictMode: true,
   generateBuildId: () => buildId,
+  /* The same id, readable in the page: a phone tap says which build made it
+     (0270, D431), so a fault in one release can be traced to its taps. */
+  env: { NEXT_PUBLIC_OPS_BUILD_ID: buildId },
   webpack(config, { webpack }) {
     if (liveBuild) {
       /* By the import as written, not by resolved path: the demo's own files
