@@ -137,6 +137,7 @@ export const NAV: NavSection[] = [
       { label: "Subscriptions", labelKey: "subscriptions", href: "/accounting/langganan", icon: Repeat, permission: "accounting.read", badge: "new" },
       { label: "Documents", labelKey: "documents", href: "/accounting/documents", icon: FileBadge, permission: "accounting.read" },
       { label: "Purchase Verification", labelKey: "verification", href: "/accounting/verifikasi", icon: Receipt, permission: "accounting.read", badge: "core" },
+      { label: "Re-detailing", labelKey: "redetail", href: "/accounting/rincian-ulang", icon: ListTree, permission: "accounting.read", badge: "new" },
     ],
   },
   {

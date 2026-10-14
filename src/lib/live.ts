@@ -67,6 +67,7 @@ export const LIVE_ROUTES: readonly string[] = [
   "/accounting/langganan",
   "/accounting/ledger",
   "/accounting/rekening-koran",
+  "/accounting/rincian-ulang",
   "/accounting/tagihan",
   "/accounting/verifikasi",
   "/box/[box]",

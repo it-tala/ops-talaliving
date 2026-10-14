@@ -31,6 +31,7 @@ import type {
   SubscriptionPaymentInput, SubscriptionStatus,
   AccountCustody, Cashflow, CashflowLine, CashflowLineInput, CashflowBillInput, CashflowWeekOverride,
   CashflowReceipt, CashflowOpening, CashflowSettings,
+  TransactionLineView, RedetailQueueRow,
 } from "@/services/accounting/contracts";
 import type { LineKind } from "@/services/accounting/lines";
 import {
@@ -309,6 +310,57 @@ export async function listTransactions(
     .order("trx_no", { ascending: false })
     .range(offset, offset + limit - 1);
   return fromPage<TransactionView>(SERVICE, data as TransactionView[], count, error, limit, offset);
+}
+
+/** The a/b lines of a page of ledger rows, in one read (`v_transaction_line`,
+ *  0273): the table draws them under their parent (D437) without a detail
+ *  call per row. Asked for by number, never more than a page at a time. */
+export async function listTransactionLines(trxNos: string[]): Promise<Result<TransactionLineView[]>> {
+  if (trxNos.length === 0) return ok(SERVICE, []);
+  const { data, error } = await db().from("v_transaction_line").select("*")
+    .in("trx_no", trxNos).order("trx_no").order("line_no");
+  return fromRows<TransactionLineView[]>(SERVICE, data as TransactionLineView[], error);
+}
+
+/** The rows still to re-detail (`v_redetail_queue`, 0273, D434), newest
+ *  first — the whole of 2026, back to January (D435 point 6). Paged at the
+ *  service like the ledger. */
+export async function listRedetailQueue(
+  opts: { q?: string; account_code?: string; limit?: number; offset?: number } = {},
+): Promise<Result<RedetailQueueRow[]>> {
+  const limit = opts.limit ?? 50;
+  const offset = opts.offset ?? 0;
+  let q = db().from("v_redetail_queue").select("*", { count: "exact" });
+  if (opts.account_code) q = q.eq("account_code", opts.account_code);
+  if (opts.q) q = q.or(ilikeOrFilter(opts.q, "description", "trx_no"));
+  const { data, error, count } = await q
+    .order("trx_date", { ascending: false })
+    .order("trx_no", { ascending: false })
+    .range(offset, offset + limit - 1);
+  return fromPage<RedetailQueueRow>(SERVICE, data as RedetailQueueRow[], count, error, limit, offset);
+}
+
+/** Rewrite a row's whole detail, or confirm it as it is (`set_transaction_lines`,
+ *  0273). `lines: null` is *sudah benar*: the stamp without a change. The
+ *  amount never moves here — that is `editTransaction`. */
+export async function setTransactionLines(
+  input: {
+    trx_no: string;
+    lines: { kind?: LineKind; description: string; qty?: number | null; uom?: string | null;
+             unit_price?: number | null; amount: number; item_id?: string | null }[] | null;
+    reason?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<TransactionDetail>> {
+  const { data, error } = await db().rpc("set_transaction_lines", {
+    p_trx_no: input.trx_no,
+    p_lines: input.lines,
+    p_reason: input.reason ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const done = fromSeam<{ trx_no: string }>(SERVICE, data, error);
+  if (done.error) return done;
+  return getTransaction(done.data.trx_no);
 }
 
 /** Everything a ledger row is made of, in one call: what it bought, what it

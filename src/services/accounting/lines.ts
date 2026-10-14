@@ -64,3 +64,103 @@ export function isPricedKind(kind: LineKind): boolean {
 export function effectiveRate(amountIdr: number, billedAmount: number | null | undefined): number | null {
   return billedAmount && billedAmount > 0 ? amountIdr / billedAmount : null;
 }
+
+/* ── A line while it is being typed ─────────────────────────────────────
+ *
+ *  One draft shape for every screen that edits lines — Verifikasi, Entri
+ *  baru's cousin, the re-detailing queue and the drawer (L12). `key` is a
+ *  client-side identity so React can tell two lines apart; the database
+ *  never sees it. `amount` is typed only for a line that is not an item; an
+ *  item's amount is qty × unit price, never typed (D86).
+ */
+export interface LineDraft {
+  key: number;
+  kind: LineKind;
+  description: string;
+  qty: number;
+  uom: string;
+  unit_price: number;
+  amount: number;
+  item_id: string | null;
+}
+
+export function draftAmount(l: LineDraft): number {
+  return isPricedKind(l.kind) ? Math.round(l.qty * l.unit_price) : Math.round(l.amount);
+}
+
+/** Σ drafts with the sign the kind carries — what the seam compares with
+ *  the transaction's amount. */
+export function draftsTotal(ls: LineDraft[]): number {
+  return ls.reduce((n, l) => n + lineSign(l.kind) * draftAmount(l), 0);
+}
+
+export function nextKey(ls: LineDraft[]): number {
+  return Math.max(0, ...ls.map((l) => l.key)) + 1;
+}
+
+/** The tax typed as a figure (D435) moves the lines, not the total: the nota
+ *  says 112.000 and prints PPN 12.000, so the goods were 100.000. The item
+ *  lines are scaled to what is left after every non-item line, the rounding
+ *  lands on the last of them, and the tax line is written or removed. */
+export function withTax(ls: LineDraft[], taxAmount: number, total: number): LineDraft[] {
+  const tax = Math.max(0, Math.round(taxAmount));
+  const rest = ls.filter((l) => l.kind !== "tax");
+  const others = rest.filter((l) => !isPricedKind(l.kind)).reduce((n, l) => n + lineSign(l.kind) * draftAmount(l), 0);
+  const items = rest.filter((l) => isPricedKind(l.kind));
+  const target = total - tax - others;
+  const current = items.reduce((n, l) => n + draftAmount(l), 0);
+  let scaled = items;
+  if (items.length > 0 && target >= 0 && current !== target) {
+    let given = 0;
+    scaled = items.map((l, i) => {
+      const share = i === items.length - 1
+        ? target - given
+        : (current > 0 ? Math.round(draftAmount(l) * target / current) : Math.round(target / items.length));
+      given += share;
+      const qty = l.qty > 0 ? l.qty : 1;
+      return { ...l, qty, unit_price: Math.round((share / qty) * 100) / 100 };
+    });
+  }
+  const next = rest.map((l) => scaled.find((s) => s.key === l.key) ?? l);
+  if (tax > 0) {
+    const old = ls.find((l) => l.kind === "tax");
+    next.push({
+      key: old?.key ?? nextKey(ls),
+      kind: "tax", description: old?.description || "PPN", qty: 1, uom: "pcs", unit_price: tax, amount: tax, item_id: null,
+    });
+  }
+  return next;
+}
+
+/** *Pisahkan biaya admin*: the …2.500 / …6.500 a bank folds into a transfer
+ *  is taken off the last item line and becomes its own `fee` line, so the
+ *  total stays what the bank says and the goods stop carrying the bank's
+ *  charge (D434). Null when there is nothing to split. */
+export function splitFee(ls: LineDraft[], total: number): LineDraft[] | null {
+  if (ls.some((l) => l.kind === "fee")) return null;
+  const tail = total % 10000;
+  const fee = tail === 2500 || tail === 6500 ? tail : tail === 5000 ? 5000 : 0;
+  if (fee === 0) return null;
+  const idx = [...ls].reverse().findIndex((l) => isPricedKind(l.kind));
+  if (idx < 0) return null;
+  const at = ls.length - 1 - idx;
+  const l = ls[at];
+  const share = draftAmount(l) - fee;
+  if (share <= 0) return null;
+  const qty = l.qty > 0 ? l.qty : 1;
+  const next = ls.map((x, i) => (i === at ? { ...x, qty, unit_price: Math.round((share / qty) * 100) / 100 } : x));
+  next.push({
+    key: nextKey(ls), kind: "fee", description: "Transfer admin fee", qty: 1, uom: "pcs",
+    unit_price: fee, amount: fee, item_id: null,
+  });
+  return next;
+}
+
+/** The drafts as the seam wants them. An item line carries its quantity and
+ *  price; every other kind is an amount. */
+export function toSeamLines(ls: LineDraft[], fallbackDescription = "") {
+  return ls.map((l) => (isPricedKind(l.kind)
+    ? { kind: l.kind, description: l.description.trim() || fallbackDescription, qty: l.qty, uom: l.uom,
+        unit_price: l.unit_price, amount: draftAmount(l), item_id: l.item_id }
+    : { kind: l.kind, description: l.description.trim() || fallbackDescription, amount: draftAmount(l) }));
+}

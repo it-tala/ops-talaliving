@@ -178,6 +178,8 @@ const VIEW_CONTRACTS = {
   /* ── accounting ──────────────────────────────────────────────────────── */
   v_transaction:        "TransactionView",
   v_transaction_detail: "TransactionDetail",
+  v_transaction_line:   "TransactionLineView",
+  v_redetail_queue:     "RedetailQueueRow",
   /* `suggestions` is a second read — `v_statement_suggestion`, keyed by line —
      stitched on before the result is returned. The intermediate cast is
      genuinely incomplete and the returned value is not. */

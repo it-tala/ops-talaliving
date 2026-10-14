@@ -469,6 +469,37 @@ export interface TransactionDetail extends TransactionView {
    *  view's columns. */
   billed_currency: string | null;
   billed_amount: number | null;
+  /** When and by whom the detail was last confirmed or rewritten through
+   *  `set_transaction_lines` (`0273`, D434). Null = never reviewed. */
+  lines_reviewed_at: string | null;
+  lines_reviewed_by_name: string | null;
+}
+
+/** One ledger line with its row's number — `v_transaction_line` (`0273`),
+ *  the ledger table's own read for the a/b rows under their parent (D437). */
+export interface TransactionLineView extends TransactionLine {
+  trx_no: string;
+}
+
+/** A row still to re-detail (`v_redetail_queue`, `0273`, D434): money out
+ *  with a document, dated 2026, not yet stamped, and looking lumped. The
+ *  three flags say why it is here; `is_ecommerce` says it gets at most three
+ *  lines — listed price, discount, fee — never items (D435 point 5). */
+export interface RedetailQueueRow {
+  id: string;
+  trx_no: string;
+  trx_date: string;
+  account_code: string;
+  type_code: string;
+  vendor_name: string | null;
+  description: string;
+  amount_idr: number;
+  evidence_count: number;
+  line_count: number;
+  single_line: boolean;
+  fee_tail: boolean;
+  is_purchase: boolean;
+  is_ecommerce: boolean;
 }
 
 /** One payment to a vendor, and what it settled.

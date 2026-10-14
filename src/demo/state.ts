@@ -22,6 +22,9 @@ import type {
 export type DemoTransaction = Transaction & {
   billed_currency?: string | null;
   billed_amount?: number | null;
+  /** `set_transaction_lines`' stamp (`0273`). */
+  lines_reviewed_at?: string | null;
+  lines_reviewed_by?: string | null;
 };
 import type { Attachment, AttachmentLink } from "@/services/documents/contracts";
 import type { ApprovalChannel, DesignBoxKey, DesignOrigin } from "@/services/design/contracts";

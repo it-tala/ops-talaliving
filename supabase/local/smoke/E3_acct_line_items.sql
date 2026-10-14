@@ -142,11 +142,11 @@ end $$;
 -- ── a term payment on a second order stays one generic line ───────────────
 set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-00000000e27a';
 do $$
-declare r jsonb; v uuid; doc text; att jsonb; ven text := (select v from t_ctx where k='vendor');
+declare r jsonb; vid uuid; doc text; att jsonb;
 begin
-  v := (select id from ops_procure.vendors where name = 'TOKO ITEM UJI');
+  vid := (select id from ops_procure.vendors where name = 'TOKO ITEM UJI');
   r := ops_procure.create_pr(jsonb_build_array(
-        jsonb_build_object('description','Plywood 18mm termin','qty',20,'uom','lembar','unit_price',100000,'vendor_id',v,
+        jsonb_build_object('description','Plywood 18mm termin','qty',20,'uom','lembar','unit_price',100000,'vendor_id',vid,
                            'item_id','22220000-0000-0000-0000-00000000e272')));
   doc := r->'data'->>'doc_no'; insert into t_ctx values ('doc3', doc);
   perform ops_procure.submit_pr(doc);

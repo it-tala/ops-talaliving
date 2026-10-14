@@ -1,5 +1,7 @@
 "use client";
 
+import { Fragment } from "react";
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { Pager } from "./pager";
@@ -43,6 +45,7 @@ export function DataTable<T>({
   paginate = true,
   exportName,
   exportRows,
+  renderAfter,
 }: {
   columns: Column<T>[];
   rows: T[];
@@ -61,6 +64,10 @@ export function DataTable<T>({
   /** For a list paged at the server, where `rows` is only this page: every
    *  row under the same filters, fetched when the download is asked for. */
   exportRows?: () => Promise<T[]>;
+  /** Extra `<tr>`s drawn under a row — the ledger's a/b lines under their
+   *  transaction (D437). Marked `data-no-export`: the file keeps one row per
+   *  record. */
+  renderAfter?: (row: T) => React.ReactNode;
 }) {
   const tr = useTr();
   const alignClass = (a?: "left" | "right" | "center") =>
@@ -121,8 +128,8 @@ export function DataTable<T>({
               </tr>
             ) : (
               shown.map((row, i) => (
+                <Fragment key={rowKey(row, offset + i)}>
                 <tr
-                  key={rowKey(row, offset + i)}
                   onClick={onRowClick ? () => onRowClick(row) : undefined}
                   className={cn(
                     "border-b border-slate-100 transition-colors last:border-0",
@@ -151,6 +158,8 @@ export function DataTable<T>({
                     </td>
                   ))}
                 </tr>
+                {renderAfter?.(row)}
+                </Fragment>
               ))
             )}
           </tbody>

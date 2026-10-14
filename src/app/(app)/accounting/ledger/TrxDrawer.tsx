@@ -21,6 +21,8 @@ import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
 import { useTr, type Message, type Tr } from "@/lib/i18n";
 import { BilledFields, LineKindBadge, billedSummary } from "@/components/accounting/line-kind";
+import { LinesEditor, draftsFrom } from "@/components/accounting/lines-editor";
+import { toSeamLines, draftsTotal, type LineDraft } from "@/services/accounting/lines";
 
 /** The documents a ledger row is expected to carry (owner, 2026-09-23).
  *  Money going out is a purchase: its nota, the transfer, a photo of what
@@ -105,6 +107,12 @@ export function TrxDrawer({
   const [editBilledOpen, setEditBilledOpen] = useState(false);
   const [editBilledCcy, setEditBilledCcy] = useState("USD");
   const [editBilledAmt, setEditBilledAmt] = useState(0);
+  /* Edit rincian (L12): the lines rewritten in place through
+     set_transaction_lines; the amount stays the bank's figure. */
+  const [linesOpen, setLinesOpen] = useState(false);
+  const [lineDrafts, setLineDrafts] = useState<LineDraft[]>([]);
+  const [linesReason, setLinesReason] = useState("");
+  const [createsItems, setCreatesItems] = useState(false);
   const [refs, setRefs] = useState<{
     vendors: { id: string; code: string; name: string }[];
     projects: { id: string; code: string; name: string }[];
@@ -644,9 +652,62 @@ export function TrxDrawer({
           ))}
         </dl>
 
-        {trx.lines.length > 0 && (
+        {(trx.lines.length > 0 || (mayPost && trx.status !== "VOID")) && (
           <section>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{tr("What it bought", "Apa yang dibeli")}</p>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{tr("What it bought", "Apa yang dibeli")}</p>
+              <div className="flex items-center gap-2">
+                {trx.lines_reviewed_at && (
+                  <span className="text-[11px] text-slate-400" title={trx.lines_reviewed_by_name ?? undefined}>
+                    {tr(`reviewed ${trx.lines_reviewed_at.slice(0, 10)}`, `ditinjau ${trx.lines_reviewed_at.slice(0, 10)}`)}
+                  </span>
+                )}
+                {mayPost && trx.status !== "VOID" && !linesOpen && (
+                  <Button variant="ghost" size="sm" icon={Pencil} disabled={busy}
+                    onClick={async () => {
+                      setLineDrafts(draftsFrom(trx.lines, trx.amount_idr, trx.description));
+                      setLinesReason("");
+                      const t = await accounting.listTypeRows();
+                      setCreatesItems(t.data?.find((x) => x.code === trx.type_code)?.creates_catalog_item ?? false);
+                      setLinesOpen(true);
+                    }}>
+                    {tr("Edit lines", "Edit rincian")}
+                  </Button>
+                )}
+              </div>
+            </div>
+            {linesOpen && (
+              <div className="mb-3 space-y-3 rounded-lg border border-brand-200 bg-brand-50/40 px-3 py-3" data-testid="trx-lines-edit">
+                <LinesEditor lines={lineDrafts} onChange={setLineDrafts} amount={trx.amount_idr} idPrefix="trx-lines" allowCreate={createsItems} />
+                <div>
+                  <label htmlFor="trx-lines-reason" className="block text-xs text-slate-600">{tr("Remark (optional)", "Keterangan (opsional)")}</label>
+                  <input id="trx-lines-reason" value={linesReason} onChange={(e) => setLinesReason(e.target.value)}
+                    className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm focus:border-brand-400 focus:outline-none" />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => setLinesOpen(false)} disabled={busy}>{tr("Cancel", "Batal")}</Button>
+                  <Button size="sm" disabled={busy || draftsTotal(lineDrafts) !== trx.amount_idr}
+                    onClick={async () => {
+                      setBusy(true);
+                      const res = await accounting.setTransactionLines(
+                        { trx_no: trx.trx_no, lines: toSeamLines(lineDrafts, trx.description), reason: linesReason.trim() || null },
+                        `set-lines-${trx.trx_no}-${Date.now()}`);
+                      setBusy(false);
+                      if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", tr("Not saved", "Tidak tersimpan"), res.error.message); return; }
+                      toast("success", tr(`${trx.trx_no} re-detailed`, `${trx.trx_no} dirinci ulang`), tr("The old detail is in the audit log.", "Rincian lama ada di log audit."));
+                      setLinesOpen(false);
+                      await load(trx.trx_no);
+                      onChanged();
+                    }}>
+                    {tr("Save the lines", "Simpan rincian")}
+                  </Button>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  {tr("The amount stays what the bank says; the lines explain it. The old lines are kept in the audit log.", "Jumlah tetap seperti kata bank; baris-barisnya yang menjelaskan. Baris lama tersimpan di log audit.")}
+                </p>
+              </div>
+            )}
+            {trx.lines.length > 0 && (
             <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
               {trx.lines.map((l) => (
                 <li key={l.id ?? `${trx.trx_no}-${l.line_no}`} className="flex items-center gap-3 px-3 py-2 text-[13px]">
@@ -673,6 +734,7 @@ export function TrxDrawer({
                 </li>
               ))}
             </ul>
+            )}
           </section>
         )}
 

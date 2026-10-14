@@ -10,7 +10,8 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { formatIDR } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { accounting } from "@/demo/api";
-import { type TransactionView } from "@/services/accounting/contracts";
+import { type TransactionView, type TransactionLineView } from "@/services/accounting/contracts";
+import { LineKindBadge } from "@/components/accounting/line-kind";
 import { TrxDrawer } from "./TrxDrawer";
 import { CashPosition } from "./CashPosition";
 import { NewEntry } from "./NewEntry";
@@ -46,6 +47,9 @@ export default function LedgerPage() {
   const [accountId, setAccountId] = useState("");
   const [typeCode, setTypeCode] = useState("");
   const [showVoid, setShowVoid] = useState(false);
+  /* The a/b rows under each transaction (D437): shown by default, one
+     checkbox to fold them away for a compact read. */
+  const [showLines, setShowLines] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
   /* `?trx=` opens that row — the item catalogue's purchase history links
      here. Read once from the address, like the items page's `?category=`. */
@@ -72,6 +76,22 @@ export default function LedgerPage() {
     { keepPrevious: true },
   );
   const mayPost = hasAuthority("post_ledger");
+  /* One read for the page's lines, keyed by row — never a detail call per
+     row. A single-line transaction shows no child: its parent is line a. */
+  const pageNos = rows.status === "ready" ? rows.data.map((t) => t.trx_no) : [];
+  const [lines] = useLoad(
+    () => accounting.listTransactionLines(showLines ? pageNos : []),
+    [pageNos.join(","), showLines],
+    { keepPrevious: true },
+  );
+  const linesByTrx = new Map<string, TransactionLineView[]>();
+  if (lines.status === "ready") {
+    for (const l of lines.data) {
+      const arr = linesByTrx.get(l.trx_no) ?? [];
+      arr.push(l);
+      linesByTrx.set(l.trx_no, arr);
+    }
+  }
   /* Which accounts hold cash. A card account owes money by design, so only a
      cash or bank account going below zero is the mark of a wrong figure. */
   const [accountList] = useLoad(() => accounting.listAccounts(), []);
@@ -247,6 +267,16 @@ export default function LedgerPage() {
           />
           {tr("Include voided", "Sertakan yang dibatalkan")}
         </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-500">
+          <input
+            id="f-lines"
+            type="checkbox"
+            checked={showLines}
+            onChange={(e) => setShowLines(e.target.checked)}
+            className="h-3.5 w-3.5 rounded border-slate-300"
+          />
+          {tr("Show a/b lines", "Tampilkan baris a/b")}
+        </label>
         <input
           id="f-q"
           value={q}
@@ -289,6 +319,30 @@ export default function LedgerPage() {
                 rows={visible}
                 rowKey={(t) => t.id}
                 onRowClick={(t) => setSelected(t.trx_no)}
+                /* The lines of a lumped-then-split row, under their parent
+                   (D437): the letter, the kind, the description, the amount.
+                   They open the same drawer — one transaction, one drawer. */
+                renderAfter={(t) => {
+                  const ls = showLines ? linesByTrx.get(t.trx_no) ?? [] : [];
+                  if (ls.length < 2 || t.status === "VOID") return null;
+                  return ls.map((l) => (
+                    <tr key={l.id} data-no-export onClick={() => setSelected(t.trx_no)}
+                      className="cursor-pointer bg-slate-50/60 text-[12px] text-slate-600 hover:bg-slate-100">
+                      <td className="px-4 py-1 pl-10 whitespace-nowrap">
+                        <span className="font-mono text-[10px] text-slate-400">{t.trx_no}-<span className="text-brand-700">{String.fromCharCode(96 + l.line_no)}</span></span>
+                      </td>
+                      <td className="px-4 py-1 whitespace-normal">
+                        <span className="text-slate-700">{l.description}</span>
+                        {" "}<LineKindBadge kind={l.kind} />
+                        {l.item_code && <span className="ml-1 text-[10px] text-slate-400">· {l.item_name}</span>}
+                      </td>
+                      <td className={cn("px-4 py-1 text-right tabular-nums whitespace-nowrap", l.kind === "discount" ? "text-emerald-700" : "text-slate-600")}>
+                        {l.kind === "discount" ? "+" : "−"}{formatIDR(l.amount)}
+                      </td>
+                      <td colSpan={4} className="px-4 py-1" />
+                    </tr>
+                  ));
+                }}
                 exportName={tr("Ledger", "Buku besar")}
                 /* The screen holds one page; the file is every row under the
                    same filters. */
