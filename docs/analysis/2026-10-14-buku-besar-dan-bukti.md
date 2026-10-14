@@ -18,8 +18,34 @@
 > bisa menebak apakah cashflow masih aman untuk berapa bulan ke depan.*
 
 Status: **kajian**. Tidak ada kode dan tidak ada migrasi di sesi ini. Angka di
-§3 dibaca dari produksi pada 14 Okt 2026. Urutan kerja di §7, pertanyaan untuk
-owner di §8.
+§3 dibaca dari produksi pada 14 Okt 2026. Urutan kerja di §8, pertanyaan untuk
+owner di §9; Q92–Q96 dijawab hari yang sama (D433), rekomendasi kategori dan
+pajak dari setahun transaksi di §10.
+
+> **Pembaruan 14 Okt: jawaban owner atas Q92–Q96 (D433).**
+> - **Q92 (pajak)** — *akunting biasanya sulit membedakan jika total nilai
+>   pembayaran sudah termasuk pajak, jadi butuh pembagiannya atau setup nilai
+>   berdasarkan persentase, misal nilai barang 112.000 jika pajak 12% maka
+>   nilai di ledger adalah item 1 50, item 2 50, PPN 12 — ini yang saya belum
+>   tentukan. Nanti coba lihat dari transaksi beberapa bulan terakhir.* →
+>   dilihat, §10.2: pembagian **dari persentase, dipilih per transaksi**, tidak
+>   otomatis.
+> - **Q93 (kategori)** — *review semua transaksi setahun ini dan berikan
+>   rekomendasimu. Kamu boleh mengkategorikan ulang karena akunting kami pun
+>   ragu, asalkan masih selaras dengan tujuan kita.* → §10.1: kategori per
+>   jenis transaksi **plus** pemindahan jenis untuk baris yang deskripsinya
+>   jelas salah tempat, menunggu Q97–Q98.
+> - **Q94 (kelengkapan dokumen)** — *tidak perlu dipaksakan di kode; ini hanya
+>   akan membuat user bingung jika data tidak lengkap sementara harus segera
+>   diinput.* → §6.6 **dicoret**: tidak ada aturan per jenis, tidak ada
+>   *lengkap/kurang*, COMPLETED tetap seperti `0103`. Yang tersisa dari L8
+>   hanya jenis dokumen `faktur_pajak`, `ttb`, dan label *Surat jalan*.
+> - **Q95 (berapa bulan)** — *akunting saja; 064 kita tidak punya catatan
+>   transaksinya, hanya file yang diunggah EJO ke Chat.* → §6.9 memakai saldo
+>   PETTY CASH + BNI 325 + BCA 271 + JAGO saja, satu angka.
+> - **Q96 (tanpa PR)** — *tidak perlu sama sekali.* → ringkasan pimpinan tidak
+>   menjumlah *pembelian tanpa permintaan*; petunjuk kecil di baris buku besar
+>   (D83/D88) tidak disentuh.
 
 Ketentuan owner saya beri nomor supaya bisa dirujuk:
 
@@ -442,7 +468,11 @@ chat, Rp 1.250.000; dibayar Rp 1.250.000*). Kolom **Proyek** di tabel buku
 besar dan di fakta drawer; filter proyek dan rentang tanggal di layar (API
 sudah punya keduanya, `accounting.ts:285-291`).
 
-### 6.6 Aturan kelengkapan dokumen per jenis transaksi — peringatkan, jangan blokir
+### 6.6 ~~Aturan kelengkapan dokumen per jenis transaksi~~ *(Q94: tidak dibangun)*
+
+> Owner: *tidak perlu dipaksakan di kode.* Paragraf di bawah dibiarkan sebagai
+> catatan apa yang dipertimbangkan; yang dikerjakan hanya kalimat terakhirnya
+> (jenis dokumen baru dan label).
 
 `transaction_types.evidence_rule` (jsonb): dokumen apa yang **diharapkan**
 per tipe, misalnya SUPPLIERS: nota + bukti transfer (bukan petty cash) +
@@ -490,9 +520,10 @@ bukan layar sendiri.
 Di `/accounting/cashflow` (D392) satu kartu baru, dihitung dari buku besar
 bukan dari rencana: *burn* = rata-rata bulanan 3 bulan terakhir dari
 kategori `fixed + overhead + payroll + bank + loan` (bukan `vendor`, bukan
-`transfer`); *kas* = saldo rekening accounting (+ pimpinan bila
-`approve_funds`); **N bulan** = kas ÷ burn, dengan dua angka pembanding:
-*tanpa pemasukan* dan *dengan pemasukan rata-rata 3 bulan*. Vonis mingguan
+`transfer`); *kas* = saldo rekening accounting saja — PETTY CASH, BNI 325, BCA 271, JAGO
+(Q95: BCA 064 tidak punya catatan transaksi, hanya file dari EJO); **N bulan**
+= kas ÷ burn, dengan dua angka pembanding: *tanpa pemasukan* dan *dengan
+pemasukan rata-rata 3 bulan*. Vonis mingguan
 yang ada tetap — angka ini adalah jawaban satu baris untuk pertanyaan
 *masih aman berapa bulan*, dan ia berubah sendiri begitu kategori (6.8) dan
 jenis baris (6.2) terisi.
@@ -556,3 +587,144 @@ ia butuh jawaban Q93 sebelum mulai.
 | **Q94** | Kelengkapan dokumen untuk **SUPPLIERS**: nota + bukti transfer (kecuali petty cash) + foto barang/receiving report **bila ada PO** — atau foto barang selalu? | Foto barang / RR hanya bila ada PO atau PR berbarang |
 | **Q95** | Angka *berapa bulan* (6.9): kas yang dihitung **rekening accounting saja** (PETTY CASH, BNI 325, BCA 271, JAGO) atau **termasuk BCA 064** untuk pembaca `approve_funds`? | Dua angka: accounting saja, dan termasuk pimpinan bila berwenang |
 | **Q96** | Pembayaran dari Chat yang **tidak** merujuk PR mana pun setelah L6 — tetap boleh (D94, beli dulu) tanpa peringatan, atau ditandai *tanpa permintaan* lebih tegas di ringkasan pimpinan? | Tetap boleh; ringkasan pimpinan menjumlah *pembelian tanpa permintaan* per bulan |
+
+## 10. Dari setahun transaksi: rekomendasi kategori dan pajak (jawaban Q92–Q93)
+
+Dibaca dari 3.436 baris non-void Jan–Okt 2026 (214 · 275 · 210 · 356 · 301 ·
+448 · 675 · 466 · 393 · 98 per bulan). Dua hal yang data itu katakan sebelum
+rekomendasi apa pun:
+
+- **Jenis transaksi tidak pernah dipakai sebagai kategori.** Ia dipakai
+  sebagai *"dari sheet mana baris ini datang"*. `RECCURING - UTILITIES`
+  (151 baris) memuat 38 transfer antar rekening senilai Rp 449 jt (*TF FROM
+  BCA 064*), 10 baris gaji Rp 128 jt, BPJS, konsultan pajak, sewa rumah
+  Saripan — dan listrik. `SUPPLIERS` memuat 100 baris bensin, 49 galon, 27
+  transfer internal, 15 baris gaji. `CASHFLOW` memuat 591 transfer internal
+  **dan** 33 pemasukan dari luar senilai Rp 1,03 M. Memberi satu kategori per
+  jenis saja akan mewarisi semua salah tempat itu.
+- **Yang tercampur dapat dipisahkan dari deskripsinya**, karena orang yang
+  mengetik selalu menulis *TF FROM*, *WITHDRAWAL*, *BENSIN*, *PAYROLL*,
+  *ADMIN FEE*. Pola-pola itu konsisten sepanjang tahun (tabel di bawah).
+
+### 10.1 Kategori yang diusulkan, dan ke mana 18 jenis masuk
+
+Sembilan kategori — cukup untuk pertanyaan pimpinan (K5), tidak lebih:
+
+| Kategori | Isi | Masuk hitungan *burn* (§6.9)? |
+|---|---|---|
+| `transfer` | perpindahan uang antar rekening sendiri, tarik tunai ke petty cash, konversi USD | tidak |
+| `pemasukan` | uang dari klien, modal, pengembalian | tidak (sisi masuk) |
+| `vendor` | barang dan jasa untuk produksi/proyek/stok | tidak (ikut proyek) |
+| `payroll` | gaji bulanan/mingguan/harian, lembur, uang makan lembur, pesangon, BPJS TK/Kes | ya |
+| `tetap` | sewa (rumah, kendaraan), listrik, air, telepon/internet, langganan, konsultan bulanan | ya |
+| `overhead` | ATK, kebersihan, bensin, parkir, galon, makan, perlengkapan kantor/gudang | ya |
+| `bank` | biaya admin, bunga kartu kredit | ya |
+| `pajak` | pembayaran pajak ke negara (termin, SPT) | ya |
+| `pribadi` | pengeluaran pimpinan yang dibayar perusahaan (rumah, belanja, kartu kredit pribadi) | **tidak** — dilaporkan terpisah |
+
+Kategori per jenis (bawaan; baris yang jelas salah tempat dipindah jenisnya,
+§10.3):
+
+| Jenis | Baris | Keluar | Kategori bawaan | Catatan dari data |
+|---|---|---|---|---|
+| CASHFLOW | 658 | 2,9 M | `transfer` | 33 baris masuk Rp 1,03 M dari luar (e-banking CR TALA HOME, USD→IDR) → **`pemasukan`** per baris, §10.3 |
+| SUPPLIERS | 1.230 | 2,1 M | `vendor` | bensin 100, galon 49, transfer 27, gaji 15, konsultan/pajak 11 → dipindah |
+| RECCURING - PAYROLL MONTHLY | 167 | 685 jt | `payroll` | 25 *DAILY PAYROLL WEEK* → PAYROLL WEEKLY; 16 *BIAYA KEBERSIHAN OFFICE* → OFFICE |
+| RECCURING - UTILITIES | 151 | 539 jt | `tetap` | 38 transfer Rp 449 jt → CASHFLOW; 10 gaji → PAYROLL; BPJS 10 → payroll; konsultan pajak 7 → tetap (jasa bulanan); rumah Saripan 11 → Q97 |
+| RECCURING - PAYROLL | 76 | 438 jt | `payroll` | uang makan lembur 28, satpam; 11 transfer internal → CASHFLOW |
+| PREPAID VENDOR | 27 | 414 jt | `vendor` | DP ke pengrajin (Dul Rotan, CN Glass, Jawul) — benar |
+| EJO | 94 | 316 jt | `pribadi` | Saripan 48 (rumah + belanja), listrik, warung, kartu kredit; 229 jt masuk = *TF FROM BCA 081 USD* dan pengembalian → `transfer`/`pemasukan` per baris |
+| CREDIT CARD | 24 | 253 jt | `transfer` | ini **pelunasan tagihan kartu**, bukan pembelian: *TF TO BCA 271 - CREDIT CARD MANDIRI & BNI* 74 jt, *PAYMENT CREDIT CARD MANDIRI - EJO* 47 jt. Pembeliannya sendiri sudah/semestinya tercatat saat dibayar kartu. Yang pribadi (EJO) → `pribadi` |
+| OTHERS | 81 | 108 jt | `overhead` | *TF TO BCA 271* 20 jt → transfer; pesangon 17 jt → payroll; *PAYMENT BALANCE CN GLASS* 17 jt → vendor; listrik Langon 17 jt → Q97; sewa Grandmax → tetap |
+| RECCURING - PAYROLL WEEKLY | 5 | 46 jt | `payroll` | — |
+| PRODUCTION | 21 | 34 jt | `vendor` | jasa asah, CNC, oven — benar |
+| SUBSCRIPTION | 14 | 26 jt | `tetap` | Google, Anthropic, Starlink — benar |
+| TRANSPORT | 187 | 23 jt | `overhead` | bensin 124, sewa Grandmax (12) → `tetap` per vendor |
+| CHINA | 4 | 20 jt | `vendor` | — |
+| ONLINE | 25 | 18 jt | `vendor` | Tokopedia/Shopee — barang; yang ATK → overhead per baris |
+| RECCURING - OVERTIME | 36 | 13 jt | `payroll` | — |
+| BANK CHARGES | 527 | 9 jt | `bank` | 497 admin fee — benar; 106 di antaranya bernama *PAYROLL* karena fee transfer gaji, tetap `bank` |
+| WAREHOUSE | 34 | 9 jt | `overhead` | galon, rumput, paralon — perlengkapan, bukan barang jual |
+| OFFICE | 75 | 4 jt | `overhead` | — |
+
+Dua jenis layak **diistirahatkan** (`is_active = false`, data lama tetap):
+`EJO` sebagai jenis — karena *siapa* bukan *apa*; pengeluaran pimpinan
+dicatat dengan jenis sebenarnya (UTILITIES, SUPPLIERS…) dan kategori
+`pribadi` ditentukan oleh **vendor/penerima** (lihat §10.3 butir 7). Dan
+`CREDIT CARD` — pelunasan kartu adalah transfer; biaya bunga/admin kartu
+adalah BANK CHARGES. Keduanya menunggu Q98.
+
+### 10.2 Pajak (Q92): yang ada di data, dan bentuk yang diusulkan
+
+Setahun, kata *pajak / PPN / PPh / tax / faktur* muncul di **50 baris** (Rp
+442 jt), 13 di antaranya di baris rincian. Hampir semuanya **bukan PPN di
+nota**: konsultan pajak Subadriyah (jasa bulanan Rp 2 jt), *PAJAK TERMIN 1*
+Rp 40 jt, *TAX APRIL–AGST 2026* Rp 24 jt (setoran ke negara lewat
+konsultan), dan transfer dana *FOR … TAX CONSULTAN*. Vendor yang sangat
+mungkin PKP (PLN, PT Urecel, CV Cintya Box, Telkomsel) dibayar tanpa PPN
+disebut. Pengrajin — Dul Rotan, Jawul, Hadi Glass, Kurniawan Plywood,
+sebagian besar nilai `SUPPLIERS` — bukan PKP; tidak ada PPN untuk dipisah.
+
+Maka:
+
+1. **Dua hal berbeda, dua perlakuan.** *Setoran pajak ke negara* = baris
+   `kind = 'tax'` dan kategori `pajak` (jenis apa pun). *Jasa konsultan* =
+   `vendor`/`tetap` biasa. *PPN yang tertulis di nota* = baris `tax` di
+   transaksi pembelian itu, kategori ikut induk.
+2. **Pembagian dari persentase, dipilih per transaksi, tidak otomatis.** Di
+   verifikasi dan Entri baru ada sakelar *Harga sudah termasuk PPN __%*
+   (bawaan 12, dari `ops_core.settings.ppn_rate_pct`). Dinyalakan →
+   sistem menambah satu baris `tax` = total × r ÷ (100 + r), dibulatkan ke
+   rupiah, dan **mengurangi setiap baris item secara proporsional** supaya Σ
+   baris tetap = total dan harga item menjadi harga bersih — persis contoh
+   owner: 112.000 → item 50.000 + 50.000 + PPN 12.000. Kalau nota
+   mencetak angka PPN-nya, angka itu yang diketik dan baris item mengikuti.
+   Sakelar mati = nota tanpa PPN (bawaan), tidak ada yang berubah.
+3. **Tidak ada perhitungan pajak lain** (PPh, faktur keluaran, kredit pajak)
+   — D163 tetap. Yang baru hanya satu baris informasi dan satu pembagian
+   aritmetika yang orang pilih.
+4. **Tidak ada koreksi ke belakang.** 50 baris yang ada dibiarkan; yang
+   terbantu adalah referensi harga item mulai dari sini.
+
+### 10.3 Pemindahan jenis untuk baris yang salah tempat — satu kali, teraudit
+
+Dikerjakan sebagai migrasi yang memanggil `edit_transaction` (atau seam
+setara dengan audit `before/after` dan alasan *rekategorisasi D433*), bukan
+`update` telanjang; VOID tidak disentuh; baris yang terkait rekening koran
+tidak ada (0 statement). Aturan, dengan jumlah yang terkena hari ini:
+
+| # | Aturan (deskripsi, huruf besar) | Dari → ke | Baris | Rp |
+|---|---|---|---|---|
+| 1 | `TF FROM|TF TO|TRANSFER FROM|TRANSFER TO|WITHDRAWAL|TARIK TUNAI|TOP UP|SETOR|KE PETTY` | UTILITIES 38, SUPPLIERS 27, PAYROLL 11, OTHERS 1, CREDIT CARD 1 → **CASHFLOW** | 78 | 583 jt |
+| 2 | `BENSIN|PERTALITE|PERTAMAX|SOLAR|SPBU` | SUPPLIERS 100, OTHERS 11, WAREHOUSE 4 → **TRANSPORT** | 115 | 8 jt |
+| 3 | `PAYROLL|GAJI|UPAH|PESANGON|THR` (bukan transfer, bukan admin fee) | UTILITIES 10, SUPPLIERS 15, OTHERS 3 → **RECCURING - PAYROLL** | 28 | 193 jt |
+| 4 | `DAILY PAYROLL|WEEKLY` | PAYROLL MONTHLY 25 → **PAYROLL WEEKLY** | 25 | — |
+| 5 | `KEBERSIHAN|MASKER|ATK` | PAYROLL MONTHLY 16 → **OFFICE** | 16 | <1 jt |
+| 6 | `BPJS` | UTILITIES, OTHERS → **RECCURING - PAYROLL** (kategori payroll) | ~15 | — |
+| 7 | vendor/penerima pimpinan: `SARIPAN HOUSE`, `WARUNG KEMBAR`, `EJO`, kartu kredit `- EJO` | jenis tetap; **kategori `pribadi`** lewat daftar penerima pribadi di `ops_acct.cashflow_settings` (bukan per baris) | 94+ | ~350 jt |
+| 8 | `PAJAK TERMIN|TAX .* 20\d\d|SPT` | → baris `kind = 'tax'`, kategori **pajak** | 3 | 66 jt |
+| 9 | `CASHFLOW` **masuk** yang bukan pola transfer internal | kategori **`pemasukan`** per baris (jenis tetap) | 33 | 1,03 M |
+
+Butir 7 dan 9 menunjukkan batas pendekatan *kategori = atribut jenis*: ada
+dua kasus di mana kategori harus bisa **menimpa per baris** (penerima
+pribadi; uang masuk dari luar di jenis CASHFLOW). Usulan: kolom
+`transactions.category_override` (nullable, enum kategori), diisi oleh
+aturan 7 dan 9 dan bisa diubah dari drawer oleh `post_ledger`; `category`
+efektif = `coalesce(override, jenis.category)`. Satu kolom, bukan satu per
+baris rincian.
+
+Setelah pemindahan, angka yang akan dibaca pimpinan untuk 2026 (perkiraan
+dari aturan di atas, sebelum Q97): transfer antar rekening ≈ Rp 3,5 M keluar
+/ 6,4 M masuk; vendor ≈ 2,5 M; payroll ≈ 1,4 M; tetap ≈ 0,35 M; overhead ≈
+0,07 M; bank ≈ 0,01 M; pajak ≈ 0,07 M; pribadi ≈ 0,35 M; pemasukan ≈ 1,0 M
+(+ 393 jt UTILITIES masuk yang sebenarnya transfer). Angka pasti keluar dari
+migrasi itu sendiri dan dicek di `/accounting/ringkasan` sebelum diterapkan
+ke produksi.
+
+### 10.4 Pertanyaan lanjutan
+
+| # | Pertanyaan | Default |
+|---|---|---|
+| **Q97** | **Rumah Saripan** (sewa + belanja, 70 baris, ~Rp 75 jt) dan **listrik Langon** (17 jt): pengeluaran perusahaan (mess/kantor → `tetap`) atau pimpinan (→ `pribadi`)? | `pribadi` untuk Saripan (48 dari 70 barisnya bertipe EJO), `tetap` untuk Langon |
+| **Q98** | Setuju jenis `EJO` dan `CREDIT CARD` diistirahatkan (tidak muncul di pilihan baru; data lama tetap), dan pemindahan jenis §10.3 dijalankan sekali dengan audit? | Ya, keduanya |
+
