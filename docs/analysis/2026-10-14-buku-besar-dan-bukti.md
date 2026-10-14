@@ -728,3 +728,107 @@ ke produksi.
 | **Q97** | **Rumah Saripan** (sewa + belanja, 70 baris, ~Rp 75 jt) dan **listrik Langon** (17 jt): pengeluaran perusahaan (mess/kantor → `tetap`) atau pimpinan (→ `pribadi`)? | `pribadi` untuk Saripan (48 dari 70 barisnya bertipe EJO), `tetap` untuk Langon |
 | **Q98** | Setuju jenis `EJO` dan `CREDIT CARD` diistirahatkan (tidak muncul di pilihan baru; data lama tetap), dan pemindahan jenis §10.3 dijalankan sekali dengan audit? | Ya, keduanya |
 
+## 11. Memecah yang sudah terlanjur satu: nomor a/b, dan review ulang (D434)
+
+> Owner (2026-10-14): *Beberapa transaksi mungkin sudah terlanjur jadi satu,
+> maka saya sarankan untuk menambah nomor id-nya, misal trx-123a dan trx-123b
+> — yang a adalah itemnya, yang b jadi admin fee atau pajaknya. Kita perlu
+> review ulang semua transaksi yang sudah masuk di Supabase untuk memecahnya
+> menjadi detail terkecil setiap item pembayaran. Mungkin untuk invoice dari
+> e-commerce tidak perlu, karena di sana ada nilai diskon dan voucher yang
+> akan membuat ledger ambigu.*
+
+### 11.1 Ukuran pekerjaannya (produksi, 14 Okt, baris keluar non-void)
+
+| Masa | Baris | Tanpa dokumen | Ada dokumen, 0 baris rincian | Ada dokumen, 1 baris | Ada dokumen, >1 baris | Jumlahnya berakhiran biaya admin (…2.500/…6.500) | E-commerce |
+|---|---|---|---|---|---|---|---|
+| Jan–Jun | 1.616 | **1.616** | 0 | 0 | 0 | 0 | 27 |
+| Jul–21 Sep | 1.332 | 1.075 | 16 | 241 | 0 | 49 | 25 |
+| Sejak 22 Sep | 137 | 1 | 0 | 87 | 49 | 39 | 1 |
+
+Tiga hal yang mengubah bentuk tugasnya:
+
+- **Jan–Jun tidak bisa dirinci**: tidak satu pun dari 1.616 baris punya
+  dokumen (john-lau baru menangkap sejak Juli). Memecah tanpa nota adalah
+  menebak. Baris-baris itu tetap seperti adanya, bertanda *tanpa rincian —
+  tidak ada dokumen*.
+- **Yang punya dokumen ada 394 baris**, dan sebagian besar sudah satu baris
+  rincian yang benar-benar satu barang (*Aqua galon*, *Sander 180*, *SEWA
+  KOMPRESOR 31 AGST–4 SEPT*). Yang perlu dibuka lagi adalah yang dokumennya
+  memuat beberapa barang tetapi rinciannya satu baris generik, dan yang
+  jumlahnya menyimpan biaya admin (88 baris). Ini pekerjaan beberapa jam
+  dengan layar yang tepat, bukan ribuan baris.
+- **Biaya admin hari ini dicatat dengan dua cara.** Warisan spreadsheet:
+  transaksi `BANK CHARGES` sendiri (497 baris, *ADMIN FEE PAYROLL …*).
+  Jalur Chat sejak September: **baris** di transaksi yang sama (182
+  transaksi, 49 sejak 22 Sep; hanya 7 `BANK CHARGES` baru). Dua konvensi di
+  satu buku adalah sumber ambigu yang owner khawatirkan.
+
+### 11.2 Nomor a/b: sebagai baris, bukan transaksi baru
+
+Yang owner minta — *trx-123a itemnya, trx-123b admin fee-nya* — adalah
+persis `transaction_lines` dengan `kind` (§6.2): satu nomor, dua baris
+bersaudara. Rekomendasi: **huruf a/b adalah nomor baris, bukan transaksi
+terpisah**. Buku besar mendapat tampilan **Rincian** (sakelar di atas
+tabel): satu baris layar per baris rincian, bernomor `trx-26-10-14_002-a`,
+`-b`, … (diturunkan dari `line_no`, tidak disimpan), dengan jenis baris,
+item, jumlah, dan dokumennya; saldo sebelum/sesudah tetap di baris terakhir
+transaksinya. Unduh Excel mengikuti tampilan yang aktif (D427).
+
+Kenapa bukan dua transaksi:
+
+- **Uang bergerak sekali.** Satu transfer Rp 1.002.500 adalah satu bukti,
+  satu langkah saldo, satu baris rekening koran. Dua transaksi berarti saldo
+  *di antara* a dan b yang tidak pernah ada, dan satu bukti yang harus
+  ditautkan dua kali.
+- **Nomor adalah kunci**: `attachment_links.entity_no`, `payment_allocations`,
+  `evidence_inbox.produced_trx_no`, `source_ref` idempoten, dan nomor yang
+  orang sebut di Chat semuanya memegang `trx_no`. Nomor berakhiran huruf
+  (belum ada satu pun hari ini) akan dibaca sebagai nomor baru oleh semua
+  itu.
+- **Pajak dan diskon menempel pada pembelian yang sama**: pembagian PPN
+  (§10.2) mengurangi baris item secara proporsional — itu hanya bisa terjadi
+  kalau item dan pajak satu transaksi.
+
+Konsekuensi yang diterima: untuk biaya admin, **baris** menjadi satu-satunya
+konvensi ke depan (497 baris warisan dibiarkan). Kalau rekening koran suatu
+hari dicocokkan (`0025`), pencocokan satu baris koran ke transaksi harus
+mengizinkan *jumlah koran = jumlah transaksi − baris fee-nya*; dicatat di
+sini, dibangun saat dibutuhkan.
+
+### 11.3 Review ulang: layar *Rincian ulang* dan seam `set_transaction_lines`
+
+**L12.** Satu seam `ops_acct.set_transaction_lines(p_trx_no, p_lines, p_reason)`
+— mengganti seluruh rincian sebuah transaksi (jenis, item, qty, harga,
+jumlah; Σ = jumlah transaksi; `post_ledger`; ditolak pada VOID dan pada baris
+yang terkait rekening koran), rincian lama tersimpan di audit `before`,
+`transactions.lines_reviewed_at/by` diisi. Dipakai oleh drawer (*Edit
+rincian*) **dan** oleh layar antrean **`/accounting/rincian-ulang`**:
+
+- Antrean = baris keluar non-void **dengan dokumen**, sejak 1 Jul, belum
+  `lines_reviewed_at`, dan (rincian ≤ 1 baris **atau** jumlah berakhiran
+  …2.500/…6.500/…5.000 **atau** tipe pembelian dengan nota). Urut terbaru.
+  E-commerce (`ONLINE`, vendor Tokopedia/Shopee/Lazada/Blibli) **tidak**
+  masuk antrean (owner): boleh dirinci lewat drawer kalau mau, dengan baris
+  `kind = 'discount'` negatif yang diizinkan hanya di situ.
+- Layar: dokumen di kiri (pratinjau, semua file transaksi), editor baris di
+  kanan: jenis, item (picker katalog, usulan dari deskripsi), qty, harga,
+  jumlah, selisih ke jumlah transaksi selalu terlihat; sakelar *termasuk
+  PPN r%* (§10.2); tombol *Pisahkan biaya admin* yang memotong …2.500 dari
+  baris terakhir menjadi baris `fee`. *Simpan* = `set_transaction_lines`;
+  *Sudah benar* = tandai reviewed tanpa mengubah. Antrean menyusut.
+- Yang **tidak** dilakukan: mengubah jumlah, tanggal, akun, vendor (itu
+  `edit_transaction`); menyentuh baris Jan–Jun; menyentuh baris tanpa
+  dokumen; membuat transaksi baru.
+
+Urutan: L12 bergantung pada L4 (jenis baris) dan L5 (item picker); menjadi
+sesi ke-3 setelah keduanya, lalu accounting mengerjakan antreannya (±394
+baris, sebagian besar *Sudah benar* satu klik).
+
+### 11.4 Pertanyaan
+
+| # | Pertanyaan | Default |
+|---|---|---|
+| **Q99** | Setuju a/b adalah **nomor baris** di tampilan Rincian (satu transaksi, bukan dua), dan biaya admin ke depan selalu **baris** `fee` di transaksi yang dibayarnya? | Ya |
+| **Q100** | Antrean review ulang: **sejak 1 Jul** (394 baris berdokumen) — atau cukup sejak 22 Sep (137)? | Sejak 1 Jul |
+
