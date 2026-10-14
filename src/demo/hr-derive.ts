@@ -6,7 +6,7 @@
  *  from attendance and approved overtime every time it is read, and the run
  *  stores only the period, the status and who said yes.
  */
-import { tapWhere, type TapReadingRow } from "@/services/hr/tap-where";
+import { tapWhere, type TapReadingWithTrace, type TapTrace } from "@/services/hr/tap-where";
 import type { DemoState, DemoRunMember } from "./state";
 import { settingNumber, settingText } from "./settings";
 import { officeClock, officeDay, officeStamp, officeToday } from "@/lib/office";
@@ -62,8 +62,40 @@ function hoursBetween(from: string, to: string): number {
  *  calendar day it happened and read into the night that began the evening
  *  before (D330).
  */
-/** A phone tap's reading as `v_located_tap` would carry it (0188). */
-function readingOf(state: DemoState, scanId: string): TapReadingRow | null {
+/** A phone tap's trace as `v_located_tap` carries it (0270): the stored
+ *  layers, and the view's two readings of them — people on this device within
+ *  30 days of the tap, and whether it is this person's first tap from it.
+ *  `visible` is RLS: a self caller counts only their own taps. */
+export function traceOfScan(
+  state: DemoState, scanId: string, visible: (employeeId: string) => boolean = () => true,
+): TapTrace | null {
+  const t = state.scan_traces.find((x) => x.scan_id === scanId);
+  const s = state.attendance_scans.find((x) => x.id === scanId);
+  if (!t || !s) return null;
+  let device_people: number | null = null, device_new: boolean | null = null;
+  if (t.device_id) {
+    const near = new Set<string>();
+    let earlier = false;
+    for (const t2 of state.scan_traces) {
+      if (t2.device_id !== t.device_id) continue;
+      const s2 = state.attendance_scans.find((x) => x.id === t2.scan_id);
+      if (!s2 || !visible(s2.employee_id)) continue;
+      if (Math.abs(Date.parse(s2.at) - Date.parse(s.at)) <= 30 * 86_400_000) near.add(s2.employee_id);
+      if (s2.employee_id === s.employee_id && s2.at < s.at) earlier = true;
+    }
+    device_people = near.size;
+    device_new = !earlier;
+  }
+  return {
+    ip: t.ip, user_agent: t.user_agent, device_id: t.device_id, device_at: t.device_at,
+    app_build: t.app_build, on_site_network: t.on_site_network, network_site_code: t.network_site_code,
+    device_people, device_new,
+  };
+}
+
+/** A phone tap's reading as `v_located_tap` would carry it (0188), with its
+ *  trace (0270). */
+function readingOf(state: DemoState, scanId: string): TapReadingWithTrace | null {
   const l = state.scan_locations.find((x) => x.scan_id === scanId);
   if (!l) return null;
   const w = state.work_sites.find((x) => x.id === l.site_id);
@@ -72,6 +104,7 @@ function readingOf(state: DemoState, scanId: string): TapReadingRow | null {
     lat: l.lat, lng: l.lng, verdict: l.verdict, distance_m: l.distance_m, accuracy_m: l.accuracy_m,
     site_code: w?.code ?? null, site_name: w?.name ?? null, note: l.note,
     photo_id: l.photo_id, photo_link: null, photo_filename: photo?.filename ?? null,
+    ...traceOfScan(state, scanId),
   };
 }
 

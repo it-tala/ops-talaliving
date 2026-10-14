@@ -459,7 +459,7 @@ export function DayDrawer({
                       )}
                       {/* Where it was made (D344): the warehouse reader, the
                           phone's reading and selfie, or HRD's reason. */}
-                      <span className="basis-full text-[11px]"><TapWhereLine where={s.where} /></span>
+                      <span className="basis-full text-[11px]"><TapWhereLine where={s.where} at={s.at} /></span>
                     </li>
                   ))}
                 </ul>

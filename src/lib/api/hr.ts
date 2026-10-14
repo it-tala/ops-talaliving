@@ -63,7 +63,7 @@ import {
   ADJUSTMENT_LABEL, SCHEME_LABEL,
 } from "@/services/hr/contracts";
 import { instantInDay, nextOfficeDay, type ScheduleDay, type ScheduleShift, type ScheduleWeekDay } from "@/services/hr/schedule-rules";
-import { tapWhere, type TapReadingRow } from "@/services/hr/tap-where";
+import { tapWhere, type TapReadingWithTrace } from "@/services/hr/tap-where";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { STAGE_NAME } from "@/services/production/contracts";
 import { fail, fromSeam, fromRows, notFound, invalid, ok, type Result } from "./_kit";
@@ -1630,7 +1630,7 @@ function slotOf(row: DayRow, at: string): ScanSlot | null {
 
 function buildDay(
   row: DayRow, scans: ScanRow[], marks: DayMark[],
-  readings: Map<string, TapReadingRow> = new Map(), sites: WorkSite[] = [],
+  readings: Map<string, TapReadingWithTrace> = new Map(), sites: WorkSite[] = [],
 ): TimesheetDay {
   /* The taps the reading read: its own window, not the calendar day. A guard's
      07.05 pulang is stored on Tuesday and read into Monday night (D330), and
@@ -1707,10 +1707,10 @@ async function readDays(
         .from("day_marks").select("id,employee_id,work_date,kind,reason,marked_by,marked_at")
         .gte("work_date", from).lte("work_date", to).is("withdrawn_at", null),
       /* Where each phone tap was made, and the sites — so every tap can say
-         where it was (D344). */
+         where it was (D344) — with its trace (0270, D432). */
       db()
         .from("v_located_tap")
-        .select("scan_id,lat,lng,verdict,distance_m,accuracy_m,site_code,site_name,note,photo_id,photo_link,photo_filename")
+        .select("scan_id,lat,lng,verdict,distance_m,accuracy_m,site_code,site_name,note,photo_id,photo_link,photo_filename,ip,user_agent,device_id,device_at,app_build,on_site_network,network_site_code,device_people,device_new")
         .gte("work_date", from).lte("work_date", nextOfficeDay(to)),
       db().from("work_sites").select("id,code,name,lat,lng,radius_m,active,updated_at"),
     ]);
@@ -1720,8 +1720,8 @@ async function readDays(
   if (e3) return fromRows<TimesheetDay[]>(SERVICE, null, e3);
   if (e4) return fromRows<TimesheetDay[]>(SERVICE, null, e4);
   if (e5) return fromRows<TimesheetDay[]>(SERVICE, null, e5);
-  const readings = new Map<string, TapReadingRow>();
-  for (const l of (located ?? []) as (TapReadingRow & { scan_id: string })[]) readings.set(l.scan_id, l);
+  const readings = new Map<string, TapReadingWithTrace>();
+  for (const l of (located ?? []) as (TapReadingWithTrace & { scan_id: string })[]) readings.set(l.scan_id, l);
 
   return ok(SERVICE, rows.map(
     (r) => buildDay(r, (scans ?? []) as ScanRow[], (marks ?? []) as unknown as DayMark[],

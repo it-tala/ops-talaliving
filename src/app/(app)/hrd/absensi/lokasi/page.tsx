@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Camera, ChevronLeft, Crosshair, MapPin, MapPinned, Pencil, Plus, Save, Smartphone, Trash2, Warehouse, Wifi } from "lucide-react";
+import { Camera, ChevronLeft, Crosshair, MapPin, MapPinned, Pencil, Plus, Save, Trash2, Warehouse, Wifi } from "lucide-react";
 import Link from "next/link";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { Loaded, useLoad } from "@/components/ui/loaded";
-import { mapLink, metres, useWhereLine } from "@/components/attendance/located-tap";
+import { TapTraceLine, mapLink, metres, useWhereLine } from "@/components/attendance/located-tap";
 import { hr } from "@/demo/api";
 import {
   DEFAULT_SITE_RADIUS_M, TAP_KIND_LABEL, type LocatedTapView, type LocationJudgement, type LocationVerdict, type WorkSite,
@@ -161,7 +161,13 @@ function TapRow({ r }: { r: LocatedTapView }) {
           {r.accuracy_m !== null && <> · ±{Math.round(r.accuracy_m)} m</>}
         </p>
         {r.note && <p className="mt-1 text-slate-800">“{r.note}”</p>}
-        <TraceLine r={r} />
+        {r.ip === null && r.device_id === null ? (
+          <p className="mt-1 text-[12px] text-slate-400" data-testid="trace-none">
+            {tr("No network or device recorded (tap from before these were kept).", "Jaringan dan perangkat tidak tercatat (tap sebelum ini disimpan).")}
+          </p>
+        ) : (
+          <p className="mt-1 text-[12px]"><TapTraceLine trace={r} at={r.at} /></p>
+        )}
         {r.lat !== null && r.lng !== null && (
           <a href={mapLink(r.lat, r.lng)} target="_blank" rel="noreferrer"
              className="mt-1 inline-flex items-center gap-1 text-[12px] text-brand-700 underline">
@@ -171,60 +177,6 @@ function TapRow({ r }: { r: LocatedTapView }) {
       </div>
     </li>
   );
-}
-
-/** The tap's trace (0270, D431), in one line: the network it came from and
- *  the device that sent it. The address and the office-network reading are
- *  the server's; the device is the phone's own word. */
-function TraceLine({ r }: { r: LocatedTapView }) {
-  const tr = useTr();
-  if (r.ip === null && r.device_id === null) {
-    return (
-      <p className="mt-1 text-[12px] text-slate-400" data-testid="trace-none">
-        {tr("No network or device recorded (tap from before these were kept).", "Jaringan dan perangkat tidak tercatat (tap sebelum ini disimpan).")}
-      </p>
-    );
-  }
-  const clockSkew = r.device_at ? Math.round((Date.parse(r.device_at) - Date.parse(r.at)) / 60_000) : null;
-  return (
-    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-slate-500" data-testid="trace">
-      {(r.device_people ?? 0) > 1 && (
-        <Badge tone="red">{tr(`One phone, ${r.device_people} people`, `Satu HP, ${r.device_people} orang`)}</Badge>
-      )}
-      {r.on_site_network === true && (
-        <Badge tone="green">{tr(`Office network ${r.network_site_code ?? ""}`, `Jaringan kantor ${r.network_site_code ?? ""}`)}</Badge>
-      )}
-      {r.on_site_network === false && <Badge tone="slate">{tr("Not an office network", "Bukan jaringan kantor")}</Badge>}
-      {r.device_new === true && <Badge tone="slate">{tr("New device", "Perangkat baru")}</Badge>}
-      {r.ip && (
-        <span className="inline-flex items-center gap-1"><Wifi className="h-3.5 w-3.5" /><span className="font-mono">{r.ip}</span></span>
-      )}
-      {r.device_id && (
-        <span className="inline-flex items-center gap-1" title={r.user_agent ?? undefined}>
-          <Smartphone className="h-3.5 w-3.5" />
-          <span className="font-mono">{r.device_id.slice(0, 8)}</span>
-          {r.user_agent && <span className="max-w-[16rem] truncate">{shortAgent(r.user_agent)}</span>}
-        </span>
-      )}
-      {clockSkew !== null && Math.abs(clockSkew) >= 5 && (
-        <span className="text-amber-700">
-          {tr(`phone clock ${clockSkew > 0 ? "+" : ""}${clockSkew} min`, `jam HP ${clockSkew > 0 ? "+" : ""}${clockSkew} mnt`)}
-        </span>
-      )}
-    </div>
-  );
-}
-
-/** `Android 14 · Chrome` from a user agent — enough to tell two phones apart
- *  at a glance; the whole string is on hover. */
-function shortAgent(ua: string): string {
-  const os = /Android [\d.]+/.exec(ua)?.[0]
-    ?? (/iPhone OS ([\d_]+)/.exec(ua)?.[1] ? `iOS ${/iPhone OS ([\d_]+)/.exec(ua)![1].replace(/_/g, ".")}` : null)
-    ?? (/Windows NT/.test(ua) ? "Windows" : /Mac OS X/.test(ua) ? "macOS" : /Linux/.test(ua) ? "Linux" : null);
-  const browser = /SamsungBrowser/.test(ua) ? "Samsung Internet"
-    : /EdgA?\//.test(ua) ? "Edge" : /CriOS|Chrome\//.test(ua) ? "Chrome"
-    : /FxiOS|Firefox\//.test(ua) ? "Firefox" : /Safari\//.test(ua) ? "Safari" : null;
-  return [os, browser].filter(Boolean).join(" · ") || ua.slice(0, 40);
 }
 
 /* ── the sites ──────────────────────────────────────────────────────────── */

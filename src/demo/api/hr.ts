@@ -44,7 +44,7 @@ import {
   workLogView, workLogRoster as workLogRosterRows, workEvidence as workEvidenceOf, isDadakan,
   employeeIdentityViews, wlkpRecap,
   membersOf, groupPeople, paidElsewhere as paidElsewhereRun,
-  monthWorkdays, allowanceDayExact, hourlyRate, enrolledIn, dayOvertimeWindow, isRestDayOn, otRulesFor,
+  monthWorkdays, allowanceDayExact, hourlyRate, enrolledIn, dayOvertimeWindow, isRestDayOn, otRulesFor, traceOfScan,
 } from "../hr-derive";
 import { latency, actingUser, requireModule, requireLevel, requireAuthority, conflict, replayed, remember, canDesign } from "./_kit";
 import { designScopeProgress } from "./design";
@@ -979,24 +979,10 @@ export async function listLocatedTaps(
     const s = state.attendance_scans.find((x) => x.id === l.scan_id);
     if (!s || s.work_date < input.from || s.work_date > input.to) continue;
     if (!hrd && s.employee_id !== mine) continue;
-    const t = state.scan_traces.find((x) => x.scan_id === s.id);
-    /* The view's two readings of the trace (0270): people on this device
-       within 30 days, and whether it is this person's first tap from it. RLS
-       narrows a self caller to their own rows, so they count only themselves. */
-    let device_people: number | null = null, device_new: boolean | null = null;
-    if (t?.device_id) {
-      const near = new Set<string>();
-      let earlier = false;
-      for (const t2 of state.scan_traces) {
-        if (t2.device_id !== t.device_id) continue;
-        const s2 = state.attendance_scans.find((x) => x.id === t2.scan_id);
-        if (!s2 || (!hrd && s2.employee_id !== mine)) continue;
-        if (Math.abs(Date.parse(s2.at) - Date.parse(s.at)) <= 30 * 86_400_000) near.add(s2.employee_id);
-        if (s2.employee_id === s.employee_id && s2.at < s.at) earlier = true;
-      }
-      device_people = near.size;
-      device_new = !earlier;
-    }
+    /* The trace, with the view's readings of it (0270); RLS narrows a self
+       caller to their own rows, so they count only themselves. */
+    const t = traceOfScan(state, s.id, (id) => hrd || id === mine);
+    const device_people = t?.device_people ?? null, device_new = t?.device_new ?? null;
     const flagged = OFF_SITE_VERDICTS.includes(l.verdict) || (device_people ?? 1) > 1;
     if (input.flagged_only && !flagged) continue;
     const e = state.employees.find((x) => x.id === s.employee_id);

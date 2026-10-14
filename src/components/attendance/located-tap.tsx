@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Camera, Fingerprint, MapPin, MapPinOff, ShieldCheck, X } from "lucide-react";
-import { Button } from "@/components/ui/primitives";
+import { Camera, Fingerprint, MapPin, MapPinOff, ShieldCheck, Smartphone, Wifi, X } from "lucide-react";
+import { Badge, Button } from "@/components/ui/primitives";
 import { documents, hr } from "@/demo/api";
 import {
   TAP_KIND_LABEL,
   type LocationJudgement, type LocationVerdict, type TapKind, type TapReading, type TapSelfResult,
 } from "@/services/hr/contracts";
-import type { TapWhere } from "@/services/hr/tap-where";
+import type { TapTrace, TapWhere } from "@/services/hr/tap-where";
 import { OFFICE_TZ, officeClock } from "@/lib/office";
 import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
@@ -415,7 +415,7 @@ export function LocatedTap({
 /** Where one tap was made, in one line (D344): the warehouse for the reader,
  *  the reading and the selfie for a phone, the reason for one typed in. Each
  *  point opens in Google Maps. */
-export function TapWhereLine({ where }: { where: TapWhere | undefined }) {
+export function TapWhereLine({ where, at }: { where: TapWhere | undefined; at?: string }) {
   const tr = useTr();
   const lang = tr("en", "id") as "en" | "id";
   if (!where) return null;
@@ -458,6 +458,7 @@ export function TapWhereLine({ where }: { where: TapWhere | undefined }) {
   };
   const v = verdict[where.verdict ?? "no_location"];
   return (
+    <span className="flex flex-col gap-0.5">
     <span className="inline-flex flex-wrap items-center gap-x-1.5" data-testid="tap-where">
       <span className={v.cls}>{tr("Phone", "HP")} · {v.text}</span>
       {where.accuracy_m != null && <span className="text-slate-400">±{Math.round(where.accuracy_m)} m</span>}
@@ -475,5 +476,58 @@ export function TapWhereLine({ where }: { where: TapWhere | undefined }) {
         ))}
       {where.note && <span className="text-slate-600">“{where.note}”</span>}
     </span>
+    {/* The network and device under the place (0270, D432). */}
+    {where.trace && <TapTraceLine trace={where.trace} at={at} />}
+    </span>
   );
+}
+
+/** A tap's trace (0270, D431/D432) in one line, under where it was made: the
+ *  network it came from and the device that sent it. The address and the
+ *  office-network reading are the server's; the device is the phone's own
+ *  word. One device for more than one person is red; the rest is shown, not
+ *  flagged. Used by the timesheet's day and by `/hrd/absensi/lokasi`. */
+export function TapTraceLine({ trace, at }: { trace: TapTrace; at?: string }) {
+  const tr = useTr();
+  const skew = trace.device_at && at ? Math.round((Date.parse(trace.device_at) - Date.parse(at)) / 60_000) : null;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-slate-500" data-testid="trace">
+      {(trace.device_people ?? 0) > 1 && (
+        <Badge tone="red">{tr(`One phone, ${trace.device_people} people`, `Satu HP, ${trace.device_people} orang`)}</Badge>
+      )}
+      {trace.on_site_network === true && (
+        <Badge tone="green">{tr(`Office network ${trace.network_site_code ?? ""}`, `Jaringan kantor ${trace.network_site_code ?? ""}`)}</Badge>
+      )}
+      {trace.on_site_network === false && <Badge tone="slate">{tr("Not an office network", "Bukan jaringan kantor")}</Badge>}
+      {trace.device_new === true && <Badge tone="slate">{tr("New device", "Perangkat baru")}</Badge>}
+      {trace.ip && (
+        <span className="inline-flex items-center gap-1"><Wifi className="h-3 w-3" /><span className="font-mono">{trace.ip}</span></span>
+      )}
+      {(trace.device_id || trace.user_agent) && (
+        <span className="inline-flex items-center gap-1" title={trace.user_agent ?? undefined}>
+          <Smartphone className="h-3 w-3" />
+          {trace.device_id && <span className="font-mono">{trace.device_id.slice(0, 8)}</span>}
+          {trace.user_agent && <span className="max-w-[16rem] truncate">{shortAgent(trace.user_agent)}</span>}
+        </span>
+      )}
+      {skew !== null && Math.abs(skew) >= 5 && (
+        <span className="text-amber-700">
+          {tr(`phone clock ${skew > 0 ? "+" : ""}${skew} min`, `jam HP ${skew > 0 ? "+" : ""}${skew} mnt`)}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** `Android 14 · Chrome` from a user agent — enough to tell two phones apart
+ *  at a glance; the whole string is on hover. */
+export function shortAgent(ua: string): string {
+  const ios = /iPhone OS ([\d_]+)/.exec(ua)?.[1];
+  const os = /Android [\d.]+/.exec(ua)?.[0]
+    ?? (ios ? `iOS ${ios.replace(/_/g, ".")}` : null)
+    ?? (/Windows NT/.test(ua) ? "Windows" : /Mac OS X/.test(ua) ? "macOS" : /Linux/.test(ua) ? "Linux" : null);
+  const browser = /SamsungBrowser/.test(ua) ? "Samsung Internet"
+    : /EdgA?\//.test(ua) ? "Edge" : /CriOS|Chrome\//.test(ua) ? "Chrome"
+    : /FxiOS|Firefox\//.test(ua) ? "Firefox" : /Safari\//.test(ua) ? "Safari" : null;
+  return [os, browser].filter(Boolean).join(" · ") || ua.slice(0, 40);
 }
