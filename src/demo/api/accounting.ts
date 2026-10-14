@@ -321,7 +321,11 @@ export async function getTransaction(trxNo: string): Promise<Result<TransactionD
 
   return ok(SERVICE, {
     ...transactionView(state, trx),
-    lines: state.transaction_lines.filter((l) => l.trx_id === trx.id),
+    /* Named, as `v_transaction_detail` names it (0272). */
+    lines: state.transaction_lines.filter((l) => l.trx_id === trx.id).map((l) => {
+      const item = l.item_id ? state.items.find((i) => i.id === l.item_id) : undefined;
+      return { ...l, item_code: item?.code ?? null, item_name: item?.name ?? null };
+    }),
     allocations,
     billed_currency: trx.billed_currency ?? null,
     billed_amount: trx.billed_amount ?? null,
@@ -1039,7 +1043,7 @@ export async function bookEvidence(
     description: string;
     remark?: string | null;
     lines?: { kind?: LineKind; description: string; qty?: number | null; uom?: string | null;
-              unit_price?: number | null; amount: number }[];
+              unit_price?: number | null; amount: number; item_id?: string | null }[];
   },
   idempotencyKey?: string,
 ): Promise<Result<TransactionView>> {
@@ -1571,7 +1575,9 @@ export async function postFromLine(
     /* The detail comes from the line itself: what was bought, how many, at
        what price — so the ledger row can be read without opening the PR. */
     draft.transaction_lines.push({
-      id: newId("trl"), trx_id: trxId, line_no: 1, kind: "item", item_id: null,
+      /* The request line's item rides along (0272), so the catalogue learns
+         the price that was really paid (D86). */
+      id: newId("trl"), trx_id: trxId, line_no: 1, kind: "item", item_id: line.item_id ?? null,
       /* A lump-sum line has no quantity (D75); its payment is described as
          1 lot at the amount paid, the same as `post_from_line` (0141, D298). */
       description: line.description,
@@ -1757,11 +1763,34 @@ export async function postToPo(
       remark: null, status: "POSTED", source_ref: `po:${input.po_no}:${input.trx_date}:${input.amount}`,
       posted_by: user.id, posted_at: now, void_reason: null,
     });
-    draft.transaction_lines.push({
-      id: newId("trl"), trx_id: trxId, line_no: 1, kind: "item", item_id: null,
-      description: `Pembayaran ${input.po_no}`, qty: 1, uom: "unit" as never,
-      unit_price: input.amount, amount: input.amount,
-    });
+    /* The whole contract on an unpaid order: one ledger line per order line,
+       with its item, and a rounding/discount line if the money differs. A
+       term payment stays one generic `other` line — a deposit is money, not
+       goods (A1, 0272). */
+    const full = paid <= 0 && contract > 0 && Math.abs(input.amount - contract) <= 1;
+    if (full) {
+      live.forEach((l, i) => {
+        draft.transaction_lines.push({
+          id: newId("trl"), trx_id: trxId, line_no: i + 1, kind: "item", item_id: l.item_id ?? null,
+          description: l.description, qty: l.qty, uom: l.uom, unit_price: l.unit_price, amount: l.line_total,
+        });
+      });
+      const linesTotal = live.reduce((t, l) => t + l.line_total, 0);
+      if (input.amount !== linesTotal) {
+        draft.transaction_lines.push({
+          id: newId("trl"), trx_id: trxId, line_no: live.length + 1,
+          kind: input.amount > linesTotal ? "other" : "discount", item_id: null,
+          description: input.amount > linesTotal ? `Selisih pembayaran ${input.po_no}` : `Potongan atas ${input.po_no}`,
+          qty: null, uom: null, unit_price: null, amount: Math.abs(input.amount - linesTotal),
+        });
+      }
+    } else {
+      draft.transaction_lines.push({
+        id: newId("trl"), trx_id: trxId, line_no: 1, kind: "other", item_id: null,
+        description: `Pembayaran ${input.po_no}`, qty: 1, uom: "unit" as never,
+        unit_price: input.amount, amount: input.amount,
+      });
+    }
     let spent = 0;
     for (const l of live) {
       if (!l.pr_line_id || contract <= 0) continue;

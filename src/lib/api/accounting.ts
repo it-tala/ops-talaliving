@@ -534,7 +534,7 @@ export async function bookEvidence(
     description: string;
     remark?: string | null;
     lines?: { kind?: LineKind; description: string; qty?: number | null; uom?: string | null;
-              unit_price?: number | null; amount: number }[];
+              unit_price?: number | null; amount: number; item_id?: string | null }[];
   },
   idempotencyKey?: string,
 ): Promise<Result<TransactionView>> {

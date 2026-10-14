@@ -654,6 +654,13 @@ export function TrxDrawer({
                   <span className="font-mono text-[10px] text-slate-400">{String.fromCharCode(96 + l.line_no)}</span>
                   <span className="min-w-0 flex-1 text-slate-700">
                     {l.description} <LineKindBadge kind={l.kind} />
+                    {/* The catalogue entry it bought (0272) — the price paid
+                        is now that item's last price. */}
+                    {l.item_code && (
+                      <span className="block text-[11px] text-slate-400">
+                        {tr("Catalogue", "Katalog")}: {l.item_name} · <span className="font-mono">{l.item_code}</span>
+                      </span>
+                    )}
                   </span>
                   {l.kind === "item" && (
                     <span className="text-[11px] text-slate-400">

@@ -23,6 +23,7 @@ import { useToast } from "@/store/toast";
 import { UomOptions } from "@/components/ui/uom-options";
 import { useTr } from "@/lib/i18n";
 import { BilledFields, LineKindSelect } from "@/components/accounting/line-kind";
+import { ItemPicker } from "@/components/accounting/item-picker";
 import { isPricedKind, lineSign, type LineKind } from "@/services/accounting/lines";
 
 /** Writing a row into the ledger, with everything a row is supposed to have.
@@ -42,14 +43,14 @@ import { isPricedKind, lineSign, type LineKind } from "@/services/accounting/lin
  */
 /** `amount` is typed only for a line that is not an item — a fee, the tax,
  *  the courier, a voucher. An item's amount is qty × unit price (D86). */
-type DraftLine = { key: string; kind: LineKind; description: string; qty: number; uom: UomCode; unit_price: number; amount: number };
+type DraftLine = { key: string; kind: LineKind; description: string; qty: number; uom: UomCode; unit_price: number; amount: number; item_id: string | null };
 type DraftDoc = { attachment_id: string; filename: string; kind: DocKind };
 
 function lineAmount(l: DraftLine): number {
   return isPricedKind(l.kind) ? Math.round(l.qty * l.unit_price) : Math.round(l.amount);
 }
 const blankLine = (key: string): DraftLine =>
-  ({ key, kind: "item", description: "", qty: 1, uom: "pcs", unit_price: 0, amount: 0 });
+  ({ key, kind: "item", description: "", qty: 1, uom: "pcs", unit_price: 0, amount: 0, item_id: null });
 
 export function NewEntry({ onClose, onPosted }: { onClose: () => void; onPosted: () => void }) {
   const tr = useTr();
@@ -79,9 +80,11 @@ export function NewEntry({ onClose, onPosted }: { onClose: () => void; onPosted:
   const nextKey = useRef(2);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const isPurchase = types.status === "ready"
-    ? types.data.find((t) => t.code === typeCode)?.is_purchase ?? false
-    : false;
+  const typeRow = types.status === "ready" ? types.data.find((t) => t.code === typeCode) : undefined;
+  const isPurchase = typeRow?.is_purchase ?? false;
+  /* Only where purchases of this kind create catalogue entries does the
+     picker offer to add one (D86, 0272). */
+  const createsItems = typeRow?.creates_catalog_item ?? false;
   /* Σ lines with the sign the kind carries (a discount counts minus), plus
      the tax typed below — the same sum the seam checks the amount against. */
   const linesTotal = lines.reduce((s, l) => s + lineSign(l.kind) * lineAmount(l), 0);
@@ -123,7 +126,7 @@ export function NewEntry({ onClose, onPosted }: { onClose: () => void; onPosted:
           .filter((l) => l.description.trim())
           .map((l) => (isPricedKind(l.kind)
             ? { kind: l.kind, description: l.description.trim(), qty: l.qty, uom: l.uom,
-                unit_price: l.unit_price, amount: lineAmount(l) }
+                unit_price: l.unit_price, amount: lineAmount(l), item_id: l.item_id }
             : { kind: l.kind, description: l.description.trim(), amount: lineAmount(l) })),
         ...(tax > 0 ? [{ kind: "tax" as const, description: tr("Tax on the nota", "Pajak di nota"), amount: Math.round(tax) }] : []),
       ],
@@ -281,6 +284,20 @@ export function NewEntry({ onClose, onPosted }: { onClose: () => void; onPosted:
                       <label className="block text-[11px] text-slate-500" htmlFor={`nl-p-${l.key}`}>{tr("Unit price", "Harga satuan")}</label>
                       <MoneyInput id={`nl-p-${l.key}`} size="sm" value={l.unit_price}
                         onChange={(v) => patch(l.key, { unit_price: v })} className="mt-1" />
+                    </div>
+                    {/* Which catalogue entry this bought (0272): the price paid
+                        becomes the item's last price. Optional — not in the
+                        catalogue is an honest answer. */}
+                    <div className="sm:col-span-12">
+                      <label className="block text-[11px] text-slate-500" htmlFor={`nl-i-${l.key}`}>{tr("Catalogue item", "Item katalog")}</label>
+                      <div className="mt-1">
+                        <ItemPicker id={`nl-i-${l.key}`} value={l.item_id} hint={l.description} uom={l.uom} allowCreate={createsItems}
+                          onChange={(item) => patch(l.key, {
+                            item_id: item?.id ?? null,
+                            ...(item && !l.description.trim() ? { description: item.name } : {}),
+                            ...(item ? { uom: item.base_uom } : {}),
+                          })} />
+                      </div>
                     </div>
                   </>
                 ) : (

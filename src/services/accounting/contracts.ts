@@ -101,6 +101,10 @@ export interface TransactionLine {
    *  Only item lines feed price references. */
   kind: LineKind;
   item_id: string | null;
+  /** The catalogue entry the line bought, named — from `v_transaction_detail`
+   *  (`0272`); absent on the demo's stored rows and on a line without one. */
+  item_code?: string | null;
+  item_name?: string | null;
   description: string;
   qty: number | null;
   uom: string | null;

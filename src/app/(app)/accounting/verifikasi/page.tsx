@@ -25,6 +25,7 @@ import { useSession } from "@/store/session";
 import { UomOptions } from "@/components/ui/uom-options";
 import { useTr, type Message, type Tr } from "@/lib/i18n";
 import { BilledFields, LineKindSelect } from "@/components/accounting/line-kind";
+import { ItemPicker } from "@/components/accounting/item-picker";
 import { guessLineKind, isPricedKind, lineSign, type LineKind } from "@/services/accounting/lines";
 
 /** The narrow road: documents whose parent is genuinely unknown.
@@ -495,6 +496,8 @@ interface LineDraft {
   unit_price: number;
   /** Typed only for a line that is not an item. */
   amount: number;
+  /** The catalogue entry the line bought (`0272`); null = not in the catalogue. */
+  item_id: string | null;
 }
 
 /** Qty × price, rounded once, for an item: its amount is never typed — a
@@ -538,7 +541,7 @@ function withTax(ls: LineDraft[], taxAmount: number, total: number): LineDraft[]
     const old = ls.find((l) => l.kind === "tax");
     next.push({
       key: old?.key ?? Math.max(0, ...ls.map((l) => l.key)) + 1,
-      kind: "tax", description: old?.description || "PPN", qty: 1, uom: "pcs", unit_price: tax, amount: tax,
+      kind: "tax", description: old?.description || "PPN", qty: 1, uom: "pcs", unit_price: tax, amount: tax, item_id: null,
     });
   }
   return next;
@@ -557,6 +560,7 @@ function ResolvePanel({
   const [accounts] = useLoad(() => accounting.listAccounts(), []);
   const [vendors] = useLoad(() => procurement.listVendors({}), []);
   const [projects] = useLoad(() => procurement.listProjects(), []);
+  const [types] = useLoad(() => accounting.listTypeRows(), []);
   /* The main row speaks for the photo; the others are its further lines. */
   const row = doc.main;
   const refs = doc.rows.map((r) => r.ref_id);
@@ -607,8 +611,11 @@ function ResolvePanel({
    * lines at different prices could not be expressed at all. */
   const [lines, setLines] = useState<LineDraft[]>(() => doc.rows.map((r, i) => ({
     key: i + 1, kind: guessLineKind(r.extracted.note ?? ""), description: r.extracted.note ?? "", qty: 1, uom: "pcs",
-    unit_price: r.extracted.amount_idr ?? 0, amount: r.extracted.amount_idr ?? 0,
+    unit_price: r.extracted.amount_idr ?? 0, amount: r.extracted.amount_idr ?? 0, item_id: null,
   })));
+  /* Only where purchases of this kind create catalogue entries does the
+     picker offer to add one (0272). */
+  const createsItems = types.status === "ready" ? types.data.find((t) => t.code === typeCode)?.creates_catalog_item ?? false : false;
   const linesTotal = linesSum(lines);
   /* The tax as the nota prints it; typing it moves the item lines (D435). */
   const taxLine = lines.find((l) => l.kind === "tax");
@@ -753,7 +760,7 @@ function ResolvePanel({
           description: description.trim() || filename,
           lines: lines.map((l) => (isPricedKind(l.kind)
             ? { kind: l.kind, description: l.description.trim() || description.trim() || filename,
-                qty: l.qty, uom: l.uom, unit_price: l.unit_price, amount: lineAmount(l) }
+                qty: l.qty, uom: l.uom, unit_price: l.unit_price, amount: lineAmount(l), item_id: l.item_id }
             : { kind: l.kind, description: l.description.trim() || description.trim() || filename,
                 amount: lineAmount(l) })),
         });
@@ -1029,7 +1036,7 @@ function ResolvePanel({
                     onClick={() => setLines((ls) => [
                       ...ls,
                       { key: Math.max(0, ...ls.map((l) => l.key)) + 1, kind: "item",
-                        description: "", qty: 1, uom: "pcs", unit_price: 0, amount: 0 },
+                        description: "", qty: 1, uom: "pcs", unit_price: 0, amount: 0, item_id: null },
                     ])}
                     className="text-[11px] font-medium text-brand-700 hover:underline">
                     {tr("+ row", "+ baris")}
@@ -1085,6 +1092,16 @@ function ResolvePanel({
                           <MoneyInput id={`rv-l-amt-${l.key}`} value={l.amount}
                             onChange={(v) => setLines((ls) => ls.map((x) =>
                               x.key === l.key ? { ...x, amount: v } : x))} />
+                        </div>
+                      )}
+                      {/* The catalogue entry this line bought (0272): proposed
+                          from what the nota says, confirmed by a person. */}
+                      {isPricedKind(l.kind) && (
+                        <div className="col-span-12 pl-0 sm:col-span-10 sm:col-start-3">
+                          <label htmlFor={`rv-l-item-${l.key}`} className="sr-only">{tr(`Catalogue item, row ${i + 1}`, `Item katalog baris ${i + 1}`)}</label>
+                          <ItemPicker id={`rv-l-item-${l.key}`} value={l.item_id} hint={l.description} uom={l.uom} allowCreate={createsItems}
+                            onChange={(item) => setLines((ls) => ls.map((x) =>
+                              x.key === l.key ? { ...x, item_id: item?.id ?? null, ...(item ? { uom: item.base_uom } : {}) } : x))} />
                         </div>
                       )}
                       <div className="col-span-1 flex justify-end">

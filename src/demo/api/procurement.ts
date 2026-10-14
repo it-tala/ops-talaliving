@@ -3308,6 +3308,9 @@ export async function addDraftLine(docNo: string, input: NewLineInput): Promise<
 export async function lineForPosting(lineNo: string): Promise<Result<{
   line_no: string;
   description: string;
+  /** The catalogue entry the request named, if any — rides onto the ledger
+   *  line (`0272`). */
+  item_id: string | null;
   approved_amount: number;
   qty: number | null;
   uom: string | null;
@@ -3326,6 +3329,7 @@ export async function lineForPosting(lineNo: string): Promise<Result<{
   return ok(SERVICE, {
     line_no: lineNo,
     description: line.description,
+    item_id: line.item_id ?? null,
     approved_amount: approval?.approved ? approval.approved_amount ?? line.item_total : line.item_total,
     /* The detail travels with it: a ledger row for a purchase has to say what
      * was bought, how many and at what price (D86). */
