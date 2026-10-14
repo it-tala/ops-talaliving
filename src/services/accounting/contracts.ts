@@ -85,13 +85,6 @@ export interface Transaction {
   description: string;
   remark: string | null;
   status: TrxStatus;
-  /** The bill's own currency and amount when it was not written in rupiah
-   *  (a USD subscription paid from a rupiah account), beside `amount_idr`,
-   *  which is what was paid. Both or neither; the rate is computed where it
-   *  is shown, never stored (`0271`, D435). Optional because the columns
-   *  arrived after the rows that carry none. */
-  billed_currency?: string | null;
-  billed_amount?: number | null;
   /** The idempotency claim. A repeat with the same ref is a no-op (A4). */
   source_ref: string;
   posted_by: string;
@@ -463,7 +456,13 @@ export interface AllocationView extends PaymentAllocation {
 export interface TransactionDetail extends TransactionView {
   lines: TransactionLine[];
   allocations: AllocationView[];
-  /** From `v_transaction_detail` (`0271`): null when the bill was in rupiah. */
+  /** The bill's own currency and amount when it was not written in rupiah
+   *  (a USD subscription paid from a rupiah account), beside `amount_idr`,
+   *  which is what was paid. Both or neither; the rate is computed where it
+   *  is shown, never stored (`0271`, D435). On the detail only: `v_transaction`
+   *  does not carry them (the ledger table never shows them, D437), and
+   *  `check-view-contracts` holds every field of a view's contract to the
+   *  view's columns. */
   billed_currency: string | null;
   billed_amount: number | null;
 }

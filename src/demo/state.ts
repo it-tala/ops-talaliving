@@ -15,6 +15,14 @@ import type {
   Subscription, SubscriptionPayment,
   CashflowLine, CashflowWeekOverride, CashflowReceipt, CashflowOpening, CashflowSettings,
 } from "@/services/accounting/contracts";
+
+/** The demo's ledger row: the contract plus the two columns `v_transaction`
+ *  does not carry (`0271`) — the bill in another currency lives on
+ *  `transactions` and is read through `v_transaction_detail` only. */
+export type DemoTransaction = Transaction & {
+  billed_currency?: string | null;
+  billed_amount?: number | null;
+};
 import type { Attachment, AttachmentLink } from "@/services/documents/contracts";
 import type { ApprovalChannel, DesignBoxKey, DesignOrigin } from "@/services/design/contracts";
 import type {
@@ -259,7 +267,7 @@ export interface DemoState {
 
   accounts: Account[];
   transaction_types: TransactionType[];
-  transactions: Transaction[];
+  transactions: DemoTransaction[];
   transaction_lines: TransactionLine[];
   payment_allocations: PaymentAllocation[];
   /** `reported_by_name` is not stored here, the same as every other `_name`
