@@ -239,9 +239,10 @@ export function initialState(): DemoState {
        Near the Denpasar office the demo already reckons time from. */
     work_sites: [{
       id: "site_gudang", code: "GUDANG", name: "Gudang", lat: -8.6705, lng: 115.2126,
-      radius_m: 150, active: true, updated_at: "2026-09-29T00:00:00.000Z",
+      radius_m: 150, active: true, networks: [], updated_at: "2026-09-29T00:00:00.000Z",
     }],
     scan_locations: [],
+    scan_traces: [],
     day_marks: DAY_MARKS,
     overtime_sheets: OVERTIME_SHEETS,
     overtime_lines: OVERTIME_LINES,

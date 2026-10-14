@@ -23,6 +23,7 @@ import type {
   ContractView, ContractDetail, ContractClause, ClauseConflict, TimesheetTotal, DayState,
   EffectiveDaysCalendar, EmployeeAccount, ScanImportResult,
   TapReading, TapSelfResult, LocationJudgement, LocationVerdict, WorkSite, LocatedTapView, TapKind,
+  TapClientContext, MyNetwork,
 } from "@/services/hr/contracts";
 import {
   TAP_KINDS, TAP_KIND_LABELS, SENSITIVE_DOC_KINDS, SCHEME_LABELS, maskDocNo, clauseValueOk, scheduleProblem, OFF_SITE_VERDICTS, PAY_GROUPS,
@@ -652,7 +653,9 @@ function tapCodeStamp(iso: string): string {
  *  off-site tap needs a note — refused without one, written and flagged with
  *  one, never refused outright. */
 export async function tapSelf(
-  input: Partial<TapReading> & { note?: string | null; photo_id?: string | null; kind?: TapKind | null } = {},
+  input: Partial<TapReading> & {
+    note?: string | null; photo_id?: string | null; kind?: TapKind | null; client?: TapClientContext | null;
+  } = {},
   idempotencyKey?: string,
 ): Promise<Result<TapSelfResult>> {
   await latency();
@@ -728,6 +731,20 @@ export async function tapSelf(
       accuracy_m: where.accuracy_m, distance_m: where.distance_m, radius_m: where.radius_m,
       verdict: where.verdict, note, photo_id: input.photo_id ?? null,
     });
+    /* D431: every layer, beside the tap (0270). What the phone says is kept
+       as it said it; a malformed device id or clock is stored as missing. */
+    const client = input.client && typeof input.client === "object" && !Array.isArray(input.client) ? input.client : null;
+    const device_id = client?.device_id && /^[A-Za-z0-9_-]{8,64}$/.test(client.device_id) ? client.device_id : null;
+    const device_at = client?.device_at && !Number.isNaN(Date.parse(client.device_at))
+      ? new Date(client.device_at).toISOString() : null;
+    const net = matchSiteNetwork(draft.work_sites, DEMO_IP);
+    draft.scan_traces.push({
+      scan_id: id, ip: DEMO_IP,
+      user_agent: typeof navigator === "undefined" ? null : navigator.userAgent.slice(0, 512),
+      device_id, device_at, app_build: client?.app_build?.slice(0, 64) ?? null,
+      on_site_network: net.on_site, network_site_code: net.site_code,
+      client: client as Record<string, unknown> | null,
+    });
     if (input.photo_id) {
       draft.attachment_links.push({
         id: newId("lnk"), attachment_id: input.photo_id, entity: "attendance_scan",
@@ -787,7 +804,8 @@ export async function saveWorkSite(
     const row = draft.work_sites.find((w) => w.code === code);
     const next: WorkSite = {
       id: row?.id ?? newId("site"), code, name: input.name.trim(),
-      lat: input.lat, lng: input.lng, radius_m: Math.round(input.radius_m), active: input.active, updated_at,
+      lat: input.lat, lng: input.lng, radius_m: Math.round(input.radius_m), active: input.active,
+      networks: row?.networks ?? [], updated_at,
     };
     if (row) Object.assign(row, next); else draft.work_sites.push(next);
     saved = next;
@@ -833,6 +851,120 @@ export async function removeWorkSite(
   return ok(SERVICE, answer);
 }
 
+/** The sandbox has no server to read an address from, so every request
+ *  "comes from" the documentation address (RFC 5737). Name it as a site's
+ *  network on `/hrd/absensi/lokasi` and the demo's taps read as on the line. */
+const DEMO_IP = "203.0.113.10";
+
+function ipv4ToInt(ip: string): number | null {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ip);
+  if (!m) return null;
+  const parts = m.slice(1).map(Number);
+  if (parts.some((p) => p > 255)) return null;
+  return ((parts[0] << 24) >>> 0) + (parts[1] << 16) + (parts[2] << 8) + parts[3];
+}
+
+/** `203.0.113.10` → `203.0.113.10/32`; a range stays a range. `cidr` in the
+ *  database; v6 is checked loosely here, exactly there. */
+function parseNetwork(raw: string): { text: string; v4?: { base: number; bits: number } } | null {
+  const [addr, maskRaw] = raw.trim().split("/");
+  const v4 = ipv4ToInt(addr);
+  if (v4 !== null) {
+    const bits = maskRaw === undefined ? 32 : Number(maskRaw);
+    if (!Number.isInteger(bits) || bits < 0 || bits > 32) return null;
+    const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0;
+    if (((v4 & mask) >>> 0) !== v4) return null; // host bits set: not a cidr
+    return { text: `${addr}/${bits}`, v4: { base: v4, bits } };
+  }
+  if (/^[0-9a-f:]+$/i.test(addr) && addr.includes(":")) {
+    const bits = maskRaw === undefined ? 128 : Number(maskRaw);
+    if (!Number.isInteger(bits) || bits < 0 || bits > 128) return null;
+    return { text: `${addr.toLowerCase()}/${bits}` };
+  }
+  return null;
+}
+
+function inNetwork(ip: string, net: string): boolean {
+  const n = parseNetwork(net);
+  const v4 = ipv4ToInt(ip);
+  if (!n) return false;
+  if (n.v4 && v4 !== null) {
+    const mask = n.v4.bits === 0 ? 0 : (~0 << (32 - n.v4.bits)) >>> 0;
+    return ((v4 & mask) >>> 0) === n.v4.base;
+  }
+  return n.text === `${ip.toLowerCase()}/128`;
+}
+
+/** `ops_hr.match_site_network` — null when no site names a network. */
+function matchSiteNetwork(sites: WorkSite[], ip: string | null): { on_site: boolean | null; site_code: string | null } {
+  if (!ip || !sites.some((w) => w.networks.length > 0)) return { on_site: null, site_code: null };
+  const hit = sites.slice()
+    .sort((a, b) => Number(b.active) - Number(a.active) || a.code.localeCompare(b.code))
+    .find((w) => w.networks.some((n) => inNetwork(ip, n)));
+  return { on_site: Boolean(hit), site_code: hit?.code ?? null };
+}
+
+/** `ops_hr.my_network` — the caller's own address, and whose line it is. */
+export async function myNetwork(): Promise<Result<MyNetwork>> {
+  await latency();
+  return ok(SERVICE, { ip: DEMO_IP, site_code: matchSiteNetwork(getState().work_sites, DEMO_IP).site_code });
+}
+
+/** `ops_hr.set_site_networks` — the whole list, replacing it. HRD or IT. */
+export async function setSiteNetworks(
+  code: string,
+  networks: string[],
+  idempotencyKey?: string,
+): Promise<Result<{ code: string; networks: string[] }>> {
+  await latency();
+  const cached = replayed<{ code: string; networks: string[] }>(SERVICE, "set_site_networks", idempotencyKey);
+  if (cached) return cached;
+  if (requireLevel(SERVICE, "hrd", "write") && requireLevel(SERVICE, "it", "write")) {
+    return refused(SERVICE, "not_permitted", "Jaringan kantor diatur oleh HRD atau IT.");
+  }
+  const c = code.trim().toUpperCase();
+  const site = getState().work_sites.find((w) => w.code === c);
+  if (!site) return notFound(SERVICE, "not_found", `Tidak ada lokasi ${c}.`);
+  const list: string[] = [];
+  for (const raw of networks) {
+    const v = raw.trim();
+    if (!v) continue;
+    const n = parseNetwork(v);
+    if (!n) {
+      return invalid(SERVICE, "bad_network",
+        `"${v}" bukan alamat IP atau rentang (mis. 203.0.113.10 atau 203.0.113.0/29).`, { field: "networks", value: v });
+    }
+    const priv = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "127.0.0.0/8"];
+    if (n.v4 && priv.some((p) => inNetwork(v.split("/")[0], p))) {
+      return invalid(SERVICE, "private_network",
+        `${n.text} adalah alamat jaringan lokal, bukan alamat internet kantor. Pakai tombol *Pakai jaringan saya sekarang* sambil tersambung ke Wi-Fi kantor.`,
+        { field: "networks", value: n.text });
+    }
+    const bits = Number(n.text.split("/")[1]);
+    if ((n.v4 && bits < 24) || (!n.v4 && bits < 48)) {
+      return invalid(SERVICE, "network_too_wide",
+        `${n.text} terlalu luas — itu jaringan penyedia internet, bukan kantor. Paling luas /24.`,
+        { field: "networks", value: n.text });
+    }
+    if (!list.includes(n.text)) list.push(n.text);
+  }
+  if (list.length > 20) {
+    return invalid(SERVICE, "too_many_networks", "Paling banyak 20 alamat per lokasi.", { field: "networks", max: 20 });
+  }
+  apply((draft) => {
+    const row = draft.work_sites.find((w) => w.code === c)!;
+    row.networks = list;
+    row.updated_at = new Date().toISOString();
+    writeAudit(draft, {
+      service: SERVICE, entity: "work_site", entity_no: c, action: "set_networks", outcome: "ok", reason: null,
+      detail: { networks: list },
+    });
+  });
+  const answer = { code: c, networks: list };
+  remember(SERVICE, "set_site_networks", idempotencyKey, answer);
+  return ok(SERVICE, answer);
+}
+
 /** `ops_hr.v_located_tap`, in a period of office days. HRD reads every
  *  person's; anybody else reads only their own (the policy on 0188). */
 export async function listLocatedTaps(
@@ -847,7 +979,25 @@ export async function listLocatedTaps(
     const s = state.attendance_scans.find((x) => x.id === l.scan_id);
     if (!s || s.work_date < input.from || s.work_date > input.to) continue;
     if (!hrd && s.employee_id !== mine) continue;
-    const flagged = OFF_SITE_VERDICTS.includes(l.verdict);
+    const t = state.scan_traces.find((x) => x.scan_id === s.id);
+    /* The view's two readings of the trace (0270): people on this device
+       within 30 days, and whether it is this person's first tap from it. RLS
+       narrows a self caller to their own rows, so they count only themselves. */
+    let device_people: number | null = null, device_new: boolean | null = null;
+    if (t?.device_id) {
+      const near = new Set<string>();
+      let earlier = false;
+      for (const t2 of state.scan_traces) {
+        if (t2.device_id !== t.device_id) continue;
+        const s2 = state.attendance_scans.find((x) => x.id === t2.scan_id);
+        if (!s2 || (!hrd && s2.employee_id !== mine)) continue;
+        if (Math.abs(Date.parse(s2.at) - Date.parse(s.at)) <= 30 * 86_400_000) near.add(s2.employee_id);
+        if (s2.employee_id === s.employee_id && s2.at < s.at) earlier = true;
+      }
+      device_people = near.size;
+      device_new = !earlier;
+    }
+    const flagged = OFF_SITE_VERDICTS.includes(l.verdict) || (device_people ?? 1) > 1;
     if (input.flagged_only && !flagged) continue;
     const e = state.employees.find((x) => x.id === s.employee_id);
     const w = state.work_sites.find((x) => x.id === l.site_id);
@@ -860,6 +1010,10 @@ export async function listLocatedTaps(
       site_code: w?.code ?? null, site_name: w?.name ?? null, note: l.note,
       photo_id: l.photo_id, photo_link: null, photo_filename: photo?.filename ?? null,
       kind: s.kind ?? null,
+      ip: t?.ip ?? null, user_agent: t?.user_agent ?? null, device_id: t?.device_id ?? null,
+      device_at: t?.device_at ?? null, app_build: t?.app_build ?? null,
+      on_site_network: t?.on_site_network ?? null, network_site_code: t?.network_site_code ?? null,
+      device_people, device_new,
     });
   }
   rows.sort((a, b) => b.at.localeCompare(a.at));

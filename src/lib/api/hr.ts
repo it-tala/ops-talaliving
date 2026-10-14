@@ -55,7 +55,7 @@ import type {
   WorkLogEntry, WorkLogRosterRow, WorkEvidence, WorkProgress, KpiView,
   WorkItemView, WorkItemStatus, WorkWeek,
   Sex, Education, Citizenship, MaritalStatus, EmployeeIdentityView, WlkpRecap,
-  TapReading, TapSelfResult, LocationJudgement, WorkSite, LocatedTapView, TapKind,
+  TapReading, TapSelfResult, LocationJudgement, WorkSite, LocatedTapView, TapKind, TapClientContext, MyNetwork,
   EmployeeAccount, ScanImportResult,
 } from "@/services/hr/contracts";
 import {
@@ -1836,9 +1836,14 @@ export async function myProfile(): Promise<Result<Employee | null>> {
  *  `error.detail`, and the same call with a note (and optionally a photo
  *  already uploaded as `Foto Presensi`) writes it, flagged. */
 export async function tapSelf(
-  input: Partial<TapReading> & { note?: string | null; photo_id?: string | null; kind?: TapKind | null } = {},
+  input: Partial<TapReading> & {
+    note?: string | null; photo_id?: string | null; kind?: TapKind | null; client?: TapClientContext | null;
+  } = {},
   idempotencyKey?: string,
 ): Promise<Result<TapSelfResult>> {
+  /* The address, user agent and session are read by the database from this
+     request (`ops_core.request_trace`, 0270), not sent: a value the phone
+     fills in is one the phone can fake. */
   const { data, error } = await db().rpc("tap_self", {
     p_lat: input.lat ?? null,
     p_lng: input.lng ?? null,
@@ -1847,6 +1852,7 @@ export async function tapSelf(
     p_photo_id: input.photo_id ?? null,
     p_key: idempotencyKey ?? null,
     p_kind: input.kind ?? null,
+    p_client: input.client ?? null,
   });
   return fromSeam<TapSelfResult>(SERVICE, data, error);
 }
@@ -1862,7 +1868,7 @@ export async function judgeLocation(input: TapReading): Promise<Result<LocationJ
 
 export async function listWorkSites(): Promise<Result<WorkSite[]>> {
   const { data, error } = await db().from("work_sites")
-    .select("id,code,name,lat,lng,radius_m,active,updated_at").order("code");
+    .select("id,code,name,lat,lng,radius_m,active,networks,updated_at").order("code");
   return fromRows<WorkSite[]>(SERVICE, (data ?? []) as WorkSite[], error);
 }
 
@@ -1888,6 +1894,26 @@ export async function removeWorkSite(
     p_code: code, p_key: idempotencyKey ?? null,
   });
   return fromSeam<{ code: string; name: string }>(SERVICE, data, error);
+}
+
+/** The caller's own address as the database sees it, and the site whose
+ *  office network it is (0270). HRD presses it standing on the office Wi-Fi. */
+export async function myNetwork(): Promise<Result<MyNetwork>> {
+  const { data, error } = await db().rpc("my_network");
+  return fromRows<MyNetwork>(SERVICE, data as MyNetwork, error);
+}
+
+/** Name a site's office networks — the whole list, replacing it. HRD or IT;
+ *  the seam decides. */
+export async function setSiteNetworks(
+  code: string,
+  networks: string[],
+  idempotencyKey?: string,
+): Promise<Result<{ code: string; networks: string[] }>> {
+  const { data, error } = await db().rpc("set_site_networks", {
+    p_code: code, p_networks: networks, p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<{ code: string; networks: string[] }>(SERVICE, data, error);
 }
 
 /** Phone taps with their reading, in a period of office days. HRD's review
