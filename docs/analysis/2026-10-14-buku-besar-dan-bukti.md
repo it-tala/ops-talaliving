@@ -880,6 +880,6 @@ baris, sebagian besar *Sudah benar* satu klik).
 
 | # | Pertanyaan | Default |
 |---|---|---|
-| **Q99** | Setuju a/b adalah **nomor baris** di tampilan Rincian (satu transaksi, bukan dua), dan biaya admin ke depan selalu **baris** `fee` di transaksi yang dibayarnya? | Ya |
+| **Q99** | Setuju a/b adalah **nomor baris** di tampilan Rincian (satu transaksi, bukan dua), dan biaya admin ke depan selalu **baris** `fee` di transaksi yang dibayarnya? | **Dijawab (D436): Ya** |
 | **Q100** | Antrean review ulang: **sejak 1 Jul** (394 baris berdokumen) — atau cukup sejak 22 Sep (137)? | **Dijawab (D435):** seluruh 2026, dari yang terbaru mundur sampai Januari; 2025 dan 2024 mungkin menyusul |
 
