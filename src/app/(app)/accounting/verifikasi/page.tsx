@@ -24,6 +24,8 @@ import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
 import { UomOptions } from "@/components/ui/uom-options";
 import { useTr, type Message, type Tr } from "@/lib/i18n";
+import { BilledFields, LineKindSelect } from "@/components/accounting/line-kind";
+import { guessLineKind, isPricedKind, lineSign, type LineKind } from "@/services/accounting/lines";
 
 /** The narrow road: documents whose parent is genuinely unknown.
  *
@@ -484,16 +486,62 @@ export default function InboxPage() {
  *  opinion about it and never sees it. */
 interface LineDraft {
   key: number;
+  /** What the line is (`0271`): an item has a quantity and a price; a fee,
+   *  a tax, the courier or a voucher is an amount. */
+  kind: LineKind;
   description: string;
   qty: number;
   uom: UomCode;
   unit_price: number;
+  /** Typed only for a line that is not an item. */
+  amount: number;
 }
 
-/** Qty × price, rounded once. The line's amount is never typed: a total that
- *  disagrees with its own two factors is a third number nobody can check. */
+/** Qty × price, rounded once, for an item: its amount is never typed — a
+ *  total that disagrees with its own two factors is a third number nobody can
+ *  check. Every other kind is an amount and nothing else. */
 function lineAmount(l: LineDraft): number {
-  return Math.round(l.qty * l.unit_price);
+  return isPricedKind(l.kind) ? Math.round(l.qty * l.unit_price) : Math.round(l.amount);
+}
+
+/** Σ lines with the sign the kind carries — a discount counts minus — which
+ *  is the sum the seam checks the document total against. */
+function linesSum(ls: LineDraft[]): number {
+  return ls.reduce((n, l) => n + lineSign(l.kind) * lineAmount(l), 0);
+}
+
+/** The tax typed as a figure (D435) moves the lines, not the total: the nota
+ *  says 112.000 and prints PPN 12.000, so the goods were 100.000. The item
+ *  lines are scaled to what is left after every non-item line, the rounding
+ *  lands on the last of them, and the tax line is written or removed. */
+function withTax(ls: LineDraft[], taxAmount: number, total: number): LineDraft[] {
+  const tax = Math.max(0, Math.round(taxAmount));
+  const rest = ls.filter((l) => l.kind !== "tax");
+  const others = rest.filter((l) => !isPricedKind(l.kind)).reduce((n, l) => n + lineSign(l.kind) * lineAmount(l), 0);
+  const items = rest.filter((l) => isPricedKind(l.kind));
+  const target = total - tax - others;
+  const current = items.reduce((n, l) => n + lineAmount(l), 0);
+  let scaled = items;
+  if (items.length > 0 && target >= 0 && current !== target) {
+    let given = 0;
+    scaled = items.map((l, i) => {
+      const share = i === items.length - 1
+        ? target - given
+        : (current > 0 ? Math.round(lineAmount(l) * target / current) : Math.round(target / items.length));
+      given += share;
+      const qty = l.qty > 0 ? l.qty : 1;
+      return { ...l, qty, unit_price: Math.round((share / qty) * 100) / 100 };
+    });
+  }
+  const next = rest.map((l) => scaled.find((s) => s.key === l.key) ?? l);
+  if (tax > 0) {
+    const old = ls.find((l) => l.kind === "tax");
+    next.push({
+      key: old?.key ?? Math.max(0, ...ls.map((l) => l.key)) + 1,
+      kind: "tax", description: old?.description || "PPN", qty: 1, uom: "pcs", unit_price: tax, amount: tax,
+    });
+  }
+  return next;
 }
 
 function ResolvePanel({
@@ -558,10 +606,18 @@ function ResolvePanel({
    * is printed on the nota and the total is the sum. Deriving it meant two
    * lines at different prices could not be expressed at all. */
   const [lines, setLines] = useState<LineDraft[]>(() => doc.rows.map((r, i) => ({
-    key: i + 1, description: r.extracted.note ?? "", qty: 1, uom: "pcs",
-    unit_price: r.extracted.amount_idr ?? 0,
+    key: i + 1, kind: guessLineKind(r.extracted.note ?? ""), description: r.extracted.note ?? "", qty: 1, uom: "pcs",
+    unit_price: r.extracted.amount_idr ?? 0, amount: r.extracted.amount_idr ?? 0,
   })));
-  const linesTotal = lines.reduce((n, l) => n + lineAmount(l), 0);
+  const linesTotal = linesSum(lines);
+  /* The tax as the nota prints it; typing it moves the item lines (D435). */
+  const taxLine = lines.find((l) => l.kind === "tax");
+  const taxAmount = taxLine ? lineAmount(taxLine) : 0;
+  /* A bill in USD paid in rupiah (D435): kept beside the row after booking. */
+  const [billedOpen, setBilledOpen] = useState(false);
+  const [billedCcy, setBilledCcy] = useState("USD");
+  const [billedAmt, setBilledAmt] = useState(0);
+  const billedValid = !billedOpen || (billedCcy.length === 3 && billedCcy !== "IDR" && billedAmt > 0);
   /* Shown live rather than left to the seam's refusal. The refusal is the net
      that stops a nota read as 3 items of 5 being booked as whole (§14 in
      john-lau's backlog); this is so nobody meets it by surprise after filling
@@ -695,12 +751,26 @@ function ResolvePanel({
           trx_date: date, account_id: accountId, direction, amount_idr: amount,
           type_code: typeCode, vendor_id: vendorId || null, project_id: projectId || null,
           description: description.trim() || filename,
-          lines: lines.map((l) => ({
-            description: l.description.trim() || description.trim() || filename,
-            qty: l.qty, uom: l.uom, unit_price: l.unit_price, amount: lineAmount(l),
-          })),
+          lines: lines.map((l) => (isPricedKind(l.kind)
+            ? { kind: l.kind, description: l.description.trim() || description.trim() || filename,
+                qty: l.qty, uom: l.uom, unit_price: l.unit_price, amount: lineAmount(l) }
+            : { kind: l.kind, description: l.description.trim() || description.trim() || filename,
+                amount: lineAmount(l) })),
         });
         if (booked.error) { toast("warning", tr("Not booked", "Tidak dibukukan"), booked.error.message); return; }
+        /* The bill in another currency rides on the row after it exists:
+           `book_evidence` knows nothing about currencies on purpose, and
+           `edit_transaction` already does (0271). A failure here leaves a
+           booked row the drawer's Edit can finish. */
+        if (billedOpen && billedValid) {
+          const billed = await accounting.editTransaction({
+            trx_no: booked.data.trx_no, billed_currency: billedCcy, billed_amount: billedAmt,
+          });
+          if (billed.error) {
+            toast("warning", tr("Booked, but the foreign bill was not saved", "Dibukukan, tapi tagihan asal tidak tersimpan"),
+              tr(`${billed.error.message} Set it from the ledger drawer's Edit.`, `${billed.error.message} Isi dari Edit di drawer buku besar.`));
+          }
+        }
         toast("success", tr(`Posted ${booked.data.trx_no}`, `${booked.data.trx_no} diposting`),
           tr(`${formatIDR(amount)} · ${lines.length} rows`, `${formatIDR(amount)} · ${lines.length} baris`));
         onDone();
@@ -750,7 +820,7 @@ function ResolvePanel({
         /* The button is disabled while the lines disagree, and the reason is
            shown beside them. The seam refuses this too — the screen refusing
            first is a courtesy, not the control (D220: the database decides). */
-        : road === "transaction" ? !!accountId && amount > 0 && linesAgree
+        : road === "transaction" ? !!accountId && amount > 0 && linesAgree && billedValid
           : !!accountId && amount > 0
   );
 
@@ -958,8 +1028,8 @@ function ResolvePanel({
                   <button type="button"
                     onClick={() => setLines((ls) => [
                       ...ls,
-                      { key: Math.max(0, ...ls.map((l) => l.key)) + 1,
-                        description: "", qty: 1, uom: "pcs", unit_price: 0 },
+                      { key: Math.max(0, ...ls.map((l) => l.key)) + 1, kind: "item",
+                        description: "", qty: 1, uom: "pcs", unit_price: 0, amount: 0 },
                     ])}
                     className="text-[11px] font-medium text-brand-700 hover:underline">
                     {tr("+ row", "+ baris")}
@@ -969,35 +1039,54 @@ function ResolvePanel({
                 <div className="mt-1 space-y-2">
                   {lines.map((l, i) => (
                     <div key={l.key} className="grid grid-cols-12 items-end gap-1.5">
-                      <div className="col-span-12 sm:col-span-5">
-                        <label htmlFor={`rv-l-desc-${l.key}`} className="sr-only">{tr(`Item, row ${i + 1}`, `Barang baris ${i + 1}`)}</label>
+                      {/* The kind first (0271): it decides whether the line
+                          is a quantity at a price or an amount. */}
+                      <div className="col-span-5 sm:col-span-2">
+                        <label htmlFor={`rv-l-kind-${l.key}`} className="sr-only">{tr(`Kind, row ${i + 1}`, `Jenis baris ${i + 1}`)}</label>
+                        <LineKindSelect id={`rv-l-kind-${l.key}`} value={l.kind}
+                          onChange={(k) => setLines((ls) => ls.map((x) =>
+                            x.key === l.key ? { ...x, kind: k, amount: isPricedKind(k) ? x.amount : lineAmount(x) } : x))} />
+                      </div>
+                      <div className={cn("col-span-7", isPricedKind(l.kind) ? "sm:col-span-3" : "sm:col-span-6")}>
+                        <label htmlFor={`rv-l-desc-${l.key}`} className="sr-only">{tr(`Description, row ${i + 1}`, `Keterangan baris ${i + 1}`)}</label>
                         <input id={`rv-l-desc-${l.key}`} value={l.description}
-                          placeholder={tr("e.g. PAKU 5CM", "mis. PAKU 5CM")}
+                          placeholder={isPricedKind(l.kind) ? tr("e.g. PAKU 5CM", "mis. PAKU 5CM") : tr("e.g. transfer admin fee", "mis. biaya admin transfer")}
                           onChange={(e) => setLines((ls) => ls.map((x) =>
                             x.key === l.key ? { ...x, description: e.target.value } : x))}
-                          className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-brand-400 focus:outline-none" />
+                          className="h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none" />
                       </div>
-                      <div className="col-span-3 sm:col-span-2">
-                        <label htmlFor={`rv-l-qty-${l.key}`} className="sr-only">{tr(`Qty, row ${i + 1}`, `Qty baris ${i + 1}`)}</label>
-                        <NumberInput id={`rv-l-qty-${l.key}`} value={l.qty} min={0}
-                          onChange={(v) => setLines((ls) => ls.map((x) =>
-                            x.key === l.key ? { ...x, qty: v } : x))} />
-                      </div>
-                      <div className="col-span-3 sm:col-span-2">
-                        <label htmlFor={`rv-l-uom-${l.key}`} className="sr-only">{tr(`Unit, row ${i + 1}`, `Satuan baris ${i + 1}`)}</label>
-                        <select id={`rv-l-uom-${l.key}`} value={l.uom}
-                          onChange={(e) => setLines((ls) => ls.map((x) =>
-                            x.key === l.key ? { ...x, uom: e.target.value as UomCode } : x))}
-                          className="h-9 w-full rounded-lg border border-slate-200 bg-white px-1.5 text-sm focus:border-brand-400 focus:outline-none">
-                          <UomOptions current={l.uom} />
-                        </select>
-                      </div>
-                      <div className="col-span-5 sm:col-span-2">
-                        <label htmlFor={`rv-l-price-${l.key}`} className="sr-only">{tr(`Unit price, row ${i + 1}`, `Harga satuan baris ${i + 1}`)}</label>
-                        <MoneyInput id={`rv-l-price-${l.key}`} value={l.unit_price}
-                          onChange={(v) => setLines((ls) => ls.map((x) =>
-                            x.key === l.key ? { ...x, unit_price: v } : x))} />
-                      </div>
+                      {isPricedKind(l.kind) ? (
+                        <>
+                          <div className="col-span-3 sm:col-span-2">
+                            <label htmlFor={`rv-l-qty-${l.key}`} className="sr-only">{tr(`Qty, row ${i + 1}`, `Qty baris ${i + 1}`)}</label>
+                            <NumberInput id={`rv-l-qty-${l.key}`} value={l.qty} min={0}
+                              onChange={(v) => setLines((ls) => ls.map((x) =>
+                                x.key === l.key ? { ...x, qty: v } : x))} />
+                          </div>
+                          <div className="col-span-3 sm:col-span-2">
+                            <label htmlFor={`rv-l-uom-${l.key}`} className="sr-only">{tr(`Unit, row ${i + 1}`, `Satuan baris ${i + 1}`)}</label>
+                            <select id={`rv-l-uom-${l.key}`} value={l.uom}
+                              onChange={(e) => setLines((ls) => ls.map((x) =>
+                                x.key === l.key ? { ...x, uom: e.target.value as UomCode } : x))}
+                              className="h-9 w-full rounded-lg border border-slate-200 bg-white px-1.5 text-sm focus:border-brand-400 focus:outline-none">
+                              <UomOptions current={l.uom} />
+                            </select>
+                          </div>
+                          <div className="col-span-5 sm:col-span-2">
+                            <label htmlFor={`rv-l-price-${l.key}`} className="sr-only">{tr(`Unit price, row ${i + 1}`, `Harga satuan baris ${i + 1}`)}</label>
+                            <MoneyInput id={`rv-l-price-${l.key}`} value={l.unit_price}
+                              onChange={(v) => setLines((ls) => ls.map((x) =>
+                                x.key === l.key ? { ...x, unit_price: v } : x))} />
+                          </div>
+                        </>
+                      ) : (
+                        <div className="col-span-11 sm:col-span-3">
+                          <label htmlFor={`rv-l-amt-${l.key}`} className="sr-only">{tr(`Amount, row ${i + 1}`, `Jumlah baris ${i + 1}`)}</label>
+                          <MoneyInput id={`rv-l-amt-${l.key}`} value={l.amount}
+                            onChange={(v) => setLines((ls) => ls.map((x) =>
+                              x.key === l.key ? { ...x, amount: v } : x))} />
+                        </div>
+                      )}
                       <div className="col-span-1 flex justify-end">
                         {lines.length > 1 && (
                           <button type="button" aria-label={tr(`Remove row ${i + 1}`, `Hapus baris ${i + 1}`)}
@@ -1037,6 +1126,37 @@ function ResolvePanel({
                       "Tambahkan baris untuk sisanya, atau perbaiki salah satunya. Nota yang terbaca sebagian tidak bisa dibukukan seolah-olah utuh.")}
                   </p>
                 )}
+
+                {/* The nota's tax, as printed (D435): typing it takes that
+                    much off the item lines and books it as a tax line, so the
+                    total stays what the document says. */}
+                <div className="mt-3 grid grid-cols-12 items-end gap-1.5">
+                  <div className="col-span-6 sm:col-span-4">
+                    <label htmlFor="rv-tax" className="block text-xs text-slate-500">{tr("Tax on the nota (amount)", "Pajak di nota (nominal)")}</label>
+                    <MoneyInput id="rv-tax" value={taxAmount}
+                      onChange={(v) => setLines((ls) => withTax(ls, v, amount))} />
+                  </div>
+                  <p className="col-span-6 text-[11px] text-slate-500 sm:col-span-8">
+                    {taxAmount > 0
+                      ? tr(`Taken off the items: goods ${formatIDR(amount - taxAmount)} + tax ${formatIDR(taxAmount)} = ${formatIDR(amount)}.`,
+                          `Dikurangkan dari barang: barang ${formatIDR(amount - taxAmount)} + pajak ${formatIDR(taxAmount)} = ${formatIDR(amount)}.`)
+                      : tr("The figure the nota prints — never a percentage.", "Angka yang tercetak di nota — bukan persentase.")}
+                  </p>
+                </div>
+
+                {/* A bill in another currency, paid in rupiah (D435). */}
+                <div className="mt-3">
+                  <label className="inline-flex items-center gap-2 text-[12px] text-slate-600">
+                    <input id="rv-billed" type="checkbox" checked={billedOpen} onChange={(e) => setBilledOpen(e.target.checked)} />
+                    {tr("The bill was in another currency (USD, SGD…)", "Tagihannya dalam mata uang lain (USD, SGD…)")}
+                  </label>
+                  {billedOpen && (
+                    <div className="mt-2 rounded-lg border border-slate-200 px-3 py-2.5">
+                      <BilledFields idPrefix="rv-billed" currency={billedCcy} amount={billedAmt} amountIdr={amount}
+                        onCurrency={setBilledCcy} onAmount={setBilledAmt} />
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

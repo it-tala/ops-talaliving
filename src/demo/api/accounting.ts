@@ -14,6 +14,7 @@ import type {
   SubscriptionStatus, SubscriptionPayment,
   Cashflow, CashflowLineInput, CashflowBillInput, CashflowSettings,
 } from "@/services/accounting/contracts";
+import { guessLineKind, signedTotal, type LineKind } from "@/services/accounting/lines";
 import { CASHFLOW_IN_CATEGORIES, CASHFLOW_OUT_CATEGORIES } from "@/services/accounting/contracts";
 import { subscriptionRegister } from "@/services/accounting/subscriptions";
 import { buildCashflow, balancesAt } from "@/services/accounting/cashflow";
@@ -322,6 +323,8 @@ export async function getTransaction(trxNo: string): Promise<Result<TransactionD
     ...transactionView(state, trx),
     lines: state.transaction_lines.filter((l) => l.trx_id === trx.id),
     allocations,
+    billed_currency: trx.billed_currency ?? null,
+    billed_amount: trx.billed_amount ?? null,
   });
 }
 
@@ -342,12 +345,16 @@ export async function postTransaction(
     /** What was bought, in quantity and price. Required for a purchase: an
      *  amount with no detail behind it cannot be checked against anything
      *  later (D86). */
-    lines?: { description: string; qty?: number | null; uom?: string | null; unit_price?: number | null; amount: number }[];
+    lines?: { kind?: LineKind; description: string; qty?: number | null; uom?: string | null;
+              unit_price?: number | null; amount: number; item_id?: string | null }[];
     /** At least one of these has to be a nota, a transfer proof or a photo of
      *  what arrived (D85). The files are uploaded first and linked here, in
      *  the same act as the row — so a row without evidence never exists, not
      *  even for a second. */
     documents: { attachment_id: string; kind: DocKind }[];
+    /** The bill in another currency, paid in rupiah (`0271`, D435). */
+    billed_currency?: string | null;
+    billed_amount?: number | null;
   },
   idempotencyKey?: string,
 ): Promise<Result<TransactionView>> {
@@ -387,7 +394,32 @@ export async function postTransaction(
 
   const state = getState();
   const type = state.transaction_types.find((t) => t.code === input.type_code);
-  const lines = input.lines ?? [];
+  /* Each line's kind: as sent, or what its description suggests — the same
+     guess the seam makes (`line_kind_guess`, 0271). */
+  const lines = (input.lines ?? []).map((l) => ({ ...l, kind: l.kind ?? guessLineKind(l.description) }));
+
+  if (lines.some((l) => l.amount < 0)) {
+    return invalid(
+      SERVICE, "line_amount_negative",
+      "A line's amount is always positive. A voucher or a refund netted in is a discount line — the kind carries the sign.",
+      { field: "lines" },
+    );
+  }
+
+  /* The bill in another currency: both or neither, a real code, not IDR. */
+  const billedCcy = (input.billed_currency ?? "").trim().toUpperCase() || null;
+  const billedAmt = input.billed_amount ?? null;
+  if ((billedCcy === null) !== (billedAmt === null)) {
+    return invalid(SERVICE, "billed_together",
+      "A bill in another currency is a currency and an amount, together. Give both or neither.", { field: "billed_amount" });
+  }
+  if (billedCcy !== null && (!/^[A-Z]{3}$/.test(billedCcy) || billedCcy === "IDR")) {
+    return invalid(SERVICE, "billed_currency",
+      "The billed currency is a three-letter code other than IDR — USD, SGD, EUR.", { field: "billed_currency", given: billedCcy });
+  }
+  if (billedAmt !== null && billedAmt <= 0) {
+    return invalid(SERVICE, "billed_amount_positive", "The billed amount is greater than zero.", { field: "billed_amount" });
+  }
 
   if (type?.is_purchase) {
     if (lines.length === 0) {
@@ -397,7 +429,9 @@ export async function postTransaction(
         { field: "lines" },
       );
     }
-    const missing = lines.find((l) => l.qty == null || l.unit_price == null);
+    /* D86 on the goods only: a fee, a tax or the courier is an amount, not a
+       quantity of anything (0271). */
+    const missing = lines.find((l) => l.kind === "item" && (l.qty == null || l.unit_price == null));
     if (missing) {
       return invalid(
         SERVICE, "line_detail_required",
@@ -415,7 +449,7 @@ export async function postTransaction(
   }
 
   if (lines.length > 0) {
-    const sum = lines.reduce((acc, l) => acc + l.amount, 0);
+    const sum = signedTotal(lines);
     if (sum !== input.amount_idr) {
       return invalid(
         SERVICE, "lines_do_not_add_up",
@@ -446,10 +480,11 @@ export async function postTransaction(
       project_id: input.project_id ?? null, description: input.description,
       remark: null, status: "POSTED", source_ref: input.source_ref,
       posted_by: user.id, posted_at: new Date().toISOString(), void_reason: null,
+      billed_currency: billedCcy, billed_amount: billedAmt,
     });
     lines.forEach((l, i) => {
       draft.transaction_lines.push({
-        id: newId("trl"), trx_id: trxId, line_no: i + 1, item_id: null,
+        id: newId("trl"), trx_id: trxId, line_no: i + 1, kind: l.kind, item_id: l.item_id ?? null,
         description: l.description, qty: l.qty ?? null, uom: (l.uom ?? null) as never,
         unit_price: l.unit_price ?? null, amount: l.amount,
       });
@@ -472,8 +507,10 @@ export async function postTransaction(
         type: input.type_code,
         vendor: draft.vendors.find((v) => v.id === input.vendor_id)?.name ?? null,
         lines: lines.length,
+        item_lines: lines.filter((l) => l.kind === "item").length,
         documents: input.documents.map((d) => d.kind),
         source_ref: input.source_ref,
+        ...(billedCcy ? { billed: `${billedCcy} ${billedAmt}` } : {}),
       },
     });
     writeOutbox(draft, { service: SERVICE, event_type: "accounting.transaction.posted", payload: { trx_no: trxNo, amount: input.amount_idr } });
@@ -555,6 +592,11 @@ export async function editTransaction(
      *  a bank statement or paying request lines or orders. */
     direction?: "IN" | "OUT";
     reason?: string;
+    /** The bill in another currency (`0271`): omitted keeps it, `""` clears
+     *  both, a code sets both with `billed_amount`; the amount alone changes
+     *  it on a row that already has a currency. */
+    billed_currency?: string | null;
+    billed_amount?: number | null;
   },
   idempotencyKey?: string,
 ): Promise<Result<TransactionView>> {
@@ -671,10 +713,42 @@ export async function editTransaction(
     }
   }
 
+  /* The bill in another currency (0271). Null leaves it; "" clears both; a
+     code sets both, with the amount. No remark — the rupiah that moved does
+     not change, only what the invoice said. */
+  let billedCcy = trx.billed_currency ?? null;
+  let billedAmt = trx.billed_amount ?? null;
+  if (input.billed_currency !== undefined && input.billed_currency !== null) {
+    if (input.billed_currency.trim() === "") {
+      billedCcy = null; billedAmt = null;
+    } else {
+      billedCcy = input.billed_currency.trim().toUpperCase();
+      billedAmt = input.billed_amount ?? trx.billed_amount ?? null;
+      if (!/^[A-Z]{3}$/.test(billedCcy) || billedCcy === "IDR") {
+        return invalid(SERVICE, "billed_currency", "The billed currency is a three-letter code other than IDR — USD, SGD, EUR.", { field: "billed_currency", given: billedCcy });
+      }
+      if (billedAmt === null) {
+        return invalid(SERVICE, "billed_together", "A bill in another currency is a currency and an amount, together.", { field: "billed_amount" });
+      }
+      if (billedAmt <= 0) {
+        return invalid(SERVICE, "billed_amount_positive", "The billed amount is greater than zero.", { field: "billed_amount" });
+      }
+    }
+  } else if (input.billed_amount !== undefined && input.billed_amount !== null) {
+    if (!trx.billed_currency) {
+      return invalid(SERVICE, "billed_together", "An amount in another currency needs the currency with it.", { field: "billed_currency" });
+    }
+    if (input.billed_amount <= 0) {
+      return invalid(SERVICE, "billed_amount_positive", "The billed amount is greater than zero.", { field: "billed_amount" });
+    }
+    billedAmt = input.billed_amount;
+  }
+  const billedChanged = billedCcy !== (trx.billed_currency ?? null) || billedAmt !== (trx.billed_amount ?? null);
+
   if (amount === trx.amount_idr && description === trx.description
       && vendorId === trx.vendor_id && projectId === trx.project_id
       && typeCode === trx.type_code && accTo.id === accFrom.id
-      && direction === trx.direction) {
+      && direction === trx.direction && !billedChanged) {
     return ok(SERVICE, transactionView(state, trx));
   }
 
@@ -724,6 +798,13 @@ export async function editTransaction(
   if (direction !== trx.direction) {
     Object.assign(detail, { direction_before: trx.direction, direction_after: direction });
   }
+  if (billedChanged) {
+    /* One readable value — `USD 26.64 → USD 25` — not two columns to pair. */
+    Object.assign(detail, {
+      billed_before: trx.billed_currency ? `${trx.billed_currency} ${trx.billed_amount}` : null,
+      billed_after: billedCcy ? `${billedCcy} ${billedAmt}` : null,
+    });
+  }
 
   apply((draft) => {
     const t = draft.transactions.find((x) => x.id === trx.id)!;
@@ -734,6 +815,8 @@ export async function editTransaction(
     t.type_code = typeCode as typeof t.type_code;
     t.account_id = accTo.id;
     t.direction = direction;
+    t.billed_currency = billedCcy;
+    t.billed_amount = billedAmt;
     if (syncLine) {
       const l = draft.transaction_lines.find((x) => x.id === syncLine)!;
       l.amount = amount;
@@ -955,7 +1038,7 @@ export async function bookEvidence(
     project_id?: string | null;
     description: string;
     remark?: string | null;
-    lines?: { description: string; qty?: number | null; uom?: string | null;
+    lines?: { kind?: LineKind; description: string; qty?: number | null; uom?: string | null;
               unit_price?: number | null; amount: number }[];
   },
   idempotencyKey?: string,
@@ -991,7 +1074,7 @@ export async function bookEvidence(
 
   const lines = input.lines ?? [];
   if (lines.length > 0) {
-    const total = lines.reduce((n, l) => n + l.amount, 0);
+    const total = signedTotal(lines);
     if (total !== input.amount_idr) {
       return invalid(
         SERVICE, "lines_do_not_add_up",
@@ -1488,7 +1571,7 @@ export async function postFromLine(
     /* The detail comes from the line itself: what was bought, how many, at
        what price — so the ledger row can be read without opening the PR. */
     draft.transaction_lines.push({
-      id: newId("trl"), trx_id: trxId, line_no: 1, item_id: null,
+      id: newId("trl"), trx_id: trxId, line_no: 1, kind: "item", item_id: null,
       /* A lump-sum line has no quantity (D75); its payment is described as
          1 lot at the amount paid, the same as `post_from_line` (0141, D298). */
       description: line.description,
@@ -1675,7 +1758,7 @@ export async function postToPo(
       posted_by: user.id, posted_at: now, void_reason: null,
     });
     draft.transaction_lines.push({
-      id: newId("trl"), trx_id: trxId, line_no: 1, item_id: null,
+      id: newId("trl"), trx_id: trxId, line_no: 1, kind: "item", item_id: null,
       description: `Pembayaran ${input.po_no}`, qty: 1, uom: "unit" as never,
       unit_price: input.amount, amount: input.amount,
     });

@@ -10842,3 +10842,37 @@ not clean them either: an import must not decide which of two app-made rows
 is the real one. The fix belongs in a migration — one attachment per Drive
 file id, the upload seams finding before creating — and it is listed on the
 board so it stops being a sentence in a comment.
+
+## F276 · 2026-10-14 · A guess checked against a thousand real rows finds the two it gets wrong
+
+`line_kind_guess` (0271) was written from the examples in the analysis —
+*Transfer admin fee*, *BIAYA ADMIN*, *TAX APRIL*, *ongkir* — and the first
+draft matched those words anywhere in a description. Run as a count against
+the production lines before the backfill, it flagged 185 fee lines; listing
+the ones whose amount was not a bank fee showed *SARIPAN ELECTRICITY - SHOPEE
+(+ADMIN FEE 4.000)* booked as a fee of Rp 504.000, and the tax pattern read
+*Tax Consultant Subadriyah* as a tax. Both are right by the words and wrong
+by the money. Anchoring the fee and tax patterns at the start of the
+description, and refusing *consultant*, left 183 fee, 4 tax and 5 shipping —
+every one of them read by hand before the backfill ran.
+
+Two lessons, both cheap:
+
+- **A guess that will rewrite rows is run as a count first, and the odd
+  amounts in that count are read.** The regex looked right; only the rows
+  with a fee of half a million said otherwise. The check was one query and
+  took a minute; a wrong backfill would have been 1,453 rows to audit.
+- **A guess never changes the sign.** `discount` is never guessed: a line
+  that subtracts is a line somebody meant to subtract. Getting fee/item wrong
+  mislabels a row; getting discount wrong makes the lines stop adding up to
+  the amount, which the seam then refuses for every caller that did not send
+  a kind — including john-lau's mirror.
+
+Also found on the way: the Supabase tool cannot run the smoke suite as the
+ladder does (no local Postgres in the cloud session, no `DROP` through the
+tool), but the whole migration **plus** its smoke can be rehearsed on
+production inside one `begin … rollback`, and the seam's behaviour verified
+the same way after the commit. Two rehearsals, zero rows left behind — the
+checks are the same assertions as `E2_acct_line_kinds.sql`, pointed at real
+ids. The one thing the rehearsal cannot see is the drop of the old
+signature, which production does by rename (0211's trick).

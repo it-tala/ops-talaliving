@@ -32,6 +32,7 @@ import type {
   AccountCustody, Cashflow, CashflowLine, CashflowLineInput, CashflowBillInput, CashflowWeekOverride,
   CashflowReceipt, CashflowOpening, CashflowSettings,
 } from "@/services/accounting/contracts";
+import type { LineKind } from "@/services/accounting/lines";
 import {
   applySubscriptions, settleUnplanned, subscriptionRegister, subscriptionRows,
 } from "@/services/accounting/subscriptions";
@@ -440,9 +441,14 @@ export async function postTransaction(
     project_id?: string | null;
     description: string;
     source_ref: string;
-    lines?: { description: string; qty?: number | null; uom?: string | null;
-              unit_price?: number | null; amount: number }[];
+    /** Each line's kind (`0271`); left out, the seam guesses it from the
+     *  description. Amounts stay positive — a discount counts minus. */
+    lines?: { kind?: LineKind; description: string; qty?: number | null; uom?: string | null;
+              unit_price?: number | null; amount: number; item_id?: string | null }[];
     documents: { attachment_id: string; kind: DocKind }[];
+    /** The bill in another currency, paid in rupiah (`0271`, D435). */
+    billed_currency?: string | null;
+    billed_amount?: number | null;
   },
   idempotencyKey?: string,
 ): Promise<Result<TransactionView>> {
@@ -466,6 +472,8 @@ export async function postTransaction(
     p_remark: null,
     p_source_ref: input.source_ref || null,
     p_key: idempotencyKey ?? null,
+    p_billed_currency: input.billed_currency ?? null,
+    p_billed_amount: input.billed_amount ?? null,
   });
 
   const posted = fromSeam<{ trx_no: string; amount: number; status: string }>(
@@ -525,7 +533,7 @@ export async function bookEvidence(
     project_id?: string | null;
     description: string;
     remark?: string | null;
-    lines?: { description: string; qty?: number | null; uom?: string | null;
+    lines?: { kind?: LineKind; description: string; qty?: number | null; uom?: string | null;
               unit_price?: number | null; amount: number }[];
   },
   idempotencyKey?: string,
@@ -741,6 +749,11 @@ export async function editTransaction(
     account_code?: string;
     direction?: "IN" | "OUT";
     reason?: string;
+    /** The bill in another currency (`0271`): omitted keeps it, `""` clears
+     *  both, a code sets both with `billed_amount`; the amount alone changes
+     *  it on a row that already has a currency. */
+    billed_currency?: string | null;
+    billed_amount?: number | null;
   },
   idempotencyKey?: string,
 ): Promise<Result<TransactionView>> {
@@ -755,6 +768,8 @@ export async function editTransaction(
     p_direction: input.direction ?? null,
     p_reason: input.reason ?? null,
     p_key: idempotencyKey ?? null,
+    p_billed_currency: input.billed_currency ?? null,
+    p_billed_amount: input.billed_amount ?? null,
   });
   const edited = fromSeam<{ trx_no: string }>(SERVICE, data, error);
   if (edited.error) return edited;

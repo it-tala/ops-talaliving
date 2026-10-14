@@ -1,5 +1,7 @@
 /** Accounting contracts — cut to `docs/plan/02-database.md`, schema `acct`. */
 
+import type { LineKind } from "./lines";
+
 /* ------------------------------------------------------------------ */
 /* Vocabulary — copied verbatim. Do not tidy the spelling.             */
 /* ------------------------------------------------------------------ */
@@ -83,6 +85,13 @@ export interface Transaction {
   description: string;
   remark: string | null;
   status: TrxStatus;
+  /** The bill's own currency and amount when it was not written in rupiah
+   *  (a USD subscription paid from a rupiah account), beside `amount_idr`,
+   *  which is what was paid. Both or neither; the rate is computed where it
+   *  is shown, never stored (`0271`, D435). Optional because the columns
+   *  arrived after the rows that carry none. */
+  billed_currency?: string | null;
+  billed_amount?: number | null;
   /** The idempotency claim. A repeat with the same ref is a no-op (A4). */
   source_ref: string;
   posted_by: string;
@@ -94,6 +103,10 @@ export interface TransactionLine {
   id: string;
   trx_id: string;
   line_no: number;
+  /** item · fee · tax · shipping · discount · other (`0271`). The amount
+   *  stays positive; a discount is subtracted when the lines are summed.
+   *  Only item lines feed price references. */
+  kind: LineKind;
   item_id: string | null;
   description: string;
   qty: number | null;
@@ -450,6 +463,9 @@ export interface AllocationView extends PaymentAllocation {
 export interface TransactionDetail extends TransactionView {
   lines: TransactionLine[];
   allocations: AllocationView[];
+  /** From `v_transaction_detail` (`0271`): null when the bill was in rupiah. */
+  billed_currency: string | null;
+  billed_amount: number | null;
 }
 
 /** One payment to a vendor, and what it settled.

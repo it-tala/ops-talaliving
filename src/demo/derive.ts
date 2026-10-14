@@ -860,6 +860,8 @@ export function purchaseFacts(state: DemoState): PurchaseFact[] {
   }
 
   for (const tl of state.transaction_lines) {
+    /* A fee, a tax or the courier is not a price for anything (0271). */
+    if (tl.kind !== "item") continue;
     const trx = state.transactions.find((t) => t.id === tl.trx_id);
     if (!trx || trx.status === "VOID") continue;
     const item = itemOf(tl.item_id);
