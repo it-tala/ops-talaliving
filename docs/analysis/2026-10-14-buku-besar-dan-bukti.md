@@ -212,6 +212,14 @@ punya rincian baris; 306 teralokasi (265 ke PR, 79 ke PO); 650 punya proyek.
 Sebagian besar sisanya adalah warisan spreadsheet (`UNTRACKED` 1.804 baris
 Jan–Jun).
 
+> **Sore hari yang sama (D435 butir 4):** angka *seluruh masa* di atas
+> mengukur tabel legacy, bukan sheet-nya. Sheet `2026 TALAHOME LEDGERS`
+> membawa 3.814 tautan Drive yang tidak pernah diimpor (F273); setelah
+> langkah 13 ladder impor, baris 2026 tanpa dokumen tinggal **137** dari
+> 3.448 (Jan 14 · Mar 1 · Mei 2 · Jun 82 · Jul 19 · Agu 7 · Sep 11 · Okt 1),
+> dan hampir semuanya transfer antar rekening, tarik tunai, saldo awal, dan
+> biaya bank. Angka *sejak impor berhenti* di bawah tidak berubah.
+
 **Sejak impor berhenti (trx_date > 21 Sep, 160 baris)**:
 
 | Pintu | Baris | Rp | Ada dokumen | Nota/invoice | Bukti transfer | Keduanya | Foto/RR | Ke PR/PO | Proyek | >1 baris |
@@ -725,8 +733,36 @@ ke produksi.
 
 | # | Pertanyaan | Default |
 |---|---|---|
-| **Q97** | **Rumah Saripan** (sewa + belanja, 70 baris, ~Rp 75 jt) dan **listrik Langon** (17 jt): pengeluaran perusahaan (mess/kantor → `tetap`) atau pimpinan (→ `pribadi`)? | `pribadi` untuk Saripan (48 dari 70 barisnya bertipe EJO), `tetap` untuk Langon |
-| **Q98** | Setuju jenis `EJO` dan `CREDIT CARD` diistirahatkan (tidak muncul di pilihan baru; data lama tetap), dan pemindahan jenis §10.3 dijalankan sekali dengan audit? | Ya, keduanya |
+| **Q97** | **Rumah Saripan** (sewa + belanja, 70 baris, ~Rp 75 jt) dan **listrik Langon** (17 jt): pengeluaran perusahaan (mess/kantor → `tetap`) atau pimpinan (→ `pribadi`)? | **Dijawab (D435):** Saripan kategori **sendiri** (`saripan`); Langon `fixed` |
+| **Q98** | Setuju jenis `EJO` dan `CREDIT CARD` diistirahatkan (tidak muncul di pilihan baru; data lama tetap), dan pemindahan jenis §10.3 dijalankan sekali dengan audit? | **Dijawab (D435):** **tidak** diistirahatkan — keduanya tetap ada; pemindahan jenis §10.3 tetap, tanpa butir yang mematikan keduanya |
+
+### 10.5 Jawaban owner, 14 Okt sore (D435) — yang berubah di §10
+
+1. **Pajak (§10.2 butir 2 diganti).** *Daripada bawaan 12% lebih baik biarkan
+   user input berapa nominal pajaknya.* Tidak ada persentase bawaan, tidak ada
+   `ppn_rate_pct`: di verifikasi dan Entri baru ada isian **nominal pajak**
+   yang menjadi baris `tax` dan mengurangi baris item sejumlah itu. Contoh
+   owner tetap terpenuhi (112.000, pajak diketik 12.000 → item 100.000), dan
+   nota yang mencetak PPN-nya diketik apa adanya.
+2. **Tagihan USD, dibayar IDR.** *Beberapa transaksi memberikan tagihan dalam
+   bentuk USD sementara kita bayar di IDR.* Transaksi menyimpan **mata uang
+   dan nilai tagihan** (`billed_currency`, `billed_amount`) di samping
+   `amount_idr`; kurs efektif = `amount_idr ÷ billed_amount`, dihitung dan
+   ditampilkan, tidak diketik. Pola yang sama dengan order pabrik (D414:
+   satu mata uang per dokumen). Referensi harga item dari transaksi semacam
+   ini disimpan dalam IDR yang dibayar, dengan mata uang asalnya terlihat.
+3. **Nama kategori bahasa Inggris, `pribadi` → `EJO`.** Tabel §10.1 dibaca
+   dengan nama: `transfer · income · vendor · payroll · fixed · overhead ·
+   bank · tax · EJO`, ditambah **`saripan`** (butir 4). Isi tiap kategori
+   tidak berubah.
+4. **Saripan kategori sendiri.** Sewa rumah, belanja, listrik, air Saripan
+   (70 baris, ~Rp 75 jt setahun) → `saripan`, dilaporkan terpisah seperti
+   `EJO`, tidak ikut hitungan *berapa bulan* kecuali pimpinan memilih
+   memasukkannya. Aturan §10.3 butir 7 dibagi dua: penerima Saripan →
+   `saripan`; penerima pimpinan lain → `EJO`.
+5. **Jenis `EJO` dan `CREDIT CARD` tetap ada** (Q98). Kategori bawaan
+   keduanya tetap seperti tabel §10.1 (`EJO` → `EJO`; `CREDIT CARD` →
+   `transfer`, yang pribadi → `EJO`).
 
 ## 11. Memecah yang sudah terlanjur satu: nomor a/b, dan review ulang (D434)
 
@@ -742,17 +778,26 @@ ke produksi.
 
 | Masa | Baris | Tanpa dokumen | Ada dokumen, 0 baris rincian | Ada dokumen, 1 baris | Ada dokumen, >1 baris | Jumlahnya berakhiran biaya admin (…2.500/…6.500) | E-commerce |
 |---|---|---|---|---|---|---|---|
-| Jan–Jun | 1.616 | **1.616** | 0 | 0 | 0 | 0 | 27 |
-| Jul–21 Sep | 1.332 | 1.075 | 16 | 241 | 0 | 49 | 25 |
+| Jan–Jun | 1.616 | **1.616** → **69** | 0 | 0 | 0 | 0 | 27 |
+| Jul–21 Sep | 1.332 | 1.075 → **29** | 16 | 241 | 0 | 49 | 25 |
 | Sejak 22 Sep | 137 | 1 | 0 | 87 | 49 | 39 | 1 |
+
+Kolom *tanpa dokumen* diukur pagi hari (tabel legacy) dan sore hari, setelah
+tautan dari sheet diimpor (langkah 13, D435 butir 4, F273). Yang tersisa
+tanpa dokumen di seluruh 2026 adalah 137 baris (masuk dan keluar), hampir
+semuanya transfer, tarik tunai, saldo awal, dan biaya bank.
 
 Tiga hal yang mengubah bentuk tugasnya:
 
-- **Jan–Jun tidak bisa dirinci**: tidak satu pun dari 1.616 baris punya
-  dokumen (john-lau baru menangkap sejak Juli). Memecah tanpa nota adalah
-  menebak. Baris-baris itu tetap seperti adanya, bertanda *tanpa rincian —
-  tidak ada dokumen*.
-- **Yang punya dokumen ada 394 baris**, dan sebagian besar sudah satu baris
+- ~~**Jan–Jun tidak bisa dirinci**: tidak satu pun dari 1.616 baris punya
+  dokumen (john-lau baru menangkap sejak Juli).~~ **Tidak lagi berlaku
+  (D435):** dokumennya ada di sheet, bukan di tabel legacy, dan sekarang
+  tertaut — 1.547 dari 1.616 baris. Jan–Jun masuk antrean seperti bulan
+  lain; owner: *review ulang dari transaksi terbaru sampai Januari* (Q100
+  dijawab). Memecah tanpa nota tetap menebak: 69 baris Jan–Jun yang tetap
+  tanpa dokumen dibiarkan, bertanda *tanpa rincian — tidak ada dokumen*.
+- **Yang punya dokumen ada 394 baris** *(pagi; sore: 2.986 baris keluar
+  berdokumen sepanjang 2026)*, dan sebagian besar sudah satu baris
   rincian yang benar-benar satu barang (*Aqua galon*, *Sander 180*, *SEWA
   KOMPRESOR 31 AGST–4 SEPT*). Yang perlu dibuka lagi adalah yang dokumennya
   memuat beberapa barang tetapi rinciannya satu baris generik, dan yang
@@ -805,12 +850,18 @@ yang terkait rekening koran), rincian lama tersimpan di audit `before`,
 `transactions.lines_reviewed_at/by` diisi. Dipakai oleh drawer (*Edit
 rincian*) **dan** oleh layar antrean **`/accounting/rincian-ulang`**:
 
-- Antrean = baris keluar non-void **dengan dokumen**, sejak 1 Jul, belum
-  `lines_reviewed_at`, dan (rincian ≤ 1 baris **atau** jumlah berakhiran
-  …2.500/…6.500/…5.000 **atau** tipe pembelian dengan nota). Urut terbaru.
+- Antrean = baris keluar non-void **dengan dokumen**, **seluruh 2026**
+  (D435 butir 6; semula sejak 1 Jul), belum `lines_reviewed_at`, dan (rincian
+  ≤ 1 baris **atau** jumlah berakhiran …2.500/…6.500/…5.000 **atau** tipe
+  pembelian dengan nota). **Urut terbaru, mundur sampai Januari**; buku 2025
+  dan 2024 menyusul bila owner memberikannya, lewat langkah impor yang sama.
   E-commerce (`ONLINE`, vendor Tokopedia/Shopee/Lazada/Blibli) **tidak**
-  masuk antrean (owner): boleh dirinci lewat drawer kalau mau, dengan baris
-  `kind = 'discount'` negatif yang diizinkan hanya di situ.
+  dirinci per item (owner), tetapi **merekam nilai asli barang dan total
+  bayar** (D435 butir 5): paling banyak tiga baris — `item` sejumlah **harga
+  tercantum**, `discount` negatif (voucher/potongan), `fee` (ongkir/admin);
+  Σ = total dibayar; referensi harga mengambil harga tercantum, bukan harga
+  setelah diskon. Baris `discount` negatif diizinkan hanya di transaksi
+  e-commerce.
 - Layar: dokumen di kiri (pratinjau, semua file transaksi), editor baris di
   kanan: jenis, item (picker katalog, usulan dari deskripsi), qty, harga,
   jumlah, selisih ke jumlah transaksi selalu terlihat; sakelar *termasuk
@@ -818,8 +869,8 @@ rincian*) **dan** oleh layar antrean **`/accounting/rincian-ulang`**:
   baris terakhir menjadi baris `fee`. *Simpan* = `set_transaction_lines`;
   *Sudah benar* = tandai reviewed tanpa mengubah. Antrean menyusut.
 - Yang **tidak** dilakukan: mengubah jumlah, tanggal, akun, vendor (itu
-  `edit_transaction`); menyentuh baris Jan–Jun; menyentuh baris tanpa
-  dokumen; membuat transaksi baru.
+  `edit_transaction`); menyentuh baris tanpa dokumen; membuat transaksi
+  baru. *(Jan–Jun tidak lagi dikecualikan — D435.)*
 
 Urutan: L12 bergantung pada L4 (jenis baris) dan L5 (item picker); menjadi
 sesi ke-3 setelah keduanya, lalu accounting mengerjakan antreannya (±394
@@ -830,5 +881,5 @@ baris, sebagian besar *Sudah benar* satu klik).
 | # | Pertanyaan | Default |
 |---|---|---|
 | **Q99** | Setuju a/b adalah **nomor baris** di tampilan Rincian (satu transaksi, bukan dua), dan biaya admin ke depan selalu **baris** `fee` di transaksi yang dibayarnya? | Ya |
-| **Q100** | Antrean review ulang: **sejak 1 Jul** (394 baris berdokumen) — atau cukup sejak 22 Sep (137)? | Sejak 1 Jul |
+| **Q100** | Antrean review ulang: **sejak 1 Jul** (394 baris berdokumen) — atau cukup sejak 22 Sep (137)? | **Dijawab (D435):** seluruh 2026, dari yang terbaru mundur sampai Januari; 2025 dan 2024 mungkin menyusul |
 

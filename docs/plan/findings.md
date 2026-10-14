@@ -10776,3 +10776,69 @@ plus a one-time correction of the 102 `inbox:` rows from the inbox's own
 mapping function, named, that both call — a key spelled in two places is a
 key that will be spelled differently.
 
+
+## F273 · 2026-10-14 · *Tanpa dokumen* was an import gap, not missing evidence — and the two books count the same money differently
+
+The kajian (F271, §11.1) measured 1.616 Jan–Jun rows with no document and
+D434 concluded they could not be itemised. Both were true of the database
+and false of the business: the accountant had pasted a Drive link into the
+sheet for nearly every row — 3.814 links in six columns — and `05_evidence.sql`
+never saw them, because the legacy *tables* only held the 237 chat-captured
+documents and the ladder reads tables, not sheets. Importing the sheet's
+links (step 13, D435) takes 2026 from 1.616 undocumented rows to 137, and
+the 137 are opening balances, transfers between our own accounts, cash
+withdrawals and bank fees — rows the sheet had nothing for either.
+
+Matching sheet rows to ledger rows on the money (date, account, direction,
+amount, then description) found 2.619 exact and 647 key-only matches; the
+rest taught something each:
+
+- **Granularity differs in both directions.** The sheet books one row where
+  ops books three (a thinner-fabric-glaze purchase), and two withdrawals
+  where ops books one. A merged row has no *right* side; the file is linked
+  to every transaction of its group and the pairing is written down.
+- **Since late September the two books disagree on where the admin fee
+  lives.** The sheet still books every Rp 2.500 as its own BANK CHARGES row;
+  ops, through the inbox, books it inside the amount — 39 pairs in two
+  weeks. That is the "two conventions" D434 named, now dated and counted.
+- **One rupiah apart, twice** (18.999.911 vs .910; 1.386.770 vs .771):
+  rounding at retyping, invisible to any check that only sums a month.
+- **Dates slip by days** for inbox-captured rows (sheet 9 Oct, ops 12 Oct):
+  the sheet dates the bank movement, ops dates the booking.
+- **Rows that exist in one book only**: JAGO/JENIUS/MANDIRI CC subscription
+  rows only in ops; three cash pesangon, a fuel reimbursement, a Jenius
+  top-up and three credit-card rows only in the sheet (8 rows, refused with
+  the reason, not dropped).
+
+**Rule:** before concluding that a record *lacks* something, ask what the
+people kept that the import never read. And a reconciliation between two
+books is a list of *why they differ*, kept with the rows, not a count.
+
+## F274 · 2026-10-14 · A load typed by hand is reconciled by hash before it is called done
+
+The 4.071 staging rows went to production through the Supabase MCP, which
+takes SQL as text — so every chunk was retyped from the generated file, and
+one 33-character Drive id lost two letters on the way (line 1368 of 16 chunks,
+≈300 KB). The chunk ran clean: a wrong id is still a valid id, the attachment
+was created, the link was made, nothing complained. It was found only because
+the map was hashed in 200-line buckets of `<source_id>=<file_id>` on both
+sides and compared: 17 agreed, one did not, and bisecting the one took a
+minute. **Rule:** when data reaches the database through anything but a file
+the database reads itself, compare it back to the file — per bucket, so the
+mismatch names its own neighbourhood — before reporting the import done.
+The counters (rows in, rows refused) cannot see a value that is merely wrong.
+
+## F275 · 2026-10-14 · The missing unique key on `attachments.url` is now producing duplicates on its own
+
+`05_evidence.sql` (step 8) named the gap: nothing stops the same Drive file
+existing twice in `ops_core.attachments`, so the import resolves by url
+first. Checked again today, before step 13 wrote anything: **21 Drive files
+already sat in the table two to four times**, all from the app's own chat
+and web upload paths between 21 and 24 September and on 5 October — a file
+attached to two purchase lines once, the same proof of payment captured and
+re-captured. Most copies carry no link at all. Step 13 did not add to them
+(it finds by the id inside the url, whatever the url's form), but it could
+not clean them either: an import must not decide which of two app-made rows
+is the real one. The fix belongs in a migration — one attachment per Drive
+file id, the upload seams finding before creating — and it is listed on the
+board so it stops being a sentence in a comment.
