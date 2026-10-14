@@ -10727,3 +10727,52 @@ keeps named headers only. The production header names are Supabase's and
 were not observed from this container: after `0270` is applied, the first
 real tap should be checked to have a non-null `ip`.
 
+## F271 · 2026-10-14 · Kajian: buku besar dan bukti — kerangkanya ada, jalur yang paling ramai melewatinya
+
+`docs/analysis/2026-10-14-buku-besar-dan-bukti.md`. Owner minta review
+pencatatan keuangan terhadap lima ketentuan (dokumen per pembayaran; rujukan
+PR/approval/proyek/vendor/PO; baris per jenis dengan harga item sebagai
+referensi; bukti per baris di satu halaman; ringkasan pimpinan per kategori
+dan *berapa bulan*). Yang kajian itu ajarkan, dibaca dari produksi dan bukan
+dari rencana:
+
+- **Ukur era yang benar.** Seluruh buku besar menunjukkan 13% baris keluar
+  berdokumen; sejak impor spreadsheet berhenti (22 Sep) angkanya 159 dari 160.
+  Angka pertama menilai spreadsheet, yang kedua menilai ops. Sebuah evaluasi
+  yang mencampur keduanya menyalahkan sistem yang salah.
+- **Mekanisme yang ada tidak sama dengan mekanisme yang dipakai.** `post_from_line`
+  mengisi vendor, proyek, dan alokasi sekaligus — dan 1 dari 86 pembayaran
+  dari Chat memakainya, karena verifikasi tidak menawarkan *bayar baris PR
+  yang disetujui*; yang ditawarkan *buat PR susulan*, dan itu dipakai 0 kali
+  dari 254. Jalan yang tidak ada di layar tempat orang bekerja tidak ada.
+- **Sebuah kolom yang hanya diisi impor adalah kolom yang mati sejak impor
+  berhenti.** `transaction_lines.item_id` terisi 1.218 kali, semuanya dari
+  `03_ledger.sql`/step 7; jalur hidup menulis 235 baris dan tidak satu pun
+  ber-item. D86 (*supaya katalog belajar harga yang benar-benar dibayar*)
+  benar selama tiga minggu dan tidak ada yang menyadari ia berhenti, karena
+  `item_purchases` tidak kosong — ia hanya tidak bertambah.
+- **Sebuah daftar cek visual bukan aturan.** Lima kotak di `EvidenceStrip`
+  dibaca orang sebagai *yang harus ada*, sistem membacanya sebagai *yang
+  boleh ada*; 9 dari 86 pembelian punya nota dan bukti transfer, dan semuanya
+  COMPLETED. Aturan per jenis transaksi (6.6) adalah cara menyatakan
+  harapan itu tanpa memblokir (A6).
+
+## F272 · 2026-10-14 · The bot says `doc_type`, the booker reads `doc_kind`, and everything becomes a nota
+
+`book_evidence` (`0124:166`) files the captured document as
+`coalesce(row.extracted ->> 'doc_kind', 'nota')`. John-lau's `file_document`
+(`services/pipeline_cycle/ops_inbox.py:374-385`) sends `doc_type` — *Payment
+Proof*, *Receiving Item*, *Receipt / Invoice / Nota*, *Others* — and no key
+called `doc_kind` has ever arrived (254 inbox rows, 0 with that key). So every
+document booked from Chat since 2 Sep is linked as `nota`: a transfer proof
+for *Pesangon*, a bank statement line, a goods photo. `link_evidence` (`0162`)
+maps `doc_type` correctly; the sibling seam written a month earlier does not,
+and nothing compared the two. Two costs: `complete_transaction` (nota **or**
+transfer proof) cannot tell a purchase with both from one with neither, and
+every evidence-completeness figure read from `attachment_links.kind` for the
+Chat path is wrong. Fix is one `case` in `book_evidence`/`book_evidence_group`
+plus a one-time correction of the 102 `inbox:` rows from the inbox's own
+`extracted` (plan L3). **Rule:** when two seams read the same payload, one
+mapping function, named, that both call — a key spelled in two places is a
+key that will be spelled differently.
+
