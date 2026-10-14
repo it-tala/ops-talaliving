@@ -19,6 +19,10 @@ insert into ops_core.user_authorities (user_id, authority) values
   ('ffffffff-0000-0000-0000-00000000e273','post_ledger');
 insert into ops_core.user_modules (user_id, module, level) values
   ('ffffffff-0000-0000-0000-00000000e273','accounting','write'),
+  -- the catalogue is procurement's: an item's name on a ledger line is read
+  -- through items' own RLS, so the reviewer holds procurement.read, as the
+  -- accounting staff do (D86)
+  ('ffffffff-0000-0000-0000-00000000e273','procurement','read'),
   ('ffffffff-0000-0000-0000-00000000e27c','accounting','read');
 
 insert into ops_procure.vendors (id, code, name, is_curated) values
