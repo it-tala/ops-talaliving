@@ -37,8 +37,9 @@ import type { LineKind } from "@/services/accounting/lines";
 import { fundingHeadline } from "@/services/accounting/categories";
 import type {
   Category, CategoryMonthRow, CategorySummary, FundingDetail, FundingRow, FundingSpendGroup,
-  FundingSpendRow, FundingView, ProjectSpendRow, TransferMonthRow, VendorSpendRow,
+  FundingSpendRow, FundingView, ProjectSpendRow, Runway, TransferMonthRow, VendorSpendRow,
 } from "@/services/accounting/contracts";
+import { runwayFrom, runwayMonths } from "@/services/accounting/runway";
 import {
   applySubscriptions, settleUnplanned, subscriptionRegister, subscriptionRows,
 } from "@/services/accounting/subscriptions";
@@ -1530,6 +1531,26 @@ export async function getCategorySummary(year: string): Promise<Result<CategoryS
     vendors: ((v.data ?? []) as VendorSpendRow[]).map((r) => num(r, ["n", "amount"])),
     transfers: ((t.data ?? []) as TransferMonthRow[]).map((r) => num(r, ["transfer_out", "transfer_in", "n_out", "n_in"])),
   });
+}
+
+/** *Berapa bulan* (L10): the last three finished months of `v_category_month`
+ *  and today's balances of the accounting accounts, read together; the
+ *  arithmetic is `runwayFrom`, shared with the sandbox. */
+export async function getRunway(): Promise<Result<Runway>> {
+  const today = officeToday();
+  const months = runwayMonths(today);
+  const [m, b] = await Promise.all([
+    db().from("v_category_month").select("*").in("month", months),
+    db().from("v_account_balance").select("code, custody, balance, is_active"),
+  ]);
+  if (m.error) return fail(SERVICE, m.error);
+  if (b.error) return fail(SERVICE, b.error);
+  return ok(SERVICE, runwayFrom({
+    today,
+    months: ((m.data ?? []) as CategoryMonthRow[]).map((r) => num(r, ["n", "amount"])),
+    balances: ((b.data ?? []) as { code: string; custody: AccountCustody; balance: unknown; is_active?: boolean }[])
+      .map((a) => ({ ...a, balance: Number(a.balance ?? 0) })),
+  }));
 }
 
 /* ------------------------------------------------------------------ */

@@ -702,6 +702,27 @@ export interface TransferMonthRow {
   n_in: number;
 }
 
+/** *Masih aman berapa bulan* (L10, §6.9): cash on the accounting accounts
+ *  against the average of the last three finished months of running cost.
+ *  See `services/accounting/runway.ts` for what counts. */
+export interface Runway {
+  as_of: string;
+  /** The three finished months the averages are taken over, oldest first. */
+  months_used: string[];
+  /** Average monthly running cost: payroll · fixed · overhead · bank · tax. */
+  burn: number;
+  burn_by: { category: Category; amount: number }[];
+  /** Average monthly income (category `income`) over the same months. */
+  income_avg: number;
+  /** Balance of the accounting-custody accounts today. */
+  cash: number;
+  cash_accounts: { code: AccountCode; balance: number }[];
+  /** cash ÷ burn, one decimal; null when there is no burn to divide by. */
+  months_without_income: number | null;
+  /** cash ÷ (burn − income); null when income covers the burn. */
+  months_with_income: number | null;
+}
+
 /** One year of the four, read together for `/accounting/ringkasan`. */
 export interface CategorySummary {
   year: string;

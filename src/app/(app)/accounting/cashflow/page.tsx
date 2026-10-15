@@ -11,7 +11,9 @@ import { formatIDR, formatIDRCompact } from "@/lib/format";
 import { officeToday } from "@/lib/office";
 import { cn } from "@/lib/cn";
 import { accounting } from "@/demo/api";
-import type { Cashflow, CashflowRow, Direction } from "@/services/accounting/contracts";
+import type { Cashflow, CashflowRow, Direction, Runway } from "@/services/accounting/contracts";
+import { CATEGORY_LABELS } from "@/services/accounting/categories";
+import Link from "next/link";
 import { useSession } from "@/store/session";
 import { useTr } from "@/lib/i18n";
 import { addMonths } from "@/services/accounting/cashflow";
@@ -47,6 +49,9 @@ export default function CashflowPage() {
   const [from, setFrom] = useState(thisMonth);
   const [month, setMonth] = useState(thisMonth);
   const [cf, reload] = useLoad(() => accounting.getCashflow(from), [from]);
+  /* Its own read: the ledger's three-month average, independent of the plan
+     and of the month being looked at (L10). */
+  const [runway] = useLoad(() => accounting.getRunway(), []);
   const [line, setLine] = useState<CashflowRow | { new: Direction } | null>(null);
   const [bill, setBill] = useState<CashflowRow | null>(null);
   const [week, setWeek] = useState<{ row: CashflowRow; index: number } | null>(null);
@@ -102,6 +107,7 @@ export default function CashflowPage() {
         {(c) => (
           <>
             <Overview
+              runway={runway.status === "ready" ? runway.data : null}
               cf={c} month={month} onMonth={setMonth} onOpening={() => setOpening(true)}
               badge={<SourceBadge state={cf} />}
             />
@@ -152,8 +158,8 @@ export default function CashflowPage() {
 /* ── Section 1 ─────────────────────────────────────────────────────────── */
 
 function Overview({
-  cf, month, onMonth, onOpening, badge,
-}: { cf: Cashflow; month: string; onMonth: (m: string) => void; onOpening: () => void; badge: React.ReactNode }) {
+  cf, month, onMonth, onOpening, badge, runway,
+}: { cf: Cashflow; month: string; onMonth: (m: string) => void; onOpening: () => void; badge: React.ReactNode; runway: Runway | null }) {
   const tr = useTr();
   const v = cf.verdict;
   const cur = cf.months.find((m) => m.is_current) ?? cf.months[0];
@@ -209,6 +215,8 @@ function Overview({
           </p>
         </div>
       </div>
+
+      {runway && <RunwayCard r={runway} />}
 
       <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Tile
@@ -281,6 +289,61 @@ function Overview({
 
       <MonthChain cf={cf} month={month} onMonth={onMonth} />
     </section>
+  );
+}
+
+/** *Masih aman berapa bulan* — from the ledger, not the plan (L10, §6.9):
+ *  the accounting accounts' cash against the average of the last three
+ *  finished months of running cost. Two readings, because both are asked:
+ *  with nothing coming in, and with the recent average income arriving.
+ *  The weekly verdict above stays the answer to *when*; this is the one
+ *  figure for *how long*. */
+function RunwayCard({ r }: { r: Runway }) {
+  const tr = useTr();
+  const months = (x: number | null) => x === null ? "—" : tr(`${x} month(s)`, `${x} bulan`);
+  const tone = r.months_without_income === null ? "slate"
+    : r.months_without_income < 2 ? "rose" : r.months_without_income < 4 ? "amber" : "emerald";
+  const first = r.months_used[0] ?? "";
+  const last = r.months_used[r.months_used.length - 1] ?? "";
+  return (
+    <div id="runway" className={cn(
+      "mb-4 rounded-xl border px-4 py-3.5",
+      tone === "rose" && "border-rose-200 bg-rose-50/60",
+      tone === "amber" && "border-amber-200 bg-amber-50/60",
+      tone === "emerald" && "border-emerald-200 bg-emerald-50/40",
+      tone === "slate" && "border-slate-200 bg-white",
+    )}>
+      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2">
+        <div>
+          <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{tr("How many months, from the ledger", "Berapa bulan, dari buku besar")}</p>
+          <p className="mt-1 text-2xl font-bold tabular-nums tracking-tight text-slate-800">
+            {months(r.months_without_income)}
+            <span className="ml-2 text-sm font-medium text-slate-500">{tr("with no income", "tanpa pemasukan")}</span>
+          </p>
+          <p className="text-sm text-slate-700">
+            {r.burn === 0
+              ? tr("no running cost in the last three months to divide by", "tidak ada biaya rutin tiga bulan terakhir untuk dibagi")
+              : r.income_avg === 0
+                ? tr("no income recorded in those months", "tidak ada pemasukan tercatat di bulan-bulan itu")
+                : r.months_with_income === null
+                  ? tr(`income (${formatIDRCompact(r.income_avg)}/month) covers the running cost`, `pemasukan (${formatIDRCompact(r.income_avg)}/bulan) menutup biaya rutin`)
+                  : tr(`${months(r.months_with_income)} with income of ${formatIDRCompact(r.income_avg)}/month`, `${months(r.months_with_income)} dengan pemasukan ${formatIDRCompact(r.income_avg)}/bulan`)}
+          </p>
+        </div>
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-[12px] text-slate-600 sm:text-right">
+          <dt>{tr("Cash on accounting accounts", "Kas rekening accounting")}</dt>
+          <dd className="font-semibold tabular-nums text-slate-800" title={r.cash_accounts.map((a) => `${a.code} ${formatIDRCompact(a.balance)}`).join(" · ")}>{formatIDR(r.cash)}</dd>
+          <dt>{tr(`Running cost · avg ${monthLabel(first)}–${monthLabel(last)}`, `Biaya rutin · rata-rata ${monthLabel(first)}–${monthLabel(last)}`)}</dt>
+          <dd className="font-semibold tabular-nums text-slate-800">{formatIDR(r.burn)}{tr("/month", "/bulan")}</dd>
+        </dl>
+      </div>
+      <p className="mt-2 text-[11px] text-slate-500">
+        {r.burn_by.map((b) => `${tr(CATEGORY_LABELS[b.category].en, CATEGORY_LABELS[b.category].id)} ${formatIDRCompact(b.amount)}`).join(" · ")}
+        {r.burn_by.length > 0 && " — "}
+        {tr("vendor, transfers, EJO and Saripan are not counted (§6.9).", "vendor, transfer, EJO dan Saripan tidak dihitung (§6.9).")}{" "}
+        <Link href="/accounting/ringkasan" className="text-brand-700 hover:underline">{tr("See the summary", "Lihat ringkasan")}</Link>
+      </p>
+    </div>
   );
 }
 

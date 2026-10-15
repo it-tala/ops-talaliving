@@ -17,8 +17,9 @@ import type {
 } from "@/services/accounting/contracts";
 import { guessLineKind, signedTotal, type LineKind } from "@/services/accounting/lines";
 import { CASHFLOW_IN_CATEGORIES, CASHFLOW_OUT_CATEGORIES } from "@/services/accounting/contracts";
-import type { Category, CategorySummary } from "@/services/accounting/contracts";
+import type { Category, CategorySummary, Runway } from "@/services/accounting/contracts";
 import { isCategory } from "@/services/accounting/categories";
+import { runwayFrom } from "@/services/accounting/runway";
 import { subscriptionRegister } from "@/services/accounting/subscriptions";
 import { buildCashflow, balancesAt } from "@/services/accounting/cashflow";
 import { getActiveLocale, formatIDR } from "@/lib/format";
@@ -2055,6 +2056,17 @@ export async function listFundings(): Promise<Result<FundingView[]>> {
 export async function getCategorySummary(year: string): Promise<Result<CategorySummary>> {
   await latency();
   return ok(SERVICE, categorySummary(getState(), year));
+}
+
+/** *Berapa bulan* (L10): the same arithmetic as the real side, over the
+ *  sandbox's months and balances. */
+export async function getRunway(): Promise<Result<Runway>> {
+  await latency();
+  const state = getState();
+  const today = officeToday();
+  const year = today.slice(0, 4);
+  const months = [...categorySummary(state, year).months, ...categorySummary(state, String(Number(year) - 1)).months];
+  return ok(SERVICE, runwayFrom({ today, months, balances: accountBalances(state) }));
 }
 
 /** One transfer and where it went. */
