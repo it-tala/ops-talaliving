@@ -2,9 +2,9 @@
  *
  *  `transaction_lines.kind` is the answer to *which part of this transfer
  *  was the thing and which part was the bank*: `item` (goods or a service
- *  at its listed price), `fee` (bank, admin, platform), `tax` (a typed
- *  amount, never a rate — D435), `shipping`, `discount` (subtracted when the
- *  lines are summed) and `other`. The letters a/b the owner asked for (D436)
+ *  at its listed price), `fee` (bank, admin, platform), `tax` (stored as an
+ *  amount, never a rate — D435; a rate may be typed to work it out, D441),
+ *  `shipping`, `discount` (subtracted when the lines are summed) and `other`. The letters a/b the owner asked for (D436)
  *  are the line numbers; the kind says what the letter is for.
  *
  *  **The amount stays positive; the kind carries the sign.** Same rule as
@@ -132,6 +132,25 @@ export function withTax(ls: LineDraft[], taxAmount: number, total: number): Line
     });
   }
   return next;
+}
+
+/** The tax from a rate the person types (D441), for a total that already
+ *  holds it: the transfer is goods + PPN, so at 11% the tax is
+ *  total × 11 ÷ 111, not total × 11%. Fee, shipping and discount lines stay
+ *  outside the base — the nota's PPN is on the goods. What is stored is
+ *  still the amount (D435); the rate is only a way to type it. */
+export function taxForRate(ls: LineDraft[], ratePct: number, total: number): number {
+  const others = ls.filter((l) => l.kind !== "tax" && !isPricedKind(l.kind))
+    .reduce((n, l) => n + lineSign(l.kind) * draftAmount(l), 0);
+  const base = total - others;
+  if (!(ratePct > 0) || base <= 0) return 0;
+  return Math.round((base * ratePct) / (100 + ratePct));
+}
+
+/** The rate a tax amount is of the goods, to two decimals — what the rate
+ *  field shows when the amount was typed instead. 0 when there are no goods. */
+export function taxRateOf(taxAmount: number, goods: number): number {
+  return goods > 0 && taxAmount > 0 ? Math.round((taxAmount / goods) * 10000) / 100 : 0;
 }
 
 /** *Pisahkan biaya admin*: the …2.500 / …6.500 a bank folds into a transfer

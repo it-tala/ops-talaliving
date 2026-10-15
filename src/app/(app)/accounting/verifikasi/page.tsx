@@ -26,7 +26,8 @@ import { UomOptions } from "@/components/ui/uom-options";
 import { useTr, type Message, type Tr } from "@/lib/i18n";
 import { BilledFields, LineKindSelect } from "@/components/accounting/line-kind";
 import { ItemPicker } from "@/components/accounting/item-picker";
-import { guessLineKind, isPricedKind, lineSign, type LineKind } from "@/services/accounting/lines";
+import { guessLineKind, isPricedKind, lineSign, taxForRate, taxRateOf, type LineKind } from "@/services/accounting/lines";
+import { TaxRateInput } from "@/components/accounting/tax-rate";
 
 /** The narrow road: documents whose parent is genuinely unknown.
  *
@@ -629,6 +630,7 @@ function ResolvePanel({
   /* The tax as the nota prints it; typing it moves the item lines (D435). */
   const taxLine = lines.find((l) => l.kind === "tax");
   const taxAmount = taxLine ? lineAmount(taxLine) : 0;
+  const goods = lines.filter((l) => isPricedKind(l.kind)).reduce((n, l) => n + lineAmount(l), 0);
   /* A bill in USD paid in rupiah (D435): kept beside the row after booking. */
   const [billedOpen, setBilledOpen] = useState(false);
   const [billedCcy, setBilledCcy] = useState("USD");
@@ -1258,20 +1260,27 @@ function ResolvePanel({
                   </p>
                 )}
 
-                {/* The nota's tax, as printed (D435): typing it takes that
-                    much off the item lines and books it as a tax line, so the
-                    total stays what the document says. */}
+                {/* The nota's tax, as printed (D435) or as a rate (D441):
+                    either takes that much off the item lines and books it as
+                    a tax line, so the total stays what the document says. A
+                    rate splits the total — goods + tax = what was paid. */}
                 <div className="mt-3 grid grid-cols-12 items-end gap-1.5">
-                  <div className="col-span-6 sm:col-span-4">
+                  <div className="col-span-4 sm:col-span-2">
+                    <label htmlFor="rv-tax-pct" className="block text-xs text-slate-500">{tr("Tax (%)", "Pajak (%)")}</label>
+                    <TaxRateInput id="rv-tax-pct" taxAmount={taxAmount} rate={taxRateOf(taxAmount, goods)}
+                      onRate={(pct) => { const t = taxForRate(lines, pct, amount); setLines((ls) => withTax(ls, t, amount)); return t; }} />
+                  </div>
+                  <div className="col-span-8 sm:col-span-4">
                     <label htmlFor="rv-tax" className="block text-xs text-slate-500">{tr("Tax on the nota (amount)", "Pajak di nota (nominal)")}</label>
                     <MoneyInput id="rv-tax" value={taxAmount}
                       onChange={(v) => setLines((ls) => withTax(ls, v, amount))} />
                   </div>
-                  <p className="col-span-6 text-[11px] text-slate-500 sm:col-span-8">
+                  <p className="col-span-12 text-[11px] text-slate-500 sm:col-span-6">
                     {taxAmount > 0
-                      ? tr(`Taken off the items: goods ${formatIDR(amount - taxAmount)} + tax ${formatIDR(taxAmount)} = ${formatIDR(amount)}.`,
-                          `Dikurangkan dari barang: barang ${formatIDR(amount - taxAmount)} + pajak ${formatIDR(taxAmount)} = ${formatIDR(amount)}.`)
-                      : tr("The figure the nota prints — never a percentage.", "Angka yang tercetak di nota — bukan persentase.")}
+                      ? tr(`Taken off the items: goods ${formatIDR(goods)} + tax ${formatIDR(taxAmount)} = ${formatIDR(amount)}.`,
+                          `Dikurangkan dari barang: barang ${formatIDR(goods)} + pajak ${formatIDR(taxAmount)} = ${formatIDR(amount)}.`)
+                      : tr("Type the rate (11, 12) and the amount is worked out, or type the figure the nota prints.",
+                          "Ketik tarifnya (11, 12) dan nominalnya dihitung, atau ketik angka yang tercetak di nota.")}
                   </p>
                 </div>
 

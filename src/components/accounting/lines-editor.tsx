@@ -11,8 +11,9 @@ import { useTr } from "@/lib/i18n";
 import { ItemPicker } from "./item-picker";
 import { LineKindSelect } from "./line-kind";
 import {
-  draftAmount, draftsTotal, isPricedKind, nextKey, splitFee, withTax, type LineDraft,
+  draftAmount, draftsTotal, isPricedKind, nextKey, splitFee, taxForRate, taxRateOf, withTax, type LineDraft,
 } from "@/services/accounting/lines";
+import { TaxRateInput } from "./tax-rate";
 import type { UomCode } from "@/services/procurement/contracts";
 
 /** The detail of one ledger row, being rewritten (L12, D434).
@@ -21,7 +22,7 @@ import type { UomCode } from "@/services/procurement/contracts";
  *  amount is fixed — it is the bank's figure — so the editor's one job is to
  *  make the lines explain it: kinds, items, quantities, prices, and the sum
  *  against the amount always in view. Two helpers do the common splits in
- *  one click: the nota's tax as a figure (D435), and the transfer fee the
+ *  one click: the nota's tax as a figure (D435) or a rate (D441), and the transfer fee the
  *  bank folded into the amount (…2.500) as its own `fee` line.
  *
  *  An e-commerce order (D435 point 5) gets at most three lines — the listed
@@ -50,6 +51,7 @@ export function LinesEditor({
   const agree = total === amount;
   const taxLine = lines.find((l) => l.kind === "tax");
   const taxAmount = taxLine ? draftAmount(taxLine) : 0;
+  const goods = lines.filter((l) => isPricedKind(l.kind)).reduce((n, l) => n + draftAmount(l), 0);
   const canSplit = splitFee(lines, amount) !== null;
   const set = (key: number, next: Partial<LineDraft>) =>
     onChange(lines.map((l) => (l.key === key ? { ...l, ...next } : l)));
@@ -150,9 +152,17 @@ export function LinesEditor({
           {tr("Split the admin fee", "Pisahkan biaya admin")}
         </Button>
         <div className="ml-auto flex items-center gap-2">
-          <label htmlFor={`${idPrefix}-tax`} className="text-[12px] text-slate-500">{tr("Tax on the nota", "Pajak di nota")}</label>
-          <div className="w-36">
-            <MoneyInput id={`${idPrefix}-tax`} size="sm" value={taxAmount} onChange={(v) => onChange(withTax(lines, v, amount))} />
+          <label htmlFor={`${idPrefix}-tax-pct`} className="text-[12px] text-slate-500">{tr("Tax on the nota", "Pajak di nota")}</label>
+          {/* A rate or the amount, whichever the nota gives (D441): the rate
+              splits the amount into goods + tax, the amount is what is kept. */}
+          <div className="w-20">
+            <TaxRateInput id={`${idPrefix}-tax-pct`} size="sm" taxAmount={taxAmount} rate={taxRateOf(taxAmount, goods)}
+              onRate={(pct) => { const t = taxForRate(lines, pct, amount); onChange(withTax(lines, t, amount)); return t; }} />
+          </div>
+          <label htmlFor={`${idPrefix}-tax`} className="sr-only">{tr("Tax amount", "Nominal pajak")}</label>
+          <div className="w-32">
+            <MoneyInput id={`${idPrefix}-tax`} size="sm" value={taxAmount}
+              onChange={(v) => onChange(withTax(lines, v, amount))} />
           </div>
         </div>
       </div>
