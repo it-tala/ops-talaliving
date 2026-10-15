@@ -10961,3 +10961,25 @@ rows in one transaction must set their clocks itself, or it is testing the
 uuid generator. A second thing the same file caught: the approver (Evin) holds
 no accounting module, so the ledger views are empty for him — decide as the
 approver, read as the bookkeeper.
+
+
+## F282 · 2026-10-15 · Two programs on one Google account see the same folders, whatever their scope says
+
+D359 (3) sat waiting for two weeks under the belief that John Lau would have
+to be rewritten to upload with `drive.file`, so that "both systems see the
+same folder". Reading the two configurations side by side showed there is
+only one Google identity: the web app's `GOOGLE_SERVICE_ACCOUNT_EMAIL` and
+the bot's worker SA are both `capture-worker@john-lau-v01`. `drive.file`
+does not scope by program; it scopes by *who created the file*. So every
+month folder the bot ever made is already visible to the web app, and the
+only thing the app could not see was the `TRANSACTIONS` root the owner made
+by hand on 2026-09-09 (the same F173 answer, *File not found*, for the same
+reason).
+
+That turns a production-pipeline change into a folder move: make the root
+inside the app's own `ops-talaliving`, move the months under it, point the
+env var at it. Nothing in the bot's auth changes, and a Drive file keeps its
+id when it changes parents, so no link in the ledger or the sheet moves.
+The lesson: before planning a change to a second system's permissions, check
+whether it is a second identity at all. The scope is a property of the token,
+the visibility is a property of the account.
