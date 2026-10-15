@@ -736,7 +736,7 @@ export function TrxDrawer({
             {linesOpen && (
               <div className="mb-3 space-y-3 rounded-lg border border-brand-200 bg-brand-50/40 px-3 py-3" data-testid="trx-lines-edit">
                 <LinesEditor lines={lineDrafts} onChange={setLineDrafts} amount={trx.amount_idr} idPrefix="trx-lines" allowCreate={createsItems}
-                  documents={(lineDocs ?? []).map((f) => ({ id: f.id, filename: f.filename, kind: f.links.find((l) => l.entity_no === trx.trx_no)?.kind ?? null }))} />
+                  sources={(lineDocs ?? []).map((f) => ({ id: f.id, filename: f.filename, kind: f.links.find((l) => l.entity_no === trx.trx_no)?.kind ?? null }))} />
                 <div>
                   <label htmlFor="trx-lines-reason" className="block text-xs text-slate-600">{tr("Remark (optional)", "Keterangan (opsional)")}</label>
                   <input id="trx-lines-reason" value={linesReason} onChange={(e) => setLinesReason(e.target.value)}

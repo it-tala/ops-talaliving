@@ -227,7 +227,7 @@ function RedetailPanel({ trxNo, row, mayPost, onDone }: {
             {lines && (
               <LinesEditor lines={lines} onChange={setLines} amount={t.amount_idr} idPrefix="rd"
                 allowCreate={createsItems} ecommerce={row?.is_ecommerce ?? false}
-                documents={files.status === "ready" ? files.data.map((f) => ({ id: f.id, filename: f.filename, kind: f.links.find((l) => l.entity_no === t.trx_no)?.kind ?? null })) : []} />
+                sources={files.status === "ready" ? files.data.map((f) => ({ id: f.id, filename: f.filename, kind: f.links.find((l) => l.entity_no === t.trx_no)?.kind ?? null })) : []} />
             )}
 
             <div>

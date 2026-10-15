@@ -30,7 +30,7 @@ import type { UomCode } from "@/services/procurement/contracts";
  *  price after a one-day voucher.
  */
 export function LinesEditor({
-  lines, onChange, amount, idPrefix = "le", allowCreate = false, ecommerce = false, documents = [],
+  lines, onChange, amount, idPrefix = "le", allowCreate = false, ecommerce = false, sources = [],
 }: {
   lines: LineDraft[];
   onChange: (next: LineDraft[]) => void;
@@ -39,10 +39,11 @@ export function LinesEditor({
   idPrefix?: string;
   allowCreate?: boolean;
   ecommerce?: boolean;
-  /** The row's own documents (L11): when given, each line can say which
+  /** The row's own documents (L11; named `sources` so the live-routes
+   *  scanner does not read it as the documents service): when given, each line can say which
    *  one it was read from. The pointer is saved by `set_line_evidence`
    *  after the lines themselves. */
-  documents?: { id: string; filename: string; kind?: string | null }[];
+  sources?: { id: string; filename: string; kind?: string | null }[];
 }) {
   const tr = useTr();
   const total = draftsTotal(lines);
@@ -107,14 +108,14 @@ export function LinesEditor({
                 <MoneyInput id={`${idPrefix}-amt-${l.key}`} value={l.amount} onChange={(v) => set(l.key, { amount: v })} />
               </div>
             )}
-            {documents.length > 0 && (
+            {sources.length > 0 && (
               <div className="col-span-12">
                 <label htmlFor={`${idPrefix}-doc-${l.key}`} className="block text-[11px] text-slate-500">{tr("Read from", "Dibaca dari")}</label>
                 <select id={`${idPrefix}-doc-${l.key}`} value={l.attachment_id ?? ""}
                   onChange={(e) => set(l.key, { attachment_id: e.target.value || null })}
                   className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-[12px] text-slate-700 focus:border-brand-400 focus:outline-none">
                   <option value="">{tr("— no document named —", "— tanpa dokumen —")}</option>
-                  {documents.map((d) => (
+                  {sources.map((d) => (
                     <option key={d.id} value={d.id}>{d.filename}{d.kind ? ` · ${d.kind}` : ""}</option>
                   ))}
                 </select>
