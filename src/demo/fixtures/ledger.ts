@@ -209,6 +209,22 @@ export const EVIDENCE_INBOX: Omit<EvidenceInboxRow, "reported_by_name" | "file_k
   /* The other direction: leadership transferred money INTO BCA 271 and
    * dropped the proof in chat. Nobody has booked it yet, so the round it was
    * meant to fund cannot be marked funded — which is the point (D80, D81). */
+  /** The seventh road's case (0283, L16): a transfer between our own
+   *  accounts, read as both legs and the fee. Verification switches to the
+   *  transfer road and fills both accounts; the person confirms. */
+  {
+    id: "inb_91", ref_id: "upl_26-10-15_01~x0", origin: "chat", status: "PENDING",
+    attachment_id: "att_91", reported_by: "usr_putri", reported_at: "2026-10-15T08:40:00+07:00",
+    extracted: { vendor_name: null, document_date: "2026-10-15", amount_idr: 5_000_000, doc_type: "Payment Proof", confidence: 97, note: "Transfer BCA 271 ke BNI 325 untuk operasional",
+      account: "BCA 271", transaction_type: "CASHFLOW", doc_kind: "transfer_proof", duplicate_suspect: false,
+      lines: [
+        { money_direction: "OUT", account: "BCA 271", amount_idr: 5_000_000, transaction_type: "CASHFLOW", note: "Transfer BCA 271 ke BNI 325" },
+        { money_direction: "IN", account: "BNI 325", amount_idr: 5_000_000, transaction_type: "CASHFLOW", note: "Penerimaan transfer dari BCA 271" },
+        { money_direction: "OUT", account: "BCA 271", amount_idr: 2_500, transaction_type: "BANK CHARGES", note: "Transfer admin fee" },
+      ] },
+    produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
+    money_direction: null,
+  },
   /** The sixth road's case (0281, L6): a transfer proof whose message names
    *  the approved request line it pays. Verification picks that line before
    *  the person looks; the person confirms. */

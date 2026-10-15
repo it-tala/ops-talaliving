@@ -5,7 +5,7 @@ import { TypeOptions } from "@/components/ui/type-options";
 import { useCallback, useEffect, useState } from "react";
 import {
   Inbox, FileText, Receipt, Undo2, Link2, StickyNote, XCircle, AlertTriangle, Check,
-  RefreshCw, BadgeCheck,
+  RefreshCw, BadgeCheck, ArrowLeftRight,
 } from "lucide-react";
 import { Badge, Button, Card, CardHeader, EmptyState, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad, usePoll } from "@/components/ui/loaded";
@@ -52,7 +52,7 @@ import { guessLineKind, isPricedKind, lineSign, type LineKind } from "@/services
  *  If this queue grows, people are routing around the main road — which is why
  *  the weekly arrival count sits at the top rather than in a report.
  */
-type Road = "transaction" | "pay_line" | "retro_pr_line" | "link" | "note" | "reject";
+type Road = "transaction" | "pay_line" | "transfer" | "retro_pr_line" | "link" | "note" | "reject";
 
 const ROADS: { key: Road; label: Message; icon: typeof Receipt; hint: Message }[] = [
   { key: "transaction", label: { en: "Make a transaction", id: "Buat transaksi" }, icon: Receipt,
@@ -62,6 +62,10 @@ const ROADS: { key: Road; label: Message; icon: typeof Receipt; hint: Message }[
      the line, so nothing is retyped. */
   { key: "pay_line", label: { en: "Pay an approved request", id: "Bayar permintaan yang disetujui" }, icon: BadgeCheck,
     hint: { en: "the line was approved — this is its payment", id: "barisnya sudah disetujui — ini pembayarannya" } },
+  /* The seventh road (0283, L16): this proof is a transfer between our own
+     accounts. Both legs and the fee are written together (0282). */
+  { key: "transfer", label: { en: "Move between our accounts", id: "Pindah dana antar rekening" }, icon: ArrowLeftRight,
+    hint: { en: "our money, our other account — both legs at once", id: "uang kita ke rekening kita yang lain — dua kaki sekaligus" } },
   { key: "retro_pr_line", label: { en: "Retro request line", id: "Baris permintaan susulan" }, icon: Undo2,
     hint: { en: "write the request that should have existed", id: "tulis permintaan yang seharusnya ada" } },
   { key: "link", label: { en: "Link to a row", id: "Tautkan ke baris" }, icon: Link2,
@@ -245,7 +249,7 @@ export default function InboxPage() {
       <PageHeader
         breadcrumb={tr("Accounting", "Akuntansi")}
         title={tr("Purchase verification", "Verifikasi pembelian")}
-        description={tr("Documents that arrived with nothing to attach them to — somebody bought first and photographed the nota. Everything here leaves by one of six roads, and none of them throws the file away.", "Dokumen yang datang tanpa ada tempat untuk dilampirkan — seseorang membeli dulu lalu memotret notanya. Semua yang ada di sini keluar lewat salah satu dari enam jalan, dan tidak satu pun membuang berkasnya.")}
+        description={tr("Documents that arrived with nothing to attach them to — somebody bought first and photographed the nota. Everything here leaves by one of seven roads, and none of them throws the file away.", "Dokumen yang datang tanpa ada tempat untuk dilampirkan — seseorang membeli dulu lalu memotret notanya. Semua yang ada di sini keluar lewat salah satu dari tujuh jalan, dan tidak satu pun membuang berkasnya.")}
       />
 
       {/* A screen that asks again on its own has to say when it last did.
@@ -693,6 +697,36 @@ function ResolvePanel({
 
   const accountRows = accounts.status === "ready" ? accounts.data.filter((a) => a.is_active !== false) : [];
 
+  /* ── A transfer between our own accounts (0283, L16) ─────────────────
+   *
+   * The reading of a transfer proof names the two legs: an OUT line with the
+   * source account, an IN line with the destination, often a BANK CHARGES
+   * line for the fee (john-lau J1). When it does, the road switches here and
+   * the form is filled from it — the person confirms (A13). A reading with
+   * only one account fills the source and asks for the other. */
+  const readLines = doc.rows.flatMap((r) => (r.extracted.lines ?? []) as { money_direction?: string | null; account?: string | null; amount_idr?: number | null; transaction_type?: string | null }[]);
+  const outLine = readLines.find((l) => l.money_direction === "OUT" && l.transaction_type !== "BANK CHARGES");
+  const inLine = readLines.find((l) => l.money_direction === "IN");
+  const feeLine = readLines.find((l) => l.transaction_type === "BANK CHARGES");
+  const [tfFromId, setTfFromId] = useState("");
+  const [tfToId, setTfToId] = useState("");
+  const [tfFee, setTfFee] = useState(feeLine?.amount_idr ?? 0);
+  useEffect(() => {
+    if (accounts.status !== "ready" || isOthers) return;
+    const byCode = (code?: string | null) => code ? accountRows.find((a) => a.code.toLowerCase() === code.toLowerCase()) : undefined;
+    const from = byCode(outLine?.account ?? accountRead);
+    const to = byCode(inLine?.account);
+    if (from) setTfFromId(from.account_id);
+    if (to) setTfToId(to.account_id);
+    /* Two legs read, on two accounts we have: this is a transfer unless the
+       message named a request line, which wins. */
+    const named = lineCands.status === "ready" && lineCands.data.candidates.some((c) => c.caption_match);
+    if (from && to && from.account_id !== to.account_id && !named) setRoad("transfer");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accounts.status, lineCands.status, doc.key]);
+  const tfFrom = accountRows.find((a) => a.account_id === tfFromId);
+  const tfTo = accountRows.find((a) => a.account_id === tfToId);
+
   /* The reading proposed a vendor; the form offers it rather than making
      somebody retype a name that is already on the screen. Still a proposal:
      it is selected, not committed, and the posting is the person agreeing
@@ -750,6 +784,22 @@ function ResolvePanel({
         const err = await resolveAll({ resolution: road, reason });
         if (err) { toast("warning", tr("Not recorded", "Tidak dicatat"), err.error); if (err.partial) onDone(); return; }
         toast("success", road === "note" ? tr("Kept as a note", "Disimpan sebagai catatan") : tr("Rejected, and kept", "Ditolak, dan disimpan"), tr("No money was recorded either way.", "Tidak ada uang yang dicatat."));
+        onDone();
+        return;
+      }
+
+      if (road === "transfer") {
+        /* One call (0283): post_transfer with this document as the proof on
+           every row, and every inbox row of the photo closed. */
+        const booked = await accounting.bookEvidenceToTransfer({
+          ref_id: row.ref_id, also_ref_ids: refs.slice(1),
+          from_account_id: tfFromId, to_account_id: tfToId, amount_idr: amount, trx_date: date,
+          fee: tfFee > 0 ? Math.round(tfFee) : null, description: description.trim() || null,
+        });
+        if (booked.error) { toast("warning", tr("Not booked", "Tidak dibukukan"), booked.error.message); return; }
+        toast("success", tr("Transfer recorded", "Pindah dana tercatat"),
+          tr(`${formatIDR(booked.data.amount)} ${booked.data.from_account} → ${booked.data.to_account} · ${booked.data.out_trx_no} and ${booked.data.in_trx_no}`,
+             `${formatIDR(booked.data.amount)} ${booked.data.from_account} → ${booked.data.to_account} · ${booked.data.out_trx_no} dan ${booked.data.in_trx_no}`));
         onDone();
         return;
       }
@@ -886,6 +936,7 @@ function ResolvePanel({
     road === "note" || road === "reject" ? reason.trim().length > 0
       : road === "link" ? linked.length > 0
       : road === "pay_line" ? !!payLine && !!accountId && amount > 0
+      : road === "transfer" ? !!tfFromId && !!tfToId && tfFromId !== tfToId && amount > 0 && tfFee >= 0
         /* The button is disabled while the lines disagree, and the reason is
            shown beside them. The seam refuses this too — the screen refusing
            first is a courtesy, not the control (D220: the database decides). */
@@ -1255,6 +1306,61 @@ function ResolvePanel({
           </div>
         )}
 
+        {road === "transfer" && (
+          <div data-testid="rv-transfer" className="grid gap-3 sm:grid-cols-2">
+            <p className="text-xs text-slate-500 sm:col-span-2">
+              {tr("This proof is money moving between our own accounts. The OUT, the IN and the fee are written together, with this document on each (0282).",
+                  "Bukti ini uang yang pindah antar rekening kita sendiri. Baris keluar, masuk dan biayanya dicatat bersama, dengan dokumen ini di masing-masing (0282).")}
+            </p>
+            <div>
+              <label htmlFor="rv-tf-from" className="block text-xs text-slate-500">{tr("From", "Dari")}</label>
+              <select id="rv-tf-from" value={tfFromId} onChange={(e) => setTfFromId(e.target.value)}
+                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none">
+                <option value="">{tr("Choose…", "Pilih…")}</option>
+                {accountRows.map((a) => <option key={a.account_id} value={a.account_id}>{a.code} — {a.name}</option>)}
+              </select>
+              {outLine?.account && <p className="mt-1 text-[11px] text-slate-500">{tr("Read as", "Terbaca sebagai")} <span className="text-slate-700">{outLine.account}</span></p>}
+            </div>
+            <div>
+              <label htmlFor="rv-tf-to" className="block text-xs text-slate-500">{tr("To", "Ke")}</label>
+              <select id="rv-tf-to" value={tfToId} onChange={(e) => setTfToId(e.target.value)}
+                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none">
+                <option value="">{tr("Choose…", "Pilih…")}</option>
+                {accountRows.filter((a) => a.account_id !== tfFromId).map((a) => <option key={a.account_id} value={a.account_id}>{a.code} — {a.name}</option>)}
+              </select>
+              {inLine?.account && <p className="mt-1 text-[11px] text-slate-500">{tr("Read as", "Terbaca sebagai")} <span className="text-slate-700">{inLine.account}</span></p>}
+            </div>
+            <div>
+              <label htmlFor="rv-tf-amount" className="block text-xs text-slate-500">{tr("Amount that arrived (IDR)", "Jumlah yang sampai (IDR)")}</label>
+              <MoneyInput id="rv-tf-amount" value={amount} onChange={setAmount} className="mt-1" />
+            </div>
+            <div>
+              <label htmlFor="rv-tf-fee" className="block text-xs text-slate-500">{tr("Bank fee (optional)", "Biaya bank (opsional)")}</label>
+              <MoneyInput id="rv-tf-fee" value={tfFee} onChange={setTfFee} className="mt-1" />
+              {feeLine?.amount_idr != null && <p className="mt-1 text-[11px] text-slate-500">{tr(`read as ${formatIDR(feeLine.amount_idr)}`, `terbaca ${formatIDR(feeLine.amount_idr)}`)}</p>}
+            </div>
+            <div>
+              <label htmlFor="rv-tf-date" className="block text-xs text-slate-500">{tr("Date the money moved", "Tanggal uang bergerak")}</label>
+              <input id="rv-tf-date" type="date" value={date} onChange={(e) => setDate(e.target.value)}
+                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none" />
+            </div>
+            <div>
+              <label htmlFor="rv-tf-desc" className="block text-xs text-slate-500">{tr("Description (optional)", "Keterangan (opsional)")}</label>
+              <input id="rv-tf-desc" value={description} onChange={(e) => setDescription(e.target.value)}
+                placeholder={tfFrom && tfTo ? `Transfer ${tfFrom.code} → ${tfTo.code}` : ""}
+                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none" />
+            </div>
+            {tfFrom && tfTo && (
+              <p className="sm:col-span-2 rounded-lg bg-slate-50 px-3 py-2 text-[12px] text-slate-600" data-testid="rv-tf-preview">
+                <span className="font-medium text-slate-800">{tfFrom.code}</span> <span className="text-rose-700">− {formatIDR(Math.round(amount) + Math.round(tfFee))}</span>
+                {" → "}
+                <span className="font-medium text-slate-800">{tfTo.code}</span> <span className="text-emerald-700">+ {formatIDR(Math.round(amount))}</span>
+                {(tfFrom.custody === "leadership" || tfTo.custody === "leadership") && tr(" · one end is a leadership account: its row is written too, read by approve_funds only", " · salah satu ujungnya rekening pimpinan: barisnya ikut ditulis, dibaca approve_funds saja")}
+              </p>
+            )}
+          </div>
+        )}
+
         {road === "pay_line" && (
           <div data-testid="rv-pay-line">
             <p className="text-xs text-slate-500">
@@ -1452,7 +1558,7 @@ function ResolvePanel({
 /** What this one piece of paper is already holding up.
  *
  *  Three shapes, and the screen has to be able to say all three out loud
- *  before anybody presses one of the six roads (D206):
+ *  before anybody presses one of the seven roads (D206):
  *
  *  - **one document, several ledger rows** — booking it again is the mistake
  *    this queue is most able to produce, and the only thing that prevents it

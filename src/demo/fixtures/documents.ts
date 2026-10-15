@@ -46,6 +46,9 @@ export const ATTACHMENTS: Attachment[] = [
   { id: "att_12", storage_path: "demo/2026-09/struk-konsumsi.jpg", url: null, filename: "struk-konsumsi.jpg", sha256: "df9911aa0034", mime: "image/jpeg", bytes: 180_223, uploaded_by: "usr_anggun", uploaded_at: "2026-09-10T09:40:00+07:00", source: "web", duplicate_suspect: true },
   /* A transfer proof whose message names the request line it pays — the
      sixth road's own case (0281, L6). */
+  /* A transfer proof read as both legs and the fee — the seventh road's own
+     case (0283, L16). */
+  { id: "att_91", storage_path: "demo/2026-10/bukti-transfer-bni.jpg", url: null, filename: "bukti-transfer-bni.jpg", sha256: "b91d0e44a1c3", mime: "image/jpeg", bytes: 377_204, uploaded_by: "usr_putri", uploaded_at: "2026-10-15T08:40:00+07:00", source: "chat", duplicate_suspect: false },
   { id: "att_90", storage_path: "demo/2026-10/bukti-transfer-papan-jati.jpg", url: null, filename: "bukti-transfer-papan-jati.jpg", sha256: "a90c1e55d2b7", mime: "image/jpeg", bytes: 398_112, uploaded_by: "usr_putri", uploaded_at: "2026-10-14T09:12:00+07:00", source: "chat", duplicate_suspect: false },
   { id: "att_13", storage_path: "demo/2026-09/dokumen-pribadi.jpg", url: null, filename: "dokumen-pribadi.jpg", sha256: "4471bb2200fe", mime: "image/jpeg", bytes: 402_881, uploaded_by: "usr_shared", uploaded_at: "2026-09-07T20:10:00+07:00", source: "chat", duplicate_suspect: false },
   /* Transfer proofs: leadership funding the accounting account. Two already

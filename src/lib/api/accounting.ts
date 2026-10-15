@@ -822,6 +822,49 @@ export async function postTransfer(
   return ok(SERVICE, { ...res.data, amount: Number(res.data.amount), fee: Number(res.data.fee ?? 0) });
 }
 
+/** Verification's seventh road (`book_evidence_to_transfer`, `0283`, L16):
+ *  a transfer between our own accounts booked from the inbox document that
+ *  proves it — `post_transfer` with the document on every row, the inbox
+ *  row(s) closed with the OUT leg. */
+export async function bookEvidenceToTransfer(
+  input: {
+    ref_id: string;
+    also_ref_ids?: string[];
+    from_account_id: string;
+    to_account_id: string;
+    amount_idr: number;
+    trx_date: string;
+    fee?: number | null;
+    description?: string | null;
+    billed_currency?: string | null;
+    billed_amount?: number | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<TransferPosted>> {
+  const fromCode = await codeFor("accounts", input.from_account_id);
+  const toCode = await codeFor("accounts", input.to_account_id);
+  if (!fromCode || !toCode) {
+    return invalid(SERVICE, "account_not_found",
+      "Akun itu tidak ada di database.", { field: fromCode ? "to_account_id" : "from_account_id" });
+  }
+  const { data, error } = await db().rpc("book_evidence_to_transfer", {
+    p_ref_id:            input.ref_id,
+    p_from_account_code: fromCode,
+    p_to_account_code:   toCode,
+    p_amount:            input.amount_idr,
+    p_trx_date:          input.trx_date,
+    p_fee:               input.fee ?? null,
+    p_description:       input.description?.trim() || null,
+    p_billed_currency:   input.billed_currency ?? null,
+    p_billed_amount:     input.billed_amount ?? null,
+    p_also_ref_ids:      (input.also_ref_ids ?? []).filter((r) => r && r !== input.ref_id),
+    p_key:               idempotencyKey ?? null,
+  });
+  const res = fromSeam<TransferPosted>(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, { ...res.data, amount: Number(res.data.amount), fee: Number(res.data.fee ?? 0) });
+}
+
 /** Paying an order from its own screen (B8, `ops_acct.post_to_po`, 0139).
  *  The seam splits the money across the order's linked request lines; this
  *  passes the arguments and re-reads the row, like `postFromLine`. */
