@@ -32,6 +32,7 @@ import type {
   AccountCustody, Cashflow, CashflowLine, CashflowLineInput, CashflowBillInput, CashflowWeekOverride,
   CashflowReceipt, CashflowOpening, CashflowSettings,
   TransactionLineView, RedetailQueueRow,
+  InboxLineCandidates,
 } from "@/services/accounting/contracts";
 import type { LineKind } from "@/services/accounting/lines";
 import { fundingHeadline } from "@/services/accounting/categories";
@@ -723,6 +724,57 @@ export async function postFromLine(
      read succeeds, so a failed read is returned as itself rather than dressed
      as a failed payment. Retrying one that already happened is how a supplier
      gets paid twice. */
+  return readBack(posted.data.trx_no);
+}
+
+/** The approved request lines this inbox document could be paying
+ *  (`inbox_line_candidates`, 0281, L6), ranked by the seam. */
+export async function inboxLineCandidates(refId: string, limit = 20): Promise<Result<InboxLineCandidates>> {
+  const { data, error } = await db().rpc("inbox_line_candidates", { p_ref_id: refId, p_limit: limit });
+  const res = fromSeam<InboxLineCandidates>(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, {
+    ...res.data,
+    candidates: (res.data.candidates ?? []).map((c) => ({
+      ...c,
+      approved_amount: Number(c.approved_amount), covered: Number(c.covered), remaining: Number(c.remaining),
+    })),
+    amount_read: res.data.amount_read == null ? null : Number(res.data.amount_read),
+  });
+}
+
+/** Verification's sixth road (`book_evidence_to_line`, 0281, L6): pay an
+ *  approved request line with this inbox document as the proof — one act,
+ *  the inbox row(s) closed with `produced_pr_line_no`. */
+export async function bookEvidenceToLine(
+  input: {
+    ref_id: string;
+    also_ref_ids?: string[];
+    line_no: string;
+    account_id: string;
+    amount: number;
+    trx_date: string;
+    type_code?: TransactionTypeCode;
+  },
+  idempotencyKey?: string,
+): Promise<Result<TransactionView>> {
+  const accountCode = await codeFor("accounts", input.account_id);
+  if (!accountCode) {
+    return invalid(SERVICE, "account_not_found",
+      "Akun itu tidak ada di database.", { field: "account_id" });
+  }
+  const { data, error } = await db().rpc("book_evidence_to_line", {
+    p_ref_id:       input.ref_id,
+    p_line_no:      input.line_no,
+    p_account_code: accountCode,
+    p_amount:       input.amount,
+    p_trx_date:     input.trx_date,
+    p_type_code:    input.type_code ?? "SUPPLIERS",
+    p_also_ref_ids: (input.also_ref_ids ?? []).filter((r) => r && r !== input.ref_id),
+    p_key:          idempotencyKey ?? null,
+  });
+  const posted = fromSeam<{ trx_no: string }>(SERVICE, data, error);
+  if (posted.error) return posted;
   return readBack(posted.data.trx_no);
 }
 

@@ -294,6 +294,38 @@ export interface EvidenceInboxRow {
   money_direction?: Direction | null;
 }
 
+/** An approved request line still owed money, ranked for one inbox document
+ *  (`inbox_line_candidates`, 0281, L6): the line the message names first
+ *  (`caption_match`), then the reading's vendor (`vendor_match`), then an
+ *  amount within tolerance of what is owed (`amount_match`), newest decision
+ *  first. A read; the person chooses. */
+export interface InboxLineCandidate {
+  line_no: string;
+  description: string;
+  doc_no: string;
+  vendor_id: string | null;
+  vendor_name: string | null;
+  project_code: string | null;
+  project_name: string | null;
+  approved_amount: number;
+  covered: number;
+  remaining: number;
+  approved_by: string | null;
+  approved_at: string | null;
+  approval_channel: "web" | "chat" | "sheet" | "script" | "api" | null;
+  caption_match: boolean;
+  vendor_match: boolean;
+  amount_match: boolean;
+}
+
+export interface InboxLineCandidates {
+  candidates: InboxLineCandidate[];
+  /** The `pr-…-Lxx` the message named, normalised, or null. */
+  caption_line: string | null;
+  vendor_read: string | null;
+  amount_read: number | null;
+}
+
 /** Money already booked into a paying account, with whatever proof is on it.
  *
  *  The payment-round screen reads this instead of asking somebody to retype an

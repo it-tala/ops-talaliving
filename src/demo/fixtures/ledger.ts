@@ -209,6 +209,16 @@ export const EVIDENCE_INBOX: Omit<EvidenceInboxRow, "reported_by_name" | "file_k
   /* The other direction: leadership transferred money INTO BCA 271 and
    * dropped the proof in chat. Nobody has booked it yet, so the round it was
    * meant to fund cannot be marked funded — which is the point (D80, D81). */
+  /** The sixth road's case (0281, L6): a transfer proof whose message names
+   *  the approved request line it pays. Verification picks that line before
+   *  the person looks; the person confirms. */
+  {
+    id: "inb_90", ref_id: "upl_26-10-14_01~x0", origin: "chat", status: "PENDING",
+    attachment_id: "att_90", reported_by: "usr_putri", reported_at: "2026-10-14T09:12:00+07:00",
+    extracted: { vendor_name: "SUMBER KAYU JATI", document_date: "2026-10-14", amount_idr: 12_800_000, doc_type: "Payment Proof", confidence: 95, note: "Pelunasan papan jati pr-26-09-08_01-L02" },
+    produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
+    money_direction: "OUT",
+  },
   {
     id: "inb_05", ref_id: "upl_26-09-10_03~x0", origin: "chat", status: "PENDING",
     attachment_id: "att_17", reported_by: "usr_geryle", reported_at: "2026-09-10T08:22:00+07:00",

@@ -14,6 +14,8 @@ import type {
   SubscriptionStatus, SubscriptionPayment,
   Cashflow, CashflowLineInput, CashflowBillInput, CashflowSettings,
   TransactionLineView, RedetailQueueRow,
+  InboxLineCandidate,
+  InboxLineCandidates,
 } from "@/services/accounting/contracts";
 import { guessLineKind, signedTotal, type LineKind } from "@/services/accounting/lines";
 import { CASHFLOW_IN_CATEGORIES, CASHFLOW_OUT_CATEGORIES } from "@/services/accounting/contracts";
@@ -1393,6 +1395,134 @@ export async function bookEvidence(
     });
   });
 
+  remember(SERVICE, endpoint, idempotencyKey, posted.data);
+  return ok(SERVICE, posted.data);
+}
+
+/** `inbox_line_candidates` (0281, L6): the approved request lines still
+ *  owed money, ranked for one inbox document — the line the message names
+ *  first, then the reading's vendor, then an amount within tolerance, newest
+ *  decision first. A read; it decides nothing. */
+export async function inboxLineCandidates(refId: string, limit = 20): Promise<Result<InboxLineCandidates>> {
+  await latency();
+  const denied = requireAuthority(SERVICE, "resolve_inbox");
+  if (denied) return denied;
+  const state = getState();
+  const row = state.evidence_inbox.find((r) => r.ref_id === refId);
+  if (!row) return notFound(SERVICE, "inbox_row_not_found", `Row ${refId} not found.`);
+
+  const vendorRead = (row.extracted.vendor_name ?? "").trim() || null;
+  const amountRead = typeof row.extracted.amount_idr === "number" ? row.extracted.amount_idr : null;
+  /* The message's own words: `caption` once john-lau forwards it (J1), the
+     reading's `note` until then. A `pr-…-Lxx` in either picks that line. */
+  const text = `${(row.extracted as { caption?: string | null }).caption ?? ""} ${row.extracted.note ?? ""}`;
+  const m = /(pr-\d{2}-\d{2}-\d{2}_\d+-L\d{2})/i.exec(text);
+  const captionLine = m ? m[1].toLowerCase().replace(/-l(\d{2})$/, "-L$1") : null;
+  /* Same as `ops_core.money_tolerance()` on a fresh database. */
+  const tolerance = 1000;
+
+  const all: InboxLineCandidate[] = state.pr_lines
+    .filter((l) => !l.removed_at)
+    .flatMap((l) => {
+      const approval = currentApproval(state, l.id);
+      if (!approval?.approved) return [];
+      const cov = lineCoverage(state, l);
+      if (cov.remaining <= 0) return [];
+      const doc = state.pr_documents.find((d) => d.id === l.doc_id);
+      const vendor = state.vendors.find((v) => v.id === l.vendor_id) ?? null;
+      const project = doc ? state.projects.find((p) => p.id === doc.project_id) ?? null : null;
+      const vn = vendor?.name ?? null;
+      return [{
+        line_no: l.line_no_full, description: l.description, doc_no: doc?.doc_no ?? "",
+        vendor_id: l.vendor_id ?? null, vendor_name: vn,
+        project_code: project?.code ?? null, project_name: project?.name ?? null,
+        approved_amount: cov.approved, covered: cov.covered, remaining: cov.remaining,
+        approved_by: approval.recorded_by_email, approved_at: approval.recorded_at, approval_channel: approval.channel,
+        caption_match: captionLine !== null && l.line_no_full === captionLine,
+        vendor_match: !!vendorRead && !!vn
+          && (vn.toLowerCase().includes(vendorRead.toLowerCase()) || vendorRead.toLowerCase().includes(vn.toLowerCase())),
+        amount_match: amountRead !== null && Math.abs(cov.remaining - amountRead) <= Math.max(tolerance, amountRead * 0.02),
+      }];
+    });
+  const anyVendor = all.some((c) => c.vendor_match);
+  const rank = (c: InboxLineCandidate) => (c.caption_match ? 4 : 0) + (c.vendor_match ? 2 : 0) + (c.amount_match ? 1 : 0);
+  const candidates = all
+    .filter((c) => c.caption_match || c.vendor_match || !anyVendor)
+    .sort((a, b) => rank(b) - rank(a) || (b.approved_at ?? "").localeCompare(a.approved_at ?? ""))
+    .slice(0, Math.max(limit, 1));
+  return ok(SERVICE, { candidates, caption_line: captionLine, vendor_read: vendorRead, amount_read: amountRead });
+}
+
+/** Verification's sixth road (`book_evidence_to_line`, 0281, L6): pay an
+ *  approved request line with this inbox document as the proof, and close
+ *  the inbox row(s) with the line it paid — one act. */
+export async function bookEvidenceToLine(
+  input: {
+    ref_id: string;
+    also_ref_ids?: string[];
+    line_no: string;
+    account_id: string;
+    amount: number;
+    trx_date: string;
+    type_code?: TransactionTypeCode;
+  },
+  idempotencyKey?: string,
+): Promise<Result<TransactionView>> {
+  await latency();
+  const endpoint = `bookEvidenceToLine:${input.ref_id}`;
+  const cached = replayed<TransactionView>(SERVICE, endpoint, idempotencyKey);
+  if (cached) return cached;
+  const deniedPost = requireAuthority(SERVICE, "post_ledger");
+  if (deniedPost) return deniedPost;
+  const deniedResolve = requireAuthority(SERVICE, "resolve_inbox");
+  if (deniedResolve) return deniedResolve;
+  if (!input.line_no.trim()) {
+    return invalid(SERVICE, "line_required", "Say which approved request line this document pays.", { field: "line_no" });
+  }
+
+  const row = getState().evidence_inbox.find((r) => r.ref_id === input.ref_id);
+  if (!row) return notFound(SERVICE, "inbox_row_not_found", `Row ${input.ref_id} not found.`);
+  if (row.status !== "PENDING") {
+    return conflict(SERVICE, "already_resolved", `This document is already ${row.status} — nothing changed.`);
+  }
+  const also = [...new Set(input.also_ref_ids ?? [])].filter((r) => r && r !== input.ref_id);
+  for (const ref of also) {
+    const other = getState().evidence_inbox.find((r) => r.ref_id === ref);
+    if (!other) return notFound(SERVICE, "inbox_row_not_found", `Row ${ref} not found.`);
+    if (other.status !== "PENDING") {
+      return conflict(SERVICE, "already_resolved", `Part of this document is already ${other.status} — nothing changed. Reload the queue.`);
+    }
+  }
+
+  /* `postFromLine` owns every rule about the line and the money; its
+     refusals are relayed whole, and nothing is written before it answers. */
+  const kind = row.extracted.doc_type === "Payment Proof" ? "Payment Proof" : "Receipt / Invoice / Nota";
+  const posted = await postFromLine({
+    line_no: input.line_no, amount: input.amount, account_id: input.account_id,
+    trx_date: input.trx_date, type_code: input.type_code ?? "SUPPLIERS",
+    attachment_id: row.attachment_id, document_kind: kind,
+  });
+  if (posted.error) return posted;
+
+  apply((draft) => {
+    const trxId = draft.transactions.find((t) => t.trx_no === posted.data.trx_no)?.id ?? null;
+    for (const ref of [input.ref_id, ...also]) {
+      const r = draft.evidence_inbox.find((x) => x.ref_id === ref)!;
+      r.status = "CONFIRMED";
+      r.produced_trx_id = trxId;
+      r.produced_pr_line_no = input.line_no;
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "evidence_inbox", entity_no: input.ref_id,
+      action: "book_to_line", outcome: "ok", reason: null,
+      detail: { status_before: "PENDING", status_after: "CONFIRMED",
+                trx_no: posted.data.trx_no, pr_line_no: input.line_no, amount: input.amount },
+    });
+    writeOutbox(draft, {
+      service: SERVICE, event_type: "accounting.inbox.resolved",
+      payload: { ref_id: input.ref_id, resolution: "pay_line", trx_no: posted.data.trx_no, pr_line_no: input.line_no },
+    });
+  });
   remember(SERVICE, endpoint, idempotencyKey, posted.data);
   return ok(SERVICE, posted.data);
 }
