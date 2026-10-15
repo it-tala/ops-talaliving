@@ -100,6 +100,14 @@ export function nextKey(ls: LineDraft[]): number {
   return Math.max(0, ...ls.map((l) => l.key)) + 1;
 }
 
+/** The unit price that gives back exactly `share` once `qty × price` is
+ *  rounded: cents when cents are enough, finer when a large quantity would
+ *  carry the cents' error past half a rupiah and break the sum. */
+export function priceFor(share: number, qty: number): number {
+  const cents = Math.round((share / qty) * 100) / 100;
+  return Math.round(qty * cents) === share ? cents : Math.round((share / qty) * 1e6) / 1e6;
+}
+
 /** The tax typed as a figure (D435) moves the lines, not the total: the nota
  *  says 112.000 and prints PPN 12.000, so the goods were 100.000. The item
  *  lines are scaled to what is left after every non-item line, the rounding
@@ -120,7 +128,7 @@ export function withTax(ls: LineDraft[], taxAmount: number, total: number): Line
         : (current > 0 ? Math.round(draftAmount(l) * target / current) : Math.round(target / items.length));
       given += share;
       const qty = l.qty > 0 ? l.qty : 1;
-      return { ...l, qty, unit_price: Math.round((share / qty) * 100) / 100 };
+      return { ...l, qty, unit_price: priceFor(share, qty) };
     });
   }
   const next = rest.map((l) => scaled.find((s) => s.key === l.key) ?? l);
@@ -169,7 +177,7 @@ export function splitFee(ls: LineDraft[], total: number): LineDraft[] | null {
   const share = draftAmount(l) - fee;
   if (share <= 0) return null;
   const qty = l.qty > 0 ? l.qty : 1;
-  const next = ls.map((x, i) => (i === at ? { ...x, qty, unit_price: Math.round((share / qty) * 100) / 100 } : x));
+  const next = ls.map((x, i) => (i === at ? { ...x, qty, unit_price: priceFor(share, qty) } : x));
   next.push({
     key: nextKey(ls), kind: "fee", description: "Transfer admin fee", qty: 1, uom: "pcs",
     unit_price: fee, amount: fee, item_id: null,

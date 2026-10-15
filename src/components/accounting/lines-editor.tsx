@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Plus, Scissors, XCircle, Check, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/primitives";
 import { MoneyInput } from "@/components/ui/money-input";
@@ -52,6 +53,9 @@ export function LinesEditor({
   const taxLine = lines.find((l) => l.kind === "tax");
   const taxAmount = taxLine ? draftAmount(taxLine) : 0;
   const goods = lines.filter((l) => isPricedKind(l.kind)).reduce((n, l) => n + draftAmount(l), 0);
+  /* The rate typed (D441), for as long as the tax line is the amount it gave. */
+  const [taxPct, setTaxPct] = useState<{ pct: number; tax: number } | null>(null);
+  const pctHolds = taxPct !== null && taxPct.tax === taxAmount;
   const canSplit = splitFee(lines, amount) !== null;
   const set = (key: number, next: Partial<LineDraft>) =>
     onChange(lines.map((l) => (l.key === key ? { ...l, ...next } : l)));
@@ -156,13 +160,13 @@ export function LinesEditor({
           {/* A rate or the amount, whichever the nota gives (D441): the rate
               splits the amount into goods + tax, the amount is what is kept. */}
           <div className="w-20">
-            <TaxRateInput id={`${idPrefix}-tax-pct`} size="sm" taxAmount={taxAmount} rate={taxRateOf(taxAmount, goods)}
-              onRate={(pct) => { const t = taxForRate(lines, pct, amount); onChange(withTax(lines, t, amount)); return t; }} />
+            <TaxRateInput id={`${idPrefix}-tax-pct`} size="sm" pct={pctHolds ? taxPct.pct : null} rate={taxRateOf(taxAmount, goods)}
+              onRate={(pct) => { const t = taxForRate(lines, pct, amount); setTaxPct({ pct, tax: t }); onChange(withTax(lines, t, amount)); }} />
           </div>
           <label htmlFor={`${idPrefix}-tax`} className="sr-only">{tr("Tax amount", "Nominal pajak")}</label>
           <div className="w-32">
             <MoneyInput id={`${idPrefix}-tax`} size="sm" value={taxAmount}
-              onChange={(v) => onChange(withTax(lines, v, amount))} />
+              onChange={(v) => { setTaxPct(null); onChange(withTax(lines, v, amount)); }} />
           </div>
         </div>
       </div>

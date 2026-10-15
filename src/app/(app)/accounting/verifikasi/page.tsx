@@ -26,7 +26,7 @@ import { UomOptions } from "@/components/ui/uom-options";
 import { useTr, type Message, type Tr } from "@/lib/i18n";
 import { BilledFields, LineKindSelect } from "@/components/accounting/line-kind";
 import { ItemPicker } from "@/components/accounting/item-picker";
-import { guessLineKind, isPricedKind, lineSign, taxForRate, taxRateOf, type LineKind } from "@/services/accounting/lines";
+import { guessLineKind, isPricedKind, lineSign, priceFor, taxForRate, taxRateOf, type LineKind } from "@/services/accounting/lines";
 import { TaxRateInput } from "@/components/accounting/tax-rate";
 
 /** The narrow road: documents whose parent is genuinely unknown.
@@ -543,7 +543,7 @@ function withTax(ls: LineDraft[], taxAmount: number, total: number): LineDraft[]
         : (current > 0 ? Math.round(lineAmount(l) * target / current) : Math.round(target / items.length));
       given += share;
       const qty = l.qty > 0 ? l.qty : 1;
-      return { ...l, qty, unit_price: Math.round((share / qty) * 100) / 100 };
+      return { ...l, qty, unit_price: priceFor(share, qty) };
     });
   }
   const next = rest.map((l) => scaled.find((s) => s.key === l.key) ?? l);
@@ -631,6 +631,21 @@ function ResolvePanel({
   const taxLine = lines.find((l) => l.kind === "tax");
   const taxAmount = taxLine ? lineAmount(taxLine) : 0;
   const goods = lines.filter((l) => isPricedKind(l.kind)).reduce((n, l) => n + lineAmount(l), 0);
+  /* The rate typed for the tax (D441) and the amount it gave. It holds while
+     the tax line is still that amount; a new amount above, or a fee line
+     added, splits the total again at the same rate. */
+  const [taxPct, setTaxPct] = useState<{ pct: number; tax: number } | null>(null);
+  const pctHolds = taxPct !== null && taxPct.tax === taxAmount;
+  const applyRate = (pct: number, ls: LineDraft[], total: number) => {
+    const t = taxForRate(ls, pct, total);
+    setTaxPct({ pct, tax: t });
+    return withTax(ls, t, total);
+  };
+  const nonGoods = lines.filter((l) => l.kind !== "tax" && !isPricedKind(l.kind)).reduce((n, l) => n + lineSign(l.kind) * lineAmount(l), 0);
+  useEffect(() => {
+    if (pctHolds && taxForRate(lines, taxPct.pct, amount) !== taxAmount) setLines((ls) => applyRate(taxPct.pct, ls, amount));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [amount, nonGoods]);
   /* A bill in USD paid in rupiah (D435): kept beside the row after booking. */
   const [billedOpen, setBilledOpen] = useState(false);
   const [billedCcy, setBilledCcy] = useState("USD");
@@ -1267,18 +1282,18 @@ function ResolvePanel({
                 <div className="mt-3 grid grid-cols-12 items-end gap-1.5">
                   <div className="col-span-4 sm:col-span-2">
                     <label htmlFor="rv-tax-pct" className="block text-xs text-slate-500">{tr("Tax (%)", "Pajak (%)")}</label>
-                    <TaxRateInput id="rv-tax-pct" taxAmount={taxAmount} rate={taxRateOf(taxAmount, goods)}
-                      onRate={(pct) => { const t = taxForRate(lines, pct, amount); setLines((ls) => withTax(ls, t, amount)); return t; }} />
+                    <TaxRateInput id="rv-tax-pct" pct={pctHolds ? taxPct.pct : null} rate={taxRateOf(taxAmount, goods)}
+                      onRate={(pct) => setLines((ls) => applyRate(pct, ls, amount))} />
                   </div>
                   <div className="col-span-8 sm:col-span-4">
                     <label htmlFor="rv-tax" className="block text-xs text-slate-500">{tr("Tax on the nota (amount)", "Pajak di nota (nominal)")}</label>
                     <MoneyInput id="rv-tax" value={taxAmount}
-                      onChange={(v) => setLines((ls) => withTax(ls, v, amount))} />
+                      onChange={(v) => { setTaxPct(null); setLines((ls) => withTax(ls, v, amount)); }} />
                   </div>
                   <p className="col-span-12 text-[11px] text-slate-500 sm:col-span-6">
                     {taxAmount > 0
-                      ? tr(`Taken off the items: goods ${formatIDR(goods)} + tax ${formatIDR(taxAmount)} = ${formatIDR(amount)}.`,
-                          `Dikurangkan dari barang: barang ${formatIDR(goods)} + pajak ${formatIDR(taxAmount)} = ${formatIDR(amount)}.`)
+                      ? tr(`Taken off the items: goods ${formatIDR(goods)} + tax ${formatIDR(taxAmount)}${nonGoods !== 0 ? ` + other lines ${formatIDR(nonGoods)}` : ""} = ${formatIDR(linesTotal)}.`,
+                          `Dikurangkan dari barang: barang ${formatIDR(goods)} + pajak ${formatIDR(taxAmount)}${nonGoods !== 0 ? ` + baris lain ${formatIDR(nonGoods)}` : ""} = ${formatIDR(linesTotal)}.`)
                       : tr("Type the rate (11, 12) and the amount is worked out, or type the figure the nota prints.",
                           "Ketik tarifnya (11, 12) dan nominalnya dihitung, atau ketik angka yang tercetak di nota.")}
                   </p>
