@@ -706,6 +706,25 @@ function ResolvePanel({
     if (guess) setVendorId(guess.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vendors.status, doc.key]);
+  /* The reading's account and type, the same way (J1): offered when they
+     name an account and a type we have, exactly; the person confirms. The
+     type is only taken when the reading's word is one of ours — the
+     extractor's list is the sheet's and has drifted before. */
+  const accountRead = doc.rows.find((r) => r.extracted.account)?.extracted.account ?? null;
+  const typeRead = doc.rows.find((r) => r.extracted.transaction_type)?.extracted.transaction_type ?? null;
+  const invoiceRead = doc.rows.find((r) => r.extracted.invoice_no)?.extracted.invoice_no ?? null;
+  useEffect(() => {
+    if (accountId || accounts.status !== "ready" || !accountRead) return;
+    const guess = accounts.data.find((a) => a.code.toLowerCase() === accountRead.toLowerCase());
+    if (guess) setAccountId(guess.account_id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accounts.status, doc.key]);
+  useEffect(() => {
+    if (types.status !== "ready" || !typeRead) return;
+    const guess = types.data.find((t) => t.code.toLowerCase() === typeRead.toLowerCase());
+    if (guess) setTypeCode(guess.code as TransactionTypeCode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [types.status, doc.key]);
   const unitPrice = qty > 0 ? Math.round(amount / qty) : amount;
 
   /** Every row of the photo leaves by the same road. One by one, because
@@ -797,6 +816,9 @@ function ResolvePanel({
           trx_date: date, account_id: accountId, direction, amount_idr: amount,
           type_code: typeCode, vendor_id: vendorId || null, project_id: projectId || null,
           description: description.trim() || filename,
+          /* The invoice number the reading found, kept on the row until it
+             has a column of its own (kajian §6.10). */
+          remark: invoiceRead ? tr(`Invoice no. ${invoiceRead}`, `No. nota ${invoiceRead}`) : null,
           lines: lines.map((l) => (isPricedKind(l.kind)
             ? { kind: l.kind, description: l.description.trim() || description.trim() || filename,
                 qty: l.qty, uom: l.uom, unit_price: l.unit_price, amount: lineAmount(l), item_id: l.item_id }
@@ -877,7 +899,8 @@ function ResolvePanel({
         title={docTitle(doc, file?.filename)}
         subtitle={`${row.origin} · ${row.reported_at.slice(0, 16).replace("T", " ")}`
           + (row.reported_by_name != null ? sentBy(row, tr) : "")
-          + tr(` · read ${row.extracted.confidence ?? "—"}% sure`, ` · terbaca ${row.extracted.confidence ?? "—"}% yakin`)}
+          + tr(` · read ${row.extracted.confidence ?? "—"}% sure`, ` · terbaca ${row.extracted.confidence ?? "—"}% yakin`)
+          + (doc.rows.some((r) => r.extracted.duplicate_suspect) ? tr(" · the same file was seen before", " · file yang sama pernah masuk") : "")}
         icon={FileText}
         action={<Badge tone={row.money_direction === "IN" ? "green" : "slate"}>{row.money_direction ?? "OUT"}</Badge>}
       />

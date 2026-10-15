@@ -282,6 +282,24 @@ export interface EvidenceInboxRow {
      *  nobody active and the row was filed under the fallback account
      *  instead (0237, D390). Absent when `reported_by` is the sender. */
     reported_as?: string | null;
+    /** What john-lau forwards since 2026-10-15 (its J1; kajian §6.10):
+     *  the reading's account code and transaction type (offered on the
+     *  form, the person confirms, A13), the project as read, the invoice
+     *  number (kept in the row's remark), the message caption (`0281`
+     *  reads the `pr-…-Lxx` it names), capture's duplicate verdict, and the
+     *  far side's own kind code. Every line of the reading rides in
+     *  `lines`; the readings set aside as impossible (a statement balance,
+     *  the cancelling leg of a transfer) in `dropped_lines`, each with its
+     *  reason. All optional: rows filed before that date have none. */
+    account?: string | null;
+    transaction_type?: string | null;
+    project?: string | null;
+    invoice_no?: string | null;
+    caption?: string | null;
+    duplicate_suspect?: boolean | null;
+    doc_kind?: string | null;
+    lines?: Record<string, unknown>[];
+    dropped_lines?: { reason?: string; note?: string | null; amount_idr?: number | null; money_direction?: string | null }[];
   };
   produced_trx_id: string | null;
   produced_pr_line_no: string | null;
