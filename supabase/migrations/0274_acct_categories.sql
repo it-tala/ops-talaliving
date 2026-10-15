@@ -472,17 +472,23 @@ language plpgsql set search_path = ops_acct, ops_core, pg_temp as $$
 declare
   c_tf  constant text := '\m(TF FROM|TF TO|TRANSFER FROM|TRANSFER TO|WITHDRAWAL|TARIK TUNAI|TOP ?UP|SETOR|KE PETTY|CASH WITHDRAWAL|MOVING TO|BNI IN|TRF/PAY)';
   c_fee constant text := '(ADMIN FEE|BIAYA ADMIN|\mADM\M|\mFEE\M)';
-  r record; v_counts jsonb;
+  r record; v_counts jsonb; v_run int;
 begin
-  drop table if exists _recat;
-  create temp table _recat (
-    id uuid primary key, trx_no text, type_code text, description text,
-    rule text, to_type text, to_category ops_acct.category_t
+  -- One scratch table for the transaction, one `run` per call: a dry run
+  -- and the apply that follows it in the same transaction (the smoke does
+  -- that) must not see each other's rows. Nothing here removes the table or
+  -- empties it: production holds such statements for a confirmation that
+  -- never arrives (F-0211).
+  create temp table if not exists _recat (
+    run int, id uuid, trx_no text, type_code text, description text,
+    rule text, to_type text, to_category ops_acct.category_t,
+    primary key (run, id)
   ) on commit drop;
+  v_run := coalesce((select max(run) from _recat), 0) + 1;
 
   -- rules 1–6: the type moves
-  insert into _recat (id, trx_no, type_code, description, rule, to_type)
-  select t.id, t.trx_no, t.type_code, t.description, x.rule,
+  insert into _recat (run, id, trx_no, type_code, description, rule, to_type)
+  select v_run, t.id, t.trx_no, t.type_code, t.description, x.rule,
          case x.rule
            when '1' then 'CASHFLOW' when '2' then 'TRANSPORT'
            when '3' then 'RECCURING - PAYROLL' when '4' then 'RECCURING - PAYROLL WEEKLY'
@@ -530,13 +536,13 @@ begin
            when '5' then 'OFFICE' when '6' then 'RECCURING - PAYROLL' end);
 
   -- rules 7–9: an override, on rows that have none, read after the moves above
-  insert into _recat (id, trx_no, type_code, description, rule, to_type, to_category)
-  select t.id, t.trx_no, t.type_code, t.description, x.rule, null,
+  insert into _recat (run, id, trx_no, type_code, description, rule, to_type, to_category)
+  select v_run, t.id, t.trx_no, t.type_code, t.description, x.rule, null,
          case x.rule
            when '7a' then 'saripan' when '7b' then 'ejo' when '8' then 'tax'
            when '9a' then 'income' when '9b' then 'transfer' end::ops_acct.category_t
     from ops_acct.transactions t
-    left join _recat m on m.id = t.id
+    left join _recat m on m.id = t.id and m.run = v_run
     left join ops_procure.vendors v on v.id = t.vendor_id
     left join ops_acct.transaction_types ty on ty.code = coalesce(m.to_type, t.type_code)
     cross join lateral (
@@ -566,7 +572,7 @@ begin
      and x.rule is not null
      and not exists (select 1 from ops_acct.statement_lines s
                       where s.trx_no = t.trx_no and s.status in ('matched','booked'))
-  on conflict (id) do update
+  on conflict (run, id) do update
     set rule = _recat.rule || '+' || excluded.rule, to_category = excluded.to_category;
 
   -- the answer: rows and rupiah per rule, and the source types behind each
@@ -578,15 +584,17 @@ begin
                'to_type', max(rc.to_type), 'to_category', max(rc.to_category::text),
                'from', (select jsonb_object_agg(ft.type_code, ft.n)
                           from (select r2.type_code, count(*) as n from _recat r2
-                                 where r2.rule = rc.rule group by r2.type_code) ft)) as body
+                                 where r2.run = v_run and r2.rule = rc.rule group by r2.type_code) ft)) as body
         from _recat rc join ops_acct.transactions t on t.id = rc.id
+       where rc.run = v_run
        group by rc.rule
     ) k;
 
   if p_apply then
     for r in select x.*, t.category_override as was_override, t.type_code as was_type, t.amount_idr
                from _recat x join ops_acct.transactions t on t.id = x.id
-               order by t.trx_date, t.trx_no
+              where x.run = v_run
+              order by t.trx_date, t.trx_no
     loop
       update ops_acct.transactions
          set type_code = coalesce(r.to_type, type_code),
@@ -602,7 +610,7 @@ begin
   end if;
 
   return jsonb_build_object('applied', p_apply, 'rules', v_counts,
-                            'rows', (select count(*) from _recat));
+                            'rows', (select count(*) from _recat where run = v_run));
 end $$;
 
 revoke execute on function ops_acct.recategorise_2026(boolean) from public, authenticated;
