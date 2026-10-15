@@ -30,7 +30,7 @@ import type { UomCode } from "@/services/procurement/contracts";
  *  price after a one-day voucher.
  */
 export function LinesEditor({
-  lines, onChange, amount, idPrefix = "le", allowCreate = false, ecommerce = false,
+  lines, onChange, amount, idPrefix = "le", allowCreate = false, ecommerce = false, sources = [],
 }: {
   lines: LineDraft[];
   onChange: (next: LineDraft[]) => void;
@@ -39,6 +39,11 @@ export function LinesEditor({
   idPrefix?: string;
   allowCreate?: boolean;
   ecommerce?: boolean;
+  /** The row's own documents (L11; named `sources` so the live-routes
+   *  scanner does not read it as the documents service): when given, each line can say which
+   *  one it was read from. The pointer is saved by `set_line_evidence`
+   *  after the lines themselves. */
+  sources?: { id: string; filename: string; kind?: string | null }[];
 }) {
   const tr = useTr();
   const total = draftsTotal(lines);
@@ -103,6 +108,19 @@ export function LinesEditor({
                 <MoneyInput id={`${idPrefix}-amt-${l.key}`} value={l.amount} onChange={(v) => set(l.key, { amount: v })} />
               </div>
             )}
+            {sources.length > 0 && (
+              <div className="col-span-12">
+                <label htmlFor={`${idPrefix}-doc-${l.key}`} className="block text-[11px] text-slate-500">{tr("Read from", "Dibaca dari")}</label>
+                <select id={`${idPrefix}-doc-${l.key}`} value={l.attachment_id ?? ""}
+                  onChange={(e) => set(l.key, { attachment_id: e.target.value || null })}
+                  className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-[12px] text-slate-700 focus:border-brand-400 focus:outline-none">
+                  <option value="">{tr("— no document named —", "— tanpa dokumen —")}</option>
+                  {sources.map((d) => (
+                    <option key={d.id} value={d.id}>{d.filename}{d.kind ? ` · ${d.kind}` : ""}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="col-span-12 flex items-center justify-between sm:col-span-12">
               <span className={cn("text-[12px] tabular-nums", l.kind === "discount" ? "text-emerald-700" : "text-slate-600")}>
                 <span className="mr-1 font-mono text-[10px] text-slate-400">{String.fromCharCode(97 + i)}</span>
@@ -154,7 +172,7 @@ export function LinesEditor({
 /** The stored lines as drafts, for the editor. A row with no lines starts
  *  with one item line for the whole amount. */
 export function draftsFrom(
-  lines: { kind: LineDraft["kind"]; description: string; qty: number | null; uom: string | null; unit_price: number | null; amount: number; item_id: string | null }[],
+  lines: { kind: LineDraft["kind"]; description: string; qty: number | null; uom: string | null; unit_price: number | null; amount: number; item_id: string | null; attachment_id?: string | null }[],
   amount: number, description: string,
 ): LineDraft[] {
   if (lines.length === 0) {
@@ -164,6 +182,6 @@ export function draftsFrom(
     key: i + 1, kind: l.kind, description: l.description,
     qty: l.qty ?? 1, uom: l.uom ?? "pcs",
     unit_price: l.unit_price ?? (l.qty ? l.amount / l.qty : l.amount),
-    amount: l.amount, item_id: l.item_id,
+    amount: l.amount, item_id: l.item_id, attachment_id: l.attachment_id ?? null,
   }));
 }

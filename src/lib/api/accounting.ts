@@ -394,6 +394,20 @@ export async function setTransactionCategory(trxNo: string, category: Category |
   return getTransaction(trxNo);
 }
 
+/** Which of the row's documents each line was read from (`set_line_evidence`,
+ *  `0279`): `[{line_no, attachment_id | null}]`. `post_ledger`; a document not
+ *  attached to the row is refused. */
+export async function setLineEvidence(
+  trxNo: string, pointers: { line_no: number; attachment_id: string | null }[],
+): Promise<Result<TransactionDetail>> {
+  const { data, error } = await db().rpc("set_line_evidence", {
+    p_trx_no: trxNo, p_pointers: pointers, p_key: `line-evidence-${trxNo}-${Date.now()}`,
+  });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return getTransaction(trxNo);
+}
+
 export async function getTransaction(trxNo: string): Promise<Result<TransactionDetail>> {
   const { data, error } = await db().from("v_transaction_detail").select("*").eq("trx_no", trxNo).maybeSingle();
   if (error) return fail(SERVICE, error);

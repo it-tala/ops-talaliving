@@ -92,6 +92,16 @@ export const DOC_KINDS = [
   /** A QC's photo from the factory — filed with the project in PROJECT
    *  MANAGER, by day, then linked to the report or finding (0264, O7). */
   "Foto QC",
+  /** The vendor's own delivery paper, by its Indonesian name — the same
+   *  `surat_jalan` the database has carried since 0001, now filable from a
+   *  ledger row or a request line (L8). "Delivery Note" stays for the paper
+   *  that says what was sent; this is the one the driver hands over. */
+  "Surat Jalan",
+  /** The tax invoice a PKP vendor issues beside its nota (0277, L8). */
+  "Faktur Pajak",
+  /** Tanda terima barang: the courier's signed receipt for what was handed
+   *  over (0277, L8). */
+  "TTB",
   "Others",
 ] as const;
 export type DocKind = (typeof DOC_KINDS)[number];
@@ -150,6 +160,9 @@ export const SUPPORTING_DOC_KINDS: DocKind[] = [
   "Packing List",
   "Bill of Lading",
   "Foto QC",
+  "Surat Jalan",
+  "Faktur Pajak",
+  "TTB",
   "Others",
 ];
 
@@ -295,15 +308,15 @@ export const DOC_KINDS_FOR: Partial<Record<LinkEntity, readonly DocKind[]>> = {
      travel with a purchase. */
   transaction: [
     "Receipt / Invoice / Nota", "Payment Proof", "Receiving Item", "Invoice",
-    "Receiving Report", "Delivery Note", "Purchase Order", "Rekening Koran",
-    "Others",
+    "Faktur Pajak", "Receiving Report", "Delivery Note", "Surat Jalan", "TTB",
+    "Purchase Order", "Rekening Koran", "Others",
   ],
   /* A request line: where the price came from, then the same purchase papers
      as the ledger row that pays it. */
   pr_line: [
     "Reference Link", "Receipt / Invoice / Nota", "Payment Proof",
-    "Receiving Item", "Invoice", "Receiving Report", "Delivery Note",
-    "Purchase Order", "Foto", "Others",
+    "Receiving Item", "Invoice", "Faktur Pajak", "Receiving Report",
+    "Delivery Note", "Surat Jalan", "TTB", "Purchase Order", "Foto", "Others",
   ],
   /* A thing the company owns: what it looks like, what it cost, what covers it. */
   asset: [
