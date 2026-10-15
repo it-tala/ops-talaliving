@@ -476,8 +476,10 @@ declare
   -- TO BUDI` are not: that is money leaving to a person (the first dry run
   -- on production moved thirteen salary transfers to CASHFLOW on the word
   -- TRANSFER alone).
-  c_own constant text := '(\m(TF|TRF|TRANSFER|PEMINDAHAN|FUNDING|CASHFLOW)\M.{0,30}?\m(BCA|BNI|PETTY|REK|REKENING|IDR ?[12]|USD|\d{3}-?\d{7}|TALA HOME)\M)'
+  c_own constant text := '(\m(TF|TRF|TRANSFER|PEMINDAHAN|FUNDING|CASHFLOW)\M.{0,30}?\m(BCA|BNI|PETTY|REK|REKENING|IDR ?[12]|USD|247-?\d{7}|TALA HOME)\M)'
                       || '|\m(CASH WITHDRAWAL|WITHDRAWAL|TARIK TUNAI|SETOR TUNAI|KE PETTY|PETTY CASH (TOP-?UP|FROM)|EXCHANGE \d+ ?USD|BCA (TO|KE) BNI|BNI (FROM|DARI) BCA|TRSF E-BANKING CR|FUNDING)\M';
+  -- A bank transfer to a marketplace's virtual account is a purchase.
+  c_va  constant text := '(VIRTUAL ACCOUNT|\mVA\M|TOKOPEDIA|SHOPEE|LAZADA|BLIBLI)';
   -- Money in from outside: a refund, interest, a client, the owner's capital.
   -- Everything else that comes in is our own money arriving (the first dry
   -- run called 53 internal transfers income because they lacked `TF`).
@@ -512,6 +514,7 @@ begin
         -- household's (7b), and a card settlement is a transfer by its type
         when t.direction = 'OUT' and t.type_code not in ('CASHFLOW','BANK CHARGES','EJO','CREDIT CARD')
              and upper(t.description) ~ c_own and upper(t.description) !~ c_fee
+             and upper(t.description) !~ c_va
           then '1'
         -- 2. fuel
         when t.direction = 'OUT' and t.type_code not in ('TRANSPORT','BANK CHARGES','CASHFLOW')
@@ -563,7 +566,8 @@ begin
         -- A bank fee stays bank whatever it was the fee for (§10.1), and a
         -- transfer between our accounts stays a transfer whatever it was
         -- sent for: neither takes the household's or the state's category.
-        when ty.category = 'bank' or (t.direction = 'OUT' and upper(t.description) ~ c_own)
+        when ty.category = 'bank' or upper(t.description) ~ c_fee
+             or (t.direction = 'OUT' and upper(t.description) ~ c_own and upper(t.description) !~ c_va)
           then null
         -- 7a. the Saripan house
         when t.direction = 'OUT'
