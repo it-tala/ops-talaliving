@@ -242,7 +242,7 @@ bought first and the approval came later.
 
 - `/accounting/verifikasi` — photo left, form right, five resolutions:
   jadikan transaksi · buat baris PR retroaktif · tautkan · catatan · tolak
-- `Others` branches to notes before anything else is touched
+- ~~`Others` branches to notes before anything else is touched~~ — retired by D441
 - duplicate warnings are advisory and point at *Tautkan*
 - `/accounting/catatan` for the notes
 - **the inbox health number** — how many arrived this way this week

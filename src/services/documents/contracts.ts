@@ -188,14 +188,6 @@ export const COMPLETION_DOC_KINDS: DocKind[] = [
   "Payment Proof",
 ];
 
-/** `Others` never touches the ledger — it branches to notes before anything
- *  else is looked at (owner, 2026-08-27). */
-export const LEDGER_DOC_KINDS: DocKind[] = [
-  "Receipt / Invoice / Nota",
-  "Payment Proof",
-  "Receiving Item",
-];
-
 export type LinkEntity =
   | "transaction" | "pr_line" | "po" | "receipt"
   | "day_mark" | "overtime"

@@ -499,7 +499,7 @@ quotation, and nothing in this system produces either yet (Q37).
 | GET | `/review?direction=in` | the same queue, filtered to money coming IN — a transfer proof leadership dropped in chat, waiting to be booked (D81) |
 | POST | `/review/{ref_id}/confirm-in` | book one as an IN transaction: writes the row, files the photo against it, closes the inbox row with `produced_trx_id`. The amount is confirmed by a person, never taken from the extraction (A13). `post_ledger` |
 | GET | `/incoming` | money already booked into a paying account, with the proof on each row — what the payment-round screen offers instead of asking somebody to retype an amount the ledger already holds |
-| POST | `/review/{ref_id}/confirm` | → a transaction. `Others` goes to notes, not the ledger |
+| POST | `/review/{ref_id}/confirm` | → a transaction. `Others` may be booked too; the person chooses the road (D441) |
 | POST | `/review/{ref_id}/attach` | → links to existing transactions, creates no money |
 | POST | `/review/{ref_id}/reject` | recorded, never discarded |
 | POST | `/review/{ref_id}/rows` | add an item the extraction missed |

@@ -583,10 +583,10 @@ function ResolvePanel({
     [row.attachment_id, doc.amount],
   );
 
-  /* `Others` never reaches the ledger: it branches to notes before anything
-     else is looked at (owner, 2026-08-27). */
-  const isOthers = doc.rows.every((r) => r.extracted.doc_type === "Others");
-  const [road, setRoad] = useState<Road>(isOthers ? "note" : "transaction");
+  /* Every document starts on the transaction road, `Others` included: the
+     reading's document type does not decide whether it may reach the ledger —
+     the person does (D441, retiring the 2026-08-27 notes-first rule). */
+  const [road, setRoad] = useState<Road>("transaction");
   const [busy, setBusy] = useState(false);
 
   const [date, setDate] = useState(row.extracted.document_date ?? new Date().toISOString().slice(0, 10));
@@ -688,7 +688,7 @@ function ResolvePanel({
     [row.ref_id],
   );
   useEffect(() => {
-    if (lineCands.status !== "ready" || isOthers) return;
+    if (lineCands.status !== "ready") return;
     const named = lineCands.data.candidates.find((c) => c.caption_match);
     if (named) { setPayLine(named.line_no); setRoad("pay_line"); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -712,7 +712,7 @@ function ResolvePanel({
   const [tfToId, setTfToId] = useState("");
   const [tfFee, setTfFee] = useState(feeLine?.amount_idr ?? 0);
   useEffect(() => {
-    if (accounts.status !== "ready" || isOthers) return;
+    if (accounts.status !== "ready") return;
     const byCode = (code?: string | null) => code ? accountRows.find((a) => a.code.toLowerCase() === code.toLowerCase()) : undefined;
     const from = byCode(outLine?.account ?? accountRead);
     const to = byCode(inLine?.account);
@@ -1020,14 +1020,6 @@ function ResolvePanel({
               </button>{" "}
               {tr("— posting it again would invent money.", "— memposting lagi berarti mengarang uang.")}
             </span>
-          </p>
-        )}
-
-        {isOthers && (
-          <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[13px] text-slate-600">
-            {tr("Read as", "Terbaca sebagai")} <strong>Others</strong>
-            {tr(", so it starts on the notes road: nothing that is not a company transaction should touch the ledger, even for a moment.",
-              ", jadi dimulai di jalan catatan: apa pun yang bukan transaksi perusahaan tidak boleh menyentuh buku besar, walau sesaat.")}
           </p>
         )}
 
