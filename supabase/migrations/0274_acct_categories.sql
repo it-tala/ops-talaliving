@@ -470,7 +470,18 @@ returns jsonb
 -- if called it moves nothing. It is also not granted (A2 checks definers).
 language plpgsql set search_path = ops_acct, ops_core, pg_temp as $$
 declare
-  c_tf  constant text := '\m(TF FROM|TF TO|TRANSFER FROM|TRANSFER TO|WITHDRAWAL|TARIK TUNAI|TOP ?UP|SETOR|KE PETTY|CASH WITHDRAWAL|MOVING TO|BNI IN|TRF/PAY)';
+  -- A transfer between our own accounts names one of them (BCA, BNI, petty
+  -- cash, IDR 1/IDR 2, the USD account, an account number, the company) or
+  -- is a cash withdrawal or a currency exchange. `Transfer to EVIN` and `TF
+  -- TO BUDI` are not: that is money leaving to a person (the first dry run
+  -- on production moved thirteen salary transfers to CASHFLOW on the word
+  -- TRANSFER alone).
+  c_own constant text := '(\m(TF|TRF|TRANSFER|PEMINDAHAN|FUNDING|CASHFLOW)\M.{0,30}?\m(BCA|BNI|PETTY|REK|REKENING|IDR ?[12]|USD|\d{3}-?\d{7}|TALA HOME)\M)'
+                      || '|\m(CASH WITHDRAWAL|WITHDRAWAL|TARIK TUNAI|SETOR TUNAI|KE PETTY|PETTY CASH (TOP-?UP|FROM)|EXCHANGE \d+ ?USD|BCA (TO|KE) BNI|BNI (FROM|DARI) BCA|TRSF E-BANKING CR|FUNDING)\M';
+  -- Money in from outside: a refund, interest, a client, the owner's capital.
+  -- Everything else that comes in is our own money arriving (the first dry
+  -- run called 53 internal transfers income because they lacked `TF`).
+  c_inc constant text := '\m(REFUND|PENGEMBALIAN|RETUR|JASA GIRO|BUNGA|INTEREST|PAYMENT FROM|PEMBAYARAN DARI|FROM EJO|DARI EJO|MODAL|CAPITAL|INVOICE|PELUNASAN|CLIENT|CUSTOMER|DP|UANG MUKA)\M';
   c_fee constant text := '(ADMIN FEE|BIAYA ADMIN|\mADM\M|\mFEE\M)';
   r record; v_counts jsonb; v_run int;
 begin
@@ -497,8 +508,10 @@ begin
     cross join lateral (
       select case
         -- 1. an internal transfer booked on another type
-        when t.direction = 'OUT' and t.type_code not in ('CASHFLOW','BANK CHARGES')
-             and upper(t.description) ~ c_tf and upper(t.description) !~ c_fee
+        -- EJO and CREDIT CARD are left where they are: `TF TO EJO` is the
+        -- household's (7b), and a card settlement is a transfer by its type
+        when t.direction = 'OUT' and t.type_code not in ('CASHFLOW','BANK CHARGES','EJO','CREDIT CARD')
+             and upper(t.description) ~ c_own and upper(t.description) !~ c_fee
           then '1'
         -- 2. fuel
         when t.direction = 'OUT' and t.type_code not in ('TRANSPORT','BANK CHARGES','CASHFLOW')
@@ -508,7 +521,7 @@ begin
         when t.direction = 'OUT' and t.type_code not like 'RECCURING - PAYROLL%'
              and t.type_code not in ('RECCURING - OVERTIME','BANK CHARGES')
              and upper(t.description) ~ '\m(PAYROLL|GAJI|UPAH|PESANGON|THR)\M'
-             and upper(t.description) !~ c_tf and upper(t.description) !~ c_fee
+             and upper(t.description) !~ c_own and upper(t.description) !~ c_fee
           then '3'
         -- 4. the weekly run booked as monthly
         when t.type_code = 'RECCURING - PAYROLL MONTHLY'
@@ -547,11 +560,18 @@ begin
     left join ops_acct.transaction_types ty on ty.code = coalesce(m.to_type, t.type_code)
     cross join lateral (
       select case
+        -- A bank fee stays bank whatever it was the fee for (§10.1), and a
+        -- transfer between our accounts stays a transfer whatever it was
+        -- sent for: neither takes the household's or the state's category.
+        when ty.category = 'bank' or (t.direction = 'OUT' and upper(t.description) ~ c_own)
+          then null
         -- 7a. the Saripan house
-        when coalesce(v.name, '') ~* 'saripan' or upper(t.description) ~ '\mSARIPAN\M'
+        when t.direction = 'OUT'
+             and (coalesce(v.name, '') ~* 'saripan' or upper(t.description) ~ '\mSARIPAN\M')
           then '7a'
-        -- 7b. the leadership household paid through an ordinary type
-        when t.direction = 'OUT' and ty.category <> 'ejo'
+        -- 7b. the leadership household paid through an ordinary type; a
+        --     salary paid to EJO is payroll, not the household
+        when t.direction = 'OUT' and ty.category not in ('ejo','payroll')
              and (coalesce(v.name, '') ~* '(warung kembar|\mejo\M)' or upper(t.description) ~ '\mEJO\M')
           then '7b'
         -- 8. a tax payment to the state (not the consultant's fee)
@@ -559,11 +579,12 @@ begin
              and upper(t.description) ~ '(PAJAK TERMIN|TAX .*20\d\d|\mSPT\M|SETORAN PAJAK)'
              and upper(t.description) !~ '(KONSULTAN|CONSULT)'
           then '8'
-        -- 9a. money in that is not a transfer between our accounts
-        when t.direction = 'IN' and upper(t.description) !~ c_tf and ty.category <> 'income'
+        -- 9a. money in from outside
+        when t.direction = 'IN' and upper(t.description) ~ c_inc and ty.category <> 'income'
           then '9a'
-        -- 9b. money in that is one, booked on a type whose category is not transfer
-        when t.direction = 'IN' and upper(t.description) ~ c_tf and ty.category <> 'transfer'
+        -- 9b. our own money arriving, booked on a type whose category is not transfer
+        when t.direction = 'IN' and upper(t.description) !~ c_inc and upper(t.description) ~ c_own
+             and ty.category <> 'transfer'
           then '9b'
         end as rule
     ) x
