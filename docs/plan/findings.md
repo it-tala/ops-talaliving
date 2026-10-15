@@ -10983,3 +10983,36 @@ id when it changes parents, so no link in the ledger or the sheet moves.
 The lesson: before planning a change to a second system's permissions, check
 whether it is a second identity at all. The scope is a property of the token,
 the visibility is a property of the account.
+
+
+## F283 · 2026-10-15 · A ledger can look complete from the receiving side while the paying side is empty
+
+Every transfer from the leadership account (BCA 064) to the payment account
+(BCA 271) since 5 August was booked once, as an IN on 271, with a transfer
+proof attached. Nothing was wrong with any of those rows, and nothing was
+wrong with the evidence Evin sent. Yet BCA 064 had no row after 12 August and
+BCA USD 081 had none at all, so Rp 1.05 billion left 064 and Rp 184 million
+left the USD account without the ledger saying so. The completeness check in
+D359's spirit ("does every row have a document") passes; the question that
+catches this is "does every transfer have two legs".
+
+What the review needed, in order: the sender's own uploads read as a
+timeline (caption, amount, date), the receiving rows matched to them, the
+sender account's rows listed month by month, and the sender's own balance
+screenshots used as checkpoints. The screenshots were decisive twice: a
+28 → 30 September balance jump matched the USD 5.000 conversion to the
+rupiah, which proved it landed in 064 and not in 271 as the AI reading said,
+and a 1 → 12 October gap exposed an inflow of about Rp 89,5 million that was
+never sent in.
+
+Two mechanics worth keeping. A receiving leg that already exists is paired by
+posting only the missing leg through `post_transaction` with
+`source_ref = transfer:<id>:out` and setting `transfer_id` on both rows, the
+same two writes `post_transfer` makes; a `pair_transfer` seam would make that
+a one-liner and is worth adding before the next backfill. And a backfill run
+from the MCP console acts as a real user by setting `request.jwt.claims` for
+the transaction, so `auth.uid()`, `has_authority` and `posted_by` all read as
+that person: the audit trail shows superadmin, which is who asked for it.
+`resolve_inbox` refuses a row that is not PENDING, so rows the owner had
+already marked NOTED or bulk-verified keep their old note; the new ledger
+rows carry the inbox ref in `source_ref` instead.
