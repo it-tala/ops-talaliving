@@ -471,12 +471,24 @@ export interface TransactionView extends Transaction {
    *  allocations name — both on `v_transaction` since 0033/0139. */
   project_code: string | null;
   po_nos: string[];
+  /** The project by name (`0280`, L7), for the ledger table's column and the
+   *  drawer's facts. Null when the row names no project. */
+  project_name: string | null;
 }
 
 /** One allocation, with enough of the line to read it without a second call. */
 export interface AllocationView extends PaymentAllocation {
   line_description: string | null;
   line_status: string | null;
+  /** The line's current GOODS decision (`0280`, L7; `v_line_approval`, D28):
+   *  who said yes, when, through which door, and for how much. All null when
+   *  the allocation names a PO, the line was never decided, or the reader
+   *  may not read procurement's approval trail. */
+  approved: boolean | null;
+  approved_amount: number | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  approval_channel: "web" | "chat" | "sheet" | "script" | "api" | null;
 }
 
 /** Everything a ledger row is made of, in one call: what it bought, what it

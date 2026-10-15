@@ -77,6 +77,13 @@ const ACTION_LABEL: Record<string, Message> = {
  *  both values. So are the vendor, project and type (`0105`) and the account
  *  the money moved through (`0204`, D359).
  */
+/** The approver as a person reads it: the part of the e-mail before `@`,
+ *  which is how the approval trail names them (D19: the e-mail is the
+ *  authority, so it is what is shown — not a display name somebody can edit). */
+function approverName(email: string | null): string {
+  return email ? email.split("@")[0] : "—";
+}
+
 export function TrxDrawer({
   trxNo, onClose, onChanged,
 }: {
@@ -673,6 +680,8 @@ export function TrxDrawer({
               : []),
             [tr("Type", "Jenis"), trx.type_code],
             [tr("Vendor", "Vendor"), trx.vendor_name ?? "—"],
+            /* 0280 (L7): the project by name, with its code. */
+            [tr("Project", "Proyek"), trx.project_code ? `${trx.project_name ?? trx.project_code}${trx.project_name ? ` · ${trx.project_code}` : ""}` : "—"],
             [tr("Posted", "Diposting"), `${trx.posted_at.slice(0, 10)}`],
           ] as [string, string][]).map(([k, v]) => (
             <div key={k} className="flex justify-between gap-4 border-b border-slate-100 pb-2">
@@ -848,6 +857,19 @@ export function TrxDrawer({
                         {a.superseded_by && tr(" · superseded", " · digantikan")}
                         {openingLine === a.pr_line_no && tr(" · opening…", " · membuka…")}
                       </span>
+                      {/* Who said yes to the line this paid, when, through
+                          which door, and for how much (0280, L7; D19). A
+                          line decided against is said so, in red: the
+                          money left anyway. */}
+                      {a.approved !== null && (
+                        <span className={cn("block text-[11px]", a.approved ? "text-slate-500" : "text-rose-700")} data-testid="alloc-approval">
+                          {a.approved
+                            ? tr(`approved by ${approverName(a.approved_by)} ${a.approved_at?.slice(0, 10) ?? ""} via ${a.approval_channel ?? "?"}${a.approved_amount !== null ? `, ${formatIDR(a.approved_amount)}` : ""}`,
+                                 `disetujui ${approverName(a.approved_by)} ${a.approved_at?.slice(0, 10) ?? ""} via ${a.approval_channel ?? "?"}${a.approved_amount !== null ? `, ${formatIDR(a.approved_amount)}` : ""}`)
+                            : tr(`not approved — ${approverName(a.approved_by)} ${a.approved_at?.slice(0, 10) ?? ""} via ${a.approval_channel ?? "?"}`,
+                                 `tidak disetujui — ${approverName(a.approved_by)} ${a.approved_at?.slice(0, 10) ?? ""} via ${a.approval_channel ?? "?"}`)}
+                        </span>
+                      )}
                     </span>
                     <span className="tabular-nums text-slate-800">{formatIDR(a.amount)}</span>
                     {a.pr_line_no && <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-slate-400" />}

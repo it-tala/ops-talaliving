@@ -10944,3 +10944,20 @@ So a new column takes a name no local has ever used — `trx_count`,
 push, never only on the new smoke file. Production was brought to the same
 names with `alter view … rename column`, which needs no DROP.
 
+
+## F281 · 2026-10-15 · Inside one transaction every approval row shares `now()`, so "the latest" is a coin toss
+
+`v_line_approval` picks a line's current decision by `recorded_at desc, id desc`
+(0014). In production the rows are minutes apart and the order is the trail's.
+In a smoke file every `approve_line` call runs in one transaction, so every row
+carries the same `now()` and the tiebreak is the uuid — which is random. The
+first draft of `E9_acct_allocation_approval` asserted that un-ticking a line
+flips `v_allocation.approved` and got `true` half the time.
+
+The cure in the smoke is to push the earlier rows back an hour (as `postgres`,
+before each re-decision), so the order is the one the trail would really have.
+The lesson for any append-only trail read by "latest": a test that writes two
+rows in one transaction must set their clocks itself, or it is testing the
+uuid generator. A second thing the same file caught: the approver (Evin) holds
+no accounting module, so the ledger views are empty for him — decide as the
+approver, read as the bookkeeper.

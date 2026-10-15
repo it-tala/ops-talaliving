@@ -508,7 +508,7 @@ async function readBack(trxNo: string, known: Partial<TransactionView> = {}): Pr
     void_reason: null, allocated_total: 0, unallocated: 0, evidence_count: 0,
     has_payment_proof: false, has_receipt_doc: false, pr_line_nos: [], expects_allocation: false,
     balance_before: null, balance_after: null,
-    category: "overhead", category_override: null, project_code: null, po_nos: [],
+    category: "overhead", category_override: null, project_code: null, project_name: null, po_nos: [],
     ...known,
     trx_no: trxNo,
   });

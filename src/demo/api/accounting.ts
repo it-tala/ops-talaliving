@@ -31,7 +31,7 @@ import {
   lineStatus, fundings, fundingView, cashPlan, cashDue, cashMonthDetail,
   bankStatementView, bankStatementViews, documentCoverage, transactionCoverage,
   monthlyBills, contributionAudit, orderOfLine, orderPaidByLine,
-  effectiveCategory, categorySummary,
+  effectiveCategory, categorySummary, currentApproval,
 } from "../derive";
 import { latency, actingUser, requireAuthority, requireModule, requireLevel, conflict, replayed, remember, paged } from "./_kit";
 import { PRIMARY_DOC_KINDS, COMPLETION_DOC_KINDS, type DocKind } from "@/services/documents/contracts";
@@ -403,10 +403,18 @@ export async function getTransaction(trxNo: string): Promise<Result<TransactionD
     .filter((a) => a.trx_id === trx.id)
     .map((a) => {
       const line = state.pr_lines.find((l) => l.line_no_full === a.pr_line_no);
+      /* The line's current GOODS decision (0280, L7), as `v_allocation`
+         carries it: the latest row of the trail, or nothing. */
+      const approval = line ? currentApproval(state, line.id) : null;
       return {
         ...a,
         line_description: line?.description ?? null,
         line_status: line ? lineStatus(state, line) : null,
+        approved: approval?.approved ?? null,
+        approved_amount: approval?.approved_amount ?? null,
+        approved_by: approval?.recorded_by_email ?? null,
+        approved_at: approval?.recorded_at ?? null,
+        approval_channel: approval?.channel ?? null,
       };
     });
 
