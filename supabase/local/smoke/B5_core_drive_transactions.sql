@@ -1,6 +1,6 @@
 -- core — money evidence by month, and the same bytes never filed twice (0203, D359).
 --
--- DERIVATIONS  with IT's two rows, a nota and a transfer proof go to
+-- DERIVATIONS  with 0284's rows, a nota, a transfer proof and a statement go to
 --              TRANSACTIONS/<month>/<day> of the office day; other kinds keep their folders; a chat
 --              capture with the same bytes is found for a money kind; a file
 --              this app filed in the same drive is preferred over it; other
@@ -37,10 +37,17 @@ begin
     'nobody signed in must be refused';
 end $$;
 
--- The two rows IT adds once the capture tree is under ops-talaliving (0203).
-insert into ops_core.drive_paths (kind, path) values
-  ('nota',           'TRANSACTIONS/{YYYY-MM}/{YYYY-MM-DD}'),
-  ('transfer_proof', 'TRANSACTIONS/{YYYY-MM}/{YYYY-MM-DD}');
+-- The rows 0203 left for IT are seeded by 0284 (D359 step 3, D440): a nota, a
+-- transfer proof and a bank statement by month and day. Asserted, not
+-- inserted, so a ladder that lost them fails here.
+do $$
+declare n int;
+begin
+  select count(*) into n from ops_core.drive_paths
+   where kind in ('nota','transfer_proof','rekening_koran') and entity is null
+     and path = 'TRANSACTIONS/{YYYY-MM}/{YYYY-MM-DD}';
+  assert n = 3, format('0284 seeds the three money kinds, got %s', n);
+end $$;
 
 set local role authenticated;
 set local request.jwt.claim.sub = 'aaaa0000-0000-0000-0000-0000000b5001';
@@ -52,6 +59,9 @@ begin
     'a nota by month and day, got ' || ops_core.drive_path_for('nota', null);
   assert ops_core.drive_path_for('transfer_proof', 'transaction') = 'TRANSACTIONS/' || month || '/' || day,
     'a transfer proof by month and day, got ' || ops_core.drive_path_for('transfer_proof', 'transaction');
+  assert ops_core.drive_path_for('rekening_koran', null) = 'TRANSACTIONS/' || month || '/' || day,
+    'a statement by month and day, got ' || ops_core.drive_path_for('rekening_koran', null);
+  assert ops_core.drive_path_for('faktur_pajak', null) = 'FAKTUR PAJAK', 'the tax invoice keeps its own folder';
   r := ops_core.drive_folder_for('Payment Proof');
   assert r->'data'->>'path' = 'TRANSACTIONS/' || month || '/' || day, 'the route reads the same path, got ' || r::text;
   assert ops_core.drive_path_for('purchase_order', null) = 'PURCHASE ORDER', 'other kinds keep their folder';
