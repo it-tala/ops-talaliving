@@ -82,6 +82,8 @@ export interface LineDraft {
   unit_price: number;
   amount: number;
   item_id: string | null;
+  /** The row's document this line came from (`0279`, L11); null = none. */
+  attachment_id?: string | null;
 }
 
 export function draftAmount(l: LineDraft): number {
@@ -161,6 +163,14 @@ export function splitFee(ls: LineDraft[], total: number): LineDraft[] | null {
 export function toSeamLines(ls: LineDraft[], fallbackDescription = "") {
   return ls.map((l) => (isPricedKind(l.kind)
     ? { kind: l.kind, description: l.description.trim() || fallbackDescription, qty: l.qty, uom: l.uom,
-        unit_price: l.unit_price, amount: draftAmount(l), item_id: l.item_id }
-    : { kind: l.kind, description: l.description.trim() || fallbackDescription, amount: draftAmount(l) }));
+        unit_price: l.unit_price, amount: draftAmount(l), item_id: l.item_id, attachment_id: l.attachment_id ?? null }
+    : { kind: l.kind, description: l.description.trim() || fallbackDescription, amount: draftAmount(l), attachment_id: l.attachment_id ?? null }));
+}
+
+/** The pointers a saved detail carries, for `set_line_evidence` after
+ *  `set_transaction_lines`: line i+1 → the document draft i named. Empty
+ *  when no draft names one, so the second call is skipped. */
+export function toLinePointers(ls: LineDraft[]): { line_no: number; attachment_id: string | null }[] {
+  if (!ls.some((l) => l.attachment_id)) return [];
+  return ls.map((l, i) => ({ line_no: i + 1, attachment_id: l.attachment_id ?? null }));
 }

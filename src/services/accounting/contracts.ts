@@ -115,6 +115,10 @@ export interface TransactionLine {
    *  (`0272`); absent on the demo's stored rows and on a line without one. */
   item_code?: string | null;
   item_name?: string | null;
+  /** The document this line was read from — one of the row's own
+   *  attachments, or null (`0279`, L11). Set by `set_line_evidence`, and by
+   *  booking from the inbox. Absent on the demo's older fixtures. */
+  attachment_id?: string | null;
   description: string;
   qty: number | null;
   uom: string | null;

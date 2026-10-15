@@ -24,7 +24,10 @@ import { BilledFields, LineKindBadge, billedSummary } from "@/components/account
 import { CategoryBadge, CategoryOptions, categoryLabel } from "@/components/accounting/category";
 import type { Category } from "@/services/accounting/contracts";
 import { LinesEditor, draftsFrom } from "@/components/accounting/lines-editor";
-import { toSeamLines, draftsTotal, type LineDraft } from "@/services/accounting/lines";
+import { toSeamLines, toLinePointers, draftsTotal, type LineDraft } from "@/services/accounting/lines";
+import { DocumentPreview } from "@/components/ui/doc-preview";
+import { driveOpenUrl } from "@/lib/drive-links";
+import { Paperclip } from "lucide-react";
 
 /** The documents a ledger row is expected to carry (owner, 2026-09-23).
  *  Money going out is a purchase: its nota, the transfer, a photo of what
@@ -55,6 +58,7 @@ const ACTION_LABEL: Record<string, Message> = {
   attach_unlink: { en: "Document removed", id: "Dokumen dilepas" },
   set_lines: { en: "Detail rewritten", id: "Rincian ditulis ulang" },
   set_category: { en: "Category set", id: "Kategori ditetapkan" },
+  set_line_evidence: { en: "Lines pointed at their documents", id: "Baris ditunjuk ke dokumennya" },
   recategorise: { en: "Re-categorised (one-time move, D433)", id: "Dikategorikan ulang (pemindahan satu kali, D433)" },
 };
 
@@ -117,6 +121,14 @@ export function TrxDrawer({
   const [linesOpen, setLinesOpen] = useState(false);
   const [lineDrafts, setLineDrafts] = useState<LineDraft[]>([]);
   const [linesReason, setLinesReason] = useState("");
+  /* The row's files, for the editor's *read from* picker and for the preview
+     a line's paperclip opens (0279, L11). Loaded when first needed. */
+  const [lineDocs, setLineDocs] = useState<AttachmentView[] | null>(null);
+  const [lineDocOpen, setLineDocOpen] = useState<string | null>(null);
+  async function loadLineDocs(trxNo: string) {
+    const res = await documents.byEntity("transaction", trxNo);
+    setLineDocs(isOk(res) ? res.data : []);
+  }
   const [createsItems, setCreatesItems] = useState(false);
   const [refs, setRefs] = useState<{
     vendors: { id: string; code: string; name: string }[];
@@ -710,6 +722,7 @@ export function TrxDrawer({
                   <Button variant="ghost" size="sm" icon={Pencil} disabled={busy}
                     onClick={async () => {
                       setLineDrafts(draftsFrom(trx.lines, trx.amount_idr, trx.description));
+                      if (lineDocs === null) void loadLineDocs(trx.trx_no);
                       setLinesReason("");
                       const t = await accounting.listTypeRows();
                       setCreatesItems(t.data?.find((x) => x.code === trx.type_code)?.creates_catalog_item ?? false);
@@ -722,7 +735,8 @@ export function TrxDrawer({
             </div>
             {linesOpen && (
               <div className="mb-3 space-y-3 rounded-lg border border-brand-200 bg-brand-50/40 px-3 py-3" data-testid="trx-lines-edit">
-                <LinesEditor lines={lineDrafts} onChange={setLineDrafts} amount={trx.amount_idr} idPrefix="trx-lines" allowCreate={createsItems} />
+                <LinesEditor lines={lineDrafts} onChange={setLineDrafts} amount={trx.amount_idr} idPrefix="trx-lines" allowCreate={createsItems}
+                  documents={(lineDocs ?? []).map((f) => ({ id: f.id, filename: f.filename, kind: f.links.find((l) => l.entity_no === trx.trx_no)?.kind ?? null }))} />
                 <div>
                   <label htmlFor="trx-lines-reason" className="block text-xs text-slate-600">{tr("Remark (optional)", "Keterangan (opsional)")}</label>
                   <input id="trx-lines-reason" value={linesReason} onChange={(e) => setLinesReason(e.target.value)}
@@ -736,8 +750,13 @@ export function TrxDrawer({
                       const res = await accounting.setTransactionLines(
                         { trx_no: trx.trx_no, lines: toSeamLines(lineDrafts, trx.description), reason: linesReason.trim() || null },
                         `set-lines-${trx.trx_no}-${Date.now()}`);
+                      if (res.error) { setBusy(false); toast(res.error.status === 403 ? "critical" : "warning", tr("Not saved", "Tidak tersimpan"), res.error.message); return; }
+                      const pointers = toLinePointers(lineDrafts);
+                      if (pointers.length > 0) {
+                        const pointed = await accounting.setLineEvidence(trx.trx_no, pointers);
+                        if (pointed.error) toast("warning", tr("Lines saved, documents not pointed", "Rincian tersimpan, dokumen belum ditunjuk"), pointed.error.message);
+                      }
                       setBusy(false);
-                      if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", tr("Not saved", "Tidak tersimpan"), res.error.message); return; }
                       toast("success", tr(`${trx.trx_no} re-detailed`, `${trx.trx_no} dirinci ulang`), tr("The old detail is in the audit log.", "Rincian lama ada di log audit."));
                       setLinesOpen(false);
                       await load(trx.trx_no);
@@ -772,6 +791,19 @@ export function TrxDrawer({
                       {l.qty ?? "—"} {l.uom ?? ""} × {formatIDR(l.unit_price ?? 0)}
                     </span>
                   )}
+                  {/* The document this line was read from (0279): a paperclip,
+                      and the paper itself under the line when tapped. */}
+                  {l.attachment_id && (
+                    <button type="button" aria-label={tr("Show the document this line was read from", "Tampilkan dokumen sumber baris ini")}
+                      data-testid={`line-doc-${l.line_no}`}
+                      onClick={async () => {
+                        if (lineDocs === null) await loadLineDocs(trx.trx_no);
+                        setLineDocOpen(lineDocOpen === l.attachment_id ? null : l.attachment_id!);
+                      }}
+                      className={cn("rounded p-1 hover:bg-slate-100", lineDocOpen === l.attachment_id ? "text-brand-700" : "text-slate-400 hover:text-slate-700")}>
+                      <Paperclip className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                   <span className={cn("tabular-nums", l.kind === "discount" ? "text-emerald-700" : "text-slate-800")}>
                     {l.kind === "discount" ? "− " : ""}{formatIDR(l.amount)}
                   </span>
@@ -779,6 +811,16 @@ export function TrxDrawer({
               ))}
             </ul>
             )}
+            {lineDocOpen && lineDocs && (() => {
+              const f = lineDocs.find((x) => x.id === lineDocOpen);
+              return f ? (
+                <div className="mt-2" data-testid="line-doc-preview">
+                  <DocumentPreview height={260} doc={{ id: f.id, filename: f.filename, mime: f.mime, bytes: f.bytes,
+                    url: f.url, drive_link: f.url ? null : driveOpenUrl(f), uploaded_at: f.uploaded_at,
+                    kind: f.links.find((l) => l.entity_no === trx.trx_no)?.kind ?? null }} />
+                </div>
+              ) : <p className="mt-2 text-[12px] text-slate-500">{tr("That document is no longer on this row.", "Dokumen itu tidak lagi ada di baris ini.")}</p>;
+            })()}
           </section>
         )}
 

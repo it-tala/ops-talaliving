@@ -11,7 +11,7 @@ import { cn } from "@/lib/cn";
 import { accounting, documents } from "@/demo/api";
 import type { RedetailQueueRow, TransactionDetail } from "@/services/accounting/contracts";
 import type { AttachmentView } from "@/services/documents/contracts";
-import { toSeamLines, draftsTotal, type LineDraft } from "@/services/accounting/lines";
+import { toSeamLines, toLinePointers, draftsTotal, type LineDraft } from "@/services/accounting/lines";
 import { LinesEditor, draftsFrom } from "@/components/accounting/lines-editor";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
@@ -175,6 +175,13 @@ function RedetailPanel({ trxNo, row, mayPost, onDone }: {
     );
     setBusy(false);
     if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", tr("Not saved", "Tidak tersimpan"), res.error.message); return; }
+    /* The lines first, then which document each came from (0279): the
+       pointer is a separate seam so the rewrite never depends on it. */
+    const pointers = toLinePointers(lines);
+    if (pointers.length > 0) {
+      const pointed = await accounting.setLineEvidence(d.trx_no, pointers);
+      if (pointed.error) toast("warning", tr("Lines saved, documents not pointed", "Rincian tersimpan, dokumen belum ditunjuk"), pointed.error.message);
+    }
     toast("success", tr(`${d.trx_no} re-detailed`, `${d.trx_no} dirinci ulang`), tr(`${lines.length} line(s). The old detail is in the audit log.`, `${lines.length} baris. Rincian lama ada di log audit.`));
     onDone();
   }
@@ -219,7 +226,8 @@ function RedetailPanel({ trxNo, row, mayPost, onDone }: {
 
             {lines && (
               <LinesEditor lines={lines} onChange={setLines} amount={t.amount_idr} idPrefix="rd"
-                allowCreate={createsItems} ecommerce={row?.is_ecommerce ?? false} />
+                allowCreate={createsItems} ecommerce={row?.is_ecommerce ?? false}
+                documents={files.status === "ready" ? files.data.map((f) => ({ id: f.id, filename: f.filename, kind: f.links.find((l) => l.entity_no === t.trx_no)?.kind ?? null })) : []} />
             )}
 
             <div>

@@ -348,6 +348,46 @@ export async function setTransactionCategory(trxNo: string, category: Category |
   return getTransaction(trxNo);
 }
 
+/** `set_line_evidence` (0279, L11): which of the row's own documents each
+ *  line was read from. A document not attached to the row is refused. */
+export async function setLineEvidence(
+  trxNo: string, pointers: { line_no: number; attachment_id: string | null }[],
+): Promise<Result<TransactionDetail>> {
+  await latency();
+  const denied = requireAuthority(SERVICE, "post_ledger");
+  if (denied) return denied;
+  const state = getState();
+  const trx = state.transactions.find((t) => t.trx_no === trxNo);
+  if (!trx) return notFound(SERVICE, "transaction_not_found", `Transaction ${trxNo} not found.`);
+  if (trx.status === "VOID") return conflict(SERVICE, "transaction_void", "A void row is history; its lines are not pointed anywhere.");
+  if (pointers.length === 0) return invalid(SERVICE, "pointers_required", "Say which line points at which document.", { field: "pointers" });
+  const lines = state.transaction_lines.filter((l) => l.trx_id === trx.id);
+  const missing = pointers.find((p) => !lines.some((l) => l.line_no === p.line_no));
+  if (missing) return invalid(SERVICE, "no_such_line", `${trxNo} has no line ${missing.line_no}.`, { field: "pointers", line_no: missing.line_no });
+  const attached = new Set(state.attachment_links
+    .filter((k) => k.entity === "transaction" && k.entity_no === trxNo)
+    .map((k) => k.attachment_id));
+  const stray = pointers.find((p) => p.attachment_id && !attached.has(p.attachment_id));
+  if (stray) {
+    return invalid(SERVICE, "document_not_attached", "A line can only point at a document that is attached to its own row. Attach the file first.", { field: "pointers", attachment_id: stray.attachment_id });
+  }
+  const before = Object.fromEntries(lines.map((l) => [l.line_no, l.attachment_id ?? null]));
+  let changed = 0;
+  apply((draft) => {
+    for (const p of pointers) {
+      const l = draft.transaction_lines.find((x) => x.trx_id === trx.id && x.line_no === p.line_no)!;
+      if ((l.attachment_id ?? null) !== p.attachment_id) { l.attachment_id = p.attachment_id; changed += 1; }
+    }
+    if (changed > 0) {
+      writeAudit(draft, {
+        service: SERVICE, entity: "transaction", entity_no: trxNo, action: "set_line_evidence", outcome: "ok", reason: null,
+        detail: { before, after: Object.fromEntries(draft.transaction_lines.filter((l) => l.trx_id === trx.id).map((l) => [l.line_no, l.attachment_id ?? null])) },
+      });
+    }
+  });
+  return getTransaction(trxNo);
+}
+
 /** The whole row: what it bought, what it funded, and the line each
  *  allocation points at. One call, because a drawer that needs three is a
  *  drawer that renders in three stages. */
@@ -451,7 +491,7 @@ export async function setTransactionLines(
   input: {
     trx_no: string;
     lines: { kind?: LineKind; description: string; qty?: number | null; uom?: string | null;
-             unit_price?: number | null; amount: number; item_id?: string | null }[] | null;
+             unit_price?: number | null; amount: number; item_id?: string | null; attachment_id?: string | null }[] | null;
     reason?: string | null;
   },
   idempotencyKey?: string,
@@ -524,7 +564,7 @@ export async function setTransactionLines(
       draft.transaction_lines.push({
         id: newId("trl"), trx_id: trx.id, line_no: i + 1, kind: l.kind, item_id: l.item_id ?? null,
         description: l.description.trim(), qty: l.qty ?? null, uom: (l.uom ?? null) as never,
-        unit_price: l.unit_price ?? null, amount: l.amount,
+        unit_price: l.unit_price ?? null, amount: l.amount, attachment_id: null,
       });
     });
     const t = draft.transactions.find((x) => x.id === trx.id)!;
