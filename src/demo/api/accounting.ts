@@ -1620,6 +1620,78 @@ export async function postTransfer(
   return ok(SERVICE, posted);
 }
 
+/** `book_evidence_to_transfer` (0283, L16): a transfer between our own
+ *  accounts booked from the inbox document that proves it — `postTransfer`
+ *  with the document on every row, the inbox row(s) closed with the OUT leg. */
+export async function bookEvidenceToTransfer(
+  input: {
+    ref_id: string;
+    also_ref_ids?: string[];
+    from_account_id: string;
+    to_account_id: string;
+    amount_idr: number;
+    trx_date: string;
+    fee?: number | null;
+    description?: string | null;
+    billed_currency?: string | null;
+    billed_amount?: number | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<TransferPosted>> {
+  await latency();
+  const endpoint = `bookEvidenceToTransfer:${input.ref_id}`;
+  const cached = replayed<TransferPosted>(SERVICE, endpoint, idempotencyKey);
+  if (cached) return cached;
+  const deniedPost = requireAuthority(SERVICE, "post_ledger");
+  if (deniedPost) return deniedPost;
+  const deniedResolve = requireAuthority(SERVICE, "resolve_inbox");
+  if (deniedResolve) return deniedResolve;
+
+  const row = getState().evidence_inbox.find((r) => r.ref_id === input.ref_id);
+  if (!row) return notFound(SERVICE, "inbox_row_not_found", `Row ${input.ref_id} not found.`);
+  if (row.status !== "PENDING") {
+    return conflict(SERVICE, "already_resolved", `This document is already ${row.status} — nothing changed.`);
+  }
+  const also = [...new Set(input.also_ref_ids ?? [])].filter((r) => r && r !== input.ref_id);
+  for (const ref of also) {
+    const other = getState().evidence_inbox.find((r) => r.ref_id === ref);
+    if (!other) return notFound(SERVICE, "inbox_row_not_found", `Row ${ref} not found.`);
+    if (other.status !== "PENDING") {
+      return conflict(SERVICE, "already_resolved", `Part of this document is already ${other.status} — nothing changed. Reload the queue.`);
+    }
+  }
+  const kind = row.extracted.doc_type === "Payment Proof" ? "Payment Proof" : "Receipt / Invoice / Nota";
+  const posted = await postTransfer({
+    from_account_id: input.from_account_id, to_account_id: input.to_account_id,
+    amount_idr: input.amount_idr, trx_date: input.trx_date, fee: input.fee ?? null,
+    description: input.description ?? null,
+    documents: [{ attachment_id: row.attachment_id, kind }],
+    billed_currency: input.billed_currency ?? null, billed_amount: input.billed_amount ?? null,
+  });
+  if (posted.error) return posted;
+
+  apply((draft) => {
+    const trxId = draft.transactions.find((t) => t.trx_no === posted.data.out_trx_no)?.id ?? null;
+    for (const ref of [input.ref_id, ...also]) {
+      const r = draft.evidence_inbox.find((x) => x.ref_id === ref)!;
+      r.status = "CONFIRMED";
+      r.produced_trx_id = trxId;
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "evidence_inbox", entity_no: input.ref_id,
+      action: "book_to_transfer", outcome: "ok", reason: null,
+      detail: { status_before: "PENDING", status_after: "CONFIRMED",
+                trx_no: posted.data.out_trx_no, transfer_id: posted.data.transfer_id, amount: input.amount_idr },
+    });
+    writeOutbox(draft, {
+      service: SERVICE, event_type: "accounting.inbox.resolved",
+      payload: { ref_id: input.ref_id, resolution: "transfer", trx_no: posted.data.out_trx_no },
+    });
+  });
+  remember(SERVICE, endpoint, idempotencyKey, posted.data);
+  return ok(SERVICE, posted.data);
+}
+
 /** One proof, several ledger rows, one act. The live seam is
  *  `ops_acct.link_evidence` (0162); same refusals, same answer. */
 export async function linkEvidence(
