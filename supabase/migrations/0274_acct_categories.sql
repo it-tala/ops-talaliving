@@ -477,13 +477,13 @@ begin
   -- One scratch table for the transaction, one `run` per call: a dry run
   -- and the apply that follows it in the same transaction (the smoke does
   -- that) must not see each other's rows. Nothing here removes the table or
-  -- empties it: production holds such statements for a confirmation that
-  -- never arrives (F-0211).
+  -- empties it, not even at commit: production holds such words for a
+  -- confirmation that never arrives (F-0211); the session's end takes it.
   create temp table if not exists _recat (
     run int, id uuid, trx_no text, type_code text, description text,
     rule text, to_type text, to_category ops_acct.category_t,
     primary key (run, id)
-  ) on commit drop;
+  );
   v_run := coalesce((select max(run) from _recat), 0) + 1;
 
   -- rules 1–6: the type moves
