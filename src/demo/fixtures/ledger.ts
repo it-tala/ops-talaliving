@@ -215,7 +215,12 @@ export const EVIDENCE_INBOX: Omit<EvidenceInboxRow, "reported_by_name" | "file_k
   {
     id: "inb_90", ref_id: "upl_26-10-14_01~x0", origin: "chat", status: "PENDING",
     attachment_id: "att_90", reported_by: "usr_putri", reported_at: "2026-10-14T09:12:00+07:00",
-    extracted: { vendor_name: "SUMBER KAYU JATI", document_date: "2026-10-14", amount_idr: 12_800_000, doc_type: "Payment Proof", confidence: 95, note: "Pelunasan papan jati pr-26-09-08_01-L02" },
+    extracted: { vendor_name: "SUMBER KAYU JATI", document_date: "2026-10-14", amount_idr: 12_800_000, doc_type: "Payment Proof", confidence: 95, note: "Pelunasan papan jati",
+      /* What john-lau forwards since its J1: the reading's account and type
+         (offered on the form), the invoice number (kept in the remark), the
+         caption (0281 picks the line it names), capture's verdict. */
+      account: "BCA 271", transaction_type: "SUPPLIERS", invoice_no: "TRF-20261014-0912",
+      caption: "pelunasan papan jati pr-26-09-08_01-L02", duplicate_suspect: false, doc_kind: "transfer_proof" },
     produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
     money_direction: "OUT",
   },
