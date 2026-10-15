@@ -661,6 +661,7 @@ export function transactionView(state: DemoState, trx: DemoTransaction): Transac
     category_override: trx.category_override ?? null,
     project_code: project?.code ?? null,
     project_name: project?.name ?? null,
+    transfer_id: trx.transfer_id ?? null,
     po_nos: [...new Set(state.payment_allocations
       .filter((a) => a.trx_id === trx.id && a.superseded_by === null && a.po_no)
       .map((a) => a.po_no as string))],
