@@ -10911,3 +10911,23 @@ migration, the smoke and the SQL editor run as the owner and can. A tool
 for the owner of the tables should run as whoever calls it, which is the
 distinction the check was built to protect.
 
+## F279 · 2026-10-15 · A re-typing rule written from the analysis is checked against the ledger before it moves a row
+
+`recategorise_2026` was written from the kajian's own patterns (§10.3):
+`TF FROM|TF TO|TRANSFER TO|…` means a transfer, and money in without
+those words means income. The first dry run on production, read row by
+row, said otherwise twice. *Transfer to EVIN JUN OSHIMA* and twelve more
+like it are salaries leaving to employees' accounts, and the word
+TRANSFER alone would have moved them to CASHFLOW; *Transfer dari
+247-1141064 ke 247-1160271*, *Funding into BCA 064*, *Transfer IDR 1 ke
+IDR 2* are our own money moving, and the absence of `TF` would have
+called 53 of them, Rp 1,0 M, income. The rules now say what a transfer
+between our own accounts actually names — one of our accounts, cash,
+the currency — and what income actually says — a refund, interest, the
+owner's capital, a client's payment — and a bank fee or a transfer never
+takes the household's or the state's category whatever its memo adds.
+The pattern is the one F276 found for `line_kind_guess`: a rule built
+from the examples in a document is a hypothesis, and the ledger is the
+test. The dry run is not a formality before the apply; it is where the
+rule gets written. The apply waits for the owner to have read it.
+
