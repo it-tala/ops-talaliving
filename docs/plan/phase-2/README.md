@@ -1,5 +1,9 @@
 # Phase 2 — the backend, built in a session of its own
 
+> **2026-10-15:** this kit is history. Everything it planned is in production
+> (board rows B0–B9 in `../README.md`); the backend now grows one feature at a
+> time with the screen that needs it. Read it for the reasoning, not the status.
+
 **Status: ready to start, with two things named below that are not ready and
 do not block the start.** Phase 1 is a complete frontend on browser-held demo
 data: 52 screens, 8 services, 154 service functions, ~45 tables' worth of
