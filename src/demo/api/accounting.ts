@@ -17,6 +17,8 @@ import type {
 } from "@/services/accounting/contracts";
 import { guessLineKind, signedTotal, type LineKind } from "@/services/accounting/lines";
 import { CASHFLOW_IN_CATEGORIES, CASHFLOW_OUT_CATEGORIES } from "@/services/accounting/contracts";
+import type { Category, CategorySummary } from "@/services/accounting/contracts";
+import { isCategory } from "@/services/accounting/categories";
 import { subscriptionRegister } from "@/services/accounting/subscriptions";
 import { buildCashflow, balancesAt } from "@/services/accounting/cashflow";
 import { getActiveLocale, formatIDR } from "@/lib/format";
@@ -28,6 +30,7 @@ import {
   lineStatus, fundings, fundingView, cashPlan, cashDue, cashMonthDetail,
   bankStatementView, bankStatementViews, documentCoverage, transactionCoverage,
   monthlyBills, contributionAudit, orderOfLine, orderPaidByLine,
+  effectiveCategory, categorySummary,
 } from "../derive";
 import { latency, actingUser, requireAuthority, requireModule, requireLevel, conflict, replayed, remember, paged } from "./_kit";
 import { PRIMARY_DOC_KINDS, COMPLETION_DOC_KINDS, type DocKind } from "@/services/documents/contracts";
@@ -199,7 +202,7 @@ export async function createTransactionType(input: {
   }
   const row: TransactionType = {
     code, is_purchase: input.is_purchase ?? true, auto_complete: input.auto_complete ?? false,
-    creates_catalog_item: input.creates_catalog_item ?? false,
+    creates_catalog_item: input.creates_catalog_item ?? false, category: "overhead",
     description: input.description?.trim() || null, is_active: true,
   };
   apply((draft) => {
@@ -260,6 +263,22 @@ export async function deleteTransactionType(code: string): Promise<Result<{ code
   return ok(SERVICE, { code, deleted: true as const });
 }
 
+/** `set_type_category` (0274): the category every row of the type gets. */
+export async function setTypeCategory(code: string, category: Category): Promise<Result<TransactionType>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "accounting", "write");
+  if (denied) return denied;
+  const t = getState().transaction_types.find((x) => x.code === code);
+  if (!t) return notFound(SERVICE, "type_not_found", "No such transaction type.");
+  if (!isCategory(category)) return invalid(SERVICE, "unknown_category", `${category} is not a category.`, { field: "category" });
+  if (t.category === category) return noop(SERVICE, t);
+  apply((draft) => {
+    draft.transaction_types.find((x) => x.code === code)!.category = category;
+    writeAudit(draft, { service: SERVICE, entity: "transaction_type", entity_no: code, action: "set_category", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, getState().transaction_types.find((x) => x.code === code)!);
+}
+
 export async function listTransactions(
   opts: {
     account_id?: string; type_code?: string; q?: string;
@@ -269,6 +288,8 @@ export async function listTransactions(
     /** Inclusive `YYYY-MM-DD` bounds on `trx_date`. */
     from?: string; to?: string;
     direction?: "IN" | "OUT";
+    /** The effective category (`0274`): the row's own, else its type's. */
+    category?: Category;
     include_void?: boolean; limit?: number; offset?: number;
   } = {},
 ): Promise<Result<TransactionView[]>> {
@@ -276,6 +297,7 @@ export async function listTransactions(
   const state = getState();
   const readable = readableAccountIds(state);
   let rows = state.transactions.filter((t) => readable.has(t.account_id));
+  if (opts.category) rows = rows.filter((t) => effectiveCategory(state, t) === opts.category);
   /* Filtered here rather than in the browser, so "page 2 of 3" counts the
      rows the reader will actually see. */
   if (!opts.include_void) rows = rows.filter((t) => t.status !== "VOID");
@@ -296,6 +318,33 @@ export async function listTransactions(
     .map((t) => transactionView(state, t))
     .sort((a, b) => b.trx_date.localeCompare(a.trx_date) || b.trx_no.localeCompare(a.trx_no));
   return paged(SERVICE, views, opts.limit ?? 50, opts.offset ?? 0);
+}
+
+/** `set_transaction_category` (0274): this row's own category; `""` clears
+ *  it. `post_ledger`; a VOID row keeps what it has; an override equal to
+ *  the type's category is no override. */
+export async function setTransactionCategory(trxNo: string, category: Category | ""): Promise<Result<TransactionDetail>> {
+  await latency();
+  const denied = requireAuthority(SERVICE, "post_ledger");
+  if (denied) return denied;
+  const state = getState();
+  const trx = state.transactions.find((t) => t.trx_no === trxNo);
+  if (!trx) return notFound(SERVICE, "transaction_not_found", `Transaction ${trxNo} not found.`);
+  if (trx.status === "VOID") return conflict(SERVICE, "transaction_void", "A void row keeps its category.");
+  if (category !== "" && !isCategory(category)) {
+    return invalid(SERVICE, "unknown_category", `${category} is not a category.`, { field: "category" });
+  }
+  const typeCat = state.transaction_types.find((t) => t.code === trx.type_code)?.category ?? "overhead";
+  const next: Category | null = category === "" || category === typeCat ? null : category;
+  if ((trx.category_override ?? null) === next) return getTransaction(trxNo);
+  apply((draft) => {
+    draft.transactions.find((t) => t.trx_no === trxNo)!.category_override = next;
+    writeAudit(draft, {
+      service: SERVICE, entity: "transaction", entity_no: trxNo, action: "set_category", outcome: "ok", reason: null,
+      detail: { category_before: trx.category_override ?? typeCat, category_after: next ?? typeCat },
+    });
+  });
+  return getTransaction(trxNo);
 }
 
 /** The whole row: what it bought, what it funded, and the line each
@@ -1999,6 +2048,13 @@ export async function postToPo(
 export async function listFundings(): Promise<Result<FundingView[]>> {
   await latency();
   return ok(SERVICE, fundings(getState()));
+}
+
+/** Month × category, per project, per vendor and transfers for one year
+ *  (0274), from the same parts the database's `v_category_part` makes. */
+export async function getCategorySummary(year: string): Promise<Result<CategorySummary>> {
+  await latency();
+  return ok(SERVICE, categorySummary(getState(), year));
 }
 
 /** One transfer and where it went. */

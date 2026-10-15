@@ -21,6 +21,8 @@ import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
 import { useTr, type Message, type Tr } from "@/lib/i18n";
 import { BilledFields, LineKindBadge, billedSummary } from "@/components/accounting/line-kind";
+import { CategoryBadge, CategoryOptions, categoryLabel } from "@/components/accounting/category";
+import type { Category } from "@/services/accounting/contracts";
 import { LinesEditor, draftsFrom } from "@/components/accounting/lines-editor";
 import { toSeamLines, draftsTotal, type LineDraft } from "@/services/accounting/lines";
 
@@ -51,6 +53,9 @@ const ACTION_LABEL: Record<string, Message> = {
   attach_link: { en: "Document attached", id: "Dokumen dilampirkan" },
   unlink: { en: "Document removed", id: "Dokumen dilepas" },
   attach_unlink: { en: "Document removed", id: "Dokumen dilepas" },
+  set_lines: { en: "Detail rewritten", id: "Rincian ditulis ulang" },
+  set_category: { en: "Category set", id: "Kategori ditetapkan" },
+  recategorise: { en: "Re-categorised (one-time move, D433)", id: "Dikategorikan ulang (pemindahan satu kali, D433)" },
 };
 
 /** One ledger row, and everything that hangs off it.
@@ -322,6 +327,18 @@ export function TrxDrawer({
     onChanged();
   }
 
+  async function saveCategory(category: Category) {
+    setBusy(true);
+    const res = await accounting.setTransactionCategory(trx!.trx_no, category);
+    setBusy(false);
+    if (res.error) {
+      toast(res.error.status === 403 ? "critical" : "warning", tr("Not changed", "Tidak diubah"), res.error.message);
+      return;
+    }
+    setTrx(res.data);
+    onChanged();
+  }
+
   async function complete() {
     setBusy(true);
     const res = await accounting.markComplete(trx!.trx_no);
@@ -379,6 +396,7 @@ export function TrxDrawer({
           <StatusPill kind="trx" status={trx.status} />
           <Badge tone={trx.direction === "IN" ? "green" : "slate"}>{trx.direction}</Badge>
           <Badge tone="slate">{trx.type_code}</Badge>
+          <CategoryBadge category={trx.category} overridden={!!trx.category_override} />
           {trx.has_payment_proof && <Badge tone="violet">{tr("payment proof", "bukti bayar")}</Badge>}
           {/* Not a budget figure: the money is gone. This says only that a
               purchase names no request, which is the row worth asking about
@@ -650,6 +668,32 @@ export function TrxDrawer({
               <dd className="text-right font-medium text-slate-800">{v}</dd>
             </div>
           ))}
+          {/* The category (0274): the type's unless this row says otherwise.
+              Whoever posts the ledger can set the row's own from here; picking
+              the type's own category clears the override. */}
+          <div className="flex items-center justify-between gap-4 border-b border-slate-100 pb-2">
+            <dt className="text-slate-500">{tr("Category", "Kategori")}</dt>
+            <dd className="flex items-center gap-2 text-right font-medium text-slate-800">
+              {mayPost && trx.status !== "VOID" ? (
+                <select
+                  id="trx-category"
+                  value={trx.category}
+                  disabled={busy}
+                  onChange={(e) => void saveCategory(e.target.value as Category)}
+                  className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700 focus:border-brand-400 focus:outline-none"
+                >
+                  <CategoryOptions />
+                </select>
+              ) : (
+                <span>{categoryLabel(trx.category, tr)}</span>
+              )}
+              {trx.category_override && (
+                <span className="text-[11px] font-normal text-slate-400" title={tr("Set on this row; its type would say otherwise.", "Ditetapkan di baris ini; jenisnya berkata lain.")}>
+                  {tr("own", "sendiri")}
+                </span>
+              )}
+            </dd>
+          </div>
         </dl>
 
         {(trx.lines.length > 0 || (mayPost && trx.status !== "VOID")) && (

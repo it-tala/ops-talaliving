@@ -141,7 +141,7 @@ export function FundingDrawer({ trxNo, onClose }: { trxNo: string; onClose: () =
                   <strong className="tabular-nums">{formatIDR(f.amount)}</strong> {tr("landed in", "masuk ke")}{" "}
                   <strong>{f.account_code}</strong> {tr("on", "pada")} {f.trx_date}
                   {f.from_account_code && <> {tr("from", "dari")} {f.from_account_code}</>}, {tr("on top of", "di atas")}{" "}
-                  <strong className="tabular-nums">{formatIDR(f.balance_before)}</strong> {tr("already there.", "yang sudah ada.")}
+                  <strong className="tabular-nums">{f.balance_before === null ? "—" : formatIDR(f.balance_before)}</strong> {tr("already there.", "yang sudah ada.")}
                 </p>
                 <p className="mt-1 text-[13px] text-slate-700">
                   {f.window_end

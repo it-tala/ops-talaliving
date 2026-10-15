@@ -14,6 +14,7 @@ import type {
   CashComponent, CashOverride, CashSettlement, BankStatement, StatementLine,
   Subscription, SubscriptionPayment,
   CashflowLine, CashflowWeekOverride, CashflowReceipt, CashflowOpening, CashflowSettings,
+  Category,
 } from "@/services/accounting/contracts";
 
 /** The demo's ledger row: the contract plus the two columns `v_transaction`
@@ -22,6 +23,8 @@ import type {
 export type DemoTransaction = Transaction & {
   billed_currency?: string | null;
   billed_amount?: number | null;
+  /** The row's own category, beating its type's (`0274`). */
+  category_override?: Category | null;
   /** `set_transaction_lines`' stamp (`0273`). */
   lines_reviewed_at?: string | null;
   lines_reviewed_by?: string | null;

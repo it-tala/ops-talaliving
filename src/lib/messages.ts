@@ -54,6 +54,7 @@ export const MESSAGES = {
     monthlyBills: m("Monthly bills", "Tagihan bulanan"),
     subscriptions: m("Subscriptions", "Langganan"),
     liquidation: m("Liquidation", "Pertanggungjawaban dana"),
+    summary: m("Summary", "Ringkasan"),
     statements: m("Bank statements", "Rekening koran"),
 
     marketing: m("Marketing", "Pemasaran"),

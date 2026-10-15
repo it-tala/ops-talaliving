@@ -112,7 +112,7 @@ export const FLOW_B: Tour = {
       },
     },
     {
-      href: "/accounting/liquidation",
+      href: "/accounting/ringkasan?tab=likuidasi",
       title: {
         en: "Where the last transfer went",
         id: "Ke mana transfer terakhir pergi",

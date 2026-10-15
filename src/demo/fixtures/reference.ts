@@ -170,21 +170,22 @@ export const ACCOUNTS: Account[] = [
 ];
 
 /** Thirteen types. `is_purchase` vetoes auto-complete — goods that were bought
- *  can still be delivered. `auto_complete` ships false everywhere (D26). */
+ *  can still be delivered. `auto_complete` ships false everywhere (D26).
+ *  `category` as 0274 seeds it (kajian §10.1). */
 export const TRANSACTION_TYPES: TransactionType[] = [
-  { code: "RECCURING - UTILITIES", is_purchase: false, auto_complete: false, creates_catalog_item: false },
-  { code: "CREDIT CARD", is_purchase: false, auto_complete: false, creates_catalog_item: false },
-  { code: "PREPAID VENDOR", is_purchase: true, auto_complete: false, creates_catalog_item: true },
-  { code: "SUPPLIERS", is_purchase: true, auto_complete: false, creates_catalog_item: true },
-  { code: "BANK CHARGES", is_purchase: false, auto_complete: false, creates_catalog_item: false },
-  { code: "ONLINE", is_purchase: true, auto_complete: false, creates_catalog_item: true },
-  { code: "CHINA", is_purchase: true, auto_complete: false, creates_catalog_item: true },
-  { code: "RECCURING - PAYROLL", is_purchase: false, auto_complete: false, creates_catalog_item: false },
-  { code: "CASHFLOW", is_purchase: false, auto_complete: false, creates_catalog_item: false },
-  { code: "OTHERS", is_purchase: false, auto_complete: false, creates_catalog_item: false },
-  { code: "PRODUCTION", is_purchase: true, auto_complete: false, creates_catalog_item: true },
-  { code: "OFFICE", is_purchase: true, auto_complete: false, creates_catalog_item: true },
-  { code: "WAREHOUSE", is_purchase: true, auto_complete: false, creates_catalog_item: true },
+  { code: "RECCURING - UTILITIES", category: "fixed", is_purchase: false, auto_complete: false, creates_catalog_item: false },
+  { code: "CREDIT CARD", category: "transfer", is_purchase: false, auto_complete: false, creates_catalog_item: false },
+  { code: "PREPAID VENDOR", category: "vendor", is_purchase: true, auto_complete: false, creates_catalog_item: true },
+  { code: "SUPPLIERS", category: "vendor", is_purchase: true, auto_complete: false, creates_catalog_item: true },
+  { code: "BANK CHARGES", category: "bank", is_purchase: false, auto_complete: false, creates_catalog_item: false },
+  { code: "ONLINE", category: "vendor", is_purchase: true, auto_complete: false, creates_catalog_item: true },
+  { code: "CHINA", category: "vendor", is_purchase: true, auto_complete: false, creates_catalog_item: true },
+  { code: "RECCURING - PAYROLL", category: "payroll", is_purchase: false, auto_complete: false, creates_catalog_item: false },
+  { code: "CASHFLOW", category: "transfer", is_purchase: false, auto_complete: false, creates_catalog_item: false },
+  { code: "OTHERS", category: "overhead", is_purchase: false, auto_complete: false, creates_catalog_item: false },
+  { code: "PRODUCTION", category: "vendor", is_purchase: true, auto_complete: false, creates_catalog_item: true },
+  { code: "OFFICE", category: "overhead", is_purchase: true, auto_complete: false, creates_catalog_item: true },
+  { code: "WAREHOUSE", category: "overhead", is_purchase: true, auto_complete: false, creates_catalog_item: true },
 ];
 
 export const UOM: Uom[] = [

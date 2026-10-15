@@ -10876,3 +10876,38 @@ the same way after the commit. Two rehearsals, zero rows left behind — the
 checks are the same assertions as `E2_acct_line_kinds.sql`, pointed at real
 ids. The one thing the rehearsal cannot see is the drop of the old
 signature, which production does by rename (0211's trick).
+
+## F277 · 2026-10-15 · A bare Postgres 16 is enough to run the ladder and the smoke suite in the cloud session
+
+Until today every database change in a cloud session was proven by CI
+alone: the summary said *no local Postgres*, and the first L9 migration
+went to GitHub with a PL/pgSQL name clash (`r` the record variable against
+`r` the table alias) that a local run would have caught in a second. But
+`/usr/lib/postgresql/16/bin` is on the image, and `rebuild.sh` already
+shims `auth` for a bare cluster. What it takes: `initdb` and `pg_ctl` as
+the `postgres` user (root is refused) with the data directory somewhere
+that user can traverse — `/var/lib/postgresql/pg16`, not the scratchpad,
+whose parent directories are closed again behind one's back — a socket in
+`/tmp`, port 5433, then `PGHOST=/tmp PGPORT=5433 PGUSER=postgres` for
+`rebuild.sh` (22 s), `smoke.sh` and `check-view-contracts.mjs`. 0274 went
+through six local rounds (the alias, two grant rules A2 enforces, a uom
+the ladder does not seed, a smoke that assumed the wrong window) before
+CI saw it once. The rule from `07-ways-of-working.md` — rebuild the
+ladder and run the smoke suite before pushing — applies in the cloud
+session too; there is no longer a reason to let CI be the first run.
+
+## F278 · 2026-10-15 · A read function that rewrites the ledger is a security *invoker*, and the grants check says why
+
+`recategorise_2026` moves hundreds of rows' types and overrides and must
+exist (the migration calls it; the smoke calls it on seeded rows; production
+calls it by hand). Written as a security definer and revoked from
+`authenticated`, it failed `A2_core_execute_grants`: **every** definer in
+`ops_*` is granted to signed-in people and decides inside (D218), because
+a grant that narrows puts the boundary in two places. The way out is not
+an exception to A2 but the other kind of function: as a security invoker
+it runs with the caller's own rights, and a signed-in person has no update
+right on `ops_acct.transactions`, so even if called it moves nothing. The
+migration, the smoke and the SQL editor run as the owner and can. A tool
+for the owner of the tables should run as whoever calls it, which is the
+distinction the check was built to protect.
+

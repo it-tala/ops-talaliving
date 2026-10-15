@@ -12,6 +12,9 @@ import { cn } from "@/lib/cn";
 import { accounting } from "@/demo/api";
 import { type TransactionView, type TransactionLineView } from "@/services/accounting/contracts";
 import { LineKindBadge } from "@/components/accounting/line-kind";
+import { CategoryOptions, categoryLabel } from "@/components/accounting/category";
+import { isCategory } from "@/services/accounting/categories";
+import type { Category } from "@/services/accounting/contracts";
 import { TrxDrawer } from "./TrxDrawer";
 import { CashPosition } from "./CashPosition";
 import { NewEntry } from "./NewEntry";
@@ -46,6 +49,10 @@ export default function LedgerPage() {
   const [creating, setCreating] = useState(false);
   const [accountId, setAccountId] = useState("");
   const [typeCode, setTypeCode] = useState("");
+  /* The effective category (0274), and a month the summary clicked through
+     with: `/accounting/ringkasan` links a cell here as `?category=&month=`. */
+  const [category, setCategory] = useState<Category | "">("");
+  const [month, setMonth] = useState("");
   const [showVoid, setShowVoid] = useState(false);
   /* The a/b rows under each transaction (D437): shown by default, one
      checkbox to fold them away for a compact read. */
@@ -54,9 +61,17 @@ export default function LedgerPage() {
   /* `?trx=` opens that row — the item catalogue's purchase history links
      here. Read once from the address, like the items page's `?category=`. */
   useEffect(() => {
-    const trx = new URLSearchParams(window.location.search).get("trx");
+    const params = new URLSearchParams(window.location.search);
+    const trx = params.get("trx");
     if (trx) setSelected(trx);
+    const cat = params.get("category");
+    if (cat && isCategory(cat)) setCategory(cat);
+    const m = params.get("month");
+    if (m && /^\d{4}-\d{2}$/.test(m)) setMonth(m);
   }, []);
+  const monthBounds = month
+    ? { from: `${month}-01`, to: `${month}-${String(new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate()).padStart(2, "0")}` }
+    : {};
 
   /* Paged at the service, not sliced in the browser: the real ledger is tens
      of thousands of rows and a screen that fetches them all to show 25 is a
@@ -67,12 +82,14 @@ export default function LedgerPage() {
     () => accounting.listTransactions({
       account_id: accountId || undefined,
       type_code: typeCode || undefined,
+      category: category || undefined,
+      ...monthBounds,
       q: searched || undefined,
       include_void: showVoid,
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
     }),
-    [accountId, typeCode, searched, page, showVoid],
+    [accountId, typeCode, category, month, searched, page, showVoid],
     { keepPrevious: true },
   );
   const mayPost = hasAuthority("post_ledger");
@@ -257,6 +274,25 @@ export default function LedgerPage() {
           <option value="">{tr("All types", "Semua jenis")}</option>
           <TypeOptions includeRetired />
         </select>
+        <select
+          id="f-category"
+          value={category}
+          onChange={(e) => filter(() => setCategory(e.target.value as Category | ""))}
+          className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-700 focus:border-brand-400 focus:outline-none"
+        >
+          <CategoryOptions emptyLabel={tr("All categories", "Semua kategori")} />
+        </select>
+        {month && (
+          <button
+            type="button"
+            id="f-month"
+            onClick={() => filter(() => setMonth(""))}
+            className="inline-flex h-9 items-center gap-1 rounded-lg border border-brand-200 bg-brand-50 px-2.5 text-xs font-medium text-brand-700"
+            title={tr("Remove the month filter", "Lepas saringan bulan")}
+          >
+            {month} ×
+          </button>
+        )}
         <label className="flex items-center gap-1.5 text-xs text-slate-500">
           <input
             id="f-void"
@@ -349,12 +385,14 @@ export default function LedgerPage() {
                 exportRows={() => allPages((limit, offset) => accounting.listTransactions({
                   account_id: accountId || undefined,
                   type_code: typeCode || undefined,
+                  category: category || undefined,
+                  ...monthBounds,
                   q: searched || undefined,
                   include_void: showVoid,
                   limit,
                   offset,
                 }))}
-                empty={q || accountId || typeCode ? tr("Nothing matches those filters.", "Tidak ada yang cocok dengan filter itu.") : tr("The ledger is empty.", "Buku besar masih kosong.")}
+                empty={q || accountId || typeCode || category || month ? tr("Nothing matches those filters.", "Tidak ada yang cocok dengan filter itu.") : tr("The ledger is empty.", "Buku besar masih kosong.")}
               />
               <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 px-4 py-2.5">
                 <p className="text-[12px] text-slate-500">

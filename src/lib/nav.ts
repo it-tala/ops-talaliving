@@ -130,7 +130,10 @@ export const NAV: NavSection[] = [
     items: [
       { label: "Rekening koran", labelKey: "statements", href: "/accounting/rekening-koran", icon: Landmark, permission: "accounting.read", badge: "new" },
       { label: "Ledger", labelKey: "ledger", href: "/accounting/ledger", icon: BookOpen, permission: "accounting.read", badge: "core" },
-      { label: "Liquidation", labelKey: "liquidation", href: "/accounting/liquidation", icon: TrendingUp, permission: "accounting.read", badge: "new" },
+      /* Leadership's reading of the ledger (L9, D433): month × category, per
+       * project, vendors, transfers — and the liquidation report (D106) as
+       * a tab of it, no longer a screen of its own. */
+      { label: "Summary", labelKey: "summary", href: "/accounting/ringkasan", icon: TrendingUp, authority: "approve_funds", badge: "new" },
       { label: "Cashflow", labelKey: "cashflow", href: "/accounting/cashflow", icon: Wallet, authority: "approve_funds", badge: "new" },
       { label: "Payment Calendar", labelKey: "calendar", href: "/accounting/calendar", icon: PiggyBank, permission: "accounting.read", badge: "new" },
       { label: "Monthly bills", labelKey: "monthlyBills", href: "/accounting/tagihan", icon: CalendarClock, permission: "accounting.read", badge: "new" },
