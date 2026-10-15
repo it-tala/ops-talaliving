@@ -180,8 +180,11 @@ begin
              and unlinked_at is null) = 1, 'the nota is the ledger row''s Receipt / Nota';
 
   r := ops_procure.receiving_archive_plan(rr);
+  -- A nota follows the day it was sent into the money tree (0284, D359):
+  -- the same folder the Chat capture of that day sits in.
   assert jsonb_array_length(r->'data'->'files') = 1
-     and r->'data'->'files'->0->>'kind' = 'nota' and r->'data'->'files'->0->>'path' = 'NOTA',
+     and r->'data'->'files'->0->>'kind' = 'nota'
+     and r->'data'->'files'->0->>'path' = 'TRANSACTIONS/2026-09/2026-09-29',
     format('a nota is filed where every nota is (the unused tv photo is not): %s', r);
 end $$;
 reset role;
