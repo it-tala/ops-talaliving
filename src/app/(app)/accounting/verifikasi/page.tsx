@@ -5,7 +5,7 @@ import { TypeOptions } from "@/components/ui/type-options";
 import { useCallback, useEffect, useState } from "react";
 import {
   Inbox, FileText, Receipt, Undo2, Link2, StickyNote, XCircle, AlertTriangle, Check,
-  RefreshCw,
+  RefreshCw, BadgeCheck,
 } from "lucide-react";
 import { Badge, Button, Card, CardHeader, EmptyState, PageHeader } from "@/components/ui/primitives";
 import { Loaded, SourceBadge, useLoad, usePoll } from "@/components/ui/loaded";
@@ -17,7 +17,7 @@ import { cn } from "@/lib/cn";
 import { officeClock } from "@/lib/office";
 import { accounting, documents, procurement } from "@/demo/api";
 import { DocumentPreview } from "@/components/ui/doc-preview";
-import type { EvidenceInboxRow, TransactionTypeCode, Direction, DocumentCoverage, TransactionView } from "@/services/accounting/contracts";
+import type { EvidenceInboxRow, TransactionTypeCode, Direction, DocumentCoverage, TransactionView, InboxLineCandidate } from "@/services/accounting/contracts";
 import type { AttachmentView } from "@/services/documents/contracts";
 import { type UomCode } from "@/services/procurement/contracts";
 import { useToast } from "@/store/toast";
@@ -52,11 +52,16 @@ import { guessLineKind, isPricedKind, lineSign, type LineKind } from "@/services
  *  If this queue grows, people are routing around the main road — which is why
  *  the weekly arrival count sits at the top rather than in a report.
  */
-type Road = "transaction" | "retro_pr_line" | "link" | "note" | "reject";
+type Road = "transaction" | "pay_line" | "retro_pr_line" | "link" | "note" | "reject";
 
 const ROADS: { key: Road; label: Message; icon: typeof Receipt; hint: Message }[] = [
   { key: "transaction", label: { en: "Make a transaction", id: "Buat transaksi" }, icon: Receipt,
     hint: { en: "money left, nobody raised a request", id: "uang keluar, tidak ada yang mengajukan permintaan" } },
+  /* The sixth road (0281, L6): the request exists and was approved; this
+     document is its payment. Vendor, project and the allocation come from
+     the line, so nothing is retyped. */
+  { key: "pay_line", label: { en: "Pay an approved request", id: "Bayar permintaan yang disetujui" }, icon: BadgeCheck,
+    hint: { en: "the line was approved — this is its payment", id: "barisnya sudah disetujui — ini pembayarannya" } },
   { key: "retro_pr_line", label: { en: "Retro request line", id: "Baris permintaan susulan" }, icon: Undo2,
     hint: { en: "write the request that should have existed", id: "tulis permintaan yang seharusnya ada" } },
   { key: "link", label: { en: "Link to a row", id: "Tautkan ke baris" }, icon: Link2,
@@ -240,7 +245,7 @@ export default function InboxPage() {
       <PageHeader
         breadcrumb={tr("Accounting", "Akuntansi")}
         title={tr("Purchase verification", "Verifikasi pembelian")}
-        description={tr("Documents that arrived with nothing to attach them to — somebody bought first and photographed the nota. Everything here leaves by one of five roads, and none of them throws the file away.", "Dokumen yang datang tanpa ada tempat untuk dilampirkan — seseorang membeli dulu lalu memotret notanya. Semua yang ada di sini keluar lewat salah satu dari lima jalan, dan tidak satu pun membuang berkasnya.")}
+        description={tr("Documents that arrived with nothing to attach them to — somebody bought first and photographed the nota. Everything here leaves by one of six roads, and none of them throws the file away.", "Dokumen yang datang tanpa ada tempat untuk dilampirkan — seseorang membeli dulu lalu memotret notanya. Semua yang ada di sini keluar lewat salah satu dari enam jalan, dan tidak satu pun membuang berkasnya.")}
       />
 
       {/* A screen that asks again on its own has to say when it last did.
@@ -666,6 +671,26 @@ function ResolvePanel({
   }
   const [reason, setReason] = useState("");
 
+  /* ── Pay an approved request line (0281, L6) ────────────────────────
+   *
+   * The seam ranks the approved lines still owed money for this document:
+   * the line the message names first, then the reading's vendor, then an
+   * amount within tolerance. A line named in the message is picked before
+   * the person looks, and the road switches to it — the person still
+   * confirms (A13). */
+  const [payLine, setPayLine] = useState("");
+  const [lineCands] = useLoad(
+    () => accounting.inboxLineCandidates(row.ref_id),
+    [row.ref_id],
+  );
+  useEffect(() => {
+    if (lineCands.status !== "ready" || isOthers) return;
+    const named = lineCands.data.candidates.find((c) => c.caption_match);
+    if (named) { setPayLine(named.line_no); setRoad("pay_line"); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lineCands.status, doc.key]);
+  const payPick = lineCands.status === "ready" ? lineCands.data.candidates.find((c) => c.line_no === payLine) ?? null : null;
+
   const accountRows = accounts.status === "ready" ? accounts.data.filter((a) => a.is_active !== false) : [];
 
   /* The reading proposed a vendor; the form offers it rather than making
@@ -706,6 +731,20 @@ function ResolvePanel({
         const err = await resolveAll({ resolution: road, reason });
         if (err) { toast("warning", tr("Not recorded", "Tidak dicatat"), err.error); if (err.partial) onDone(); return; }
         toast("success", road === "note" ? tr("Kept as a note", "Disimpan sebagai catatan") : tr("Rejected, and kept", "Ditolak, dan disimpan"), tr("No money was recorded either way.", "Tidak ada uang yang dicatat."));
+        onDone();
+        return;
+      }
+
+      if (road === "pay_line") {
+        /* One call (0281): post_from_line with this document as the proof,
+           and every inbox row of the photo closed with the line it paid. */
+        const booked = await accounting.bookEvidenceToLine({
+          ref_id: row.ref_id, also_ref_ids: refs.slice(1),
+          line_no: payLine, account_id: accountId, amount, trx_date: date, type_code: typeCode,
+        });
+        if (booked.error) { toast("warning", tr("Not booked", "Tidak dibukukan"), booked.error.message); return; }
+        toast("success", tr(`Posted ${booked.data.trx_no}`, `${booked.data.trx_no} diposting`),
+          tr(`${formatIDR(amount)} · pays ${payLine}`, `${formatIDR(amount)} · membayar ${payLine}`));
         onDone();
         return;
       }
@@ -824,6 +863,7 @@ function ResolvePanel({
   const canRun = mayResolve && (
     road === "note" || road === "reject" ? reason.trim().length > 0
       : road === "link" ? linked.length > 0
+      : road === "pay_line" ? !!payLine && !!accountId && amount > 0
         /* The button is disabled while the lines disagree, and the reason is
            shown beside them. The seam refuses this too — the screen refusing
            first is a courtesy, not the control (D220: the database decides). */
@@ -1192,6 +1232,91 @@ function ResolvePanel({
           </div>
         )}
 
+        {road === "pay_line" && (
+          <div data-testid="rv-pay-line">
+            <p className="text-xs text-slate-500">
+              {tr("Which approved request line does this pay? Vendor, project and the allocation come from the line.",
+                  "Baris permintaan yang disetujui mana yang dibayar ini? Vendor, proyek dan alokasinya ikut dari barisnya.")}
+            </p>
+            <Loaded state={lineCands}>
+              {(found) => found.candidates.length === 0 ? (
+                <p className="mt-2 text-[12px] text-slate-500">
+                  {tr("No approved request line is still owed money. Take the transaction road, or write a retro request line.",
+                      "Tidak ada baris permintaan yang disetujui dan masih terutang. Ambil jalan transaksi, atau tulis baris permintaan susulan.")}
+                </p>
+              ) : (
+                <ul className="mt-2 max-h-72 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200">
+                  {found.candidates.map((c: InboxLineCandidate) => {
+                    const on = payLine === c.line_no;
+                    return (
+                      <li key={c.line_no}>
+                        <label className={cn("flex cursor-pointer items-start gap-2 px-3 py-2 text-[12px] hover:bg-slate-50", on && "bg-brand-50/60")}>
+                          <input type="radio" name="rv-pay-line" value={c.line_no} checked={on}
+                            onChange={() => { setPayLine(c.line_no); if (c.remaining > 0) setAmount(c.remaining); }}
+                            className="mt-0.5" />
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-slate-800">{c.description}</span>
+                            <span className="block font-mono text-[10px] text-slate-500">
+                              {c.line_no}{c.vendor_name ? ` · ${c.vendor_name}` : ""}{c.project_name ? ` · ${c.project_name}` : c.project_code ? ` · ${c.project_code}` : ""}
+                            </span>
+                            {c.approved_by && (
+                              <span className="block text-[11px] text-slate-500">
+                                {tr(`approved by ${c.approved_by.split("@")[0]} ${c.approved_at?.slice(0, 10) ?? ""} via ${c.approval_channel ?? "?"}, ${formatIDR(c.approved_amount)}`,
+                                    `disetujui ${c.approved_by.split("@")[0]} ${c.approved_at?.slice(0, 10) ?? ""} via ${c.approval_channel ?? "?"}, ${formatIDR(c.approved_amount)}`)}
+                                {c.covered > 0 && tr(` · ${formatIDR(c.covered)} already paid`, ` · ${formatIDR(c.covered)} sudah dibayar`)}
+                              </span>
+                            )}
+                            <span className="mt-0.5 flex flex-wrap gap-1">
+                              {c.caption_match && <Badge tone="green">{tr("named in the message", "disebut di pesan")}</Badge>}
+                              {c.vendor_match && <Badge tone="slate">{tr("same vendor", "vendor sama")}</Badge>}
+                              {c.amount_match && <Badge tone="slate">{tr("amount fits", "jumlah cocok")}</Badge>}
+                            </span>
+                          </span>
+                          <span className="shrink-0 text-right">
+                            <span className="block tabular-nums font-medium text-slate-800">{formatIDR(c.remaining)}</span>
+                            <span className="block text-[10px] text-slate-400">{tr("still owed", "masih terutang")}</span>
+                          </span>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </Loaded>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div>
+                <label htmlFor="rv-pay-date" className="block text-xs text-slate-500">{tr("Date the money moved", "Tanggal uang bergerak")}</label>
+                <input id="rv-pay-date" type="date" value={date} onChange={(e) => setDate(e.target.value)}
+                  className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none" />
+              </div>
+              <div>
+                <label htmlFor="rv-pay-account" className="block text-xs text-slate-500">{tr("Account", "Rekening")}</label>
+                <select id="rv-pay-account" value={accountId} onChange={(e) => setAccountId(e.target.value)}
+                  className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none">
+                  <option value="">{tr("Choose…", "Pilih…")}</option>
+                  {accountRows.map((a) => <option key={a.account_id} value={a.account_id}>{a.code} — {a.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="rv-pay-amount" className="block text-xs text-slate-500">{tr("Amount paid", "Jumlah dibayar")}</label>
+                <MoneyInput id="rv-pay-amount" value={amount} onChange={setAmount} className="mt-1" />
+                {payPick && amount !== payPick.remaining && (
+                  <p className="mt-1 text-[11px] text-amber-700">
+                    {tr(`${formatIDR(payPick.remaining)} is still owed on this line`, `${formatIDR(payPick.remaining)} masih terutang di baris ini`)}
+                  </p>
+                )}
+              </div>
+              <div>
+                <label htmlFor="rv-pay-type" className="block text-xs text-slate-500">{tr("Type", "Jenis")}</label>
+                <select id="rv-pay-type" value={typeCode} onChange={(e) => setTypeCode(e.target.value as TransactionTypeCode)}
+                  className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none">
+                  <TypeOptions current={typeCode} />
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
+
         {road === "link" && (
           <div>
             <label htmlFor="rv-trx-q" className="block text-xs text-slate-500">
@@ -1304,7 +1429,7 @@ function ResolvePanel({
 /** What this one piece of paper is already holding up.
  *
  *  Three shapes, and the screen has to be able to say all three out loud
- *  before anybody presses one of the five roads (D206):
+ *  before anybody presses one of the six roads (D206):
  *
  *  - **one document, several ledger rows** — booking it again is the mistake
  *    this queue is most able to produce, and the only thing that prevents it

@@ -9,7 +9,7 @@ import { Loaded, SourceBadge, useDebounced, useLoad } from "@/components/ui/load
 import { StatusPill } from "@/components/ui/status-pill";
 import { formatIDR } from "@/lib/format";
 import { cn } from "@/lib/cn";
-import { accounting } from "@/demo/api";
+import { accounting, procurement } from "@/demo/api";
 import { type TransactionView, type TransactionLineView } from "@/services/accounting/contracts";
 import { LineKindBadge } from "@/components/accounting/line-kind";
 import { CategoryOptions, categoryLabel } from "@/components/accounting/category";
@@ -53,6 +53,12 @@ export default function LedgerPage() {
      with: `/accounting/ringkasan` links a cell here as `?category=&month=`. */
   const [category, setCategory] = useState<Category | "">("");
   const [month, setMonth] = useState("");
+  /* The project and the dates (0280, L7; kajian §6.5): both were on the
+     service since 0033, neither on the screen. A date range typed here
+     beats the month a summary cell clicked through with. */
+  const [projectCode, setProjectCode] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [showVoid, setShowVoid] = useState(false);
   /* The a/b rows under each transaction (D437): shown by default, one
      checkbox to fold them away for a compact read. */
@@ -68,10 +74,14 @@ export default function LedgerPage() {
     if (cat && isCategory(cat)) setCategory(cat);
     const m = params.get("month");
     if (m && /^\d{4}-\d{2}$/.test(m)) setMonth(m);
+    const p = params.get("project");
+    if (p) setProjectCode(p);
   }, []);
   const monthBounds = month
     ? { from: `${month}-01`, to: `${month}-${String(new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate()).padStart(2, "0")}` }
     : {};
+  const dateBounds = { ...monthBounds, ...(from ? { from } : {}), ...(to ? { to } : {}) };
+  const [projectList] = useLoad(() => procurement.listProjects(), []);
 
   /* Paged at the service, not sliced in the browser: the real ledger is tens
      of thousands of rows and a screen that fetches them all to show 25 is a
@@ -83,13 +93,14 @@ export default function LedgerPage() {
       account_id: accountId || undefined,
       type_code: typeCode || undefined,
       category: category || undefined,
-      ...monthBounds,
+      project_code: projectCode || undefined,
+      ...dateBounds,
       q: searched || undefined,
       include_void: showVoid,
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
     }),
-    [accountId, typeCode, category, month, searched, page, showVoid],
+    [accountId, typeCode, category, month, projectCode, from, to, searched, page, showVoid],
     { keepPrevious: true },
   );
   const mayPost = hasAuthority("post_ledger");
@@ -182,6 +193,20 @@ export default function LedgerPage() {
           )}
         </div>
       ),
+    },
+    /* Which project the money was for (0280, L7): the name, the code under
+       it, and nothing on a row that names none. */
+    {
+      key: "project",
+      header: tr("Project", "Proyek"),
+      render: (t) => t.project_code
+        ? (
+          <div className="max-w-[160px] whitespace-normal">
+            <p className="text-[12px] leading-snug text-slate-700">{t.project_name ?? t.project_code}</p>
+            {t.project_name && <p className="font-mono text-[10px] text-slate-400">{t.project_code}</p>}
+          </div>
+        )
+        : <span className="text-slate-300">—</span>,
     },
     {
       key: "amount",
@@ -282,6 +307,35 @@ export default function LedgerPage() {
         >
           <CategoryOptions emptyLabel={tr("All categories", "Semua kategori")} />
         </select>
+        <select
+          id="f-project"
+          value={projectCode}
+          onChange={(e) => filter(() => setProjectCode(e.target.value))}
+          className="h-9 max-w-[220px] rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-700 focus:border-brand-400 focus:outline-none"
+        >
+          <option value="">{tr("All projects", "Semua proyek")}</option>
+          {(projectList.status === "ready" ? projectList.data : []).map((p) => (
+            <option key={p.id} value={p.code}>{p.code} · {p.name}</option>
+          ))}
+        </select>
+        <input
+          id="f-from"
+          type="date"
+          value={from}
+          max={to || undefined}
+          onChange={(e) => filter(() => setFrom(e.target.value))}
+          title={tr("From date", "Dari tanggal")}
+          className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-700 focus:border-brand-400 focus:outline-none"
+        />
+        <input
+          id="f-to"
+          type="date"
+          value={to}
+          min={from || undefined}
+          onChange={(e) => filter(() => setTo(e.target.value))}
+          title={tr("To date", "Sampai tanggal")}
+          className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-700 focus:border-brand-400 focus:outline-none"
+        />
         {month && (
           <button
             type="button"
@@ -386,13 +440,14 @@ export default function LedgerPage() {
                   account_id: accountId || undefined,
                   type_code: typeCode || undefined,
                   category: category || undefined,
-                  ...monthBounds,
+                  project_code: projectCode || undefined,
+                  ...dateBounds,
                   q: searched || undefined,
                   include_void: showVoid,
                   limit,
                   offset,
                 }))}
-                empty={q || accountId || typeCode || category || month ? tr("Nothing matches those filters.", "Tidak ada yang cocok dengan filter itu.") : tr("The ledger is empty.", "Buku besar masih kosong.")}
+                empty={q || accountId || typeCode || category || month || projectCode || from || to ? tr("Nothing matches those filters.", "Tidak ada yang cocok dengan filter itu.") : tr("The ledger is empty.", "Buku besar masih kosong.")}
               />
               <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 px-4 py-2.5">
                 <p className="text-[12px] text-slate-500">
