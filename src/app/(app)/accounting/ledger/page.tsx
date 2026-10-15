@@ -2,7 +2,7 @@
 
 import { TypeOptions } from "@/components/ui/type-options";
 import { useEffect, useState } from "react";
-import { BookOpen, Paperclip, AlertTriangle, ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { BookOpen, Paperclip, AlertTriangle, ChevronLeft, ChevronRight, Plus, ArrowLeftRight } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Loaded, SourceBadge, useDebounced, useLoad } from "@/components/ui/loaded";
@@ -18,6 +18,7 @@ import type { Category } from "@/services/accounting/contracts";
 import { TrxDrawer } from "./TrxDrawer";
 import { CashPosition } from "./CashPosition";
 import { NewEntry } from "./NewEntry";
+import { TransferEntry } from "./TransferEntry";
 import { useSession } from "@/store/session";
 import { useTr } from "@/lib/i18n";
 import { allPages } from "@/lib/xlsx-export";
@@ -47,6 +48,8 @@ export default function LedgerPage() {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(0);
   const [creating, setCreating] = useState(false);
+  /* Money between our own accounts, typed once (0282, L15). */
+  const [transferring, setTransferring] = useState(false);
   const [accountId, setAccountId] = useState("");
   const [typeCode, setTypeCode] = useState("");
   /* The effective category (0274), and a month the summary clicked through
@@ -283,7 +286,10 @@ export default function LedgerPage() {
         title={tr("Ledger", "Buku besar")}
         description={tr("Money that actually moved, in and out, with what it was for and what proves it. Nothing is deleted here — a wrong row is voided with a reason and stays visible.", "Uang yang benar-benar bergerak, masuk dan keluar, beserta untuk apa dan apa buktinya. Tidak ada yang dihapus di sini — baris yang salah dibatalkan (void) dengan alasan dan tetap terlihat.")}
         actions={mayPost ? (
-          <Button icon={Plus} onClick={() => setCreating(true)}>{tr("New entry", "Entri baru")}</Button>
+          <div className="flex gap-2">
+            <Button variant="outline" icon={ArrowLeftRight} onClick={() => setTransferring(true)} data-testid="open-transfer">{tr("Move money", "Pindah dana")}</Button>
+            <Button icon={Plus} onClick={() => setCreating(true)}>{tr("New entry", "Entri baru")}</Button>
+          </div>
         ) : undefined}
       />
 
@@ -481,11 +487,18 @@ export default function LedgerPage() {
           onPosted={() => { setCreating(false); setPage(0); reload(); }}
         />
       )}
+      {transferring && (
+        <TransferEntry
+          onClose={() => setTransferring(false)}
+          onPosted={() => { setTransferring(false); setPage(0); reload(); }}
+        />
+      )}
 
       <TrxDrawer
         trxNo={selected}
         onClose={() => setSelected(null)}
         onChanged={reload}
+        onOpen={setSelected}
       />
     </div>
   );

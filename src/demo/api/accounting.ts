@@ -16,6 +16,8 @@ import type {
   TransactionLineView, RedetailQueueRow,
   InboxLineCandidate,
   InboxLineCandidates,
+  TransferLeg,
+  TransferPosted,
 } from "@/services/accounting/contracts";
 import { guessLineKind, signedTotal, type LineKind } from "@/services/accounting/lines";
 import { CASHFLOW_IN_CATEGORIES, CASHFLOW_OUT_CATEGORIES } from "@/services/accounting/contracts";
@@ -420,8 +422,23 @@ export async function getTransaction(trxNo: string): Promise<Result<TransactionD
       };
     });
 
+  /* The other legs of this row's transfer (0282), through the same
+     readability as the rows themselves: a leg on a leadership account is
+     absent for a reader who may not see that account (D391). */
+  const readable = readableAccountIds(state);
+  const transfer_legs: TransferLeg[] = trx.transfer_id
+    ? state.transactions
+        .filter((t) => t.transfer_id === trx.transfer_id && t.id !== trx.id && readable.has(t.account_id))
+        .sort((a, b) => b.amount_idr - a.amount_idr || a.trx_no.localeCompare(b.trx_no))
+        .map((t) => ({
+          trx_no: t.trx_no, account_code: state.accounts.find((a) => a.id === t.account_id)?.code ?? "?",
+          direction: t.direction, amount_idr: t.amount_idr, type_code: t.type_code, status: t.status,
+        }))
+    : [];
+
   return ok(SERVICE, {
     ...transactionView(state, trx),
+    transfer_legs,
     /* Named, as `v_transaction_detail` names it (0272). */
     lines: state.transaction_lines.filter((l) => l.trx_id === trx.id).map((l) => {
       const item = l.item_id ? state.items.find((i) => i.id === l.item_id) : undefined;
@@ -1525,6 +1542,82 @@ export async function bookEvidenceToLine(
   });
   remember(SERVICE, endpoint, idempotencyKey, posted.data);
   return ok(SERVICE, posted.data);
+}
+
+/** `post_transfer` (0282, L15): money between two of our own accounts in
+ *  one act — the OUT, the IN and the fee as its own BANK CHARGES row, one
+ *  `transfer_id`, the same proof on each. Composed from `postTransaction`
+ *  so every rule about money and evidence holds on every row. */
+export async function postTransfer(
+  input: {
+    from_account_id: string;
+    to_account_id: string;
+    amount_idr: number;
+    trx_date: string;
+    description?: string | null;
+    fee?: number | null;
+    documents: { attachment_id: string; kind: DocKind }[];
+    billed_currency?: string | null;
+    billed_amount?: number | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<TransferPosted>> {
+  await latency();
+  const cached = replayed<TransferPosted>(SERVICE, "postTransfer", idempotencyKey);
+  if (cached) return cached;
+  const denied = requireAuthority(SERVICE, "post_ledger");
+  if (denied) return denied;
+  if (input.amount_idr <= 0) {
+    return invalid(SERVICE, "amount_positive", "Amount must be greater than zero.", { field: "amount_idr" });
+  }
+  if ((input.fee ?? 0) < 0) {
+    return invalid(SERVICE, "fee_negative", "A transfer fee is zero or more.", { field: "fee" });
+  }
+  const state = getState();
+  const from = state.accounts.find((a) => a.id === input.from_account_id);
+  const to = state.accounts.find((a) => a.id === input.to_account_id);
+  if (!from) return invalid(SERVICE, "no_such_account", "There is no such account.", { field: "from_account_code" });
+  if (!to) return invalid(SERVICE, "no_such_account", "There is no such account.", { field: "to_account_code" });
+  if (from.id === to.id) {
+    return invalid(SERVICE, "same_account", "A transfer moves money between two different accounts.", { field: "to_account_code" });
+  }
+  const transferId = `tf_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+  const description = input.description?.trim() || `Transfer ${from.code} → ${to.code}`;
+  const out = await postTransaction({
+    trx_date: input.trx_date, account_id: from.id, direction: "OUT", amount_idr: input.amount_idr,
+    type_code: "CASHFLOW", description, source_ref: `transfer:${transferId}:out`,
+    documents: input.documents,
+    billed_currency: input.billed_currency ?? null, billed_amount: input.billed_amount ?? null,
+  });
+  if (out.error) return out;
+  const inn = await postTransaction({
+    trx_date: input.trx_date, account_id: to.id, direction: "IN", amount_idr: input.amount_idr,
+    type_code: "CASHFLOW", description, source_ref: `transfer:${transferId}:in`,
+    documents: input.documents,
+  });
+  if (inn.error) return inn;
+  let feeTrx: string | null = null;
+  if ((input.fee ?? 0) > 0) {
+    const fee = await postTransaction({
+      trx_date: input.trx_date, account_id: from.id, direction: "OUT", amount_idr: input.fee!,
+      type_code: "BANK CHARGES", description: `Biaya transfer ${from.code} → ${to.code}`,
+      source_ref: `transfer:${transferId}:fee`, documents: input.documents,
+    });
+    if (fee.error) return fee;
+    feeTrx = fee.data.trx_no;
+  }
+  apply((draft) => {
+    for (const t of draft.transactions) {
+      if (t.source_ref.startsWith(`transfer:${transferId}:`)) t.transfer_id = transferId;
+    }
+  });
+  const posted: TransferPosted = {
+    transfer_id: transferId, from_account: from.code, to_account: to.code,
+    amount: input.amount_idr, fee: input.fee ?? 0, trx_date: input.trx_date,
+    out_trx_no: out.data.trx_no, in_trx_no: inn.data.trx_no, fee_trx_no: feeTrx,
+  };
+  remember(SERVICE, "postTransfer", idempotencyKey, posted);
+  return ok(SERVICE, posted);
 }
 
 /** One proof, several ledger rows, one act. The live seam is

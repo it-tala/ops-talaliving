@@ -33,6 +33,7 @@ import type {
   CashflowReceipt, CashflowOpening, CashflowSettings,
   TransactionLineView, RedetailQueueRow,
   InboxLineCandidates,
+  TransferPosted,
 } from "@/services/accounting/contracts";
 import type { LineKind } from "@/services/accounting/lines";
 import { fundingHeadline } from "@/services/accounting/categories";
@@ -509,7 +510,7 @@ async function readBack(trxNo: string, known: Partial<TransactionView> = {}): Pr
     void_reason: null, allocated_total: 0, unallocated: 0, evidence_count: 0,
     has_payment_proof: false, has_receipt_doc: false, pr_line_nos: [], expects_allocation: false,
     balance_before: null, balance_after: null,
-    category: "overhead", category_override: null, project_code: null, project_name: null, po_nos: [],
+    category: "overhead", category_override: null, project_code: null, project_name: null, transfer_id: null, po_nos: [],
     ...known,
     trx_no: trxNo,
   });
@@ -776,6 +777,49 @@ export async function bookEvidenceToLine(
   const posted = fromSeam<{ trx_no: string }>(SERVICE, data, error);
   if (posted.error) return posted;
   return readBack(posted.data.trx_no);
+}
+
+/** Money between two of our own accounts in one act (`post_transfer`,
+ *  `0282`, L15): the OUT on the source, the IN on the destination and the
+ *  fee as its own BANK CHARGES row, one `transfer_id`, the same proof on
+ *  every row. Every row goes through `post_transaction`, so its rules hold. */
+export async function postTransfer(
+  input: {
+    from_account_id: string;
+    to_account_id: string;
+    amount_idr: number;
+    trx_date: string;
+    description?: string | null;
+    fee?: number | null;
+    documents: { attachment_id: string; kind: DocKind }[];
+    /** The source account's own currency and amount when it is not rupiah
+     *  (BCA USD 081): the rate is computed, never typed (`0271`). */
+    billed_currency?: string | null;
+    billed_amount?: number | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<TransferPosted>> {
+  const fromCode = await codeFor("accounts", input.from_account_id);
+  const toCode = await codeFor("accounts", input.to_account_id);
+  if (!fromCode || !toCode) {
+    return invalid(SERVICE, "account_not_found",
+      "Akun itu tidak ada di database.", { field: fromCode ? "to_account_id" : "from_account_id" });
+  }
+  const { data, error } = await db().rpc("post_transfer", {
+    p_from_account_code: fromCode,
+    p_to_account_code:   toCode,
+    p_amount:            input.amount_idr,
+    p_documents:         input.documents,
+    p_trx_date:          input.trx_date,
+    p_description:       input.description?.trim() || null,
+    p_fee:               input.fee ?? null,
+    p_billed_currency:   input.billed_currency ?? null,
+    p_billed_amount:     input.billed_amount ?? null,
+    p_key:               idempotencyKey ?? null,
+  });
+  const res = fromSeam<TransferPosted>(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, { ...res.data, amount: Number(res.data.amount), fee: Number(res.data.fee ?? 0) });
 }
 
 /** Paying an order from its own screen (B8, `ops_acct.post_to_po`, 0139).

@@ -85,11 +85,13 @@ function approverName(email: string | null): string {
 }
 
 export function TrxDrawer({
-  trxNo, onClose, onChanged,
+  trxNo, onClose, onChanged, onOpen,
 }: {
   trxNo: string | null;
   onClose: () => void;
   onChanged: () => void;
+  /** Open another row in this drawer — the other leg of a transfer (0282). */
+  onOpen?: (trxNo: string) => void;
 }) {
   const tr = useTr();
   const { hasAuthority } = useSession();
@@ -830,6 +832,39 @@ export function TrxDrawer({
                 </div>
               ) : <p className="mt-2 text-[12px] text-slate-500">{tr("That document is no longer on this row.", "Dokumen itu tidak lagi ada di baris ini.")}</p>;
             })()}
+          </section>
+        )}
+
+        {/* The other legs of the same transfer (0282, L15): the IN for an
+            OUT, the fee beside both. A leg on a leadership account is simply
+            not here for a reader who may not see that account (D391). */}
+        {trx.transfer_id && (
+          <section data-testid="trx-transfer">
+            <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <Link2 className="h-3.5 w-3.5" /> {tr("Same transfer", "Transfer yang sama")}
+            </p>
+            {trx.transfer_legs.length > 0 ? (
+              <ul className="mb-3 divide-y divide-slate-100 rounded-lg border border-slate-200">
+                {trx.transfer_legs.map((l) => (
+                  <li key={l.trx_no}>
+                    <button type="button" onClick={() => onOpen?.(l.trx_no)} disabled={!onOpen}
+                      className="flex w-full items-center gap-3 px-3 py-2 text-left text-[13px] hover:bg-slate-50 disabled:cursor-default">
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-slate-700">{l.account_code} · {l.type_code}</span>
+                        <span className="block font-mono text-[10px] text-slate-400">{l.trx_no}{l.status === "VOID" ? tr(" · void", " · batal") : ""}</span>
+                      </span>
+                      <span className={cn("tabular-nums", l.direction === "IN" ? "text-emerald-700" : "text-slate-800")}>
+                        {l.direction === "IN" ? "+" : "−"}{formatIDR(l.amount_idr)}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mb-3 text-[13px] text-slate-500">
+                {tr("The other leg is on an account you cannot read.", "Kaki lainnya ada di rekening yang tidak bisa Anda baca.")}
+              </p>
+            )}
           </section>
         )}
 

@@ -524,6 +524,34 @@ export interface TransactionView extends Transaction {
   /** The project by name (`0280`, L7), for the ledger table's column and the
    *  drawer's facts. Null when the row names no project. */
   project_name: string | null;
+  /** Set on every row `post_transfer` wrote in one act (`0282`, L15): the
+   *  OUT, the IN and the fee of one movement between our own accounts. Null
+   *  on rows posted any other way, old transfers included. */
+  transfer_id: string | null;
+}
+
+/** One of the other rows of the same transfer, as the drawer lists them. A
+ *  leg on an account the reader may not see is simply absent (D391). */
+export interface TransferLeg {
+  trx_no: string;
+  account_code: string;
+  direction: Direction;
+  amount_idr: number;
+  type_code: string;
+  status: TrxStatus;
+}
+
+/** What `post_transfer` answers (`0282`, L15): the rows it wrote. */
+export interface TransferPosted {
+  transfer_id: string;
+  from_account: string;
+  to_account: string;
+  amount: number;
+  fee: number;
+  trx_date: string;
+  out_trx_no: string;
+  in_trx_no: string;
+  fee_trx_no: string | null;
 }
 
 /** One allocation, with enough of the line to read it without a second call. */
@@ -546,6 +574,10 @@ export interface AllocationView extends PaymentAllocation {
 export interface TransactionDetail extends TransactionView {
   lines: TransactionLine[];
   allocations: AllocationView[];
+  /** The other legs of this row's transfer (`0282`); empty when the row is
+   *  not part of one, or the other legs are on accounts the reader may not
+   *  see. */
+  transfer_legs: TransferLeg[];
   /** The bill's own currency and amount when it was not written in rupiah
    *  (a USD subscription paid from a rupiah account), beside `amount_idr`,
    *  which is what was paid. Both or neither; the rate is computed where it

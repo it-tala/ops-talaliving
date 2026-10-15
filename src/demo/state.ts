@@ -28,6 +28,8 @@ export type DemoTransaction = Transaction & {
   /** `set_transaction_lines`' stamp (`0273`). */
   lines_reviewed_at?: string | null;
   lines_reviewed_by?: string | null;
+  /** `post_transfer`'s id on the OUT, the IN and the fee (`0282`). */
+  transfer_id?: string | null;
 };
 import type { Attachment, AttachmentLink } from "@/services/documents/contracts";
 import type { ApprovalChannel, DesignBoxKey, DesignOrigin } from "@/services/design/contracts";
