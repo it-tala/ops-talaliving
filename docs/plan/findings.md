@@ -11016,3 +11016,13 @@ that person: the audit trail shows superadmin, which is who asked for it.
 `resolve_inbox` refuses a row that is not PENDING, so rows the owner had
 already marked NOTED or bulk-verified keep their old note; the new ledger
 rows carry the inbox ref in `source_ref` instead.
+
+Addendum, the same afternoon: `post_transfer` writes `p_amount` on both legs,
+which is right for rupiah-to-rupiah and wrong for a USD account, whose rows
+carry USD (`edit_transaction` says so: *the amount here is in USD*, and
+`v_account_balance` sums the column as the account's own currency). The
+three USD legs were corrected by `edit_transaction` to USD 2.800, 5.000 and
+2.500, and the balance read USD 2.295,14 against the bank without any view
+change. The seam should take `p_billed_amount` as the USD leg's amount when
+the source account's currency is not IDR — a one-line fix, to be made with a
+smoke that posts a USD → IDR transfer and reads both balances.
