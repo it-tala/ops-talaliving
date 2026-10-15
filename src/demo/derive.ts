@@ -28,7 +28,8 @@ import type {
   OutreachStage, PipelineMetrics, RepView,
 } from "@/services/marketing/contracts";
 import type {
-  Transaction, AccountBalance, TransactionView, InboxHealth,
+  Transaction, AccountBalance, TransactionView, InboxHealth, Category,
+  CategoryMonthRow, CategorySummary, ProjectSpendRow, TransferMonthRow, VendorSpendRow,
   FundingView, FundingDetail, FundingSpendGroup, FundingSpendRow,
   CashPlan, CashRow, CashCell, CashCellState, CashMonth, CashUnplanned, CashDue,
   CashComponent, CashEvent, CashMonthDetail, CashDayRow, Transaction as TrxRow,
@@ -47,6 +48,8 @@ import { contributionRoll } from "./hr-derive";
 import type { ContributionScheme, ContributionAuditGroup } from "@/services/hr/contracts";
 import { SCHEME_LABELS, COMPUTED_SCHEMES } from "@/services/hr/contracts";
 import { settingNumber, settingText } from "./settings";
+import { fundingHeadline } from "@/services/accounting/categories";
+import type { DemoTransaction } from "./state";
 import { applySubscriptions, settleUnplanned, subscriptionRows } from "@/services/accounting/subscriptions";
 
 /** One definition, read from settings — never a literal repeated in three
@@ -621,9 +624,18 @@ export function expectsDecision(state: DemoState, typeCode: string): boolean {
   return type ? type.is_purchase : true;
 }
 
-export function transactionView(state: DemoState, trx: Transaction): TransactionView {
+/** `coalesce(category_override, the type's category)` (`0274`). A type
+ *  nobody classified is overhead, as the column default says. */
+export function effectiveCategory(state: DemoState, trx: DemoTransaction): Category {
+  return trx.category_override
+    ?? state.transaction_types.find((t) => t.code === trx.type_code)?.category
+    ?? "overhead";
+}
+
+export function transactionView(state: DemoState, trx: DemoTransaction): TransactionView {
   const account = state.accounts.find((a) => a.id === trx.account_id);
   const vendor = state.vendors.find((v) => v.id === trx.vendor_id);
+  const project = state.projects.find((p) => p.id === trx.project_id);
   const allocated = allocatedTotal(state, trx.id);
   const links = state.attachment_links.filter(
     (l) => l.entity === "transaction" && l.entity_no === trx.trx_no,
@@ -645,6 +657,110 @@ export function transactionView(state: DemoState, trx: Transaction): Transaction
      * and flagging them would drown the rows that matter (D83). */
     expects_allocation: trx.direction === "OUT" && expectsDecision(state, trx.type_code),
     ...balanceAround(state, trx),
+    category: effectiveCategory(state, trx),
+    category_override: trx.category_override ?? null,
+    project_code: project?.code ?? null,
+    po_nos: [...new Set(state.payment_allocations
+      .filter((a) => a.trx_id === trx.id && a.superseded_by === null && a.po_no)
+      .map((a) => a.po_no as string))],
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Ringkasan — what each row counts as, in parts (v_category_part)     */
+/* ------------------------------------------------------------------ */
+
+interface CategoryPart {
+  trx: DemoTransaction;
+  month: string;
+  category: Category;
+  amount: number;
+}
+
+/** One part per row at its category, plus one for its fee lines (bank)
+ *  and one for its tax lines (tax) when the row's lines add up to its
+ *  amount (`0274`). Σ parts of a row = its amount, always. */
+export function categoryParts(state: DemoState): CategoryPart[] {
+  const out: CategoryPart[] = [];
+  for (const trx of state.transactions) {
+    if (trx.status === "VOID") continue;
+    const month = trx.trx_date.slice(0, 7);
+    const lines = state.transaction_lines.filter((l) => l.trx_id === trx.id);
+    const total = lines.reduce((s, l) => s + (l.kind === "discount" ? -l.amount : l.amount), 0);
+    const addsUp = lines.length > 0 && total === trx.amount_idr;
+    const fee = addsUp ? lines.filter((l) => l.kind === "fee").reduce((s, l) => s + l.amount, 0) : 0;
+    const tax = addsUp ? lines.filter((l) => l.kind === "tax").reduce((s, l) => s + l.amount, 0) : 0;
+    out.push({ trx, month, category: effectiveCategory(state, trx), amount: trx.amount_idr - fee - tax });
+    if (fee > 0) out.push({ trx, month, category: "bank", amount: fee });
+    if (tax > 0) out.push({ trx, month, category: "tax", amount: tax });
+  }
+  return out;
+}
+
+/** The four summary views for one year, from the parts above. */
+export function categorySummary(state: DemoState, year: string): CategorySummary {
+  const parts = categoryParts(state).filter((p) => p.month.startsWith(`${year}-`));
+  const roll = <K extends string, R>(
+    items: CategoryPart[], keyOf: (p: CategoryPart) => K, make: (p: CategoryPart) => R,
+    add: (r: R, p: CategoryPart) => void,
+  ): R[] => {
+    const map = new Map<K, { row: R; ids: Set<string> }>();
+    for (const p of items) {
+      const k = keyOf(p);
+      const found = map.get(k) ?? { row: make(p), ids: new Set<string>() };
+      add(found.row, p);
+      found.ids.add(p.trx.id);
+      map.set(k, found);
+    }
+    return [...map.values()].map(({ row, ids }) => ({ ...row, trx_count: ids.size }));
+  };
+
+  const months = roll<string, CategoryMonthRow>(
+    parts, (p) => `${p.month}|${p.trx.direction}|${p.category}`,
+    (p) => ({ month: p.month, direction: p.trx.direction, category: p.category, trx_count: 0, amount: 0 }),
+    (r, p) => { r.amount += p.amount; },
+  ).sort((a, b) => a.month.localeCompare(b.month));
+
+  const out = parts.filter((p) => p.trx.direction === "OUT");
+  const projects = roll<string, ProjectSpendRow>(
+    out.filter((p) => p.trx.project_id),
+    (p) => `${p.trx.project_id}|${p.month}|${p.category}`,
+    (p) => {
+      const pr = state.projects.find((x) => x.id === p.trx.project_id);
+      return {
+        project_id: p.trx.project_id as string, project_code: pr?.code ?? "", project_name: pr?.name ?? "",
+        contract_value: pr?.contract_value ?? null, month: p.month, category: p.category, trx_count: 0, amount: 0, last_date: "",
+      };
+    },
+    (r, p) => { r.amount += p.amount; if (p.trx.trx_date > r.last_date) r.last_date = p.trx.trx_date; },
+  );
+  const vendors = roll<string, VendorSpendRow>(
+    out.filter((p) => p.trx.vendor_id),
+    (p) => `${p.trx.vendor_id}|${p.month}|${p.category}`,
+    (p) => ({
+      vendor_id: p.trx.vendor_id as string,
+      vendor_name: state.vendors.find((v) => v.id === p.trx.vendor_id)?.name ?? null,
+      month: p.month, category: p.category, trx_count: 0, amount: 0, last_date: "",
+    }),
+    (r, p) => { r.amount += p.amount; if (p.trx.trx_date > r.last_date) r.last_date = p.trx.trx_date; },
+  ).sort((a, b) => b.amount - a.amount);
+
+  const transfers = new Map<string, TransferMonthRow>();
+  for (const p of parts.filter((x) => x.category === "transfer")) {
+    const k = `${p.month}|${p.trx.account_id}`;
+    const acc = state.accounts.find((a) => a.id === p.trx.account_id);
+    const r = transfers.get(k) ?? {
+      month: p.month, account_id: p.trx.account_id, account_code: acc?.code ?? "", custody: acc?.custody ?? "accounting",
+      transfer_out: null, transfer_in: null, trx_count_out: 0, trx_count_in: 0,
+    };
+    if (p.trx.direction === "OUT") { r.transfer_out = (r.transfer_out ?? 0) + p.amount; r.trx_count_out += 1; }
+    else { r.transfer_in = (r.transfer_in ?? 0) + p.amount; r.trx_count_in += 1; }
+    transfers.set(k, r);
+  }
+
+  return {
+    year, months, projects, vendors,
+    transfers: [...transfers.values()].sort((a, b) => a.month.localeCompare(b.month) || a.account_code.localeCompare(b.account_code)),
   };
 }
 
@@ -860,6 +976,8 @@ export function purchaseFacts(state: DemoState): PurchaseFact[] {
   }
 
   for (const tl of state.transaction_lines) {
+    /* A fee, a tax or the courier is not a price for anything (0271). */
+    if (tl.kind !== "item") continue;
     const trx = state.transactions.find((t) => t.id === tl.trx_id);
     if (!trx || trx.status === "VOID") continue;
     const item = itemOf(tl.item_id);
@@ -957,8 +1075,11 @@ function fundingRows(state: DemoState): Transaction[] {
   const operating = new Set(
     state.accounts.filter((a) => a.custody === "accounting").map((a) => a.id),
   );
+  /* Of category transfer (0274): money a client paid is income, not a
+     transfer leadership made, and it would answer the wrong question. */
   return state.transactions
-    .filter((t) => t.direction === "IN" && t.status !== "VOID" && operating.has(t.account_id))
+    .filter((t) => t.direction === "IN" && t.status !== "VOID" && operating.has(t.account_id)
+      && effectiveCategory(state, t) === "transfer")
     .sort(byLedgerOrder);
 }
 
@@ -1058,11 +1179,7 @@ export function fundingView(state: DemoState, trx: Transaction, all?: Transactio
     (l) => l.entity === "transaction" && l.entity_no === trx.trx_no && l.kind === "Payment Proof",
   );
 
-  const headline = consumed_on
-    ? trNow(`Spent through in ${days_lasted} day(s)${spent > trx.amount_idr ? `, and ${formatShort(spent - trx.amount_idr)} beyond it` : ""}`, `Habis terpakai dalam ${days_lasted} hari${spent > trx.amount_idr ? `, dan lebih ${formatShort(spent - trx.amount_idr)} darinya` : ""}`)
-    : is_open
-      ? trNow(`${formatShort(trx.amount_idr - spent)} of it still unspent`, `${formatShort(trx.amount_idr - spent)} darinya masih belum terpakai`)
-      : trNow(`${formatShort(trx.amount_idr - spent)} was still unspent when the next transfer arrived`, `${formatShort(trx.amount_idr - spent)} masih belum terpakai saat transfer berikutnya datang`);
+  const headline = fundingHeadline({ amount: trx.amount_idr, spent_total: spent, consumed_on, days_lasted, is_open }, trNow, formatShort);
 
   return {
     trx_no: trx.trx_no,
@@ -1077,7 +1194,7 @@ export function fundingView(state: DemoState, trx: Transaction, all?: Transactio
     balance_before,
     next_funding_no: next?.trx_no ?? null,
     window_end: next?.trx_date ?? null,
-    spent,
+    spent_total: spent,
     consumed_on,
     days_lasted,
     remaining: Math.max(trx.amount_idr - spent, 0),

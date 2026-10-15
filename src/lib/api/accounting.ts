@@ -31,7 +31,15 @@ import type {
   SubscriptionPaymentInput, SubscriptionStatus,
   AccountCustody, Cashflow, CashflowLine, CashflowLineInput, CashflowBillInput, CashflowWeekOverride,
   CashflowReceipt, CashflowOpening, CashflowSettings,
+  TransactionLineView, RedetailQueueRow,
 } from "@/services/accounting/contracts";
+import type { LineKind } from "@/services/accounting/lines";
+import { fundingHeadline } from "@/services/accounting/categories";
+import type {
+  Category, CategoryMonthRow, CategorySummary, FundingDetail, FundingRow, FundingSpendGroup,
+  FundingSpendRow, FundingView, ProjectSpendRow, Runway, TransferMonthRow, VendorSpendRow,
+} from "@/services/accounting/contracts";
+import { runwayFrom, runwayMonths } from "@/services/accounting/runway";
 import {
   applySubscriptions, settleUnplanned, subscriptionRegister, subscriptionRows,
 } from "@/services/accounting/subscriptions";
@@ -261,6 +269,16 @@ export async function updateTransactionType(
   return typeByCode(code);
 }
 
+/** The category every row of the type gets (`set_type_category`, `0274`).
+ *  Accounting write access; the seam refuses anything that is not one of
+ *  the ten. */
+export async function setTypeCategory(code: string, category: Category): Promise<Result<TransactionType>> {
+  const { data, error } = await db().rpc("set_type_category", { p_code: code, p_category: category });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return typeByCode(code);
+}
+
 export async function deleteTransactionType(code: string): Promise<Result<{ code: string; deleted: true }>> {
   const { data, error } = await db().rpc("delete_transaction_type", { p_code: code });
   const res = fromSeam(SERVICE, data, error);
@@ -289,6 +307,8 @@ export async function listTransactions(
     /** Inclusive `YYYY-MM-DD` bounds on `trx_date`. */
     from?: string; to?: string;
     direction?: "IN" | "OUT";
+    /** The effective category (`0274`): the row's own, else its type's. */
+    category?: Category;
     limit?: number; offset?: number;
   } = {},
 ): Promise<Result<TransactionView[]>> {
@@ -299,6 +319,7 @@ export async function listTransactions(
   if (opts.account_id) q = q.eq("account_id", opts.account_id);
   if (opts.project_code) q = q.eq("project_code", opts.project_code);
   if (opts.type_code) q = q.eq("type_code", opts.type_code);
+  if (opts.category) q = q.eq("category", opts.category);
   if (opts.direction) q = q.eq("direction", opts.direction);
   if (opts.from) q = q.gte("trx_date", opts.from);
   if (opts.to) q = q.lte("trx_date", opts.to);
@@ -310,8 +331,69 @@ export async function listTransactions(
   return fromPage<TransactionView>(SERVICE, data as TransactionView[], count, error, limit, offset);
 }
 
+/** The a/b lines of a page of ledger rows, in one read (`v_transaction_line`,
+ *  0273): the table draws them under their parent (D437) without a detail
+ *  call per row. Asked for by number, never more than a page at a time. */
+export async function listTransactionLines(trxNos: string[]): Promise<Result<TransactionLineView[]>> {
+  if (trxNos.length === 0) return ok(SERVICE, []);
+  const { data, error } = await db().from("v_transaction_line").select("*")
+    .in("trx_no", trxNos).order("trx_no").order("line_no");
+  return fromRows<TransactionLineView[]>(SERVICE, data as TransactionLineView[], error);
+}
+
+/** The rows still to re-detail (`v_redetail_queue`, 0273, D434), newest
+ *  first — the whole of 2026, back to January (D435 point 6). Paged at the
+ *  service like the ledger. */
+export async function listRedetailQueue(
+  opts: { q?: string; account_code?: string; limit?: number; offset?: number } = {},
+): Promise<Result<RedetailQueueRow[]>> {
+  const limit = opts.limit ?? 50;
+  const offset = opts.offset ?? 0;
+  let q = db().from("v_redetail_queue").select("*", { count: "exact" });
+  if (opts.account_code) q = q.eq("account_code", opts.account_code);
+  if (opts.q) q = q.or(ilikeOrFilter(opts.q, "description", "trx_no"));
+  const { data, error, count } = await q
+    .order("trx_date", { ascending: false })
+    .order("trx_no", { ascending: false })
+    .range(offset, offset + limit - 1);
+  return fromPage<RedetailQueueRow>(SERVICE, data as RedetailQueueRow[], count, error, limit, offset);
+}
+
+/** Rewrite a row's whole detail, or confirm it as it is (`set_transaction_lines`,
+ *  0273). `lines: null` is *sudah benar*: the stamp without a change. The
+ *  amount never moves here — that is `editTransaction`. */
+export async function setTransactionLines(
+  input: {
+    trx_no: string;
+    lines: { kind?: LineKind; description: string; qty?: number | null; uom?: string | null;
+             unit_price?: number | null; amount: number; item_id?: string | null }[] | null;
+    reason?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<TransactionDetail>> {
+  const { data, error } = await db().rpc("set_transaction_lines", {
+    p_trx_no: input.trx_no,
+    p_lines: input.lines,
+    p_reason: input.reason ?? null,
+    p_key: idempotencyKey ?? null,
+  });
+  const done = fromSeam<{ trx_no: string }>(SERVICE, data, error);
+  if (done.error) return done;
+  return getTransaction(done.data.trx_no);
+}
+
 /** Everything a ledger row is made of, in one call: what it bought, what it
  *  funded, and what proves it. */
+/** This row's own category (`set_transaction_category`, `0274`): `""`
+ *  clears it and the type decides again. `post_ledger`; a VOID row keeps
+ *  what it has. The seam writes before/after to the trail. */
+export async function setTransactionCategory(trxNo: string, category: Category | ""): Promise<Result<TransactionDetail>> {
+  const { data, error } = await db().rpc("set_transaction_category", { p_trx_no: trxNo, p_category: category });
+  const res = fromSeam(SERVICE, data, error);
+  if (res.error) return res;
+  return getTransaction(trxNo);
+}
+
 export async function getTransaction(trxNo: string): Promise<Result<TransactionDetail>> {
   const { data, error } = await db().from("v_transaction_detail").select("*").eq("trx_no", trxNo).maybeSingle();
   if (error) return fail(SERVICE, error);
@@ -412,6 +494,7 @@ async function readBack(trxNo: string, known: Partial<TransactionView> = {}): Pr
     void_reason: null, allocated_total: 0, unallocated: 0, evidence_count: 0,
     has_payment_proof: false, has_receipt_doc: false, pr_line_nos: [], expects_allocation: false,
     balance_before: null, balance_after: null,
+    category: "overhead", category_override: null, project_code: null, po_nos: [],
     ...known,
     trx_no: trxNo,
   });
@@ -440,9 +523,14 @@ export async function postTransaction(
     project_id?: string | null;
     description: string;
     source_ref: string;
-    lines?: { description: string; qty?: number | null; uom?: string | null;
-              unit_price?: number | null; amount: number }[];
+    /** Each line's kind (`0271`); left out, the seam guesses it from the
+     *  description. Amounts stay positive — a discount counts minus. */
+    lines?: { kind?: LineKind; description: string; qty?: number | null; uom?: string | null;
+              unit_price?: number | null; amount: number; item_id?: string | null }[];
     documents: { attachment_id: string; kind: DocKind }[];
+    /** The bill in another currency, paid in rupiah (`0271`, D435). */
+    billed_currency?: string | null;
+    billed_amount?: number | null;
   },
   idempotencyKey?: string,
 ): Promise<Result<TransactionView>> {
@@ -466,6 +554,8 @@ export async function postTransaction(
     p_remark: null,
     p_source_ref: input.source_ref || null,
     p_key: idempotencyKey ?? null,
+    p_billed_currency: input.billed_currency ?? null,
+    p_billed_amount: input.billed_amount ?? null,
   });
 
   const posted = fromSeam<{ trx_no: string; amount: number; status: string }>(
@@ -525,8 +615,8 @@ export async function bookEvidence(
     project_id?: string | null;
     description: string;
     remark?: string | null;
-    lines?: { description: string; qty?: number | null; uom?: string | null;
-              unit_price?: number | null; amount: number }[];
+    lines?: { kind?: LineKind; description: string; qty?: number | null; uom?: string | null;
+              unit_price?: number | null; amount: number; item_id?: string | null }[];
   },
   idempotencyKey?: string,
 ): Promise<Result<TransactionView>> {
@@ -741,6 +831,11 @@ export async function editTransaction(
     account_code?: string;
     direction?: "IN" | "OUT";
     reason?: string;
+    /** The bill in another currency (`0271`): omitted keeps it, `""` clears
+     *  both, a code sets both with `billed_amount`; the amount alone changes
+     *  it on a row that already has a currency. */
+    billed_currency?: string | null;
+    billed_amount?: number | null;
   },
   idempotencyKey?: string,
 ): Promise<Result<TransactionView>> {
@@ -755,6 +850,8 @@ export async function editTransaction(
     p_direction: input.direction ?? null,
     p_reason: input.reason ?? null,
     p_key: idempotencyKey ?? null,
+    p_billed_currency: input.billed_currency ?? null,
+    p_billed_amount: input.billed_amount ?? null,
   });
   const edited = fromSeam<{ trx_no: string }>(SERVICE, data, error);
   if (edited.error) return edited;
@@ -1399,6 +1496,167 @@ export async function coverageForTransaction(trxNo: string): Promise<Result<Tran
  *  demo). Both are built from data the seam already returns
  *  (`short_month` / `short_by` / each month's `closing`), so nothing is
  *  computed here that the database has not already decided. */
+/* ------------------------------------------------------------------ */
+/* Ringkasan (L9, 0274): a year of the four summary views              */
+/* ------------------------------------------------------------------ */
+
+/** PostgREST hands `numeric` back as text; these columns are numbers. */
+const num = <T extends object>(row: T, keys: (keyof T)[]): T => {
+  const out: Record<string, unknown> = { ...(row as Record<string, unknown>) };
+  for (const k of keys) {
+    const v = out[k as string];
+    out[k as string] = v === null || v === undefined ? v : Number(v);
+  }
+  return out as T;
+};
+
+/** Month × category, per project, per vendor and transfers between
+ *  accounts for one year, read together. Everything comes from
+ *  `v_category_part` (0274): a fee line counts to bank and a tax line to
+ *  tax whatever the row's type says. */
+export async function getCategorySummary(year: string): Promise<Result<CategorySummary>> {
+  const like = `${year}-%`;
+  const [m, p, v, t] = await Promise.all([
+    db().from("v_category_month").select("*").like("month", like).order("month"),
+    db().from("v_project_spend").select("*").like("month", like).order("project_code"),
+    db().from("v_vendor_spend").select("*").like("month", like).order("amount", { ascending: false }),
+    db().from("v_transfer_month").select("*").like("month", like).order("month").order("account_code"),
+  ]);
+  const err = m.error ?? p.error ?? v.error ?? t.error;
+  if (err) return fail(SERVICE, err);
+  return ok(SERVICE, {
+    year,
+    months: ((m.data ?? []) as CategoryMonthRow[]).map((r) => num(r, ["trx_count", "amount"])),
+    projects: ((p.data ?? []) as ProjectSpendRow[]).map((r) => num(r, ["trx_count", "amount", "contract_value"])),
+    vendors: ((v.data ?? []) as VendorSpendRow[]).map((r) => num(r, ["trx_count", "amount"])),
+    transfers: ((t.data ?? []) as TransferMonthRow[]).map((r) => num(r, ["transfer_out", "transfer_in", "trx_count_out", "trx_count_in"])),
+  });
+}
+
+/** *Berapa bulan* (L10): the last three finished months of `v_category_month`
+ *  and today's balances of the accounting accounts, read together; the
+ *  arithmetic is `runwayFrom`, shared with the sandbox. */
+export async function getRunway(): Promise<Result<Runway>> {
+  const today = officeToday();
+  const months = runwayMonths(today);
+  const [m, b] = await Promise.all([
+    db().from("v_category_month").select("*").in("month", months),
+    db().from("v_account_balance").select("code, custody, balance, is_active"),
+  ]);
+  if (m.error) return fail(SERVICE, m.error);
+  if (b.error) return fail(SERVICE, b.error);
+  return ok(SERVICE, runwayFrom({
+    today,
+    months: ((m.data ?? []) as CategoryMonthRow[]).map((r) => num(r, ["trx_count", "amount"])),
+    balances: ((b.data ?? []) as { code: string; custody: AccountCustody; balance: unknown; is_active?: boolean }[])
+      .map((a) => ({ ...a, balance: Number(a.balance ?? 0) })),
+  }));
+}
+
+/* ------------------------------------------------------------------ */
+/* Liquidation (D106, real side since 0274)                            */
+/* ------------------------------------------------------------------ */
+
+const FUNDING_NUMERIC: (keyof FundingRow)[] = [
+  "amount", "balance_before", "spent_total", "days_lasted", "remaining", "beyond", "decided", "undecided",
+];
+
+function fundingView(row: FundingRow): FundingView {
+  const f = num(row, FUNDING_NUMERIC);
+  return { ...f, headline: fundingHeadline(f, trNow, formatIDRCompact) };
+}
+
+/** Every funding, newest first (`v_funding`): a transfer into an operating
+ *  account, and what left it before the next one arrived. */
+export async function listFundings(): Promise<Result<FundingView[]>> {
+  const { data, error } = await db().from("v_funding").select("*")
+    .order("trx_date", { ascending: false }).order("trx_no", { ascending: false });
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, ((data ?? []) as FundingRow[]).map(fundingView));
+}
+
+/** Ledger rows in the order a bank statement has them: by day, then by the
+ *  number minted that day. */
+const ledgerKey = (t: { trx_date: string; trx_no: string }) => `${t.trx_date}|${t.trx_no}`;
+
+function spendGroups(
+  rows: FundingSpendRow[], keyOf: (r: FundingSpendRow) => string, labelOf: (r: FundingSpendRow) => string, total: number,
+): FundingSpendGroup[] {
+  const map = new Map<string, FundingSpendGroup>();
+  for (const r of rows) {
+    const key = keyOf(r);
+    const g = map.get(key) ?? { key, label: labelOf(r), amount: 0, share: 0, count: 0 };
+    g.amount += r.amount; g.count += 1;
+    map.set(key, g);
+  }
+  return [...map.values()]
+    .map((g) => ({ ...g, share: total > 0 ? g.amount / total : 0 }))
+    .sort((a, b) => b.amount - a.amount);
+}
+
+/** One transfer and where it went: the window's rows from `v_transaction`,
+ *  counted down from what was sent. A row is *decided* when it names an
+ *  approved request line or a purchase order (both are decisions). */
+export async function getFunding(trxNo: string): Promise<Result<FundingDetail>> {
+  const head = await db().from("v_funding").select("*").eq("trx_no", trxNo).maybeSingle();
+  if (head.error) return fail(SERVICE, head.error);
+  if (!head.data) return notFound(SERVICE, "funding_not_found", `No incoming transfer ${trxNo}.`);
+  const f = fundingView(head.data as FundingRow);
+
+  let q = db().from("v_transaction").select("*")
+    .eq("account_id", f.account_id).eq("direction", "OUT").neq("status", "VOID")
+    .gte("trx_date", f.trx_date);
+  if (f.window_end) q = q.lte("trx_date", f.window_end);
+  const [win, limit] = await Promise.all([
+    q.order("trx_date").order("trx_no"),
+    core().from("settings").select("value").eq("key", "ops.no_approval_limit_idr").maybeSingle(),
+  ]);
+  if (win.error) return fail(SERVICE, win.error);
+  const noApprovalLimit = Number((limit.data as { value?: unknown } | null)?.value ?? 2_000_000) || 2_000_000;
+
+  /* The window is open on both ends by (date, number): a row on the same
+     day as the transfer counts only when its number came after. */
+  const after = ledgerKey(f);
+  const before = f.window_end && f.next_funding_no ? ledgerKey({ trx_date: f.window_end, trx_no: f.next_funding_no }) : null;
+  const inWindow = ((win.data ?? []) as TransactionView[])
+    .filter((t) => ledgerKey(t) > after && (before === null || ledgerKey(t) < before));
+
+  const projectIds = [...new Set(inWindow.map((t) => t.project_id).filter((x): x is string => !!x))];
+  const projects = projectIds.length
+    ? await procure().from("projects").select("id, name").in("id", projectIds)
+    : { data: [] as { id: string; name: string }[], error: null };
+  const projectName = new Map(((projects.data ?? []) as { id: string; name: string }[]).map((p) => [p.id, p.name]));
+
+  let running = f.amount;
+  const rows: FundingSpendRow[] = inWindow.map((t) => {
+    const amount = Number(t.amount_idr);
+    running -= amount;
+    const decided = (t.pr_line_nos?.length ?? 0) > 0 || ((t as { po_nos?: string[] }).po_nos?.length ?? 0) > 0;
+    return {
+      trx_no: t.trx_no,
+      trx_date: t.trx_date,
+      description: t.description,
+      type_code: t.type_code,
+      vendor_name: t.vendor_name,
+      project_name: t.project_id ? projectName.get(t.project_id) ?? t.project_code ?? null : null,
+      amount,
+      left_of_transfer: running,
+      decided,
+      expects_link: t.expects_allocation,
+      over_no_approval_limit: !decided && t.expects_allocation && amount > noApprovalLimit,
+      status: t.status,
+    };
+  });
+  const spent = rows.reduce((s, r) => s + r.amount, 0);
+  return ok(SERVICE, {
+    ...f,
+    rows,
+    by_type: spendGroups(rows, (r) => r.type_code, (r) => r.type_code, spent),
+    by_vendor: spendGroups(rows, (r) => r.vendor_name ?? "—", (r) => r.vendor_name ?? trNow("no vendor named", "tanpa vendor"), spent),
+    by_project: spendGroups(rows, (r) => r.project_name ?? "—", (r) => r.project_name ?? trNow("no project named", "tanpa proyek"), spent),
+  });
+}
+
 export async function getCashPlan(): Promise<Result<CashPlan>> {
   return planFrom();
 }

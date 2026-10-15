@@ -13,8 +13,13 @@ import type {
   Subscription, SubscriptionRegister, SubscriptionInput, SubscriptionPaymentInput,
   SubscriptionStatus, SubscriptionPayment,
   Cashflow, CashflowLineInput, CashflowBillInput, CashflowSettings,
+  TransactionLineView, RedetailQueueRow,
 } from "@/services/accounting/contracts";
+import { guessLineKind, signedTotal, type LineKind } from "@/services/accounting/lines";
 import { CASHFLOW_IN_CATEGORIES, CASHFLOW_OUT_CATEGORIES } from "@/services/accounting/contracts";
+import type { Category, CategorySummary, Runway } from "@/services/accounting/contracts";
+import { isCategory } from "@/services/accounting/categories";
+import { runwayFrom } from "@/services/accounting/runway";
 import { subscriptionRegister } from "@/services/accounting/subscriptions";
 import { buildCashflow, balancesAt } from "@/services/accounting/cashflow";
 import { getActiveLocale, formatIDR } from "@/lib/format";
@@ -26,6 +31,7 @@ import {
   lineStatus, fundings, fundingView, cashPlan, cashDue, cashMonthDetail,
   bankStatementView, bankStatementViews, documentCoverage, transactionCoverage,
   monthlyBills, contributionAudit, orderOfLine, orderPaidByLine,
+  effectiveCategory, categorySummary,
 } from "../derive";
 import { latency, actingUser, requireAuthority, requireModule, requireLevel, conflict, replayed, remember, paged } from "./_kit";
 import { PRIMARY_DOC_KINDS, COMPLETION_DOC_KINDS, type DocKind } from "@/services/documents/contracts";
@@ -197,7 +203,7 @@ export async function createTransactionType(input: {
   }
   const row: TransactionType = {
     code, is_purchase: input.is_purchase ?? true, auto_complete: input.auto_complete ?? false,
-    creates_catalog_item: input.creates_catalog_item ?? false,
+    creates_catalog_item: input.creates_catalog_item ?? false, category: "overhead",
     description: input.description?.trim() || null, is_active: true,
   };
   apply((draft) => {
@@ -258,6 +264,22 @@ export async function deleteTransactionType(code: string): Promise<Result<{ code
   return ok(SERVICE, { code, deleted: true as const });
 }
 
+/** `set_type_category` (0274): the category every row of the type gets. */
+export async function setTypeCategory(code: string, category: Category): Promise<Result<TransactionType>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "accounting", "write");
+  if (denied) return denied;
+  const t = getState().transaction_types.find((x) => x.code === code);
+  if (!t) return notFound(SERVICE, "type_not_found", "No such transaction type.");
+  if (!isCategory(category)) return invalid(SERVICE, "unknown_category", `${category} is not a category.`, { field: "category" });
+  if (t.category === category) return noop(SERVICE, t);
+  apply((draft) => {
+    draft.transaction_types.find((x) => x.code === code)!.category = category;
+    writeAudit(draft, { service: SERVICE, entity: "transaction_type", entity_no: code, action: "set_category", outcome: "ok", reason: null });
+  });
+  return ok(SERVICE, getState().transaction_types.find((x) => x.code === code)!);
+}
+
 export async function listTransactions(
   opts: {
     account_id?: string; type_code?: string; q?: string;
@@ -267,6 +289,8 @@ export async function listTransactions(
     /** Inclusive `YYYY-MM-DD` bounds on `trx_date`. */
     from?: string; to?: string;
     direction?: "IN" | "OUT";
+    /** The effective category (`0274`): the row's own, else its type's. */
+    category?: Category;
     include_void?: boolean; limit?: number; offset?: number;
   } = {},
 ): Promise<Result<TransactionView[]>> {
@@ -274,6 +298,7 @@ export async function listTransactions(
   const state = getState();
   const readable = readableAccountIds(state);
   let rows = state.transactions.filter((t) => readable.has(t.account_id));
+  if (opts.category) rows = rows.filter((t) => effectiveCategory(state, t) === opts.category);
   /* Filtered here rather than in the browser, so "page 2 of 3" counts the
      rows the reader will actually see. */
   if (!opts.include_void) rows = rows.filter((t) => t.status !== "VOID");
@@ -294,6 +319,33 @@ export async function listTransactions(
     .map((t) => transactionView(state, t))
     .sort((a, b) => b.trx_date.localeCompare(a.trx_date) || b.trx_no.localeCompare(a.trx_no));
   return paged(SERVICE, views, opts.limit ?? 50, opts.offset ?? 0);
+}
+
+/** `set_transaction_category` (0274): this row's own category; `""` clears
+ *  it. `post_ledger`; a VOID row keeps what it has; an override equal to
+ *  the type's category is no override. */
+export async function setTransactionCategory(trxNo: string, category: Category | ""): Promise<Result<TransactionDetail>> {
+  await latency();
+  const denied = requireAuthority(SERVICE, "post_ledger");
+  if (denied) return denied;
+  const state = getState();
+  const trx = state.transactions.find((t) => t.trx_no === trxNo);
+  if (!trx) return notFound(SERVICE, "transaction_not_found", `Transaction ${trxNo} not found.`);
+  if (trx.status === "VOID") return conflict(SERVICE, "transaction_void", "A void row keeps its category.");
+  if (category !== "" && !isCategory(category)) {
+    return invalid(SERVICE, "unknown_category", `${category} is not a category.`, { field: "category" });
+  }
+  const typeCat = state.transaction_types.find((t) => t.code === trx.type_code)?.category ?? "overhead";
+  const next: Category | null = category === "" || category === typeCat ? null : category;
+  if ((trx.category_override ?? null) === next) return getTransaction(trxNo);
+  apply((draft) => {
+    draft.transactions.find((t) => t.trx_no === trxNo)!.category_override = next;
+    writeAudit(draft, {
+      service: SERVICE, entity: "transaction", entity_no: trxNo, action: "set_category", outcome: "ok", reason: null,
+      detail: { category_before: trx.category_override ?? typeCat, category_after: next ?? typeCat },
+    });
+  });
+  return getTransaction(trxNo);
 }
 
 /** The whole row: what it bought, what it funded, and the line each
@@ -320,9 +372,180 @@ export async function getTransaction(trxNo: string): Promise<Result<TransactionD
 
   return ok(SERVICE, {
     ...transactionView(state, trx),
-    lines: state.transaction_lines.filter((l) => l.trx_id === trx.id),
+    /* Named, as `v_transaction_detail` names it (0272). */
+    lines: state.transaction_lines.filter((l) => l.trx_id === trx.id).map((l) => {
+      const item = l.item_id ? state.items.find((i) => i.id === l.item_id) : undefined;
+      return { ...l, item_code: item?.code ?? null, item_name: item?.name ?? null };
+    }),
     allocations,
+    billed_currency: trx.billed_currency ?? null,
+    billed_amount: trx.billed_amount ?? null,
+    lines_reviewed_at: trx.lines_reviewed_at ?? null,
+    lines_reviewed_by_name: trx.lines_reviewed_by
+      ? state.users.find((u) => u.id === trx.lines_reviewed_by)?.full_name ?? null : null,
   });
+}
+
+/** `v_transaction_line` (0273): the a/b lines of the rows asked for, with
+ *  their item named. */
+export async function listTransactionLines(trxNos: string[]): Promise<Result<TransactionLineView[]>> {
+  await latency();
+  const state = getState();
+  const want = new Set(trxNos);
+  const readable = readableAccountIds(state);
+  const rows: TransactionLineView[] = [];
+  for (const t of state.transactions) {
+    if (!want.has(t.trx_no) || !readable.has(t.account_id)) continue;
+    for (const l of state.transaction_lines.filter((x) => x.trx_id === t.id).sort((a, b) => a.line_no - b.line_no)) {
+      const item = l.item_id ? state.items.find((i) => i.id === l.item_id) : undefined;
+      rows.push({ ...l, trx_no: t.trx_no, item_code: item?.code ?? null, item_name: item?.name ?? null });
+    }
+  }
+  return ok(SERVICE, rows);
+}
+
+/** `v_redetail_queue` (0273, D434): money out with a document, dated 2026,
+ *  not yet stamped, and looking lumped. Newest first, paged like the ledger. */
+export async function listRedetailQueue(
+  opts: { q?: string; account_code?: string; limit?: number; offset?: number } = {},
+): Promise<Result<RedetailQueueRow[]>> {
+  await latency();
+  const state = getState();
+  const readable = readableAccountIds(state);
+  const q = opts.q?.trim().toLowerCase();
+  const all = state.transactions
+    .filter((t) => t.direction === "OUT" && t.status !== "VOID" && t.trx_date >= "2026-01-01"
+      && !t.lines_reviewed_at && readable.has(t.account_id))
+    .map((t) => {
+      const account = state.accounts.find((a) => a.id === t.account_id);
+      const vendor = state.vendors.find((v) => v.id === t.vendor_id);
+      const type = state.transaction_types.find((x) => x.code === t.type_code);
+      const lineCount = state.transaction_lines.filter((l) => l.trx_id === t.id).length;
+      const evidence = state.attachment_links.filter((l) => l.entity === "transaction" && l.entity_no === t.trx_no).length;
+      const row: RedetailQueueRow = {
+        id: t.id, trx_no: t.trx_no, trx_date: t.trx_date,
+        account_code: account?.code ?? "", type_code: t.type_code, vendor_name: vendor?.name ?? null,
+        description: t.description, amount_idr: t.amount_idr, evidence_count: evidence,
+        line_count: lineCount, single_line: lineCount <= 1,
+        fee_tail: [2500, 5000, 6500].includes(t.amount_idr % 10000),
+        is_purchase: type?.is_purchase ?? false,
+        is_ecommerce: t.type_code === "ONLINE"
+          || /shopee|tokopedia|lazada|blibli|tiktok shop/i.test(vendor?.name ?? "")
+          || /\b(shopee|tokopedia|lazada|blibli)\b/i.test(t.description),
+      };
+      return row;
+    })
+    .filter((r) => r.evidence_count > 0 && (r.single_line || r.fee_tail || r.is_purchase))
+    .filter((r) => !opts.account_code || r.account_code === opts.account_code)
+    .filter((r) => !q || r.description.toLowerCase().includes(q) || r.trx_no.toLowerCase().includes(q))
+    .sort((a, b) => b.trx_date.localeCompare(a.trx_date) || b.trx_no.localeCompare(a.trx_no));
+  const limit = opts.limit ?? 50;
+  const offset = opts.offset ?? 0;
+  return ok(SERVICE, all.slice(offset, offset + limit),
+    { limit, cursor: null, has_more: all.length > offset + limit, total: all.length });
+}
+
+/** `set_transaction_lines` (0273): the whole detail replaced, or — with
+ *  `lines: null` — confirmed as it is. The amount never moves here. */
+export async function setTransactionLines(
+  input: {
+    trx_no: string;
+    lines: { kind?: LineKind; description: string; qty?: number | null; uom?: string | null;
+             unit_price?: number | null; amount: number; item_id?: string | null }[] | null;
+    reason?: string | null;
+  },
+  idempotencyKey?: string,
+): Promise<Result<TransactionDetail>> {
+  await latency();
+  const endpoint = `setTransactionLines:${input.trx_no}`;
+  const cached = replayed<TransactionDetail>(SERVICE, endpoint, idempotencyKey);
+  if (cached) return cached;
+  const denied = requireAuthority(SERVICE, "post_ledger");
+  if (denied) return denied;
+
+  const state = getState();
+  const trx = state.transactions.find((t) => t.trx_no === input.trx_no);
+  if (!trx) return notFound(SERVICE, "transaction_not_found", `Transaction ${input.trx_no} not found.`);
+  if (trx.status === "VOID") {
+    return conflict(SERVICE, "transaction_void", `${trx.trx_no} is VOID — a void row is not re-detailed.`);
+  }
+  if (state.statement_lines.some((l) => l.trx_no === trx.trx_no && (l.status === "matched" || l.status === "booked"))) {
+    return conflict(SERVICE, "statement_matched", "This row is matched to a bank statement line. Unmatch it first, then re-detail it.");
+  }
+  const type = state.transaction_types.find((x) => x.code === trx.type_code);
+  const before = state.transaction_lines.filter((l) => l.trx_id === trx.id).sort((a, b) => a.line_no - b.line_no);
+  const user = actingUser();
+  const now = new Date().toISOString();
+  const reason = input.reason?.trim() || null;
+
+  if (input.lines === null) {
+    apply((draft) => {
+      const t = draft.transactions.find((x) => x.id === trx.id)!;
+      t.lines_reviewed_at = now; t.lines_reviewed_by = user.id;
+      writeAudit(draft, {
+        service: SERVICE, entity: "transaction", entity_no: trx.trx_no, action: "set_lines",
+        outcome: "ok", reason: reason ?? "confirmed as is", detail: { confirmed: true, lines: before.length },
+      });
+    });
+    const got = await getTransaction(trx.trx_no);
+    if (got.data) remember(SERVICE, endpoint, idempotencyKey, got.data);
+    return got;
+  }
+
+  const lines = input.lines.map((l) => ({ ...l, kind: l.kind ?? guessLineKind(l.description) }));
+  if (lines.length === 0) {
+    return invalid(SERVICE, "detail_required", "Re-detailing a row means at least one line. To confirm it as it is, send no lines.", { field: "lines" });
+  }
+  if (lines.some((l) => l.amount < 0)) {
+    return invalid(SERVICE, "line_amount_negative", "A line's amount is always positive. A voucher or a refund netted in is a discount line — the kind carries the sign.", { field: "lines" });
+  }
+  if (lines.some((l) => !l.description.trim())) {
+    return invalid(SERVICE, "line_description_required", "Every line says what it is.", { field: "lines" });
+  }
+  if (type?.is_purchase) {
+    const missing = lines.find((l) => l.kind === "item" && (l.qty == null || l.unit_price == null));
+    if (missing) {
+      return invalid(SERVICE, "line_detail_required", `"${missing.description}" has no quantity or no unit price. Both are what make a price comparable to the next one.`, { field: "lines" });
+    }
+  }
+  const sum = signedTotal(lines);
+  if (sum !== trx.amount_idr) {
+    return invalid(SERVICE, "lines_do_not_add_up",
+      `The detail adds up to ${sum.toLocaleString(getActiveLocale())} but the transaction is ${trx.amount_idr.toLocaleString(getActiveLocale())}. The amount is corrected with Edit, not here.`,
+      { field: "lines", lines_total: sum, amount: trx.amount_idr });
+  }
+  if (lines.some((l) => l.item_id && !state.items.some((i) => i.id === l.item_id))) {
+    return invalid(SERVICE, "no_such_item", "A line names a catalogue item that does not exist.", { field: "lines" });
+  }
+
+  apply((draft) => {
+    draft.transaction_lines = draft.transaction_lines.filter((l) => l.trx_id !== trx.id);
+    lines.forEach((l, i) => {
+      draft.transaction_lines.push({
+        id: newId("trl"), trx_id: trx.id, line_no: i + 1, kind: l.kind, item_id: l.item_id ?? null,
+        description: l.description.trim(), qty: l.qty ?? null, uom: (l.uom ?? null) as never,
+        unit_price: l.unit_price ?? null, amount: l.amount,
+      });
+    });
+    const t = draft.transactions.find((x) => x.id === trx.id)!;
+    t.lines_reviewed_at = now; t.lines_reviewed_by = user.id;
+    writeAudit(draft, {
+      service: SERVICE, entity: "transaction", entity_no: trx.trx_no, action: "set_lines",
+      outcome: "ok", reason,
+      /* The old detail and the new, so the lump is never lost (the real
+         trail keeps them as before/after). */
+      detail: {
+        lines_before: before.map(({ line_no, kind, item_id, description, qty, uom, unit_price, amount }) =>
+          ({ line_no, kind, item_id, description, qty, uom, unit_price, amount })),
+        lines_after: lines.map((l, i) => ({ line_no: i + 1, kind: l.kind, item_id: l.item_id ?? null,
+          description: l.description.trim(), qty: l.qty ?? null, uom: l.uom ?? null, unit_price: l.unit_price ?? null, amount: l.amount })),
+      },
+    });
+    writeOutbox(draft, { service: SERVICE, event_type: "accounting.transaction.redetailed", payload: { trx_no: trx.trx_no, lines: lines.length, reason } });
+  });
+  const got = await getTransaction(trx.trx_no);
+  if (got.data) remember(SERVICE, endpoint, idempotencyKey, got.data);
+  return got;
 }
 
 /** The one write seam. Everything that creates a ledger row comes through
@@ -342,12 +565,16 @@ export async function postTransaction(
     /** What was bought, in quantity and price. Required for a purchase: an
      *  amount with no detail behind it cannot be checked against anything
      *  later (D86). */
-    lines?: { description: string; qty?: number | null; uom?: string | null; unit_price?: number | null; amount: number }[];
+    lines?: { kind?: LineKind; description: string; qty?: number | null; uom?: string | null;
+              unit_price?: number | null; amount: number; item_id?: string | null }[];
     /** At least one of these has to be a nota, a transfer proof or a photo of
      *  what arrived (D85). The files are uploaded first and linked here, in
      *  the same act as the row — so a row without evidence never exists, not
      *  even for a second. */
     documents: { attachment_id: string; kind: DocKind }[];
+    /** The bill in another currency, paid in rupiah (`0271`, D435). */
+    billed_currency?: string | null;
+    billed_amount?: number | null;
   },
   idempotencyKey?: string,
 ): Promise<Result<TransactionView>> {
@@ -387,7 +614,32 @@ export async function postTransaction(
 
   const state = getState();
   const type = state.transaction_types.find((t) => t.code === input.type_code);
-  const lines = input.lines ?? [];
+  /* Each line's kind: as sent, or what its description suggests — the same
+     guess the seam makes (`line_kind_guess`, 0271). */
+  const lines = (input.lines ?? []).map((l) => ({ ...l, kind: l.kind ?? guessLineKind(l.description) }));
+
+  if (lines.some((l) => l.amount < 0)) {
+    return invalid(
+      SERVICE, "line_amount_negative",
+      "A line's amount is always positive. A voucher or a refund netted in is a discount line — the kind carries the sign.",
+      { field: "lines" },
+    );
+  }
+
+  /* The bill in another currency: both or neither, a real code, not IDR. */
+  const billedCcy = (input.billed_currency ?? "").trim().toUpperCase() || null;
+  const billedAmt = input.billed_amount ?? null;
+  if ((billedCcy === null) !== (billedAmt === null)) {
+    return invalid(SERVICE, "billed_together",
+      "A bill in another currency is a currency and an amount, together. Give both or neither.", { field: "billed_amount" });
+  }
+  if (billedCcy !== null && (!/^[A-Z]{3}$/.test(billedCcy) || billedCcy === "IDR")) {
+    return invalid(SERVICE, "billed_currency",
+      "The billed currency is a three-letter code other than IDR — USD, SGD, EUR.", { field: "billed_currency", given: billedCcy });
+  }
+  if (billedAmt !== null && billedAmt <= 0) {
+    return invalid(SERVICE, "billed_amount_positive", "The billed amount is greater than zero.", { field: "billed_amount" });
+  }
 
   if (type?.is_purchase) {
     if (lines.length === 0) {
@@ -397,7 +649,9 @@ export async function postTransaction(
         { field: "lines" },
       );
     }
-    const missing = lines.find((l) => l.qty == null || l.unit_price == null);
+    /* D86 on the goods only: a fee, a tax or the courier is an amount, not a
+       quantity of anything (0271). */
+    const missing = lines.find((l) => l.kind === "item" && (l.qty == null || l.unit_price == null));
     if (missing) {
       return invalid(
         SERVICE, "line_detail_required",
@@ -415,7 +669,7 @@ export async function postTransaction(
   }
 
   if (lines.length > 0) {
-    const sum = lines.reduce((acc, l) => acc + l.amount, 0);
+    const sum = signedTotal(lines);
     if (sum !== input.amount_idr) {
       return invalid(
         SERVICE, "lines_do_not_add_up",
@@ -446,10 +700,11 @@ export async function postTransaction(
       project_id: input.project_id ?? null, description: input.description,
       remark: null, status: "POSTED", source_ref: input.source_ref,
       posted_by: user.id, posted_at: new Date().toISOString(), void_reason: null,
+      billed_currency: billedCcy, billed_amount: billedAmt,
     });
     lines.forEach((l, i) => {
       draft.transaction_lines.push({
-        id: newId("trl"), trx_id: trxId, line_no: i + 1, item_id: null,
+        id: newId("trl"), trx_id: trxId, line_no: i + 1, kind: l.kind, item_id: l.item_id ?? null,
         description: l.description, qty: l.qty ?? null, uom: (l.uom ?? null) as never,
         unit_price: l.unit_price ?? null, amount: l.amount,
       });
@@ -472,8 +727,10 @@ export async function postTransaction(
         type: input.type_code,
         vendor: draft.vendors.find((v) => v.id === input.vendor_id)?.name ?? null,
         lines: lines.length,
+        item_lines: lines.filter((l) => l.kind === "item").length,
         documents: input.documents.map((d) => d.kind),
         source_ref: input.source_ref,
+        ...(billedCcy ? { billed: `${billedCcy} ${billedAmt}` } : {}),
       },
     });
     writeOutbox(draft, { service: SERVICE, event_type: "accounting.transaction.posted", payload: { trx_no: trxNo, amount: input.amount_idr } });
@@ -555,6 +812,11 @@ export async function editTransaction(
      *  a bank statement or paying request lines or orders. */
     direction?: "IN" | "OUT";
     reason?: string;
+    /** The bill in another currency (`0271`): omitted keeps it, `""` clears
+     *  both, a code sets both with `billed_amount`; the amount alone changes
+     *  it on a row that already has a currency. */
+    billed_currency?: string | null;
+    billed_amount?: number | null;
   },
   idempotencyKey?: string,
 ): Promise<Result<TransactionView>> {
@@ -671,10 +933,42 @@ export async function editTransaction(
     }
   }
 
+  /* The bill in another currency (0271). Null leaves it; "" clears both; a
+     code sets both, with the amount. No remark — the rupiah that moved does
+     not change, only what the invoice said. */
+  let billedCcy = trx.billed_currency ?? null;
+  let billedAmt = trx.billed_amount ?? null;
+  if (input.billed_currency !== undefined && input.billed_currency !== null) {
+    if (input.billed_currency.trim() === "") {
+      billedCcy = null; billedAmt = null;
+    } else {
+      billedCcy = input.billed_currency.trim().toUpperCase();
+      billedAmt = input.billed_amount ?? trx.billed_amount ?? null;
+      if (!/^[A-Z]{3}$/.test(billedCcy) || billedCcy === "IDR") {
+        return invalid(SERVICE, "billed_currency", "The billed currency is a three-letter code other than IDR — USD, SGD, EUR.", { field: "billed_currency", given: billedCcy });
+      }
+      if (billedAmt === null) {
+        return invalid(SERVICE, "billed_together", "A bill in another currency is a currency and an amount, together.", { field: "billed_amount" });
+      }
+      if (billedAmt <= 0) {
+        return invalid(SERVICE, "billed_amount_positive", "The billed amount is greater than zero.", { field: "billed_amount" });
+      }
+    }
+  } else if (input.billed_amount !== undefined && input.billed_amount !== null) {
+    if (!trx.billed_currency) {
+      return invalid(SERVICE, "billed_together", "An amount in another currency needs the currency with it.", { field: "billed_currency" });
+    }
+    if (input.billed_amount <= 0) {
+      return invalid(SERVICE, "billed_amount_positive", "The billed amount is greater than zero.", { field: "billed_amount" });
+    }
+    billedAmt = input.billed_amount;
+  }
+  const billedChanged = billedCcy !== (trx.billed_currency ?? null) || billedAmt !== (trx.billed_amount ?? null);
+
   if (amount === trx.amount_idr && description === trx.description
       && vendorId === trx.vendor_id && projectId === trx.project_id
       && typeCode === trx.type_code && accTo.id === accFrom.id
-      && direction === trx.direction) {
+      && direction === trx.direction && !billedChanged) {
     return ok(SERVICE, transactionView(state, trx));
   }
 
@@ -724,6 +1018,13 @@ export async function editTransaction(
   if (direction !== trx.direction) {
     Object.assign(detail, { direction_before: trx.direction, direction_after: direction });
   }
+  if (billedChanged) {
+    /* One readable value — `USD 26.64 → USD 25` — not two columns to pair. */
+    Object.assign(detail, {
+      billed_before: trx.billed_currency ? `${trx.billed_currency} ${trx.billed_amount}` : null,
+      billed_after: billedCcy ? `${billedCcy} ${billedAmt}` : null,
+    });
+  }
 
   apply((draft) => {
     const t = draft.transactions.find((x) => x.id === trx.id)!;
@@ -734,6 +1035,8 @@ export async function editTransaction(
     t.type_code = typeCode as typeof t.type_code;
     t.account_id = accTo.id;
     t.direction = direction;
+    t.billed_currency = billedCcy;
+    t.billed_amount = billedAmt;
     if (syncLine) {
       const l = draft.transaction_lines.find((x) => x.id === syncLine)!;
       l.amount = amount;
@@ -955,8 +1258,8 @@ export async function bookEvidence(
     project_id?: string | null;
     description: string;
     remark?: string | null;
-    lines?: { description: string; qty?: number | null; uom?: string | null;
-              unit_price?: number | null; amount: number }[];
+    lines?: { kind?: LineKind; description: string; qty?: number | null; uom?: string | null;
+              unit_price?: number | null; amount: number; item_id?: string | null }[];
   },
   idempotencyKey?: string,
 ): Promise<Result<TransactionView>> {
@@ -991,7 +1294,7 @@ export async function bookEvidence(
 
   const lines = input.lines ?? [];
   if (lines.length > 0) {
-    const total = lines.reduce((n, l) => n + l.amount, 0);
+    const total = signedTotal(lines);
     if (total !== input.amount_idr) {
       return invalid(
         SERVICE, "lines_do_not_add_up",
@@ -1488,7 +1791,9 @@ export async function postFromLine(
     /* The detail comes from the line itself: what was bought, how many, at
        what price — so the ledger row can be read without opening the PR. */
     draft.transaction_lines.push({
-      id: newId("trl"), trx_id: trxId, line_no: 1, item_id: null,
+      /* The request line's item rides along (0272), so the catalogue learns
+         the price that was really paid (D86). */
+      id: newId("trl"), trx_id: trxId, line_no: 1, kind: "item", item_id: line.item_id ?? null,
       /* A lump-sum line has no quantity (D75); its payment is described as
          1 lot at the amount paid, the same as `post_from_line` (0141, D298). */
       description: line.description,
@@ -1674,11 +1979,34 @@ export async function postToPo(
       remark: null, status: "POSTED", source_ref: `po:${input.po_no}:${input.trx_date}:${input.amount}`,
       posted_by: user.id, posted_at: now, void_reason: null,
     });
-    draft.transaction_lines.push({
-      id: newId("trl"), trx_id: trxId, line_no: 1, item_id: null,
-      description: `Pembayaran ${input.po_no}`, qty: 1, uom: "unit" as never,
-      unit_price: input.amount, amount: input.amount,
-    });
+    /* The whole contract on an unpaid order: one ledger line per order line,
+       with its item, and a rounding/discount line if the money differs. A
+       term payment stays one generic `other` line — a deposit is money, not
+       goods (A1, 0272). */
+    const full = paid <= 0 && contract > 0 && Math.abs(input.amount - contract) <= 1;
+    if (full) {
+      live.forEach((l, i) => {
+        draft.transaction_lines.push({
+          id: newId("trl"), trx_id: trxId, line_no: i + 1, kind: "item", item_id: l.item_id ?? null,
+          description: l.description, qty: l.qty, uom: l.uom, unit_price: l.unit_price, amount: l.line_total,
+        });
+      });
+      const linesTotal = live.reduce((t, l) => t + l.line_total, 0);
+      if (input.amount !== linesTotal) {
+        draft.transaction_lines.push({
+          id: newId("trl"), trx_id: trxId, line_no: live.length + 1,
+          kind: input.amount > linesTotal ? "other" : "discount", item_id: null,
+          description: input.amount > linesTotal ? `Selisih pembayaran ${input.po_no}` : `Potongan atas ${input.po_no}`,
+          qty: null, uom: null, unit_price: null, amount: Math.abs(input.amount - linesTotal),
+        });
+      }
+    } else {
+      draft.transaction_lines.push({
+        id: newId("trl"), trx_id: trxId, line_no: 1, kind: "other", item_id: null,
+        description: `Pembayaran ${input.po_no}`, qty: 1, uom: "unit" as never,
+        unit_price: input.amount, amount: input.amount,
+      });
+    }
     let spent = 0;
     for (const l of live) {
       if (!l.pr_line_id || contract <= 0) continue;
@@ -1721,6 +2049,24 @@ export async function postToPo(
 export async function listFundings(): Promise<Result<FundingView[]>> {
   await latency();
   return ok(SERVICE, fundings(getState()));
+}
+
+/** Month × category, per project, per vendor and transfers for one year
+ *  (0274), from the same parts the database's `v_category_part` makes. */
+export async function getCategorySummary(year: string): Promise<Result<CategorySummary>> {
+  await latency();
+  return ok(SERVICE, categorySummary(getState(), year));
+}
+
+/** *Berapa bulan* (L10): the same arithmetic as the real side, over the
+ *  sandbox's months and balances. */
+export async function getRunway(): Promise<Result<Runway>> {
+  await latency();
+  const state = getState();
+  const today = officeToday();
+  const year = today.slice(0, 4);
+  const months = [...categorySummary(state, year).months, ...categorySummary(state, String(Number(year) - 1)).months];
+  return ok(SERVICE, runwayFrom({ today, months, balances: accountBalances(state) }));
 }
 
 /** One transfer and where it went. */

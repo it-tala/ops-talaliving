@@ -1,5 +1,7 @@
 /** Accounting contracts — cut to `docs/plan/02-database.md`, schema `acct`. */
 
+import type { LineKind } from "./lines";
+
 /* ------------------------------------------------------------------ */
 /* Vocabulary — copied verbatim. Do not tidy the spelling.             */
 /* ------------------------------------------------------------------ */
@@ -20,6 +22,13 @@ export type AccountCustody = "accounting" | "leadership";
 export type TransactionTypeCode = string;
 
 export type Direction = "IN" | "OUT";
+
+/** What a row was for, as leadership reads it (`ops_acct.category_t`,
+ *  `0274`; D433, D435). Ten, named in English, `ejo` and `saripan` reported
+ *  apart. Labels and notes in `./categories`. */
+export type Category =
+  | "transfer" | "income" | "vendor" | "payroll" | "fixed"
+  | "overhead" | "bank" | "tax" | "ejo" | "saripan";
 
 /** VOID keeps the row and zeroes the amount with a reason (A5). */
 export type TrxStatus = "POSTED" | "COMPLETED" | "UNTRACKED" | "VOID";
@@ -63,6 +72,9 @@ export interface TransactionType {
    *  now; turning the rule on later is a data change, not a code change. */
   auto_complete: boolean;
   creates_catalog_item: boolean;
+  /** The category every row of this type gets unless the row says otherwise
+   *  (`0274`). A type nobody classified is `overhead`. */
+  category: Category;
   /** What the type is for, in a sentence — shown beside the picker. */
   description?: string | null;
   /** Retired types stay on their rows and leave the pickers (`0105`). */
@@ -94,7 +106,15 @@ export interface TransactionLine {
   id: string;
   trx_id: string;
   line_no: number;
+  /** item · fee · tax · shipping · discount · other (`0271`). The amount
+   *  stays positive; a discount is subtracted when the lines are summed.
+   *  Only item lines feed price references. */
+  kind: LineKind;
   item_id: string | null;
+  /** The catalogue entry the line bought, named — from `v_transaction_detail`
+   *  (`0272`); absent on the demo's stored rows and on a line without one. */
+  item_code?: string | null;
+  item_name?: string | null;
   description: string;
   qty: number | null;
   uom: string | null;
@@ -437,6 +457,16 @@ export interface TransactionView extends Transaction {
    *  every balance after it (D429). Null on a VOID row. */
   balance_before: number | null;
   balance_after: number | null;
+  /** `coalesce(category_override, the type's category)` (`0274`): what the
+   *  summaries count the row as, except its fee lines (bank) and tax lines
+   *  (tax). `category_override` is shown so the drawer can say the row was
+   *  categorised by hand. */
+  category: Category;
+  category_override: Category | null;
+  /** The project's public code, and the purchase orders the row's live
+   *  allocations name — both on `v_transaction` since 0033/0139. */
+  project_code: string | null;
+  po_nos: string[];
 }
 
 /** One allocation, with enough of the line to read it without a second call. */
@@ -450,6 +480,46 @@ export interface AllocationView extends PaymentAllocation {
 export interface TransactionDetail extends TransactionView {
   lines: TransactionLine[];
   allocations: AllocationView[];
+  /** The bill's own currency and amount when it was not written in rupiah
+   *  (a USD subscription paid from a rupiah account), beside `amount_idr`,
+   *  which is what was paid. Both or neither; the rate is computed where it
+   *  is shown, never stored (`0271`, D435). On the detail only: `v_transaction`
+   *  does not carry them (the ledger table never shows them, D437), and
+   *  `check-view-contracts` holds every field of a view's contract to the
+   *  view's columns. */
+  billed_currency: string | null;
+  billed_amount: number | null;
+  /** When and by whom the detail was last confirmed or rewritten through
+   *  `set_transaction_lines` (`0273`, D434). Null = never reviewed. */
+  lines_reviewed_at: string | null;
+  lines_reviewed_by_name: string | null;
+}
+
+/** One ledger line with its row's number — `v_transaction_line` (`0273`),
+ *  the ledger table's own read for the a/b rows under their parent (D437). */
+export interface TransactionLineView extends TransactionLine {
+  trx_no: string;
+}
+
+/** A row still to re-detail (`v_redetail_queue`, `0273`, D434): money out
+ *  with a document, dated 2026, not yet stamped, and looking lumped. The
+ *  three flags say why it is here; `is_ecommerce` says it gets at most three
+ *  lines — listed price, discount, fee — never items (D435 point 5). */
+export interface RedetailQueueRow {
+  id: string;
+  trx_no: string;
+  trx_date: string;
+  account_code: string;
+  type_code: string;
+  vendor_name: string | null;
+  description: string;
+  amount_idr: number;
+  evidence_count: number;
+  line_count: number;
+  single_line: boolean;
+  fee_tail: boolean;
+  is_purchase: boolean;
+  is_ecommerce: boolean;
 }
 
 /** One payment to a vendor, and what it settled.
@@ -493,7 +563,7 @@ export interface InboxHealth {
  *  out of the balance that was already there, and the screen says so in those
  *  words rather than inventing a lineage.
  */
-export interface FundingView {
+export interface FundingRow {
   trx_no: string;
   trx_date: string;
   account_id: string;
@@ -502,14 +572,16 @@ export interface FundingView {
   description: string;
   /** Where it came from — the mirror row on the leadership account. */
   from_account_code: AccountCode | null;
-  /** Balance on the receiving account the moment before it landed. */
-  balance_before: number;
+  /** Balance on the receiving account the moment before it landed. Null on
+   *  a row dated before `ledger_balance_from` (D429), where no balance is
+   *  shown anywhere. */
+  balance_before: number | null;
   /** Next transfer into the same account, or `null` while this is the current
    *  one — an open window is stated as open, never as finished. */
   next_funding_no: string | null;
   window_end: string | null;
   /** Everything that left the account inside the window, VOID excluded. */
-  spent: number;
+  spent_total: number;
   /** The day cumulative spending first reached the transfer, and how many days
    *  that took. `null` while the transfer still has room in it. */
   consumed_on: string | null;
@@ -526,6 +598,14 @@ export interface FundingView {
   decided: number;
   undecided: number;
   is_open: boolean;
+  /** The transfer's own proof, when one is attached. */
+  proof_filename: string | null;
+}
+
+/** A funding as the list shows it: `v_funding` (`0274`) plus the one line
+ *  under its life, written by `fundingHeadline` in whichever language the
+ *  reader has on. */
+export interface FundingView extends FundingRow {
   headline: string;
 }
 
@@ -562,11 +642,94 @@ export interface FundingSpendRow {
 }
 
 export interface FundingDetail extends FundingView {
-  proof_filename: string | null;
   rows: FundingSpendRow[];
   by_type: FundingSpendGroup[];
   by_vendor: FundingSpendGroup[];
   by_project: FundingSpendGroup[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Ringkasan — month × category, per project, vendors, transfers (L9)  */
+/* ------------------------------------------------------------------ */
+
+/** `v_category_month` (`0274`): one row per month, direction and category.
+ *  `trx_count` counts transactions; a row with a fee line counts once under its
+ *  category and once under bank. */
+export interface CategoryMonthRow {
+  month: string;
+  direction: Direction;
+  category: Category;
+  trx_count: number;
+  amount: number;
+}
+
+/** `v_project_spend`: money out on a project, by month and category, with
+ *  the contract value beside it when the project has one. */
+export interface ProjectSpendRow {
+  project_id: string;
+  project_code: string;
+  project_name: string;
+  contract_value: number | null;
+  month: string;
+  category: Category;
+  trx_count: number;
+  amount: number;
+  last_date: string;
+}
+
+/** `v_vendor_spend`: money out per vendor, by month and category. */
+export interface VendorSpendRow {
+  vendor_id: string;
+  vendor_name: string | null;
+  month: string;
+  category: Category;
+  trx_count: number;
+  amount: number;
+  last_date: string;
+}
+
+/** `v_transfer_month`: what left and what landed on each account as a
+ *  transfer, per month. Nothing ties the two legs (F29): the difference
+ *  across all accounts is money on the way, or a leg never booked. */
+export interface TransferMonthRow {
+  month: string;
+  account_id: string;
+  account_code: AccountCode;
+  custody: AccountCustody;
+  transfer_out: number | null;
+  transfer_in: number | null;
+  trx_count_out: number;
+  trx_count_in: number;
+}
+
+/** *Masih aman berapa bulan* (L10, §6.9): cash on the accounting accounts
+ *  against the average of the last three finished months of running cost.
+ *  See `services/accounting/runway.ts` for what counts. */
+export interface Runway {
+  as_of: string;
+  /** The three finished months the averages are taken over, oldest first. */
+  months_used: string[];
+  /** Average monthly running cost: payroll · fixed · overhead · bank · tax. */
+  burn: number;
+  burn_by: { category: Category; amount: number }[];
+  /** Average monthly income (category `income`) over the same months. */
+  income_avg: number;
+  /** Balance of the accounting-custody accounts today. */
+  cash: number;
+  cash_accounts: { code: AccountCode; balance: number }[];
+  /** cash ÷ burn, one decimal; null when there is no burn to divide by. */
+  months_without_income: number | null;
+  /** cash ÷ (burn − income); null when income covers the burn. */
+  months_with_income: number | null;
+}
+
+/** One year of the four, read together for `/accounting/ringkasan`. */
+export interface CategorySummary {
+  year: string;
+  months: CategoryMonthRow[];
+  projects: ProjectSpendRow[];
+  vendors: VendorSpendRow[];
+  transfers: TransferMonthRow[];
 }
 
 /* ------------------------------------------------------------------ */

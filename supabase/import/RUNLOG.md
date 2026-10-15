@@ -6,6 +6,60 @@ this file is the part a person reads first — which run, why, and what still
 needs a decision.
 
 
+## 2026-10-14 — step 13, the sheet's own document links (D435, F273)
+
+The owner uploaded the `2026 TALAHOME LEDGERS` sheet as CSV — *data asli
+sebelum migrasi ke supabase* — and asked for the 1.616 rows without documents
+to be completed from it, every row cross-checked. The sheet carries 3.814
+Drive links in six columns that no legacy table ever held, so this is a new
+step, `12_gl_sheet_links.sql`, with its data beside it in
+`data/gl_sheet_links_2026.csv`.
+
+**How it ran.** No psql in the session, so the staging rows went in as
+sixteen `insert … values` chunks through the Supabase MCP, each inside one
+transaction with the same body the file carries, one chunk at a time (two
+chunks sharing a file id, run together, would have created the file twice).
+Counters after each chunk, final: 2.957 import attachments (229 from step 8 +
+2.728 new), 4.534 live transaction links, 4.081 map rows, 10 refused.
+
+**Reconciled before it was called done.** The map was hashed in 200-line
+buckets of `<line>:<col>:<trx_no>=<file_id>` on both sides; 17 of 18 buckets
+agreed, one did not: sheet line 1368, where a 33-character file id had been
+retyped with two letters missing. The attachment was pointed at the real
+file and the map note corrected. Nothing else differed.
+
+| | |
+|---|---:|
+| sheet rows | 3.433 |
+| matched exactly (date, account, direction, amount, description) | 2.619 |
+| matched on the money only | 647 |
+| paired by hand (same payment, different granularity) | 157 lines |
+| not in ops | 10 rows |
+| links imported | 4.071 |
+| of which pointed at a link that already existed | 95 |
+| files created | 2.728 |
+| 2026 transactions without any document, before → after | 1.616 → 137 |
+
+**What the cross-check taught**, both directions, now in `findings.md` F273:
+the sheet and ops hold the same money at different granularities (merges
+both ways, 1-rupiah differences, inbox captures dated days later); since
+late September ops books the bank admin fee inside the amount while the
+sheet still books it as its own 2.500 row; the JAGO / JENIUS / MANDIRI CC
+subscription rows exist only in ops; eight October rows (three cash
+pesangon, a fuel reimbursement, a Jenius top-up, three credit-card rows)
+exist only in the sheet. The 137 rows still without a document are opening
+balances, transfers between our own accounts, cash withdrawals and bank
+charges — rows the sheet had no document for either — plus a handful of
+early-January purchases.
+
+**Two things seen in passing, not changed.** `public.blobs` knows none of
+the 2.808 files: the sheet's documents were uploaded by hand to Drive, never
+captured by john-lau, so sha256/mime/bytes are null on all of them. And 21
+Drive files already sat in `attachments` twice or more before this run, all
+from the app's own chat and web upload paths on 21–24 Sep and 5 Oct — the
+missing unique key step 8 named is now producing duplicates on its own
+(F275).
+
 ## 2026-09-29 — the monthly staff, by machine number (D337)
 
 The owner's list, *nomornya adalah nomor biometrik*: Ramlan 2, Muslikhin 4,

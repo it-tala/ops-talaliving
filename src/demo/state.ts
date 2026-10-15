@@ -14,7 +14,21 @@ import type {
   CashComponent, CashOverride, CashSettlement, BankStatement, StatementLine,
   Subscription, SubscriptionPayment,
   CashflowLine, CashflowWeekOverride, CashflowReceipt, CashflowOpening, CashflowSettings,
+  Category,
 } from "@/services/accounting/contracts";
+
+/** The demo's ledger row: the contract plus the two columns `v_transaction`
+ *  does not carry (`0271`) — the bill in another currency lives on
+ *  `transactions` and is read through `v_transaction_detail` only. */
+export type DemoTransaction = Transaction & {
+  billed_currency?: string | null;
+  billed_amount?: number | null;
+  /** The row's own category, beating its type's (`0274`). */
+  category_override?: Category | null;
+  /** `set_transaction_lines`' stamp (`0273`). */
+  lines_reviewed_at?: string | null;
+  lines_reviewed_by?: string | null;
+};
 import type { Attachment, AttachmentLink } from "@/services/documents/contracts";
 import type { ApprovalChannel, DesignBoxKey, DesignOrigin } from "@/services/design/contracts";
 import type {
@@ -259,7 +273,7 @@ export interface DemoState {
 
   accounts: Account[];
   transaction_types: TransactionType[];
-  transactions: Transaction[];
+  transactions: DemoTransaction[];
   transaction_lines: TransactionLine[];
   payment_allocations: PaymentAllocation[];
   /** `reported_by_name` is not stored here, the same as every other `_name`

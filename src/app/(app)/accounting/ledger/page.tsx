@@ -10,7 +10,11 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { formatIDR } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { accounting } from "@/demo/api";
-import { type TransactionView } from "@/services/accounting/contracts";
+import { type TransactionView, type TransactionLineView } from "@/services/accounting/contracts";
+import { LineKindBadge } from "@/components/accounting/line-kind";
+import { CategoryOptions, categoryLabel } from "@/components/accounting/category";
+import { isCategory } from "@/services/accounting/categories";
+import type { Category } from "@/services/accounting/contracts";
 import { TrxDrawer } from "./TrxDrawer";
 import { CashPosition } from "./CashPosition";
 import { NewEntry } from "./NewEntry";
@@ -45,14 +49,29 @@ export default function LedgerPage() {
   const [creating, setCreating] = useState(false);
   const [accountId, setAccountId] = useState("");
   const [typeCode, setTypeCode] = useState("");
+  /* The effective category (0274), and a month the summary clicked through
+     with: `/accounting/ringkasan` links a cell here as `?category=&month=`. */
+  const [category, setCategory] = useState<Category | "">("");
+  const [month, setMonth] = useState("");
   const [showVoid, setShowVoid] = useState(false);
+  /* The a/b rows under each transaction (D437): shown by default, one
+     checkbox to fold them away for a compact read. */
+  const [showLines, setShowLines] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
   /* `?trx=` opens that row — the item catalogue's purchase history links
      here. Read once from the address, like the items page's `?category=`. */
   useEffect(() => {
-    const trx = new URLSearchParams(window.location.search).get("trx");
+    const params = new URLSearchParams(window.location.search);
+    const trx = params.get("trx");
     if (trx) setSelected(trx);
+    const cat = params.get("category");
+    if (cat && isCategory(cat)) setCategory(cat);
+    const m = params.get("month");
+    if (m && /^\d{4}-\d{2}$/.test(m)) setMonth(m);
   }, []);
+  const monthBounds = month
+    ? { from: `${month}-01`, to: `${month}-${String(new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate()).padStart(2, "0")}` }
+    : {};
 
   /* Paged at the service, not sliced in the browser: the real ledger is tens
      of thousands of rows and a screen that fetches them all to show 25 is a
@@ -63,15 +82,33 @@ export default function LedgerPage() {
     () => accounting.listTransactions({
       account_id: accountId || undefined,
       type_code: typeCode || undefined,
+      category: category || undefined,
+      ...monthBounds,
       q: searched || undefined,
       include_void: showVoid,
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
     }),
-    [accountId, typeCode, searched, page, showVoid],
+    [accountId, typeCode, category, month, searched, page, showVoid],
     { keepPrevious: true },
   );
   const mayPost = hasAuthority("post_ledger");
+  /* One read for the page's lines, keyed by row — never a detail call per
+     row. A single-line transaction shows no child: its parent is line a. */
+  const pageNos = rows.status === "ready" ? rows.data.map((t) => t.trx_no) : [];
+  const [lines] = useLoad(
+    () => accounting.listTransactionLines(showLines ? pageNos : []),
+    [pageNos.join(","), showLines],
+    { keepPrevious: true },
+  );
+  const linesByTrx = new Map<string, TransactionLineView[]>();
+  if (lines.status === "ready") {
+    for (const l of lines.data) {
+      const arr = linesByTrx.get(l.trx_no) ?? [];
+      arr.push(l);
+      linesByTrx.set(l.trx_no, arr);
+    }
+  }
   /* Which accounts hold cash. A card account owes money by design, so only a
      cash or bank account going below zero is the mark of a wrong figure. */
   const [accountList] = useLoad(() => accounting.listAccounts(), []);
@@ -237,6 +274,25 @@ export default function LedgerPage() {
           <option value="">{tr("All types", "Semua jenis")}</option>
           <TypeOptions includeRetired />
         </select>
+        <select
+          id="f-category"
+          value={category}
+          onChange={(e) => filter(() => setCategory(e.target.value as Category | ""))}
+          className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-700 focus:border-brand-400 focus:outline-none"
+        >
+          <CategoryOptions emptyLabel={tr("All categories", "Semua kategori")} />
+        </select>
+        {month && (
+          <button
+            type="button"
+            id="f-month"
+            onClick={() => filter(() => setMonth(""))}
+            className="inline-flex h-9 items-center gap-1 rounded-lg border border-brand-200 bg-brand-50 px-2.5 text-xs font-medium text-brand-700"
+            title={tr("Remove the month filter", "Lepas saringan bulan")}
+          >
+            {month} ×
+          </button>
+        )}
         <label className="flex items-center gap-1.5 text-xs text-slate-500">
           <input
             id="f-void"
@@ -246,6 +302,16 @@ export default function LedgerPage() {
             className="h-3.5 w-3.5 rounded border-slate-300"
           />
           {tr("Include voided", "Sertakan yang dibatalkan")}
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-500">
+          <input
+            id="f-lines"
+            type="checkbox"
+            checked={showLines}
+            onChange={(e) => setShowLines(e.target.checked)}
+            className="h-3.5 w-3.5 rounded border-slate-300"
+          />
+          {tr("Show a/b lines", "Tampilkan baris a/b")}
         </label>
         <input
           id="f-q"
@@ -289,18 +355,44 @@ export default function LedgerPage() {
                 rows={visible}
                 rowKey={(t) => t.id}
                 onRowClick={(t) => setSelected(t.trx_no)}
+                /* The lines of a lumped-then-split row, under their parent
+                   (D437): the letter, the kind, the description, the amount.
+                   They open the same drawer — one transaction, one drawer. */
+                renderAfter={(t) => {
+                  const ls = showLines ? linesByTrx.get(t.trx_no) ?? [] : [];
+                  if (ls.length < 2 || t.status === "VOID") return null;
+                  return ls.map((l) => (
+                    <tr key={l.id} data-no-export onClick={() => setSelected(t.trx_no)}
+                      className="cursor-pointer bg-slate-50/60 text-[12px] text-slate-600 hover:bg-slate-100">
+                      <td className="px-4 py-1 pl-10 whitespace-nowrap">
+                        <span className="font-mono text-[10px] text-slate-400">{t.trx_no}-<span className="text-brand-700">{String.fromCharCode(96 + l.line_no)}</span></span>
+                      </td>
+                      <td className="px-4 py-1 whitespace-normal">
+                        <span className="text-slate-700">{l.description}</span>
+                        {" "}<LineKindBadge kind={l.kind} />
+                        {l.item_code && <span className="ml-1 text-[10px] text-slate-400">· {l.item_name}</span>}
+                      </td>
+                      <td className={cn("px-4 py-1 text-right tabular-nums whitespace-nowrap", l.kind === "discount" ? "text-emerald-700" : "text-slate-600")}>
+                        {l.kind === "discount" ? "+" : "−"}{formatIDR(l.amount)}
+                      </td>
+                      <td colSpan={4} className="px-4 py-1" />
+                    </tr>
+                  ));
+                }}
                 exportName={tr("Ledger", "Buku besar")}
                 /* The screen holds one page; the file is every row under the
                    same filters. */
                 exportRows={() => allPages((limit, offset) => accounting.listTransactions({
                   account_id: accountId || undefined,
                   type_code: typeCode || undefined,
+                  category: category || undefined,
+                  ...monthBounds,
                   q: searched || undefined,
                   include_void: showVoid,
                   limit,
                   offset,
                 }))}
-                empty={q || accountId || typeCode ? tr("Nothing matches those filters.", "Tidak ada yang cocok dengan filter itu.") : tr("The ledger is empty.", "Buku besar masih kosong.")}
+                empty={q || accountId || typeCode || category || month ? tr("Nothing matches those filters.", "Tidak ada yang cocok dengan filter itu.") : tr("The ledger is empty.", "Buku besar masih kosong.")}
               />
               <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 px-4 py-2.5">
                 <p className="text-[12px] text-slate-500">

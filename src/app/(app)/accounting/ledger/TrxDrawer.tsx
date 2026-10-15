@@ -20,6 +20,11 @@ import { EvidenceStrip, type CoverTarget, type EvidenceSlot } from "@/components
 import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
 import { useTr, type Message, type Tr } from "@/lib/i18n";
+import { BilledFields, LineKindBadge, billedSummary } from "@/components/accounting/line-kind";
+import { CategoryBadge, CategoryOptions, categoryLabel } from "@/components/accounting/category";
+import type { Category } from "@/services/accounting/contracts";
+import { LinesEditor, draftsFrom } from "@/components/accounting/lines-editor";
+import { toSeamLines, draftsTotal, type LineDraft } from "@/services/accounting/lines";
 
 /** The documents a ledger row is expected to carry (owner, 2026-09-23).
  *  Money going out is a purchase: its nota, the transfer, a photo of what
@@ -48,6 +53,9 @@ const ACTION_LABEL: Record<string, Message> = {
   attach_link: { en: "Document attached", id: "Dokumen dilampirkan" },
   unlink: { en: "Document removed", id: "Dokumen dilepas" },
   attach_unlink: { en: "Document removed", id: "Dokumen dilepas" },
+  set_lines: { en: "Detail rewritten", id: "Rincian ditulis ulang" },
+  set_category: { en: "Category set", id: "Kategori ditetapkan" },
+  recategorise: { en: "Re-categorised (one-time move, D433)", id: "Dikategorikan ulang (pemindahan satu kali, D433)" },
 };
 
 /** One ledger row, and everything that hangs off it.
@@ -100,6 +108,16 @@ export function TrxDrawer({
   const [editType, setEditType] = useState("");
   const [editAccount, setEditAccount] = useState("");
   const [editDirection, setEditDirection] = useState<"IN" | "OUT">("OUT");
+  /* The bill in another currency (0271): a code and its amount, or neither. */
+  const [editBilledOpen, setEditBilledOpen] = useState(false);
+  const [editBilledCcy, setEditBilledCcy] = useState("USD");
+  const [editBilledAmt, setEditBilledAmt] = useState(0);
+  /* Edit rincian (L12): the lines rewritten in place through
+     set_transaction_lines; the amount stays the bank's figure. */
+  const [linesOpen, setLinesOpen] = useState(false);
+  const [lineDrafts, setLineDrafts] = useState<LineDraft[]>([]);
+  const [linesReason, setLinesReason] = useState("");
+  const [createsItems, setCreatesItems] = useState(false);
   const [refs, setRefs] = useState<{
     vendors: { id: string; code: string; name: string }[];
     projects: { id: string; code: string; name: string }[];
@@ -229,6 +247,9 @@ export function TrxDrawer({
     setEditType(trx!.type_code);
     setEditAccount(trx!.account_code);
     setEditDirection(trx!.direction);
+    setEditBilledOpen(!!trx!.billed_currency);
+    setEditBilledCcy(trx!.billed_currency ?? "USD");
+    setEditBilledAmt(trx!.billed_amount ?? 0);
     setVoidOpen(false);
     setEditOpen(true);
     await loadRefs();
@@ -243,7 +264,11 @@ export function TrxDrawer({
   const typeChanged = !!trx && editType !== trx.type_code;
   const accountChanged = !!trx && !!editAccount && editAccount !== trx.account_code;
   const directionChanged = !!trx && editDirection !== trx.direction;
-  const anyChanged = amountChanged || descChanged || vendorChanged || projectChanged || typeChanged || accountChanged || directionChanged;
+  const billedValid = !editBilledOpen || (editBilledCcy.length === 3 && editBilledCcy !== "IDR" && editBilledAmt > 0);
+  const billedChanged = !!trx && (editBilledOpen
+    ? (editBilledCcy !== (trx.billed_currency ?? "") || editBilledAmt !== (trx.billed_amount ?? 0))
+    : !!trx.billed_currency);
+  const anyChanged = amountChanged || descChanged || vendorChanged || projectChanged || typeChanged || accountChanged || directionChanged || billedChanged;
   /* The balance moves with either, so both owe a remark (`0101`, `0269`). */
   const reasonRequired = amountChanged || directionChanged;
   /* Where the row can go: active accounts in the same currency — a rupiah
@@ -268,6 +293,10 @@ export function TrxDrawer({
       ...(typeChanged ? { type_code: editType } : {}),
       ...(accountChanged ? { account_code: editAccount } : {}),
       ...(directionChanged ? { direction: editDirection } : {}),
+      /* `""` clears both; a code sets both (0271). */
+      ...(billedChanged ? (editBilledOpen
+        ? { billed_currency: editBilledCcy, billed_amount: editBilledAmt }
+        : { billed_currency: "" }) : {}),
       ...(editReason.trim() ? { reason: editReason.trim() } : {}),
     });
     setBusy(false);
@@ -295,6 +324,18 @@ export function TrxDrawer({
     toast("success", tr("Removed", "Dihapus"), tr(`${l.line_no_full} is no longer needed.`, `${l.line_no_full} tidak lagi diperlukan.`));
     setOpenLine(null);
     await load(trx!.trx_no);
+    onChanged();
+  }
+
+  async function saveCategory(category: Category) {
+    setBusy(true);
+    const res = await accounting.setTransactionCategory(trx!.trx_no, category);
+    setBusy(false);
+    if (res.error) {
+      toast(res.error.status === 403 ? "critical" : "warning", tr("Not changed", "Tidak diubah"), res.error.message);
+      return;
+    }
+    setTrx(res.data);
     onChanged();
   }
 
@@ -355,6 +396,7 @@ export function TrxDrawer({
           <StatusPill kind="trx" status={trx.status} />
           <Badge tone={trx.direction === "IN" ? "green" : "slate"}>{trx.direction}</Badge>
           <Badge tone="slate">{trx.type_code}</Badge>
+          <CategoryBadge category={trx.category} overridden={!!trx.category_override} />
           {trx.has_payment_proof && <Badge tone="violet">{tr("payment proof", "bukti bayar")}</Badge>}
           {/* Not a budget figure: the money is gone. This says only that a
               purchase names no request, which is the row worth asking about
@@ -529,6 +571,20 @@ export function TrxDrawer({
               </div>
             </div>
 
+            {/* A bill in another currency, paid in rupiah (D435, 0271). */}
+            <div>
+              <label className="inline-flex items-center gap-2 text-[12px] text-slate-600">
+                <input id="trx-edit-billed" type="checkbox" checked={editBilledOpen} onChange={(e) => setEditBilledOpen(e.target.checked)} />
+                {tr("The bill was in another currency (USD, SGD…)", "Tagihannya dalam mata uang lain (USD, SGD…)")}
+              </label>
+              {editBilledOpen && (
+                <div className="mt-2">
+                  <BilledFields idPrefix="trx-edit-billed" size="sm" currency={editBilledCcy} amount={editBilledAmt} amountIdr={editAmount}
+                    onCurrency={setEditBilledCcy} onAmount={setEditBilledAmt} />
+                </div>
+              )}
+            </div>
+
             <div>
               <label htmlFor="trx-edit-reason" className="block text-xs text-slate-600">
                 {tr("Remarks", "Keterangan")} {reasonRequired ? <span className="text-rose-700">{tr("— required when the amount or in/out changes", "— wajib bila jumlah atau masuk/keluar berubah")}</span> : tr("(optional)", "(opsional)")}
@@ -546,7 +602,7 @@ export function TrxDrawer({
               <Button variant="ghost" size="sm" onClick={() => setEditOpen(false)} disabled={busy}>{tr("Cancel", "Batal")}</Button>
               <Button
                 size="sm"
-                disabled={busy || !anyChanged || editAmount <= 0 || !editDesc.trim()
+                disabled={busy || !anyChanged || editAmount <= 0 || !editDesc.trim() || !billedValid
                   || (reasonRequired && !editReason.trim())}
                 onClick={saveEdit}
               >
@@ -599,6 +655,10 @@ export function TrxDrawer({
               ? [[tr(`${trx.account_code} balance`, `Saldo ${trx.account_code}`),
                   `${formatIDR(trx.balance_before)} → ${formatIDR(trx.balance_after)}`]]
               : []),
+            /* D435: the invoice's own currency, and what the rupiah bought. */
+            ...(billedSummary(trx.billed_currency, trx.billed_amount, trx.amount_idr)
+              ? [[tr("Billed as", "Tagihan asal"), billedSummary(trx.billed_currency, trx.billed_amount, trx.amount_idr)!]]
+              : []),
             [tr("Type", "Jenis"), trx.type_code],
             [tr("Vendor", "Vendor"), trx.vendor_name ?? "—"],
             [tr("Posted", "Diposting"), `${trx.posted_at.slice(0, 10)}`],
@@ -608,22 +668,117 @@ export function TrxDrawer({
               <dd className="text-right font-medium text-slate-800">{v}</dd>
             </div>
           ))}
+          {/* The category (0274): the type's unless this row says otherwise.
+              Whoever posts the ledger can set the row's own from here; picking
+              the type's own category clears the override. */}
+          <div className="flex items-center justify-between gap-4 border-b border-slate-100 pb-2">
+            <dt className="text-slate-500">{tr("Category", "Kategori")}</dt>
+            <dd className="flex items-center gap-2 text-right font-medium text-slate-800">
+              {mayPost && trx.status !== "VOID" ? (
+                <select
+                  id="trx-category"
+                  value={trx.category}
+                  disabled={busy}
+                  onChange={(e) => void saveCategory(e.target.value as Category)}
+                  className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700 focus:border-brand-400 focus:outline-none"
+                >
+                  <CategoryOptions />
+                </select>
+              ) : (
+                <span>{categoryLabel(trx.category, tr)}</span>
+              )}
+              {trx.category_override && (
+                <span className="text-[11px] font-normal text-slate-400" title={tr("Set on this row; its type would say otherwise.", "Ditetapkan di baris ini; jenisnya berkata lain.")}>
+                  {tr("own", "sendiri")}
+                </span>
+              )}
+            </dd>
+          </div>
         </dl>
 
-        {trx.lines.length > 0 && (
+        {(trx.lines.length > 0 || (mayPost && trx.status !== "VOID")) && (
           <section>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{tr("What it bought", "Apa yang dibeli")}</p>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{tr("What it bought", "Apa yang dibeli")}</p>
+              <div className="flex items-center gap-2">
+                {trx.lines_reviewed_at && (
+                  <span className="text-[11px] text-slate-400" title={trx.lines_reviewed_by_name ?? undefined}>
+                    {tr(`reviewed ${trx.lines_reviewed_at.slice(0, 10)}`, `ditinjau ${trx.lines_reviewed_at.slice(0, 10)}`)}
+                  </span>
+                )}
+                {mayPost && trx.status !== "VOID" && !linesOpen && (
+                  <Button variant="ghost" size="sm" icon={Pencil} disabled={busy}
+                    onClick={async () => {
+                      setLineDrafts(draftsFrom(trx.lines, trx.amount_idr, trx.description));
+                      setLinesReason("");
+                      const t = await accounting.listTypeRows();
+                      setCreatesItems(t.data?.find((x) => x.code === trx.type_code)?.creates_catalog_item ?? false);
+                      setLinesOpen(true);
+                    }}>
+                    {tr("Edit lines", "Edit rincian")}
+                  </Button>
+                )}
+              </div>
+            </div>
+            {linesOpen && (
+              <div className="mb-3 space-y-3 rounded-lg border border-brand-200 bg-brand-50/40 px-3 py-3" data-testid="trx-lines-edit">
+                <LinesEditor lines={lineDrafts} onChange={setLineDrafts} amount={trx.amount_idr} idPrefix="trx-lines" allowCreate={createsItems} />
+                <div>
+                  <label htmlFor="trx-lines-reason" className="block text-xs text-slate-600">{tr("Remark (optional)", "Keterangan (opsional)")}</label>
+                  <input id="trx-lines-reason" value={linesReason} onChange={(e) => setLinesReason(e.target.value)}
+                    className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm focus:border-brand-400 focus:outline-none" />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => setLinesOpen(false)} disabled={busy}>{tr("Cancel", "Batal")}</Button>
+                  <Button size="sm" disabled={busy || draftsTotal(lineDrafts) !== trx.amount_idr}
+                    onClick={async () => {
+                      setBusy(true);
+                      const res = await accounting.setTransactionLines(
+                        { trx_no: trx.trx_no, lines: toSeamLines(lineDrafts, trx.description), reason: linesReason.trim() || null },
+                        `set-lines-${trx.trx_no}-${Date.now()}`);
+                      setBusy(false);
+                      if (res.error) { toast(res.error.status === 403 ? "critical" : "warning", tr("Not saved", "Tidak tersimpan"), res.error.message); return; }
+                      toast("success", tr(`${trx.trx_no} re-detailed`, `${trx.trx_no} dirinci ulang`), tr("The old detail is in the audit log.", "Rincian lama ada di log audit."));
+                      setLinesOpen(false);
+                      await load(trx.trx_no);
+                      onChanged();
+                    }}>
+                    {tr("Save the lines", "Simpan rincian")}
+                  </Button>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  {tr("The amount stays what the bank says; the lines explain it. The old lines are kept in the audit log.", "Jumlah tetap seperti kata bank; baris-barisnya yang menjelaskan. Baris lama tersimpan di log audit.")}
+                </p>
+              </div>
+            )}
+            {trx.lines.length > 0 && (
             <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
               {trx.lines.map((l) => (
-                <li key={l.id} className="flex items-center gap-3 px-3 py-2 text-[13px]">
-                  <span className="min-w-0 flex-1 text-slate-700">{l.description}</span>
-                  <span className="text-[11px] text-slate-400">
-                    {l.qty ?? "—"} {l.uom ?? ""} × {formatIDR(l.unit_price ?? 0)}
+                <li key={l.id ?? `${trx.trx_no}-${l.line_no}`} className="flex items-center gap-3 px-3 py-2 text-[13px]">
+                  {/* The line's letter (D436): a/b/c from its number, never stored. */}
+                  <span className="font-mono text-[10px] text-slate-400">{String.fromCharCode(96 + l.line_no)}</span>
+                  <span className="min-w-0 flex-1 text-slate-700">
+                    {l.description} <LineKindBadge kind={l.kind} />
+                    {/* The catalogue entry it bought (0272) — the price paid
+                        is now that item's last price. */}
+                    {l.item_code && (
+                      <span className="block text-[11px] text-slate-400">
+                        {tr("Catalogue", "Katalog")}: {l.item_name} · <span className="font-mono">{l.item_code}</span>
+                      </span>
+                    )}
                   </span>
-                  <span className="tabular-nums text-slate-800">{formatIDR(l.amount)}</span>
+                  {l.kind === "item" && (
+                    <span className="text-[11px] text-slate-400">
+                      {l.qty ?? "—"} {l.uom ?? ""} × {formatIDR(l.unit_price ?? 0)}
+                    </span>
+                  )}
+                  <span className={cn("tabular-nums", l.kind === "discount" ? "text-emerald-700" : "text-slate-800")}>
+                    {l.kind === "discount" ? "− " : ""}{formatIDR(l.amount)}
+                  </span>
                 </li>
               ))}
             </ul>
+            )}
           </section>
         )}
 

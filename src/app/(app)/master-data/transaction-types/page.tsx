@@ -8,7 +8,9 @@ import { Modal } from "@/components/ui/drawer";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { forgetTypes } from "@/components/ui/type-options";
 import { accounting } from "@/demo/api";
-import type { TransactionType } from "@/services/accounting/contracts";
+import type { Category, TransactionType } from "@/services/accounting/contracts";
+import { CategoryBadge, CategoryOptions } from "@/components/accounting/category";
+import { CATEGORY_NOTES } from "@/services/accounting/categories";
 import { useToast } from "@/store/toast";
 import { useSession } from "@/store/session";
 import { useTr } from "@/lib/i18n";
@@ -29,7 +31,7 @@ const inputClass =
   "mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand-400 focus:outline-none";
 
 type Form = {
-  mode: "create" | "edit"; code: string; description: string;
+  mode: "create" | "edit"; code: string; description: string; category: Category;
   is_purchase: boolean; creates_catalog_item: boolean; auto_complete: boolean; is_active: boolean;
 };
 
@@ -49,9 +51,14 @@ export default function TransactionTypesPage() {
       is_purchase: form.is_purchase, creates_catalog_item: form.creates_catalog_item,
       auto_complete: form.auto_complete, description: form.description,
     };
-    const res = form.mode === "create"
+    let res = form.mode === "create"
       ? await accounting.createTransactionType({ code: form.code, ...flags })
       : await accounting.updateTransactionType(form.code, { ...flags, is_active: form.is_active });
+    /* The category is its own seam (0274): a new type is born overhead and
+       told its category right after; an edit sends it only when it moved. */
+    if (!res.error && res.data.category !== form.category) {
+      res = await accounting.setTypeCategory(res.data.code, form.category);
+    }
     setSaving(false);
     if (res.error) {
       toast(res.error.status === 403 ? "critical" : "warning", tr("Not saved", "Tidak tersimpan"), res.error.message);
@@ -94,6 +101,7 @@ export default function TransactionTypesPage() {
         </div>
       ),
     },
+    { key: "category", header: tr("Category", "Kategori"), render: (t) => <CategoryBadge category={t.category} /> },
     { key: "purchase", header: tr("Purchase", "Pembelian"), render: (t) => flag(t.is_purchase) },
     { key: "items", header: tr("Creates items", "Membuat barang"), render: (t) => flag(t.creates_catalog_item) },
     { key: "auto", header: tr("Auto-complete", "Selesai otomatis"), render: (t) => flag(t.auto_complete) },
@@ -104,7 +112,7 @@ export default function TransactionTypesPage() {
         <Button
           variant="ghost" size="sm" icon={Pencil} aria-label={tr(`Edit ${t.code}`, `Ubah ${t.code}`)}
           onClick={() => setForm({
-            mode: "edit", code: t.code, description: t.description ?? "",
+            mode: "edit", code: t.code, description: t.description ?? "", category: t.category,
             is_purchase: t.is_purchase, creates_catalog_item: t.creates_catalog_item,
             auto_complete: t.auto_complete, is_active: t.is_active !== false,
           })}
@@ -123,7 +131,7 @@ export default function TransactionTypesPage() {
         description={tr("What a ledger row is. The code is fixed once created; a type in use is retired, not deleted.", "Apa arti sebuah baris buku besar. Kode tidak bisa diubah setelah dibuat; jenis yang sedang dipakai dipensiunkan, bukan dihapus.")}
         actions={mayEdit && (
           <Button icon={Plus} onClick={() => setForm({
-            mode: "create", code: "", description: "", is_purchase: true,
+            mode: "create", code: "", description: "", category: "overhead", is_purchase: true,
             creates_catalog_item: false, auto_complete: false, is_active: true,
           })}>
             {tr("Add type", "Tambah jenis")}
@@ -134,7 +142,7 @@ export default function TransactionTypesPage() {
       <Card>
         <CardHeader
           title={tr("All types", "Semua jenis")}
-          subtitle={tr("Purchase: the row is expected to name a request or order. Creates items: its lines feed the item catalogue.", "Pembelian: baris diharapkan menyebut PR atau PO. Membuat barang: baris-barisnya mengisi katalog barang.")}
+          subtitle={tr("Category: what the summary counts its rows as. Purchase: the row is expected to name a request or order. Creates items: its lines feed the item catalogue.", "Kategori: sebagai apa ringkasan menghitung barisnya. Pembelian: baris diharapkan menyebut PR atau PO. Membuat barang: baris-barisnya mengisi katalog barang.")}
           icon={Tags}
           action={<SourceBadge state={state} />}
         />
@@ -169,6 +177,22 @@ export default function TransactionTypesPage() {
                 placeholder={tr("e.g. Fuel, tolls and courier fees", "mis. Bensin, tol, dan ongkos kurir")}
                 className={inputClass}
               />
+            </div>
+            <div>
+              <label htmlFor="tt-category" className="block text-sm text-slate-600">{tr("Category", "Kategori")}</label>
+              <select
+                id="tt-category"
+                value={form.category}
+                onChange={(e) => setForm({ ...form, category: e.target.value as Category })}
+                className={inputClass + " bg-white"}
+              >
+                <CategoryOptions />
+              </select>
+              <p className="mt-1 text-xs text-slate-500">
+                {tr(CATEGORY_NOTES[form.category].en, CATEGORY_NOTES[form.category].id)}
+                {" — "}
+                {tr("every row of this type counts here in the summary unless the row says otherwise.", "setiap baris dengan jenis ini dihitung di sini pada ringkasan, kecuali barisnya berkata lain.")}
+              </p>
             </div>
             <div className="space-y-2 rounded-lg border border-slate-200 px-3 py-3 text-sm text-slate-700">
               <label className="flex items-start gap-2">

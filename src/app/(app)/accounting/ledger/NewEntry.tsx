@@ -22,6 +22,9 @@ import { type UomCode } from "@/services/procurement/contracts";
 import { useToast } from "@/store/toast";
 import { UomOptions } from "@/components/ui/uom-options";
 import { useTr } from "@/lib/i18n";
+import { BilledFields, LineKindSelect } from "@/components/accounting/line-kind";
+import { ItemPicker } from "@/components/accounting/item-picker";
+import { isPricedKind, lineSign, type LineKind } from "@/services/accounting/lines";
 
 /** Writing a row into the ledger, with everything a row is supposed to have.
  *
@@ -38,8 +41,16 @@ import { useTr } from "@/lib/i18n";
  *  we bought the same thing, which is the only way a price is ever found to
  *  be wrong.
  */
-type DraftLine = { key: string; description: string; qty: number; uom: UomCode; unit_price: number };
+/** `amount` is typed only for a line that is not an item — a fee, the tax,
+ *  the courier, a voucher. An item's amount is qty × unit price (D86). */
+type DraftLine = { key: string; kind: LineKind; description: string; qty: number; uom: UomCode; unit_price: number; amount: number; item_id: string | null };
 type DraftDoc = { attachment_id: string; filename: string; kind: DocKind };
+
+function lineAmount(l: DraftLine): number {
+  return isPricedKind(l.kind) ? Math.round(l.qty * l.unit_price) : Math.round(l.amount);
+}
+const blankLine = (key: string): DraftLine =>
+  ({ key, kind: "item", description: "", qty: 1, uom: "pcs", unit_price: 0, amount: 0, item_id: null });
 
 export function NewEntry({ onClose, onPosted }: { onClose: () => void; onPosted: () => void }) {
   const tr = useTr();
@@ -54,19 +65,31 @@ export function NewEntry({ onClose, onPosted }: { onClose: () => void; onPosted:
   const [typeCode, setTypeCode] = useState<TransactionTypeCode>("SUPPLIERS");
   const [vendorId, setVendorId] = useState("");
   const [description, setDescription] = useState("");
-  const [lines, setLines] = useState<DraftLine[]>([
-    { key: "l1", description: "", qty: 1, uom: "pcs", unit_price: 0 },
-  ]);
+  const [lines, setLines] = useState<DraftLine[]>([blankLine("l1")]);
+  /* Tax is a typed amount, never a rate (D435): it becomes a `tax` line on
+     top of what the items say. */
+  const [tax, setTax] = useState(0);
+  /* A bill written in USD and paid in rupiah keeps its own figure beside the
+     rupiah (D435); the rate is shown, never typed. */
+  const [billedOpen, setBilledOpen] = useState(false);
+  const [billedCcy, setBilledCcy] = useState("USD");
+  const [billedAmt, setBilledAmt] = useState(0);
   const [docs, setDocs] = useState<DraftDoc[]>([]);
   const [kind, setKind] = useState<DocKind>("Receipt / Invoice / Nota");
   const [busy, setBusy] = useState(false);
   const nextKey = useRef(2);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const isPurchase = types.status === "ready"
-    ? types.data.find((t) => t.code === typeCode)?.is_purchase ?? false
-    : false;
-  const total = lines.reduce((s, l) => s + Math.round(l.qty * l.unit_price), 0);
+  const typeRow = types.status === "ready" ? types.data.find((t) => t.code === typeCode) : undefined;
+  const isPurchase = typeRow?.is_purchase ?? false;
+  /* Only where purchases of this kind create catalogue entries does the
+     picker offer to add one (D86, 0272). */
+  const createsItems = typeRow?.creates_catalog_item ?? false;
+  /* Σ lines with the sign the kind carries (a discount counts minus), plus
+     the tax typed below — the same sum the seam checks the amount against. */
+  const linesTotal = lines.reduce((s, l) => s + lineSign(l.kind) * lineAmount(l), 0);
+  const total = linesTotal + Math.round(tax);
+  const billedValid = !billedOpen || (billedCcy.length === 3 && billedCcy !== "IDR" && billedAmt > 0);
   const hasPrimary = docs.some((d) => PRIMARY_DOC_KINDS.includes(d.kind));
   const payingAccounts = accounts.status === "ready" ? accounts.data.filter((a) => a.is_active !== false) : [];
 
@@ -98,13 +121,17 @@ export function NewEntry({ onClose, onPosted }: { onClose: () => void; onPosted:
       vendor_id: vendorId || null,
       description: description.trim(),
       source_ref: `manual:${date}:${accountId}:${total}:${description.trim().slice(0, 24)}`,
-      lines: lines
-        .filter((l) => l.description.trim())
-        .map((l) => ({
-          description: l.description.trim(), qty: l.qty, uom: l.uom,
-          unit_price: l.unit_price, amount: Math.round(l.qty * l.unit_price),
-        })),
+      lines: [
+        ...lines
+          .filter((l) => l.description.trim())
+          .map((l) => (isPricedKind(l.kind)
+            ? { kind: l.kind, description: l.description.trim(), qty: l.qty, uom: l.uom,
+                unit_price: l.unit_price, amount: lineAmount(l), item_id: l.item_id }
+            : { kind: l.kind, description: l.description.trim(), amount: lineAmount(l) })),
+        ...(tax > 0 ? [{ kind: "tax" as const, description: tr("Tax on the nota", "Pajak di nota"), amount: Math.round(tax) }] : []),
+      ],
       documents: docs.map((d) => ({ attachment_id: d.attachment_id, kind: d.kind })),
+      ...(billedOpen && billedValid ? { billed_currency: billedCcy, billed_amount: billedAmt } : {}),
     });
     setBusy(false);
     if (res.error) {
@@ -127,7 +154,7 @@ export function NewEntry({ onClose, onPosted }: { onClose: () => void; onPosted:
           <span className="mr-auto text-[13px] tabular-nums text-slate-600">{formatIDR(total)}</span>
           <Button variant="ghost" size="sm" onClick={onClose} disabled={busy}>{tr("Cancel", "Batal")}</Button>
           <Button
-            size="sm" icon={Save} disabled={busy || total <= 0 || !accountId || !hasPrimary || !description.trim()}
+            size="sm" icon={Save} disabled={busy || total <= 0 || !accountId || !hasPrimary || !description.trim() || !billedValid}
             onClick={post}
           >
             {busy ? tr("Posting…", "Memposting…") : tr("Post to the ledger", "Posting ke buku besar")}
@@ -217,38 +244,72 @@ export function NewEntry({ onClose, onPosted }: { onClose: () => void; onPosted:
           <div className="space-y-2">
             {lines.map((l) => (
               <div key={l.key} className="grid gap-2 rounded-lg border border-slate-200 px-3 py-2.5 sm:grid-cols-12">
-                <div className="sm:col-span-5">
-                  <label className="block text-[11px] text-slate-500" htmlFor={`nl-d-${l.key}`}>{tr("Item", "Barang")}</label>
+                {/* What kind of money this line is (0271): an item has a
+                    quantity and a price; a fee, a tax, the courier or a
+                    voucher is an amount. */}
+                <div className="sm:col-span-3">
+                  <label className="block text-[11px] text-slate-500" htmlFor={`nl-k-${l.key}`}>{tr("Kind", "Jenis baris")}</label>
+                  <LineKindSelect id={`nl-k-${l.key}`} size="sm" value={l.kind} className="mt-1"
+                    onChange={(k) => patch(l.key, { kind: k })} />
+                </div>
+                <div className={isPricedKind(l.kind) ? "sm:col-span-9" : "sm:col-span-6"}>
+                  <label className="block text-[11px] text-slate-500" htmlFor={`nl-d-${l.key}`}>
+                    {isPricedKind(l.kind) ? tr("Item", "Barang") : tr("Description", "Keterangan")}
+                  </label>
                   <input
                     id={`nl-d-${l.key}`} value={l.description}
                     onChange={(e) => patch(l.key, { description: e.target.value })}
-                    placeholder={tr("what was bought", "apa yang dibeli")}
+                    placeholder={isPricedKind(l.kind) ? tr("what was bought", "apa yang dibeli") : tr("e.g. transfer admin fee", "mis. biaya admin transfer")}
                     className="mt-1 h-8 w-full rounded-lg border border-slate-200 px-2 text-[13px] focus:border-brand-400 focus:outline-none"
                   />
                 </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] text-slate-500" htmlFor={`nl-q-${l.key}`}>{tr("Qty", "Jml")}</label>
-                  <NumberInput id={`nl-q-${l.key}`} size="sm" value={l.qty} min={0}
-                    onChange={(v) => patch(l.key, { qty: v })} className="mt-1" />
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] text-slate-500" htmlFor={`nl-u-${l.key}`}>{tr("Unit", "Satuan")}</label>
-                  <select
-                    id={`nl-u-${l.key}`} value={l.uom}
-                    onChange={(e) => patch(l.key, { uom: e.target.value as UomCode })}
-                    className="mt-1 h-8 w-full rounded-lg border border-slate-200 bg-white px-1.5 text-[13px] focus:border-brand-400 focus:outline-none"
-                  >
-                    <UomOptions current={l.uom} />
-                  </select>
-                </div>
-                <div className="sm:col-span-3">
-                  <label className="block text-[11px] text-slate-500" htmlFor={`nl-p-${l.key}`}>{tr("Unit price", "Harga satuan")}</label>
-                  <MoneyInput id={`nl-p-${l.key}`} size="sm" value={l.unit_price}
-                    onChange={(v) => patch(l.key, { unit_price: v })} className="mt-1" />
-                </div>
+                {isPricedKind(l.kind) ? (
+                  <>
+                    <div className="sm:col-span-3">
+                      <label className="block text-[11px] text-slate-500" htmlFor={`nl-q-${l.key}`}>{tr("Qty", "Jml")}</label>
+                      <NumberInput id={`nl-q-${l.key}`} size="sm" value={l.qty} min={0}
+                        onChange={(v) => patch(l.key, { qty: v })} className="mt-1" />
+                    </div>
+                    <div className="sm:col-span-3">
+                      <label className="block text-[11px] text-slate-500" htmlFor={`nl-u-${l.key}`}>{tr("Unit", "Satuan")}</label>
+                      <select
+                        id={`nl-u-${l.key}`} value={l.uom}
+                        onChange={(e) => patch(l.key, { uom: e.target.value as UomCode })}
+                        className="mt-1 h-8 w-full rounded-lg border border-slate-200 bg-white px-1.5 text-[13px] focus:border-brand-400 focus:outline-none"
+                      >
+                        <UomOptions current={l.uom} />
+                      </select>
+                    </div>
+                    <div className="sm:col-span-6">
+                      <label className="block text-[11px] text-slate-500" htmlFor={`nl-p-${l.key}`}>{tr("Unit price", "Harga satuan")}</label>
+                      <MoneyInput id={`nl-p-${l.key}`} size="sm" value={l.unit_price}
+                        onChange={(v) => patch(l.key, { unit_price: v })} className="mt-1" />
+                    </div>
+                    {/* Which catalogue entry this bought (0272): the price paid
+                        becomes the item's last price. Optional — not in the
+                        catalogue is an honest answer. */}
+                    <div className="sm:col-span-12">
+                      <label className="block text-[11px] text-slate-500" htmlFor={`nl-i-${l.key}`}>{tr("Catalogue item", "Item katalog")}</label>
+                      <div className="mt-1">
+                        <ItemPicker id={`nl-i-${l.key}`} value={l.item_id} hint={l.description} uom={l.uom} allowCreate={createsItems}
+                          onChange={(item) => patch(l.key, {
+                            item_id: item?.id ?? null,
+                            ...(item && !l.description.trim() ? { description: item.name } : {}),
+                            ...(item ? { uom: item.base_uom } : {}),
+                          })} />
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="sm:col-span-3">
+                    <label className="block text-[11px] text-slate-500" htmlFor={`nl-a-${l.key}`}>{tr("Amount", "Jumlah")}</label>
+                    <MoneyInput id={`nl-a-${l.key}`} size="sm" value={l.amount}
+                      onChange={(v) => patch(l.key, { amount: v })} className="mt-1" />
+                  </div>
+                )}
                 <div className="flex items-center justify-between gap-2 sm:col-span-12">
                   <span className="text-[12px] tabular-nums text-slate-600">
-                    {formatIDR(Math.round(l.qty * l.unit_price))}
+                    {l.kind === "discount" ? "− " : ""}{formatIDR(lineAmount(l))}
                   </span>
                   {lines.length > 1 && (
                     <Button variant="ghost" size="sm" icon={Trash2}
@@ -264,11 +325,42 @@ export function NewEntry({ onClose, onPosted }: { onClose: () => void; onPosted:
             variant="outline" size="sm" icon={Plus} className="mt-2"
             onClick={() => {
               const key = `l${nextKey.current++}`;
-              setLines((ls) => [...ls, { key, description: "", qty: 1, uom: "pcs", unit_price: 0 }]);
+              setLines((ls) => [...ls, blankLine(key)]);
             }}
           >
-            {tr("Another item", "Tambah barang")}
+            {tr("Another line", "Tambah baris")}
           </Button>
+
+          {/* The nota's tax, as the number printed on it (D435): no rate,
+              no default. It books as its own `tax` line. */}
+          <div className="mt-3 grid gap-2 sm:grid-cols-12">
+            <div className="sm:col-span-5">
+              <label className="block text-[11px] text-slate-500" htmlFor="ne-tax">{tr("Tax on the nota (amount)", "Pajak di nota (nominal)")}</label>
+              <MoneyInput id="ne-tax" size="sm" value={tax} onChange={setTax} className="mt-1" />
+            </div>
+            <div className="flex items-end sm:col-span-7">
+              <p className="text-[12px] text-slate-500">
+                {tax > 0
+                  ? tr(`Books as a tax line. Lines ${formatIDR(linesTotal)} + tax ${formatIDR(Math.round(tax))} = ${formatIDR(total)}.`,
+                      `Dibukukan sebagai baris pajak. Baris ${formatIDR(linesTotal)} + pajak ${formatIDR(Math.round(tax))} = ${formatIDR(total)}.`)
+                  : tr("Type the figure the nota prints — never a percentage.", "Ketik angka yang tercetak di nota — bukan persentase.")}
+              </p>
+            </div>
+          </div>
+
+          {/* A bill in another currency, paid in rupiah (D435). */}
+          <div className="mt-3">
+            <label className="inline-flex items-center gap-2 text-[12px] text-slate-600">
+              <input id="ne-billed" type="checkbox" checked={billedOpen} onChange={(e) => setBilledOpen(e.target.checked)} />
+              {tr("The bill was in another currency (USD, SGD…)", "Tagihannya dalam mata uang lain (USD, SGD…)")}
+            </label>
+            {billedOpen && (
+              <div className="mt-2 rounded-lg border border-slate-200 px-3 py-2.5">
+                <BilledFields idPrefix="ne-billed" size="sm" currency={billedCcy} amount={billedAmt} amountIdr={total}
+                  onCurrency={setBilledCcy} onAmount={setBilledAmt} />
+              </div>
+            )}
+          </div>
         </section>
 
         {/* No document, no row (D85). */}

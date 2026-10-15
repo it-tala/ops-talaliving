@@ -10727,3 +10727,220 @@ keeps named headers only. The production header names are Supabase's and
 were not observed from this container: after `0270` is applied, the first
 real tap should be checked to have a non-null `ip`.
 
+## F271 · 2026-10-14 · Kajian: buku besar dan bukti — kerangkanya ada, jalur yang paling ramai melewatinya
+
+`docs/analysis/2026-10-14-buku-besar-dan-bukti.md`. Owner minta review
+pencatatan keuangan terhadap lima ketentuan (dokumen per pembayaran; rujukan
+PR/approval/proyek/vendor/PO; baris per jenis dengan harga item sebagai
+referensi; bukti per baris di satu halaman; ringkasan pimpinan per kategori
+dan *berapa bulan*). Yang kajian itu ajarkan, dibaca dari produksi dan bukan
+dari rencana:
+
+- **Ukur era yang benar.** Seluruh buku besar menunjukkan 13% baris keluar
+  berdokumen; sejak impor spreadsheet berhenti (22 Sep) angkanya 159 dari 160.
+  Angka pertama menilai spreadsheet, yang kedua menilai ops. Sebuah evaluasi
+  yang mencampur keduanya menyalahkan sistem yang salah.
+- **Mekanisme yang ada tidak sama dengan mekanisme yang dipakai.** `post_from_line`
+  mengisi vendor, proyek, dan alokasi sekaligus — dan 1 dari 86 pembayaran
+  dari Chat memakainya, karena verifikasi tidak menawarkan *bayar baris PR
+  yang disetujui*; yang ditawarkan *buat PR susulan*, dan itu dipakai 0 kali
+  dari 254. Jalan yang tidak ada di layar tempat orang bekerja tidak ada.
+- **Sebuah kolom yang hanya diisi impor adalah kolom yang mati sejak impor
+  berhenti.** `transaction_lines.item_id` terisi 1.218 kali, semuanya dari
+  `03_ledger.sql`/step 7; jalur hidup menulis 235 baris dan tidak satu pun
+  ber-item. D86 (*supaya katalog belajar harga yang benar-benar dibayar*)
+  benar selama tiga minggu dan tidak ada yang menyadari ia berhenti, karena
+  `item_purchases` tidak kosong — ia hanya tidak bertambah.
+- **Sebuah daftar cek visual bukan aturan.** Lima kotak di `EvidenceStrip`
+  dibaca orang sebagai *yang harus ada*, sistem membacanya sebagai *yang
+  boleh ada*; 9 dari 86 pembelian punya nota dan bukti transfer, dan semuanya
+  COMPLETED. Aturan per jenis transaksi (6.6) adalah cara menyatakan
+  harapan itu tanpa memblokir (A6).
+
+## F272 · 2026-10-14 · The bot says `doc_type`, the booker reads `doc_kind`, and everything becomes a nota
+
+`book_evidence` (`0124:166`) files the captured document as
+`coalesce(row.extracted ->> 'doc_kind', 'nota')`. John-lau's `file_document`
+(`services/pipeline_cycle/ops_inbox.py:374-385`) sends `doc_type` — *Payment
+Proof*, *Receiving Item*, *Receipt / Invoice / Nota*, *Others* — and no key
+called `doc_kind` has ever arrived (254 inbox rows, 0 with that key). So every
+document booked from Chat since 2 Sep is linked as `nota`: a transfer proof
+for *Pesangon*, a bank statement line, a goods photo. `link_evidence` (`0162`)
+maps `doc_type` correctly; the sibling seam written a month earlier does not,
+and nothing compared the two. Two costs: `complete_transaction` (nota **or**
+transfer proof) cannot tell a purchase with both from one with neither, and
+every evidence-completeness figure read from `attachment_links.kind` for the
+Chat path is wrong. Fix is one `case` in `book_evidence`/`book_evidence_group`
+plus a one-time correction of the 102 `inbox:` rows from the inbox's own
+`extracted` (plan L3). **Rule:** when two seams read the same payload, one
+mapping function, named, that both call — a key spelled in two places is a
+key that will be spelled differently.
+
+
+## F273 · 2026-10-14 · *Tanpa dokumen* was an import gap, not missing evidence — and the two books count the same money differently
+
+The kajian (F271, §11.1) measured 1.616 Jan–Jun rows with no document and
+D434 concluded they could not be itemised. Both were true of the database
+and false of the business: the accountant had pasted a Drive link into the
+sheet for nearly every row — 3.814 links in six columns — and `05_evidence.sql`
+never saw them, because the legacy *tables* only held the 237 chat-captured
+documents and the ladder reads tables, not sheets. Importing the sheet's
+links (step 13, D435) takes 2026 from 1.616 undocumented rows to 137, and
+the 137 are opening balances, transfers between our own accounts, cash
+withdrawals and bank fees — rows the sheet had nothing for either.
+
+Matching sheet rows to ledger rows on the money (date, account, direction,
+amount, then description) found 2.619 exact and 647 key-only matches; the
+rest taught something each:
+
+- **Granularity differs in both directions.** The sheet books one row where
+  ops books three (a thinner-fabric-glaze purchase), and two withdrawals
+  where ops books one. A merged row has no *right* side; the file is linked
+  to every transaction of its group and the pairing is written down.
+- **Since late September the two books disagree on where the admin fee
+  lives.** The sheet still books every Rp 2.500 as its own BANK CHARGES row;
+  ops, through the inbox, books it inside the amount — 39 pairs in two
+  weeks. That is the "two conventions" D434 named, now dated and counted.
+- **One rupiah apart, twice** (18.999.911 vs .910; 1.386.770 vs .771):
+  rounding at retyping, invisible to any check that only sums a month.
+- **Dates slip by days** for inbox-captured rows (sheet 9 Oct, ops 12 Oct):
+  the sheet dates the bank movement, ops dates the booking.
+- **Rows that exist in one book only**: JAGO/JENIUS/MANDIRI CC subscription
+  rows only in ops; three cash pesangon, a fuel reimbursement, a Jenius
+  top-up and three credit-card rows only in the sheet (8 rows, refused with
+  the reason, not dropped).
+
+**Rule:** before concluding that a record *lacks* something, ask what the
+people kept that the import never read. And a reconciliation between two
+books is a list of *why they differ*, kept with the rows, not a count.
+
+## F274 · 2026-10-14 · A load typed by hand is reconciled by hash before it is called done
+
+The 4.071 staging rows went to production through the Supabase MCP, which
+takes SQL as text — so every chunk was retyped from the generated file, and
+one 33-character Drive id lost two letters on the way (line 1368 of 16 chunks,
+≈300 KB). The chunk ran clean: a wrong id is still a valid id, the attachment
+was created, the link was made, nothing complained. It was found only because
+the map was hashed in 200-line buckets of `<source_id>=<file_id>` on both
+sides and compared: 17 agreed, one did not, and bisecting the one took a
+minute. **Rule:** when data reaches the database through anything but a file
+the database reads itself, compare it back to the file — per bucket, so the
+mismatch names its own neighbourhood — before reporting the import done.
+The counters (rows in, rows refused) cannot see a value that is merely wrong.
+
+## F275 · 2026-10-14 · The missing unique key on `attachments.url` is now producing duplicates on its own
+
+`05_evidence.sql` (step 8) named the gap: nothing stops the same Drive file
+existing twice in `ops_core.attachments`, so the import resolves by url
+first. Checked again today, before step 13 wrote anything: **21 Drive files
+already sat in the table two to four times**, all from the app's own chat
+and web upload paths between 21 and 24 September and on 5 October — a file
+attached to two purchase lines once, the same proof of payment captured and
+re-captured. Most copies carry no link at all. Step 13 did not add to them
+(it finds by the id inside the url, whatever the url's form), but it could
+not clean them either: an import must not decide which of two app-made rows
+is the real one. The fix belongs in a migration — one attachment per Drive
+file id, the upload seams finding before creating — and it is listed on the
+board so it stops being a sentence in a comment.
+
+## F276 · 2026-10-14 · A guess checked against a thousand real rows finds the two it gets wrong
+
+`line_kind_guess` (0271) was written from the examples in the analysis —
+*Transfer admin fee*, *BIAYA ADMIN*, *TAX APRIL*, *ongkir* — and the first
+draft matched those words anywhere in a description. Run as a count against
+the production lines before the backfill, it flagged 185 fee lines; listing
+the ones whose amount was not a bank fee showed *SARIPAN ELECTRICITY - SHOPEE
+(+ADMIN FEE 4.000)* booked as a fee of Rp 504.000, and the tax pattern read
+*Tax Consultant Subadriyah* as a tax. Both are right by the words and wrong
+by the money. Anchoring the fee and tax patterns at the start of the
+description, and refusing *consultant*, left 183 fee, 4 tax and 5 shipping —
+every one of them read by hand before the backfill ran.
+
+Two lessons, both cheap:
+
+- **A guess that will rewrite rows is run as a count first, and the odd
+  amounts in that count are read.** The regex looked right; only the rows
+  with a fee of half a million said otherwise. The check was one query and
+  took a minute; a wrong backfill would have been 1,453 rows to audit.
+- **A guess never changes the sign.** `discount` is never guessed: a line
+  that subtracts is a line somebody meant to subtract. Getting fee/item wrong
+  mislabels a row; getting discount wrong makes the lines stop adding up to
+  the amount, which the seam then refuses for every caller that did not send
+  a kind — including john-lau's mirror.
+
+Also found on the way: the Supabase tool cannot run the smoke suite as the
+ladder does (no local Postgres in the cloud session, no `DROP` through the
+tool), but the whole migration **plus** its smoke can be rehearsed on
+production inside one `begin … rollback`, and the seam's behaviour verified
+the same way after the commit. Two rehearsals, zero rows left behind — the
+checks are the same assertions as `E2_acct_line_kinds.sql`, pointed at real
+ids. The one thing the rehearsal cannot see is the drop of the old
+signature, which production does by rename (0211's trick).
+
+## F277 · 2026-10-15 · A bare Postgres 16 is enough to run the ladder and the smoke suite in the cloud session
+
+Until today every database change in a cloud session was proven by CI
+alone: the summary said *no local Postgres*, and the first L9 migration
+went to GitHub with a PL/pgSQL name clash (`r` the record variable against
+`r` the table alias) that a local run would have caught in a second. But
+`/usr/lib/postgresql/16/bin` is on the image, and `rebuild.sh` already
+shims `auth` for a bare cluster. What it takes: `initdb` and `pg_ctl` as
+the `postgres` user (root is refused) with the data directory somewhere
+that user can traverse — `/var/lib/postgresql/pg16`, not the scratchpad,
+whose parent directories are closed again behind one's back — a socket in
+`/tmp`, port 5433, then `PGHOST=/tmp PGPORT=5433 PGUSER=postgres` for
+`rebuild.sh` (22 s), `smoke.sh` and `check-view-contracts.mjs`. 0274 went
+through six local rounds (the alias, two grant rules A2 enforces, a uom
+the ladder does not seed, a smoke that assumed the wrong window) before
+CI saw it once. The rule from `07-ways-of-working.md` — rebuild the
+ladder and run the smoke suite before pushing — applies in the cloud
+session too; there is no longer a reason to let CI be the first run.
+
+## F278 · 2026-10-15 · A read function that rewrites the ledger is a security *invoker*, and the grants check says why
+
+`recategorise_2026` moves hundreds of rows' types and overrides and must
+exist (the migration calls it; the smoke calls it on seeded rows; production
+calls it by hand). Written as a security definer and revoked from
+`authenticated`, it failed `A2_core_execute_grants`: **every** definer in
+`ops_*` is granted to signed-in people and decides inside (D218), because
+a grant that narrows puts the boundary in two places. The way out is not
+an exception to A2 but the other kind of function: as a security invoker
+it runs with the caller's own rights, and a signed-in person has no update
+right on `ops_acct.transactions`, so even if called it moves nothing. The
+migration, the smoke and the SQL editor run as the owner and can. A tool
+for the owner of the tables should run as whoever calls it, which is the
+distinction the check was built to protect.
+
+## F279 · 2026-10-15 · A re-typing rule written from the analysis is checked against the ledger before it moves a row
+
+`recategorise_2026` was written from the kajian's own patterns (§10.3):
+`TF FROM|TF TO|TRANSFER TO|…` means a transfer, and money in without
+those words means income. The first dry run on production, read row by
+row, said otherwise twice. *Transfer to EVIN JUN OSHIMA* and twelve more
+like it are salaries leaving to employees' accounts, and the word
+TRANSFER alone would have moved them to CASHFLOW; *Transfer dari
+247-1141064 ke 247-1160271*, *Funding into BCA 064*, *Transfer IDR 1 ke
+IDR 2* are our own money moving, and the absence of `TF` would have
+called 53 of them, Rp 1,0 M, income. The rules now say what a transfer
+between our own accounts actually names — one of our accounts, cash,
+the currency — and what income actually says — a refund, interest, the
+owner's capital, a client's payment — and a bank fee or a transfer never
+takes the household's or the state's category whatever its memo adds.
+The pattern is the one F276 found for `line_kind_guess`: a rule built
+from the examples in a document is a hypothesis, and the ledger is the
+test. The dry run is not a formality before the apply; it is where the
+rule gets written. The apply waits for the owner to have read it.
+
+## F280 · 2026-10-15 · A view column named like an old local trips the shadowing check for the whole ladder
+
+`check_shadowing` compares every PL/pgSQL local in every migration against
+every column name in the schema — views included. 0274 added views with
+columns `n`, `n_in`, `n_out` and `spent`, and the check went red not on
+0274 but on 0004, 0016, 0059 and forty more files whose functions had
+declared `n` or `spent` years before: the collision is symmetric, and the
+old side cannot be renamed (those functions are in production as written).
+So a new column takes a name no local has ever used — `trx_count`,
+`spent_total` — and the check is run on the full ladder locally before a
+push, never only on the new smoke file. Production was brought to the same
+names with `alter view … rename column`, which needs no DROP.
+
