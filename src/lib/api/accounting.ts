@@ -1526,10 +1526,10 @@ export async function getCategorySummary(year: string): Promise<Result<CategoryS
   if (err) return fail(SERVICE, err);
   return ok(SERVICE, {
     year,
-    months: ((m.data ?? []) as CategoryMonthRow[]).map((r) => num(r, ["n", "amount"])),
-    projects: ((p.data ?? []) as ProjectSpendRow[]).map((r) => num(r, ["n", "amount", "contract_value"])),
-    vendors: ((v.data ?? []) as VendorSpendRow[]).map((r) => num(r, ["n", "amount"])),
-    transfers: ((t.data ?? []) as TransferMonthRow[]).map((r) => num(r, ["transfer_out", "transfer_in", "n_out", "n_in"])),
+    months: ((m.data ?? []) as CategoryMonthRow[]).map((r) => num(r, ["trx_count", "amount"])),
+    projects: ((p.data ?? []) as ProjectSpendRow[]).map((r) => num(r, ["trx_count", "amount", "contract_value"])),
+    vendors: ((v.data ?? []) as VendorSpendRow[]).map((r) => num(r, ["trx_count", "amount"])),
+    transfers: ((t.data ?? []) as TransferMonthRow[]).map((r) => num(r, ["transfer_out", "transfer_in", "trx_count_out", "trx_count_in"])),
   });
 }
 
@@ -1547,7 +1547,7 @@ export async function getRunway(): Promise<Result<Runway>> {
   if (b.error) return fail(SERVICE, b.error);
   return ok(SERVICE, runwayFrom({
     today,
-    months: ((m.data ?? []) as CategoryMonthRow[]).map((r) => num(r, ["n", "amount"])),
+    months: ((m.data ?? []) as CategoryMonthRow[]).map((r) => num(r, ["trx_count", "amount"])),
     balances: ((b.data ?? []) as { code: string; custody: AccountCustody; balance: unknown; is_active?: boolean }[])
       .map((a) => ({ ...a, balance: Number(a.balance ?? 0) })),
   }));
@@ -1558,7 +1558,7 @@ export async function getRunway(): Promise<Result<Runway>> {
 /* ------------------------------------------------------------------ */
 
 const FUNDING_NUMERIC: (keyof FundingRow)[] = [
-  "amount", "balance_before", "spent", "days_lasted", "remaining", "beyond", "decided", "undecided",
+  "amount", "balance_before", "spent_total", "days_lasted", "remaining", "beyond", "decided", "undecided",
 ];
 
 function fundingView(row: FundingRow): FundingView {

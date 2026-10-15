@@ -132,7 +132,7 @@ begin
   -- month × category
   assert (select amount from ops_acct.v_category_month where month = '2026-10' and direction = 'OUT' and category = 'bank') = 9000,
     'bank in October = 2.500 fee + 6.500 admin';
-  assert (select n from ops_acct.v_category_month where month = '2026-10' and direction = 'OUT' and category = 'bank') = 2, 'two rows';
+  assert (select trx_count from ops_acct.v_category_month where month = '2026-10' and direction = 'OUT' and category = 'bank') = 2, 'two rows';
 
   -- per project, with the contract beside it
   select * into r from ops_acct.v_project_spend where project_code = 'PRJ-CT' and category = 'vendor';
@@ -147,8 +147,8 @@ begin
   select * into r from ops_acct.v_funding where trx_no = 'trx-ct-1';
   assert r.from_account_code = 'BCA 064', format('mirror leg, got %s', r.from_account_code);
   assert r.next_funding_no = 'trx-ct-9' and r.window_end = '2026-10-08', 'window';
-  assert r.spent = 1002500 + 300000 + 150000 + 2000000 + 6500, format('spent in the window, got %s', r.spent);
-  assert r.remaining = 10000000 - r.spent and r.beyond = 0 and r.consumed_on is null, 'not spent through';
+  assert r.spent_total = 1002500 + 300000 + 150000 + 2000000 + 6500, format('spent in the window, got %s', r.spent_total);
+  assert r.remaining = 10000000 - r.spent_total and r.beyond = 0 and r.consumed_on is null, 'not spent through';
   assert r.undecided = 1002500 + 150000, format('undecided = the purchases with no decision, got %s', r.undecided);
   assert not r.is_open, 'closed';
   assert (select is_open from ops_acct.v_funding where trx_no = 'trx-ct-9'), 'the last one is open';

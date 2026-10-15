@@ -147,7 +147,7 @@ export function FundingDrawer({ trxNo, onClose }: { trxNo: string; onClose: () =
                   {f.window_end
                     ? <>{tr(`Until the next transfer on ${f.window_end},`, `Sampai transfer berikutnya pada ${f.window_end},`)} </>
                     : <>{tr("Since then,", "Sejak itu,")} </>}
-                  <strong className="tabular-nums">{formatIDR(f.spent)}</strong>{" "}
+                  <strong className="tabular-nums">{formatIDR(f.spent_total)}</strong>{" "}
                   {tr(`left the account across ${f.rows.length} row(s).`, `keluar dari rekening dalam ${f.rows.length} baris.`)}
                 </p>
                 <p className="mt-2 text-[13px]">

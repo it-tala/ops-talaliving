@@ -54,18 +54,18 @@ export const isCategory = (s: string): s is Category => (CATEGORIES as readonly 
  *  beyond), or how much is still unspent. Shared by both API layers so the
  *  real side and the sandbox read the same sentence. */
 export function fundingHeadline(
-  f: { amount: number; spent: number; consumed_on: string | null; days_lasted: number | null; is_open: boolean },
+  f: { amount: number; spent_total: number; consumed_on: string | null; days_lasted: number | null; is_open: boolean },
   tr: (en: string, id: string) => string,
   formatShort: (n: number) => string,
 ): string {
   if (f.consumed_on) {
-    const beyond = f.spent > f.amount ? f.spent - f.amount : 0;
+    const beyond = f.spent_total > f.amount ? f.spent_total - f.amount : 0;
     return tr(
       `Spent through in ${f.days_lasted} day(s)${beyond ? `, and ${formatShort(beyond)} beyond it` : ""}`,
       `Habis terpakai dalam ${f.days_lasted} hari${beyond ? `, dan lebih ${formatShort(beyond)} darinya` : ""}`,
     );
   }
-  const left = f.amount - f.spent;
+  const left = f.amount - f.spent_total;
   return f.is_open
     ? tr(`${formatShort(left)} of it still unspent`, `${formatShort(left)} darinya masih belum terpakai`)
     : tr(`${formatShort(left)} was still unspent when the next transfer arrived`, `${formatShort(left)} masih belum terpakai saat transfer berikutnya datang`);

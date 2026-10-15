@@ -581,7 +581,7 @@ export interface FundingRow {
   next_funding_no: string | null;
   window_end: string | null;
   /** Everything that left the account inside the window, VOID excluded. */
-  spent: number;
+  spent_total: number;
   /** The day cumulative spending first reached the transfer, and how many days
    *  that took. `null` while the transfer still has room in it. */
   consumed_on: string | null;
@@ -653,13 +653,13 @@ export interface FundingDetail extends FundingView {
 /* ------------------------------------------------------------------ */
 
 /** `v_category_month` (`0274`): one row per month, direction and category.
- *  `n` counts transactions; a row with a fee line counts once under its
+ *  `trx_count` counts transactions; a row with a fee line counts once under its
  *  category and once under bank. */
 export interface CategoryMonthRow {
   month: string;
   direction: Direction;
   category: Category;
-  n: number;
+  trx_count: number;
   amount: number;
 }
 
@@ -672,7 +672,7 @@ export interface ProjectSpendRow {
   contract_value: number | null;
   month: string;
   category: Category;
-  n: number;
+  trx_count: number;
   amount: number;
   last_date: string;
 }
@@ -683,7 +683,7 @@ export interface VendorSpendRow {
   vendor_name: string | null;
   month: string;
   category: Category;
-  n: number;
+  trx_count: number;
   amount: number;
   last_date: string;
 }
@@ -698,8 +698,8 @@ export interface TransferMonthRow {
   custody: AccountCustody;
   transfer_out: number | null;
   transfer_in: number | null;
-  n_out: number;
-  n_in: number;
+  trx_count_out: number;
+  trx_count_in: number;
 }
 
 /** *Masih aman berapa bulan* (L10, §6.9): cash on the accounting accounts

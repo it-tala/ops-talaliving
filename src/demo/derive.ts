@@ -712,12 +712,12 @@ export function categorySummary(state: DemoState, year: string): CategorySummary
       found.ids.add(p.trx.id);
       map.set(k, found);
     }
-    return [...map.values()].map(({ row, ids }) => ({ ...row, n: ids.size }));
+    return [...map.values()].map(({ row, ids }) => ({ ...row, trx_count: ids.size }));
   };
 
   const months = roll<string, CategoryMonthRow>(
     parts, (p) => `${p.month}|${p.trx.direction}|${p.category}`,
-    (p) => ({ month: p.month, direction: p.trx.direction, category: p.category, n: 0, amount: 0 }),
+    (p) => ({ month: p.month, direction: p.trx.direction, category: p.category, trx_count: 0, amount: 0 }),
     (r, p) => { r.amount += p.amount; },
   ).sort((a, b) => a.month.localeCompare(b.month));
 
@@ -729,7 +729,7 @@ export function categorySummary(state: DemoState, year: string): CategorySummary
       const pr = state.projects.find((x) => x.id === p.trx.project_id);
       return {
         project_id: p.trx.project_id as string, project_code: pr?.code ?? "", project_name: pr?.name ?? "",
-        contract_value: pr?.contract_value ?? null, month: p.month, category: p.category, n: 0, amount: 0, last_date: "",
+        contract_value: pr?.contract_value ?? null, month: p.month, category: p.category, trx_count: 0, amount: 0, last_date: "",
       };
     },
     (r, p) => { r.amount += p.amount; if (p.trx.trx_date > r.last_date) r.last_date = p.trx.trx_date; },
@@ -740,7 +740,7 @@ export function categorySummary(state: DemoState, year: string): CategorySummary
     (p) => ({
       vendor_id: p.trx.vendor_id as string,
       vendor_name: state.vendors.find((v) => v.id === p.trx.vendor_id)?.name ?? null,
-      month: p.month, category: p.category, n: 0, amount: 0, last_date: "",
+      month: p.month, category: p.category, trx_count: 0, amount: 0, last_date: "",
     }),
     (r, p) => { r.amount += p.amount; if (p.trx.trx_date > r.last_date) r.last_date = p.trx.trx_date; },
   ).sort((a, b) => b.amount - a.amount);
@@ -751,10 +751,10 @@ export function categorySummary(state: DemoState, year: string): CategorySummary
     const acc = state.accounts.find((a) => a.id === p.trx.account_id);
     const r = transfers.get(k) ?? {
       month: p.month, account_id: p.trx.account_id, account_code: acc?.code ?? "", custody: acc?.custody ?? "accounting",
-      transfer_out: null, transfer_in: null, n_out: 0, n_in: 0,
+      transfer_out: null, transfer_in: null, trx_count_out: 0, trx_count_in: 0,
     };
-    if (p.trx.direction === "OUT") { r.transfer_out = (r.transfer_out ?? 0) + p.amount; r.n_out += 1; }
-    else { r.transfer_in = (r.transfer_in ?? 0) + p.amount; r.n_in += 1; }
+    if (p.trx.direction === "OUT") { r.transfer_out = (r.transfer_out ?? 0) + p.amount; r.trx_count_out += 1; }
+    else { r.transfer_in = (r.transfer_in ?? 0) + p.amount; r.trx_count_in += 1; }
     transfers.set(k, r);
   }
 
@@ -1179,7 +1179,7 @@ export function fundingView(state: DemoState, trx: Transaction, all?: Transactio
     (l) => l.entity === "transaction" && l.entity_no === trx.trx_no && l.kind === "Payment Proof",
   );
 
-  const headline = fundingHeadline({ amount: trx.amount_idr, spent, consumed_on, days_lasted, is_open }, trNow, formatShort);
+  const headline = fundingHeadline({ amount: trx.amount_idr, spent_total: spent, consumed_on, days_lasted, is_open }, trNow, formatShort);
 
   return {
     trx_no: trx.trx_no,
@@ -1194,7 +1194,7 @@ export function fundingView(state: DemoState, trx: Transaction, all?: Transactio
     balance_before,
     next_funding_no: next?.trx_no ?? null,
     window_end: next?.trx_date ?? null,
-    spent,
+    spent_total: spent,
     consumed_on,
     days_lasted,
     remaining: Math.max(trx.amount_idr - spent, 0),

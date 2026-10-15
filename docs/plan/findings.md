@@ -10931,3 +10931,16 @@ from the examples in a document is a hypothesis, and the ledger is the
 test. The dry run is not a formality before the apply; it is where the
 rule gets written. The apply waits for the owner to have read it.
 
+## F280 · 2026-10-15 · A view column named like an old local trips the shadowing check for the whole ladder
+
+`check_shadowing` compares every PL/pgSQL local in every migration against
+every column name in the schema — views included. 0274 added views with
+columns `n`, `n_in`, `n_out` and `spent`, and the check went red not on
+0274 but on 0004, 0016, 0059 and forty more files whose functions had
+declared `n` or `spent` years before: the collision is symmetric, and the
+old side cannot be renamed (those functions are in production as written).
+So a new column takes a name no local has ever used — `trx_count`,
+`spent_total` — and the check is run on the full ladder locally before a
+push, never only on the new smoke file. Production was brought to the same
+names with `alter view … rename column`, which needs no DROP.
+

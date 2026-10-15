@@ -137,7 +137,7 @@ function MonthMatrix({ s, tr }: { s: CategorySummary; tr: Tr }) {
     if (!c || c.amount === 0) return <td className={cn(tdNum, "text-slate-300")}>—</td>;
     return (
       <td className={cn(tdNum, "text-slate-700")}>
-        <Link href={ledgerHref(category, month)} className="hover:text-brand-700 hover:underline" title={tr(`${c.n} row(s) — open them in the ledger`, `${c.n} baris — buka di buku besar`)}>
+        <Link href={ledgerHref(category, month)} className="hover:text-brand-700 hover:underline" title={tr(`${c.trx_count} row(s) — open them in the ledger`, `${c.trx_count} baris — buka di buku besar`)}>
           {formatIDRCompact(c.amount)}
         </Link>
       </td>
@@ -252,7 +252,7 @@ function ProjectTable({ s, tr }: { s: CategorySummary; tr: Tr }) {
       project_id: r.project_id, project_code: r.project_code, project_name: r.project_name,
       contract_value: r.contract_value, amount: 0, n: 0, last_date: "", by: {},
     };
-    p.amount += r.amount; p.n += r.n;
+    p.amount += r.amount; p.n += r.trx_count;
     p.by[r.category] = (p.by[r.category] ?? 0) + r.amount;
     if (r.last_date > p.last_date) p.last_date = r.last_date;
     map.set(r.project_id, p);
@@ -322,7 +322,7 @@ function VendorTable({ s, tr }: { s: CategorySummary; tr: Tr }) {
     const v = map.get(r.vendor_id) ?? {
       vendor_id: r.vendor_id, vendor_name: r.vendor_name ?? "—", amount: 0, n: 0, last_date: "", top: r.category, months: 0, by: {}, monthSet: new Set<string>(),
     };
-    v.amount += r.amount; v.n += r.n; v.monthSet.add(r.month);
+    v.amount += r.amount; v.n += r.trx_count; v.monthSet.add(r.month);
     v.by[r.category] = (v.by[r.category] ?? 0) + r.amount;
     if (r.last_date > v.last_date) v.last_date = r.last_date;
     map.set(r.vendor_id, v);
@@ -447,7 +447,7 @@ function BankTable({ s, tr }: { s: CategorySummary; tr: Tr }) {
   const rows = monthsOf(s.year)
     .map((m) => ({ month: m, cell: cellOf(s.months, m, "OUT", "bank") }))
     .filter((r) => r.cell && r.cell.amount > 0)
-    .map((r) => ({ month: r.month, n: r.cell!.n, amount: r.cell!.amount }));
+    .map((r) => ({ month: r.month, n: r.cell!.trx_count, amount: r.cell!.amount }));
   const total = rows.reduce((x, r) => x + r.amount, 0);
   const n = rows.reduce((x, r) => x + r.n, 0);
   const columns: Column<{ month: string; n: number; amount: number }>[] = [

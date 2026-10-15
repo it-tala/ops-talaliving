@@ -249,9 +249,12 @@ comment on view ops_acct.v_category_part is
   'summary views below group this; nothing else should.';
 
 -- Month × category, both directions. Twelve months × ten columns on screen.
+-- (Counts are `trx_count`, the funding's outflow `spent_total`: a column named
+-- `n` or `spent` would shadow the locals older functions declare, which
+-- `check_shadowing` refuses — the name is the cheap side to change.)
 create or replace view ops_acct.v_category_month as
   select month, direction, part_category as category,
-         count(distinct id) as n, sum(amount) as amount
+         count(distinct id) as trx_count, sum(amount) as amount
     from ops_acct.v_category_part
    group by month, direction, part_category;
 
@@ -260,7 +263,7 @@ create or replace view ops_acct.v_category_month as
 -- the project has one, so cost can be read against it.
 create or replace view ops_acct.v_project_spend as
   select p.project_id, p.project_code, pr.name as project_name, pr.contract_value,
-         p.month, p.part_category as category, count(distinct p.id) as n, sum(p.amount) as amount,
+         p.month, p.part_category as category, count(distinct p.id) as trx_count, sum(p.amount) as amount,
          max(p.trx_date) as last_date
     from ops_acct.v_category_part p
     join ops_procure.projects pr on pr.id = p.project_id
@@ -271,7 +274,7 @@ create or replace view ops_acct.v_project_spend as
 -- months; the view stays one shape whichever window is asked for.
 create or replace view ops_acct.v_vendor_spend as
   select vendor_id, vendor_name, month, part_category as category,
-         count(distinct id) as n, sum(amount) as amount, max(trx_date) as last_date
+         count(distinct id) as trx_count, sum(amount) as amount, max(trx_date) as last_date
     from ops_acct.v_category_part
    where direction = 'OUT' and vendor_id is not null
    group by vendor_id, vendor_name, month, part_category;
@@ -283,8 +286,8 @@ create or replace view ops_acct.v_transfer_month as
   select p.month, p.account_id, p.account_code, a.custody,
          sum(p.amount) filter (where p.direction = 'OUT') as transfer_out,
          sum(p.amount) filter (where p.direction = 'IN')  as transfer_in,
-         count(distinct p.id) filter (where p.direction = 'OUT') as n_out,
-         count(distinct p.id) filter (where p.direction = 'IN')  as n_in
+         count(distinct p.id) filter (where p.direction = 'OUT') as trx_count_out,
+         count(distinct p.id) filter (where p.direction = 'IN')  as trx_count_in
     from ops_acct.v_category_part p
     join ops_acct.accounts a on a.id = p.account_id
    where p.part_category = 'transfer'
@@ -311,7 +314,7 @@ create or replace view ops_acct.v_funding as
   )
   select f.id, f.trx_no, f.trx_date, f.account_id, f.account_code, f.amount, f.description,
          f.balance_before, f.next_funding_no, f.window_end,
-         coalesce(s.spent, 0)     as spent,
+         coalesce(s.spent, 0)     as spent_total,
          s.consumed_on,
          case when s.consumed_on is null then null else s.consumed_on - f.trx_date end as days_lasted,
          greatest(f.amount - coalesce(s.spent, 0), 0) as remaining,

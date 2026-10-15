@@ -67,7 +67,7 @@ export function LiquidationReport() {
       align: "right",
       render: (f) => (
         <span className={cn("tabular-nums", f.beyond > 0 ? "text-rose-700" : "text-slate-700")}>
-          {formatIDR(f.spent)}
+          {formatIDR(f.spent_total)}
         </span>
       ),
     },
@@ -107,7 +107,7 @@ export function LiquidationReport() {
       <Loaded state={rows} onRetry={reload}>
         {(all) => {
           const transferred = all.reduce((s, f) => s + f.amount, 0);
-          const spent = all.reduce((s, f) => s + f.spent, 0);
+          const spent = all.reduce((s, f) => s + f.spent_total, 0);
           const undecided = all.reduce((s, f) => s + f.undecided, 0);
           const lived = all.filter((f) => f.days_lasted !== null);
           const typical = lived.length
