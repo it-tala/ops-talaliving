@@ -143,18 +143,28 @@ comment on column ops_acct.v_transaction.category is
   'coalesce(category_override, the type''s category). What the summaries count the row as — '
   'except its fee lines (bank) and tax lines (tax), see v_category_part.';
 
--- `v_transaction_detail` is `v.*` plus columns, expanded at creation: made
--- again (0268 did the same), with 0273's body.
-drop view ops_acct.v_transaction_detail;
-create view ops_acct.v_transaction_detail as
-  select v.*,
+-- `v_transaction_detail` is `v.*` plus columns, and `*` was expanded when
+-- 0273 created it, so the two new columns are not in it. Rather than drop
+-- and remake it (0268 did; production holds a DROP for confirmation that
+-- never arrives, F-0211), it is replaced with its columns named in the
+-- order it already has, and the two new ones appended — which `create or
+-- replace` accepts.
+create or replace view ops_acct.v_transaction_detail as
+  select v.id, v.trx_no, v.trx_date, v.account_id, v.account_code, v.direction, v.amount_idr,
+         v.type_code, v.vendor_id, v.vendor_name, v.project_id, v.project_code, v.description,
+         v.remark, v.status, v.source_ref, v.posted_by, v.posted_by_name, v.posted_at,
+         v.void_reason, v.void_at, v.allocated_total, v.unallocated, v.evidence_count,
+         v.has_payment_proof, v.has_receipt_doc, v.pr_line_nos, v.po_nos, v.expects_allocation,
+         v.balance_before, v.balance_after,
          coalesce(li.lines, '[]'::jsonb)       as lines,
          coalesce(ac.allocations, '[]'::jsonb) as allocations,
          coalesce(dc.documents, '[]'::jsonb)   as documents,
          t.billed_currency,
          t.billed_amount,
          t.lines_reviewed_at,
-         rb.full_name as lines_reviewed_by_name
+         rb.full_name as lines_reviewed_by_name,
+         v.category,
+         v.category_override
     from ops_acct.v_transaction v
     join ops_acct.transactions t on t.id = v.id
     left join ops_core.users rb on rb.id = t.lines_reviewed_by
