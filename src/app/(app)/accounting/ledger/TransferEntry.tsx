@@ -12,8 +12,9 @@
  *  proof. `post_transfer` writes the OUT, the IN and the fee as three ordinary
  *  rows with one `transfer_id`, or nothing at all. A leadership account can
  *  be either end — its leg is written too and read by `approve_funds` only
- *  (D391). A dollar account as the source carries the dollars as the billed
- *  amount, so the rate is computed, never typed (0271).
+ *  (D391). When either end is a dollar account, the dollar amount is typed
+ *  beside the rupiah: the dollar leg is written in dollars, the rupiah leg
+ *  remembers the dollars, and the rate is computed, never typed (0285).
  */
 import { useRef, useState } from "react";
 import { ArrowRight, Upload, FileText, Save } from "lucide-react";
@@ -43,7 +44,7 @@ export function TransferEntry({ onClose, onPosted }: { onClose: () => void; onPo
   const [amount, setAmount] = useState(0);
   const [fee, setFee] = useState(0);
   const [description, setDescription] = useState("");
-  /** The source's own amount when the source is not a rupiah account. */
+  /** The foreign leg's own amount when one end is not a rupiah account (0285). */
   const [billedAmt, setBilledAmt] = useState(0);
   const [docs, setDocs] = useState<DraftDoc[]>([]);
   const [kind, setKind] = useState<DocKind>("Payment Proof");
@@ -52,7 +53,10 @@ export function TransferEntry({ onClose, onPosted }: { onClose: () => void; onPo
   const rows = accounts.status === "ready" ? accounts.data.filter((a) => a.is_active !== false) : [];
   const from = rows.find((a) => a.account_id === fromId);
   const to = rows.find((a) => a.account_id === toId);
-  const foreign = from && from.currency && from.currency !== "IDR" ? from.currency : null;
+  const fromForeign = !!(from && from.currency && from.currency !== "IDR");
+  const toForeign = !!(to && to.currency && to.currency !== "IDR");
+  /** The one foreign currency in play, if any; two foreign ends are refused by the seam. */
+  const foreign = fromForeign ? from!.currency! : toForeign ? to!.currency! : null;
   const hasPrimary = docs.some((d) => PRIMARY_DOC_KINDS.includes(d.kind));
   const canPost = !!from && !!to && from.account_id !== to.account_id && amount > 0 && fee >= 0
     && hasPrimary && (!foreign || billedAmt > 0);
@@ -127,7 +131,9 @@ export function TransferEntry({ onClose, onPosted }: { onClose: () => void; onPo
             </select>
           </div>
           <div>
-            <label htmlFor="tf-amount" className="block text-xs text-slate-500">{tr("Amount that arrived (IDR)", "Jumlah yang sampai (IDR)")}</label>
+            <label htmlFor="tf-amount" className="block text-xs text-slate-500">{toForeign && !fromForeign
+              ? tr("Amount that left (IDR)", "Jumlah yang keluar (IDR)")
+              : tr("Amount that arrived (IDR)", "Jumlah yang sampai (IDR)")}</label>
             <MoneyInput id="tf-amount" value={amount} onChange={setAmount} className="mt-1" />
           </div>
           <div>
@@ -137,7 +143,9 @@ export function TransferEntry({ onClose, onPosted }: { onClose: () => void; onPo
           </div>
           {foreign && (
             <div>
-              <label htmlFor="tf-billed" className="block text-xs text-slate-500">{tr(`Amount in ${foreign} that left ${from?.code}`, `Jumlah ${foreign} yang keluar dari ${from?.code}`)}</label>
+              <label htmlFor="tf-billed" className="block text-xs text-slate-500">{fromForeign
+                ? tr(`Amount in ${foreign} that left ${from?.code}`, `Jumlah ${foreign} yang keluar dari ${from?.code}`)
+                : tr(`Amount in ${foreign} that arrived in ${to?.code}`, `Jumlah ${foreign} yang sampai di ${to?.code}`)}</label>
               <NumberInput id="tf-billed" value={billedAmt} min={0} onChange={setBilledAmt} className="mt-1" />
               {billedAmt > 0 && amount > 0 && (
                 <p className="mt-1 text-[11px] text-slate-500">{tr(`rate ${formatIDR(Math.round(amount / billedAmt))} per ${foreign}, computed`, `kurs ${formatIDR(Math.round(amount / billedAmt))} per ${foreign}, dihitung`)}</p>

@@ -4,7 +4,7 @@
 -- the IN are written together. What is proved: the legs share one id and one
 -- proof; the fee is its own BANK CHARGES row; a refusal writes nothing; a
 -- leadership account gets its leg and keeps it hidden from whoever may not
--- read that account; a dollar source carries the dollar amount.
+-- read that account; a leg on a dollar account is written in dollars (0285).
 
 begin;
 
@@ -131,24 +131,65 @@ begin
   assert jsonb_array_length(d.transfer_legs) = 1 and d.transfer_legs -> 0 ->> 'account_code' = 'BCA 271', 'and its pair';
 end $$;
 
-/* ── a dollar source carries its dollars ───────────────────────────────── */
+/* ── a dollar source: the dollar leg is in dollars (0285, D444) ─────── */
 set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-00000000f282';
 do $$
 declare r jsonb;
 begin
+  -- Without the dollar amount the transfer is refused, not written in rupiah.
+  r := ops_acct.post_transfer('BCA USD 081','BCA 064', 16500000,
+        jsonb_build_array(jsonb_build_object('attachment_id','44440000-0000-0000-0000-000000000282','kind','Payment Proof')),
+        '2026-10-15', 'Konversi tanpa USD');
+  assert (r ->> 'status')::int = 422 and r -> 'error' ->> 'code' = 'billed_required', format('got %s', r);
+  -- A wrong currency on the foreign leg is refused too.
+  r := ops_acct.post_transfer('BCA USD 081','BCA 064', 16500000,
+        jsonb_build_array(jsonb_build_object('attachment_id','44440000-0000-0000-0000-000000000282','kind','Payment Proof')),
+        '2026-10-15', 'Konversi salah mata uang', null, 'SGD', 1000);
+  assert (r ->> 'status')::int = 422 and r -> 'error' ->> 'code' = 'billed_currency', format('got %s', r);
+
   r := ops_acct.post_transfer('BCA USD 081','BCA 064', 16500000,
         jsonb_build_array(jsonb_build_object('attachment_id','44440000-0000-0000-0000-000000000282','kind','Payment Proof')),
         '2026-10-15', 'Konversi USD → IDR', null, 'USD', 1000);
   assert ops_core.said_ok(r), format('got %s', r);
+  assert (r -> 'data' ->> 'out_amount')::numeric = 1000 and (r -> 'data' ->> 'in_amount')::numeric = 16500000,
+    format('the answer names each leg''s own amount, got %s', r -> 'data');
 end $$;
 set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-00000000e282';
 do $$
-declare d record;
+declare o record; i record; b record;
 begin
-  select * into d from ops_acct.v_transaction_detail where account_code = 'BCA USD 081' and direction = 'OUT';
-  assert d.billed_currency = 'USD' and d.billed_amount = 1000, format('the dollars ride on the OUT leg, got %s %s', d.billed_currency, d.billed_amount);
-  assert d.amount_idr = 16500000, 'and the rupiah is what arrived';
-  assert d.transfer_legs -> 0 ->> 'account_code' = 'BCA 064', 'paired with 064';
+  select * into o from ops_acct.v_transaction_detail where account_code = 'BCA USD 081' and direction = 'OUT';
+  assert o.amount_idr = 1000, format('the dollar leg is in dollars, got %s', o.amount_idr);
+  assert o.billed_currency is null, 'and says nothing twice';
+  assert o.transfer_legs -> 0 ->> 'account_code' = 'BCA 064', 'paired with 064';
+  select * into i from ops_acct.v_transaction_detail where account_code = 'BCA 064' and direction = 'IN' and transfer_id = o.transfer_id;
+  assert i.amount_idr = 16500000, format('the rupiah leg is what arrived, got %s', i.amount_idr);
+  assert i.billed_currency = 'USD' and i.billed_amount = 1000, format('and remembers the dollars it came from, got %s %s', i.billed_currency, i.billed_amount);
+  select * into b from ops_acct.v_account_balance where code = 'BCA USD 081';
+  assert b.balance = -1000, format('the dollar account moved by dollars, got %s', b.balance);
+end $$;
+
+/* ── buying dollars: the dollar leg is the IN ─────────────────────────── */
+set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-00000000f282';
+do $$
+declare r jsonb;
+begin
+  r := ops_acct.post_transfer('BCA 064','BCA USD 081', 8300000,
+        jsonb_build_array(jsonb_build_object('attachment_id','44440000-0000-0000-0000-000000000282','kind','Payment Proof')),
+        '2026-10-16', 'Beli USD', null, 'USD', 500);
+  assert ops_core.said_ok(r), format('got %s', r);
+  assert (r -> 'data' ->> 'out_amount')::numeric = 8300000 and (r -> 'data' ->> 'in_amount')::numeric = 500, format('got %s', r -> 'data');
+end $$;
+set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-00000000e282';
+do $$
+declare i record; o record; b record;
+begin
+  select * into i from ops_acct.v_transaction_detail where account_code = 'BCA USD 081' and direction = 'IN';
+  assert i.amount_idr = 500 and i.billed_currency is null, format('dollars arrived as dollars, got %s %s', i.amount_idr, i.billed_currency);
+  select * into o from ops_acct.v_transaction_detail where account_code = 'BCA 064' and direction = 'OUT' and transfer_id = i.transfer_id;
+  assert o.amount_idr = 8300000 and o.billed_currency = 'USD' and o.billed_amount = 500, format('the rupiah left with the dollars noted, got %s %s %s', o.amount_idr, o.billed_currency, o.billed_amount);
+  select * into b from ops_acct.v_account_balance where code = 'BCA USD 081';
+  assert b.balance = -500, format('-1000 + 500, got %s', b.balance);
 end $$;
 
 rollback;

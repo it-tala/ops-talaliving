@@ -1581,19 +1581,57 @@ export async function postTransfer(
   if (from.id === to.id) {
     return invalid(SERVICE, "same_account", "A transfer moves money between two different accounts.", { field: "to_account_code" });
   }
+  // Which leg is in which currency (0285, D444): a leg on a non-rupiah
+  // account is written in that currency from billed_amount; the rupiah leg
+  // keeps the foreign amount as its billed columns.
+  const fromCcy = from.currency ?? "IDR";
+  const toCcy = to.currency ?? "IDR";
+  const fromForeign = fromCcy !== "IDR";
+  const toForeign = toCcy !== "IDR";
+  const billedCcy = input.billed_currency?.trim().toUpperCase() || null;
+  let outAmount = input.amount_idr; let inAmount = input.amount_idr;
+  let outBilled: { billed_currency: string | null; billed_amount: number | null } = { billed_currency: null, billed_amount: null };
+  let inBilled: { billed_currency: string | null; billed_amount: number | null } = { billed_currency: null, billed_amount: null };
+  if (fromForeign && toForeign) {
+    if (fromCcy !== toCcy) {
+      return invalid(SERVICE, "currency_pair",
+        `${from.code} is in ${fromCcy} and ${to.code} is in ${toCcy}. A transfer between two foreign currencies is not written here — convert through a rupiah account.`,
+        { field: "to_account_code" });
+    }
+  } else if (fromForeign || toForeign) {
+    const ccy = fromForeign ? fromCcy : toCcy;
+    const code = fromForeign ? from.code : to.code;
+    if (!billedCcy || !input.billed_amount || input.billed_amount <= 0) {
+      return invalid(SERVICE, "billed_required",
+        `${code} is a ${ccy} account: give the amount in ${ccy} with billed_amount, beside the rupiah in amount_idr.`,
+        { field: "billed_amount" });
+    }
+    if (billedCcy !== ccy) {
+      return invalid(SERVICE, "billed_currency", `The foreign leg is on a ${ccy} account; billed_currency says ${billedCcy}.`,
+        { field: "billed_currency", given: billedCcy });
+    }
+    if (fromForeign) {
+      outAmount = input.billed_amount;
+      inBilled = { billed_currency: billedCcy, billed_amount: input.billed_amount };
+    } else {
+      inAmount = input.billed_amount;
+      outBilled = { billed_currency: billedCcy, billed_amount: input.billed_amount };
+    }
+  } else {
+    outBilled = { billed_currency: billedCcy, billed_amount: input.billed_amount ?? null };
+  }
   const transferId = `tf_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
   const description = input.description?.trim() || `Transfer ${from.code} → ${to.code}`;
   const out = await postTransaction({
-    trx_date: input.trx_date, account_id: from.id, direction: "OUT", amount_idr: input.amount_idr,
+    trx_date: input.trx_date, account_id: from.id, direction: "OUT", amount_idr: outAmount,
     type_code: "CASHFLOW", description, source_ref: `transfer:${transferId}:out`,
-    documents: input.documents,
-    billed_currency: input.billed_currency ?? null, billed_amount: input.billed_amount ?? null,
+    documents: input.documents, ...outBilled,
   });
   if (out.error) return out;
   const inn = await postTransaction({
-    trx_date: input.trx_date, account_id: to.id, direction: "IN", amount_idr: input.amount_idr,
+    trx_date: input.trx_date, account_id: to.id, direction: "IN", amount_idr: inAmount,
     type_code: "CASHFLOW", description, source_ref: `transfer:${transferId}:in`,
-    documents: input.documents,
+    documents: input.documents, ...inBilled,
   });
   if (inn.error) return inn;
   let feeTrx: string | null = null;
@@ -1614,6 +1652,7 @@ export async function postTransfer(
   const posted: TransferPosted = {
     transfer_id: transferId, from_account: from.code, to_account: to.code,
     amount: input.amount_idr, fee: input.fee ?? 0, trx_date: input.trx_date,
+    out_amount: outAmount, in_amount: inAmount,
     out_trx_no: out.data.trx_no, in_trx_no: inn.data.trx_no, fee_trx_no: feeTrx,
   };
   remember(SERVICE, "postTransfer", idempotencyKey, posted);
