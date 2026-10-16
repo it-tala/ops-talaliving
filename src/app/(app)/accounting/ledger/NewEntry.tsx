@@ -24,7 +24,8 @@ import { UomOptions } from "@/components/ui/uom-options";
 import { useTr } from "@/lib/i18n";
 import { BilledFields, LineKindSelect } from "@/components/accounting/line-kind";
 import { ItemPicker } from "@/components/accounting/item-picker";
-import { isPricedKind, lineSign, type LineKind } from "@/services/accounting/lines";
+import { isPricedKind, lineSign, taxRateOf, type LineKind } from "@/services/accounting/lines";
+import { TaxRateInput } from "@/components/accounting/tax-rate";
 
 /** Writing a row into the ledger, with everything a row is supposed to have.
  *
@@ -66,9 +67,12 @@ export function NewEntry({ onClose, onPosted }: { onClose: () => void; onPosted:
   const [vendorId, setVendorId] = useState("");
   const [description, setDescription] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([blankLine("l1")]);
-  /* Tax is a typed amount, never a rate (D435): it becomes a `tax` line on
-     top of what the items say. */
+  /* Tax is stored as an amount, never a rate (D435): it becomes a `tax` line
+     on top of what the items say. A rate may be typed to work it out (D441). */
   const [tax, setTax] = useState(0);
+  /* The rate typed for it, if one was: the tax then follows the goods as the
+     lines are typed. Typing the amount by hand drops it. */
+  const [taxPct, setTaxPct] = useState<number | null>(null);
   /* A bill written in USD and paid in rupiah keeps its own figure beside the
      rupiah (D435); the rate is shown, never typed. */
   const [billedOpen, setBilledOpen] = useState(false);
@@ -88,7 +92,9 @@ export function NewEntry({ onClose, onPosted }: { onClose: () => void; onPosted:
   /* Σ lines with the sign the kind carries (a discount counts minus), plus
      the tax typed below — the same sum the seam checks the amount against. */
   const linesTotal = lines.reduce((s, l) => s + lineSign(l.kind) * lineAmount(l), 0);
-  const total = linesTotal + Math.round(tax);
+  const goods = lines.filter((l) => isPricedKind(l.kind)).reduce((s, l) => s + lineAmount(l), 0);
+  const taxNow = taxPct !== null ? Math.round((goods * taxPct) / 100) : Math.round(tax);
+  const total = linesTotal + taxNow;
   const billedValid = !billedOpen || (billedCcy.length === 3 && billedCcy !== "IDR" && billedAmt > 0);
   const hasPrimary = docs.some((d) => PRIMARY_DOC_KINDS.includes(d.kind));
   const payingAccounts = accounts.status === "ready" ? accounts.data.filter((a) => a.is_active !== false) : [];
@@ -128,7 +134,7 @@ export function NewEntry({ onClose, onPosted }: { onClose: () => void; onPosted:
             ? { kind: l.kind, description: l.description.trim(), qty: l.qty, uom: l.uom,
                 unit_price: l.unit_price, amount: lineAmount(l), item_id: l.item_id }
             : { kind: l.kind, description: l.description.trim(), amount: lineAmount(l) })),
-        ...(tax > 0 ? [{ kind: "tax" as const, description: tr("Tax on the nota", "Pajak di nota"), amount: Math.round(tax) }] : []),
+        ...(taxNow > 0 ? [{ kind: "tax" as const, description: tr("Tax on the nota", "Pajak di nota"), amount: taxNow }] : []),
       ],
       documents: docs.map((d) => ({ attachment_id: d.attachment_id, kind: d.kind })),
       ...(billedOpen && billedValid ? { billed_currency: billedCcy, billed_amount: billedAmt } : {}),
@@ -331,19 +337,27 @@ export function NewEntry({ onClose, onPosted }: { onClose: () => void; onPosted:
             {tr("Another line", "Tambah baris")}
           </Button>
 
-          {/* The nota's tax, as the number printed on it (D435): no rate,
-              no default. It books as its own `tax` line. */}
-          <div className="mt-3 grid gap-2 sm:grid-cols-12">
-            <div className="sm:col-span-5">
-              <label className="block text-[11px] text-slate-500" htmlFor="ne-tax">{tr("Tax on the nota (amount)", "Pajak di nota (nominal)")}</label>
-              <MoneyInput id="ne-tax" size="sm" value={tax} onChange={setTax} className="mt-1" />
+          {/* The nota's tax, as the number printed on it (D435) or as a rate
+              of the goods (D441); no default. It books as its own `tax` line. */}
+          <div className="mt-3 grid grid-cols-12 gap-2">
+            <div className="col-span-4 sm:col-span-2">
+              <label className="block text-[11px] text-slate-500" htmlFor="ne-tax-pct">{tr("Tax (%)", "Pajak (%)")}</label>
+              <div className="mt-1">
+                <TaxRateInput id="ne-tax-pct" size="sm" pct={taxPct} rate={taxRateOf(taxNow, goods)}
+                  onRate={setTaxPct} />
+              </div>
             </div>
-            <div className="flex items-end sm:col-span-7">
+            <div className="col-span-8 sm:col-span-4">
+              <label className="block text-[11px] text-slate-500" htmlFor="ne-tax">{tr("Tax on the nota (amount)", "Pajak di nota (nominal)")}</label>
+              <MoneyInput id="ne-tax" size="sm" value={taxNow} onChange={(v) => { setTaxPct(null); setTax(v); }} className="mt-1" />
+            </div>
+            <div className="col-span-12 flex items-end sm:col-span-6">
               <p className="text-[12px] text-slate-500">
-                {tax > 0
-                  ? tr(`Books as a tax line. Lines ${formatIDR(linesTotal)} + tax ${formatIDR(Math.round(tax))} = ${formatIDR(total)}.`,
-                      `Dibukukan sebagai baris pajak. Baris ${formatIDR(linesTotal)} + pajak ${formatIDR(Math.round(tax))} = ${formatIDR(total)}.`)
-                  : tr("Type the figure the nota prints — never a percentage.", "Ketik angka yang tercetak di nota — bukan persentase.")}
+                {taxNow > 0
+                  ? tr(`Books as a tax line. Lines ${formatIDR(linesTotal)} + tax ${formatIDR(taxNow)} = ${formatIDR(total)}.${taxPct !== null ? ` The tax follows the items at ${taxPct}%.` : ""}`,
+                      `Dibukukan sebagai baris pajak. Baris ${formatIDR(linesTotal)} + pajak ${formatIDR(taxNow)} = ${formatIDR(total)}.${taxPct !== null ? ` Pajak mengikuti barang, ${taxPct}%.` : ""}`)
+                  : tr("Type the rate (11, 12) and the amount is worked out from the items, or type the figure the nota prints.",
+                      "Ketik tarifnya (11, 12) dan nominalnya dihitung dari barang, atau ketik angka yang tercetak di nota.")}
               </p>
             </div>
           </div>

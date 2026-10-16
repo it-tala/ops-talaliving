@@ -2,9 +2,9 @@
  *
  *  `transaction_lines.kind` is the answer to *which part of this transfer
  *  was the thing and which part was the bank*: `item` (goods or a service
- *  at its listed price), `fee` (bank, admin, platform), `tax` (a typed
- *  amount, never a rate — D435), `shipping`, `discount` (subtracted when the
- *  lines are summed) and `other`. The letters a/b the owner asked for (D436)
+ *  at its listed price), `fee` (bank, admin, platform), `tax` (stored as an
+ *  amount, never a rate — D435; a rate may be typed to work it out, D441),
+ *  `shipping`, `discount` (subtracted when the lines are summed) and `other`. The letters a/b the owner asked for (D436)
  *  are the line numbers; the kind says what the letter is for.
  *
  *  **The amount stays positive; the kind carries the sign.** Same rule as
@@ -100,6 +100,14 @@ export function nextKey(ls: LineDraft[]): number {
   return Math.max(0, ...ls.map((l) => l.key)) + 1;
 }
 
+/** The unit price that gives back exactly `share` once `qty × price` is
+ *  rounded: cents when cents are enough, finer when a large quantity would
+ *  carry the cents' error past half a rupiah and break the sum. */
+export function priceFor(share: number, qty: number): number {
+  const cents = Math.round((share / qty) * 100) / 100;
+  return Math.round(qty * cents) === share ? cents : Math.round((share / qty) * 1e6) / 1e6;
+}
+
 /** The tax typed as a figure (D435) moves the lines, not the total: the nota
  *  says 112.000 and prints PPN 12.000, so the goods were 100.000. The item
  *  lines are scaled to what is left after every non-item line, the rounding
@@ -120,7 +128,7 @@ export function withTax(ls: LineDraft[], taxAmount: number, total: number): Line
         : (current > 0 ? Math.round(draftAmount(l) * target / current) : Math.round(target / items.length));
       given += share;
       const qty = l.qty > 0 ? l.qty : 1;
-      return { ...l, qty, unit_price: Math.round((share / qty) * 100) / 100 };
+      return { ...l, qty, unit_price: priceFor(share, qty) };
     });
   }
   const next = rest.map((l) => scaled.find((s) => s.key === l.key) ?? l);
@@ -132,6 +140,25 @@ export function withTax(ls: LineDraft[], taxAmount: number, total: number): Line
     });
   }
   return next;
+}
+
+/** The tax from a rate the person types (D441), for a total that already
+ *  holds it: the transfer is goods + PPN, so at 11% the tax is
+ *  total × 11 ÷ 111, not total × 11%. Fee, shipping and discount lines stay
+ *  outside the base — the nota's PPN is on the goods. What is stored is
+ *  still the amount (D435); the rate is only a way to type it. */
+export function taxForRate(ls: LineDraft[], ratePct: number, total: number): number {
+  const others = ls.filter((l) => l.kind !== "tax" && !isPricedKind(l.kind))
+    .reduce((n, l) => n + lineSign(l.kind) * draftAmount(l), 0);
+  const base = total - others;
+  if (!(ratePct > 0) || base <= 0) return 0;
+  return Math.round((base * ratePct) / (100 + ratePct));
+}
+
+/** The rate a tax amount is of the goods, to two decimals — what the rate
+ *  field shows when the amount was typed instead. 0 when there are no goods. */
+export function taxRateOf(taxAmount: number, goods: number): number {
+  return goods > 0 && taxAmount > 0 ? Math.round((taxAmount / goods) * 10000) / 100 : 0;
 }
 
 /** *Pisahkan biaya admin*: the …2.500 / …6.500 a bank folds into a transfer
@@ -150,7 +177,7 @@ export function splitFee(ls: LineDraft[], total: number): LineDraft[] | null {
   const share = draftAmount(l) - fee;
   if (share <= 0) return null;
   const qty = l.qty > 0 ? l.qty : 1;
-  const next = ls.map((x, i) => (i === at ? { ...x, qty, unit_price: Math.round((share / qty) * 100) / 100 } : x));
+  const next = ls.map((x, i) => (i === at ? { ...x, qty, unit_price: priceFor(share, qty) } : x));
   next.push({
     key: nextKey(ls), kind: "fee", description: "Transfer admin fee", qty: 1, uom: "pcs",
     unit_price: fee, amount: fee, item_id: null,

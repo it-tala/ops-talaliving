@@ -1581,7 +1581,7 @@ export async function postTransfer(
   if (from.id === to.id) {
     return invalid(SERVICE, "same_account", "A transfer moves money between two different accounts.", { field: "to_account_code" });
   }
-  // Which leg is in which currency (0285, D442): a leg on a non-rupiah
+  // Which leg is in which currency (0285, D444): a leg on a non-rupiah
   // account is written in that currency from billed_amount; the rupiah leg
   // keeps the foreign amount as its billed columns.
   const fromCcy = from.currency ?? "IDR";

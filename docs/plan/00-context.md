@@ -64,7 +64,8 @@ Copied from §7. These strings are data. Do not translate, re-spell, or
   `WAITING FOR CONFIRMATION`. Only `GOOD` and the received part of
   `PARTIALLY DAMAGED` count toward completion.
 - **Document types** (4): `Receipt / Invoice / Nota` · `Payment Proof` ·
-  `Receiving Item` · `Others`. `Others` never touches the ledger.
+  `Receiving Item` · `Others`. The type does not decide whether a
+  document reaches the ledger — the person does (D441).
 - **Review queue**: `PENDING` · `CONFIRMED` · `ATTACHED` · `REJECTED` ·
   `CANCELLED` · `NOTED`. `CONFIRMED` means this row *produced* a transaction;
   `ATTACHED` means it hangs on one that already existed.

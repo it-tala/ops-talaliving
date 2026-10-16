@@ -1,5 +1,5 @@
 -- 0285 — a transfer leg on a foreign-currency account is written in that
--- currency (D442, F283).
+-- currency (D444, F283).
 --
 -- 0282 wrote `p_amount` on both legs. Right for rupiah to rupiah; wrong
 -- when one end is BCA USD 081, whose rows carry dollars: `edit_transaction`
@@ -71,7 +71,7 @@ begin
       jsonb_build_object('field','to_account_code'));
   end if;
 
-  -- Which leg is in which currency (D442).
+  -- Which leg is in which currency (D444).
   from_foreign := acc_from.currency <> 'IDR';
   to_foreign   := acc_to.currency   <> 'IDR';
   v_ccy := upper(nullif(btrim(coalesce(p_billed_currency, '')), ''));
@@ -163,4 +163,4 @@ end $$;
 grant execute on function ops_acct.post_transfer(text, text, numeric, jsonb, date, text, numeric, text, numeric, text) to authenticated;
 comment on function ops_acct.post_transfer(text, text, numeric, jsonb, date, text, numeric, text, numeric, text) is
   'One transfer between our own accounts: the OUT, the IN and the fee as its own BANK CHARGES row, one transfer_id, the same proof on each (0282). '
-  'A leg on a non-rupiah account is written in that currency from billed_amount; the rupiah leg carries the foreign amount as its billed columns (0285, D442). post_ledger.';
+  'A leg on a non-rupiah account is written in that currency from billed_amount; the rupiah leg carries the foreign amount as its billed columns (0285, D444). post_ledger.';

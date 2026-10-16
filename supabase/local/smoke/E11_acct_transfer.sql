@@ -131,7 +131,7 @@ begin
   assert jsonb_array_length(d.transfer_legs) = 1 and d.transfer_legs -> 0 ->> 'account_code' = 'BCA 271', 'and its pair';
 end $$;
 
-/* ── a dollar source: the dollar leg is in dollars (0285, D442) ─────── */
+/* ── a dollar source: the dollar leg is in dollars (0285, D444) ─────── */
 set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-00000000f282';
 do $$
 declare r jsonb;
