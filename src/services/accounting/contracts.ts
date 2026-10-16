@@ -549,6 +549,10 @@ export interface TransferPosted {
   amount: number;
   fee: number;
   trx_date: string;
+  /** Each leg's own amount (0285): a leg on a non-rupiah account is in that
+   *  currency, from `billed_amount`; a rupiah leg is `amount`. */
+  out_amount?: number;
+  in_amount?: number;
   out_trx_no: string;
   in_trx_no: string;
   fee_trx_no: string | null;

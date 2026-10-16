@@ -11023,6 +11023,10 @@ carry USD (`edit_transaction` says so: *the amount here is in USD*, and
 `v_account_balance` sums the column as the account's own currency). The
 three USD legs were corrected by `edit_transaction` to USD 2.800, 5.000 and
 2.500, and the balance read USD 2.295,14 against the bank without any view
-change. The seam should take `p_billed_amount` as the USD leg's amount when
-the source account's currency is not IDR — a one-line fix, to be made with a
-smoke that posts a USD → IDR transfer and reads both balances.
+change. Fixed the next morning in `0285`: a leg on a non-rupiah account takes
+`p_billed_amount` in that currency, the rupiah leg keeps the foreign amount
+as its billed columns, and `E11` posts a USD → IDR conversion and a USD
+purchase and reads the dollar balance move by dollars. One PL/pgSQL detail
+caught on the way: an `IF` condition is read up to the first `THEN`, so a
+`CASE … THEN … END` inside it ends the condition early; the CASE moved into
+variables set before the `IF`.
