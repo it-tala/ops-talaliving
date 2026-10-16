@@ -186,7 +186,7 @@ Every new route is one line in `nav.ts`.
 | ✚ `/accounting/tagihan` | **built (M45)** — accounting's own reminder of what has to be paid this month, and the owner's answer to *is there a monthly bills list?* One month of the cash calendar re-cut: sorted by date, split into **lewat tempo · belum dibayar · sudah dibayar · uang masuk**, with what is still outstanding per line. Last month's figure sits beside this month's and anything more than `ops.bill_anomaly_percent` apart is called unusual (D229) — a line that did not exist last month prints **—**, never 0%. It calls `cashPlan()` rather than recomputing, so it cannot drift from the calendar, and the footer says so and links across (D228) | M45 M50 adds the statutory audit above the bills: each **invoice** with the schemes it pays, what the roll of names says it should come to, what actually left, and the difference in words — which on the seeded data reads *dibayar Rp 1.525.000 untuk 3 orang yang seharusnya Rp 1.225.000*, because somebody came off the roll and the invoice did not notice (D259) |
 | ✚ `/accounting/documents` | **built (M9), then parked** (D93, restated in D105). Every file with what it is attached to, filtered by type, month and text. The owner does not need it; it stays as it is and gets no more work. The number that mattered — files attached to nothing — is the exception inbox's job | M9 |
 | ✚ `/accounting/bukti` | evidence browser by entity, month, type; and the inbox health number | M9 |
-| ✚ `/accounting/catatan` | `Others` documents — a different notepad that does not touch the company ledger (owner, 2026-08-27) | M10 |
+| ✚ `/accounting/catatan` | notes — a different notepad that does not touch the company ledger (owner, 2026-08-27); what goes there is the person's choice, not the reading's `Others` (D441) | M10 |
 | ✖ `/accounting/budget`, `/accounting/payslip` | **both gone.** The cashflow calendar answers what a budget page was for; payslips are HRD's and accounting does not read them (owner, D213) | M41 |
 
 Every other module keeps its honest "not built yet" placeholder. A page that
@@ -247,12 +247,13 @@ Resolutions, one of five:
 | **Jadikan transaksi** | posts a ledger row, off-PR, visible in `v_unlinked_transactions` |
 | **Buat baris PR retroaktif** | the purchase-first case with a name on it: creates the line it should have had, still needing approval |
 | **Tautkan** | it belongs to something that already exists — link it and create no money |
-| **Catatan** | `Others`. Goes to notes, never the ledger, and branches before anything else is touched |
+| **Catatan** | not a company transaction. Kept, never posted. A reading of `Others` no longer starts here (D441) |
 | **Tolak** | recorded, never discarded (A16) |
 
-Two rules the screen keeps from the old one, because both were paid for:
-`Others` branches before the ledger is touched, and duplicate warnings are
-advisory and point at *Tautkan* rather than blocking.
+One rule the screen keeps from the old one, because it was paid for:
+duplicate warnings are advisory and point at *Tautkan* rather than blocking.
+(The other, *`Others` branches to notes before the ledger is touched*, was
+retired by D441: the reading's type does not decide.)
 
 And one number on it that is not decoration: **how many documents came in
 this way this week.** If the exception road grows, the normal road has a
