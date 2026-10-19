@@ -11030,3 +11030,57 @@ purchase and reads the dollar balance move by dollars. One PL/pgSQL detail
 caught on the way: an `IF` condition is read up to the first `THEN`, so a
 `CASE … THEN … END` inside it ends the condition early; the CASE moved into
 variables set before the `IF`.
+
+## F284 · 2026-10-19 · Grouping documents by amount alone pairs the wrong things, and a stored grouping goes stale
+
+The owner's rule was *kelompokkan berdasarkan nilai transaksi*. Walking it
+against the inbox's own shapes showed amount is the strongest signal and
+cannot be the only one: a goods photo has no amount at all; a transfer is
+routinely Rp 2.500–25.000 more than its nota (the bank's fee); a down payment
+is less than its nota; one transfer can pay two notas of one shop; and two
+Rp 500.000 notas on one day are interchangeable by amount. So a pair is scored
+on amount (exact, a known fee apart, or a partial with the vendor agreeing),
+vendor (normalised: CV/TB/UD/PT dropped), date within three days, and who sent
+it when — the last being the only thing that can put a photo with its nota.
+A rival pairing that scores within five points makes the draft *ragu* and
+says which document it might be swapped with.
+
+The second lesson is where the grouping lives. Stored as rows by a trigger on
+`evidence_inbox`, a draft is stale the moment the next photo arrives — the
+person would tick a draft that no longer includes the transfer proof that came
+in a minute later — and a failing trigger would refuse a capture. Computed on
+read, the draft is always what the documents say now; what needs a trace is
+the **decision**, with the score and reasons the person was shown, and the
+pairs a person said are apart. Both are append-only tables (`0286`).
+
+Smaller: `confirm_draft` composes four existing seams that each answer an
+envelope rather than raising. Calling them in sequence would leave a draft
+half booked when the second refuses, so the calls run in a sub-block that
+raises a private SQLSTATE (`DR001`) carrying the refusal and returns it from
+the handler — the block rolls back, the envelope still reaches the screen. The
+shadowing check caught a local named `files` on its first run.
+
+## F285 · 2026-10-19 · In production one inbox row is one document, and its `amount_idr` is only the first line
+
+The demo's inbox, and Verification's grouping comment, describe the capture
+worker filing one row per **slot** it read (`<event>~x0`, `~x1`). That stopped
+on 2026-09-28: `ops_mirror.py` files **one row per document**, every reading in
+`extracted.lines`, and the row's own `amount_idr` is the first line's. Of the
+27 rows PENDING when `0286` went to production, the transfer to MARTONO said
+1.360.000 at the top and 1.362.500 across its lines (the transfer and the
+2.500 fee); a workshop nota said 1.500.000 at the top and 3.300.000 across its
+lines; a cash withdrawal read both legs, OUT on BNI 325 and IN on PETTY CASH.
+
+The grouping read the top-level figure and would have proposed the wrong
+amount for every multi-line document. It was caught by running `buildDrafts`
+on production's own pending rows after the migration and before anybody used
+the screen. `readingsOf` now reads `extracted.lines` when they are there (the
+slot shape when they are not), leaves an IN leg out of the amount, keeps a
+line's quantity and price when they agree with its amount, and marks a fee
+line by `BANK CHARGES` or its words. The same run found the MARTONO nota sent
+twice: a nota left alone that matches a grouped one on amount, vendor and date
+is now *ragu* and says which draft already has it.
+
+The lesson is F164's again: the demo's shape is not production's. A grouping
+that reads data has to be run on the data before it is called done.
+

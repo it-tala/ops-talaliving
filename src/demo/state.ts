@@ -284,6 +284,11 @@ export interface DemoState {
    *  fixture only ever states one fact about a person. `file_key` likewise
    *  comes from the row's attachment at the boundary. */
   evidence_inbox: Omit<EvidenceInboxRow, "reported_by_name" | "file_key">[];
+  /** Ledger drafts (0286, D445): every ✓ and ✕ with what the person was
+   *  shown, and the pairs of files a person said are not one transaction.
+   *  The drafts themselves are never stored — `buildDrafts` computes them. */
+  draft_decisions: DemoDraftDecision[];
+  draft_apart: { file_a: string; file_b: string; decision_id: string }[];
   /** Rekening koran, and its lines. For the two leadership accounts this is
    *  how their ledger rows come to exist at all (D180). */
   bank_statements: BankStatement[];
@@ -651,4 +656,22 @@ export interface DemoDesignApproval {
   id: string; item_id: string; decision: "approved" | "withdrawn"; decided_on: string;
   channel: ApprovalChannel; client_person: string; attachment_id: string | null;
   evidence_attachment_id: string | null; note: string | null; recorded_by: string; recorded_at: string;
+}
+
+/** `ops_acct.draft_decisions` (0286), as the demo keeps it. */
+export interface DemoDraftDecision {
+  id: string;
+  draft_key: string;
+  decision: "confirmed" | "linked" | "rejected" | "noted" | "split" | "detached";
+  road: "transaction" | "transfer" | "pay_line" | "link" | null;
+  ref_ids: string[];
+  level: string | null;
+  score: number | null;
+  reasons: string[];
+  proposed: Record<string, unknown>;
+  booked: Record<string, unknown>;
+  trx_no: string | null;
+  note: string | null;
+  decided_by: string;
+  decided_at: string;
 }

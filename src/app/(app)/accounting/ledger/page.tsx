@@ -19,6 +19,7 @@ import { TrxDrawer } from "./TrxDrawer";
 import { CashPosition } from "./CashPosition";
 import { NewEntry } from "./NewEntry";
 import { TransferEntry } from "./TransferEntry";
+import { DraftBand } from "./DraftBand";
 import { useSession } from "@/store/session";
 import { useTr } from "@/lib/i18n";
 import { allPages } from "@/lib/xlsx-export";
@@ -107,6 +108,11 @@ export default function LedgerPage() {
     { keepPrevious: true },
   );
   const mayPost = hasAuthority("post_ledger");
+  /* The documents from Chat still undecided, grouped into one draft per
+     transaction (D445). Above the table and outside every balance. */
+  const [drafts, reloadDrafts] = useLoad(() => accounting.listDrafts(), [], { keepPrevious: true });
+  const draftRows = drafts.status === "ready" ? drafts.data : [];
+  const [booked, setBooked] = useState(0);
   /* One read for the page's lines, keyed by row — never a detail call per
      row. A single-line transaction shows no child: its parent is line a. */
   const pageNos = rows.status === "ready" ? rows.data.map((t) => t.trx_no) : [];
@@ -293,7 +299,15 @@ export default function LedgerPage() {
         ) : undefined}
       />
 
-      <CashPosition active={accountId} onPick={(id) => filter(() => setAccountId(id))} />
+      <CashPosition active={accountId} onPick={(id) => filter(() => setAccountId(id))} drafts={draftRows} version={booked} />
+
+      {drafts.status === "ready" && (
+        <DraftBand
+          drafts={draftRows}
+          onChanged={() => { reloadDrafts(); setBooked((n) => n + 1); setPage(0); reload(); }}
+          onOpenTrx={setSelected}
+        />
+      )}
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <select

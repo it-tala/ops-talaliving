@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { driveOpenUrl } from "@/lib/drive-links";
 import { TypeOptions } from "@/components/ui/type-options";
 import { useCallback, useEffect, useState } from "react";
@@ -252,6 +253,16 @@ export default function InboxPage() {
         title={tr("Purchase verification", "Verifikasi pembelian")}
         description={tr("Documents that arrived with nothing to attach them to — somebody bought first and photographed the nota. Everything here leaves by one of seven roads, and none of them throws the file away.", "Dokumen yang datang tanpa ada tempat untuk dilampirkan — seseorang membeli dulu lalu memotret notanya. Semua yang ada di sini keluar lewat salah satu dari tujuh jalan, dan tidak satu pun membuang berkasnya.")}
       />
+
+      {/* D445: the same documents, grouped per transaction, are drafts on the
+          ledger now. This screen stays for two weeks as the fallback. */}
+      <p className="mb-4 rounded-lg border border-brand-200 bg-brand-50 px-4 py-2.5 text-[13px] text-brand-800" data-testid="rv-drafts-moved">
+        {tr("These documents are now grouped into one draft per transaction on the ",
+          "Dokumen ini sekarang dikelompokkan menjadi satu draft per transaksi di ")}
+        <Link href="/accounting/ledger" className="font-semibold underline underline-offset-2">{tr("Ledger", "Buku besar")}</Link>
+        {tr(", to tick or cross there. This screen stays as a fallback for now.",
+          ", untuk dicentang atau disilang di sana. Layar ini tetap ada sebagai cadangan untuk sementara.")}
+      </p>
 
       {/* A screen that asks again on its own has to say when it last did.
           Otherwise "nothing new today" and "this stopped asking an hour ago"
