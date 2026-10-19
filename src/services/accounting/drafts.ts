@@ -81,6 +81,40 @@ function num(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
+/** What one inbox row read, line by line.
+ *
+ *  Since 2026-09-28 the capture worker files **one row per document** and
+ *  puts every reading in `extracted.lines`; the row's own `amount_idr` is
+ *  only the first line's. Older rows were one row per slot with no `lines`.
+ *  Both shapes come out the same here. A line read as money coming IN (the
+ *  other leg of a transfer) is left out of the document's amount unless
+ *  every line is IN. */
+export interface Reading {
+  note: string | null;
+  amount: number;
+  qty: number | null;
+  unit_price: number | null;
+  uom: string | null;
+  fee: boolean;
+}
+
+export function readingsOf(r: EvidenceInboxRow): Reading[] {
+  type L = { note?: string | null; amount_idr?: unknown; qty?: unknown; unit_price?: unknown; uom?: string | null;
+    money_direction?: string | null; transaction_type?: string | null };
+  const ls = ((r.extracted.lines ?? []) as L[]).filter((l) => num(l.amount_idr) !== null && num(l.amount_idr)! > 0);
+  const out = ls.some((l) => l.money_direction !== "IN") ? ls.filter((l) => l.money_direction !== "IN") : ls;
+  if (out.length) {
+    return out.map((l) => ({
+      note: l.note ?? null, amount: num(l.amount_idr)!, qty: num(l.qty), unit_price: num(l.unit_price), uom: l.uom ?? null,
+      fee: l.transaction_type === "BANK CHARGES" || /admin fee|biaya admin|biaya transfer/i.test(l.note ?? ""),
+    }));
+  }
+  const a = num(r.extracted.amount_idr);
+  return a !== null && a > 0
+    ? [{ note: r.extracted.note ?? null, amount: a, qty: null, unit_price: null, uom: null, fee: /admin fee|biaya admin|biaya transfer/i.test(r.extracted.note ?? "") }]
+    : [];
+}
+
 export function toDocuments(rows: EvidenceInboxRow[]): DraftDocument[] {
   const by = new Map<string, EvidenceInboxRow[]>();
   for (const r of rows) {
@@ -90,10 +124,10 @@ export function toDocuments(rows: EvidenceInboxRow[]): DraftDocument[] {
   return [...by.entries()].map(([key, rs]) => {
     /* The main row speaks for the photo: the largest amount, so the
        transfer and not its fee. */
-    const sorted = [...rs].sort((a, b) => (num(b.extracted.amount_idr) ?? 0) - (num(a.extracted.amount_idr) ?? 0)
-      || a.ref_id.localeCompare(b.ref_id));
+    const total = (r: EvidenceInboxRow) => readingsOf(r).reduce((n, x) => n + x.amount, 0);
+    const sorted = [...rs].sort((a, b) => total(b) - total(a) || a.ref_id.localeCompare(b.ref_id));
     const main = sorted[0];
-    const amounts = rs.map((r) => num(r.extracted.amount_idr)).filter((a): a is number => a !== null);
+    const amounts = rs.filter((r) => readingsOf(r).length > 0).map(total);
     const confs = rs.map((r) => num(r.extracted.confidence)).filter((c): c is number => c !== null);
     return {
       key,
@@ -332,6 +366,21 @@ export function buildDrafts(input: BuildDraftsInput): LedgerDraft[] {
 
   const drafts = groups.map((g) => toDraft(g, input, knownAccount));
 
+  /* A nota left on its own that is the same paper as one already grouped —
+     same amount, same vendor, same date — was most likely sent twice. Said
+     plainly, so the person crosses it rather than booking it again. */
+  for (const d of drafts) {
+    if (d.docs.length !== 1 || d.docs[0].role === "payment" || d.road !== "transaction") continue;
+    const me = d.docs[0];
+    const twin = drafts.find((o) => o !== d && o.docs.some((x) => x.role !== "payment" && x.amount !== null
+      && x.amount === me.amount && vendorsAgree(x.vendor_name, me.vendor_name) === true && dayOf(x) === dayOf(me)));
+    if (!twin) continue;
+    d.score = Math.min(d.score ?? 0, 30);
+    d.level = draftLevel(d.score);
+    d.reasons.unshift({ tone: "bad", en: `The same nota is already in ${twin.label} — probably sent twice; cross this one`,
+      id: `Nota yang sama sudah ada di ${twin.label} — kemungkinan dikirim dua kali; silang yang ini` });
+  }
+
   /* 5 · a loose document sent with one already booked is its late proof. */
   for (const d of loose) {
     const anchor = input.anchors.find((a) => !apart.has(apartKey(a.row.file_key, d.file_key))
@@ -379,9 +428,12 @@ function toDraft(
   let score: number;
   let toAccount: string | null = null;
   let fee: number | null = g.fit?.fee ?? null;
+  /* A transfer is booked at its OUT leg; the fee goes to its own row. */
+  let transferAmount: number | null = null;
 
   if (payment && g.notas.length === 0 && fromAcct && toAcct && fromAcct !== toAcct) {
     road = "transfer"; toAccount = toAcct; fee = num(feeLeg?.amount_idr) ?? null;
+    transferAmount = num(outLeg?.amount_idr);
     score = 90;
     reasons.push({ tone: "ok", en: `The payee is our own account (${toAcct}): booked as a move between accounts, both legs at once`,
       id: `Penerima adalah rekening kita sendiri (${toAcct}): dibukukan sebagai pindah dana, dua kaki sekaligus` });
@@ -463,16 +515,23 @@ function toDraft(
     /* The nota's rows; for a payment alone only when it was read as more
        than one slot (the transfer and its fee) — one line repeating the
        amount says nothing the row does not. */
-    const source = g.notas.length ? g.notas : payment && payment.rows.length > 1 ? [payment] : [];
+    const source = g.notas.length ? g.notas
+      : payment && payment.rows.reduce((n, r) => n + readingsOf(r).length, 0) > 1 ? [payment] : [];
     for (const n of source) {
       const di = docs.indexOf(n);
       for (const r of [...n.rows].sort((a, b) => a.ref_id.localeCompare(b.ref_id))) {
-        const a = num(r.extracted.amount_idr);
-        if (a === null) continue;
-        const desc = (r.extracted.note ?? n.vendor_name ?? "").trim().toUpperCase() || "BARANG";
-        const kind = guessLineKind(desc);
-        lines.push({ kind, description: desc, qty: kind === "item" ? 1 : null, uom: kind === "item" ? "pcs" : null,
-          unit_price: kind === "item" ? a : null, amount: a, doc: di });
+        for (const x of readingsOf(r)) {
+          const desc = (x.note ?? n.vendor_name ?? "").trim().toUpperCase() || "BARANG";
+          const kind = x.fee ? "fee" : guessLineKind(desc);
+          /* An item needs a quantity and a price (D86); a reading that gave
+             both and agrees with its amount keeps them, otherwise 1 × amount. */
+          const priced = kind === "item" && x.qty && x.unit_price && Math.abs(x.qty * x.unit_price - x.amount) <= 1;
+          lines.push({ kind, description: desc,
+            qty: kind === "item" ? (priced ? x.qty : 1) : null,
+            uom: kind === "item" ? x.uom ?? "pcs" : null,
+            unit_price: kind === "item" ? (priced ? x.unit_price : x.amount) : null,
+            amount: x.amount, doc: di });
+        }
       }
     }
     if (fee) lines.push({ kind: "fee", description: "BIAYA TRANSFER", qty: null, uom: null, unit_price: null, amount: fee, doc: 0 });
@@ -493,7 +552,7 @@ function toDraft(
     docs,
     road,
     direction,
-    amount,
+    amount: road === "transfer" ? transferAmount ?? amount : amount,
     account_code: fromAcct,
     to_account_code: toAccount,
     fee: road === "transfer" ? fee : null,

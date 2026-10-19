@@ -11060,3 +11060,27 @@ raises a private SQLSTATE (`DR001`) carrying the refusal and returns it from
 the handler — the block rolls back, the envelope still reaches the screen. The
 shadowing check caught a local named `files` on its first run.
 
+## F285 · 2026-10-19 · In production one inbox row is one document, and its `amount_idr` is only the first line
+
+The demo's inbox, and Verification's grouping comment, describe the capture
+worker filing one row per **slot** it read (`<event>~x0`, `~x1`). That stopped
+on 2026-09-28: `ops_mirror.py` files **one row per document**, every reading in
+`extracted.lines`, and the row's own `amount_idr` is the first line's. Of the
+27 rows PENDING when `0286` went to production, the transfer to MARTONO said
+1.360.000 at the top and 1.362.500 across its lines (the transfer and the
+2.500 fee); a workshop nota said 1.500.000 at the top and 3.300.000 across its
+lines; a cash withdrawal read both legs, OUT on BNI 325 and IN on PETTY CASH.
+
+The grouping read the top-level figure and would have proposed the wrong
+amount for every multi-line document. It was caught by running `buildDrafts`
+on production's own pending rows after the migration and before anybody used
+the screen. `readingsOf` now reads `extracted.lines` when they are there (the
+slot shape when they are not), leaves an IN leg out of the amount, keeps a
+line's quantity and price when they agree with its amount, and marks a fee
+line by `BANK CHARGES` or its words. The same run found the MARTONO nota sent
+twice: a nota left alone that matches a grouped one on amount, vendor and date
+is now *ragu* and says which draft already has it.
+
+The lesson is F164's again: the demo's shape is not production's. A grouping
+that reads data has to be run on the data before it is called done.
+
