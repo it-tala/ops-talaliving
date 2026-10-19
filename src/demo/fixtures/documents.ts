@@ -48,6 +48,15 @@ export const ATTACHMENTS: Attachment[] = [
      sixth road's own case (0281, L6). */
   /* A transfer proof read as both legs and the fee — the seventh road's own
      case (0283, L16). */
+  /* Ledger drafts (0286, D445): the documents of two transactions sent
+     separately — nota, transfer proof, goods photo — that the grouping puts
+     back together, and one photo with no partner yet. */
+  { id: "att_92", storage_path: "demo/2026-10/nota-santoso-jok.jpg", url: null, filename: "nota-santoso-jok.jpg", sha256: "c92a11d0e7f1", mime: "image/jpeg", bytes: 512_330, uploaded_by: "usr_putri", uploaded_at: "2026-10-17T16:02:00+07:00", source: "chat", duplicate_suspect: false },
+  { id: "att_93", storage_path: "demo/2026-10/bukti-transfer-santoso.jpg", url: null, filename: "bukti-transfer-santoso.jpg", sha256: "c93b22e1f802", mime: "image/jpeg", bytes: 341_908, uploaded_by: "usr_putri", uploaded_at: "2026-10-18T09:41:00+07:00", source: "chat", duplicate_suspect: false },
+  { id: "att_94", storage_path: "demo/2026-10/foto-sofa-selesai-jok.jpg", url: null, filename: "foto-sofa-selesai-jok.jpg", sha256: "c94c33f20913", mime: "image/jpeg", bytes: 1_402_115, uploaded_by: "usr_putri", uploaded_at: "2026-10-18T09:45:00+07:00", source: "chat", duplicate_suspect: false },
+  { id: "att_95", storage_path: "demo/2026-10/nota-listrik-jaya.jpg", url: null, filename: "nota-listrik-jaya.jpg", sha256: "c95d4403aa24", mime: "image/jpeg", bytes: 488_017, uploaded_by: "usr_made", uploaded_at: "2026-10-18T10:20:00+07:00", source: "chat", duplicate_suspect: false },
+  { id: "att_96", storage_path: "demo/2026-10/bukti-transfer-listrik-jaya.jpg", url: null, filename: "bukti-transfer-listrik-jaya.jpg", sha256: "c96e5514bb35", mime: "image/jpeg", bytes: 330_442, uploaded_by: "usr_putri", uploaded_at: "2026-10-18T11:02:00+07:00", source: "chat", duplicate_suspect: false },
+  { id: "att_97", storage_path: "demo/2026-10/foto-kayu-mahoni.jpg", url: null, filename: "foto-kayu-mahoni.jpg", sha256: "c97f6625cc46", mime: "image/jpeg", bytes: 1_250_903, uploaded_by: "usr_andi", uploaded_at: "2026-10-19T08:12:00+07:00", source: "chat", duplicate_suspect: false },
   { id: "att_91", storage_path: "demo/2026-10/bukti-transfer-bni.jpg", url: null, filename: "bukti-transfer-bni.jpg", sha256: "b91d0e44a1c3", mime: "image/jpeg", bytes: 377_204, uploaded_by: "usr_putri", uploaded_at: "2026-10-15T08:40:00+07:00", source: "chat", duplicate_suspect: false },
   { id: "att_90", storage_path: "demo/2026-10/bukti-transfer-papan-jati.jpg", url: null, filename: "bukti-transfer-papan-jati.jpg", sha256: "a90c1e55d2b7", mime: "image/jpeg", bytes: 398_112, uploaded_by: "usr_putri", uploaded_at: "2026-10-14T09:12:00+07:00", source: "chat", duplicate_suspect: false },
   { id: "att_13", storage_path: "demo/2026-09/dokumen-pribadi.jpg", url: null, filename: "dokumen-pribadi.jpg", sha256: "4471bb2200fe", mime: "image/jpeg", bytes: 402_881, uploaded_by: "usr_shared", uploaded_at: "2026-09-07T20:10:00+07:00", source: "chat", duplicate_suspect: false },

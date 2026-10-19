@@ -209,6 +209,58 @@ export const EVIDENCE_INBOX: Omit<EvidenceInboxRow, "reported_by_name" | "file_k
   /* The other direction: leadership transferred money INTO BCA 271 and
    * dropped the proof in chat. Nobody has booked it yet, so the round it was
    * meant to fund cannot be marked funded — which is the point (D80, D81). */
+  /** Ledger drafts (0286, D445). One upholstery job sent as three
+   *  messages — the nota on Friday, the transfer and the photo of the sofa
+   *  on Saturday — which the grouping books as one row; an electrical nota
+   *  whose transfer is Rp 6.500 more (the bank's fee); and a photo of timber
+   *  nobody has sent the nota for yet. */
+  {
+    id: "inb_92", ref_id: "upl_26-10-17_03~x0", origin: "chat", status: "PENDING",
+    attachment_id: "att_92", reported_by: "usr_putri", reported_at: "2026-10-17T16:02:00+07:00",
+    extracted: { vendor_name: "SANTOSO JOK & INTERIOR", document_date: "2026-10-17", amount_idr: 1_360_000, doc_type: "Receipt / Invoice / Nota", confidence: 92, note: "JASA JOK SOFA 2 UNIT", doc_kind: "nota" },
+    produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
+    money_direction: "OUT",
+  },
+  {
+    id: "inb_93", ref_id: "upl_26-10-18_01~x0", origin: "chat", status: "PENDING",
+    attachment_id: "att_93", reported_by: "usr_putri", reported_at: "2026-10-18T09:41:00+07:00",
+    extracted: { vendor_name: "SANTOSO JOK", document_date: "2026-10-18", amount_idr: 1_360_000, doc_type: "Payment Proof", confidence: 97, note: "Transfer BCA 271 ke SANTOSO JOK", account: "BCA 271", transaction_type: "SUPPLIERS", doc_kind: "transfer_proof" },
+    produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
+    money_direction: "OUT",
+  },
+  {
+    id: "inb_94", ref_id: "upl_26-10-18_02~x0", origin: "chat", status: "PENDING",
+    attachment_id: "att_94", reported_by: "usr_putri", reported_at: "2026-10-18T09:45:00+07:00",
+    extracted: { vendor_name: null, document_date: null, amount_idr: null, doc_type: "Receiving Item", confidence: 90, note: "Sofa 2 unit selesai jok", doc_kind: "goods_photo" },
+    produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
+  },
+  {
+    id: "inb_95", ref_id: "upl_26-10-18_03~x0", origin: "chat", status: "PENDING",
+    attachment_id: "att_95", reported_by: "usr_made", reported_at: "2026-10-18T10:20:00+07:00",
+    extracted: { vendor_name: "TOKO LISTRIK JAYA MANDIRI", document_date: "2026-10-18", amount_idr: 900_000, doc_type: "Receipt / Invoice / Nota", confidence: 88, note: "LAMPU LED STRIP 5M", doc_kind: "nota" },
+    produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
+    money_direction: "OUT",
+  },
+  {
+    id: "inb_96", ref_id: "upl_26-10-18_03~x1", origin: "chat", status: "PENDING",
+    attachment_id: "att_95", reported_by: "usr_made", reported_at: "2026-10-18T10:20:00+07:00",
+    extracted: { vendor_name: "TOKO LISTRIK JAYA MANDIRI", document_date: "2026-10-18", amount_idr: 1_550_000, doc_type: "Receipt / Invoice / Nota", confidence: 66, note: "KABEL NYM 2X1,5 1 ROL", doc_kind: "nota" },
+    produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
+    money_direction: "OUT",
+  },
+  {
+    id: "inb_97", ref_id: "upl_26-10-18_04~x0", origin: "chat", status: "PENDING",
+    attachment_id: "att_96", reported_by: "usr_putri", reported_at: "2026-10-18T11:02:00+07:00",
+    extracted: { vendor_name: "LISTRIK JAYA MANDIRI", document_date: "2026-10-18", amount_idr: 2_456_500, doc_type: "Payment Proof", confidence: 96, note: "Transfer BCA 271 ke TOKO LISTRIK JAYA", account: "BCA 271", transaction_type: "SUPPLIERS", doc_kind: "transfer_proof" },
+    produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
+    money_direction: "OUT",
+  },
+  {
+    id: "inb_98", ref_id: "upl_26-10-19_01~x0", origin: "chat", status: "PENDING",
+    attachment_id: "att_97", reported_by: "usr_andi", reported_at: "2026-10-19T08:12:00+07:00",
+    extracted: { vendor_name: null, document_date: null, amount_idr: null, doc_type: "Receiving Item", confidence: 85, note: "Kayu mahoni 1 ikat", doc_kind: "goods_photo" },
+    produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
+  },
   /** The seventh road's case (0283, L16): a transfer between our own
    *  accounts, read as both legs and the fee. Verification switches to the
    *  transfer road and fills both accounts; the person confirms. */

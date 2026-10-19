@@ -29,7 +29,11 @@ import { buildCashflow, balancesAt } from "@/services/accounting/cashflow";
 import { getActiveLocale, formatIDR } from "@/lib/format";
 import { officeToday } from "@/lib/office";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
-import type { AuditRow, DemoState } from "../state";
+import type { AuditRow, DemoDraftDecision, DemoState } from "../state";
+import { buildDrafts } from "@/services/accounting/drafts";
+import type {
+  LedgerDraft, DraftAnchor, DraftConfirmInput, DraftConfirmed, DraftShown, InboxStatus,
+} from "@/services/accounting/contracts";
 import {
   accountBalances, transactionView, allocatedTotal, inboxHealth, lineCoverage,
   lineStatus, fundings, fundingView, cashPlan, cashDue, cashMonthDetail,
@@ -3804,4 +3808,198 @@ export async function setCashflowSettings(input: CashflowSettings): Promise<Resu
     writeAudit(draft, { service: SERVICE, entity: "cashflow_settings", entity_no: "settings", action: "set", outcome: "ok", reason: null, detail: { min_balance: input.min_balance, transfer_types: types } });
   });
   return ok(SERVICE, { min_balance: input.min_balance, transfer_types: types });
+}
+
+/* ── Ledger drafts (0286, D445) ─────────────────────────────────────────
+ *
+ * The same `buildDrafts` the real client calls, over the demo's inbox; the
+ * decisions compose the demo's own booking roads, the way `confirm_draft`
+ * composes the seams. Everything is checked before anything is written, so
+ * a refusal leaves the demo as it was. */
+
+const ANCHOR_DAYS = 5;
+
+export async function listDrafts(): Promise<Result<LedgerDraft[]>> {
+  await latency();
+  const state = getState();
+  const rows = state.evidence_inbox.map((r) => withReporterName(state, r));
+  const since = Date.now() - ANCHOR_DAYS * 86_400_000;
+  const trxNoOf = new Map(state.transactions.map((t) => [t.id, t.trx_no]));
+  const anchors: DraftAnchor[] = rows.flatMap((row) => {
+    const trx = row.produced_trx_id ? trxNoOf.get(row.produced_trx_id) ?? null : null;
+    return (row.status === "CONFIRMED" || row.status === "ATTACHED") && trx && Date.parse(row.reported_at) >= since
+      ? [{ row, trx_no: trx }] : [];
+  });
+  return ok(SERVICE, buildDrafts({
+    pending: rows.filter((r) => r.status === "PENDING"),
+    anchors,
+    apart: state.draft_apart,
+    accountCodes: state.accounts.map((a) => a.code),
+    today: officeToday(),
+  }));
+}
+
+/** Every ref exists and is PENDING, and each document is one file. */
+function checkDraftDocs(docs: string[][]): Result<string[]> | null {
+  const refs = [...new Set(docs.flat().map((r) => r.trim()).filter(Boolean))];
+  if (refs.length === 0) return invalid(SERVICE, "docs_required", "Say which documents this draft is.", { field: "docs" });
+  const state = getState();
+  for (const ref of refs) {
+    const row = state.evidence_inbox.find((r) => r.ref_id === ref);
+    if (!row) return notFound(SERVICE, "inbox_row_not_found", `Row ${ref} not found.`);
+    if (row.status !== "PENDING") {
+      return conflict(SERVICE, "already_resolved",
+        "Sebagian dokumen draft ini sudah diputuskan di tempat lain — tidak ada yang berubah. "
+        + "Muat ulang buku besar; draft dikelompokkan ulang tanpa dokumen itu.");
+    }
+  }
+  for (const doc of docs) {
+    const files = new Set(doc.map((ref) => state.evidence_inbox.find((r) => r.ref_id === ref)!.attachment_id));
+    if (files.size > 1) return invalid(SERVICE, "not_one_document", "One document of this draft names rows of different files.", { field: "docs" });
+  }
+  return null;
+}
+
+function recordDecision(
+  d: Omit<DemoDraftDecision, "id" | "decided_by" | "decided_at">,
+): string {
+  const id = newId("drd");
+  apply((draft) => {
+    draft.draft_decisions.push({ ...d, id, decided_by: actingUser(draft).id, decided_at: new Date().toISOString() });
+  });
+  return id;
+}
+
+export async function confirmDraft(
+  input: DraftConfirmInput,
+  idempotencyKey?: string,
+): Promise<Result<DraftConfirmed>> {
+  await latency();
+  const endpoint = `confirmDraft:${input.key}`;
+  const cached = replayed<DraftConfirmed>(SERVICE, endpoint, idempotencyKey);
+  if (cached) return cached;
+  const deniedPost = requireAuthority(SERVICE, "post_ledger");
+  if (deniedPost) return deniedPost;
+  const deniedResolve = requireAuthority(SERVICE, "resolve_inbox");
+  if (deniedResolve) return deniedResolve;
+  const docs = input.docs.map((d) => d.filter(Boolean)).filter((d) => d.length > 0);
+  const bad = checkDraftDocs(docs);
+  if (bad) return bad as Result<DraftConfirmed>;
+  if (input.road !== "link" && !input.account_id) {
+    return invalid(SERVICE, "account_required", "Pilih rekening pembayarnya dulu.", { field: "account_id" });
+  }
+
+  const [head, ...rest] = docs;
+  let trxNo: string;
+  let restDocs = rest;
+  if (input.road === "link") {
+    if (!input.link_trx_no) return invalid(SERVICE, "trx_required", "Which ledger row are these documents the proof of?", { field: "link_trx_no" });
+    trxNo = input.link_trx_no;
+    restDocs = docs;
+  } else if (input.road === "transfer") {
+    if (!input.to_account_id) return invalid(SERVICE, "account_required", "Pilih rekening tujuan pindah dana.", { field: "to_account_id" });
+    const r = await bookEvidenceToTransfer({
+      ref_id: head[0], also_ref_ids: head.slice(1), from_account_id: input.account_id!, to_account_id: input.to_account_id,
+      amount_idr: input.amount, trx_date: input.trx_date, fee: input.fee ?? null, description: input.description,
+    });
+    if (r.error) return r;
+    trxNo = r.data.out_trx_no;
+  } else if (input.road === "pay_line") {
+    const r = await bookEvidenceToLine({
+      ref_id: head[0], also_ref_ids: head.slice(1), line_no: input.line_no ?? "", account_id: input.account_id!,
+      amount: input.amount, trx_date: input.trx_date, type_code: input.type_code,
+    });
+    if (r.error) return r;
+    trxNo = r.data.trx_no;
+  } else {
+    const r = await bookEvidence({
+      ref_id: head[0], also_ref_ids: head.slice(1), trx_date: input.trx_date, account_id: input.account_id!,
+      direction: input.direction, amount_idr: input.amount, type_code: input.type_code,
+      vendor_id: input.vendor_id ?? null, project_id: input.project_id ?? null,
+      description: input.description || `Draft ${input.key}`, remark: input.remark ?? null,
+      lines: (input.lines ?? []).map(({ doc: _doc, ...l }) => l),
+    });
+    if (r.error) return r;
+    trxNo = r.data.trx_no;
+  }
+  for (const doc of restDocs) {
+    const r = await linkEvidence({ ref_ids: doc, trx_nos: [trxNo] });
+    if (r.error) return r;
+  }
+  if (input.road === "transaction") {
+    const atts = docs.map((d) => getState().evidence_inbox.find((r) => r.ref_id === d[0])!.attachment_id);
+    const pointers = (input.lines ?? []).flatMap((l, i) =>
+      l.doc > 0 && l.doc < atts.length ? [{ line_no: i + 1, attachment_id: atts[l.doc] }] : []);
+    if (pointers.length) await setLineEvidence(trxNo, pointers);
+  }
+  recordDecision({
+    draft_key: input.key, decision: input.road === "link" ? "linked" : "confirmed", road: input.road,
+    ref_ids: docs.flat(), level: input.shown.level, score: input.shown.score, reasons: input.shown.reasons,
+    proposed: input.shown.proposed, booked: { account_id: input.account_id, amount: input.amount, trx_date: input.trx_date },
+    trx_no: trxNo, note: input.remark ?? null,
+  });
+  const res: DraftConfirmed = { trx_no: trxNo, road: input.road, documents: docs.length };
+  remember(SERVICE, endpoint, idempotencyKey, res);
+  return ok(SERVICE, res);
+}
+
+export async function dismissDraft(
+  input: { key: string; docs: string[][]; road: "reject" | "note"; reason: string; shown: DraftShown },
+  idempotencyKey?: string,
+): Promise<Result<{ status: InboxStatus; ref_ids: string[] }>> {
+  await latency();
+  const endpoint = `dismissDraft:${input.key}`;
+  const cached = replayed<{ status: InboxStatus; ref_ids: string[] }>(SERVICE, endpoint, idempotencyKey);
+  if (cached) return cached;
+  const denied = requireAuthority(SERVICE, "resolve_inbox");
+  if (denied) return denied;
+  if (!input.reason.trim()) {
+    return invalid(SERVICE, "reason_required", "Tulis alasannya — dokumen yang tidak dijelaskan tidak bisa ditinjau.", { field: "reason" });
+  }
+  const bad = checkDraftDocs(input.docs);
+  if (bad) return bad as Result<{ status: InboxStatus; ref_ids: string[] }>;
+  const refs = [...new Set(input.docs.flat())];
+  for (const ref of refs) {
+    const r = await resolveInbox({ ref_id: ref, resolution: input.road, reason: input.reason.trim() });
+    if (r.error) return r;
+  }
+  recordDecision({
+    draft_key: input.key, decision: input.road === "reject" ? "rejected" : "noted", road: null, ref_ids: refs,
+    level: input.shown.level, score: input.shown.score, reasons: input.shown.reasons, proposed: input.shown.proposed,
+    booked: {}, trx_no: null, note: input.reason.trim(),
+  });
+  const res = { status: (input.road === "reject" ? "REJECTED" : "NOTED") as InboxStatus, ref_ids: refs };
+  remember(SERVICE, endpoint, idempotencyKey, res);
+  return ok(SERVICE, res);
+}
+
+export async function splitDraft(
+  input: { key: string; docs: string[][]; detach?: number | null; note?: string | null; shown: DraftShown },
+): Promise<Result<{ pairs: number }>> {
+  await latency();
+  const denied = requireAuthority(SERVICE, "resolve_inbox");
+  if (denied) return denied;
+  const bad = checkDraftDocs(input.docs);
+  if (bad) return bad as Result<{ pairs: number }>;
+  if (input.docs.length < 2) return invalid(SERVICE, "nothing_to_split", "A draft of one document has nothing to take apart.", { field: "docs" });
+  const state = getState();
+  const files = input.docs.map((d) => state.evidence_inbox.find((r) => r.ref_id === d[0])!.attachment_id);
+  const detach = input.detach ?? null;
+  const pairs: { file_a: string; file_b: string }[] = [];
+  for (let i = 0; i < files.length; i++) {
+    for (let j = i + 1; j < files.length; j++) {
+      if (files[i] === files[j] || (detach !== null && i !== detach && j !== detach)) continue;
+      const [a, b] = files[i] < files[j] ? [files[i], files[j]] : [files[j], files[i]];
+      if (!state.draft_apart.some((p) => p.file_a === a && p.file_b === b) && !pairs.some((p) => p.file_a === a && p.file_b === b)) {
+        pairs.push({ file_a: a, file_b: b });
+      }
+    }
+  }
+  const id = recordDecision({
+    draft_key: input.key, decision: detach === null ? "split" : "detached", road: null, ref_ids: input.docs.flat(),
+    level: input.shown.level, score: input.shown.score, reasons: input.shown.reasons, proposed: input.shown.proposed,
+    booked: {}, trx_no: null, note: input.note ?? null,
+  });
+  apply((draft) => { draft.draft_apart.push(...pairs.map((p) => ({ ...p, decision_id: id }))); });
+  return ok(SERVICE, { pairs: pairs.length });
 }

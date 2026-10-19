@@ -344,6 +344,150 @@ export interface InboxLineCandidates {
   amount_read: number | null;
 }
 
+/* ------------------------------------------------------------------ */
+/* Ledger drafts (0286, D445)                                          */
+/* ------------------------------------------------------------------ */
+
+/** How sure the grouping is: *yakin* · *periksa* · *ragu* · a document with
+ *  no partner yet. Always shown with its label and its reasons, never by
+ *  colour alone. */
+export type DraftLevel = "hi" | "mid" | "lo" | "loose";
+
+/** How a draft is booked when somebody ticks it — the roads Verification
+ *  offered, proposed by the grouping instead of picked by hand. */
+export type DraftRoad = "transaction" | "transfer" | "pay_line" | "link";
+
+/** What a document in a draft is to the transaction. */
+export type DraftDocRole = "payment" | "nota" | "photo" | "other";
+
+/** One reason the grouping gives, in both languages, with its tone: what
+ *  agrees (`ok`), what a person should look at (`check`), what is missing or
+ *  contradicts (`bad`). */
+export interface DraftReason {
+  tone: "ok" | "check" | "bad";
+  en: string;
+  id: string;
+}
+
+/** One file in a draft — every inbox row of one photo (0161). */
+export interface DraftDocument {
+  key: string;
+  ref_ids: string[];
+  file_key: string;
+  attachment_id: string;
+  role: DraftDocRole;
+  /** Σ what the rows read, or null when nothing was read. */
+  amount: number | null;
+  vendor_name: string | null;
+  document_date: string | null;
+  account: string | null;
+  confidence: number | null;
+  note: string | null;
+  reported_by: string;
+  reported_by_name: string | null;
+  reported_at: string;
+  rows: EvidenceInboxRow[];
+}
+
+/** A line the draft proposes. `doc` is the index of the document in
+ *  `LedgerDraft.docs` it was read from; after booking the line points at
+ *  that document (0279). */
+export interface DraftLine {
+  kind: LineKind;
+  description: string;
+  qty: number | null;
+  uom: string | null;
+  unit_price: number | null;
+  amount: number;
+  doc: number;
+}
+
+/** One transaction, as the grouping proposes it from the documents still
+ *  PENDING in the inbox. Computed on every read (`buildDrafts`), never
+ *  stored: only a decision about it is (`draft_decisions`). */
+export interface LedgerDraft {
+  /** The head document's first inbox ref — what the booked row's
+   *  `source_ref` will be. */
+  key: string;
+  /** A short name for people: `DRF-` and four characters of the key. */
+  label: string;
+  level: DraftLevel;
+  /** 0–100, or null for a loose document. */
+  score: number | null;
+  reasons: DraftReason[];
+  /** The head first: the payment proof when there is one, because its
+   *  amount is what left the bank. */
+  docs: DraftDocument[];
+  road: DraftRoad;
+  direction: Direction;
+  amount: number | null;
+  account_code: string | null;
+  /** The other leg's account, on the transfer road. */
+  to_account_code: string | null;
+  fee: number | null;
+  trx_date: string;
+  vendor_name: string | null;
+  description: string;
+  type_code: string | null;
+  lines: DraftLine[];
+  /** The row this draft's documents prove, on the link road. */
+  link_trx_no: string | null;
+  /** The approved request line the message names, on the pay_line road. */
+  pay_line_no: string | null;
+  /** A nota bigger than the transfer: booked at the transfer, with a remark
+   *  (Q3, D445). */
+  partial_of: number | null;
+}
+
+/** What a person was shown when deciding, kept with the decision. */
+export interface DraftShown {
+  level: DraftLevel;
+  score: number | null;
+  reasons: string[];
+  proposed: { amount: number | null; account: string | null; road: DraftRoad };
+}
+
+/** A document already decided in the last few days, with the row it went
+ *  to: what a late document is matched against (review §5). */
+export interface DraftAnchor {
+  row: EvidenceInboxRow;
+  trx_no: string;
+}
+
+/** Two files a person said are not one transaction (`draft_apart`). */
+export interface DraftApart {
+  file_a: string;
+  file_b: string;
+}
+
+export interface DraftConfirmInput {
+  key: string;
+  /** The documents, head first, each as its inbox refs. */
+  docs: string[][];
+  road: DraftRoad;
+  account_id: string | null;
+  to_account_id?: string | null;
+  amount: number;
+  trx_date: string;
+  direction: Direction;
+  type_code: TransactionTypeCode;
+  description: string;
+  vendor_id?: string | null;
+  project_id?: string | null;
+  lines?: DraftLine[];
+  remark?: string | null;
+  fee?: number | null;
+  line_no?: string | null;
+  link_trx_no?: string | null;
+  shown: DraftShown;
+}
+
+export interface DraftConfirmed {
+  trx_no: string;
+  road: DraftRoad;
+  documents: number;
+}
+
 /** Money already booked into a paying account, with whatever proof is on it.
  *
  *  The payment-round screen reads this instead of asking somebody to retype an

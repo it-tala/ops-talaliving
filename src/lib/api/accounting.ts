@@ -34,8 +34,10 @@ import type {
   TransactionLineView, RedetailQueueRow,
   InboxLineCandidates,
   TransferPosted,
+  LedgerDraft, DraftAnchor, DraftApart, DraftConfirmInput, DraftConfirmed, DraftShown,
 } from "@/services/accounting/contracts";
 import type { LineKind } from "@/services/accounting/lines";
+import { buildDrafts } from "@/services/accounting/drafts";
 import { fundingHeadline } from "@/services/accounting/categories";
 import type {
   Category, CategoryMonthRow, CategorySummary, FundingDetail, FundingRow, FundingSpendGroup,
@@ -1245,6 +1247,112 @@ export async function linkEvidence(
     SERVICE, data, error);
   if (res.error) return res;
   return ok(SERVICE, { ...res.data, rows_total: Number(res.data.rows_total) });
+}
+
+/* ── Ledger drafts (0286, D445) ─────────────────────────────────────────
+ *
+ * The documents of one transaction, grouped and shown on the ledger as one
+ * row to tick or cross. The grouping is `buildDrafts`, the same function the
+ * demo calls; this module only gathers its four inputs and passes the
+ * decisions to the seams. */
+
+/** How far back a decided document can still be the partner of a new one. */
+const ANCHOR_DAYS = 5;
+
+export async function listDrafts(): Promise<Result<LedgerDraft[]>> {
+  const since = new Date(Date.now() - ANCHOR_DAYS * 86_400_000).toISOString();
+  const [pending, decided, apart, accounts] = await Promise.all([
+    listInbox(),
+    db().from("evidence_inbox").select(INBOX_COLUMNS)
+      .in("status", ["CONFIRMED", "ATTACHED"]).not("produced_trx_no", "is", null)
+      .gte("reported_at", since).order("reported_at", { ascending: false }).limit(200),
+    db().from("draft_apart").select("file_a, file_b"),
+    db().from("accounts").select("code"),
+  ]);
+  if (pending.error) return pending;
+  if (decided.error) return fail(SERVICE, decided.error);
+  if (apart.error) return fail(SERVICE, apart.error);
+  if (accounts.error) return fail(SERVICE, accounts.error);
+  const decidedRows = (decided.data ?? []) as unknown as InboxRowDb[];
+  const named = await withReporterNames(decidedRows.map(toInboxRow));
+  if (named.error) return named;
+  const anchors: DraftAnchor[] = named.data.flatMap((row) =>
+    row.produced_trx_id ? [{ row, trx_no: row.produced_trx_id }] : []);
+  return ok(SERVICE, buildDrafts({
+    pending: pending.data,
+    anchors,
+    apart: (apart.data ?? []) as DraftApart[],
+    accountCodes: ((accounts.data ?? []) as { code: string }[]).map((a) => a.code),
+    today: officeToday(),
+  }));
+}
+
+/** ✓ — the draft into the ledger, every document on the same row, in one
+ *  act (`confirm_draft`). The money rules are the seams' it calls. */
+export async function confirmDraft(
+  input: DraftConfirmInput,
+  idempotencyKey?: string,
+): Promise<Result<DraftConfirmed>> {
+  const accountCode = await codeFor("accounts", input.account_id);
+  if (input.road !== "link" && !accountCode) {
+    return invalid(SERVICE, "account_required",
+      "Pilih rekening pembayarnya dulu.", { field: "account_id" });
+  }
+  const toCode = input.road === "transfer" ? await codeFor("accounts", input.to_account_id ?? null) : null;
+  if (input.road === "transfer" && !toCode) {
+    return invalid(SERVICE, "account_required",
+      "Pilih rekening tujuan pindah dana.", { field: "to_account_id" });
+  }
+  const { data, error } = await db().rpc("confirm_draft", {
+    p_draft_key:    input.key,
+    p_docs:         input.docs,
+    p_road:         input.road,
+    p_account_code: accountCode,
+    p_amount:       input.road === "link" ? null : input.amount,
+    p_trx_date:     input.trx_date,
+    p_direction:    input.direction,
+    p_type_code:    input.type_code,
+    p_description:  input.description,
+    p_vendor_code:  await codeFor("vendors", input.vendor_id ?? null),
+    p_project_code: await codeFor("projects", input.project_id ?? null),
+    p_lines:        input.lines ?? [],
+    p_remark:       input.remark ?? null,
+    p_to_account:   toCode,
+    p_fee:          input.fee ?? null,
+    p_line_no:      input.line_no ?? null,
+    p_link_trx_no:  input.link_trx_no ?? null,
+    p_shown:        input.shown,
+    p_key:          idempotencyKey ?? null,
+  });
+  const res = fromSeam<{ trx_no: string; road: DraftConfirmed["road"]; documents: number }>(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, { trx_no: res.data.trx_no, road: res.data.road, documents: Number(res.data.documents) });
+}
+
+/** ✕ — not ours (reject) or not a transaction (note), with the reason. */
+export async function dismissDraft(
+  input: { key: string; docs: string[][]; road: "reject" | "note"; reason: string; shown: DraftShown },
+  idempotencyKey?: string,
+): Promise<Result<{ status: InboxStatus; ref_ids: string[] }>> {
+  const { data, error } = await db().rpc("dismiss_draft", {
+    p_draft_key: input.key, p_docs: input.docs, p_road: input.road,
+    p_reason: input.reason, p_shown: input.shown, p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<{ status: InboxStatus; ref_ids: string[] }>(SERVICE, data, error);
+}
+
+/** ✕ — the grouping was wrong: every pair apart, or one document taken out
+ *  (`detach`, its index in `docs`). The documents stay pending. */
+export async function splitDraft(
+  input: { key: string; docs: string[][]; detach?: number | null; note?: string | null; shown: DraftShown },
+): Promise<Result<{ pairs: number }>> {
+  const { data, error } = await db().rpc("split_draft", {
+    p_draft_key: input.key, p_docs: input.docs, p_detach: input.detach ?? null,
+    p_note: input.note ?? null, p_shown: input.shown,
+  });
+  const res = fromSeam<{ pairs: number }>(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, { pairs: Number(res.data.pairs) });
 }
 
 /** The road the screen names, and the status it arrives at.

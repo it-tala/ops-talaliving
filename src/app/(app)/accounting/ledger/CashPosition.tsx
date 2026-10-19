@@ -7,6 +7,7 @@ import { useLoad } from "@/components/ui/loaded";
 import { accounting } from "@/demo/api";
 import { useSession } from "@/store/session";
 import { useTr } from "@/lib/i18n";
+import type { LedgerDraft } from "@/services/accounting/contracts";
 
 /** Where the money is, before anything else on the page.
  *
@@ -16,14 +17,21 @@ import { useTr } from "@/lib/i18n";
  *  business reading the leadership balance to do it. The row is not hidden
  *  silently either: it says it is there and locked, because a blank where an
  *  account should be reads as a bug.
+ *
+ *  **Drafts are not in the balance** (D445). Under each account it says
+ *  what the balance would be if that account's drafts were ticked as they
+ *  stand — a forecast, printed apart, never added in.
  */
-export function CashPosition({ onPick, active }: {
+export function CashPosition({ onPick, active, drafts = [], version = 0 }: {
   onPick: (accountId: string) => void;
   active: string;
+  drafts?: LedgerDraft[];
+  /** Bumped when a draft is booked, so the balances are read again. */
+  version?: number;
 }) {
   const tr = useTr();
   const { hasAuthority } = useSession();
-  const [accounts] = useLoad(() => accounting.listAccounts(), []);
+  const [accounts] = useLoad(() => accounting.listAccounts(), [version], { keepPrevious: true });
   const mayReadLeadership = hasAuthority("approve_funds");
 
   if (accounts.status !== "ready") {
@@ -31,6 +39,14 @@ export function CashPosition({ onPick, active }: {
   }
 
   const rows = accounts.data.filter((a) => a.currency === "IDR");
+  /* What the drafts would move, per account code. */
+  const waiting = new Map<string, number>();
+  for (const d of drafts) {
+    if (d.road === "link" || d.amount === null || !d.account_code) continue;
+    const signed = d.direction === "IN" ? d.amount : -d.amount;
+    waiting.set(d.account_code, (waiting.get(d.account_code) ?? 0) + signed - (d.road === "transfer" ? d.fee ?? 0 : 0));
+    if (d.road === "transfer" && d.to_account_code) waiting.set(d.to_account_code, (waiting.get(d.to_account_code) ?? 0) + d.amount);
+  }
   const total = rows
     .filter((a) => a.custody === "accounting")
     .reduce((s, a) => s + a.balance, 0);
@@ -66,6 +82,11 @@ export function CashPosition({ onPick, active }: {
               <p className="truncate text-[11px] text-slate-500">
                 {locked ? tr("leadership only", "khusus pimpinan") : a.name}
               </p>
+              {!locked && waiting.get(a.code) ? (
+                <p className="truncate text-[11px] text-amber-700" title={tr("Not in the balance until the drafts are ticked", "Belum masuk saldo sampai draft dicentang")}>
+                  {tr(`if drafts confirmed: ${formatIDR(a.balance + waiting.get(a.code)!)}`, `kalau draft dikonfirmasi: ${formatIDR(a.balance + waiting.get(a.code)!)}`)}
+                </p>
+              ) : null}
             </button>
           );
         })}

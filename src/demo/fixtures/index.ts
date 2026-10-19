@@ -219,6 +219,8 @@ export function initialState(): DemoState {
     transaction_lines: TRANSACTION_LINES,
     payment_allocations: PAYMENT_ALLOCATIONS,
     evidence_inbox: EVIDENCE_INBOX,
+    draft_decisions: [],
+    draft_apart: [],
 
     cash_components: CASH_COMPONENTS,
     cash_overrides: CASH_OVERRIDES,
