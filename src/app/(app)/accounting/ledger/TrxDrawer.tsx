@@ -10,6 +10,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { MoneyInput } from "@/components/ui/money-input";
 import { formatIDR } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { officeToday } from "@/lib/office";
 import { accounting, documents, procurement, isOk } from "@/demo/api";
 import type { TransactionDetail } from "@/services/accounting/contracts";
 import type { PrLineView } from "@/services/procurement/contracts";
@@ -121,6 +122,9 @@ export function TrxDrawer({
   const [editType, setEditType] = useState("");
   const [editAccount, setEditAccount] = useState("");
   const [editDirection, setEditDirection] = useState<"IN" | "OUT">("OUT");
+  /* The day the money moved (`0288`, D446) — before it, a wrong day could
+     only be voided and posted again under a new number. */
+  const [editDate, setEditDate] = useState("");
   /* The bill in another currency (0271): a code and its amount, or neither. */
   const [editBilledOpen, setEditBilledOpen] = useState(false);
   const [editBilledCcy, setEditBilledCcy] = useState("USD");
@@ -268,6 +272,7 @@ export function TrxDrawer({
     setEditType(trx!.type_code);
     setEditAccount(trx!.account_code);
     setEditDirection(trx!.direction);
+    setEditDate(trx!.trx_date);
     setEditBilledOpen(!!trx!.billed_currency);
     setEditBilledCcy(trx!.billed_currency ?? "USD");
     setEditBilledAmt(trx!.billed_amount ?? 0);
@@ -285,13 +290,15 @@ export function TrxDrawer({
   const typeChanged = !!trx && editType !== trx.type_code;
   const accountChanged = !!trx && !!editAccount && editAccount !== trx.account_code;
   const directionChanged = !!trx && editDirection !== trx.direction;
+  const dateChanged = !!trx && !!editDate && editDate !== trx.trx_date;
+  const dateValid = !!editDate && editDate <= officeToday();
   const billedValid = !editBilledOpen || (editBilledCcy.length === 3 && editBilledCcy !== "IDR" && editBilledAmt > 0);
   const billedChanged = !!trx && (editBilledOpen
     ? (editBilledCcy !== (trx.billed_currency ?? "") || editBilledAmt !== (trx.billed_amount ?? 0))
     : !!trx.billed_currency);
-  const anyChanged = amountChanged || descChanged || vendorChanged || projectChanged || typeChanged || accountChanged || directionChanged || billedChanged;
-  /* The balance moves with either, so both owe a remark (`0101`, `0269`). */
-  const reasonRequired = amountChanged || directionChanged;
+  const anyChanged = amountChanged || descChanged || vendorChanged || projectChanged || typeChanged || accountChanged || directionChanged || billedChanged || dateChanged;
+  /* The balance moves with each, so each owes a remark (`0101`, `0269`, `0288`). */
+  const reasonRequired = amountChanged || directionChanged || dateChanged;
   /* Where the row can go: active accounts in the same currency — a rupiah
      amount has no rate to land on the dollar account with (`0204`) — plus
      the one it is on now, so the select can show it even if it was closed. */
@@ -314,6 +321,7 @@ export function TrxDrawer({
       ...(typeChanged ? { type_code: editType } : {}),
       ...(accountChanged ? { account_code: editAccount } : {}),
       ...(directionChanged ? { direction: editDirection } : {}),
+      ...(dateChanged ? { trx_date: editDate } : {}),
       /* `""` clears both; a code sets both (0271). */
       ...(billedChanged ? (editBilledOpen
         ? { billed_currency: editBilledCcy, billed_amount: editBilledAmt }
@@ -476,6 +484,33 @@ export function TrxDrawer({
                 </p>
               )}
             </div>
+            {/* **The date** — `0288` (D446). The number stays as it is: evidence,
+                allocations and the audit trail already point at it. */}
+            <div>
+              <label htmlFor="trx-edit-date" className="block text-xs text-slate-600">{tr("Date", "Tanggal")}</label>
+              <input
+                id="trx-edit-date" type="date" value={editDate} max={officeToday()}
+                onChange={(e) => setEditDate(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none sm:w-48"
+              />
+              {dateChanged && (
+                <p className="mt-1 text-[11px] text-amber-700">
+                  {tr(
+                    `Was ${trx.trx_date}. The number ${trx.trx_no} stays; the ${trx.account_code} balance re-orders by the new day.`,
+                    `Sebelumnya ${trx.trx_date}. Nomor ${trx.trx_no} tetap; saldo ${trx.account_code} diurutkan ulang menurut tanggal baru.`,
+                  )}
+                  {trx.transfer_legs.length > 0 && tr(
+                    ` The other legs of this transfer (${trx.transfer_legs.map((l) => l.trx_no).join(", ")}) move with it.`,
+                    ` Kaki lain transfer ini (${trx.transfer_legs.map((l) => l.trx_no).join(", ")}) ikut pindah.`,
+                  )}
+                </p>
+              )}
+              {!!editDate && !dateValid && (
+                <p className="mt-1 text-[11px] text-rose-700">
+                  {tr("That day has not happened yet.", "Tanggal itu belum terjadi.")}
+                </p>
+              )}
+            </div>
             <div>
               <label htmlFor="trx-edit-amount" className="block text-xs text-slate-600">{tr("Amount", "Jumlah")}</label>
               <MoneyInput id="trx-edit-amount" value={editAmount} onChange={setEditAmount} className="mt-1" />
@@ -608,7 +643,7 @@ export function TrxDrawer({
 
             <div>
               <label htmlFor="trx-edit-reason" className="block text-xs text-slate-600">
-                {tr("Remarks", "Keterangan")} {reasonRequired ? <span className="text-rose-700">{tr("— required when the amount or in/out changes", "— wajib bila jumlah atau masuk/keluar berubah")}</span> : tr("(optional)", "(opsional)")}
+                {tr("Remarks", "Keterangan")} {reasonRequired ? <span className="text-rose-700">{tr("— required when the date, amount or in/out changes", "— wajib bila tanggal, jumlah atau masuk/keluar berubah")}</span> : tr("(optional)", "(opsional)")}
               </label>
               <textarea
                 id="trx-edit-reason"
@@ -623,7 +658,7 @@ export function TrxDrawer({
               <Button variant="ghost" size="sm" onClick={() => setEditOpen(false)} disabled={busy}>{tr("Cancel", "Batal")}</Button>
               <Button
                 size="sm"
-                disabled={busy || !anyChanged || editAmount <= 0 || !editDesc.trim() || !billedValid
+                disabled={busy || !anyChanged || editAmount <= 0 || !editDesc.trim() || !billedValid || !dateValid
                   || (reasonRequired && !editReason.trim())}
                 onClick={saveEdit}
               >

@@ -888,6 +888,10 @@ export async function editTransaction(
      *  it on a row that already has a currency. */
     billed_currency?: string | null;
     billed_amount?: number | null;
+    /** The day the money moved (`0288`, D446). Needs a remark; refused after
+     *  today and on a statement-matched row; a transfer's legs move together.
+     *  The `trx_no` is kept. */
+    trx_date?: string;
   },
   idempotencyKey?: string,
 ): Promise<Result<TransactionView>> {
@@ -1036,10 +1040,41 @@ export async function editTransaction(
   }
   const billedChanged = billedCcy !== (trx.billed_currency ?? null) || billedAmt !== (trx.billed_amount ?? null);
 
+  /* The date (`0288`, D446). The number stays — evidence, allocations and
+     the trail point at it. A transfer's legs happened in one act, so they
+     move together; the bank statement's date is the record once matched. */
+  const trxDate = input.trx_date?.trim() || trx.trx_date;
+  const dateChanged = trxDate !== trx.trx_date;
+  const legs = dateChanged && trx.transfer_id
+    ? state.transactions.filter((t) => t.transfer_id === trx.transfer_id && t.id !== trx.id && t.status !== "VOID")
+    : [];
+  if (dateChanged) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(trxDate)) {
+      return invalid(SERVICE, "invalid_date", "The date is YYYY-MM-DD.", { field: "trx_date" });
+    }
+    if (trxDate > officeToday()) {
+      return invalid(SERVICE, "date_in_future", `${trxDate} has not happened yet. A ledger row is the day the money moved.`, { field: "trx_date" });
+    }
+    if (!reason) {
+      return invalid(SERVICE, "reason_required", "A remark is required when the date changes — say which document shows the right day.", { field: "reason" });
+    }
+    const legNos = new Set([trx.trx_no, ...legs.map((l) => l.trx_no)]);
+    if (state.statement_lines.some((l) => l.trx_no !== null && legNos.has(l.trx_no) && (l.status === "matched" || l.status === "booked"))) {
+      return conflict(SERVICE, "statement_matched", legs.length === 0
+        ? "This row is matched to a bank statement line, so the bank says which day it moved. Unmatch it first."
+        : "A leg of this transfer is matched to a bank statement line, so the bank says which day it moved. Unmatch it first.");
+    }
+    const touchesLeadership = [trx, ...legs].some((x) => state.accounts.find((a) => a.id === x.account_id)?.custody === "leadership");
+    if (touchesLeadership) {
+      const denied = requireAuthority(SERVICE, "approve_funds");
+      if (denied) return denied;
+    }
+  }
+
   if (amount === trx.amount_idr && description === trx.description
       && vendorId === trx.vendor_id && projectId === trx.project_id
       && typeCode === trx.type_code && accTo.id === accFrom.id
-      && direction === trx.direction && !billedChanged) {
+      && direction === trx.direction && !billedChanged && !dateChanged) {
     return ok(SERVICE, transactionView(state, trx));
   }
 
@@ -1097,8 +1132,28 @@ export async function editTransaction(
     });
   }
 
+  if (dateChanged) {
+    Object.assign(detail, {
+      date_before: trx.trx_date, date_after: trxDate, trx_no_kept: true,
+      ...(legs.length ? { legs_moved: legs.map((l) => l.trx_no).sort() } : {}),
+    });
+  }
+
   apply((draft) => {
     const t = draft.transactions.find((x) => x.id === trx.id)!;
+    if (dateChanged) {
+      t.trx_date = trxDate;
+      /* Each leg its own trail row, naming the row the edit was made from. */
+      for (const leg of legs) {
+        const d = draft.transactions.find((x) => x.id === leg.id)!;
+        d.trx_date = trxDate;
+        writeAudit(draft, {
+          service: SERVICE, entity: "transaction", entity_no: leg.trx_no, action: "edit",
+          outcome: "ok", reason,
+          detail: { date_before: leg.trx_date, date_after: trxDate, trx_no_kept: true, moved_with: trx.trx_no },
+        });
+      }
+    }
     t.amount_idr = amount;
     t.description = description;
     t.vendor_id = vendorId;

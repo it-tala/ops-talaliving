@@ -991,6 +991,10 @@ export async function editTransaction(
      *  it on a row that already has a currency. */
     billed_currency?: string | null;
     billed_amount?: number | null;
+    /** The day the money moved (`0288`, D446), `YYYY-MM-DD`. Needs a remark;
+     *  refused after today and on a statement-matched row; a transfer's legs
+     *  move together. The `trx_no` is kept. */
+    trx_date?: string;
   },
   idempotencyKey?: string,
 ): Promise<Result<TransactionView>> {
@@ -1007,6 +1011,7 @@ export async function editTransaction(
     p_key: idempotencyKey ?? null,
     p_billed_currency: input.billed_currency ?? null,
     p_billed_amount: input.billed_amount ?? null,
+    p_trx_date: input.trx_date ?? null,
   });
   const edited = fromSeam<{ trx_no: string }>(SERVICE, data, error);
   if (edited.error) return edited;
