@@ -238,6 +238,7 @@ a commit message cannot be corrected, so the record lives here.
 | `09_queue_reconciliation.sql` | **2026-09-24** | read-only: GAP 1 = 35 rows waiting and invisible (Rp 149.082.398, all dated ≥ 2026-09-22), GAP 2 = 7 already decided in the web app. GAP 1 closed the same day by a second run of `supabase/legacy/03_bridge_review_queue.sql`; re-reads BERSIH |
 | `12_gl_sheet_links.sql` | **2026-10-14** | as 16 chunks through the Supabase MCP (no psql), then reconciled against the csv by bucket hash: 4.071 links imported (95 pointed at a link that already existed), 2.728 attachments created, 10 refused; one hand-typed file id repaired. 2026 rows without a document: 1.616 → 137 |
 | `13_pr_recap_sep_okt.sql` | **2026-11-11** | through the Supabase MCP as one DO block, dry run first (forced rollback, same numbers): 24 documents, 71 lines, 81 GOODS approvals, 145 allocations (Rp 420.960.240) to 144 transactions, 230 map rows; 0 transactions over-allocated anywhere in the ledger afterwards |
+| `14_pr_variances_sep_okt.sql` | **2026-11-11** | 7 variance explanations + 7 settlements (Rp 14.806.222 short in all, Rp 13.675.722 of it the September payroll); the seven lines read PAID |
 
 `03_ledger.sql` was run as a **dry run first** — the whole file inside a
 transaction that was rolled back — and the numbers it printed were the numbers
@@ -564,6 +565,15 @@ OKT21  pr-26-10-05_08-L02  service AC       450.000, paid 400.000
 OKT27  pr-26-10-08_03-L05  Kartu Halo off.  150.000, paid 114.500
 SEP117 pr-26-09-30_01-L07  lem Unichem      1.115.000, ledger 1.110.000
 ```
+
+**Closed the same day (`14_pr_variances_sep_okt.sql`, D447).** Owner: *catat
+semua ke ledger dan catat selisih pengajuan, approved dan actual bayar di PR
+nya ops.* Each of the seven got one `line_variances` explanation (reason +
+*Diajukan · disetujui · dibayar · selisih*, and the transactions that paid it)
+and one `line_settlements` row for approved − paid. All seven now read PAID.
+"Dibayar" is the ledger's figure: where the sheet claims more than the bank
+shows (plywood 12 mm +500.000, lem Unichem +5.000, daily week 3 +40.000) the
+claim is in the note and no ledger row was made for it.
 
 Also worth a look: `SEP107` pajak 2026 is two transfers totalling Rp 64.225.000
 against the sheet's 63.750.000 — Rp 475.000 of termin 2 stays unallocated;
