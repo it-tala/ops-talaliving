@@ -239,6 +239,7 @@ a commit message cannot be corrected, so the record lives here.
 | `12_gl_sheet_links.sql` | **2026-10-14** | as 16 chunks through the Supabase MCP (no psql), then reconciled against the csv by bucket hash: 4.071 links imported (95 pointed at a link that already existed), 2.728 attachments created, 10 refused; one hand-typed file id repaired. 2026 rows without a document: 1.616 → 137 |
 | `13_pr_recap_sep_okt.sql` | **2026-11-11** | through the Supabase MCP as one DO block, dry run first (forced rollback, same numbers): 24 documents, 71 lines, 81 GOODS approvals, 145 allocations (Rp 420.960.240) to 144 transactions, 230 map rows; 0 transactions over-allocated anywhere in the ledger afterwards |
 | `14_pr_variances_sep_okt.sql` | **2026-11-11** | 7 variance explanations + 7 settlements (Rp 14.806.222 short in all, Rp 13.675.722 of it the September payroll); the seven lines read PAID |
+| `15_pr_recap_nov.sql` | **2026-11-11** | NOVEMBER PR RECAP rows 7–32: 14 documents, 26 lines (15 paid, 11 WAITING FOR APPROVAL), 18 allocations; NOV11 short Rp 16.470 explained and settled like step 14; PR ID and TRX ID written back to columns AB/AD of the tab |
 
 `03_ledger.sql` was run as a **dry run first** — the whole file inside a
 transaction that was rolled back — and the numbers it printed were the numbers
@@ -579,6 +580,24 @@ Also worth a look: `SEP107` pajak 2026 is two transfers totalling Rp 64.225.000
 against the sheet's 63.750.000 — Rp 475.000 of termin 2 stays unallocated;
 `OKT40` (PO batyline) is matched to a petty-cash *PARKA FABRIC* of the same day
 and amount, the only candidate.
+
+### Step 15 — NOVEMBER PR RECAP (2026-11-11)
+
+The same generator (`13_pr_sheet.py 15_pr_rows_nov`), which now takes a 14th
+field `approved`: rows the sheet has not approved (22–32, all unpaid) land
+**WAITING FOR APPROVAL** with no approval invented. Worth a look:
+
+- **Payroll October (NOV10) and the insentive (NOV19)** are paid together by
+  four transfers on 5 Nov (EJO 9.000.000, Cintya, Dewi, the BNI monthly batch =
+  Rp 46.020.937, Rp 124 under the two rows). The split between the two lines is
+  by total, not by person — the payroll sheet says who got what.
+- NOV21 (brass hot melt) was paid with the EJO box unticked; approved = paid.
+- NOV32 *LISTRIK SARIPAN* carries 05/10, the same date as OKT15 which is paid;
+  probably this month's token with an old date. Left waiting, not matched to
+  the unallocated Shopee token of 26 Oct (`trx-26-10-27_001`, Rp 504.000).
+
+The PR and TRX IDs of all four recap tabs were written back to the sheet the
+same day (AUGUST only into empty cells).
 
 ## What the import must never do
 

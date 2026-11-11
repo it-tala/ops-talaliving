@@ -2,6 +2,10 @@
 """13_pr_sheet.py — the recap rows step 11 never saw, read into SQL.
 
     python3 supabase/import/13_pr_sheet.py > supabase/import/13_pr_recap_sep_okt.sql
+    python3 supabase/import/13_pr_sheet.py 15_pr_rows_nov > supabase/import/15_pr_recap_nov.sql
+
+A row may carry a 14th field, `approved` (default True). A row the sheet has
+not approved lands WAITING FOR APPROVAL: no approval is invented for it.
 
 Step 11 (`08_pr_sheet.py`, applied 2026-09-23) read AUGUST, APROVE 27-08 and
 SEPTEMBER up to row 102. Since then the office added sixteen rows to
@@ -32,7 +36,7 @@ import sys
 from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-data = importlib.import_module('13_pr_rows')
+data = importlib.import_module(sys.argv[1] if len(sys.argv) > 1 else '13_pr_rows')
 
 UNITS = {'PCS': 'pcs', 'DUS': 'carton', 'ROLL': 'roll', 'LITER': 'ltr', 'KG': 'kg', 'SET': 'set',
          'PACK': 'pack', 'BOX': 'box', 'BULAN': 'month', 'MONTH': 'month', 'MONTHLY': 'month',
@@ -57,7 +61,9 @@ def main():
         allocs[ref].append((trx, amount, how))
 
     R, A = [], []
-    for (ref, day, req, project, cat, desc, note, vendor, qty, unit, price, idr, paid) in data.ROWS:
+    for row in data.ROWS:
+        (ref, day, req, project, cat, desc, note, vendor, qty, unit, price, idr, paid) = row[:13]
+        approved = row[13] if len(row) > 13 else True
         unit_raw = (unit or '').strip().upper()
         cat_raw = (cat or '').strip().upper()
         notes = []
@@ -72,11 +78,12 @@ def main():
         R.append('(' + ', '.join(lit(v) for v in (
             ref, data.WEB.get(ref), day, PEOPLE.get((req or '').upper()), (project or '').strip().upper() or None,
             desc, qty, UNITS.get(unit_raw), price, idr, vendor, CATS.get(cat_raw), note, paid,
-            '; '.join(notes) or None)) + ')')
+            '; '.join(notes) or None, approved)) + ')')
     for ref, trx, amount, how in data.ALLOC:
         A.append('(%s, %s, %s, %s)' % (lit(ref), lit(trx), lit(amount), lit(how)))
 
     head = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '13_pr_recap_sep_okt.head.sql')).read()
+    head = head.replace('@SOURCE@', getattr(data, 'SOURCE', '13_pr_rows.py'))
     sys.stdout.write(head.replace('/*@ROWS@*/', ',\n'.join(R)).replace('/*@ALLOCS@*/', ',\n'.join(A)))
     print('rows %d (%d already in the web app), allocations %d' % (len(R), len(data.WEB), len(A)), file=sys.stderr)
 
