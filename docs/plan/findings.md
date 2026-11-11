@@ -11084,3 +11084,29 @@ is now *ragu* and says which draft already has it.
 The lesson is F164's again: the demo's shape is not production's. A grouping
 that reads data has to be run on the data before it is called done.
 
+
+## F286 · 2026-11-11 · Production ran the draft of `0039` that CI refused, for seven weeks, and nothing noticed
+
+`0039` put `p_pr_line_no` **last** in `resolve_inbox` and its header explains
+why: slotted in beside `p_trx_no`, a defaulted parameter reassigns every
+positional call after it, and CI had caught exactly that within the minute.
+The ladder carries the fixed order. Production carried the **draft** —
+`(p_ref_id, p_status, p_trx_no, p_pr_line_no, p_note, p_key)` — applied on
+2026-09-21 before the fix, and never replaced because the fix kept the same
+file name and the same migration version, so nothing ever looked "unapplied".
+
+It stayed silent because every caller passes arguments by name: the app
+(`src/lib/api/accounting.ts`) and `dismiss_draft` (`0286`). It surfaced on
+2026-11-11, when the ledger cross-check session marked seven balance
+screenshots NOTED with a positional call; all seven came back
+`no_such_line: There is no request line …` — the very message `0039`'s header
+quotes as the thing it had prevented. The refusal never reached `audit_log`
+(422 refusals are returned, not written), so the trail showed nothing; only
+the session's transcript did.
+
+Two lessons. **A migration fixed after it was applied to production must get
+a new file**, not an edit of the old one — the version table cannot tell an
+edited file from the original. And **the order of arguments is part of the
+contract**: `E14_acct_resolve_inbox_argument_order` now asserts it, and
+`0287` drops and recreates the function so production matches the ladder (both
+orders have the same argument types, so `create or replace` cannot rename them).
