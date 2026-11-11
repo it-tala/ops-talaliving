@@ -42,6 +42,7 @@ Each file ends by printing what it did. Read that, not the exit code.
 | 11 | the PR recap tabs of the `2026 PURCHASE-PAYMENT TRACKER` sheet → `ops_procure.pr_*`, cross-referenced to the ledger through `ops_acct.payment_allocations` | 354 rows → 288 lines | `08_purchase_requests.sql` — **applied 2026-09-23** |
 | 12 | the payroll's daily-worker list (`ops_hr_employees_daily_workers.xlsx`, 30 weekly sheets) → `ops_hr.employees` | 37 (+15 `joined_on`) | `10_hr_daily_workers.sql` — needs `0192`. Not a legacy read; here because it is data, not schema (D337) |
 | 13 | the six link columns of the `2026 TALAHOME LEDGERS` sheet (nota · faktur · proof of payment · item photo · PR · payment request) → `ops_core.attachments` + `attachment_links`, matched to the ledger on the money | 4.071 links, 2.808 files | `12_gl_sheet_links.sql` + `data/gl_sheet_links_2026.csv` — **applied 2026-10-14** (D435, F273). Not a legacy-table read: the links only ever lived in the sheet |
+| 14 | the recap rows step 11 never saw: `SEPTEMBER PR RECAP` rows 103–118, the whole `OKTOBER PR RECAP` tab, and the payments step 11 could not find yet → `ops_procure.pr_*` + `ops_acct.payment_allocations` | 85 rows → 71 new lines, 14 web lines reused, 145 allocations | `13_pr_recap_sep_okt.sql` (from `13_pr_sheet.py` + `13_pr_rows.py`) — **applied 2026-11-11** (D446, F286) |
 
 ### Step 1 is not an `insert … select`
 
@@ -236,6 +237,7 @@ a commit message cannot be corrected, so the record lives here.
 | `08_purchase_requests.sql` | **2026-09-23** | 35 documents, 288 lines, 288 approvals, 268 allocations to 264 transactions; 12 lines paid on the sheet with no ledger row |
 | `09_queue_reconciliation.sql` | **2026-09-24** | read-only: GAP 1 = 35 rows waiting and invisible (Rp 149.082.398, all dated ≥ 2026-09-22), GAP 2 = 7 already decided in the web app. GAP 1 closed the same day by a second run of `supabase/legacy/03_bridge_review_queue.sql`; re-reads BERSIH |
 | `12_gl_sheet_links.sql` | **2026-10-14** | as 16 chunks through the Supabase MCP (no psql), then reconciled against the csv by bucket hash: 4.071 links imported (95 pointed at a link that already existed), 2.728 attachments created, 10 refused; one hand-typed file id repaired. 2026 rows without a document: 1.616 → 137 |
+| `13_pr_recap_sep_okt.sql` | **2026-11-11** | through the Supabase MCP as one DO block, dry run first (forced rollback, same numbers): 24 documents, 71 lines, 81 GOODS approvals, 145 allocations (Rp 420.960.240) to 144 transactions, 230 map rows; 0 transactions over-allocated anywhere in the ledger afterwards |
 
 `03_ledger.sql` was run as a **dry run first** — the whole file inside a
 transaction that was rolled back — and the numbers it printed were the numbers
@@ -512,6 +514,61 @@ COMPLETED. The 75 lines whose money fell short were settled first
 their sheet-derived approval rows **removed**, each removal an audit row holding
 the row it removed, rather than countered with `approved = false` — which would
 read as EJO taking a yes back.
+
+### Step 13 — the recap rows step 11 never saw (2026-11-11)
+
+Owner, 2026-11-11: *analisa … OKTOBER PR RECAP, SEPTEMBER PR RECAP dan AUGUST
+PR RECAP, cocokan dengan transaksi di ledger lalu masukan sebagai PR di ops —
+setelah tercatat dan mendapat PR ID berikan PR ID nya di ledger — kamu boleh
+berasumsi bahwa tanggal approve adalah tanggal dibayar.*
+
+**AUGUST had nothing new** (its last row, 181, was in step 11). SEPTEMBER had
+sixteen rows added after the 23 Sep export (rows 103–118, 24–30 Sep), and the
+ten lines step 12 reopened as waiting had since been paid. OKTOBER (rows
+7–75) had never been read. `13_pr_rows.py` holds the rows and, for every one,
+the ledger transaction that paid it, read by hand; `13_pr_sheet.py` turns that
+into `13_pr_recap_sep_okt.sql`, idempotent through `legacy_map` (`SEP103`…,
+`OKT7`…).
+
+**The PR ID on the ledger is the allocation.** A transaction's
+`payment_allocations` name the PR line it paid, and `v_transaction.pr_line_nos`
+is what the ledger drawer shows. No transaction was created or edited.
+
+- **Fourteen OKTOBER rows were already in the web app** as one-line PRs typed
+  by the office (`pr-26-10-01_01` … `pr-26-10-21_01`, five still waiting for
+  approval). They got the sheet's approval and payment on the line that
+  exists, not a second line (F286).
+- **Approval date = the day the ledger paid it**, GOODS, by EJO, channel
+  `sheet` — only where a line had no approval yet.
+- **Two payrolls step 11 could not find are found.** August staff payroll
+  (`SEP31`, Rp 62.864.368) is twelve per-person transfers of 4–7 Sep; September
+  staff payroll (`OKT11`, Rp 33.400.397) is thirteen transfers of 5 Oct **and
+  their ten Rp 2.500 admin fees**, which make the sheet's figure to the rupiah.
+  Daily payroll weeks 2–5 of October are paid per worker and are allocated per
+  worker.
+- Four step-11 *paid, no ledger row* subscription lines now have their Jago
+  debit (Canva, N8N Oct, Manus, GCP). Google Workspace, D5 and the buffer for
+  September, and the three small ones of August, still have none.
+- Where cash was rounded (pesangon Rp 2.017.428 handed over as Rp 2.017.000)
+  the allocation is the ledger's figure. Status reads PAID.
+
+Left for a person — seven lines paid less than approved, so still APPROVED
+until somebody settles them (`line_settlements`, with a reason):
+
+```
+OKT11  pr-26-10-05_01-L01  payroll Sep      web line says 47.076.119, sheet 42.457.897, paid 33.400.397
+SEP114 pr-26-09-30_01-L04  plywood 12 mm    2.800.000 approved, ledger 2.300.000
+OKT51  pr-26-10-15_01-L04  daily wk 3 Okt   1.765.002, ledger 1.725.002 (Rp 40.000 not found)
+OKT33  pr-26-10-12_01-L04  belanja Saripan  1.000.000, paid 500.000 (sheet: SISA 87000)
+OKT21  pr-26-10-05_08-L02  service AC       450.000, paid 400.000
+OKT27  pr-26-10-08_03-L05  Kartu Halo off.  150.000, paid 114.500
+SEP117 pr-26-09-30_01-L07  lem Unichem      1.115.000, ledger 1.110.000
+```
+
+Also worth a look: `SEP107` pajak 2026 is two transfers totalling Rp 64.225.000
+against the sheet's 63.750.000 — Rp 475.000 of termin 2 stays unallocated;
+`OKT40` (PO batyline) is matched to a petty-cash *PARKA FABRIC* of the same day
+and amount, the only candidate.
 
 ## What the import must never do
 

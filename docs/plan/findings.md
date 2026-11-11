@@ -11084,3 +11084,20 @@ is now *ragu* and says which draft already has it.
 The lesson is F164's again: the demo's shape is not production's. A grouping
 that reads data has to be run on the data before it is called done.
 
+## F286 · 2026-11-11 · The recap sheet and the web app were both being kept, and 14 of 69 October requests exist twice
+
+Reading the OKTOBER PR RECAP tab into ops found fourteen of its rows already in
+the web app as one-line PRs (`pr-26-10-01_01` … `pr-26-10-21_01`) — the same
+request typed twice, once in each place. Five of the web copies were still
+*waiting for approval* although the sheet had them approved and the ledger had
+them paid; one (payroll September) carried a different amount in each
+(47.076.119 on the web, 42.457.897 on the sheet). After 8 October only one more
+request (21 Oct) was typed into the web app; the rest lived only in the sheet.
+
+An import that minted a line per sheet row would have doubled those fourteen,
+and both copies would have read as unpaid or half paid. Step 13 matched sheet
+rows to web lines by date, description and amount first and wrote onto the
+line that existed. The lesson for the next read: before importing a source the
+office keeps, look for the same thing already typed into the app — two
+systems kept in parallel is the normal state, not the exception.
+
