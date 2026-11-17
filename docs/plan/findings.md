@@ -11110,3 +11110,42 @@ edited file from the original. And **the order of arguments is part of the
 contract**: `E14_acct_resolve_inbox_argument_order` now asserts it, and
 `0287` drops and recreates the function so production matches the ladder (both
 orders have the same argument types, so `create or replace` cannot rename them).
+
+
+## F287 · 2026-11-17 · A matched count is not a reconciled ledger: the loosest pass found a partner for a row that was missing
+
+The sheet-to-ledger cross-check (tab *GENERAL LEDGER PLUS 064 2026*, 3,641
+rows, against 3,714 live ledger rows) matches in passes: same day, account,
+direction and amount; then a few days apart; then, last, **another account
+within a week**. That last pass paired sheet row 3599 (PETTY CASH, Rp 10,000
+of fuel on 10 Nov) with a Jenius Cards VISA charge of the same amount six
+days earlier. The summary said every row up to 3599 was recorded. It was not.
+
+What caught it was not the matcher but the **balance per account at the cut**:
+BNI 325 and BCA 271 agreed with the sheet to the rupiah, PETTY CASH was
+Rp 10,000 apart. A cross-check therefore ends with that comparison, and a pair
+across two accounts is listed for a person to read, never counted as matched.
+After posting, BCA 271 in the ledger, in the sheet and on the bank's own
+screenshot (17 Nov 13:34) are the same figure, Rp 5,057,130.
+
+Three smaller things the same session taught:
+
+- **`book_evidence_group` is for copies of one photo** (`not_one_document`).
+  Two different files that are one transaction — a bank mutation and the
+  balance after it, two fuel receipts reimbursed together — are `book_evidence`
+  on one and `link_evidence` for the other (CONFIRMED + ATTACHED).
+- **The sheet's amount and the bank's can both be honest and differ.** Sheet
+  row 3630 says the week's payroll left BNI as Rp 4,210,002; the BNI mutation
+  shows eight transfers, Rp 3,910,002, and a balance that agrees. The ninth
+  name on the signed receipt list (Rp 300,000) is not on it. Booked as two
+  rows so the part without bank proof can be moved to another account with
+  Edit (D359) instead of being buried inside one figure.
+- **A row the sheet has and no document supports stays out** (D85): the
+  Rp 400,000 ATM withdrawal of 16 Nov (rows 3634–3635) has no slip and no
+  statement, so the ledger's petty cash reads negative until one is sent. That
+  is the ledger saying what it can prove, and it is on the board (L22) so it
+  is not mistaken for an error.
+
+Not checked: the files behind the sheet's Drive links for rows booked without
+an inbox document (3599, 3609, 3627, 3628, 3636–3637, 3643) were attached by
+link and not opened.
