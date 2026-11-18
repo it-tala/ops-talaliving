@@ -28,6 +28,7 @@ import type {
   AssetView, AssetCategory, AssetStatus, AssetInput, AssetService, AssetServiceInput,
   LabelKind, LabelSource, LabelCard, StockedCategory,
   StockEntryChange, StockMovePatch, ItemDetailsPatch,
+  AssetVerificationRow, VerifyAssetInput, VerifyAssetAnswer, ApplyVerificationAnswer,
 } from "@/services/inventory/contracts";
 import { stockedCategoryTree } from "@/services/inventory/categories";
 import type { MaterialPlan } from "@/services/production/contracts";
@@ -1767,4 +1768,63 @@ export async function listLabelSources(
 export async function labelCard(token: string): Promise<Result<LabelCard>> {
   const { data, error } = await db().rpc("label_card", { p_token: token });
   return fromSeam<LabelCard>(SERVICE, data, error);
+}
+
+/* ------------------------------------------------------------------ */
+/* Asset verification (0290, D437)                                     */
+/* ------------------------------------------------------------------ */
+
+function toVerificationRow(r: Record<string, unknown>): AssetVerificationRow {
+  return {
+    ...(r as unknown as AssetVerificationRow),
+    verification_count: Number(r.verification_count ?? 0),
+    record_photo_count: Number(r.record_photo_count ?? 0),
+    verification_photo_count: Number(r.verification_photo_count ?? 0),
+  };
+}
+
+/** Every asset on the register with its latest check, by tag. The screens
+ *  filter by zone and status themselves: the register is a few hundred rows. */
+export async function listAssetVerification(
+  opts: { q?: string } = {},
+): Promise<Result<AssetVerificationRow[]>> {
+  let q = db().from("v_asset_verification").select("*");
+  if (opts.q?.trim()) {
+    const term = opts.q.trim().replace(/[%,()]/g, " ");
+    q = q.or(["asset_no", "legacy_code", "name", "brand", "model"].map((c) => `${c}.ilike.%${term}%`).join(","));
+  }
+  const { data, error } = await q.order("asset_no");
+  if (error) return fail(SERVICE, error);
+  return ok(SERVICE, (data ?? []).map((r) => toVerificationRow(r as Record<string, unknown>)));
+}
+
+export async function getAssetVerification(assetNo: string): Promise<Result<AssetVerificationRow>> {
+  const { data, error } = await db().from("v_asset_verification").select("*").eq("asset_no", assetNo).maybeSingle();
+  if (error) return fail(SERVICE, error);
+  if (!data) return notFound(SERVICE, "asset_not_found", "No such asset.");
+  return ok(SERVICE, toVerificationRow(data as Record<string, unknown>));
+}
+
+/** One check, recorded (`verify_asset`). The photos are uploaded first, with
+ *  the asset's number, and linked to the new verification by the seam. */
+export async function verifyAsset(
+  input: VerifyAssetInput, idempotencyKey?: string,
+): Promise<Result<VerifyAssetAnswer>> {
+  const { data, error } = await db().rpc("verify_asset", {
+    p_asset_no: input.asset_no,
+    p_result: input.result,
+    p_condition: input.condition,
+    p_location: input.location,
+    p_checks: input.checks,
+    p_note: input.note?.trim() || null,
+    p_photo_ids: input.photo_ids,
+    p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<VerifyAssetAnswer>(SERVICE, data, error);
+}
+
+/** The only road from a check to the asset (`apply_verification`). */
+export async function applyVerification(verificationNo: string): Promise<Result<ApplyVerificationAnswer>> {
+  const { data, error } = await db().rpc("apply_verification", { p_verification_no: verificationNo });
+  return fromSeam<ApplyVerificationAnswer>(SERVICE, data, error);
 }

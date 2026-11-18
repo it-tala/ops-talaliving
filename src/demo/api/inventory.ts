@@ -14,7 +14,10 @@ import type {
   ProductStockRow, ProductLedgerRow, ProductMove, ProductMoveInput, ProductCountInput, ProductAllocateInput, ProductOrderLine,
   LabelKind, LabelSource, LabelCard,
 } from "@/services/inventory/contracts";
-import { ASSET_GONE, ASSET_OWNERSHIP_LABEL } from "@/services/inventory/contracts";
+import { ASSET_GONE, ASSET_OWNERSHIP_LABEL, VERIFY_FIELDS, VERIFY_PHOTO_MAX } from "@/services/inventory/contracts";
+import type {
+  AssetVerificationRow, VerifyAssetInput, VerifyAssetAnswer, ApplyVerificationAnswer, VerifyField,
+} from "@/services/inventory/contracts";
 import type { StockedCategory, StockEntryChange, StockMovePatch, ItemDetailsPatch } from "@/services/inventory/contracts";
 import { stockedCategoryTree } from "@/services/inventory/categories";
 import type { ItemPurchase } from "@/services/procurement/contracts";
@@ -2202,4 +2205,209 @@ export function registerArrivedAsset(
   draft.assets.push(row);
   writeAudit(draft, { service: SERVICE, entity: "asset", entity_no: row.asset_no, action: "create", outcome: "ok", reason: null });
   return row;
+}
+
+/* ------------------------------------------------------------------ */
+/* Asset verification (0290, D437)                                     */
+/* ------------------------------------------------------------------ */
+/*  The same rules `verify_asset` / `apply_verification` hold, so the sandbox
+ *  refuses what production refuses. `inventory` write stands in for
+ *  `inventory.update`, as every asset write here does. */
+
+function latestVerification(state: DemoState, assetNo: string) {
+  return state.asset_verifications
+    .filter((v) => v.asset_no === assetNo)
+    .sort((a, b) => b.verified_at.localeCompare(a.verified_at) || b.verification_no.localeCompare(a.verification_no))[0];
+}
+
+function verificationRow(state: DemoState, a: Asset): AssetVerificationRow {
+  const v = latestVerification(state, a.asset_no);
+  const legacy = state.asset_legacy.find((l) => l.asset_no === a.asset_no);
+  const where = v?.location ?? a.location;
+  const recordPhotos = state.attachment_links.filter(
+    (l) => l.entity === "asset" && l.entity_no === a.asset_no && l.kind === "Foto");
+  return {
+    asset_no: a.asset_no, name: a.name, category_code: a.category_code,
+    category_name: state.asset_categories.find((c) => c.code === a.category_code)?.name ?? a.category_code,
+    brand: a.brand, model: a.model, asset_status: a.status, asset_location: a.location,
+    legacy_code: legacy?.legacy_code ?? null, legacy_area: legacy?.legacy_area ?? null,
+    legacy_department: legacy?.legacy_department ?? null, legacy_notes: legacy?.legacy_notes ?? null,
+    status: v?.result ?? "unverified",
+    verification_no: v?.verification_no ?? null, condition: v?.condition ?? null,
+    verified_location: v?.location ?? null, location: where,
+    location_name: where ? state.stock_locations.find((l) => l.code === where)?.name ?? where : null,
+    checks: v ? v.checks : null, note: v?.note ?? null,
+    verified_by: v?.verified_by ?? null,
+    verified_by_name: v ? state.users.find((u) => u.id === v.verified_by)?.full_name ?? null : null,
+    verified_at: v?.verified_at ?? null, applied_at: v?.applied_at ?? null, applied_by: v?.applied_by ?? null,
+    verification_count: state.asset_verifications.filter((x) => x.asset_no === a.asset_no).length,
+    record_photo_id: recordPhotos[0]?.attachment_id ?? null,
+    record_photo_count: recordPhotos.length,
+    verification_photo_count: v ? v.photo_ids.length : 0,
+  };
+}
+
+/** Assets on the register, and the lost ones a check found missing. */
+function onVerifyList(state: DemoState, a: Asset): boolean {
+  return a.ended_on == null || latestVerification(state, a.asset_no)?.result === "not_found";
+}
+
+export async function listAssetVerification(
+  opts: { q?: string } = {},
+): Promise<Result<AssetVerificationRow[]>> {
+  await latency();
+  const state = getState();
+  let rows = state.assets.filter((a) => onVerifyList(state, a)).map((a) => verificationRow(state, a));
+  if (opts.q?.trim()) {
+    const q = opts.q.trim().toLowerCase();
+    rows = rows.filter((r) => [r.asset_no, r.legacy_code, r.name, r.brand, r.model].some((x) => x?.toLowerCase().includes(q)));
+  }
+  return ok(SERVICE, rows.sort((a, b) => a.asset_no.localeCompare(b.asset_no)));
+}
+
+export async function getAssetVerification(assetNo: string): Promise<Result<AssetVerificationRow>> {
+  await latency();
+  const state = getState();
+  const a = state.assets.find((x) => x.asset_no === assetNo);
+  if (!a || !onVerifyList(state, a)) return notFound(SERVICE, "asset_not_found", "No such asset.");
+  return ok(SERVICE, verificationRow(state, a));
+}
+
+export async function verifyAsset(
+  input: VerifyAssetInput, idempotencyKey?: string,
+): Promise<Result<VerifyAssetAnswer>> {
+  await latency();
+  const cached = replayed<VerifyAssetAnswer>(SERVICE, "verify_asset", idempotencyKey);
+  if (cached) return cached;
+  const denied = requireLevel(SERVICE, "inventory", "write");
+  if (denied) return denied;
+  const state = getState();
+  const a = state.assets.find((x) => x.asset_no === input.asset_no.trim());
+  if (!a) return notFound(SERVICE, "asset_not_found", "No such asset.");
+  if (a.ended_on) {
+    return conflict(SERVICE, "asset_gone", `${a.asset_no} left the register (${a.status} on ${a.ended_on}). Bring it back before verifying it.`);
+  }
+  const photos = input.photo_ids ?? [];
+  if (photos.length > VERIFY_PHOTO_MAX) {
+    return invalid(SERVICE, "too_many_photos", "At most four photos per verification.", { field: "photos" });
+  }
+  if (new Set(photos).size !== photos.length) {
+    return invalid(SERVICE, "duplicate_photo", "The same photo was sent twice.", { field: "photos" });
+  }
+  const note = input.note?.trim() || null;
+  let checks = input.checks;
+  let location = input.location?.trim() || null;
+  let condition = input.condition;
+
+  if (input.result === "not_found") {
+    if (!note) {
+      return invalid(SERVICE, "note_required", "Say where you looked, so the next person does not look there again.", { field: "note" });
+    }
+    checks = {};
+    location = null;
+    condition = null;
+  } else {
+    if (!condition) {
+      return invalid(SERVICE, "condition_required", "Say whether it works, is broken, or could not be tested.", { field: "condition" });
+    }
+    if (!location || !state.stock_locations.some((l) => l.code === location && l.is_active)) {
+      return invalid(SERVICE, "location_required", "Pick where it is now from the location list.", { field: "location" });
+    }
+    for (const [key, c] of Object.entries(checks)) {
+      if (!VERIFY_FIELDS.includes(key as VerifyField)) {
+        return invalid(SERVICE, "check_unknown", `"${key}" is not a field a verification checks.`, { field: "checks" });
+      }
+      if (c && !c.ok && !c.found?.trim()) {
+        return invalid(SERVICE, "found_required", `${key[0].toUpperCase()}${key.slice(1)} is different: say what it should be.`, { field: "checks", key });
+      }
+      if (key === "qty" && c && !c.ok && !/^\d+$/.test((c.found ?? "").trim())) {
+        return invalid(SERVICE, "qty_invalid", "A quantity found is a whole number.", { field: "checks", key });
+      }
+    }
+    const missing = VERIFY_FIELDS.filter((f) => !checks[f]);
+    if (missing.length) {
+      return invalid(SERVICE, "checks_incomplete", "Check all four fields — name, brand, model and quantity — before saving.", { field: "checks", missing });
+    }
+    const different = VERIFY_FIELDS.some((f) => checks[f]?.ok === false);
+    if (input.result === "match" && different) {
+      return invalid(SERVICE, "result_disagrees", "A field is marked different, so this is a mismatch, not a match.", { field: "result" });
+    }
+    if (input.result === "mismatch" && !different) {
+      return invalid(SERVICE, "result_disagrees", "Every field matches, so this is a match, not a mismatch.", { field: "result" });
+    }
+    if (photos.length < 1) {
+      return invalid(SERVICE, "photo_required", "A photo of the whole machine is required.", { field: "photos" });
+    }
+  }
+
+  const user = actingUser(state);
+  const verificationNo = `VRF-${String(state.asset_verifications.length + 1).padStart(6, "0")}`;
+  const now = new Date().toISOString();
+  apply((draft) => {
+    draft.asset_verifications.push({
+      id: newId("avf"), verification_no: verificationNo, asset_no: a.asset_no, result: input.result,
+      condition, location, checks, note, photo_ids: photos, verified_by: user.id, verified_at: now,
+      applied_by: null, applied_at: null,
+    });
+    for (const id of photos) {
+      draft.attachment_links.push({
+        id: newId("lnk"), attachment_id: id, entity: "asset_verification", entity_no: verificationNo,
+        kind: "Foto", linked_by: user.id, linked_at: now,
+      });
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "asset_verification", entity_no: verificationNo, action: "verify", outcome: "ok",
+      reason: note, detail: { asset_no: a.asset_no, result: input.result, condition, location, checks },
+    });
+  });
+  const answer: VerifyAssetAnswer = { verification_no: verificationNo, asset_no: a.asset_no, result: input.result, photos: photos.length };
+  remember(SERVICE, "verify_asset", idempotencyKey, ok(SERVICE, answer));
+  return ok(SERVICE, answer);
+}
+
+export async function applyVerification(verificationNo: string): Promise<Result<ApplyVerificationAnswer>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "inventory", "write");
+  if (denied) return denied;
+  const state = getState();
+  const v = state.asset_verifications.find((x) => x.verification_no === verificationNo.trim());
+  if (!v) return notFound(SERVICE, "verification_not_found", "No such verification.");
+  if (v.applied_at) return conflict(SERVICE, "already_applied", `${v.verification_no} was already applied.`);
+  const a = state.assets.find((x) => x.asset_no === v.asset_no);
+  if (!a) return notFound(SERVICE, "asset_not_found", "No such asset.");
+  const latest = latestVerification(state, a.asset_no);
+  if (latest && latest.verification_no !== v.verification_no) {
+    return conflict(SERVICE, "superseded", `${a.asset_no} has a newer check, ${latest.verification_no}. Apply that one instead.`);
+  }
+  if (a.ended_on) return conflict(SERVICE, "asset_gone", `${a.asset_no} already left the register (${a.status}).`);
+
+  const notApplied: VerifyField[] = v.checks.qty?.ok === false ? ["qty"] : [];
+  const found = (f: "name" | "brand" | "model") => (v.checks[f]?.ok === false ? (v.checks[f]?.found ?? "").trim() : null);
+  const after: Partial<Asset> = v.result === "not_found"
+    ? { status: "lost", ended_on: v.verified_at.slice(0, 10) }
+    : {
+        name: found("name") ?? a.name,
+        brand: found("brand") ?? a.brand,
+        model: found("model") ?? a.model,
+        location: v.location ?? a.location,
+      };
+  const changed = (Object.keys(after) as (keyof Asset)[]).filter((k) => after[k] !== a[k]);
+  const answer: ApplyVerificationAnswer = { verification_no: v.verification_no, asset_no: a.asset_no, not_applied: notApplied };
+  if (!changed.length) return noop(SERVICE, answer);
+
+  const user = actingUser(state);
+  const now = new Date().toISOString();
+  apply((draft) => {
+    const d = draft.assets.find((x) => x.id === a.id)!;
+    Object.assign(d, after, { updated_at: now });
+    const dv = draft.asset_verifications.find((x) => x.id === v.id)!;
+    dv.applied_at = now;
+    dv.applied_by = user.id;
+    writeAudit(draft, {
+      service: SERVICE, entity: "asset", entity_no: a.asset_no, action: "apply_verification", outcome: "ok",
+      reason: `Corrected from ${v.verification_no}`,
+      detail: Object.fromEntries(changed.map((k) => [k, { from: a[k], to: after[k] }])),
+    });
+  });
+  return ok(SERVICE, answer);
 }

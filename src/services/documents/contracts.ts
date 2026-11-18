@@ -201,6 +201,10 @@ export type LinkEntity =
    *  it is. Four is a cap the database holds; the last one cannot come off
    *  (`0168`). */
   | "item"
+  /** One asset verification, by `VRF-000001` — the photos taken at that check
+   *  (0289, 0290, D437). Uploaded with the asset's number, which picks the
+   *  folder, and linked by `verify_asset`. */
+  | "asset_verification"
   /** A leave request, by its number — the surat dokter a sick request carries
    *  from the phone it was photographed on (`0187`, D331). */
   | "leave_request"

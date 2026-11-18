@@ -109,6 +109,7 @@ export const MESSAGES = {
     receivingReport: m("Receiving Report", "Laporan penerimaan barang"),
     finishedGoods: m("Finished Goods", "Barang jadi"),
     assets: m("Assets", "Aset"),
+    assetVerification: m("Asset verification", "Verifikasi aset"),
     masterData: m("Master Data", "Data master"),
     items: m("Items", "Barang"),
     itemCategories: m("Item categories", "Kategori barang"),
