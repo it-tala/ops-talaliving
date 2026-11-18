@@ -520,6 +520,44 @@ RUNS=$(q -Atc "select count(distinct run_id) from ops_core.legacy_map")
 [ "$RUNS" = "5" ] || fail "five files, five run ids on the first pass" "saw $RUNS"
 pass "second run changed nothing"
 
+# ── 13: the 2013 machine register (D437) ─────────────────────────────────
+# Its own pair of runs, after the legacy ones, so the counts above stay a
+# statement about the legacy system alone. `\copy` reads its CSV relative to
+# the working directory, so this runs from the repo root as verify:db does.
+echo
+echo "── 13: the 2013 machine register, twice ────────────────────────────"
+( cd "$HERE/../.." && q -q -f supabase/import/13_inv_legacy_2013_register.sql >/dev/null 2>&1 ) \
+  || fail "13_inv_legacy_2013_register (first run)" "the file did not apply"
+reg() { q -Atc "select count(*) from ops_inv.assets a join ops_core.legacy_map m on m.target_id = a.id
+                 where m.source_table = 'file.legacy_2013_register' $1"; }
+R_ALL=$(reg "")
+R_C107=$(reg "and a.legacy_code = 'C1-07'")
+R_CODES=$(q -Atc "select count(distinct a.legacy_code) from ops_inv.assets a join ops_core.legacy_map m
+                   on m.target_id = a.id where m.source_table = 'file.legacy_2013_register'")
+R_BAD=$(reg "and (a.category_code <> 'machine' or a.status <> 'in_storage' or a.location is not null
+                  or a.legacy_code is null or a.legacy_department is null)")
+R_UNIT=$(reg "and a.legacy_code = 'C1-07' and a.legacy_notes like '%Unit _ of 2%'")
+[ "$R_ALL" = "164" ]  || fail "164 assets from 163 rows"            "saw $R_ALL"
+[ "$R_CODES" = "163" ] || fail "163 legacy codes"                   "saw $R_CODES"
+[ "$R_C107" = "2" ]   || fail "C1-07 is two units"                  "saw $R_C107"
+[ "$R_UNIT" = "2" ]   || fail "each C1-07 unit says which it is"    "saw $R_UNIT"
+[ "$R_BAD" = "0" ]    || fail "machine, in storage, no location, legacy fields filled" "$R_BAD do not"
+pass "13 (first run): 164 assets, C1-07 split"
+
+R_MAP1=$(q -Atc "select count(*) from ops_core.legacy_map where source_table = 'file.legacy_2013_register'")
+R_SUM1=$(q -Atc "select md5(string_agg(asset_no||name||coalesce(brand,'')||coalesce(model,'')||coalesce(legacy_notes,''), '|' order by asset_no))
+                   from ops_inv.assets where legacy_code is not null")
+( cd "$HERE/../.." && q -q -f supabase/import/13_inv_legacy_2013_register.sql >/dev/null 2>&1 ) \
+  || fail "13_inv_legacy_2013_register (second run)" "the file did not apply"
+R_ALL2=$(reg "")
+R_MAP2=$(q -Atc "select count(*) from ops_core.legacy_map where source_table = 'file.legacy_2013_register'")
+R_SUM2=$(q -Atc "select md5(string_agg(asset_no||name||coalesce(brand,'')||coalesce(model,'')||coalesce(legacy_notes,''), '|' order by asset_no))
+                   from ops_inv.assets where legacy_code is not null")
+[ "$R_ALL2" = "$R_ALL" ]  || fail "re-running imports no machine twice" "$R_ALL then $R_ALL2"
+[ "$R_MAP2" = "$R_MAP1" ] || fail "the map does not grow on a re-run"   "$R_MAP1 then $R_MAP2"
+[ "$R_SUM2" = "$R_SUM1" ] || fail "and no imported asset changed"       "the rows differ"
+pass "13 (second run) changed nothing"
+
 echo
 echo "──"
 echo "import  ok (idempotent over two runs, $M1 legacy rows accounted for)"
