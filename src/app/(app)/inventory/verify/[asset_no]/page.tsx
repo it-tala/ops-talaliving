@@ -1,25 +1,24 @@
 "use client";
 
-import { use, useEffect, useMemo, useRef, useState } from "react";
+import { use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, ArrowLeft, Camera, ChevronLeft, ChevronRight, SearchX, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ChevronLeft, ChevronRight, SearchX } from "lucide-react";
 import { Badge, Button, Card } from "@/components/ui/primitives";
 import { Modal } from "@/components/ui/drawer";
 import { SegmentedControl } from "@/components/ui/tabs";
 import { Loaded, useLoad } from "@/components/ui/loaded";
-import { documents, inventory } from "@/demo/api";
+import { inventory } from "@/demo/api";
 import { cn } from "@/lib/cn";
 import { pick, useLang, useTr } from "@/lib/i18n";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
 import {
-  ASSET_CONDITION_LABELS, VERIFY_FIELDS, VERIFY_FIELD_LABELS, VERIFY_PHOTO_MAX, verificationResultOf,
+  ASSET_CONDITION_LABELS, VERIFY_FIELDS, VERIFY_FIELD_LABELS, verificationResultOf,
   type AssetCondition, type AssetVerificationRow, type FieldCheck, type StockLocation,
   type VerificationChecks, type VerificationStatus, type VerifyField,
 } from "@/services/inventory/contracts";
-import { shrinkImage } from "../../log/notaFile";
-import { NO_ZONE, RecordPhoto, StatusBadge, differentFields, zoneOf } from "../shared";
+import { NO_ZONE, PhotoSlots, RecordPhoto, StatusBadge, differentFields, uploadSlotPhotos, usePhotoSlots, zoneOf } from "../shared";
 
 /** Asset verification — one asset, checked against the real thing (D447).
  *
@@ -37,14 +36,7 @@ import { NO_ZONE, RecordPhoto, StatusBadge, differentFields, zoneOf } from "../s
  *  *Item 13 of 40*, previous/next and *Save & next* walk that same list.
  */
 type Checks = Partial<Record<VerifyField, { ok: boolean; found: string }>>;
-type Photo = { file: File; url: string };
 
-const SLOT_LABELS = [
-  { en: "Whole machine", id: "Seluruh mesin" },
-  { en: "Name plate", id: "Plat nama" },
-  { en: "Other", id: "Lainnya" },
-  { en: "Other", id: "Lainnya" },
-];
 
 export default function VerifyAssetPage({ params }: { params: Promise<{ asset_no: string }> }) {
   const { asset_no } = use(params);
@@ -106,25 +98,12 @@ function VerifyForm({ row, list, locations, onSaved }: {
     if (!location && zoneDefault && locations.some((l) => l.code === zoneDefault)) setLocation(zoneDefault);
   }, [locations, zoneDefault, location]);
   const [note, setNote] = useState("");
-  const [photos, setPhotos] = useState<(Photo | null)[]>([null, null, null, null]);
+  const { photos, setPhoto, hasWhole, taken } = usePhotoSlots();
   const [busy, setBusy] = useState<string | null>(null);
   const [notFoundOpen, setNotFoundOpen] = useState(false);
   const [notFoundNote, setNotFoundNote] = useState("");
   const [key] = useState(() => `verify-${row.asset_no}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-  const fileRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  const urls = useRef<string[]>([]);
-  urls.current = photos.flatMap((p) => (p ? [p.url] : []));
-  useEffect(() => () => urls.current.forEach((u) => URL.revokeObjectURL(u)), []);
-
-  function setPhoto(i: number, file: File | null) {
-    setPhotos((cur) => {
-      const nextP = [...cur];
-      if (nextP[i]) URL.revokeObjectURL(nextP[i]!.url);
-      nextP[i] = file ? { file, url: URL.createObjectURL(file) } : null;
-      return nextP;
-    });
-  }
 
   function mark(field: VerifyField, ok: boolean) {
     setChecks((c) => ({ ...c, [field]: { ok, found: c[field]?.found ?? recordValue[field] } }));
@@ -140,26 +119,11 @@ function VerifyForm({ row, list, locations, onSaved }: {
   const derived = verificationResultOf(asChecks());
   const unchecked = VERIFY_FIELDS.filter((f) => !checks[f]).length;
   const emptyFound = VERIFY_FIELDS.some((f) => checks[f] && !checks[f]!.ok && !checks[f]!.found.trim());
-  const hasWhole = !!photos[0];
   const ready = mayVerify && derived != null && !emptyFound && hasWhole && !!condition && !!location && !busy;
 
   async function upload(): Promise<string[] | null> {
-    const ids: string[] = [];
-    const taken = photos.filter((p): p is Photo => !!p);
-    for (const [i, p] of taken.entries()) {
-      setBusy(tr(`Uploading photo ${i + 1} of ${taken.length}…`, `Mengunggah foto ${i + 1} dari ${taken.length}…`));
-      const up = await documents.upload({
-        file: await shrinkImage(p.file), kind: "Foto", entity: "asset_verification", entity_no: row.asset_no,
-      });
-      if (up.error) {
-        setBusy(null);
-        toast("warning", tr(`Photo ${i + 1} was not uploaded`, `Foto ${i + 1} tidak terunggah`),
-          tr(`${up.error.message} Nothing was saved — try again.`, `${up.error.message} Belum ada yang tersimpan — coba lagi.`));
-        return null;
-      }
-      ids.push(up.data.id);
-    }
-    return ids;
+    return uploadSlotPhotos(taken, { entity: "asset_verification", entity_no: row.asset_no }, tr,
+      (m) => setBusy(m), (title, msg) => { setBusy(null); toast("warning", title, msg); });
   }
 
   async function save(thenNext: boolean) {
@@ -251,48 +215,7 @@ function VerifyForm({ row, list, locations, onSaved }: {
           )}
           <Card className="p-4">
             <p className="mb-2 text-sm font-semibold text-slate-700">{tr("Verification photos", "Foto verifikasi")}</p>
-            <ul className="grid grid-cols-4 gap-2">
-              {SLOT_LABELS.map((label, i) => {
-                const p = photos[i];
-                return (
-                  <li key={i}>
-                    <input
-                      ref={(el) => { fileRefs.current[i] = el; }} type="file" accept="image/*" capture="environment" className="hidden"
-                      onChange={(e) => { setPhoto(i, e.target.files?.[0] ?? null); e.target.value = ""; }}
-                    />
-                    <div className={cn(
-                      "relative aspect-square overflow-hidden rounded-lg border bg-slate-50",
-                      i === 0 && !p ? "border-dashed border-brand-400" : "border-slate-200",
-                    )}>
-                      {p ? (
-                        <>
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={p.url} alt={pick(label, lang)} className="h-full w-full object-cover" />
-                          <button
-                            type="button" onClick={() => setPhoto(i, null)}
-                            aria-label={tr("Remove photo", "Hapus foto")}
-                            className="absolute right-1 top-1 rounded-full bg-black/60 p-1 text-white"
-                          ><X className="h-3 w-3" /></button>
-                        </>
-                      ) : (
-                        <button
-                          type="button" onClick={() => fileRefs.current[i]?.click()} disabled={!mayVerify || i >= VERIFY_PHOTO_MAX}
-                          className="flex h-full w-full flex-col items-center justify-center gap-1 text-slate-500 hover:bg-slate-100"
-                        >
-                          <Camera className="h-5 w-5" />
-                        </button>
-                      )}
-                    </div>
-                    <p className={cn("mt-1 truncate text-center text-[11px]", i === 0 ? "font-medium text-slate-700" : "text-slate-500")}>
-                      {pick(label, lang)}{i === 0 ? " *" : ""}
-                    </p>
-                  </li>
-                );
-              })}
-            </ul>
-            {!hasWhole && (
-              <p className="mt-2 text-xs text-brand-700">{tr("Whole-machine photo required", "Foto seluruh mesin wajib")}</p>
-            )}
+            <PhotoSlots photos={photos} setPhoto={setPhoto} disabled={!mayVerify} />
           </Card>
         </div>
 

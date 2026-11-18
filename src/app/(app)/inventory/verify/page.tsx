@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ClipboardCheck, ListChecks, Search } from "lucide-react";
+import { ClipboardCheck, ListChecks, Plus, Search } from "lucide-react";
 import { Button, Card, EmptyState, PageHeader } from "@/components/ui/primitives";
 import { Loaded, useDebounced, useLoad } from "@/components/ui/loaded";
 import { inventory } from "@/demo/api";
@@ -13,6 +13,7 @@ import {
   VERIFICATION_STATUS_LABELS, type AssetVerificationRow, type VerificationStatus,
 } from "@/services/inventory/contracts";
 import { NO_ZONE, RecordPhoto, STATUS_ORDER, StatusBadge, zoneOf } from "./shared";
+import { CountStock } from "./CountStock";
 
 /** Asset verification — the list by zone (D447).
  *
@@ -27,8 +28,13 @@ import { NO_ZONE, RecordPhoto, STATUS_ORDER, StatusBadge, zoneOf } from "./share
  *  Zone and tab live in the address (`?zone=PRD&status=mismatch`), so *back*
  *  from the verify screen lands on the same zone, and *Save & next* walks the
  *  same list.
+ *
+ *  Two views per zone (D448): the assets, checked one by one, and *Count
+ *  stock* for what is counted — materials, consumables, hand tools in bulk.
+ *  *+ New item* registers an asset nobody had on record, in the zone.
  */
 type Tab = "all" | VerificationStatus;
+type View = "assets" | "count";
 
 export default function VerifyListPage() {
   const tr = useTr();
@@ -37,14 +43,16 @@ export default function VerifyListPage() {
   const params = useSearchParams();
   const zone = params.get("zone") ?? "all";
   const tab = (params.get("status") ?? "all") as Tab;
+  const view: View = params.get("view") === "count" ? "count" : "assets";
   const [q, setQ] = useState(params.get("q") ?? "");
   const searched = useDebounced(q);
 
   const [state, reload] = useLoad(() => inventory.listAssetVerification(), []);
   const [locs] = useLoad(() => inventory.listStockLocations({ all: true }), []);
 
-  function go(next: { zone?: string; status?: Tab }) {
+  function go(next: { zone?: string; status?: Tab; view?: View }) {
     const sp = new URLSearchParams(params.toString());
+    if (next.view !== undefined) { if (next.view === "assets") sp.delete("view"); else sp.set("view", next.view); }
     if (next.zone !== undefined) { if (next.zone === "all") sp.delete("zone"); else sp.set("zone", next.zone); }
     if (next.status !== undefined) { if (next.status === "all") sp.delete("status"); else sp.set("status", next.status); }
     router.replace(`/inventory/verify${sp.size ? `?${sp}` : ""}`, { scroll: false });
@@ -63,18 +71,24 @@ export default function VerifyListPage() {
           "Datangi zona, buka aset, cocokkan dengan barang aslinya, foto, simpan, lanjut.",
         )}
         actions={
-          <Link href="/inventory/verify/review">
-            <Button variant="secondary" icon={ListChecks}>{tr("Mismatch summary", "Ringkasan ketidaksesuaian")}</Button>
-          </Link>
+          <>
+            <Link href={`/inventory/verify/new${zone !== "all" && zone !== NO_ZONE ? `?zone=${encodeURIComponent(zone)}` : ""}`}>
+              <Button variant="outline" icon={Plus}>{tr("New item", "Barang baru")}</Button>
+            </Link>
+            <Link href="/inventory/verify/review">
+              <Button variant="secondary" icon={ListChecks}>{tr("Mismatch summary", "Ringkasan ketidaksesuaian")}</Button>
+            </Link>
+          </>
         }
       />
 
       <Loaded state={state} onRetry={reload}>
         {(all) => (
           <VerifyBoard
-            rows={all} zone={zone} tab={tab} q={searched} setQ={setQ} qValue={q}
-            onZone={(z) => go({ zone: z })} onTab={(t) => go({ status: t })}
+            rows={all} zone={zone} tab={tab} q={searched} setQ={setQ} qValue={q} view={view}
+            onZone={(z) => go({ zone: z })} onTab={(t) => go({ status: t })} onView={(v) => go({ view: v })}
             locName={locName} lang={lang} tr={tr} query={params.toString()}
+            locationCodes={locs.status === "ready" ? locs.data.filter((l) => l.is_active).map((l) => l.code) : []}
           />
         )}
       </Loaded>
@@ -82,9 +96,13 @@ export default function VerifyListPage() {
   );
 }
 
-function VerifyBoard({ rows, zone, tab, q, qValue, setQ, onZone, onTab, locName, lang, tr, query }: {
+function VerifyBoard({ rows, zone, tab, q, qValue, setQ, onZone, onTab, locName, lang, tr, query, view, onView, locationCodes }: {
   rows: AssetVerificationRow[]; zone: string; tab: Tab; q: string; qValue: string; setQ: (v: string) => void;
   onZone: (z: string) => void; onTab: (t: Tab) => void; locName: (code: string) => string;
+  view: View; onView: (v: View) => void;
+  /** Every active location, so a zone with nothing on record can still be
+   *  counted or have a find registered in it. */
+  locationCodes: string[];
   lang: "en" | "id"; tr: (en: string, id: string) => string; query: string;
 }) {
   const searchedRows = useMemo(() => {
@@ -105,13 +123,14 @@ function VerifyBoard({ rows, zone, tab, q, qValue, setQ, onZone, onTab, locName,
       if (r.status !== "unverified") cur.done += 1;
       by.set(z, cur);
     }
+    for (const code of locationCodes) if (!by.has(code)) by.set(code, { total: 0, done: 0 });
     const none = by.get(NO_ZONE) ?? { total: 0, done: 0 };
     by.delete(NO_ZONE);
     return {
       none,
       list: [...by.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([code, c]) => ({ code, ...c })),
     };
-  }, [rows]);
+  }, [rows, locationCodes]);
 
   const inZone = searchedRows.filter((r) => zone === "all" || zoneOf(r) === zone);
   const count = (t: Tab) => (t === "all" ? inZone.length : inZone.filter((r) => r.status === t).length);
@@ -174,6 +193,23 @@ function VerifyBoard({ rows, zone, tab, q, qValue, setQ, onZone, onTab, locName,
         </Card>
 
         <div className="min-w-0">
+          <div role="tablist" aria-label={tr("View", "Tampilan")} className="mb-3 inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+            {([["assets", tr("Assets", "Aset")], ["count", tr("Count stock", "Hitung stok")]] as [View, string][]).map(([v, label]) => (
+              <button
+                key={v} role="tab" aria-selected={view === v} type="button" onClick={() => onView(v)}
+                className={cn("rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                  view === v ? "bg-white text-brand-700 shadow-sm" : "text-slate-500 hover:text-slate-700")}
+              >{label}</button>
+            ))}
+          </div>
+          {view === "count" ? (
+            zone === "all" || zone === NO_ZONE ? (
+              <EmptyState icon={ClipboardCheck} title={tr("Pick a zone to count", "Pilih zona untuk dihitung")}
+                description={tr("Counts are entered per location. Choose a zone on the left.", "Hitungan dicatat per lokasi. Pilih zona di kiri.")} />
+            ) : (
+              <CountStock zone={zone} zoneLabel={zoneTitle} />
+            )
+          ) : (<>
           <div className="mb-3 flex flex-col gap-2 xl:flex-row xl:items-end xl:justify-between">
             <div>
               <h2 className="text-base font-semibold text-slate-800">{zoneTitle}</h2>
@@ -230,6 +266,7 @@ function VerifyBoard({ rows, zone, tab, q, qValue, setQ, onZone, onTab, locName,
               ))}
             </ul>
           )}
+          </>)}
         </div>
       </div>
     </>

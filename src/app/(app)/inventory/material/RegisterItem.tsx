@@ -31,9 +31,11 @@ import { useTr } from "@/lib/i18n";
  *  against a location (D171) — the same record the opname screen writes, not
  *  a second kind of number.
  */
-export function RegisterItem({ mayCount, initialName, onCreated, onCancel }: {
+export function RegisterItem({ mayCount, initialName, onCreated, onCancel, defaultLocation }: {
   mayCount: boolean;
   initialName?: string;
+  /** The rack the count goes on — the zone being counted in the recap (D448). */
+  defaultLocation?: string;
   onCreated: (itemCode: string) => void;
   onCancel: () => void;
 }) {
@@ -44,7 +46,7 @@ export function RegisterItem({ mayCount, initialName, onCreated, onCancel }: {
   const [uoms] = useLoad(() => procurement.listUom(), []);
   const [locations] = useLoad(() => inventory.listStockLocations(), []);
   const [form, setForm] = useState({
-    name: initialName ?? "", name_local: "", category_code: "", base_uom: "pcs", location: "", counted: 0, reason: "",
+    name: initialName ?? "", name_local: "", category_code: "", base_uom: "pcs", location: defaultLocation ?? "", counted: 0, reason: "",
   });
   const [photos, setPhotos] = useState<{ file: File; url: string }[]>([]);
   const [busy, setBusy] = useState<string | null>(null);

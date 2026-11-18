@@ -11205,3 +11205,21 @@ turned up:
 - OpenNext 1.20.17 declares `next >=15.5.29 <16 || >=16.4.5` and wrangler
   `^4.148`, so the adapter and wrangler moved with it.
 
+## F291 · 2026-11-18 · Counting materials in the recap needed no schema, and one photo is two links
+
+- **The rack already had everything a zone count needs.** *Input stock*
+  (`input_stock`, 0198) writes an `adjust` move at a location and
+  `listStock` already returns each item's quantity per location, so the
+  recap's *Count stock* tab is the two existing forms opened on the zone (a
+  `defaultLocation` prop each) and a table filtered by it. The only schema in
+  `0292` is for assets found off the record.
+- **A found asset's photo is linked twice**, once to the asset (its record
+  photo, `entity = asset`) and once to its first check (`asset_verification`).
+  `links_live_idx` is per entity, so the same attachment carries both, and a
+  recheck later has proof of its own while the record photo stays.
+- **The zone rail had to list every location, not only those holding assets.**
+  A warehouse with only materials in it had no assets, so no zone to pick and
+  nothing to count against. With all active locations listed the rail reads
+  `0/0` for those; in production that includes every location typed before
+  0197, which may make it long until the old ones are mapped or retired.
+

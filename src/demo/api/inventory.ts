@@ -17,6 +17,7 @@ import type {
 import { ASSET_GONE, ASSET_OWNERSHIP_LABEL, VERIFY_FIELDS, VERIFY_PHOTO_MAX } from "@/services/inventory/contracts";
 import type {
   AssetVerificationRow, VerifyAssetInput, VerifyAssetAnswer, ApplyVerificationAnswer, VerifyField,
+  RegisterFoundAssetInput, RegisterFoundAssetAnswer,
 } from "@/services/inventory/contracts";
 import type { StockedCategory, StockEntryChange, StockMovePatch, ItemDetailsPatch } from "@/services/inventory/contracts";
 import { stockedCategoryTree } from "@/services/inventory/categories";
@@ -2232,7 +2233,7 @@ function verificationRow(state: DemoState, a: Asset): AssetVerificationRow {
     brand: a.brand, model: a.model, asset_status: a.status, asset_location: a.location,
     legacy_code: legacy?.legacy_code ?? null, legacy_area: legacy?.legacy_area ?? null,
     legacy_department: legacy?.legacy_department ?? null, legacy_notes: legacy?.legacy_notes ?? null,
-    status: v?.result ?? "unverified",
+    status: v?.found_new ? "new" : v?.result ?? "unverified",
     verification_no: v?.verification_no ?? null, condition: v?.condition ?? null,
     verified_location: v?.location ?? null, location: where,
     location_name: where ? state.stock_locations.find((l) => l.code === where)?.name ?? where : null,
@@ -2244,6 +2245,7 @@ function verificationRow(state: DemoState, a: Asset): AssetVerificationRow {
     record_photo_id: recordPhotos[0]?.attachment_id ?? null,
     record_photo_count: recordPhotos.length,
     verification_photo_count: v ? v.photo_ids.length : 0,
+    found_new: !!v?.found_new,
   };
 }
 
@@ -2409,5 +2411,72 @@ export async function applyVerification(verificationNo: string): Promise<Result<
       detail: Object.fromEntries(changed.map((k) => [k, { from: a[k], to: after[k] }])),
     });
   });
+  return ok(SERVICE, answer);
+}
+
+/** An asset nobody had on record, registered where it stands (0292, D448):
+ *  the asset, its record photo and a first, matching check at once. */
+export async function registerFoundAsset(
+  input: RegisterFoundAssetInput, idempotencyKey?: string,
+): Promise<Result<RegisterFoundAssetAnswer>> {
+  await latency();
+  const cached = replayed<RegisterFoundAssetAnswer>(SERVICE, "register_found_asset", idempotencyKey);
+  if (cached) return cached;
+  const denied = requireLevel(SERVICE, "inventory", "write");
+  if (denied) return denied;
+  const state = getState();
+  const name = input.name.trim();
+  if (!name) return invalid(SERVICE, "name_required", "Say what it is.", { field: "name" });
+  if (!state.asset_categories.some((c) => c.code === input.category_code && c.is_active)) {
+    return invalid(SERVICE, "category_unknown", `No asset category ${input.category_code}.`, { field: "category_code" });
+  }
+  const location = input.location?.trim();
+  if (!location || !state.stock_locations.some((l) => l.code === location && l.is_active)) {
+    return invalid(SERVICE, "location_required", "Pick where it is from the location list.", { field: "location" });
+  }
+  if (!input.condition) {
+    return invalid(SERVICE, "condition_required", "Say whether it works, is broken, or could not be tested.", { field: "condition" });
+  }
+  const photos = input.photo_ids ?? [];
+  if (photos.length < 1) return invalid(SERVICE, "photo_required", "A photo of the whole thing is required.", { field: "photos" });
+  if (photos.length > VERIFY_PHOTO_MAX) return invalid(SERVICE, "too_many_photos", "At most four photos.", { field: "photos" });
+  if (new Set(photos).size !== photos.length) return invalid(SERVICE, "duplicate_photo", "The same photo was sent twice.", { field: "photos" });
+
+  const user = actingUser(state);
+  const now = new Date().toISOString();
+  const seq = state.assets.reduce((m, a) => Math.max(m, Number(a.asset_no.replace(/\D/g, "")) || 0), 0) + 1;
+  const assetNo = `AST-${String(seq).padStart(4, "0")}`;
+  const verificationNo = `VRF-${String(state.asset_verifications.length + 1).padStart(6, "0")}`;
+  const note = input.note?.trim() || null;
+  apply((draft) => {
+    draft.assets.push({
+      id: newId("ast"), asset_no: assetNo, name, category_code: input.category_code,
+      brand: input.brand?.trim() || null, model: input.model?.trim() || null, identifier: null, location,
+      holder: null, status: input.status ?? "in_storage", acquired_on: null, purchase_cost: null,
+      vendor_code: null, trx_no: null, warranty_until: null,
+      notes: `Found during the inventory recap${note ? ` — ${note}` : ""}`, ended_on: null,
+      ownership: "owned", rent_amount: null, rent_period: null, rent_due_day: null,
+      contract_start: null, contract_end: null, created_at: now, updated_at: now,
+    });
+    draft.asset_verifications.push({
+      id: newId("avf"), verification_no: verificationNo, asset_no: assetNo, result: "match",
+      condition: input.condition, location,
+      checks: { name: { ok: true }, brand: { ok: true }, model: { ok: true }, qty: { ok: true } },
+      note, photo_ids: photos, verified_by: user.id, verified_at: now, applied_by: null, applied_at: null,
+      found_new: true,
+    });
+    for (const id of photos) {
+      draft.attachment_links.push(
+        { id: newId("lnk"), attachment_id: id, entity: "asset", entity_no: assetNo, kind: "Foto", linked_by: user.id, linked_at: now },
+        { id: newId("lnk"), attachment_id: id, entity: "asset_verification", entity_no: verificationNo, kind: "Foto", linked_by: user.id, linked_at: now },
+      );
+    }
+    writeAudit(draft, {
+      service: SERVICE, entity: "asset", entity_no: assetNo, action: "register_found", outcome: "ok",
+      reason: note, detail: { name, category_code: input.category_code, location, condition: input.condition, verification_no: verificationNo },
+    });
+  });
+  const answer: RegisterFoundAssetAnswer = { asset_no: assetNo, verification_no: verificationNo, photos: photos.length };
+  remember(SERVICE, "register_found_asset", idempotencyKey, ok(SERVICE, answer));
   return ok(SERVICE, answer);
 }
