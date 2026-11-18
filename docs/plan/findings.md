@@ -11110,3 +11110,36 @@ edited file from the original. And **the order of arguments is part of the
 contract**: `E14_acct_resolve_inbox_argument_order` now asserts it, and
 `0287` drops and recreates the function so production matches the ladder (both
 orders have the same argument types, so `create or replace` cannot rename them).
+
+## F292 · 2026-11-18 · Every Cloudflare build failed for a date, not a change: OpenNext retires a Next major two years after release
+
+`main` went red on 2026-11-11 and every PR after it with it, at the last step of
+the `app` job (*cloudflare worker builds*) and in Workers Builds. Nothing in the
+code had changed: `@opennextjs/aws`'s `isNextVersionSupported` takes the
+major's release date from a table (`15: "2024-10-21"`), adds two years, and
+`checkNextVersionSupport` exits 1 once today is past it — unless the build is
+run with `--dangerouslyUseUnsupportedNextVersion`. Next 15.5 itself still gets
+security backports (15.5.29, 2026-11-03), so the refusal is the adapter's
+calendar, not a missing patch; it is also why the step had passed for weeks and
+then failed on a commit that only touched accounting.
+
+The flag was not taken (it switches off a safety check, and the permission
+check refused it); the owner chose the upgrade (D449). What moving to Next 16
+turned up:
+
+- **Turbopack is the default build, and this app needs webpack.**
+  `next.config.mjs` swaps `@/demo/{api,provider,store}` for `src/live/*` with a
+  `NormalModuleReplacementPlugin` on live builds; Turbopack does not run webpack
+  hooks. Both `build` and `dev` pass `--webpack`. OpenNext runs the `build`
+  script, so `cf:build` inherits it.
+- **`next lint` and the `eslint` key in `next.config` are gone.** `npm run lint`
+  is ESLint 9's CLI on a flat `eslint.config.mjs` carrying the same rules.
+- **eslint-plugin-react-hooks 7 brings the React Compiler rules** and they
+  flagged 100 existing places (70 × setState in a data-loading effect, 14
+  static-components, 12 purity, 3 refs, 1 immutability). They are off and on
+  the backlog (B23); the two rules the code was written against stay on. A new
+  Next rule warns on six `window.location` navigations, which are full reloads
+  on purpose; they stay warnings.
+- OpenNext 1.20.17 declares `next >=15.5.29 <16 || >=16.4.5` and wrangler
+  `^4.148`, so the adapter and wrangler moved with it.
+

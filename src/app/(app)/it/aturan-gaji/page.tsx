@@ -982,7 +982,6 @@ function EffectiveDaysNote({ rules }: { rules: PayRules }) {
      the tab was open. */
   const [cal] = useLoad(
     () => hr.effectiveDaysCalendar({ rules, year }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [rules.week_pattern, year, session?.user.id],
   );
 

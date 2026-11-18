@@ -170,7 +170,6 @@ export function useLoad<T>(
       else setState({ status: "ready", data: res.data as T, page: res.meta?.page });
     });
     return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, tick]);
 
   return [state, React.useCallback(() => setTick((t) => t + 1), [])];

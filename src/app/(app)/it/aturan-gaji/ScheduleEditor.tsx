@@ -253,7 +253,6 @@ function UnitMap({
 
       <ul className="mt-2 space-y-1.5">
         {entries.map(([unit, code], at) => (
-          // eslint-disable-next-line react/no-array-index-key
           <li key={at} className="flex flex-wrap items-center gap-2">
             <input
               type="text"
