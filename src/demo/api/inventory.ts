@@ -17,7 +17,7 @@ import type {
 import { ASSET_GONE, ASSET_OWNERSHIP_LABEL, VERIFY_FIELDS, VERIFY_PHOTO_MAX } from "@/services/inventory/contracts";
 import type {
   AssetVerificationRow, VerifyAssetInput, VerifyAssetAnswer, ApplyVerificationAnswer, VerifyField,
-  RegisterFoundAssetInput, RegisterFoundAssetAnswer,
+  RegisterFoundAssetInput, RegisterFoundAssetAnswer, CodeFamily,
 } from "@/services/inventory/contracts";
 import type { StockedCategory, StockEntryChange, StockMovePatch, ItemDetailsPatch } from "@/services/inventory/contracts";
 import { stockedCategoryTree } from "@/services/inventory/categories";
@@ -2215,6 +2215,21 @@ export function registerArrivedAsset(
  *  refuses what production refuses. `inventory` write stands in for
  *  `inventory.update`, as every asset write here does. */
 
+function assetCodeFields(state: DemoState, assetNo: string) {
+  const c = state.asset_codes.find((x) => x.asset_no === assetNo);
+  const f = c ? state.code_families.find((x) => x.code === c.family_code) : undefined;
+  return { code: c?.code ?? null, family_code: c?.family_code ?? null, family_label: f?.label_en ?? null, description: c?.description ?? null };
+}
+
+/** The next number in a family, as `ops_inv.next_code` gives it (0293). */
+function nextCode(state: DemoState, family: string): string {
+  const f = state.code_families.find((x) => x.code === family);
+  const max = state.asset_codes.filter((c) => c.family_code === family)
+    .reduce((m, c) => Math.max(m, Number(c.code.split("-")[1]) || 0), 0);
+  const width = f?.kind === "counted" ? 3 : 2;
+  return `${family}-${String(max + 1).padStart(width, "0")}`;
+}
+
 function latestVerification(state: DemoState, assetNo: string) {
   return state.asset_verifications
     .filter((v) => v.asset_no === assetNo)
@@ -2246,6 +2261,7 @@ function verificationRow(state: DemoState, a: Asset): AssetVerificationRow {
     record_photo_count: recordPhotos.length,
     verification_photo_count: v ? v.photo_ids.length : 0,
     found_new: !!v?.found_new,
+    ...assetCodeFields(state, a.asset_no),
   };
 }
 
@@ -2425,11 +2441,17 @@ export async function registerFoundAsset(
   const denied = requireLevel(SERVICE, "inventory", "write");
   if (denied) return denied;
   const state = getState();
-  const name = input.name.trim();
-  if (!name) return invalid(SERVICE, "name_required", "Say what it is.", { field: "name" });
-  if (!state.asset_categories.some((c) => c.code === input.category_code && c.is_active)) {
-    return invalid(SERVICE, "category_unknown", `No asset category ${input.category_code}.`, { field: "category_code" });
+  const family = state.code_families.find((f) => f.code === input.family_code);
+  if (!family || family.kind !== "unit" || family.reserved || !family.is_active) {
+    return invalid(SERVICE, "family_required", "Pick what kind of thing it is (its family) first.", { field: "family_code" });
   }
+  const name = input.name.trim().toUpperCase();
+  if (!name) return invalid(SERVICE, "name_required", "Say what it is.", { field: "name" });
+  const description = input.description?.trim();
+  if (!description) {
+    return invalid(SERVICE, "description_required", "One sentence on what it is and what it is used for.", { field: "description" });
+  }
+  const category = family.asset_category_code ?? "machine";
   const location = input.location?.trim();
   if (!location || !state.stock_locations.some((l) => l.code === location && l.is_active)) {
     return invalid(SERVICE, "location_required", "Pick where it is from the location list.", { field: "location" });
@@ -2447,10 +2469,12 @@ export async function registerFoundAsset(
   const seq = state.assets.reduce((m, a) => Math.max(m, Number(a.asset_no.replace(/\D/g, "")) || 0), 0) + 1;
   const assetNo = `AST-${String(seq).padStart(4, "0")}`;
   const verificationNo = `VRF-${String(state.asset_verifications.length + 1).padStart(6, "0")}`;
+  const code = nextCode(state, family.code);
   const note = input.note?.trim() || null;
   apply((draft) => {
+    draft.asset_codes.push({ asset_no: assetNo, code, family_code: family.code, description });
     draft.assets.push({
-      id: newId("ast"), asset_no: assetNo, name, category_code: input.category_code,
+      id: newId("ast"), asset_no: assetNo, name, category_code: category,
       brand: input.brand?.trim() || null, model: input.model?.trim() || null, identifier: null, location,
       holder: null, status: input.status ?? "in_storage", acquired_on: null, purchase_cost: null,
       vendor_code: null, trx_no: null, warranty_until: null,
@@ -2473,10 +2497,76 @@ export async function registerFoundAsset(
     }
     writeAudit(draft, {
       service: SERVICE, entity: "asset", entity_no: assetNo, action: "register_found", outcome: "ok",
-      reason: note, detail: { name, category_code: input.category_code, location, condition: input.condition, verification_no: verificationNo },
+      reason: note, detail: { name, code, family_code: family.code, description, location, condition: input.condition, verification_no: verificationNo },
     });
   });
-  const answer: RegisterFoundAssetAnswer = { asset_no: assetNo, verification_no: verificationNo, photos: photos.length };
+  const answer: RegisterFoundAssetAnswer = { asset_no: assetNo, code, verification_no: verificationNo, photos: photos.length };
   remember(SERVICE, "register_found_asset", idempotencyKey, ok(SERVICE, answer));
   return ok(SERVICE, answer);
+}
+
+/* ------------------------------------------------------------------ */
+/* The one code system (0293, D451)                                    */
+/* ------------------------------------------------------------------ */
+
+export async function listCodeFamilies(
+  opts: { kind?: "unit" | "counted" } = {},
+): Promise<Result<CodeFamily[]>> {
+  await latency();
+  const rows = getState().code_families
+    .filter((f) => !f.reserved && f.is_active && (!opts.kind || f.kind === opts.kind))
+    .sort((a, b) => a.letter.localeCompare(b.letter) || a.digit - b.digit);
+  return ok(SERVICE, rows);
+}
+
+export async function saveCodeFamily(
+  input: { type_name: string; label_en: string; label_id?: string | null; asset_category?: string | null },
+): Promise<Result<{ code: string; type_name: string }>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "inventory", "write");
+  if (denied) return denied;
+  const state = getState();
+  const type = input.type_name.trim().toUpperCase();
+  if (!/^[A-Z]/.test(type)) {
+    return invalid(SERVICE, "type_required", "Say what kind of thing it is, starting with a letter: SAW, TROLLEY, SANDPAPER.", { field: "type_name" });
+  }
+  if (!input.label_en.trim()) return invalid(SERVICE, "label_required", "Give the family a name people read.", { field: "label_en" });
+  const existing = state.code_families.find((f) => f.type_name === type && f.kind === "unit" && !f.reserved);
+  if (existing) return conflict(SERVICE, "family_exists", `${type} is already the family ${existing.code}.`);
+  const letter = type[0];
+  let digit = 1;
+  while (state.code_families.some((f) => f.letter === letter && f.digit === digit)) digit += 1;
+  const code = `${letter}${digit}`;
+  apply((draft) => {
+    draft.code_families.push({
+      code, letter, digit, type_name: type, label_en: input.label_en.trim(), label_id: input.label_id?.trim() || null,
+      kind: "unit", asset_category_code: input.asset_category ?? null, category_default: false,
+      item_category_code: null, reserved: false, is_active: true,
+    });
+    writeAudit(draft, { service: SERVICE, entity: "code_family", entity_no: code, action: "create", outcome: "ok", reason: null, detail: { type_name: type } });
+  });
+  return ok(SERVICE, { code, type_name: type });
+}
+
+export async function recodeAsset(
+  assetNo: string, familyCode: string, reason: string,
+): Promise<Result<{ asset_no: string; code: string; old_code: string | null }>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "inventory", "write");
+  if (denied) return denied;
+  const state = getState();
+  if (!state.assets.some((a) => a.asset_no === assetNo)) return notFound(SERVICE, "asset_not_found", "No such asset.");
+  const family = state.code_families.find((f) => f.code === familyCode && f.kind === "unit" && !f.reserved && f.is_active);
+  if (!family) return invalid(SERVICE, "family_unknown", `No family ${familyCode} for things counted one by one.`, { field: "family_code" });
+  if (!reason.trim()) return invalid(SERVICE, "reason_required", "Say why the code changes; the old one stays findable.", { field: "reason" });
+  const current = state.asset_codes.find((c) => c.asset_no === assetNo);
+  if (current?.family_code === familyCode) return noop(SERVICE, { asset_no: assetNo, code: current.code, old_code: current.code });
+  const code = nextCode(state, familyCode);
+  apply((draft) => {
+    const d = draft.asset_codes.find((c) => c.asset_no === assetNo);
+    if (d) { d.code = code; d.family_code = familyCode; } else draft.asset_codes.push({ asset_no: assetNo, code, family_code: familyCode, description: null });
+    writeAudit(draft, { service: SERVICE, entity: "asset", entity_no: assetNo, action: "recode", outcome: "ok", reason: reason.trim(),
+      detail: { code: { from: current?.code ?? null, to: code } } });
+  });
+  return ok(SERVICE, { asset_no: assetNo, code, old_code: current?.code ?? null });
 }

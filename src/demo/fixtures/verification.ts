@@ -1,5 +1,6 @@
-import type { Asset, AssetCategory, StockLocation } from "@/services/inventory/contracts";
-import type { AssetLegacy, AssetVerificationRecord } from "../state";
+import type { Asset, AssetCategory, CodeFamily, StockLocation } from "@/services/inventory/contracts";
+import type { AssetCode, AssetLegacy, AssetVerificationRecord } from "../state";
+import { ASSETS } from "./assets";
 
 /** The asset verification flow (`0290`, `0291`, D447) in the sandbox.
  *
@@ -96,3 +97,61 @@ export const DEMO_VERIFICATIONS: AssetVerificationRecord[] = [
     verified_at: "2026-11-18T09:35:00+07:00", applied_by: null, applied_at: null,
   },
 ];
+
+/* ── the one code system (0293, D451) ─────────────────────────────────── */
+
+const fam = (code: string, type_name: string, label_en: string, label_id: string, opts: Partial<CodeFamily> = {}): CodeFamily => ({
+  code, letter: code[0], digit: Number(code.slice(1)), type_name, label_en, label_id, kind: "unit",
+  asset_category_code: "machine", category_default: false, item_category_code: null, reserved: false, is_active: true, ...opts,
+});
+
+/** The 2013 families, C3/C4 held back, and a default for each asset category
+ *  — the same registry 0293 seeds. */
+export const DEMO_CODE_FAMILIES: CodeFamily[] = [
+  fam("A1", "AIR COMPRESSOR", "Air compressor", "Kompresor udara"), fam("A2", "AIR DRYER", "Air dryer", "Pengering udara"),
+  fam("A3", "AIR TANK", "Air tank", "Tangki udara"), fam("B1", "BORING", "Boring", "Bor (boring)"),
+  fam("C1", "CLAMP", "Clamp", "Klem"), fam("C2", "CONSTRUCTION", "Construction equipment", "Alat konstruksi"),
+  fam("C3", "CONSTRUCTION", "Reserved: 2013 label C3-03", "Dicadangkan", { reserved: true }),
+  fam("C4", "CONSTRUCTION", "Reserved: 2013 label C4-04", "Dicadangkan", { reserved: true }),
+  fam("D1", "DOVETAILING MACHINE", "Dovetailing", "Dovetail"), fam("D2", "DRILL", "Drill press", "Bor duduk"),
+  fam("D3", "DEHUMIDIFIER", "Dehumidifier", "Dehumidifier"), fam("E1", "EDGEBANDER", "Edgebander", "Edgebander"),
+  fam("F1", "FINISHING", "Spray booth", "Spray booth"), fam("G1", "GLUE", "Glue roller", "Roller lem"),
+  fam("J1", "JOINTER", "Jointer", "Jointer"), fam("L1", "LATHE MACHINE", "Lathe", "Bubut"),
+  fam("M1", "METAL", "Metal working", "Pengerjaan logam"), fam("M2", "MOULDER", "Moulder", "Moulder"),
+  fam("P1", "PLANER", "Planer", "Serut (planer)"), fam("P2", "PRESS", "Press", "Press"),
+  fam("R1", "ROUTER", "Router", "Router"), fam("S1", "SANDER", "Sander", "Amplas (sander)"),
+  fam("S2", "SAW", "Saw", "Gergaji"), fam("T1", "TOOLROOM", "Toolroom", "Toolroom"),
+  fam("U1", "UPHOLSTERY", "Upholstery", "Jok (upholstery)"), fam("V1", "VENEER", "Veneer", "Veneer"),
+  fam("C5", "CCTV", "CCTV & security", "CCTV & keamanan", { asset_category_code: "cctv", category_default: true }),
+  fam("C6", "COMPUTER", "Computer", "Komputer", { asset_category_code: "computer", category_default: true }),
+  fam("P3", "PRINTER", "Printer & scanner", "Printer & scanner", { asset_category_code: "printer", category_default: true }),
+  fam("N1", "NETWORK DEVICE", "Network device", "Perangkat jaringan", { asset_category_code: "network", category_default: true }),
+  fam("P4", "PHONE", "Phone & tablet", "HP & tablet", { asset_category_code: "phone", category_default: true }),
+  fam("V2", "VEHICLE", "Vehicle", "Kendaraan", { asset_category_code: "vehicle", category_default: true }),
+  fam("T2", "TOOL", "Tool & equipment", "Alat & perlengkapan", { asset_category_code: "tool", category_default: true }),
+  fam("F2", "FURNITURE", "Office furniture", "Mebel kantor", { asset_category_code: "furniture", category_default: true }),
+  fam("O1", "OTHER", "Other", "Lainnya", { asset_category_code: "other", category_default: true }),
+];
+
+const corrected = (legacy: string) => ({ "C3-03": "C2-03", "C4-04": "C2-04", "U-11": "U1-11" } as Record<string, string>)[legacy] ?? legacy;
+
+/** Codes as 0293 and import step 15 give them: a 2013 machine its corrected
+ *  2013 code, any other asset the next number in its category's family. */
+export const DEMO_ASSET_CODES: AssetCode[] = (() => {
+  const out: AssetCode[] = [];
+  const next = (family: string) => {
+    const n = out.filter((c) => c.family_code === family).reduce((m, c) => Math.max(m, Number(c.code.split("-")[1])), 0) + 1;
+    return `${family}-${String(n).padStart(2, "0")}`;
+  };
+  for (const r of REGISTER) {
+    let code = corrected(r.code);
+    const family = code.split("-")[0];
+    if (out.some((c) => c.code === code)) code = next(family);
+    out.push({ asset_no: r.no, code, family_code: family, description: null });
+  }
+  for (const a of ASSETS) {
+    const family = DEMO_CODE_FAMILIES.find((f) => f.category_default && f.asset_category_code === a.category_code)?.code;
+    if (family) out.push({ asset_no: a.asset_no, code: next(family), family_code: family, description: null });
+  }
+  return out;
+})();

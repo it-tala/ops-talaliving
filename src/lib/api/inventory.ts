@@ -29,7 +29,7 @@ import type {
   LabelKind, LabelSource, LabelCard, StockedCategory,
   StockEntryChange, StockMovePatch, ItemDetailsPatch,
   AssetVerificationRow, VerifyAssetInput, VerifyAssetAnswer, ApplyVerificationAnswer,
-  RegisterFoundAssetInput, RegisterFoundAssetAnswer,
+  RegisterFoundAssetInput, RegisterFoundAssetAnswer, CodeFamily,
 } from "@/services/inventory/contracts";
 import { stockedCategoryTree } from "@/services/inventory/categories";
 import type { MaterialPlan } from "@/services/production/contracts";
@@ -1839,10 +1839,11 @@ export async function registerFoundAsset(
 ): Promise<Result<RegisterFoundAssetAnswer>> {
   const { data, error } = await db().rpc("register_found_asset", {
     p_name: input.name,
-    p_category_code: input.category_code,
+    p_family_code: input.family_code,
     p_location: input.location,
     p_condition: input.condition,
     p_photo_ids: input.photo_ids,
+    p_description: input.description,
     p_brand: input.brand?.trim() || null,
     p_model: input.model?.trim() || null,
     p_note: input.note?.trim() || null,
@@ -1850,4 +1851,42 @@ export async function registerFoundAsset(
     p_key: idempotencyKey ?? null,
   });
   return fromSeam<RegisterFoundAssetAnswer>(SERVICE, data, error);
+}
+
+/* ------------------------------------------------------------------ */
+/* The one code system (0293, D451)                                    */
+/* ------------------------------------------------------------------ */
+
+/** The families, by letter and number. `kind` narrows to unit (things
+ *  counted one by one) or counted (catalogue items); reserved ones (the 2013
+ *  labels C3, C4) are left out. */
+export async function listCodeFamilies(
+  opts: { kind?: "unit" | "counted" } = {},
+): Promise<Result<CodeFamily[]>> {
+  let q = db().from("code_families").select("*").eq("reserved", false).eq("is_active", true);
+  if (opts.kind) q = q.eq("kind", opts.kind);
+  const { data, error } = await q.order("letter").order("digit");
+  return fromRows<CodeFamily[]>(SERVICE, data as CodeFamily[], error);
+}
+
+/** A new family for things counted one by one: its letter is the type's first,
+ *  its number the letter's next free one (`save_code_family`). */
+export async function saveCodeFamily(
+  input: { type_name: string; label_en: string; label_id?: string | null; asset_category?: string | null },
+): Promise<Result<{ code: string; type_name: string }>> {
+  const { data, error } = await db().rpc("save_code_family", {
+    p_type_name: input.type_name, p_label_en: input.label_en, p_label_id: input.label_id ?? null,
+    p_kind: "unit", p_asset_category: input.asset_category ?? null,
+  });
+  return fromSeam<{ code: string; type_name: string }>(SERVICE, data, error);
+}
+
+/** An asset moved to another family; the old code stays findable (`recode_asset`). */
+export async function recodeAsset(
+  assetNo: string, familyCode: string, reason: string,
+): Promise<Result<{ asset_no: string; code: string; old_code: string | null }>> {
+  const { data, error } = await db().rpc("recode_asset", {
+    p_asset_no: assetNo, p_family_code: familyCode, p_reason: reason,
+  });
+  return fromSeam<{ asset_no: string; code: string; old_code: string | null }>(SERVICE, data, error);
 }

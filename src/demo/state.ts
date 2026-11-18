@@ -39,7 +39,7 @@ import type {
 import type {
   LogPurchase, LogPiece, SawnBoard, BoardMove, LogCost,
   StockLocation, StockMove, StockSetting, Asset, AssetService, AssetCategory,
-  VerificationResult, AssetCondition, VerificationChecks,
+  VerificationResult, AssetCondition, VerificationChecks, CodeFamily,
   ProductMove, ProductSetting,
 } from "@/services/inventory/contracts";
 import type {
@@ -482,6 +482,9 @@ export interface DemoState {
   /** `ops_inv.asset_verifications` (0290, D447): append-only, the latest row
    *  per asset is its status. */
   asset_verifications: AssetVerificationRecord[];
+  /** The one code system (0293, D451): the families, and each asset's code. */
+  code_families: CodeFamily[];
+  asset_codes: AssetCode[];
 
   /* --- inventory: timber ------------------------------------------- */
   /** Logs are bought by the load and used as boards — two quantities with a
@@ -709,4 +712,13 @@ export interface AssetVerificationRecord {
   applied_at: string | null;
   /** The first check of an asset registered during the recap (0292). */
   found_new?: boolean;
+}
+
+/** An asset's visible code in the one system (`assets.code` / `family_code` /
+ *  `description`, 0293), kept beside the asset in the sandbox. */
+export interface AssetCode {
+  asset_no: string;
+  code: string;
+  family_code: string;
+  description: string | null;
 }
