@@ -25,9 +25,15 @@ and after (`8b0076af…`), and the sequence stayed at 255.
 brand and 21 without a model, as the local proof had it; the 91 assets that were
 there before untouched. `v_asset_verification` lists 255, all unverified.
 
-**Still to do:** the photos — `scripts/import/upload-2013-photos.mjs`
-(`--dry-run` first) as an account with inventory write access, Procurement
-drive connected.
+**Photos, same day.** `scripts/import/upload-2013-photos.mjs`, run by the owner from
+their own terminal and account (credentials never passed through the session):
+`--dry-run` first (163 rows, every asset and file found, nothing written), then
+the real run: 164 linked, 162 uploaded, 2 reused by the upload route because
+their bytes matched a file already filed, 0 failed. Checked in the database:
+all 164 imported assets carry exactly one record photo with the 2013 note, 162
+distinct files, all in PROCUREMENT / `ops-talaliving/INVENTORY/ASSETS`.
+REFERENCE.md lists ten records sharing photos; only two pairs were
+byte-identical after cropping, so the rest are separate files of the same picture.
 
 ## 2026-11-18 — step 14, the 2013 machine register (D447) — local proof only
 
