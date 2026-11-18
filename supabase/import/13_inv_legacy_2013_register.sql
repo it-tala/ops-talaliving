@@ -4,7 +4,7 @@
 -- is the only list of the factory's machines anybody has. It was extracted
 -- row by row into `data/legacy_2013_register.csv` (163 rows; how, and what
 -- each column means: `docs/handoff/inventory-verification/REFERENCE.md`).
--- Production has stopped and the company is recapping what it owns (D437):
+-- Production has stopped and the company is recapping what it owns (D447):
 -- these become assets so the verify screens have something on record to
 -- check against.
 --

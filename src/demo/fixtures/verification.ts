@@ -1,7 +1,7 @@
 import type { Asset, AssetCategory, StockLocation } from "@/services/inventory/contracts";
 import type { AssetLegacy, AssetVerificationRecord } from "../state";
 
-/** The asset verification flow (`0290`, `0291`, D437) in the sandbox.
+/** The asset verification flow (`0290`, `0291`, D447) in the sandbox.
  *
  *  Twenty machines taken as they are from the 2013 register
  *  (`supabase/import/data/legacy_2013_register.csv`), the `machine` category,

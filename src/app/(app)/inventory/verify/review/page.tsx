@@ -16,7 +16,7 @@ import {
 } from "@/services/inventory/contracts";
 import { NO_ZONE, RecordPhoto, StatusBadge, zoneOf } from "../shared";
 
-/** Asset verification — the mismatch summary (D437).
+/** Asset verification — the mismatch summary (D447).
  *
  *  Everything a check found wrong, in one list: the fields that differ
  *  (*Brand: ~~MAS~~ → HUA HUA*), the condition and where it was found, who

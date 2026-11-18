@@ -1,5 +1,5 @@
 -- inv — asset verification: a check against the real thing, and the one road
--- from a check to the asset (0289, 0290, 0291, D437).
+-- from a check to the asset (0289, 0290, 0291, D447).
 --
 --   a mismatch with a photo -> verify_asset -> VRF-…, the photo filed against
 --     the verification; v_asset_verification shows it as the asset's status
@@ -49,7 +49,8 @@ begin
   assert exists (select 1 from ops_inv.stock_locations where code = 'GUDANG' and name = 'Gudang utama'),
     'the old rows stay as they were';
   assert exists (select 1 from ops_inv.asset_categories where code = 'machine'), 'the machines category';
-  assert (select count(*) from ops_inv.assets where legacy_code = 'C1-07') = 2, 'one 2013 line, two units';
+  assert (select count(*) from ops_inv.assets where legacy_code = 'C1-07' and asset_no like 'AST-E16%') = 2,
+    'one 2013 line, two units';
   assert ops_core.drive_path_for_record('foto', 'asset_verification', 'AST-E161')
          = 'INVENTORY/ASSET VERIFICATION/AST-E161', 'uploaded before the check: the asset''s folder';
   assert ops_core.drive_path_for_record('foto', 'asset', 'AST-E161') = 'INVENTORY/ASSETS',

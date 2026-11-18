@@ -1,7 +1,7 @@
 -- 0290_inv_asset_verification.sql — checking what is on record against the real thing.
 --
 -- Production has stopped and the company is recapping everything it owns
--- (owner, 2026-11-18, D437). The flow is one sentence: go to a zone, open an
+-- (owner, 2026-11-18, D447). The flow is one sentence: go to a zone, open an
 -- asset already on record, check each field against the machine in front of
 -- you, record its condition, where it is and a photo, save, next. Anything
 -- that does not match collects in one list, where somebody corrects the
@@ -97,7 +97,7 @@ create index if not exists asset_verifications_asset_idx
   on ops_inv.asset_verifications (asset_id, verified_at desc, verification_no desc);
 
 comment on table ops_inv.asset_verifications is
-  'One check of an asset against the real thing (0290, D437). Append-only: a recheck is a new row, the latest '
+  'One check of an asset against the real thing (0290, D447). Append-only: a recheck is a new row, the latest '
   'row per asset is its status, and the only change a row takes is the one-time applied_* stamp.';
 
 -- Append-only, held below the seams. Postgres has no column grant that binds
@@ -185,7 +185,7 @@ grant execute on function ops_core.drive_path_for_record(ops_core.doc_kind_t, te
 
 insert into ops_core.drive_paths (kind, entity, path, note) values
   ('foto', 'asset_verification', 'INVENTORY/ASSET VERIFICATION/{ASSET}',
-   'Photos taken at an asset verification, one folder per asset (0290, D437).')
+   'Photos taken at an asset verification, one folder per asset (0290, D447).')
 on conflict (kind, entity) do nothing;
 
 -- ── 5. the field checks ──────────────────────────────────────────────────
@@ -519,7 +519,7 @@ grant select on ops_inv.v_asset_verification to authenticated;
 
 comment on view ops_inv.v_asset_verification is
   'One row per asset on the register (and the lost ones a check found missing), with its latest verification; '
-  'status is unverified until somebody checks it (0290, D437).';
+  'status is unverified until somebody checks it (0290, D447).';
 
 analyze ops_inv.asset_verifications;
 analyze ops_inv.assets;

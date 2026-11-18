@@ -21,7 +21,7 @@ import {
 import { shrinkImage } from "../../log/notaFile";
 import { NO_ZONE, RecordPhoto, StatusBadge, differentFields, zoneOf } from "../shared";
 
-/** Asset verification — one asset, checked against the real thing (D437).
+/** Asset verification — one asset, checked against the real thing (D447).
  *
  *  Built for the under-thirty-seconds case on a tablet: open it, tick four
  *  fields, take one photo, *Save & next*. Each field is *Match* or

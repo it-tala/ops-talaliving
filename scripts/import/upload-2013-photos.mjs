@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Upload the 2013 register's photos and file each on its asset (D437).
+/** Upload the 2013 register's photos and file each on its asset (D447).
  *
  *  `supabase/import/13_inv_legacy_2013_register.sql` made the 164 assets. Their
  *  photos are files, and a file this app keeps goes to Drive **through the

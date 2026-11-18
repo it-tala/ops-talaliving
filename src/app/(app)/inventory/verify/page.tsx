@@ -14,7 +14,7 @@ import {
 } from "@/services/inventory/contracts";
 import { NO_ZONE, RecordPhoto, STATUS_ORDER, StatusBadge, zoneOf } from "./shared";
 
-/** Asset verification — the list by zone (D437).
+/** Asset verification — the list by zone (D447).
  *
  *  Production has stopped and the company is recapping what it owns. A
  *  checker picks a zone on the left, sees its assets as cards with their

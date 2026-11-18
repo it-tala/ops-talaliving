@@ -1771,7 +1771,7 @@ export async function labelCard(token: string): Promise<Result<LabelCard>> {
 }
 
 /* ------------------------------------------------------------------ */
-/* Asset verification (0290, D437)                                     */
+/* Asset verification (0290, D447)                                     */
 /* ------------------------------------------------------------------ */
 
 function toVerificationRow(r: Record<string, unknown>): AssetVerificationRow {

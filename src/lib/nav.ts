@@ -120,7 +120,7 @@ export const NAV: NavSection[] = [
       { label: "Stock Adjustments", labelKey: "adjustments", href: "/inventory/penyesuaian", icon: Wrench, permission: "inventory.adjust", badge: "new" },
       { label: "Assets", labelKey: "assets", href: "/inventory/assets", icon: MonitorSmartphone, permission: "inventory.read", badge: "new" },
       /* The recap while production is stopped: check each asset against the
-       * real thing, collect what differs (D437). */
+       * real thing, collect what differs (D447). */
       { label: "Asset verification", labelKey: "assetVerification", href: "/inventory/verify", icon: ClipboardCheck, permission: "inventory.read", badge: "new" },
       /* Labels for what was recorded: materials, assets, finished goods (D321). */
       { label: "Labels", labelKey: "labels", href: "/inventory/label", icon: Tags, permission: "inventory.read", badge: "new" },

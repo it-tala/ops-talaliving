@@ -1015,7 +1015,7 @@ export interface LabelCard {
 }
 
 /* ------------------------------------------------------------------ */
-/* Asset verification (0290, D437)                                     */
+/* Asset verification (0290, D447)                                     */
 /* ------------------------------------------------------------------ */
 /*  A field checker opens an asset already on record and checks it against
  *  the real thing: name, brand, model and quantity (*Match* or *Different*

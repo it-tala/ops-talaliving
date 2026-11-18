@@ -2,7 +2,7 @@
 --
 -- PT Talahome's site plan (Jepara, 25 Nov 2024, 1:350), which the owner
 -- confirmed matches the building today, names the zones a checker walks to
--- (D437; `docs/handoff/inventory-verification/data/zones.csv`). The ones that
+-- (D447; `docs/handoff/inventory-verification/data/zones.csv`). The ones that
 -- hold things — `holds_items` yes or maybe — join the one location list (D347)
 -- so an asset can be placed in them. Yards and parking hold nothing and are
 -- left off.

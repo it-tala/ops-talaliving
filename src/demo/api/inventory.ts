@@ -2208,7 +2208,7 @@ export function registerArrivedAsset(
 }
 
 /* ------------------------------------------------------------------ */
-/* Asset verification (0290, D437)                                     */
+/* Asset verification (0290, D447)                                     */
 /* ------------------------------------------------------------------ */
 /*  The same rules `verify_asset` / `apply_verification` hold, so the sandbox
  *  refuses what production refuses. `inventory` write stands in for

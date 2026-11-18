@@ -1,6 +1,6 @@
 -- 0289_core_asset_verification_link_entity.sql — a verification can carry files.
 --
--- The asset verification flow (0290, D437) photographs the machine at every
+-- The asset verification flow (0290, D447) photographs the machine at every
 -- check, and those photos are the proof of *that* check, not of the asset in
 -- general: a recheck next month has its own. So they are filed against the
 -- verification (`VRF-000001`), beside the asset's own record photo

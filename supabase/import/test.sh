@@ -520,7 +520,7 @@ RUNS=$(q -Atc "select count(distinct run_id) from ops_core.legacy_map")
 [ "$RUNS" = "5" ] || fail "five files, five run ids on the first pass" "saw $RUNS"
 pass "second run changed nothing"
 
-# ── 13: the 2013 machine register (D437) ─────────────────────────────────
+# ── 13: the 2013 machine register (D447) ─────────────────────────────────
 # Its own pair of runs, after the legacy ones, so the counts above stay a
 # statement about the legacy system alone. `\copy` reads its CSV relative to
 # the working directory, so this runs from the repo root as verify:db does.

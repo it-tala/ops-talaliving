@@ -10,7 +10,7 @@ import {
   type AssetVerificationRow, type VerificationChecks, type VerificationStatus,
 } from "@/services/inventory/contracts";
 
-/** Pieces the three verify screens share (D437): the status pill, the record
+/** Pieces the three verify screens share (D447): the status pill, the record
  *  photo, and how a row's zone is read. */
 
 export const STATUS_TONE: Record<VerificationStatus, Tone> = {

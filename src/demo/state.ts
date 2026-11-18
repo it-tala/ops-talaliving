@@ -479,7 +479,7 @@ export interface DemoState {
   asset_services: Omit<AssetService, "vendor_name">[];
   /** The 2013 register's columns beside an asset (`assets.legacy_*`, 0290). */
   asset_legacy: AssetLegacy[];
-  /** `ops_inv.asset_verifications` (0290, D437): append-only, the latest row
+  /** `ops_inv.asset_verifications` (0290, D447): append-only, the latest row
    *  per asset is its status. */
   asset_verifications: AssetVerificationRecord[];
 

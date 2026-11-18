@@ -6,7 +6,7 @@ this file is the part a person reads first — which run, why, and what still
 needs a decision.
 
 
-## 2026-11-18 — step 14, the 2013 machine register (D437) — local proof only
+## 2026-11-18 — step 14, the 2013 machine register (D447) — local proof only
 
 `13_inv_legacy_2013_register.sql` reads `data/legacy_2013_register.csv` (163
 rows extracted from the 2013 PDF; see
