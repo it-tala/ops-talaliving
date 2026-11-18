@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ClipboardCheck, ListChecks, Plus, Search } from "lucide-react";
@@ -105,6 +105,24 @@ function VerifyBoard({ rows, zone, tab, q, qValue, setQ, onZone, onTab, locName,
   locationCodes: string[];
   lang: "en" | "id"; tr: (en: string, id: string) => string; query: string;
 }) {
+  /* The board fills the window below where it starts, measured rather than
+     guessed, so it fits whatever the header and filters above it take. The
+     shell's bottom padding is pulled back in (`md:-mb-20`), so the page itself
+     does not scroll; the rail and the cards do. Phones keep the normal flow. */
+  const boardRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = boardRef.current;
+    if (!el) return;
+    const fit = () => {
+      if (window.innerWidth < 768) { el.style.height = ""; return; }
+      const scroller = el.closest("main");
+      const top = el.getBoundingClientRect().top + (scroller?.scrollTop ?? 0);
+      el.style.height = `${Math.max(416, window.innerHeight - top - 16)}px`;
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, []);
   const searchedRows = useMemo(() => {
     const term = q.trim().toLowerCase();
     if (!term) return rows;
@@ -182,18 +200,21 @@ function VerifyBoard({ rows, zone, tab, q, qValue, setQ, onZone, onTab, locName,
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-[13rem_minmax(0,1fr)] lg:grid-cols-[15rem_minmax(0,1fr)]">
-        <Card className="p-2">
+      {/* A fixed window on tablet and desktop: the rail and the cards scroll on
+          their own, so a long zone list or a long zone never stretches the
+          page (owner, 2026-11-18). On a phone the page flows as before. */}
+      <div ref={boardRef} className="grid gap-4 md:-mb-20 md:min-h-[26rem] md:grid-cols-[13rem_minmax(0,1fr)] lg:grid-cols-[15rem_minmax(0,1fr)]">
+        <Card className="p-2 md:flex md:min-h-0 md:flex-col">
           <p className="px-2.5 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{tr("Zones", "Zona")}</p>
-          <nav className="flex gap-1 overflow-x-auto md:flex-col md:overflow-visible" aria-label={tr("Zones", "Zona")}>
+          <nav className="flex gap-1 overflow-x-auto md:min-h-0 md:flex-1 md:flex-col md:overflow-x-visible md:overflow-y-auto md:pr-1" aria-label={tr("Zones", "Zona")}>
             {railItem("all", tr("All zones", "Semua zona"), verified, rows.length)}
             {zones.none.total > 0 && railItem(NO_ZONE, tr("No location", "Tanpa lokasi"), zones.none.done, zones.none.total)}
             {zones.list.map((z) => railItem(z.code, `${z.code} · ${locName(z.code)}`, z.done, z.total))}
           </nav>
         </Card>
 
-        <div className="min-w-0">
-          <div role="tablist" aria-label={tr("View", "Tampilan")} className="mb-3 inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+        <div className="min-w-0 md:flex md:min-h-0 md:flex-col">
+          <div role="tablist" aria-label={tr("View", "Tampilan")} className="mb-3 inline-flex self-start rounded-lg border border-slate-200 bg-slate-50 p-0.5">
             {([["assets", tr("Assets", "Aset")], ["count", tr("Count stock", "Hitung stok")]] as [View, string][]).map(([v, label]) => (
               <button
                 key={v} role="tab" aria-selected={view === v} type="button" onClick={() => onView(v)}
@@ -203,12 +224,12 @@ function VerifyBoard({ rows, zone, tab, q, qValue, setQ, onZone, onTab, locName,
             ))}
           </div>
           {view === "count" ? (
-            zone === "all" || zone === NO_ZONE ? (
+            <div className="md:min-h-0 md:flex-1 md:overflow-y-auto md:pr-1">{zone === "all" || zone === NO_ZONE ? (
               <EmptyState icon={ClipboardCheck} title={tr("Pick a zone to count", "Pilih zona untuk dihitung")}
                 description={tr("Counts are entered per location. Choose a zone on the left.", "Hitungan dicatat per lokasi. Pilih zona di kiri.")} />
             ) : (
               <CountStock zone={zone} zoneLabel={zoneTitle} />
-            )
+            )}</div>
           ) : (<>
           <div className="mb-3 flex flex-col gap-2 xl:flex-row xl:items-end xl:justify-between">
             <div>
@@ -231,6 +252,7 @@ function VerifyBoard({ rows, zone, tab, q, qValue, setQ, onZone, onTab, locName,
             </div>
           </div>
 
+          <div className="md:min-h-0 md:flex-1 md:overflow-y-auto md:pb-16 md:pr-1">
           {shown.length === 0 ? (
             <EmptyState
               icon={ClipboardCheck}
@@ -266,6 +288,7 @@ function VerifyBoard({ rows, zone, tab, q, qValue, setQ, onZone, onTab, locName,
               ))}
             </ul>
           )}
+          </div>
           </>)}
         </div>
       </div>
