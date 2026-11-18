@@ -166,3 +166,15 @@ Design reference: `reference/design/*.dc.html` (static markup with exact colours
 2. How do the existing locations `GUDANG`, `BENGKEL` and `FINISHING` map to the new zones?
 3. What status should imported machines start with: `in_storage` (production stopped) or `in_use`?
 4. Who may apply corrections: IT only, or anyone with asset edit rights?
+
+### Answered by the owner (2026-11-18, step 1 review: "Yes, use defaults")
+
+1. A new `machine` category ("Machines") for the imported register.
+2. Existing locations are not moved or mapped yet; the zones are only added beside them.
+3. Imported machines start `in_storage`.
+4. Anyone with `inventory.update` may apply a correction.
+5. The 2013 photos are uploaded by a Node script that signs in as an admin and posts each photo to `/api/documents/upload` (`entity=asset`), idempotent on sha256.
+6. The import runs against a local database first (run twice); production only after the owner agrees.
+7. A verification gets its own public number `VRF-000001` (used as `attachment_links.entity_no`); asset numbering is unchanged.
+8. *Follow up* on a `not_found` row is `apply_verification` on that row, which sets `status = lost` with `ended_on` after a confirm in the UI.
+9. Recording a verification needs `inventory.update`.
