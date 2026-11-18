@@ -64,9 +64,10 @@ jobs:
 
       - run: npm ci
 
-      # `tsc` first and on its own. `next.config.mjs` sets
-      # `eslint.ignoreDuringBuilds`, and a Next build tolerates type errors in
-      # code it does not reach — so neither of the steps below is a substitute
+      # `tsc` first and on its own. A Next build does not lint (Next 16 removed
+      # that entirely; `npm run lint` is ESLint's own CLI since F292), and it
+      # tolerates type errors in code it does not reach — so neither of the
+      # steps below is a substitute
       # for this one, and a green build with a broken type is the kind of green
       # this project exists to distrust.
       - name: typecheck

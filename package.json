@@ -4,13 +4,13 @@
   "private": true,
   "description": "Sistem manajemen internal manufaktur furnitur",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "next dev --webpack",
+    "build": "next build --webpack",
     "//verify": "What to run before pushing. `build` is next build and it is NOT what ships: opennextjs-cloudflare build is, and it refuses things next build accepts — an edge-runtime route, for one, which cost a deploy on 2026-09-21. This is every step of the `app` CI job, in its order; cf:build runs next build itself, so `build` is not repeated. The database job is supabase/local/rebuild.sh + smoke.sh + check-view-contracts.mjs, which need a cluster.",
     "verify": "npx tsc --noEmit && npm run lint && node scripts/check-live-routes.mjs && node scripts/check-permissions.mjs && node scripts/check-api-parity.mjs && node scripts/check-api-schemas.mjs && node scripts/check-bom-norms.mjs && npm run cf:build",
     "verify:db": "supabase/local/rebuild.sh && supabase/local/smoke.sh && node scripts/check-view-contracts.mjs && node scripts/check-schedule-rules.mjs && node scripts/check-john-lau.mjs && node scripts/sop/check-knowledge.mjs procurement && node scripts/sop/check-knowledge.mjs hr && supabase/import/test.sh",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "cf:build": "opennextjs-cloudflare build",
     "cf:preview": "opennextjs-cloudflare preview",
     "cf:deploy": "opennextjs-cloudflare deploy"
@@ -21,7 +21,7 @@
     "clsx": "2.1.1",
     "leaflet": "^1.9.4",
     "lucide-react": "0.454.0",
-    "next": "15.5.25",
+    "next": "16.4.6",
     "qrcode-generator": "^2.0.4",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -30,18 +30,18 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@opennextjs/cloudflare": "^1.20.6",
+    "@opennextjs/cloudflare": "^1.20.17",
     "@types/leaflet": "^1.9.22",
     "@types/node": "20.16.11",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "autoprefixer": "10.4.20",
-    "eslint": "^8.57.1",
-    "eslint-config-next": "^15.5.25",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "16.4.6",
     "jsqr": "^1.4.0",
     "postcss": "8.4.47",
     "tailwindcss": "3.4.13",
     "typescript": "5.6.3",
-    "wrangler": "^4.133.0"
+    "wrangler": "^4.164.0"
   }
 }
