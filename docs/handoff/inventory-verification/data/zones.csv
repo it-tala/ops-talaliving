@@ -1,0 +1,23 @@
+code,name,name_id,floor_level,holds_items,notes
+PRD,Production,Produksi,-2.00,yes,"Largest zone (~41 m long). No columns inside, so bays (PRD-1..PRD-4) would need floor or wall markers; bays are out of scope for v1"
+FN1,Finishing 1,Finishing 1,-2.00,yes,Left wing behind production
+FN2,Finishing 2,Finishing 2,-2.05,yes,"Rear right, ~13.8 x 9.1 m"
+OVN,Oven,Oven,-2.10,yes,~10 m
+GD1,Warehouse 1 (front left),Gudang 1 (depan kiri),+0.60,yes,6 m deep
+GD2,Warehouse 2 (front right),Gudang 2 (depan kanan),+0.60,yes,
+GD3,Warehouse 3 (small),Gudang 3 (kecil),+2.00,yes,Beside finishing
+GD4,Warehouse 4 (small),Gudang 4 (kecil),+2.00,yes,Beside finishing
+PKG,Packaging,Packaging,+2.05,yes,
+LOG,Logistics,Logistik,+2.00,yes,
+B1,Block 1 (storage + maintenance),Blok 1 (inventaris + maintenance),+2.00,yes,"Storage mixed with maintenance: electrical, well, etc."
+B2,Block 2 (storage + maintenance),Blok 2 (inventaris + maintenance),+2.00,yes,"Storage mixed with maintenance: electrical, well, etc."
+B3,Block 3 (storage + maintenance),Blok 3 (inventaris + maintenance),+2.00,yes,"Storage mixed with maintenance: electrical, well, etc."
+KT1,Office (upper),Kantor (atas),+0.60,yes,"Computers, furniture"
+KT2,Office (lower),Kantor (bawah),-2.05,yes,
+R06,Shared break room,Ruang istirahat bersama,+0.60,yes,
+MES,Staff housing,Mes,+2.00,maybe,
+HD1,Front yard (left),Halaman depan (kiri),±0.00,no,Open yard
+HD2,Front yard (right),Halaman depan (kanan),±0.00,no,Open yard
+HB,Rear yard,Halaman belakang,-2.25,no,Open yard
+PK1,Staff parking (front),Parkir staf (depan),±0.00,no,
+PK2,Staff parking (rear),Parkir staf (belakang),-2.15,no,

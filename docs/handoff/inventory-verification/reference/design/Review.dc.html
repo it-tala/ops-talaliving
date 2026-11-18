@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>Ringkasan ketidaksesuaian</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#1E5B43}a:hover{color:#123A2A}
+</style>
+</helmet>
+<div style="min-height: 900px; box-sizing: border-box; background: #F6F7F9; font-family: Inter, system-ui, sans-serif; color: #111827; font-size: 14px">
+<div style="max-width: 1320px; margin: 0 auto; padding: 28px 24px; display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 24px; font-weight: 700">Ringkasan ketidaksesuaian</h1>
+<span style="color: #6B7280">Item yang hasil verifikasinya berbeda dari data tercatat, untuk dibetulkan.</span>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 10px">
+<label style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: #4B5563">Zona
+<select style="height: 36px; padding: 0 10px; border: 1px solid #D1D5DB; border-radius: 10px; font-family: inherit; font-size: 14px; background: #FFFFFF"><option>Semua zona</option><option>PRD</option><option>FN1</option><option>FN2</option></select></label>
+<label style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: #4B5563">Hasil
+<select style="height: 36px; padding: 0 10px; border: 1px solid #D1D5DB; border-radius: 10px; font-family: inherit; font-size: 14px; background: #FFFFFF"><option>Tidak sesuai + tidak ditemukan</option><option>Semua</option></select></label>
+</div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px">
+<div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px"><span style="font-size: 13px; color: #4B5563">Terverifikasi</span><span style="font-size: 26px; font-weight: 700">37 <span style="font-size: 15px; font-weight: 500; color: #6B7280">/ 163</span></span></div>
+<div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px"><span style="font-size: 13px; color: #4B5563">Sesuai</span><span style="font-size: 26px; font-weight: 700; color: #166534">28</span></div>
+<div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px"><span style="font-size: 13px; color: #4B5563">Tidak sesuai</span><span style="font-size: 26px; font-weight: 700; color: #92400E">7</span></div>
+<div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px"><span style="font-size: 13px; color: #4B5563">Tidak ditemukan</span><span style="font-size: 26px; font-weight: 700; color: #991B1B">2</span></div>
+</div>
+<div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; overflow-x: auto">
+<table style="width: 100%; min-width: 1000px; border-collapse: collapse">
+<thead>
+<tr style="background: #F9FAFB; text-align: left; font-size: 12px; color: #6B7280">
+<th style="padding: 10px 16px; font-weight: 600">Item</th>
+<th style="padding: 10px 16px; font-weight: 600">Hasil</th>
+<th style="padding: 10px 16px; font-weight: 600">Perbedaan</th>
+<th style="padding: 10px 16px; font-weight: 600">Kondisi · lokasi</th>
+<th style="padding: 10px 16px; font-weight: 600">Diverifikasi</th>
+<th style="padding: 10px 16px; font-weight: 600"><span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Aksi</span></th>
+</tr>
+</thead>
+<tbody>
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="4">
+<tr style="border-top: 1px solid #F0F1F3; vertical-align: middle">
+<td style="padding: 12px 16px"><div style="display: flex; align-items: center; gap: 12px">
+<img src="{{r.img}}" alt="" style="width: 72px; height: 48px; object-fit: cover; border-radius: 6px; display: block">
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600; color: #1E5B43">{{r.code}}</span><span style="font-weight: 600">{{r.name}}</span><span style="font-size: 12px; color: #6B7280">Lama {{r.old}}</span></div>
+</div></td>
+<td style="padding: 12px 16px"><span style="{{r.pill}}"><span style="{{r.dot}}"></span>{{r.result}}</span></td>
+<td style="padding: 12px 16px">
+<sc-for list="{{r.diffs}}" as="d" hint-placeholder-count="1">
+<div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap"><span style="color: #4B5563">{{d.f}}:</span><span style="text-decoration: line-through; color: #6B7280">{{d.a}}</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6B7280" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"></path><path d="M13 6l6 6-6 6"></path></svg><span style="font-weight: 600">{{d.b}}</span></div>
+</sc-for>
+<span style="font-size: 12px; color: #6B7280">{{r.note}}</span>
+</td>
+<td style="padding: 12px 16px; color: #374151">{{r.cond}}</td>
+<td style="padding: 12px 16px; color: #6B7280">{{r.who}}</td>
+<td style="padding: 12px 16px; text-align: right"><button type="button" style="height: 34px; padding: 0 14px; border-radius: 8px; border: 0; background: #1E5B43; color: #FFFFFF; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer">{{r.action}}</button></td>
+</tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const P = 'display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;';
+    const ST = {
+      'Tidak sesuai': [P + 'background:#FFFBEB;color:#92400E;border:1px solid #FDE68A;', '#D97706'],
+      'Tidak ditemukan': [P + 'background:#FEF2F2;color:#991B1B;border:1px solid #FECACA;', '#DC2626']
+    };
+    const rows = [
+      { code: 'AST-0101', name: 'Gergaji, Pita', old: 'S2-01', img: '/_blob/af687b020cd9781be9b0644dbf91a71f', result: 'Tidak sesuai', diffs: [{ f: 'Merek', a: 'MAS', b: 'HUA HUA' }], note: 'Plat nama menunjukkan merek HUA HUA', cond: 'Berfungsi · PRD', who: '[Nama] · 18 Nov 09:42', action: 'Terapkan koreksi' },
+      { code: 'AST-0103', name: 'Gergaji, Pita', old: 'S2-03', img: '/_blob/7d5b93d0f169a84919cbffb4d52e7835', result: 'Tidak sesuai', diffs: [{ f: 'Model', a: 'MJ345A', b: 'MJ345' }], note: '', cond: 'Rusak · OVN', who: '[Nama] · 18 Nov 09:51', action: 'Terapkan koreksi' },
+      { code: 'AST-0064', name: 'Profil, Spindle Ganda', old: 'M2-02', img: '/_blob/d190a81ef2461dd5f894c67f064380d8', result: 'Tidak sesuai', diffs: [{ f: 'Model', a: 'MX 53110', b: 'MX5317' }, { f: 'Jumlah', a: '1 unit', b: '2 unit' }], note: '', cond: 'Berfungsi · PRD', who: '[Nama] · 18 Nov 10:03', action: 'Terapkan koreksi' },
+      { code: 'AST-0072', name: 'Serut, Besar', old: 'P1-03', img: '/_blob/46ac5c1e37a4ec05df9137595a8b4b72', result: 'Tidak ditemukan', diffs: [], note: 'Dicari di PRD, FN1, GD1', cond: '—', who: '[Nama] · 18 Nov 09:55', action: 'Tindak lanjut' }
+    ];
+    return { rows: rows.map(r => Object.assign({}, r, { pill: ST[r.result][0], dot: 'width:8px;height:8px;border-radius:50%;background:' + ST[r.result][1] + ';' })) };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>Apa yang beda</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#1E5B43}a:hover{color:#123A2A}
+</style>
+</helmet>
+<div style="width: 1180px; height: 820px; box-sizing: border-box; background: #F5F4EF; font-family: Inter, system-ui, sans-serif; color: #14171A; display: flex; flex-direction: column">
+<header style="height: 88px; box-sizing: border-box; padding: 0 24px; display: flex; align-items: center; gap: 20px; background: #B85400; color: #FFFFFF">
+<a href="Cek.dc.html" style="display: flex; align-items: center; gap: 6px; color: #FFFFFF; text-decoration: none; font-size: 22px; font-weight: 700; background: rgba(255,255,255,0.18); padding: 12px 18px 12px 10px; border-radius: 12px; min-height: 56px; box-sizing: border-box">
+<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>Kembali</a>
+<span style="font-size: 30px; font-weight: 800">Apa yang beda?</span>
+<span style="margin-left: auto; display: flex; align-items: center; gap: 12px; font-size: 22px; font-weight: 700">
+<img src="/_blob/af687b020cd9781be9b0644dbf91a71f" alt="" style="width: 84px; height: 56px; object-fit: cover; border-radius: 8px; border: 2px solid #FFFFFF">AST-0101 · Gergaji, Pita</span>
+</header>
+<div style="flex: 1; display: flex; gap: 24px; padding: 24px; box-sizing: border-box; min-height: 0">
+<section style="flex: 1; display: flex; flex-direction: column; gap: 16px; min-width: 0">
+<p style="margin: 0; font-size: 22px; font-weight: 600; color: #4A5058">Pilih semua yang tidak sesuai. Boleh lebih dari satu.</p>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px">
+<sc-for list="{{chips}}" as="c" hint-placeholder-count="6">
+<button type="button" onClick="{{c.toggle}}" aria-pressed="{{c.on}}" style="{{c.style}}">
+<span style="{{c.box}}">
+<sc-if value="{{c.on}}" hint-placeholder-val="{{ false }}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></sc-if>
+</span>{{c.label}}</button>
+</sc-for>
+</div>
+<sc-if value="{{showLoc}}" hint-placeholder-val="{{ true }}">
+<div style="background: #FFFFFF; border: 2px solid #B85400; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+<span style="font-size: 22px; font-weight: 700">Sekarang ada di mana?</span>
+<div style="display: flex; flex-wrap: wrap; gap: 10px">
+<sc-for list="{{locs}}" as="l" hint-placeholder-count="6">
+<button type="button" onClick="{{l.pick}}" style="{{l.style}}">{{l.code}}</button>
+</sc-for>
+</div>
+</div>
+</sc-if>
+</section>
+<aside style="width: 380px; display: flex; flex-direction: column; gap: 16px">
+<button type="button" onClick="{{toggleRec}}" style="{{recStyle}}">
+<svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="{{recIcon}}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0"></path><path d="M12 18v3"></path></svg>
+<span style="font-size: 26px; font-weight: 800">{{recLabel}}</span>
+<span style="font-size: 18px; font-weight: 600">{{recHint}}</span>
+</button>
+<label style="display: flex; flex-direction: column; gap: 8px; font-size: 20px; font-weight: 700">Catatan (boleh diketik pembantu)
+<textarea rows="3" placeholder="Contoh: mesin dipindah ke dekat oven" style="font-family: inherit; font-size: 20px; padding: 12px 14px; border-radius: 12px; border: 2px solid #5B6067; resize: none"></textarea>
+</label>
+<a href="Foto.dc.html" style="margin-top: auto; min-height: 96px; border-radius: 18px; background: #1E5B43; color: #FFFFFF; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 28px; font-weight: 800">Lanjut ke foto
+<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></a>
+</aside>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1180,"height":820}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { on: { 'Lokasi': true }, loc: 'OVN', rec: false }; }
+  renderVals() {
+    const labels = ['Lokasi', 'Nama / jenis', 'Merek / model', 'Jumlah', 'Foto lama salah', 'Lainnya'];
+    const on = this.state.on;
+    const chips = labels.map(label => {
+      const sel = !!on[label];
+      return {
+        label, on: sel,
+        toggle: () => this.setState({ on: Object.assign({}, on, { [label]: !sel }) }),
+        style: 'min-height:84px;display:flex;align-items:center;gap:16px;padding:0 20px;border-radius:16px;font-family:inherit;font-size:26px;font-weight:700;text-align:left;cursor:pointer;' +
+          (sel ? 'background:#FFF0DD;color:#7A3900;border:3px solid #B85400;' : 'background:#FFFFFF;color:#14171A;border:2px solid #5B6067;'),
+        box: 'width:40px;height:40px;flex:none;border-radius:10px;display:flex;align-items:center;justify-content:center;' +
+          (sel ? 'background:#B85400;' : 'background:#FFFFFF;border:2px solid #5B6067;box-sizing:border-box;')
+      };
+    });
+    const locs = ['PRD', 'FN1', 'FN2', 'OVN', 'GD1', 'GD2', 'B1', 'B2', 'B3', 'PKG'].map(code => ({
+      code,
+      pick: () => this.setState({ loc: code }),
+      style: 'min-width:92px;min-height:60px;border-radius:12px;font-family:inherit;font-size:22px;font-weight:800;cursor:pointer;' +
+        (code === this.state.loc ? 'background:#14171A;color:#FFFFFF;border:2px solid #14171A;' : 'background:#FFFFFF;color:#14171A;border:2px solid #5B6067;')
+    }));
+    const rec = this.state.rec;
+    return {
+      chips, locs, showLoc: !!on['Lokasi'],
+      toggleRec: () => this.setState({ rec: !rec }),
+      recLabel: rec ? 'Merekam… tekan untuk berhenti' : 'Rekam suara',
+      recHint: rec ? '0:07' : 'Ceritakan apa yang beda',
+      recIcon: rec ? '#FFFFFF' : '#B42318',
+      recStyle: 'min-height:220px;border-radius:20px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;font-family:inherit;cursor:pointer;' +
+        (rec ? 'background:#B42318;color:#FFFFFF;border:3px solid #B42318;' : 'background:#FFFFFF;color:#14171A;border:3px solid #B42318;')
+    };
+  }
+}
+</script>
+</body>
+</html>
