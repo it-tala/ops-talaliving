@@ -707,4 +707,6 @@ export interface AssetVerificationRecord {
   verified_at: string;
   applied_by: string | null;
   applied_at: string | null;
+  /** The first check of an asset registered during the recap (0292). */
+  found_new?: boolean;
 }

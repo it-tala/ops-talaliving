@@ -29,6 +29,7 @@ import type {
   LabelKind, LabelSource, LabelCard, StockedCategory,
   StockEntryChange, StockMovePatch, ItemDetailsPatch,
   AssetVerificationRow, VerifyAssetInput, VerifyAssetAnswer, ApplyVerificationAnswer,
+  RegisterFoundAssetInput, RegisterFoundAssetAnswer,
 } from "@/services/inventory/contracts";
 import { stockedCategoryTree } from "@/services/inventory/categories";
 import type { MaterialPlan } from "@/services/production/contracts";
@@ -1827,4 +1828,26 @@ export async function verifyAsset(
 export async function applyVerification(verificationNo: string): Promise<Result<ApplyVerificationAnswer>> {
   const { data, error } = await db().rpc("apply_verification", { p_verification_no: verificationNo });
   return fromSeam<ApplyVerificationAnswer>(SERVICE, data, error);
+}
+
+/** An asset nobody had on record, registered where it stands
+ *  (`register_found_asset`, 0292, D448). The photos are uploaded first
+ *  (`entity: asset`, no number yet) and linked by the seam to the new asset
+ *  and to its first check. */
+export async function registerFoundAsset(
+  input: RegisterFoundAssetInput, idempotencyKey?: string,
+): Promise<Result<RegisterFoundAssetAnswer>> {
+  const { data, error } = await db().rpc("register_found_asset", {
+    p_name: input.name,
+    p_category_code: input.category_code,
+    p_location: input.location,
+    p_condition: input.condition,
+    p_photo_ids: input.photo_ids,
+    p_brand: input.brand?.trim() || null,
+    p_model: input.model?.trim() || null,
+    p_note: input.note?.trim() || null,
+    p_status: input.status ?? "in_storage",
+    p_key: idempotencyKey ?? null,
+  });
+  return fromSeam<RegisterFoundAssetAnswer>(SERVICE, data, error);
 }

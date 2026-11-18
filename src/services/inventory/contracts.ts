@@ -1025,9 +1025,10 @@ export interface LabelCard {
  *  only road, from the mismatch summary. */
 
 export type VerificationResult = "match" | "mismatch" | "not_found";
-/** A result, or `unverified` when nobody has checked the asset yet. Computed
- *  by `v_asset_verification`, never stored. */
-export type VerificationStatus = VerificationResult | "unverified";
+/** A result, `unverified` when nobody has checked the asset yet, or `new` for
+ *  an asset registered during the recap because it was not on record (0292).
+ *  Computed by `v_asset_verification`, never stored. */
+export type VerificationStatus = VerificationResult | "unverified" | "new";
 export type AssetCondition = "working" | "broken" | "untested";
 export type VerifyField = "name" | "brand" | "model" | "qty";
 
@@ -1047,6 +1048,7 @@ export const VERIFICATION_STATUS_LABELS: Record<VerificationStatus, Message> = {
   match: { en: "Match", id: "Sesuai" },
   mismatch: { en: "Mismatch", id: "Tidak sesuai" },
   not_found: { en: "Not found", id: "Tidak ditemukan" },
+  new: { en: "New", id: "Baru" },
 };
 export const ASSET_CONDITION_LABELS: Record<AssetCondition, Message> = {
   working: { en: "Working", id: "Berfungsi" },
@@ -1098,6 +1100,8 @@ export interface AssetVerificationRow {
   record_photo_id: string | null;
   record_photo_count: number;
   verification_photo_count: number;
+  /** The latest check is the first one of an asset found during the recap. */
+  found_new: boolean;
 }
 
 /** What `verifyAsset` records. `not_found` needs only a note; anything else
@@ -1131,4 +1135,47 @@ export interface ApplyVerificationAnswer {
 export function verificationResultOf(checks: VerificationChecks): "match" | "mismatch" | null {
   if (VERIFY_FIELDS.some((f) => checks[f] == null)) return null;
   return VERIFY_FIELDS.some((f) => checks[f]?.ok === false) ? "mismatch" : "match";
+}
+
+/* ── Found during the recap (0292, D448) ───────────────────────────── */
+
+/** What a found thing is, as the big tiles on the *new item* screen offer it.
+ *  The type names the asset and decides its category; nothing else is stored
+ *  (owner, answer 2). Machines are `machine`, tools are `tool`. */
+export type FoundAssetType =
+  | "saw" | "sander" | "planer" | "router" | "drill" | "press" | "compressor" | "spray_booth" | "sewing"
+  | "power_tool" | "hand_tool" | "other";
+
+export const FOUND_ASSET_TYPES: { type: FoundAssetType; label: Message; category: string }[] = [
+  { type: "saw", label: { en: "Saw", id: "Gergaji" }, category: "machine" },
+  { type: "sander", label: { en: "Sander", id: "Amplas" }, category: "machine" },
+  { type: "planer", label: { en: "Planer", id: "Serut" }, category: "machine" },
+  { type: "router", label: { en: "Router", id: "Router" }, category: "machine" },
+  { type: "drill", label: { en: "Drill", id: "Bor" }, category: "machine" },
+  { type: "press", label: { en: "Press", id: "Press" }, category: "machine" },
+  { type: "compressor", label: { en: "Compressor", id: "Kompresor" }, category: "machine" },
+  { type: "spray_booth", label: { en: "Spray booth", id: "Spray booth" }, category: "machine" },
+  { type: "sewing", label: { en: "Sewing machine", id: "Mesin jahit" }, category: "machine" },
+  { type: "power_tool", label: { en: "Power tool", id: "Alat listrik" }, category: "tool" },
+  { type: "hand_tool", label: { en: "Hand tool", id: "Alat tangan" }, category: "tool" },
+  { type: "other", label: { en: "Other", id: "Lainnya" }, category: "other" },
+];
+
+/** What `registerFoundAsset` records: the asset and its first check at once. */
+export interface RegisterFoundAssetInput {
+  name: string;
+  category_code: string;
+  location: string;
+  condition: AssetCondition;
+  photo_ids: string[];
+  brand?: string | null;
+  model?: string | null;
+  note?: string | null;
+  status?: "in_use" | "in_storage" | "under_repair";
+}
+
+export interface RegisterFoundAssetAnswer {
+  asset_no: string;
+  verification_no: string;
+  photos: number;
 }

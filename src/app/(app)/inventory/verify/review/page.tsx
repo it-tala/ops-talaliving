@@ -2,12 +2,13 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, CheckCircle2, ClipboardCheck, ListChecks, SearchX, TriangleAlert } from "lucide-react";
+import { ArrowLeft, Boxes, CheckCircle2, ClipboardCheck, ListChecks, SearchX, Sparkles, TriangleAlert } from "lucide-react";
 import { Button, Card, CardHeader, PageHeader, StatCard } from "@/components/ui/primitives";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Modal } from "@/components/ui/drawer";
 import { Loaded, SourceBadge, useLoad } from "@/components/ui/loaded";
 import { inventory } from "@/demo/api";
+import { formatNumber } from "@/lib/format";
 import { pick, useLang, useTr } from "@/lib/i18n";
 import { useSession } from "@/store/session";
 import { useToast } from "@/store/toast";
@@ -28,7 +29,10 @@ import { NO_ZONE, RecordPhoto, StatusBadge, zoneOf } from "../shared";
  *
  *  A `DataTable`, so the Excel download comes with it (D427).
  */
-type ResultFilter = "problems" | "all" | "match" | "mismatch" | "not_found";
+type ResultFilter = "problems" | "all" | "match" | "mismatch" | "not_found" | "new";
+
+/** One counted item at one location, for the counted-stock table (D448). */
+type CountedRow = { key: string; location: string; location_name: string; item_code: string; item_name: string; category_name: string; qty: number; uom: string };
 
 export default function VerifyReviewPage() {
   const tr = useTr();
@@ -136,7 +140,7 @@ export default function VerifyReviewPage() {
             </span>
           );
         }
-        if (r.status === "match" || r.status === "unverified" || !mayApply) return null;
+        if (r.status === "match" || r.status === "unverified" || r.status === "new" || !mayApply) return null;
         return (
           <Button size="sm" variant={r.status === "not_found" ? "outline" : "secondary"} onClick={() => setConfirm(r)}>
             {r.status === "not_found" ? tr("Follow up", "Tindak lanjut") : tr("Apply correction", "Terapkan koreksi")}
@@ -233,12 +237,14 @@ function ReviewBody({ all, zone, setZone, result, setResult, columns, locName, t
 
   return (
     <>
-      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-5">
         <StatCard label={tr("Verified", "Terverifikasi")} value={verified.length} icon={ClipboardCheck}
           hint={tr(`of ${inZone.length} assets`, `dari ${inZone.length} aset`)} />
         <StatCard label={tr("Match", "Sesuai")} value={n("match")} icon={CheckCircle2} tone="green" />
         <StatCard label={tr("Mismatch", "Tidak sesuai")} value={n("mismatch")} icon={TriangleAlert} tone="amber" />
         <StatCard label={tr("Not found", "Tidak ditemukan")} value={n("not_found")} icon={SearchX} tone="red" />
+        <StatCard label={tr("New", "Baru")} value={n("new")} icon={Sparkles} tone="brand"
+          hint={tr("Found, not on record", "Ditemukan, belum tercatat")} />
       </div>
       <Card>
         <CardHeader
@@ -260,6 +266,7 @@ function ReviewBody({ all, zone, setZone, result, setResult, columns, locName, t
                 <option value="match">{tr("Match", "Sesuai")}</option>
                 <option value="mismatch">{tr("Mismatch", "Tidak sesuai")}</option>
                 <option value="not_found">{tr("Not found", "Tidak ditemukan")}</option>
+                <option value="new">{tr("New (found during the recap)", "Baru (ditemukan saat rekap)")}</option>
               </select>
             </div>
           }
@@ -270,6 +277,54 @@ function ReviewBody({ all, zone, setZone, result, setResult, columns, locName, t
           empty={tr("Nothing to follow up under this filter.", "Tidak ada yang perlu ditindaklanjuti dengan filter ini.")}
         />
       </Card>
+      <CountedStock zone={zone} tr={tr} />
     </>
+  );
+}
+
+/** What was counted, per zone — materials, consumables, hand tools in bulk
+ *  (D448). Read from the stock moves (`listStock`), one row per item and
+ *  location, under the same zone filter as the checks above. */
+function CountedStock({ zone, tr }: { zone: string; tr: (en: string, id: string) => string }) {
+  const [stock, reload] = useLoad(() => inventory.listStock(), []);
+  const columns: Column<CountedRow>[] = [
+    { key: "loc", header: tr("Zone", "Zona"), render: (r) => <span className="text-slate-700">{r.location} · {r.location_name}</span> },
+    {
+      key: "item", header: tr("Item", "Barang"),
+      render: (r) => (
+        <div>
+          <p className="font-medium text-slate-800">{r.item_name}</p>
+          <p className="font-mono text-[11px] text-slate-400">{r.item_code}</p>
+        </div>
+      ),
+    },
+    { key: "cat", header: tr("Category", "Kategori"), render: (r) => <span className="text-slate-600">{r.category_name}</span> },
+    { key: "qty", header: tr("Quantity", "Jumlah"), align: "right", render: (r) => <span className="tabular-nums font-medium">{formatNumber(r.qty)} {r.uom}</span> },
+  ];
+  return (
+    <Card className="mt-6">
+      <CardHeader
+        title={tr("Counted stock", "Stok terhitung")}
+        subtitle={tr("What each zone holds of the things that are counted rather than checked one by one.", "Isi tiap zona untuk barang yang dihitung, bukan dicek satu per satu.")}
+        icon={Boxes}
+        action={<SourceBadge state={stock} />}
+      />
+      <Loaded state={stock} onRetry={reload}>
+        {(items) => {
+          const rows: CountedRow[] = items.flatMap((i) => i.by_location
+            .filter((l) => l.qty !== 0 && (zone === "all" || l.location === zone))
+            .map((l) => ({
+              key: `${l.location}:${i.item_code}`, location: l.location, location_name: l.location_name,
+              item_code: i.item_code, item_name: i.item_name, category_name: i.category_name, qty: l.qty, uom: i.uom,
+            })))
+            .sort((a, b) => a.location.localeCompare(b.location) || a.item_name.localeCompare(b.item_name));
+          return (
+            <DataTable columns={columns} rows={rows} rowKey={(r) => r.key}
+              exportName={tr("Counted stock", "Stok terhitung")}
+              empty={tr("Nothing counted in this zone yet.", "Belum ada yang dihitung di zona ini.")} />
+          );
+        }}
+      </Loaded>
+    </Card>
   );
 }

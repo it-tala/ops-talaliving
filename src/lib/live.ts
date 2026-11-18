@@ -99,6 +99,7 @@ export const LIVE_ROUTES: readonly string[] = [
   "/inventory/produk",
   "/inventory/verify",
   "/inventory/verify/[asset_no]",
+  "/inventory/verify/new",
   "/inventory/verify/review",
   "/it/aktivitas",
   "/it/aturan-gaji",

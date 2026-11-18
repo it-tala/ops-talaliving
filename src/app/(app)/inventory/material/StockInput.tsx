@@ -23,8 +23,10 @@ import { useTr } from "@/lib/i18n";
  *  The form stays open after a save, with the location kept, because entering
  *  a rack is a run of entries, not one.
  */
-export function StockInput({ catalogue, onSaved, onNewItem, onClose }: {
+export function StockInput({ catalogue, onSaved, onNewItem, onClose, defaultLocation }: {
   catalogue: StockItemView[];
+  /** The location to start on — the zone being counted in the recap (D448). */
+  defaultLocation?: string;
   onSaved: (itemCode: string) => void;
   onNewItem: (name: string) => void;
   onClose: () => void;
@@ -32,7 +34,7 @@ export function StockInput({ catalogue, onSaved, onNewItem, onClose }: {
   const tr = useTr();
   const { toast } = useToast();
   const [locations] = useLoad(() => inventory.listStockLocations(), []);
-  const [form, setForm] = useState({ item_code: "", location: "", qty: 0, note: "" });
+  const [form, setForm] = useState({ item_code: "", location: defaultLocation ?? "", qty: 0, note: "" });
   const [busy, setBusy] = useState(false);
   /* One key per entry, so a double tap on a slow network enters it once. */
   const [key, setKey] = useState(() => newKey());
