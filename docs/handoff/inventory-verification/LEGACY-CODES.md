@@ -1,8 +1,9 @@
 # The 2013 register's codes — a data definition (proposal)
 
-Status: **proposal for the owner** (2026-11-18). Read off all 163 rows of
-`MACHINE INVENTORY 2013` (`data/legacy_2013_register.csv`). Nothing in the app
-or the database changes until it is approved.
+Status: **approved 2026-11-18 (D450)** — names in the 2013 uppercase format
+(question 1); the stored `legacy_*` values stay as recorded and are only
+flagged (question 2, the proposed default, taken). Read off all 163 rows of
+`MACHINE INVENTORY 2013` (`data/legacy_2013_register.csv`).
 
 A 2013 row reads, for example:
 

@@ -12,7 +12,8 @@ import { pick, useLang, useTr } from "@/lib/i18n";
 import {
   VERIFICATION_STATUS_LABELS, type AssetVerificationRow, type VerificationStatus,
 } from "@/services/inventory/contracts";
-import { NO_ZONE, RecordPhoto, STATUS_ORDER, StatusBadge, zoneOf } from "./shared";
+import { LegacyLine, NO_ZONE, RecordPhoto, STATUS_ORDER, StatusBadge, zoneOf } from "./shared";
+import { legacySearchText } from "@/services/inventory/legacy";
 import { CountStock } from "./CountStock";
 
 /** Asset verification — the list by zone (D447).
@@ -126,7 +127,10 @@ function VerifyBoard({ rows, zone, tab, q, qValue, setQ, onZone, onTab, locName,
   const searchedRows = useMemo(() => {
     const term = q.trim().toLowerCase();
     if (!term) return rows;
-    return rows.filter((r) => [r.asset_no, r.legacy_code, r.name, r.brand, r.model].some((x) => x?.toLowerCase().includes(term)));
+    /* By number, name, brand, model — and the 2013 record: code, family
+       (`S2`, *saw*), area (`M16`), department and its short code (D450). */
+    return rows.filter((r) => [r.asset_no, r.name, r.brand, r.model].some((x) => x?.toLowerCase().includes(term))
+      || legacySearchText(r).includes(term));
   }, [rows, q]);
 
   const verified = rows.filter((r) => r.status !== "unverified").length;
@@ -186,7 +190,7 @@ function VerifyBoard({ rows, zone, tab, q, qValue, setQ, onZone, onTab, locName,
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             value={qValue} onChange={(e) => setQ(e.target.value)} type="search"
-            placeholder={tr("Asset no, old code, name, brand, model", "No aset, kode lama, nama, merek, model")}
+            placeholder={tr("Asset no, name, brand · 2013 code, family, area, dept", "No aset, nama, merek · kode 2013, famili, area, dept")}
             className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm focus:border-brand-400 focus:outline-none"
           />
         </label>
@@ -275,13 +279,14 @@ function VerifyBoard({ rows, zone, tab, q, qValue, setQ, onZone, onTab, locName,
                       <span className="flex items-baseline justify-between gap-2">
                         <span className="font-mono text-[12px] font-semibold text-slate-800">{r.asset_no}</span>
                         {r.legacy_code && (
-                          <span className="text-[11px] text-slate-500">{tr(`Old: ${r.legacy_code}`, `Lama: ${r.legacy_code}`)}</span>
+                          <span className="font-mono text-[11px] text-slate-500">{r.legacy_code}</span>
                         )}
                       </span>
                       <span className="mt-0.5 block truncate text-sm font-medium text-slate-800" title={r.name}>{r.name}</span>
                       <span className="block truncate text-xs text-slate-500">
                         {[r.brand, r.model].filter(Boolean).join(" · ") || "—"}
                       </span>
+                      <LegacyLine row={r} className="mt-1" />
                     </span>
                   </Link>
                 </li>

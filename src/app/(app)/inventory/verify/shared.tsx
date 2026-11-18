@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Camera, ImageOff, X } from "lucide-react";
+import { Camera, ImageOff, TriangleAlert, X } from "lucide-react";
 import { Badge, type Tone } from "@/components/ui/primitives";
 import { cn } from "@/lib/cn";
 import { pick, useLang, useTr, type Message } from "@/lib/i18n";
@@ -11,6 +11,7 @@ import {
   VERIFICATION_STATUS_LABELS, VERIFY_FIELDS, VERIFY_FIELD_LABELS,
   type AssetVerificationRow, type VerificationChecks, type VerificationStatus,
 } from "@/services/inventory/contracts";
+import { decodeLegacyArea, decodeLegacyCode, legacyDepartment } from "@/services/inventory/legacy";
 
 /** Pieces the three verify screens share (D447): the status pill, the record
  *  photo, and how a row's zone is read. */
@@ -171,5 +172,64 @@ export function PhotoSlots({ photos, setPhoto, disabled, firstLabel }: {
         </p>
       )}
     </>
+  );
+}
+
+/* ── the 2013 record, decoded (D450) ─────────────────────────────────── */
+
+type LegacyRow = Pick<AssetVerificationRow, "legacy_code" | "legacy_area" | "legacy_department" | "legacy_notes">;
+
+/** One line for a card or a table row: `S2 Saw · 2013 M16 · ASM`, with a
+ *  warning mark when the 2013 analysis flagged the row or the code breaks the
+ *  pattern. */
+export function LegacyLine({ row, className }: { row: LegacyRow; className?: string }) {
+  const lang = useLang();
+  const tr = useTr();
+  const code = decodeLegacyCode(row.legacy_code);
+  if (!code) return null;
+  const dept = legacyDepartment(row.legacy_department);
+  const flagged = !!row.legacy_notes || !!code.broken;
+  return (
+    <span className={cn("flex items-center gap-1 truncate text-[11px] text-slate-500", className)}
+      title={[code.broken && pick(code.broken, lang), row.legacy_notes].filter(Boolean).join(" · ") || undefined}>
+      {flagged && <TriangleAlert className="h-3 w-3 shrink-0 text-amber-500" aria-label={tr("Flagged in 2013", "Ditandai 2013")} />}
+      <span className="truncate">
+        {code.family}{code.familyLabel ? ` ${pick(code.familyLabel, lang)}` : ""}
+        {row.legacy_area ? ` · 2013 ${row.legacy_area}` : ""}
+        {dept ? ` · ${dept.short}` : row.legacy_department ? ` · ${row.legacy_department}` : ""}
+      </span>
+    </span>
+  );
+}
+
+/** The verify screen's panel: each part of the 2013 record and what it means. */
+export function LegacyPanel({ row, familySize }: { row: LegacyRow; familySize?: number }) {
+  const lang = useLang();
+  const tr = useTr();
+  const code = decodeLegacyCode(row.legacy_code);
+  if (!code) return null;
+  const area = decodeLegacyArea(row.legacy_area);
+  const dept = legacyDepartment(row.legacy_department);
+  const item = (label: string, value: React.ReactNode, meaning: React.ReactNode) => (
+    <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-3 py-1.5">
+      <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
+      <dd className="min-w-0 text-[13px] text-slate-700">
+        <span className="font-mono font-semibold text-slate-800">{value}</span>
+        <span className="ml-2 text-slate-500">{meaning}</span>
+      </dd>
+    </div>
+  );
+  return (
+    <dl className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-1">
+      {item(tr("2013 code", "Kode 2013"), code.code, <>
+        {code.familyLabel ? pick(code.familyLabel, lang) : code.family}
+        {" · "}{tr(`unit ${code.unit}`, `unit ${code.unit}`)}{familySize ? tr(` · ${familySize} in this family`, ` · ${familySize} dalam famili ini`) : ""}
+        {code.broken && <span className="ml-1 text-amber-700">— {pick(code.broken, lang)}</span>}
+      </>)}
+      {row.legacy_area && item(tr("2013 area", "Area 2013"), row.legacy_area,
+        area ? tr(`floor grid column ${area.column}, row ${area.row} (old layout)`, `grid lantai kolom ${area.column}, baris ${area.row} (tata letak lama)`) : "")}
+      {row.legacy_department && item(tr("Department", "Departemen"), dept?.short ?? row.legacy_department,
+        dept ? pick(dept.label, lang) : "")}
+    </dl>
   );
 }

@@ -18,7 +18,8 @@ import {
   type AssetCondition, type AssetVerificationRow, type FieldCheck, type StockLocation,
   type VerificationChecks, type VerificationStatus, type VerifyField,
 } from "@/services/inventory/contracts";
-import { NO_ZONE, PhotoSlots, RecordPhoto, StatusBadge, differentFields, uploadSlotPhotos, usePhotoSlots, zoneOf } from "../shared";
+import { decodeLegacyCode } from "@/services/inventory/legacy";
+import { LegacyPanel, NO_ZONE, PhotoSlots, RecordPhoto, StatusBadge, differentFields, uploadSlotPhotos, usePhotoSlots, zoneOf } from "../shared";
 
 /** Asset verification — one asset, checked against the real thing (D447).
  *
@@ -79,6 +80,9 @@ function VerifyForm({ row, list, locations, onSaved }: {
     return list.filter((r) => (!zone || zoneOf(r) === zone) && (!statusFilter || r.status === statusFilter));
   }, [list, zone, statusFilter]);
   const at = walk ? walk.findIndex((r) => r.asset_no === row.asset_no) : -1;
+  /* How many machines share this 2013 family (`unit 3 of 8`). */
+  const family = decodeLegacyCode(row.legacy_code)?.family;
+  const familySize = family && list ? list.filter((r) => decodeLegacyCode(r.legacy_code)?.family === family).length : undefined;
   const prev = walk && at > 0 ? walk[at - 1] : null;
   const next = walk && at >= 0 && at < walk.length - 1 ? walk[at + 1] : null;
   const href = (no: string) => `/inventory/verify/${encodeURIComponent(no)}${query ? `?${query}` : ""}`;
@@ -225,16 +229,15 @@ function VerifyForm({ row, list, locations, onSaved }: {
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0">
                 <h1 className="text-lg font-bold text-slate-800">{row.name}</h1>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  {[
-                    row.legacy_code && tr(`Old: ${row.legacy_code}`, `Lama: ${row.legacy_code}`),
-                    row.legacy_area && tr(`2013 area ${row.legacy_area}`, `Area 2013 ${row.legacy_area}`),
-                    row.legacy_department,
-                  ].filter(Boolean).join(" · ")}
-                </p>
               </div>
               {pill}
             </div>
+            {/* The 2013 record, each part decoded (D450). */}
+            {row.legacy_code && (
+              <div className="mt-2">
+                <LegacyPanel row={row} familySize={familySize} />
+              </div>
+            )}
             {row.status !== "unverified" && (
               <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
                 {tr("Last check:", "Cek terakhir:")} <StatusBadge status={row.status} />
