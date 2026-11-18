@@ -6,6 +6,29 @@ this file is the part a person reads first — which run, why, and what still
 needs a decision.
 
 
+## 2026-11-18 — step 14 in production: 164 assets, AST-0092…AST-0255 (D447)
+
+After `0289`–`0292` were applied (same day), `13_inv_legacy_2013_register.sql`
+ran against `john-lau-v01`. No psql in the session, so — as step 13 did — the
+163 CSV rows went in as one `insert … values` into a temp `_reg` through the
+Supabase tool, followed by the file's own loop unchanged (only the columns the
+loop reads were staged).
+
+**Before:** 91 assets, `asset_no_seq` at 91, no `legacy_*` rows, no map rows.
+**First run:** 164 assets, `AST-0092`…`AST-0255`, 164 map rows (`run_id`
+`2013a55e-…a001`). **Second run, same SQL:** 0 new; the md5 over every imported
+asset (number, name, brand, model, notes, status, category) was identical before
+and after (`8b0076af…`), and the sequence stayed at 255.
+
+**Checked against the file:** 163 legacy codes; C1-07 is two assets, each
+*Unit n of 2*; every one `machine`, `in_storage`, no location; 40 without a
+brand and 21 without a model, as the local proof had it; the 91 assets that were
+there before untouched. `v_asset_verification` lists 255, all unverified.
+
+**Still to do:** the photos — `scripts/import/upload-2013-photos.mjs`
+(`--dry-run` first) as an account with inventory write access, Procurement
+drive connected.
+
 ## 2026-11-18 — step 14, the 2013 machine register (D447) — local proof only
 
 `13_inv_legacy_2013_register.sql` reads `data/legacy_2013_register.csv` (163
