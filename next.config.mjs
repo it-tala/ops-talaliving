@@ -66,10 +66,6 @@ const nextConfig = {
     }
     return config;
   },
-  eslint: {
-    // Prototype: jangan blokir build karena lint. Type-safety dijaga via `tsc`.
-    ignoreDuringBuilds: true,
-  },
   // Suppliers and the item catalogue moved under Master Data (owner,
   // 2026-09-23). Bookmarks and links pasted into chat keep working.
   async redirects() {
