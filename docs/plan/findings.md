@@ -11111,6 +11111,68 @@ contract**: `E14_acct_resolve_inbox_argument_order` now asserts it, and
 `0287` drops and recreates the function so production matches the ladder (both
 orders have the same argument types, so `create or replace` cannot rename them).
 
+## F287 · 2026-11-18 · D437 was already taken: the handoff named a decision number the repository had used a month earlier
+
+The inventory-verification work was written as D437 through step 4 — in three
+migrations, a smoke file, the import and every screen comment — because the
+first look for the next free number grepped `D[0-9]{3}` and sorted it,
+which read the *highest mention* rather than the highest row. D437 is the
+ledger's a/b-line display (2026-10-14), and the table had reached D446. Caught
+only when writing the decision row, before anything was pushed or applied;
+renumbered to D447 in the files this branch added. The next free number is the
+first column of the decisions table, read as a number — not a search over prose
+that quotes old decisions.
+
+## F288 · 2026-11-18 · On Windows, `npm run verify:db` runs the Supabase CLI and half the checkers read `C:\C:\…`
+
+Three separate things stop the documented checks on a Windows checkout, none
+of them in the code under test:
+
+- `npm run verify:db` begins `supabase/local/rebuild.sh && …`; npm on Windows
+  runs scripts through `cmd`, which resolves `supabase` to the Supabase CLI on
+  PATH and passes it `/local/rebuild.sh`. Each step has to be run through `bash`.
+- `check-view-contracts`, `check-john-lau`, `check-live-routes`,
+  `check-permissions`, `check-api-parity`, `check-api-schemas` and the SOP
+  checker derive the repo root from `new URL(import.meta.url).pathname`, which
+  is `/C:/Users/…` on Windows and becomes `C:\C:\…`. `fileURLToPath` is the
+  portable form. With that patched in a throwaway copy, parity (601/601),
+  schemas, permissions and the SOP checks pass; view-contracts then reports
+  every view missing its *last* field and live-routes reports every route gone
+  — line-ending and path-separator artifacts of a CRLF checkout, not findings.
+- `check_shadowing.sh` pipes into `python3`, which on Windows is the Store stub,
+  and reads the migrations in the console code page; `py -3` with
+  `PYTHONUTF8=1` runs it.
+
+The database itself is fine on Windows: a throwaway PG 18 cluster
+(`initdb -A trust`, port 5433) rebuilds 0001–0291 and passes all 205 smoke
+files. CI on Linux stays the judge for the two checkers that cannot be made to
+read a CRLF tree honestly.
+
+## F289 · 2026-11-18 · The CI workflow only runs on `claude/**` branches
+
+`ci.yml` triggers on `push` to `main` and `claude/**`. A branch named
+`feat/…` gets a Cloudflare preview but no CI run, and branch protection on
+`main` requires that run — so a PR from it could never be merged green. The
+verification branch was pushed as `claude/inventory-verification` for that
+reason. Either the trigger widens or branch names stay under `claude/`.
+
+## F290 · 2026-11-18 · The 2013 register: what the import found that the extraction notes did not say
+
+- **40 rows have no brand, not 37.** REFERENCE.md counted `brand_raw` before
+  placeholders and engine types were emptied into `brand_clean`; the import
+  reads `brand_clean`. 20 rows have no model (21 assets, C1-07 counted twice).
+- **`v_asset` cannot grow columns by `alter table`.** It was created as
+  `select a.*`, which Postgres expanded to the column list of the day, so the
+  new `legacy_*` columns do not reach the asset screen through it. They are
+  read through `v_asset_verification` instead; the asset drawer does not show
+  them yet.
+- **The asset history already shows a correction with no screen change.**
+  `apply_verification` writes the asset's own audit row (*Corrected from
+  VRF-…*, before/after per field), and `assetHistory` reads `entity = asset`,
+  so the drawer on `/inventory/assets` lists it unprompted.
+- **The record photo is the 2013 photo, and for ten assets it proves
+  nothing**: F1-05…F1-10, C1-04/05 and C1-06/07 share pictures. The verify
+  screen shows `legacy_notes` above the photos so the checker knows.
 ## F292 · 2026-11-18 · Every Cloudflare build failed for a date, not a change: OpenNext retires a Next major two years after release
 
 `main` went red on 2026-11-11 and every PR after it with it, at the last step of

@@ -6,6 +6,26 @@ this file is the part a person reads first — which run, why, and what still
 needs a decision.
 
 
+## 2026-11-18 — step 14, the 2013 machine register (D447) — local proof only
+
+`13_inv_legacy_2013_register.sql` reads `data/legacy_2013_register.csv` (163
+rows extracted from the 2013 PDF; see
+`docs/handoff/inventory-verification/REFERENCE.md`) into 164 assets: C1-07 is
+one line for two machines and becomes two, each saying *Unit n of 2*.
+Category `machine`, status `in_storage`, no location (the 2013 grid is the
+old layout), names from `suggested_name`, brand from `brand_clean`.
+
+**Where it ran.** A throwaway local cluster only, through `test.sh`: first run
+164 assets and 164 map rows, second run 0 new and an identical hash over every
+imported asset. 40 assets have no brand and 21 no model (C1-07 counts twice);
+REFERENCE.md says 37 rows without a brand, because it counted `brand_raw`
+before placeholders were emptied.
+
+**Still to do, in this order, once the owner agrees:** apply 0289–0291 to
+production; run this file; then `scripts/import/upload-2013-photos.mjs`
+(`--dry-run` first) as an account with inventory write access, with the
+Procurement drive connected. Add the production run here.
+
 ## 2026-10-14 — step 13, the sheet's own document links (D435, F273)
 
 The owner uploaded the `2026 TALAHOME LEDGERS` sheet as CSV — *data asli

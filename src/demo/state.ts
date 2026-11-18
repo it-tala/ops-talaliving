@@ -39,6 +39,7 @@ import type {
 import type {
   LogPurchase, LogPiece, SawnBoard, BoardMove, LogCost,
   StockLocation, StockMove, StockSetting, Asset, AssetService, AssetCategory,
+  VerificationResult, AssetCondition, VerificationChecks,
   ProductMove, ProductSetting,
 } from "@/services/inventory/contracts";
 import type {
@@ -476,6 +477,11 @@ export interface DemoState {
   assets: Asset[];
   /** Jobs done on an asset (`0121`), stored without the joined names. */
   asset_services: Omit<AssetService, "vendor_name">[];
+  /** The 2013 register's columns beside an asset (`assets.legacy_*`, 0290). */
+  asset_legacy: AssetLegacy[];
+  /** `ops_inv.asset_verifications` (0290, D447): append-only, the latest row
+   *  per asset is its status. */
+  asset_verifications: AssetVerificationRecord[];
 
   /* --- inventory: timber ------------------------------------------- */
   /** Logs are bought by the load and used as boards — two quantities with a
@@ -674,4 +680,31 @@ export interface DemoDraftDecision {
   note: string | null;
   decided_by: string;
   decided_at: string;
+}
+
+/** The register's own columns, kept beside an asset (`assets.legacy_*`). */
+export interface AssetLegacy {
+  asset_no: string;
+  legacy_code: string;
+  legacy_area: string | null;
+  legacy_department: string | null;
+  legacy_notes: string | null;
+}
+
+/** One check of an asset against the real thing (`0290`). Never changed
+ *  after it is made, except the one-time `applied_*` stamp. */
+export interface AssetVerificationRecord {
+  id: string;
+  verification_no: string;
+  asset_no: string;
+  result: VerificationResult;
+  condition: AssetCondition | null;
+  location: string | null;
+  checks: VerificationChecks;
+  note: string | null;
+  photo_ids: string[];
+  verified_by: string;
+  verified_at: string;
+  applied_by: string | null;
+  applied_at: string | null;
 }

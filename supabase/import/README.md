@@ -42,6 +42,7 @@ Each file ends by printing what it did. Read that, not the exit code.
 | 11 | the PR recap tabs of the `2026 PURCHASE-PAYMENT TRACKER` sheet → `ops_procure.pr_*`, cross-referenced to the ledger through `ops_acct.payment_allocations` | 354 rows → 288 lines | `08_purchase_requests.sql` — **applied 2026-09-23** |
 | 12 | the payroll's daily-worker list (`ops_hr_employees_daily_workers.xlsx`, 30 weekly sheets) → `ops_hr.employees` | 37 (+15 `joined_on`) | `10_hr_daily_workers.sql` — needs `0192`. Not a legacy read; here because it is data, not schema (D337) |
 | 13 | the six link columns of the `2026 TALAHOME LEDGERS` sheet (nota · faktur · proof of payment · item photo · PR · payment request) → `ops_core.attachments` + `attachment_links`, matched to the ledger on the money | 4.071 links, 2.808 files | `12_gl_sheet_links.sql` + `data/gl_sheet_links_2026.csv` — **applied 2026-10-14** (D435, F273). Not a legacy-table read: the links only ever lived in the sheet |
+| 14 | the 2013 machine register (`MACHINE INVENTORY 2013`, 163 rows) → `ops_inv.assets`, one per unit, category `machine`, `in_storage`, with `legacy_code/area/department/notes` | 164 (C1-07 is two) | `13_inv_legacy_2013_register.sql` + `data/legacy_2013_register.csv` — needs `0289`–`0291` — proved twice locally 2026-11-18, **not yet applied** (D447). The 163 photos go through the app's upload route: `scripts/import/upload-2013-photos.mjs`, run as a signed-in person after the SQL step |
 
 ### Step 1 is not an `insert … select`
 

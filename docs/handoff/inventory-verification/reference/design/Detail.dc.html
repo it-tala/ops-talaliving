@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>Verifikasi AST-0101</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#1E5B43}a:hover{color:#123A2A}
+</style>
+</helmet>
+<div style="width: 1180px; height: 820px; box-sizing: border-box; background: #F6F7F9; font-family: Inter, system-ui, sans-serif; color: #111827; display: flex; flex-direction: column; font-size: 14px">
+<header style="height: 60px; flex: none; box-sizing: border-box; padding: 0 20px; display: flex; align-items: center; gap: 12px; background: #FFFFFF; border-bottom: 1px solid #E5E7EB">
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px 0 8px; border: 1px solid #D1D5DB; border-radius: 10px; color: #111827; text-decoration: none; font-weight: 600">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#111827" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>PRD · Produksi</a>
+<span style="color: #9CA3AF">/</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; color: #1E5B43">AST-0101</span>
+<div style="margin-left: auto; display: flex; align-items: center; gap: 8px; color: #4B5563">
+<span>Item 13 dari 40</span>
+<button type="button" aria-label="Item sebelumnya" style="width: 36px; height: 36px; border: 1px solid #D1D5DB; border-radius: 10px; background: #FFFFFF; cursor: pointer; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#111827" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg></button>
+<button type="button" aria-label="Item berikutnya" style="width: 36px; height: 36px; border: 1px solid #D1D5DB; border-radius: 10px; background: #FFFFFF; cursor: pointer; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#111827" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></button>
+</div>
+</header>
+<div style="flex: 1; min-height: 0; display: flex; gap: 20px; padding: 20px 24px; box-sizing: border-box">
+<section style="width: 500px; flex: none; display: flex; flex-direction: column; gap: 14px">
+<div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; justify-content: space-between; align-items: center"><span style="font-weight: 600">Foto tercatat</span><span style="font-size: 12px; color: #6B7280">Daftar 2013</span></div>
+<img src="/_blob/af687b020cd9781be9b0644dbf91a71f" alt="Foto 2013 gergaji pita S2-01" style="width: 100%; height: 300px; object-fit: cover; border-radius: 8px; display: block">
+</div>
+<div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; justify-content: space-between; align-items: center"><span style="font-weight: 600">Foto verifikasi</span><span style="font-size: 12px; color: #6B7280">Wajib: seluruh mesin</span></div>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px">
+<sc-for list="{{slots}}" as="s" hint-placeholder-count="3">
+<button type="button" onClick="{{s.toggle}}" style="{{s.style}}">
+<sc-if value="{{s.filled}}" hint-placeholder-val="{{ false }}">
+<img src="/_blob/af687b020cd9781be9b0644dbf91a71f" alt="{{s.label}}" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover">
+<span style="position: absolute; left: 6px; bottom: 6px; background: rgba(17,24,39,0.75); color: #FFFFFF; font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 4px">{{s.label}}</span>
+</sc-if>
+<sc-if value="{{s.empty}}" hint-placeholder-val="{{ true }}">
+<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6B7280" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"></path><circle cx="12" cy="13" r="3.5"></circle></svg>
+<span style="font-size: 12px; font-weight: 600; color: #374151">{{s.label}}</span>
+</sc-if>
+</button>
+</sc-for>
+</div>
+</div>
+</section>
+<section style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 22px; font-weight: 700">Gergaji, Pita</h1>
+<span style="color: #6B7280">Kode lama S2-01 · Area 2013: C 01</span>
+</div>
+<span style="{{resultStyle}}"><span style="{{resultDot}}"></span>{{resultLabel}}</span>
+</div>
+<div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden">
+<div style="display: grid; grid-template-columns: 110px minmax(0, 1fr) 176px; gap: 12px; padding: 10px 16px; background: #F9FAFB; border-bottom: 1px solid #E5E7EB; font-size: 12px; font-weight: 600; color: #6B7280">
+<span>Kolom</span><span>Data tercatat</span><span>Di lapangan</span>
+</div>
+<sc-for list="{{fields}}" as="f" hint-placeholder-count="4">
+<div style="padding: 10px 16px; border-bottom: 1px solid #F0F1F3; display: flex; flex-direction: column; gap: 8px">
+<div style="display: grid; grid-template-columns: 110px minmax(0, 1fr) 176px; gap: 12px; align-items: center">
+<span style="color: #4B5563; font-weight: 500">{{f.label}}</span>
+<span style="font-weight: 600">{{f.value}}</span>
+<div style="display: flex; gap: 6px">
+<button type="button" onClick="{{f.setOk}}" aria-pressed="{{f.isOk}}" style="{{f.okStyle}}">Sesuai</button>
+<button type="button" onClick="{{f.setBeda}}" aria-pressed="{{f.isBeda}}" style="{{f.bedaStyle}}">Beda</button>
+</div>
+</div>
+<sc-if value="{{f.isBeda}}" hint-placeholder-val="{{ false }}">
+<label style="display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; align-items: center">
+<span style="font-size: 12px; font-weight: 600; color: #92400E">Seharusnya</span>
+<input type="text" value="{{f.fix}}" style="height: 34px; padding: 0 10px; border: 1px solid #D97706; border-radius: 8px; font-family: inherit; font-size: 14px; background: #FFFBEB">
+</label>
+</sc-if>
+</div>
+</sc-for>
+</div>
+<div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 14px 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 12px; font-weight: 600; color: #4B5563">Kondisi</span>
+<div role="radiogroup" aria-label="Kondisi" style="display: flex; gap: 2px; padding: 3px; background: #EEF0F3; border-radius: 10px">
+<sc-for list="{{conds}}" as="c" hint-placeholder-count="3">
+<button type="button" role="radio" aria-checked="{{c.on}}" onClick="{{c.pick}}" style="{{c.style}}">{{c.label}}</button>
+</sc-for>
+</div>
+</div>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 600; color: #4B5563">Lokasi sekarang
+<select style="height: 38px; padding: 0 10px; border: 1px solid #D1D5DB; border-radius: 10px; font-family: inherit; font-size: 14px; color: #111827; background: #FFFFFF"><option>PRD · Produksi</option><option>FN1 · Finishing</option><option>FN2 · Finishing</option><option>OVN · Oven</option><option>GD1 · Gudang</option><option>B1 · Inventaris</option></select>
+</label>
+<label style="grid-column: 1 / -1; display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 600; color: #4B5563">Catatan
+<input type="text" placeholder="Opsional" value="Plat nama menunjukkan merek HUA HUA" style="height: 38px; padding: 0 10px; border: 1px solid #D1D5DB; border-radius: 10px; font-family: inherit; font-size: 14px; color: #111827">
+</label>
+</div>
+</section>
+</div>
+<footer style="height: 68px; flex: none; box-sizing: border-box; padding: 0 24px; display: flex; align-items: center; gap: 10px; background: #FFFFFF; border-top: 1px solid #E5E7EB">
+<button type="button" style="height: 40px; padding: 0 16px; border: 1px solid #FCA5A5; border-radius: 10px; background: #FFFFFF; color: #B91C1C; font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer">Tidak ditemukan</button>
+<span style="margin-left: auto; font-size: 13px; color: #6B7280">{{photoHint}}</span>
+<button type="button" style="height: 40px; padding: 0 16px; border: 1px solid #D1D5DB; border-radius: 10px; background: #FFFFFF; color: #111827; font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer">Simpan</button>
+<a href="Main.dc.html" style="height: 40px; padding: 0 18px; border-radius: 10px; background: #1E5B43; color: #FFFFFF; text-decoration: none; display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600">Simpan &amp; berikutnya
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></a>
+</footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1180,"height":820}}'>
+class Component extends DCLogic {
+  constructor(p) {
+    super(p);
+    this.state = { f: { Nama: 'ok', Merek: 'beda', Model: 'ok', Jumlah: null }, cond: 'Berfungsi', photos: { 'Seluruh mesin': true } };
+  }
+  renderVals() {
+    const defs = [['Nama', 'Gergaji, Pita', 'Gergaji, Pita'], ['Merek', 'MAS', 'HUA HUA'], ['Model', 'MJ346', 'MJ346'], ['Jumlah', '1 unit', '1 unit']];
+    const st = this.state.f;
+    const seg = (on, tone) => 'flex:1;height:32px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;' +
+      (on ? (tone === 'ok' ? 'background:#16A34A;color:#FFFFFF;border:1px solid #16A34A;' : 'background:#D97706;color:#FFFFFF;border:1px solid #D97706;') : 'background:#FFFFFF;color:#374151;border:1px solid #D1D5DB;');
+    const fields = defs.map(([label, value, fix]) => ({
+      label, value, fix,
+      isOk: st[label] === 'ok', isBeda: st[label] === 'beda',
+      okStyle: seg(st[label] === 'ok', 'ok'), bedaStyle: seg(st[label] === 'beda', 'beda'),
+      setOk: () => this.setState({ f: Object.assign({}, st, { [label]: 'ok' }) }),
+      setBeda: () => this.setState({ f: Object.assign({}, st, { [label]: 'beda' }) })
+    }));
+    const vals = defs.map(d => st[d[0]]);
+    const beda = defs.filter(d => st[d[0]] === 'beda').map(d => d[0]);
+    const open = vals.filter(v => !v).length;
+    let label, tone;
+    if (beda.length) { label = 'Tidak sesuai: ' + beda.join(', '); tone = ['#FFFBEB', '#92400E', '#D97706', '#FDE68A']; }
+    else if (open) { label = open + ' kolom belum dicek'; tone = ['#F3F4F6', '#374151', '#9CA3AF', '#E5E7EB']; }
+    else { label = 'Sesuai'; tone = ['#F0FDF4', '#166534', '#16A34A', '#BBF7D0']; }
+    const conds = ['Berfungsi', 'Rusak', 'Tidak bisa dicek'].map(c => ({
+      label: c, on: c === this.state.cond,
+      pick: () => this.setState({ cond: c }),
+      style: 'flex:1;border:0;border-radius:8px;height:32px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;' + (c === this.state.cond ? 'background:#FFFFFF;color:#111827;box-shadow:0 1px 2px rgba(17,24,39,0.08);' : 'background:transparent;color:#4B5563;')
+    }));
+    const ph = this.state.photos;
+    const slots = ['Seluruh mesin', 'Plat nama', 'Lainnya'].map(l => ({
+      label: l, filled: !!ph[l], empty: !ph[l],
+      toggle: () => this.setState({ photos: Object.assign({}, ph, { [l]: !ph[l] }) }),
+      style: 'position:relative;height:96px;border-radius:8px;overflow:hidden;cursor:pointer;font-family:inherit;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;' + (ph[l] ? 'border:1px solid #E5E7EB;background:#E5E7EB;' : 'border:1.5px dashed #9CA3AF;background:#F9FAFB;')
+    }));
+    const n = Object.values(ph).filter(Boolean).length;
+    return {
+      fields, conds, slots,
+      resultLabel: label,
+      resultStyle: 'display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;font-size:13px;font-weight:600;white-space:nowrap;background:' + tone[0] + ';color:' + tone[1] + ';border:1px solid ' + tone[3] + ';',
+      resultDot: 'width:8px;height:8px;border-radius:50%;background:' + tone[2] + ';',
+      photoHint: n + ' foto · ' + (ph['Seluruh mesin'] ? 'siap disimpan' : 'foto seluruh mesin wajib')
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,164 @@
+row_no,legacy_code,item_name_2013,suggested_name,qty,legacy_area,legacy_area_raw,legacy_department,legacy_department_raw,brand_raw,brand_clean,model,model_raw,catalogue_page,photo_file,photo_issue,data_issue
+1,A1-01,AIR COMPRESSOR,Air Compressor,1,M16,M 16,Assembly,ASSEMBLY DEPT,BENWELL,BENWELL,B50,B50,,photos_2013/001_A1-01.jpg,,Area M16 is Power House for A2/A3 but Assembly here
+2,A1-02,AIR COMPRESSOR,Air Compressor,1,M16,M 16,Assembly,ASSEMBLY DEPT,BENWELL,BENWELL,B50,B50,,photos_2013/002_A1-02.jpg,,Area M16 is Power House for A2/A3 but Assembly here
+3,A2-01,AIR DRYER,Air Dryer,1,M16,M 16,Power house,POWER HOUSE AREA,FENG FAN,FENG FAN,LD50AC,LD50AC,,photos_2013/003_A2-01.jpg,,
+4,A2-02,AIR DRYER,Air Dryer,1,M16,M 16,Power house,POWER HOUSE AREA,,,MD-50/FF,MD-50/FF,,photos_2013/004_A2-02.jpg,,
+5,A3-01,AIR TANK,Air Tank,1,M16,M 16,Power house,POWER HOUSE AREA,,,TS223104 0-2011,TS223104 0-2011,,photos_2013/005_A3-01.jpg,,
+6,B1-01,"BORING, SINGLE MULTI (LRG)","Boring, Single Multi (Lrg)",1,I01,I 01,Machinery,MACHINERY DEP'T,NANXING,NANXING,MZ7121,MZ7121,,photos_2013/006_B1-01.jpg,,
+7,B1-02,"BORING, SINGLE HEAD","Boring, Single Head",1,N10,N 10,Assembly,ASSEMBLY DEPT,WOODTEK,WOODTEK,BM301,BM301,23,photos_2013/007_B1-02.jpg,,
+8,B1-03,"BORING, SINGLE MULTI (LRG)","Boring, Single Multi (Lrg)",1,N10,N 10,Assembly,ASSEMBLY DEPT,NANXING,NANXING,MZ7121,MZ7121,,photos_2013/008_B1-03.jpg,,Catalogue page recorded as '_' placeholder
+9,B1-04,"BORING, SINGLE ROW MULTI","Boring, Single Row Multi",1,I03,I 03,Machinery,MACHINERY DEP'T,HUA HUA,HUA HUA,MZB6413,MZB6413,,photos_2013/009_B1-04.jpg,,Catalogue page recorded as '_' placeholder
+10,B1-05,"BORING, SMALL 2 HEADS SPINDLE","Boring, Small 2 Heads Spindle",1,I02,I 02,Machinery,MACHINERY DEP'T,MAS,MAS,MZB 7203,MZB 7203,,photos_2013/010_B1-05.jpg,,
+11,B1-06,"BORING, SMALL 2 HEADS SPINDLE","Boring, Small 2 Heads Spindle",1,I03,I 03,Machinery,MACHINERY DEP'T,_,,MZB 7203,MZB 7203,23,photos_2013/011_B1-06.jpg,,Brand recorded as '_' placeholder
+12,B1-07,"BORING,3 HEADS SPINDLE","Boring,3 Heads Spindle",1,I01,I 01,Machinery,MACHINERY DEP'T,NANXING,NANXING,MZ7231A,MZ7231A,,photos_2013/012_B1-07.jpg,,"Missing space after comma (BORING,3); Model MZ7231A vs MZ7321 on B1-08, same machine type (possible typo)"
+13,B1-08,"BORING,3 HEADS SPINDLE","Boring,3 Heads Spindle",1,I02,I 02,Machinery,MACHINERY DEP'T,NANXING,NANXING,MZ7321,MZ7321,21,photos_2013/013_B1-08.jpg,,"Missing space after comma (BORING,3)"
+14,C1-01,"CLAMP, CASE","Clamp, Case",1,L12,L 12,Fitting,FITTING DEPT,,,,,,photos_2013/014_C1-01.jpg,,
+15,C1-02,"CLAMP, CASE","Clamp, Case",1,N12,N 12,Assembly,ASSEMBLY DEPT,,,,,,photos_2013/015_C1-02.jpg,,
+16,C1-03,"CLAMP, TAYLOR","Clamp, Taylor",1,D01,D 01,Machinery,MACHINERY DEP'T,THE TAYLOR,TAYLOR,,,,photos_2013/016_C1-03.jpg,,
+17,C1-04,"SINGLE CLAMP, CASE","Single Clamp, Case",1,K15,K15,Machinery,MACHINERY DEP'T,TALA MANUFACTURED,TALA MANUFACTURED,,,,photos_2013/017_C1-04.jpg,Same photo reused for C1-04 and C1-05; this unit has no photo of its own,"Item name starts with the descriptor (SINGLE CLAMP), not the type; Area code written as 'K15' (no space or no zero padding)"
+18,C1-05,"SINGLE CLAMP, CASE","Single Clamp, Case",1,H07,H7,Assembly,ASSEMBLY DEPT,TALA MANUFACTURED,TALA MANUFACTURED,,,,photos_2013/018_C1-05.jpg,Same photo reused for C1-04 and C1-05; this unit has no photo of its own,"Item name starts with the descriptor (SINGLE CLAMP), not the type; Area code written as 'H7' (no space or no zero padding)"
+19,C1-06,"DOUBLE CLAMP, CASE","Double Clamp, Case",1,K14,K14,Machinery,MACHINERY DEP'T,TALA MANUFACTURED,TALA MANUFACTURED,,,,photos_2013/019_C1-06.jpg,Same photo reused for C1-06 and C1-07; this unit has no photo of its own,"Item name starts with the descriptor (DOUBLE CLAMP), not the type; Area code written as 'K14' (no space or no zero padding)"
+20,C1-07,"DOUBLE CLAMP, CASE","Double Clamp, Case",2,F07,F7,Assembly,ASSEMBLY DEPT,TALA MANUFACTURED,TALA MANUFACTURED,,,,photos_2013/020_C1-07.jpg,Same photo reused for C1-06 and C1-07; this unit has no photo of its own,"Item name starts with the descriptor (DOUBLE CLAMP), not the type; quantity 2 under one code; Area code written as 'F7' (no space or no zero padding)"
+21,C2-01,"CONSTRUCTION, CEMENT MIXER","Construction, Cement Mixer",1,C09,C 09,Warehouse,WAREHOUSE,ENGINE AIRCOOLED,,178F-A,178F-A,,photos_2013/021_C2-01.jpg,,"Brand column holds the engine type, not a maker"
+22,C2-02,"CONSTRUCTION, TAMPER","Construction, Tamper",1,C09,C 09,Warehouse,WAREHOUSE,XINGCHONGJIHANG,XINGCHONGJIHANG,HCR80,HCR80,,photos_2013/022_C2-02.jpg,,
+23,C3-03,"CONSTRUCTION, SCARIFIER","Construction, Scarifier",1,C09,C 09,Warehouse,WAREHOUSE,HONDA GX160,,DMRS600,DMRS600,,photos_2013/023_C3-03.jpg,,"Group digit breaks the series: C2 construction group continues, expected C2-03; Brand column holds the engine (HONDA GX160), not the machine maker"
+24,C4-04,"CONSTRUCTION, CEMENT CUTTER","Construction, Cement Cutter",1,C09,C 09,Warehouse,WAREHOUSE,HONDA GX160,,,,,photos_2013/024_C4-04.jpg,,"Group digit breaks the series: C2 construction group continues, expected C2-04; Brand column holds the engine (HONDA GX160), not the machine maker"
+25,D1-01,DOVE TAILING MACHINE,Dove Tailing Machine,1,C01,C 01,Machinery,MACHINERY DEP'T,,,SC 30-8Z,SC 30-8Z,,photos_2013/025_D1-01.jpg,,
+26,D2-01,"DRILL, PRESS","Drill, Press",1,A04,A 04,Metal production,METAL PROD AREA,MAS,MAS,ST16A,ST16A,,photos_2013/026_D2-01.jpg,,
+27,D2-02,"DRILL, PRESS","Drill, Press",1,M11,M 11,Assembly,ASSEMBLY DEPT,,,ST 168,ST 168,,photos_2013/027_D2-02.jpg,,
+28,D3-01,DIHUMIDIFIER,Dihumidifier,1,L11,L 11,Finishing,FINISHING DEPARTMENT,POLAR,POLAR,,,,photos_2013/028_D3-01.jpg,,Spelling: DIHUMIDIFIER (dehumidifier)
+29,D3-02,DIHUMIDIFIER,Dihumidifier,1,L07,L 07,Finishing,FINISHING DEPARTMENT,POLAR,POLAR,RCH-375,RCH-375,,photos_2013/029_D3-02.jpg,,Spelling: DIHUMIDIFIER (dehumidifier)
+30,D3-03,DIHUMIDIFIER,Dihumidifier,1,K09,K 09,Finishing,FINISHING DEPARTMENT,POLAR,POLAR,CH-2201,CH-2201,,photos_2013/030_D3-03.jpg,,Spelling: DIHUMIDIFIER (dehumidifier)
+31,F1-01,"FINISHING, SPRAY BOOTH (OLD)","Finishing, Spray Booth (Old)",1,I07,I 07,Finishing,FINISHING DEPARTMENT,,,,,,photos_2013/031_F1-01.jpg,,
+32,F1-02,"FINISHING, SPRAY BOOTH (OLD)","Finishing, Spray Booth (Old)",1,J07,J 07,Finishing,FINISHING DEPARTMENT,,,,,,photos_2013/032_F1-02.jpg,,
+33,F1-03,"FINISHING, SPRAY BOOTH (OLD)","Finishing, Spray Booth (Old)",1,K07,K 07,Finishing,FINISHING DEPARTMENT,,,,,,photos_2013/033_F1-03.jpg,,
+34,F1-04,"FINISHING, SPRAY BOOTH (OLD)","Finishing, Spray Booth (Old)",1,L07,L 07,Finishing,FINISHING DEPARTMENT,,,,,,photos_2013/034_F1-04.jpg,,
+35,F1-05,"FINISHING, SPRAY BOOTH (NEW)","Finishing, Spray Booth (New)",1,I08,I 08,Finishing,FINISHING DEPARTMENT,,,MF92,MF92,,photos_2013/035_F1-05.jpg,Same photo reused for F1-05 to F1-10; this unit has no photo of its own,
+36,F1-06,"FINISHING, SPRAY BOOTH (NEW)","Finishing, Spray Booth (New)",1,J08,J 08,Finishing,FINISHING DEPARTMENT,,,MF92,MF92,,photos_2013/036_F1-06.jpg,Same photo reused for F1-05 to F1-10; this unit has no photo of its own; Byte-identical image object in the PDF,
+37,F1-07,"FINISHING, SPRAY BOOTH (NEW)","Finishing, Spray Booth (New)",1,I09,I 09,Finishing,FINISHING DEPARTMENT,,,MF92,MF92,,photos_2013/037_F1-07.jpg,Same photo reused for F1-05 to F1-10; this unit has no photo of its own; Byte-identical image object in the PDF,
+38,F1-08,"FINISHING, SPRAY BOOTH (NEW)","Finishing, Spray Booth (New)",1,J09,J 09,Finishing,FINISHING DEPARTMENT,,,MF92,MF92,,photos_2013/038_F1-08.jpg,Same photo reused for F1-05 to F1-10; this unit has no photo of its own,
+39,F1-09,"FINISHING, SPRAY BOOTH (NEW)","Finishing, Spray Booth (New)",1,J11,J 11,Finishing,FINISHING DEPARTMENT,,,MF92,MF92,,photos_2013/039_F1-09.jpg,Same photo reused for F1-05 to F1-10; this unit has no photo of its own,
+40,F1-10,"FINISHING, SPRAY BOOTH (NEW)","Finishing, Spray Booth (New)",1,I11,I 11,Finishing,FINISHING DEPARTMENT,,,MF92,MF92,,photos_2013/040_F1-10.jpg,Same photo reused for F1-05 to F1-10; this unit has no photo of its own,
+41,E1-01,"EDGEBANDER, AUTOMATIC","Edgebander, Automatic",1,H02,H 02,Machinery,MACHINERY DEP'T,NANXING,NANXING,MFB60CA,MFB60CA,32,photos_2013/041_E1-01.jpg,,
+42,E1-02,"EDGEBANDER, AUTOMATIC","Edgebander, Automatic",1,H03,H 03,Machinery,MACHINERY DEP'T,NANXING,NANXING,MD 268,MD 268,,photos_2013/042_E1-02.jpg,,
+43,E1-03,"EDGEBANDER, MANUAL","Edgebander, Manual",1,G02,G 02,Machinery,MACHINERY DEP'T,PANECTRIC,PANECTRIC,MFBJ 503 ii,MFBJ 503 ii,36,photos_2013/043_E1-03.jpg,,
+44,G1-01,"GLUE, ROLLER","Glue, Roller",1,F03,F 03,Machinery,MACHINERY DEP'T,HUAHUA,HUA HUA,,CANNOT BE READ,50,photos_2013/044_G1-01.jpg,,Model recorded as CANNOT BE READ; Brand spelling variant 'HUAHUA'
+45,J1-01,JOINTER,Jointer,1,B01,B 01,Machinery,MACHINERY DEP'T,HUA HUA,HUA HUA,MB504,MB504,18,photos_2013/045_J1-01.jpg,,
+46,J1-02,JOINTER,Jointer,1,B03,B 03,Machinery,MACHINERY DEP'T,HUA HUA,HUA HUA,MB504,MB504,,photos_2013/046_J1-02.jpg,,
+47,J1-03,JOINTER,Jointer,1,C03,C 03,Machinery,MACHINERY DEP'T,HUA HUA,HUA HUA,MB504,MB504,2,photos_2013/047_J1-03.jpg,,
+48,J1-04,JOINTER,Jointer,1,C09,C 09,Warehouse,WAREHOUSE,HUA HUA,HUA HUA,MB504,MB504,18,photos_2013/048_J1-04.jpg,,
+49,J1-05,JOINTER,Jointer,1,M08,M 08,Assembly,ASSEMBLY DEPT,HUA HUA,HUA HUA,MB504,MB504,18,photos_2013/049_J1-05.jpg,,
+50,L1-01,LATHE MACHINE,Lathe Machine,1,H03,H 03,Machinery,MACHINERY DEP'T,MAS,MAS,MC3040,MC3040,39,photos_2013/050_L1-01.jpg,,
+51,L1-02,LATHE MACHINE,Lathe Machine,1,N09,N 09,Assembly,ASSEMBLY DEPT,HUA HUA,HUA HUA,MF1500,MF1500,39,photos_2013/051_L1-02.jpg,,
+52,M1-01,METAL BUFFING MACHINE,Metal Buffing Machine,1,A04,A 04,Metal production,METAL PROD AREA,YONGLI,YONGLI,YJP132S1-2,YJP132S1-2,,photos_2013/052_M1-01.jpg,,
+53,M1-02,METAL BUFFING MACHINE,Metal Buffing Machine,1,A04,A 04,Metal production,METAL PROD AREA,YONGLI,YONGLI,YJP132S1-2,YJP132S1-2,,photos_2013/053_M1-02.jpg,,
+54,M1-03,METAL BUFFING MACHINE,Metal Buffing Machine,1,A04,A 04,Metal production,METAL PROD AREA,FS,FS,YJP132S1-2,YJP132S1-2,,photos_2013/054_M1-03.jpg,,
+55,M1-04,"METAL CUTTER, STAINLESS ALUMINUM","Metal Cutter, Stainless Aluminum",1,A01,A 01,Toolroom,TOOLROOM AREA,,,JIX-HZ-255,JIX-HZ-255,,photos_2013/055_M1-04.jpg,,
+56,M1-05,"METAL CUTTER, STAINLESS STEEL (SMALL)","Metal Cutter, Stainless Steel (Small)",1,A04,A 04,Metal production,METAL PROD AREA,,,TS-355,TS-355,,photos_2013/056_M1-05.jpg,,
+57,M1-06,"METAL CUTTER, STAINLESS STEEL (SMALL)","Metal Cutter, Stainless Steel (Small)",1,D09,D 09,Warehouse,WAREHOUSE,,,J3G-400,J3G-400,,photos_2013/057_M1-06.jpg,,
+58,M1-07,METAL CUTTING MACHINE (LARGE),Metal Cutting Machine (Large),1,A04,A 04,Metal production,METAL PROD AREA,CHITTAK,CHITTAK,JD300B,JD300B,,photos_2013/058_M1-07.jpg,,
+59,M1-08,METAL WELDING MACHINE,Metal Welding Machine,1,A04,A 04,Metal production,METAL PROD AREA,FEIMA,FEIMA,BX6-200,BX6-200,,photos_2013/059_M1-08.jpg,,
+60,M1-09,METAL WELDING MACHINE,Metal Welding Machine,1,A04,A 04,Metal production,METAL PROD AREA,,,TIG-200,TIG-200,,photos_2013/060_M1-09.jpg,,
+61,M1-10,METAL WELDING MACHINE,Metal Welding Machine,1,A04,A 04,Metal production,METAL PROD AREA,J.ONE,J.ONE,WSE-315,WSE-315,,photos_2013/061_M1-10.jpg,,
+62,M1-11,METAL WELDING MACHINE,Metal Welding Machine,1,A04,A 04,Metal production,METAL PROD AREA,,,WS-200A,WS-200A,,photos_2013/062_M1-11.jpg,,
+63,M2-01,"MOLDER, FOUR SIDE","Molder, Four Side",1,D02,D 02,Machinery,MACHINERY DEP'T,VHOLD,V HOLD,M515 A,M515 A,15,photos_2013/063_M2-01.jpg,,"Spelling: MOLDER, other records use MOULDER; Brand spelling variant 'VHOLD'"
+64,M2-02,"MOULDER, SPINDLE DOUBLE","Moulder, Spindle Double",1,C01,C 01,Machinery,MACHINERY DEP'T,HUA HUA,HUA HUA,MX 53110,MX 53110,,photos_2013/064_M2-02.jpg,,
+65,M2-03,"MOULDER, SPINDLE DOUBLE","Moulder, Spindle Double",1,C09,C 09,Warehouse,WAREHOUSE,MAS,MAS,MX53110,MX53110,12,photos_2013/065_M2-03.jpg,,
+66,M2-04,"MOULDER, SPINDLE DOUBLE","Moulder, Spindle Double",1,E01,E 01,Machinery,MACHINERY DEP'T,HUA HUA,HUA HUA,MX 5317,MX 5317,12,photos_2013/066_M2-04.jpg,,
+67,M2-05,"MOULDER, SPINDLE DOUBLE","Moulder, Spindle Double",1,N12,N 12,Assembly,ASSEMBLY DEPT,HUA HUA,HUA HUA,MX 5317,MX 5317,12,photos_2013/067_M2-05.jpg,,
+68,M2-06,"MOULDER, SPINDLE SINGLE","Moulder, Spindle Single",1,E01,E 01,Machinery,MACHINERY DEP'T,MING HING,MING HING,MX120R45,MX120R45,12,photos_2013/068_M2-06.jpg,,
+69,M2-07,"MOULDER, SPINDLE SINGLE","Moulder, Spindle Single",1,E01,E 01,Machinery,MACHINERY DEP'T,HUA HUA,HUA HUA,MQX5160,MQX5160,12,photos_2013/069_M2-07.jpg,,
+70,P1-01,"PLANER, DOUBLE","Planer, Double",1,A02,A 02,Machinery,MACHINERY DEP'T,V HOLD,V HOLD,MB 2061A,MB 2061A,14,photos_2013/070_P1-01.jpg,,
+71,P1-02,"PLANER, DOUBLE","Planer, Double",1,C01,C 01,Machinery,MACHINERY DEP'T,V HOLD,V HOLD,MB 2061A,MB 2061A,14,photos_2013/071_P1-02.jpg,,
+72,P1-03,"PLANER, LARGE","Planer, Large",1,C03,C 03,Machinery,MACHINERY DEP'T,HUA HUA,HUA HUA,MB105B,MB105B,16,photos_2013/072_P1-03.jpg,,
+73,P1-04,"PLANER, LARGE","Planer, Large",1,M09,M 09,Assembly,ASSEMBLY DEPT,HUA HUA,HUA HUA,MB105B,MB105B,16,photos_2013/073_P1-04.jpg,,
+74,P1-05,"PLANER, SMALL","Planer, Small",1,M10,M 10,Assembly,ASSEMBLY DEPT,HUA HUA,HUA HUA,MB102C,MB102C,17,photos_2013/074_P1-05.jpg,,
+75,P2-01,"PRESS , HF","Press, Hf",1,B03,B03,Machinery,MACHINERY DEP'T,TONXING,TONXING,DT-20-II,DT-20-II,,photos_2013/075_P2-01.jpg,,"Extra space before comma (PRESS , HF); Area code written as 'B03' (no space or no zero padding)"
+76,P2-02,"PRESS, COLD (NEW)","Press, Cold (New)",1,B03,B 03,Machinery,MACHINERY DEP'T,HUA HUA,HUA HUA,YW 3248 X 50,YW 3248 X 50,34,photos_2013/076_P2-02.jpg,,
+77,P2-03,"PRESS, COLD (OLD)","Press, Cold (Old)",1,C03,C 03,Machinery,MACHINERY DEP'T,SMPGD,SMPGD,YJ 985,YJ 985,34,photos_2013/077_P2-03.jpg,,
+78,P2-04,"PRESS, HOT","Press, Hot",1,E03,E 03,Machinery,MACHINERY DEP'T,QUILIN,QUILIN,BY214 X 8 X 12,BY214 X 8 X 12,,photos_2013/078_P2-04.jpg,,
+79,P2-05,"PRESS, HOT","Press, Hot",1,F03,F 03,Machinery,MACHINERY DEP'T,QUILIN,QUILIN,BY214 X 8 X 12,BY214 X 8 X 12,,photos_2013/079_P2-05.jpg,,
+80,R1-01,"ROUTER, OVERHEAD","Router, Overhead",1,G03,G 03,Machinery,MACHINERY DEP'T,HUA HUA,HUA HUA,MX5080,MX5080,13,photos_2013/080_R1-01.jpg,,
+81,R1-02,"ROUTER, OVERHEAD","Router, Overhead",1,H03,H 03,Machinery,MACHINERY DEP'T,MAS,MAS,MX5068,MX5068,13,photos_2013/081_R1-02.jpg,,
+82,R1-03,"ROUTER, OVERHEAD","Router, Overhead",1,H03,H 03,Machinery,MACHINERY DEP'T,HUAHUA,HUA HUA,MX506B,MX506B,13,photos_2013/082_R1-03.jpg,,"Model MX506B, the same router type elsewhere is MX5068 (possible typo); Brand spelling variant 'HUAHUA'"
+83,R1-04,"ROUTER, OVERHEAD","Router, Overhead",1,M10,M 10,Assembly,ASSEMBLY DEPT,MAS,MAS,MX5068,MX5068,13,photos_2013/083_R1-04.jpg,,
+84,R1-05,"ROUTER, UNDERHEAD","Router, Underhead",1,G03,G 03,Machinery,MACHINERY DEP'T,HUA HUA,HUA HUA,MXS5115A,MXS5115A,13,photos_2013/084_R1-05.jpg,,
+85,R1-06,"ROUTER, UNDERHEAD SMALL","Router, Underhead Small",1,M10,M 10,Assembly,ASSEMBLY DEPT,MAS,MAS,MXS5115A,MXS5115A,13,photos_2013/085_R1-06.jpg,,
+86,S1-01,"SANDER , VERTICAL SPONGE/DRUM","Sander, Vertical Sponge/Drum",1,D02,D 02,Machinery,MACHINERY DEP'T,HUA HUA,HUA HUA,MM2115,MM2115,27,photos_2013/086_S1-01.jpg,,"Extra space before comma (SANDER , VERTICAL)"
+87,S1-02,"SANDER, HORIZONTAL","Sander, Horizontal",1,F04,F 04,Machinery,MACHINERY DEP'T,HUA HUA,HUA HUA,MJ290,MJ290,26,photos_2013/087_S1-02.jpg,,
+88,S1-03,"SANDER, HORIZONTAL","Sander, Horizontal",1,N09,N 09,Assembly,ASSEMBLY DEPT,HUA HUA,HUA HUA,MM2617,MM2617,26,photos_2013/088_S1-03.jpg,,
+89,S1-04,"SANDER, STROKE","Sander, Stroke",1,A15,A 15,Guard house,GUARD HOUSE,HUA HUA,HUA HUA,MM2500,MM2500,27,photos_2013/089_S1-04.jpg,,Production machine recorded at the Guard House
+90,S1-05,"SANDER, STROKE","Sander, Stroke",1,C09,C 09,Warehouse,WAREHOUSE,HUA HUA,HUA HUA,MM2500,MM2500,27,photos_2013/090_S1-05.jpg,,
+91,S1-06,"SANDER, STROKE","Sander, Stroke",1,I03,I 03,Machinery,MACHINERY DEP'T,HUA HUA,HUA HUA,MM2500,MM2500,27,photos_2013/091_S1-06.jpg,,
+92,S1-07,"SANDER, STROKE","Sander, Stroke",1,F05,F 05,Machinery,MACHINERY DEP'T,HUA HUA,HUA HUA,MM2500,MM2500,27,photos_2013/092_S1-07.jpg,,
+93,S1-08,"SANDER, STROKE","Sander, Stroke",1,F05,F 05,Machinery,MACHINERY DEP'T,HUA HUA,HUA HUA,MM2500,MM2500,27,photos_2013/093_S1-08.jpg,,
+94,S1-09,"SANDER, STROKE","Sander, Stroke",1,F05,F 05,Machinery,MACHINERY DEP'T,HUA HUA,HUA HUA,MM2025,MM2025,27,photos_2013/094_S1-09.jpg,,
+95,S1-10,"SANDER, WIDE BELT (LRG)","Sander, Wide Belt (Lrg)",1,F01,F 01,Machinery,MACHINERY DEP'T,RONG HONG,RONG HONG,MSG1300,MSG1300,31,photos_2013/095_S1-10.jpg,,
+96,S1-11,"SANDER, WIDE BELT (LRG)","Sander, Wide Belt (Lrg)",1,G01,G 01,Machinery,MACHINERY DEP'T,,,MM2130,MM2130,,photos_2013/096_S1-11.jpg,,
+97,S1-12,"SANDER, WIDE BELT (SMALL)","Sander, Wide Belt (Small)",1,E02,E 02,Machinery,MACHINERY DEP'T,RONG HONG,RONG HONG,R-RP400,R-RP400,"30, 31",photos_2013/097_S1-12.jpg,,
+98,S1-13,SANDER HORIZONTAL BELT,Sander Horizontal Belt,1,A01,A 01,Warehouse,WAREHOUSE,HUA-HUA,HUA HUA,MM2028,MM2028,,photos_2013/098_S1-13.jpg,,"Item name has no comma, breaks the 'TYPE, DESCRIPTOR' pattern; Area A01 is Toolroom elsewhere but Warehouse here; Brand spelling variant 'HUA-HUA'"
+99,S1-14,"SANDER, BELT DRUM","Sander, Belt Drum",1,A01,A 01,Warehouse,WAREHOUSE,HUA-HUA,HUA HUA,MM2115A,MM2115A,,photos_2013/099_S1-14.jpg,,Area A01 is Toolroom elsewhere but Warehouse here; Brand spelling variant 'HUA-HUA'
+100,S2-01,"SAW, BAND","Saw, Band",1,C01,C 01,Machinery,MACHINERY DEP'T,MAS,MAS,MJ346,MJ346,"10, 11",photos_2013/100_S2-01.jpg,,
+101,S2-02,"SAW, BAND","Saw, Band",1,D03,D 03,Machinery,MACHINERY DEP'T,HUA HUA,HUA HUA,MJ345,MJ345,"10, 11",photos_2013/101_S2-02.jpg,,
+102,S2-03,"SAW, BAND","Saw, Band",1,M08,M 08,Assembly,ASSEMBLY DEPT,HUA HUA,HUA HUA,MJ345A,MJ345A,"10, 11",photos_2013/102_S2-03.jpg,,
+103,S2-04,"SAW, BAND","Saw, Band",1,N08,N 08,Assembly,ASSEMBLY DEPT,MAS,MAS,MF9030B,MF9030B,"10, 11",photos_2013/103_S2-04.jpg,,
+104,S2-05,"SAW, BAND HORT AUTOMATIC","Saw, Band Hort Automatic",1,C02,C 02,Machinery,MACHINERY DEP'T,ZHIYANG,ZHIYANG,MJ 3971,MJ 3971,4,photos_2013/104_S2-05.jpg,,Abbreviation HORT (horizontal) not used elsewhere
+105,S2-06,"SAW, BEAM","Saw, Beam",1,E05,E 05,Machinery,MACHINERY DEP'T,NANXING,NANXING,MJB1327B,MJB1327B,1,photos_2013/105_S2-06.jpg,,
+106,S2-07,"SAW, CUTOFF","Saw, Cutoff",1,B02,B 02,Machinery,MACHINERY DEP'T,MAS,MAS,MJ274A,MJ274A,8,photos_2013/106_S2-07.jpg,,
+107,S2-08,"SAW, DOUBLE END TENNONER","Saw, Double End Tennoner",1,F01,F 01,Machinery,MACHINERY DEP'T,,,MJX243,MJX243,49,photos_2013/107_S2-08.jpg,,Spelling: TENNONER (tenoner)
+108,S2-09,"SAW, RADIAL ARM /CROSSCUT","Saw, Radial Arm /Crosscut",1,A15,A 15,Guard house,GUARD HOUSE,HUA,HUA HUA,MJ640,MJ640,9,photos_2013/108_S2-09.jpg,,Brand spelling variant 'HUA'; Production machine recorded at the Guard House
+109,S2-10,"SAW, RADIAL ARM /CROSSCUT","Saw, Radial Arm /Crosscut",1,B01,B 01,Machinery,MACHINERY DEP'T,MAS,MAS,MJ2236,MJ2236,9,photos_2013/109_S2-10.jpg,,
+110,S2-11,"SAW, RADIAL ARM /CROSSCUT","Saw, Radial Arm /Crosscut",1,B02,B 02,Machinery,MACHINERY DEP'T,MAS,MAS,MJ2236,MJ2236,9,photos_2013/110_S2-11.jpg,,
+111,S2-12,"SAW, RADIAL ARM /CROSSCUT","Saw, Radial Arm /Crosscut",1,M07,M 07,Assembly,ASSEMBLY DEPT,HUAHUA,HUA HUA,MJ640,MJ640,9,photos_2013/111_S2-12.jpg,,Brand spelling variant 'HUAHUA'
+112,S2-13,"SAW, RADIAL ARM /CROSSCUT","Saw, Radial Arm /Crosscut",1,M11,M 11,Assembly,ASSEMBLY DEPT,MAS,MAS,MJ2236,MJ2236,9,photos_2013/112_S2-13.jpg,,
+113,S2-14,"SAW, RADIAL ARM /CROSSCUT","Saw, Radial Arm /Crosscut",1,N12,N 12,Assembly,ASSEMBLY DEPT,HUA,HUA HUA,MJ640,MJ640,9,photos_2013/113_S2-14.jpg,,Brand spelling variant 'HUA'
+114,S2-15,"SAW, SCROLL","Saw, Scroll",1,C09,C 09,Warehouse,WAREHOUSE,JINGDA,JINGDA,MJ4406,MJ4406,39,photos_2013/114_S2-15.jpg,,
+115,S2-16,"SAW, SCROLL","Saw, Scroll",1,N10,N 10,Assembly,ASSEMBLY DEPT,HUA HUA,HUA HUA,MJ442,MJ442,39,photos_2013/115_S2-16.jpg,,
+116,S2-17,"SAW, SINGLE RIP LRG","Saw, Single Rip Lrg",1,B02,B 02,Machinery,MACHINERY DEP'T,V HOLD,V HOLD,MJ 154,MJ 154,5,photos_2013/116_S2-17.jpg,,
+117,S2-18,"SAW, SINGLE RIP SMALL","Saw, Single Rip Small",1,B03,B 03,Machinery,MACHINERY DEP'T,HUA HUA,HUA HUA,MJ153,MJ153,5,photos_2013/117_S2-18.jpg,,
+118,S2-19,"SAW, SINGLE RIP SMALL","Saw, Single Rip Small",1,M09,M 09,Assembly,ASSEMBLY DEPT,HUA HUA,HUA HUA,MJ153,MJ153,5,photos_2013/118_S2-19.jpg,,
+119,S2-20,"SAW, SLIDING TABLE","Saw, Sliding Table",1,F02,F 02,Machinery,MACHINERY DEP'T,PANECTRIC,PANECTRIC,MJ340,MJ340,3,photos_2013/119_S2-20.jpg,,
+200,S2-21,"SAW, SLIDING TABLE","Saw, Sliding Table",1,F02,F 02,Machinery,MACHINERY DEP'T,AL TENDORF,ALTENDORF,F92T,F92T,3,photos_2013/200_S2-21.jpg,,Row number jumps from 119 to 200; numbers 120 to 199 are unused; Brand spelling variant 'AL TENDORF'
+201,S2-22,"SAW, SLIDING TABLE","Saw, Sliding Table",1,F04,F 04,Machinery,MACHINERY DEP'T,HUA HUA,HUA HUA,MJ6128B,MJ6128B,3,photos_2013/201_S2-22.jpg,,
+202,S2-23,"SAW, SLIDING TABLE","Saw, Sliding Table",1,N08,N 08,Assembly,ASSEMBLY DEPT,ALTENDORF,ALTENDORF,F92T,F92T,3,photos_2013/202_S2-23.jpg,,
+203,S2-24,"SAW, TABLE","Saw, Table",1,C01,C 01,Machinery,MACHINERY DEP'T,,,MJ143,MJ143,,photos_2013/203_S2-24.jpg,,
+204,S2-25,"SAW, TABLE","Saw, Table",1,F05,F 05,Machinery,MACHINERY DEP'T,HUA HUA,HUA HUA,MJ300,MJ300,,photos_2013/204_S2-25.jpg,,
+205,S2-26,"SAW, TABLE","Saw, Table",1,H02,H 02,Machinery,MACHINERY DEP'T,HUA HUA,HUA HUA,MJ300,MJ300,9,photos_2013/205_S2-26.jpg,,
+206,S2-27,"SAW, TABLE","Saw, Table",1,N07,N 07,Assembly,ASSEMBLY DEPT,JINGDA,JINGDA,MJ113-5BT,MJ113-5BT,9,photos_2013/206_S2-27.jpg,,
+207,S2-28,"SAW, CUT OFF","Saw, Cut Off",1,A01,A 01,Toolroom,TOOLROOM AREA,CHITTAK,CHITTAK,JD-300B,JD-300B,,photos_2013/207_S2-28.jpg,,Same machine type as S2-07 written differently (CUT OFF vs CUTOFF)
+208,T1-01,"TOOLROOM, BAND SHARPENING","Toolroom, Band Sharpening",1,A01,A 01,Toolroom,TOOLROOM AREA,,,DJT-1180,DJT-1180,,photos_2013/208_T1-01.jpg,,
+209,T1-02,"TOOL ROOM GRINDER, ELECTRIC BENCH","Tool Room Grinder, Electric Bench",1,A01,A 01,Toolroom,TOOLROOM AREA,CHAMPION,CHAMPION,HG-6,HG-6,,photos_2013/209_T1-02.jpg,,
+210,T1-03,"TOOL ROOM GRINDER, ELECTRIC BENCH","Tool Room Grinder, Electric Bench",1,A01,A 01,Toolroom,TOOLROOM AREA,CHAMPION,CHAMPION,TC-8,TC-8,,photos_2013/210_T1-03.jpg,,
+211,T1-04,TOOL ROOM PLANER KNIVES SHARPENING,Tool Room Planer Knives Sharpening,1,A01,A 01,Toolroom,TOOLROOM AREA,MAS,MAS,MF700B,MF700B,,photos_2013/211_T1-04.jpg,,
+212,T1-05,TOOLROOM COPYING KNIFE SHARPING MACHINE,Toolroom Copying Knife Sharping Machine,1,A01,A 01,Toolroom,TOOLROOM AREA,W-HONE,W-HONE,MF223B,MF223B,,photos_2013/212_T1-05.jpg,,Spelling: SHARPING (sharpening)
+213,T1-06,TOOLROOM UNIVERSAL SHARPENING MACHINE,Toolroom Universal Sharpening Machine,1,A01,A 01,Toolroom,TOOLROOM AREA,,,MF2760,MF2760,,photos_2013/213_T1-06.jpg,,
+214,U1-01,UPHOLSTERY FOAM BREAKING MAHINE,Upholstery Foam Breaking Mahine,1,I16,I 16,Upholstery,UPHOLSTERY,,,M080,M080,,photos_2013/214_U1-01.jpg,,Spelling: MAHINE (machine)
+215,U1-02,UPHOLSTERY SHREDDER BLOWN FIBER,Upholstery Shredder Blown Fiber,1,I16,I 16,Upholstery,UPHOLSTERY,,,,,,photos_2013/215_U1-02.jpg,,
+216,U1-03,UPHOLSTERY EDGE MACHINE,Upholstery Edge Machine,1,I16,I 16,Upholstery,UPHOLSTERY,,,ZLD007A,ZLD007A,,photos_2013/216_U1-03.jpg,,
+217,U1-04,UPHOLSTERY FOAM CUSHION BLENDING,Upholstery Foam Cushion Blending,1,I16,I 16,Upholstery,UPHOLSTERY,ONGLIDA,ZHONGLIDA,M079,M079,,photos_2013/217_U1-04.jpg,,"Brand ONGLIDA, probably ZHONGLIDA as on U1-09"
+218,U1-05,UPHOLSTERY FOAM CUSHION COVERING,Upholstery Foam Cushion Covering,1,J16,J 16,Upholstery,UPHOLSTERY,,,ZLD012A,ZLD012A,,photos_2013/218_U1-05.jpg,,
+219,U1-06,UPHOLSTERY FOAM CUSHION FILLER MACHINE,Upholstery Foam Cushion Filler Machine,1,I16,I 16,Upholstery,UPHOLSTERY,,,M083,M083,,photos_2013/219_U1-06.jpg,,
+220,U1-07,UPHOLSTERY FOAM CUTTING MACHINE,Upholstery Foam Cutting Machine,1,J16,J 16,Upholstery,UPHOLSTERY,,,ZLD010A,ZLD010A,,photos_2013/220_U1-07.jpg,,
+221,U1-08,UPHOLSTERY FOAM MILLING,Upholstery Foam Milling,1,C09,C 09,Warehouse,WAREHOUSE,HUA HUA,HUA HUA,,,17,photos_2013/221_U1-08.jpg,,
+222,U1-09,UPHOLSTERY FOAM PRESS,Upholstery Foam Press,1,H16,H 16,Upholstery,UPHOLSTERY,ZHONGLIDA,ZHONGLIDA,2LD021A,2LD021A,,photos_2013/222_U1-09.jpg,,"Model 2LD021A, other upholstery models use ZLD (possible typo)"
+223,U1-10,UPHOLSTERY HOTWIRE MACHINE,Upholstery Hotwire Machine,1,H16,H 16,Upholstery,UPHOLSTERY,,,,,,photos_2013/223_U1-10.jpg,,
+224,U-11,UPHOLSTERY HOTWIRE MACHINE,Upholstery Hotwire Machine,1,I16,I 16,Upholstery,UPHOLSTERY,,,,,,photos_2013/224_U-11.jpg,,"Group digit missing, expected U1-11"
+225,U1-12,UPHOLSTERY LASER MACHINE,Upholstery Laser Machine,1,D09,D 09,Warehouse,WAREHOUSE,,,,,,photos_2013/225_U1-12.jpg,,
+226,U1-13,"UPHOLSTERY SEWING MACHINE, SINGLE NEEDLE","Upholstery Sewing Machine, Single Needle",1,J13,J 13,Upholstery,UPHOLSTERY,GOLDEN WHEEL,GOLDEN WHEEL,CS-6104N,CS-6104N,,photos_2013/226_U1-13.jpg,"Placard in photo reads area G16, sheet says J 13",
+227,U1-14,"UPHOLSTERY SEWING MACHINE, SINGLE NEEDLE","Upholstery Sewing Machine, Single Needle",1,J13,J 13,Upholstery,UPHOLSTERY,GOLDEN WHEEL,GOLDEN WHEEL,CSU-4150,CSU-4150,,photos_2013/227_U1-14.jpg,"Placard in photo reads area G16, sheet says J 13",
+228,U1-15,"UPHOLSTERY SEWING MACHINE, SINGLE NEEDLE","Upholstery Sewing Machine, Single Needle",1,J13,J 13,Upholstery,UPHOLSTERY,SPEED ALL,SPEED ALL,,,,photos_2013/228_U1-15.jpg,"Placard in photo reads area G16, sheet says J 13",
+229,U1-16,"UPHOLSTERY SEWING MACHINE, SINGLE NEEDLE","Upholstery Sewing Machine, Single Needle",1,J13,J 13,Upholstery,UPHOLSTERY,GOLDEN WHEEL,GOLDEN WHEEL,CS-5150L,CS-5150L,,photos_2013/229_U1-16.jpg,"Placard in photo reads area G16, sheet says J 13",
+230,U1-17,"UPHOLSTERY SEWING MACHINE, SINGLE NEEDLE","Upholstery Sewing Machine, Single Needle",1,J13,J 13,Upholstery,UPHOLSTERY,GOLDEN WHEEL,GOLDEN WHEEL,CSU-4250,CSU-4250,,photos_2013/230_U1-17.jpg,"Placard in photo reads area G16, sheet says J 13",
+231,U1-18,"UPHOLSTERY SEWING MACHINE, SINGLE NEEDLE","Upholstery Sewing Machine, Single Needle",1,J13,J 13,Upholstery,UPHOLSTERY,GOLDEN WHEEL,GOLDEN WHEEL,CSU-4150,CSU-4150,,photos_2013/231_U1-18.jpg,"Placard in photo reads area H16, sheet says J 13",
+232,U1-19,"UPHOLSTERY SEWING MACHINE, SINGLE NEEDLE","Upholstery Sewing Machine, Single Needle",1,J13,J 13,Upholstery,UPHOLSTERY,GOLDEN WHEEL,GOLDEN WHEEL,CSU-4150,CSU-4150,,photos_2013/232_U1-19.jpg,"Placard in photo reads area H16, sheet says J 13",
+233,U1-20,"UPHOLSTERY SEWING MACHINE, SINGLE NEEDLE","Upholstery Sewing Machine, Single Needle",1,J14,J 14,Upholstery,UPHOLSTERY,GOLDEN WHEEL,GOLDEN WHEEL,CSU-4150,CSU-4150,,photos_2013/233_U1-20.jpg,"Placard in photo reads area H16, sheet says J 14",
+234,U1-21,"UPHOLSTERY SEWING MACHINE, SINGLE NEEDLE","Upholstery Sewing Machine, Single Needle",1,J14,J 14,Upholstery,UPHOLSTERY,GOLDEN WHEEL,GOLDEN WHEEL,CS-747,CS-747,,photos_2013/234_U1-21.jpg,"Placard in photo reads area H16, sheet says J 14",
+235,U1-22,"UPHOLSTERY SEWING MACHINE, SINGLE NEEDLE","Upholstery Sewing Machine, Single Needle",1,J14,J 14,Upholstery,UPHOLSTERY,GOLDEN WHEEL,GOLDEN WHEEL,CS 5150L,CS 5150L,,photos_2013/235_U1-22.jpg,"Placard in photo reads area I16, sheet says J 14",
+236,U1-23,"UPHOLSTERY SEWING MACHINE, SINGLE NEEDLE","Upholstery Sewing Machine, Single Needle",1,J14,J 14,Upholstery,UPHOLSTERY,GOLDEN WHEEL,GOLDEN WHEEL,CS-6104N,CS-6104N,,photos_2013/236_U1-23.jpg,"Placard in photo reads area J15, sheet says J 14",
+237,U1-24,UPHOLSTERY SEWING MACHINE EXTRA HIGH SPEED OVERLOCK (EDGING MACHINE),Upholstery Sewing Machine Extra High Speed Overlock (Edging Machine),1,J14,J 14,Upholstery,UPHOLSTERY,GOLDEN WHEEL,GOLDEN WHEEL,CS-5150L,CS-5150L,,photos_2013/237_U1-24.jpg,"Placard in photo reads area J15, sheet says J 14; Photo shows a single-needle machine, not an overlock","Description (overlock) may belong to U1-26, see photo"
+238,U1-25,"UPHOLSTERY SEWING MACHINE, DOUBLE NEEDLE","Upholstery Sewing Machine, Double Needle",1,J14,J 14,Upholstery,UPHOLSTERY,SPEED ALL,SPEED ALL,KY-268L,KY-268L,,photos_2013/238_U1-25.jpg,"Placard in photo reads area J15, sheet says J 14",
+239,U1-26,UPHOLSTERY (FABRIC THINNER),Upholstery (Fabric Thinner),1,J14,J 14,Upholstery,UPHOLSTERY,GOLDEN WHEEL,GOLDEN WHEEL,CS-M74013-H,CS-M74013-H,,photos_2013/239_U1-26.jpg,"Placard in photo reads area I16, sheet says J 14; Placard item reads 'sewing machine extra high speed overlock'","Description FABRIC THINNER, but photo and placard show an overlock"
+240,V1-01,"VENEER, CUTTER","Veneer, Cutter",1,D03,D 03,Machinery,MACHINERY DEP'T,NANXING,NANXING,MT310,MT310,,photos_2013/240_V1-01.jpg,,
+241,V1-02,"VENEER, CUTTER","Veneer, Cutter",1,D03,D 03,Machinery,MACHINERY DEP'T,HUAHUA,HUA HUA,M02031,M02031,,photos_2013/241_V1-02.jpg,,Brand spelling variant 'HUAHUA'
+242,V1-03,"VENEER, STITCHING","Veneer, Stitching",1,A15,A 15,Guard house,GUARD HOUSE,HUIKE,HUIKE,MH1109,MH1109,,photos_2013/242_V1-03.jpg,,Production machine recorded at the Guard House
+243,V1-04,"VENEER, STITCHING","Veneer, Stitching",1,A15,A 15,Guard house,GUARD HOUSE,,,MH1109,MH1109,,photos_2013/243_V1-04.jpg,,Production machine recorded at the Guard House

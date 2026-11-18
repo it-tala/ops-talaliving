@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>Daftar item per zona</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#1E5B43}a:hover{color:#123A2A}
+</style>
+</helmet>
+<div style="width: 1180px; height: 820px; box-sizing: border-box; background: #F6F7F9; font-family: Inter, system-ui, sans-serif; color: #111827; display: flex; flex-direction: column; font-size: 14px">
+<header style="height: 60px; flex: none; box-sizing: border-box; padding: 0 20px; display: flex; align-items: center; gap: 16px; background: #FFFFFF; border-bottom: 1px solid #E5E7EB">
+<div style="display: flex; align-items: center; gap: 10px">
+<div style="width: 30px; height: 30px; border-radius: 8px; background: #1E5B43; display: flex; align-items: center; justify-content: center">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"></path><path d="M20 12v7a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h11"></path></svg>
+</div>
+<span style="font-size: 16px; font-weight: 700">Verifikasi Inventaris</span>
+</div>
+<label style="margin-left: 24px; flex: 1; max-width: 420px; display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px; border: 1px solid #D1D5DB; border-radius: 10px; background: #F9FAFB; color: #6B7280">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6B7280" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg>
+<span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Cari item</span>
+<input type="search" placeholder="Cari kode AST, kode lama, nama, merek…" style="flex: 1; border: 0; background: transparent; font-family: inherit; font-size: 14px; color: #111827; outline: none">
+</label>
+<div style="margin-left: auto; display: flex; align-items: center; gap: 12px">
+<div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px">
+<span style="font-size: 13px; color: #4B5563"><b style="color: #111827">37</b> dari 163 terverifikasi</span>
+<div style="width: 180px; height: 6px; border-radius: 999px; background: #E5E7EB; overflow: hidden"><div style="width: 23%; height: 100%; background: #1E5B43"></div></div>
+</div>
+</div>
+</header>
+<div style="flex: 1; display: flex; min-height: 0">
+<nav aria-label="Zona" style="width: 230px; flex: none; box-sizing: border-box; padding: 16px 12px; background: #FFFFFF; border-right: 1px solid #E5E7EB; display: flex; flex-direction: column; gap: 2px; overflow: auto">
+<span style="padding: 0 10px 8px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; color: #6B7280">ZONA</span>
+<sc-for list="{{zones}}" as="z" hint-placeholder-count="10">
+<button type="button" onClick="{{z.pick}}" style="{{z.style}}">
+<span style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; text-align: left">
+<span style="display: flex; justify-content: space-between; gap: 8px"><span style="font-weight: 600">{{z.label}}</span><span style="color: #6B7280; font-variant-numeric: tabular-nums">{{z.done}}/{{z.total}}</span></span>
+<span style="height: 4px; border-radius: 999px; background: #E5E7EB; overflow: hidden; display: block"><span style="{{z.bar}}"></span></span>
+</span>
+</button>
+</sc-for>
+</nav>
+<main style="flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 20px 24px; gap: 16px; box-sizing: border-box">
+<div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<h1 style="margin: 0; font-size: 22px; font-weight: 700">{{zoneTitle}}</h1>
+<span style="color: #6B7280">Klik item untuk memverifikasi.</span>
+</div>
+<div role="tablist" aria-label="Status" style="display: flex; gap: 2px; padding: 3px; background: #EEF0F3; border-radius: 10px">
+<sc-for list="{{tabs}}" as="t" hint-placeholder-count="5">
+<button type="button" role="tab" aria-selected="{{t.on}}" onClick="{{t.pick}}" style="{{t.style}}">{{t.label}} <span style="{{t.countStyle}}">{{t.count}}</span></button>
+</sc-for>
+</div>
+</div>
+<div style="flex: 1; min-height: 0; overflow: auto; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-content: start">
+<sc-for list="{{cards}}" as="c" hint-placeholder-count="6">
+<a href="Detail.dc.html" style="display: flex; flex-direction: column; background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden; text-decoration: none; color: #111827">
+<div style="position: relative; aspect-ratio: 3 / 2; background: #E5E7EB">
+<img src="{{c.img}}" alt="Foto {{c.code}}" style="width: 100%; height: 100%; object-fit: cover; display: block">
+<span style="{{c.pill}}"><span style="{{c.dot}}"></span>{{c.status}}</span>
+</div>
+<div style="padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600; color: #1E5B43">{{c.code}}</span>
+<span style="font-size: 12px; color: #4B5563; background: #F3F4F6; padding: 2px 8px; border-radius: 6px">Lama {{c.old}}</span>
+</div>
+<span style="font-size: 15px; font-weight: 600">{{c.name}}</span>
+<span style="font-size: 13px; color: #6B7280">{{c.brand}}</span>
+</div>
+</a>
+</sc-for>
+</div>
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1180,"height":820}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { zone: 'PRD', tab: 'Semua' }; }
+  renderVals() {
+    const Z = [
+      ['ALL','Semua zona',37,163], ['PRD','PRD · Produksi',12,40], ['FN1','FN1 · Finishing',10,10], ['FN2','FN2 · Finishing',11,20],
+      ['GD1','GD1 · Gudang',0,15], ['GD2','GD2 · Gudang',4,9], ['OVN','OVN · Oven',0,2], ['PKG','PKG · Packaging',0,7],
+      ['LOG','LOG · Logistic',0,5], ['B1','B1 · Inventaris',0,6], ['B2','B2 · Inventaris',0,4], ['B3','B3 · Inventaris',0,5],
+      ['KT1','KT1 · Kantor',0,6], ['R06','R06 · Ruang istirahat',0,3]
+    ];
+    const zone = this.state.zone;
+    const zones = Z.map(([id, label, done, total]) => ({
+      label, done, total,
+      pick: () => this.setState({ zone: id }),
+      style: 'display:flex;width:100%;border:0;border-radius:8px;padding:8px 10px;font-family:inherit;font-size:13px;color:#111827;cursor:pointer;' + (id === zone ? 'background:#EAF2EE;box-shadow:inset 2px 0 0 #1E5B43;' : 'background:transparent;'),
+      bar: 'display:block;height:100%;width:' + Math.round(done / total * 100) + '%;background:' + (done === total ? '#15803D' : '#1E5B43') + ';'
+    }));
+    const cur = Z.find(z => z[0] === zone);
+    const ST = {
+      'Belum': ['#FFFFFF', '#374151', '#9CA3AF'],
+      'Sesuai': ['#FFFFFF', '#166534', '#16A34A'],
+      'Tidak sesuai': ['#FFFFFF', '#92400E', '#D97706'],
+      'Tidak ditemukan': ['#FFFFFF', '#991B1B', '#DC2626']
+    };
+    const all = [
+      ['AST-0101','Gergaji, Pita','S2-01','MAS · MJ346','/_blob/af687b020cd9781be9b0644dbf91a71f','Belum'],
+      ['AST-0102','Gergaji, Pita','S2-02','HUA HUA · MJ345','/_blob/8487b81357d79a1a7e53871e3d57ad16','Sesuai'],
+      ['AST-0103','Gergaji, Pita','S2-03','HUA HUA · MJ345A','/_blob/7d5b93d0f169a84919cbffb4d52e7835','Tidak sesuai'],
+      ['AST-0104','Gergaji, Pita','S2-04','MAS · MF9030B','/_blob/296cf3b9752d00e49a41ff1d26c754ad','Belum'],
+      ['AST-0072','Serut, Besar','P1-03','HUA HUA · MB105B','/_blob/46ac5c1e37a4ec05df9137595a8b4b72','Tidak ditemukan'],
+      ['AST-0064','Profil, Spindle Ganda','M2-02','HUA HUA · MX 53110','/_blob/d190a81ef2461dd5f894c67f064380d8','Belum']
+    ];
+    const tab = this.state.tab;
+    const counts = { 'Semua': 40, 'Belum': 28, 'Sesuai': 8, 'Tidak sesuai': 3, 'Tidak ditemukan': 1 };
+    const tabs = Object.keys(counts).map(label => {
+      const on = label === tab;
+      return {
+        label, on, count: counts[label],
+        pick: () => this.setState({ tab: label }),
+        style: 'border:0;border-radius:8px;padding:7px 12px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;' + (on ? 'background:#FFFFFF;color:#111827;box-shadow:0 1px 2px rgba(17,24,39,0.08);' : 'background:transparent;color:#4B5563;'),
+        countStyle: 'font-size:12px;font-weight:600;padding:1px 6px;border-radius:999px;' + (on ? 'background:#EAF2EE;color:#1E5B43;' : 'background:#E5E7EB;color:#4B5563;')
+      };
+    });
+    const cards = all.filter(r => tab === 'Semua' || r[5] === tab).map(([code, name, old, brand, img, status]) => {
+      const s = ST[status];
+      return {
+        code, name, old, brand, img, status,
+        pill: 'position:absolute;left:10px;top:10px;display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;background:' + s[0] + ';color:' + s[1] + ';box-shadow:0 1px 3px rgba(17,24,39,0.15);',
+        dot: 'width:8px;height:8px;border-radius:50%;background:' + s[2] + ';'
+      };
+    });
+    return { zones, tabs, cards, zoneTitle: cur ? cur[1] : '' };
+  }
+}
+</script>
+</body>
+</html>

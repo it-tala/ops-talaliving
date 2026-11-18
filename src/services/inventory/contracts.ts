@@ -1013,3 +1013,122 @@ export interface LabelCard {
     dimension_note?: string;
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* Asset verification (0290, D447)                                     */
+/* ------------------------------------------------------------------ */
+/*  A field checker opens an asset already on record and checks it against
+ *  the real thing: name, brand, model and quantity (*Match* or *Different*
+ *  with what it should be), its condition, where it is now, a note and at
+ *  least one photo. A recheck is a new verification and the latest one is the
+ *  asset's status. Nothing here changes the asset: `applyVerification` is the
+ *  only road, from the mismatch summary. */
+
+export type VerificationResult = "match" | "mismatch" | "not_found";
+/** A result, or `unverified` when nobody has checked the asset yet. Computed
+ *  by `v_asset_verification`, never stored. */
+export type VerificationStatus = VerificationResult | "unverified";
+export type AssetCondition = "working" | "broken" | "untested";
+export type VerifyField = "name" | "brand" | "model" | "qty";
+
+/** The four fields a checker compares, in the order the screen shows them. */
+export const VERIFY_FIELDS: VerifyField[] = ["name", "brand", "model", "qty"];
+/** Photos per verification: the first (the whole machine) is required. */
+export const VERIFY_PHOTO_MAX = 4;
+
+export const VERIFY_FIELD_LABELS: Record<VerifyField, Message> = {
+  name: { en: "Name", id: "Nama" },
+  brand: { en: "Brand", id: "Merek" },
+  model: { en: "Model", id: "Model" },
+  qty: { en: "Quantity", id: "Jumlah" },
+};
+export const VERIFICATION_STATUS_LABELS: Record<VerificationStatus, Message> = {
+  unverified: { en: "Unverified", id: "Belum" },
+  match: { en: "Match", id: "Sesuai" },
+  mismatch: { en: "Mismatch", id: "Tidak sesuai" },
+  not_found: { en: "Not found", id: "Tidak ditemukan" },
+};
+export const ASSET_CONDITION_LABELS: Record<AssetCondition, Message> = {
+  working: { en: "Working", id: "Berfungsi" },
+  broken: { en: "Broken", id: "Rusak" },
+  untested: { en: "Can't test", id: "Tidak bisa dicek" },
+};
+
+/** One field's check: it matches, or it is different and `found` says what
+ *  it should be. */
+export interface FieldCheck {
+  ok: boolean;
+  found?: string;
+}
+export type VerificationChecks = Partial<Record<VerifyField, FieldCheck>>;
+
+/** `v_asset_verification`: one row per asset on the register, with its latest
+ *  check. `location` is where it was found, or its recorded place when it has
+ *  not been checked. */
+export interface AssetVerificationRow {
+  asset_no: string;
+  name: string;
+  category_code: string;
+  category_name: string;
+  brand: string | null;
+  model: string | null;
+  asset_status: AssetStatus;
+  asset_location: string | null;
+  /** The 2013 register's code (`S2-14`), its floor-grid area and department,
+   *  and what the 2013 analysis knows is wrong with the row. */
+  legacy_code: string | null;
+  legacy_area: string | null;
+  legacy_department: string | null;
+  legacy_notes: string | null;
+  status: VerificationStatus;
+  verification_no: string | null;
+  condition: AssetCondition | null;
+  verified_location: string | null;
+  location: string | null;
+  location_name: string | null;
+  checks: VerificationChecks | null;
+  note: string | null;
+  verified_by: string | null;
+  verified_by_name: string | null;
+  verified_at: string | null;
+  applied_at: string | null;
+  applied_by: string | null;
+  verification_count: number;
+  /** The asset's own record photo (the 2013 photo for the imported register). */
+  record_photo_id: string | null;
+  record_photo_count: number;
+  verification_photo_count: number;
+}
+
+/** What `verifyAsset` records. `not_found` needs only a note; anything else
+ *  needs a condition, a location, all four checks and at least one photo. */
+export interface VerifyAssetInput {
+  asset_no: string;
+  result: VerificationResult;
+  condition: AssetCondition | null;
+  location: string | null;
+  checks: VerificationChecks;
+  note: string | null;
+  photo_ids: string[];
+}
+
+export interface VerifyAssetAnswer {
+  verification_no: string;
+  asset_no: string;
+  result: VerificationResult;
+  photos: number;
+}
+
+/** What `applyVerification` did. `not_applied` names the fields it could not
+ *  write — a quantity: an asset is one unit. */
+export interface ApplyVerificationAnswer {
+  verification_no: string;
+  asset_no: string;
+  not_applied: VerifyField[];
+}
+
+/** The result a set of checks implies, or null while a field is unchecked. */
+export function verificationResultOf(checks: VerificationChecks): "match" | "mismatch" | null {
+  if (VERIFY_FIELDS.some((f) => checks[f] == null)) return null;
+  return VERIFY_FIELDS.some((f) => checks[f]?.ok === false) ? "mismatch" : "match";
+}

@@ -30,6 +30,7 @@ import {
 import { PACKING_BOXES, BOX_LINES } from "./boxes";
 import { STOCK_LOCATIONS, STOCK_SETTINGS, STOCK_MOVES } from "./stock";
 import { ASSETS, ASSET_CATEGORIES, ASSET_SERVICES } from "./assets";
+import { DEMO_ASSET_LEGACY, DEMO_MACHINES, DEMO_VERIFICATIONS, MACHINE_CATEGORY, SITE_PLAN_ZONES } from "./verification";
 import { PAY_RULE_SETS } from "./payrules";
 import { CONTRIBUTION_RATES, ENROLMENTS } from "./contributions";
 import { GOALS, TASKS, TASK_ROUTINES } from "./tasks";
@@ -306,11 +307,13 @@ export function initialState(): DemoState {
     bom_norms: BOM_NORMS,
     finishing_recipes: FINISHING_RECIPES,
 
-    stock_locations: STOCK_LOCATIONS,
+    stock_locations: [...STOCK_LOCATIONS, ...SITE_PLAN_ZONES],
     stock_settings: STOCK_SETTINGS,
-    asset_categories: ASSET_CATEGORIES,
-    assets: ASSETS,
+    asset_categories: [...ASSET_CATEGORIES, MACHINE_CATEGORY],
+    assets: [...ASSETS, ...DEMO_MACHINES],
     asset_services: ASSET_SERVICES,
+    asset_legacy: DEMO_ASSET_LEGACY,
+    asset_verifications: DEMO_VERIFICATIONS,
     app_settings: APP_SETTINGS,
     assistant_turns: [],
     stock_moves: STOCK_MOVES,
