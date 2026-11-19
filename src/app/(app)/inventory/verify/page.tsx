@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ClipboardCheck, ListChecks, Plus, Search } from "lucide-react";
@@ -12,7 +12,8 @@ import { pick, useLang, useTr } from "@/lib/i18n";
 import {
   VERIFICATION_STATUS_LABELS, type AssetVerificationRow, type VerificationStatus,
 } from "@/services/inventory/contracts";
-import { NO_ZONE, RecordPhoto, STATUS_ORDER, StatusBadge, zoneOf } from "./shared";
+import { LegacyLine, NO_ZONE, RecordPhoto, STATUS_ORDER, StatusBadge, zoneOf } from "./shared";
+import { legacySearchText } from "@/services/inventory/legacy";
 import { CountStock } from "./CountStock";
 
 /** Asset verification — the list by zone (D447).
@@ -105,10 +106,31 @@ function VerifyBoard({ rows, zone, tab, q, qValue, setQ, onZone, onTab, locName,
   locationCodes: string[];
   lang: "en" | "id"; tr: (en: string, id: string) => string; query: string;
 }) {
+  /* The board fills the window below where it starts, measured rather than
+     guessed, so it fits whatever the header and filters above it take. The
+     shell's bottom padding is pulled back in (`md:-mb-20`), so the page itself
+     does not scroll; the rail and the cards do. Phones keep the normal flow. */
+  const boardRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = boardRef.current;
+    if (!el) return;
+    const fit = () => {
+      if (window.innerWidth < 768) { el.style.height = ""; return; }
+      const scroller = el.closest("main");
+      const top = el.getBoundingClientRect().top + (scroller?.scrollTop ?? 0);
+      el.style.height = `${Math.max(416, window.innerHeight - top - 16)}px`;
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, []);
   const searchedRows = useMemo(() => {
     const term = q.trim().toLowerCase();
     if (!term) return rows;
-    return rows.filter((r) => [r.asset_no, r.legacy_code, r.name, r.brand, r.model].some((x) => x?.toLowerCase().includes(term)));
+    /* By number, name, brand, model — and the 2013 record: code, family
+       (`S2`, *saw*), area (`M16`), department and its short code (D450). */
+    return rows.filter((r) => [r.asset_no, r.name, r.brand, r.model].some((x) => x?.toLowerCase().includes(term))
+      || legacySearchText(r).includes(term));
   }, [rows, q]);
 
   const verified = rows.filter((r) => r.status !== "unverified").length;
@@ -168,7 +190,7 @@ function VerifyBoard({ rows, zone, tab, q, qValue, setQ, onZone, onTab, locName,
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             value={qValue} onChange={(e) => setQ(e.target.value)} type="search"
-            placeholder={tr("Asset no, old code, name, brand, model", "No aset, kode lama, nama, merek, model")}
+            placeholder={tr("Asset no, name, brand · 2013 code, family, area, dept", "No aset, nama, merek · kode 2013, famili, area, dept")}
             className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm focus:border-brand-400 focus:outline-none"
           />
         </label>
@@ -182,18 +204,21 @@ function VerifyBoard({ rows, zone, tab, q, qValue, setQ, onZone, onTab, locName,
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-[13rem_minmax(0,1fr)] lg:grid-cols-[15rem_minmax(0,1fr)]">
-        <Card className="p-2">
+      {/* A fixed window on tablet and desktop: the rail and the cards scroll on
+          their own, so a long zone list or a long zone never stretches the
+          page (owner, 2026-11-18). On a phone the page flows as before. */}
+      <div ref={boardRef} className="grid gap-4 md:-mb-20 md:min-h-[26rem] md:grid-cols-[13rem_minmax(0,1fr)] lg:grid-cols-[15rem_minmax(0,1fr)]">
+        <Card className="p-2 md:flex md:min-h-0 md:flex-col">
           <p className="px-2.5 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{tr("Zones", "Zona")}</p>
-          <nav className="flex gap-1 overflow-x-auto md:flex-col md:overflow-visible" aria-label={tr("Zones", "Zona")}>
+          <nav className="flex gap-1 overflow-x-auto md:min-h-0 md:flex-1 md:flex-col md:overflow-x-visible md:overflow-y-auto md:pr-1" aria-label={tr("Zones", "Zona")}>
             {railItem("all", tr("All zones", "Semua zona"), verified, rows.length)}
             {zones.none.total > 0 && railItem(NO_ZONE, tr("No location", "Tanpa lokasi"), zones.none.done, zones.none.total)}
             {zones.list.map((z) => railItem(z.code, `${z.code} · ${locName(z.code)}`, z.done, z.total))}
           </nav>
         </Card>
 
-        <div className="min-w-0">
-          <div role="tablist" aria-label={tr("View", "Tampilan")} className="mb-3 inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+        <div className="min-w-0 md:flex md:min-h-0 md:flex-col">
+          <div role="tablist" aria-label={tr("View", "Tampilan")} className="mb-3 inline-flex self-start rounded-lg border border-slate-200 bg-slate-50 p-0.5">
             {([["assets", tr("Assets", "Aset")], ["count", tr("Count stock", "Hitung stok")]] as [View, string][]).map(([v, label]) => (
               <button
                 key={v} role="tab" aria-selected={view === v} type="button" onClick={() => onView(v)}
@@ -203,12 +228,12 @@ function VerifyBoard({ rows, zone, tab, q, qValue, setQ, onZone, onTab, locName,
             ))}
           </div>
           {view === "count" ? (
-            zone === "all" || zone === NO_ZONE ? (
+            <div className="md:min-h-0 md:flex-1 md:overflow-y-auto md:pr-1">{zone === "all" || zone === NO_ZONE ? (
               <EmptyState icon={ClipboardCheck} title={tr("Pick a zone to count", "Pilih zona untuk dihitung")}
                 description={tr("Counts are entered per location. Choose a zone on the left.", "Hitungan dicatat per lokasi. Pilih zona di kiri.")} />
             ) : (
               <CountStock zone={zone} zoneLabel={zoneTitle} />
-            )
+            )}</div>
           ) : (<>
           <div className="mb-3 flex flex-col gap-2 xl:flex-row xl:items-end xl:justify-between">
             <div>
@@ -231,6 +256,7 @@ function VerifyBoard({ rows, zone, tab, q, qValue, setQ, onZone, onTab, locName,
             </div>
           </div>
 
+          <div className="md:min-h-0 md:flex-1 md:overflow-y-auto md:pb-16 md:pr-1">
           {shown.length === 0 ? (
             <EmptyState
               icon={ClipboardCheck}
@@ -253,19 +279,21 @@ function VerifyBoard({ rows, zone, tab, q, qValue, setQ, onZone, onTab, locName,
                       <span className="flex items-baseline justify-between gap-2">
                         <span className="font-mono text-[12px] font-semibold text-slate-800">{r.asset_no}</span>
                         {r.legacy_code && (
-                          <span className="text-[11px] text-slate-500">{tr(`Old: ${r.legacy_code}`, `Lama: ${r.legacy_code}`)}</span>
+                          <span className="font-mono text-[11px] text-slate-500">{r.legacy_code}</span>
                         )}
                       </span>
                       <span className="mt-0.5 block truncate text-sm font-medium text-slate-800" title={r.name}>{r.name}</span>
                       <span className="block truncate text-xs text-slate-500">
                         {[r.brand, r.model].filter(Boolean).join(" · ") || "—"}
                       </span>
+                      <LegacyLine row={r} className="mt-1" />
                     </span>
                   </Link>
                 </li>
               ))}
             </ul>
           )}
+          </div>
           </>)}
         </div>
       </div>

@@ -558,6 +558,28 @@ R_SUM2=$(q -Atc "select md5(string_agg(asset_no||name||coalesce(brand,'')||coale
 [ "$R_SUM2" = "$R_SUM1" ] || fail "and no imported asset changed"       "the rows differ"
 pass "13 (second run) changed nothing"
 
+# ── 14: the 2013 names in the register's own format (D450) ───────────────
+# One machine is "corrected from a verification" first; 14 must leave it.
+q -q -c "update ops_inv.assets set name = 'SAW, BAND (FOUND ON SITE)' where legacy_code = 'S2-01'"
+( cd "$HERE/../.." && q -q -f supabase/import/14_inv_legacy_2013_names.sql >/dev/null 2>&1 ) \
+  || fail "14_inv_legacy_2013_names (first run)" "the file did not apply"
+N_OK=$(q -Atc "select count(*) from ops_inv.assets where legacy_code = 'C1-04' and name = 'CLAMP, CASE (SINGLE)'")
+N_UP=$(q -Atc "select count(*) from ops_inv.assets where legacy_code is not null and name <> upper(name)")
+N_KEPT=$(q -Atc "select name from ops_inv.assets where legacy_code = 'S2-01'")
+N_AUD=$(q -Atc "select count(*) from ops_core.audit_log where action = 'rename_2013'")
+N_ACT=$(q -Atc "select count(*) from ops_core.audit_log where action = 'rename_2013' and actor_id is not null")
+[ "$N_OK" = "1" ]     || fail "a pattern break is corrected"            "C1-04 not renamed"
+[ "$N_UP" = "0" ]     || fail "every renamed machine is uppercase"       "$N_UP are not"
+[ "$N_KEPT" = "SAW, BAND (FOUND ON SITE)" ] || fail "a name corrected on site is kept" "saw '$N_KEPT'"
+[ "$N_AUD" = "163" ]  || fail "one audit row per rename"                "saw $N_AUD"
+[ "$N_ACT" = "0" ]    || fail "and none claims an actor"                 "$N_ACT do"
+pass "14 (first run): 163 renamed, the corrected one kept"
+( cd "$HERE/../.." && q -q -f supabase/import/14_inv_legacy_2013_names.sql >/dev/null 2>&1 ) \
+  || fail "14_inv_legacy_2013_names (second run)" "the file did not apply"
+N_AUD2=$(q -Atc "select count(*) from ops_core.audit_log where action = 'rename_2013'")
+[ "$N_AUD2" = "$N_AUD" ] || fail "a second run renames nothing" "$N_AUD then $N_AUD2"
+pass "14 (second run) changed nothing"
+
 echo
 echo "──"
 echo "import  ok (idempotent over two runs, $M1 legacy rows accounted for)"

@@ -15,7 +15,7 @@ import { useToast } from "@/store/toast";
 import {
   ASSET_CONDITION_LABELS, VERIFY_FIELDS, VERIFY_FIELD_LABELS, type AssetVerificationRow,
 } from "@/services/inventory/contracts";
-import { NO_ZONE, RecordPhoto, StatusBadge, zoneOf } from "../shared";
+import { LegacyLine, NO_ZONE, RecordPhoto, StatusBadge, zoneOf } from "../shared";
 
 /** Asset verification — the mismatch summary (D447).
  *
@@ -82,7 +82,8 @@ export default function VerifyReviewPage() {
               {r.asset_no}
             </Link>
             <p className="truncate font-medium text-slate-800">{r.name}</p>
-            {r.legacy_code && <p className="text-[11px] text-slate-500">{tr(`Old: ${r.legacy_code}`, `Lama: ${r.legacy_code}`)}</p>}
+            {r.legacy_code && <p className="font-mono text-[11px] text-slate-500">{r.legacy_code}</p>}
+            <LegacyLine row={r} />
           </div>
         </div>
       ),
