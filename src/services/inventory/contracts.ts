@@ -634,6 +634,14 @@ export interface StockItemView {
   photo_count: number;
   /** The day the item was recorded in the catalogue (`0178`, D321). */
   registered_at?: string | null;
+  /** The code people see, search and print in the one system (0293, 0294,
+   *  D451): `S2-29`, `S3-001`. Null for a record no family numbers. */
+  code?: string | null;
+  family_code?: string | null;
+  /** The family's name, `Saw`. */
+  family_label?: string | null;
+  /** One sentence on what it is and what it is used for. */
+  description?: string | null;
 }
 
 export interface StockItemDetail extends StockItemView {
@@ -878,6 +886,17 @@ export interface AssetView extends Asset {
   next_service_due: string | null;
   service_due: boolean;
   service_count: number;
+  /** The code people see, search and print in the one system (0293, 0294,
+   *  D451): `S2-29`, `S3-001`. Null for a record no family numbers. */
+  code?: string | null;
+  family_code?: string | null;
+  /** The family's name, `Saw`. */
+  family_label?: string | null;
+  /** One sentence on what it is and what it is used for. */
+  description?: string | null;
+  family_label_id?: string | null;
+  /** The 2013 register's code, kept for matching the old photos (0290). */
+  legacy_code?: string | null;
 }
 
 export type AssetServiceKind = "service" | "repair" | "inspection" | "other";
@@ -920,6 +939,11 @@ export interface AssetServiceInput {
  *  clears a text field and `null` clears a date or number. */
 export interface AssetInput {
   name?: string;
+  /** At registration only: the family that numbers the code (D451). Picked,
+   *  the name is written uppercase; left out, the category's default family. */
+  family_code?: string | null;
+  /** At registration only; later through `describeRecord`. */
+  description?: string | null;
   category_code?: string;
   brand?: string;
   model?: string;
@@ -970,6 +994,10 @@ export interface LabelSource {
   /** The random token the label's QR carries, which opens the public card
    *  without signing in (`0179`, D322). */
   token?: string | null;
+  /** The code in the one system, printed large (`0294`, D451). `code` above
+   *  stays the key the QR and every link use. */
+  display_code?: string | null;
+  description?: string | null;
   /** What this kind adds to its label: an asset's ownership, holder, serial and
    *  contract end; a product's size in millimetres. */
   extra: {
@@ -996,6 +1024,8 @@ export interface LabelSource {
 export interface LabelCard {
   kind: LabelKind;
   code: string;
+  display_code?: string | null;
+  description?: string | null;
   name: string;
   name_local: string | null;
   category: string | null;

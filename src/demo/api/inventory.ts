@@ -385,7 +385,7 @@ export async function listStock(
   if (opts.q) {
     const q = opts.q.toLowerCase();
     rows = rows.filter((r) =>
-      `${r.item_code} ${r.item_name} ${r.item_name_local ?? ""} ${r.category_name}`.toLowerCase().includes(q));
+      `${r.item_code} ${r.code ?? ""} ${r.item_name} ${r.item_name_local ?? ""} ${r.category_name}`.toLowerCase().includes(q));
   }
   return ok(SERVICE, rows);
 }
@@ -408,6 +408,7 @@ export async function registerItem(
     location?: string | null;
     counted?: number | null;
     reason?: string | null;
+    description?: string | null;
   },
   idempotencyKey?: string,
 ): Promise<Result<StockItemDetail>> {
@@ -459,7 +460,12 @@ export async function registerItem(
 
   const code = `ITM-${String(state.items.length + 1).padStart(4, "0")}`;
   const user = actingUser();
+  const itemFamily = state.code_families.find((f) => f.kind === "counted" && f.item_category_code === input.category_code);
   apply((draft) => {
+    if (itemFamily) {
+      draft.item_codes.push({ item_code: code, code: nextCode(state, itemFamily.code), family_code: itemFamily.code,
+        description: input.description?.trim() || null });
+    }
     draft.items.push({
       id: newId("itm"), code, name, name_local: nameLocal, aka: [],
       category_code: input.category_code, base_uom: input.base_uom, kind: "goods",
@@ -1651,6 +1657,9 @@ function assetView(state: DemoState, a: Asset): AssetView {
       && a.contract_end < officeToday(),
     rent_lines: state.cash_components.filter((c) => c.active && c.source_ref === `asset:${a.asset_no}`).length,
     ...serviceSummary(state, a),
+    ...assetCodeFields(state, a.asset_no),
+    family_label_id: state.code_families.find((f) => f.code === state.asset_codes.find((c) => c.asset_no === a.asset_no)?.family_code)?.label_id ?? null,
+    legacy_code: state.asset_legacy.find((l) => l.asset_no === a.asset_no)?.legacy_code ?? null,
   };
 }
 
@@ -1777,8 +1786,12 @@ export async function listAssets(
   if (opts.category) rows = rows.filter((a) => a.category_code === opts.category);
   if (opts.q) {
     const q = opts.q.toLowerCase();
-    rows = rows.filter((a) => [a.asset_no, a.name, a.brand, a.model, a.identifier, a.location, a.holder]
-      .some((x) => x?.toLowerCase().includes(q)));
+    rows = rows.filter((a) => {
+      const c = assetCodeFields(state, a.asset_no);
+      const legacy = state.asset_legacy.find((l) => l.asset_no === a.asset_no)?.legacy_code;
+      return [a.asset_no, c.code, legacy, a.name, c.description, a.brand, a.model, a.identifier, a.location, a.holder]
+        .some((x) => x?.toLowerCase().includes(q));
+    });
   }
   return ok(SERVICE, [...rows].sort((a, b) => b.asset_no.localeCompare(a.asset_no)).map((a) => assetView(state, a)));
 }
@@ -1841,6 +1854,12 @@ export async function createAsset(
     return invalid(SERVICE, "status_invalid", "A new asset is in use, in storage or under repair.", { field: "status" });
   }
   const state = getState();
+  const family = input.family_code
+    ? state.code_families.find((f) => f.code === input.family_code && f.kind === "unit" && !f.reserved && f.is_active)
+    : state.code_families.find((f) => f.category_default && f.asset_category_code === input.category_code);
+  if (input.family_code && !family) {
+    return invalid(SERVICE, "family_unknown", `No family ${input.family_code} for things counted one by one.`, { field: "family_code" });
+  }
   const bad = assetRefsInvalid(state, input);
   if (bad) return bad;
   const rent = {
@@ -1856,7 +1875,8 @@ export async function createAsset(
   const n = Math.max(0, ...state.assets.map((a) => Number(a.asset_no.slice(4)) || 0)) + 1;
   const now = new Date().toISOString();
   const row: Asset = {
-    id: newId("ast"), asset_no: `AST-${String(n).padStart(4, "0")}`, name: input.name.trim(),
+    id: newId("ast"), asset_no: `AST-${String(n).padStart(4, "0")}`,
+    name: input.family_code ? input.name.trim().toUpperCase() : input.name.trim(),
     category_code: input.category_code,
     brand: blank(input.brand) ?? null, model: blank(input.model) ?? null,
     identifier: blank(input.identifier) ?? null, location: place.code,
@@ -1867,9 +1887,14 @@ export async function createAsset(
     ended_on: null, created_at: now, updated_at: now,
     ...rent,
   };
+  const assetCode = family ? nextCode(state, family.code) : null;
   apply((draft) => {
     draft.assets.push(row);
-    writeAudit(draft, { service: SERVICE, entity: "asset", entity_no: row.asset_no, action: "create", outcome: "ok", reason: null });
+    if (family && assetCode) {
+      draft.asset_codes.push({ asset_no: row.asset_no, code: assetCode, family_code: family.code, description: input.description?.trim() || null });
+    }
+    writeAudit(draft, { service: SERVICE, entity: "asset", entity_no: row.asset_no, action: "create", outcome: "ok", reason: null,
+      detail: { code: assetCode, description: input.description?.trim() || null } });
   });
   const view = assetView(getState(), row);
   remember(SERVICE, "createAsset", idempotencyKey, view);
@@ -2059,7 +2084,8 @@ function labelRowsDemo(kind: LabelKind): LabelSource[] {
       const item = state.items.find((i) => i.code === r.item_code);
       const registered = (item as { created_at?: string } | undefined)?.created_at ?? null;
       return {
-        kind: "item" as const, code: r.item_code, name: r.item_name, name_local: r.item_name_local,
+        kind: "item" as const, code: r.item_code, display_code: r.code ?? null, description: r.description ?? null,
+        name: r.item_name, name_local: r.item_name_local,
         category: r.category_name, uom: r.uom, registered_at: registered,
         locations: r.by_location.filter((l) => l.qty > 0).length
           ? r.by_location.filter((l) => l.qty > 0).map((l) => ({ code: l.location, name: l.location_name, qty: l.qty }))
@@ -2070,7 +2096,8 @@ function labelRowsDemo(kind: LabelKind): LabelSource[] {
     });
   } else if (kind === "asset") {
     rows = state.assets.filter((a) => !ASSET_GONE.includes(a.status)).map((a) => ({
-      kind: "asset" as const, code: a.asset_no, name: a.name, name_local: null,
+      kind: "asset" as const, code: a.asset_no, display_code: assetCodeFields(state, a.asset_no).code,
+      description: assetCodeFields(state, a.asset_no).description, name: a.name, name_local: null,
       category: assetView(state, a).category_name ?? a.category_code, uom: null, registered_at: a.created_at,
       locations: a.location ? [{ code: a.location, name: a.location, qty: null }] : [],
       labelled: true,
@@ -2118,7 +2145,13 @@ export async function listLabelSources(
   let rows = labelRowsDemo(opts.kind);
   if (since) rows = rows.filter((r) => r.registered_at != null && r.registered_at.slice(0, 10) >= since);
   if (opts.codes?.length) rows = rows.filter((r) => opts.codes!.includes(r.code));
-  if (q) rows = rows.filter((r) => `${r.code} ${r.name} ${r.name_local ?? ""}`.toLowerCase().includes(q));
+  if (q) {
+    const state = getState();
+    rows = rows.filter((r) => {
+      const legacy = r.kind === "asset" ? state.asset_legacy.find((l) => l.asset_no === r.code)?.legacy_code ?? "" : "";
+      return `${r.code} ${r.display_code ?? ""} ${legacy} ${r.name} ${r.name_local ?? ""}`.toLowerCase().includes(q);
+    });
+  }
   return ok(SERVICE, rows
     .sort((a, b) => (b.registered_at ?? "").localeCompare(a.registered_at ?? "") || a.code.localeCompare(b.code))
     .slice(0, 500));
@@ -2149,7 +2182,8 @@ export async function labelCard(token: string): Promise<Result<LabelCard>> {
     const r = all.find((x) => x.token === token);
     if (r) {
       return ok(SERVICE, {
-        kind: r.kind, code: r.code, name: r.name, name_local: r.name_local,
+        kind: r.kind, code: r.code, display_code: r.display_code ?? null, description: r.description ?? null,
+        name: r.name, name_local: r.name_local,
         category: r.category, uom: r.uom, registered_at: r.registered_at,
         locations: r.locations.map((l) => l.name ?? l.code),
         extra: {
@@ -2224,7 +2258,7 @@ function assetCodeFields(state: DemoState, assetNo: string) {
 /** The next number in a family, as `ops_inv.next_code` gives it (0293). */
 function nextCode(state: DemoState, family: string): string {
   const f = state.code_families.find((x) => x.code === family);
-  const max = state.asset_codes.filter((c) => c.family_code === family)
+  const max = [...state.asset_codes, ...state.item_codes].filter((c) => c.family_code === family)
     .reduce((m, c) => Math.max(m, Number(c.code.split("-")[1]) || 0), 0);
   const width = f?.kind === "counted" ? 3 : 2;
   return `${family}-${String(max + 1).padStart(width, "0")}`;
@@ -2569,4 +2603,35 @@ export async function recodeAsset(
       detail: { code: { from: current?.code ?? null, to: code } } });
   });
   return ok(SERVICE, { asset_no: assetNo, code, old_code: current?.code ?? null });
+}
+
+/** The one sentence on what an asset or catalogue item is (0294, D451). */
+export async function describeRecord(
+  kind: "asset" | "item", no: string, description: string,
+): Promise<Result<{ no: string; description: string | null }>> {
+  await latency();
+  const denied = requireLevel(SERVICE, "inventory", "write");
+  if (denied) return denied;
+  const state = getState();
+  const after = description.trim() || null;
+  const row = kind === "asset"
+    ? state.asset_codes.find((c) => c.asset_no === no) ?? (state.assets.some((a) => a.asset_no === no) ? null : undefined)
+    : state.item_codes.find((c) => c.item_code === no);
+  if (row === undefined) {
+    return notFound(SERVICE, kind === "asset" ? "asset_not_found" : "not_found", kind === "asset" ? "No such asset." : "No coded item by that number.");
+  }
+  const before = row?.description ?? null;
+  if (before === after) return noop(SERVICE, { no, description: after });
+  apply((draft) => {
+    if (kind === "asset") {
+      const d = draft.asset_codes.find((c) => c.asset_no === no);
+      if (d) d.description = after;
+    } else {
+      const d = draft.item_codes.find((c) => c.item_code === no);
+      if (d) d.description = after;
+    }
+    writeAudit(draft, { service: SERVICE, entity: kind, entity_no: no, action: "describe", outcome: "ok", reason: null,
+      detail: { description: { from: before, to: after } } });
+  });
+  return ok(SERVICE, { no, description: after });
 }

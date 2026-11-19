@@ -35,6 +35,7 @@ that only shows what is left teaches nobody anything.
 | B21 | ~~**Lokasi stok tidak bisa diganti nama dari layar**, padahal D308 menyebutnya~~ | `/inventory/penyesuaian` | **fixed** 2026-09-28 — *Rename* → *Save name* di Kelola lokasi (F178) |
 | B22 | ~~**Penerimaan terhadap baris PO dari layar tidak pernah menambah stok** — baris PO tidak membawa `item_id`~~ | `/procurement/tracker/[vendor]` · `ops_inv.stock_from_receipt` | **fixed** 2026-09-28 — `0180`: barangnya dibaca dari baris PR yang dibeli baris PO itu (F179) |
 | B23 | **The React Compiler lint rules are off** — eslint-plugin-react-hooks 7 (with Next 16) flagged 100 places: setState in a data-loading effect ×70, components defined during render ×14, impure calls in render ×12, refs read in render ×3, one mutation. Also six `window.location` navigations Next now warns on | everywhere · `eslint.config.mjs` | **open** — switched off in the Next 16 upgrade (D449, F292) so the toolchain could move without rewriting screens; turn each rule on with its fixes |
+| B24 | **A catalogue item moved to another category keeps its code in the old family** — `A4-003` stays `A4-…` after it moves to *Lem & dempul* | `/inventory/material` · `update_item_details` · `ops_inv.item_codes` | **open — keputusan pemilik**: dinomori ulang di famili baru (label dicetak ulang, kode lama di riwayat seperti aset) atau kode tetap (F293) |
 
 ## Scheduled — the owner's answers of 2026-09-11
 

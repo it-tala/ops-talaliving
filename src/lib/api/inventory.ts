@@ -158,6 +158,8 @@ export async function registerItem(
     location?: string | null;
     counted?: number | null;
     reason?: string | null;
+    /** One sentence on what it is and what it is used for (0294, D451). */
+    description?: string | null;
   },
   idempotencyKey?: string,
 ): Promise<Result<StockItemDetail>> {
@@ -171,6 +173,7 @@ export async function registerItem(
     p_counted: input.counted ?? null,
     p_reason: input.reason ?? null,
     p_key: idempotencyKey ?? null,
+    p_description: input.description ?? null,
   });
   const res = fromSeam<{ code: string }>(SERVICE, data, error);
   if (res.error) return res;
@@ -1462,7 +1465,7 @@ export async function listAssets(
     /* Quoted, so a comma or bracket typed into the box is search text, not
        PostgREST filter syntax. */
     const needle = `"%${opts.q.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}%"`;
-    q = q.or(["asset_no", "name", "brand", "model", "identifier", "location", "holder"]
+    q = q.or(["asset_no", "code", "legacy_code", "name", "description", "brand", "model", "identifier", "location", "holder"]
       .map((c) => `${c}.ilike.${needle}`).join(","));
   }
   const { data, error } = await q.order("asset_no", { ascending: false });
@@ -1503,6 +1506,8 @@ export async function createAsset(
     p_rent_due_day: input.rent_due_day ?? null,
     p_contract_start: input.contract_start ?? null,
     p_contract_end: input.contract_end ?? null,
+    p_family_code: input.family_code ?? null,
+    p_description: input.description ?? null,
   });
   const res = fromSeam<{ asset_no: string }>(SERVICE, data, error);
   if (res.error) return res;
@@ -1889,4 +1894,13 @@ export async function recodeAsset(
     p_asset_no: assetNo, p_family_code: familyCode, p_reason: reason,
   });
   return fromSeam<{ asset_no: string; code: string; old_code: string | null }>(SERVICE, data, error);
+}
+
+/** The one sentence on what an asset or catalogue item is and what it is used
+ *  for (`ops_inv.describe_record`, 0294, D451). Blank clears it. */
+export async function describeRecord(
+  kind: "asset" | "item", no: string, description: string,
+): Promise<Result<{ no: string; description: string | null }>> {
+  const { data, error } = await db().rpc("describe_record", { p_kind: kind, p_no: no, p_description: description });
+  return fromSeam<{ no: string; description: string | null }>(SERVICE, data, error);
 }

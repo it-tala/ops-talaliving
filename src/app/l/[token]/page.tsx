@@ -57,11 +57,15 @@ function CardBody({ c }: { c: LabelCard }) {
     <Card className="overflow-hidden">
       <div className="border-b border-slate-100 px-5 py-4">
         <div className="flex items-center justify-between gap-2">
-          <span className="font-mono text-[20px] font-bold text-slate-900">{c.code}</span>
+          <span className="font-mono text-[20px] font-bold text-slate-900">
+            {c.display_code ?? c.code}
+            {c.display_code && <span className="ml-2 text-[12px] font-normal text-slate-400">{c.code}</span>}
+          </span>
           <Badge tone={own ? "violet" : "brand"}>{tag}</Badge>
         </div>
         <p className="mt-1 text-[16px] font-semibold text-slate-800">{c.name}</p>
         {c.name_local && <p className="text-[14px] text-slate-600">{c.name_local}</p>}
+        {c.description && <p className="mt-1 text-[13px] text-slate-600">{c.description}</p>}
       </div>
       <dl className="space-y-2.5 px-5 py-4 text-[14px]">
         {c.category && (

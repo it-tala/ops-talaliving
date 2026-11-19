@@ -14,8 +14,10 @@ import { formatIDR } from "@/lib/format";
 import { hr, inventory } from "@/demo/api";
 import {
   ASSET_GONE, ASSET_OWNERSHIP_LABEL, ASSET_STATUS_LABEL, RENT_PERIOD_LABEL,
+  composeName,
   type AssetInput, type AssetOwnership, type AssetStatus, type AssetView, type RentPeriod,
 } from "@/services/inventory/contracts";
+import { AssetCodePanel, FamilySelect } from "./AssetCode";
 import { RentSchedule } from "./RentSchedule";
 import { ServiceLog } from "./ServiceLog";
 import type { AuditRow } from "@/demo/state";
@@ -59,6 +61,9 @@ type Form = {
   vendor_code: string; trx_no: string; warranty_until: string; notes: string;
   ownership: AssetOwnership; rent_amount: number; rent_period: "" | RentPeriod; rent_due_day: string;
   contract_start: string; contract_end: string;
+  /* At registration (D451): the family first, the name built from it in the
+     2013 format (`SAW, RADIAL ARM (LARGE)`), and one sentence on what it is. */
+  family_code: string; descriptor: string; size: string; description: string;
 };
 
 const emptyForm: Form = {
@@ -66,6 +71,7 @@ const emptyForm: Form = {
   location: "", holder: "", acquired_on: "", purchase_cost: 0, vendor_code: "", trx_no: "",
   warranty_until: "", notes: "",
   ownership: "owned", rent_amount: 0, rent_period: "", rent_due_day: "", contract_start: "", contract_end: "",
+  family_code: "", descriptor: "", size: "", description: "",
 };
 
 export default function AssetsPage() {
@@ -92,6 +98,8 @@ export default function AssetsPage() {
   const locName = (code: string | null) =>
     code == null ? null : (locs.status === "ready" ? locs.data.find((l) => l.code === code)?.name : undefined) ?? code;
   const catList = cats.status === "ready" ? cats.data : [];
+  const [fams] = useLoad(() => inventory.listCodeFamilies({ kind: "unit" }), []);
+  const famList = fams.status === "ready" ? fams.data : [];
 
   const [selected, setSelected] = useState<AssetView | null>(null);
   /* `?asset=AST-0001`: where a label's QR lands (D321), opened on the asset. */
@@ -105,6 +113,10 @@ export default function AssetsPage() {
   }, [linked]);
   const [history, setHistory] = useState<AuditRow[]>([]);
   const [form, setForm] = useState<Form | null>(null);
+  const formFamily = form ? famList.find((f) => f.code === form.family_code) : undefined;
+  /** The name a new asset is saved under: its family's word, then what kind
+   *  exactly, then the size — the 2013 register's format. */
+  const builtName = form && formFamily ? composeName(formFamily.type_name, form.descriptor, form.size) : "";
   const [statusForm, setStatusForm] = useState<{ status: AssetStatus; note: string } | null>(null);
   const [saving, setSaving] = useState(false);
   /* HR's active employees, offered as holders once a form opens. A reader
@@ -143,6 +155,7 @@ export default function AssetsPage() {
       ownership: a.ownership, rent_amount: a.rent_amount ?? 0, rent_period: a.rent_period ?? "",
       rent_due_day: a.rent_due_day != null ? String(a.rent_due_day) : "",
       contract_start: a.contract_start ?? "", contract_end: a.contract_end ?? "",
+      family_code: a.family_code ?? "", descriptor: "", size: "", description: a.description ?? "",
     });
   }
 
@@ -169,14 +182,17 @@ export default function AssetsPage() {
     };
     setSaving(true);
     const res = form.mode === "create"
-      ? await inventory.createAsset({ ...input, name: form.name, category_code: form.category_code }, `asset-${form.name}-${Date.now()}`)
+      ? await inventory.createAsset({
+          ...input, name: builtName, category_code: form.category_code,
+          family_code: form.family_code, description: form.description.trim(),
+        }, `asset-${builtName}-${Date.now()}`)
       : await inventory.updateAsset(form.asset_no, input);
     setSaving(false);
     if (res.error) {
       toast(res.error.status === 403 ? "critical" : "warning", tr("Not saved", "Tidak tersimpan"), res.error.message);
       return;
     }
-    toast("success", form.mode === "create" ? tr("Asset registered", "Aset terdaftar") : tr("Asset saved", "Aset tersimpan"), `${res.data.asset_no} — ${res.data.name}`);
+    toast("success", form.mode === "create" ? tr("Asset registered", "Aset terdaftar") : tr("Asset saved", "Aset tersimpan"), `${res.data.code ?? res.data.asset_no} — ${res.data.name}`);
     setForm(null);
     if (form.mode === "edit") void refreshSelected(res.data.asset_no); else reload();
   }
@@ -217,8 +233,10 @@ export default function AssetsPage() {
             )}
           </p>
           <p className="font-mono text-[11px] text-slate-400">
-            {a.asset_no}{a.identifier ? ` · ${a.identifier}` : ""}
+            {a.code && <span className="font-semibold text-slate-700">{a.code}</span>}
+            {a.code ? " · " : ""}{a.asset_no}{a.identifier ? ` · ${a.identifier}` : ""}
           </p>
+          {a.description && <p className="line-clamp-1 text-[11px] text-slate-500">{a.description}</p>}
         </div>
       ),
     },
@@ -336,7 +354,7 @@ export default function AssetsPage() {
                       </label>
                       <input
                         id="asset-search" value={q} onChange={(e) => setQ(e.target.value)}
-                        placeholder={tr("Tag, name, serial, plate…", "Tag, nama, serial, pelat…")}
+                        placeholder={tr("Code, 2013 code, name, serial…", "Kode, kode 2013, nama, serial…")}
                         className="h-9 w-48 rounded-lg border border-slate-200 px-3 text-sm text-slate-700 placeholder:text-slate-400 focus:border-brand-400 focus:outline-none"
                       />
                     </div>
@@ -356,7 +374,7 @@ export default function AssetsPage() {
         open={!!selected}
         onClose={() => { setSelected(null); setStatusForm(null); }}
         title={selected?.name ?? ""}
-        subtitle={selected ? `${selected.asset_no} · ${selected.category_name}` : undefined}
+        subtitle={selected ? `${selected.code ? `${selected.code} · ` : ""}${selected.asset_no} · ${selected.category_name}` : undefined}
         width="max-w-xl"
         footer={selected && mayEdit ? (
           <div className="flex flex-wrap justify-end gap-2">
@@ -389,6 +407,9 @@ export default function AssetsPage() {
               {selected.contract_expired && <Badge tone="red">{tr(`contract ended ${selected.contract_end} — still here`, `kontrak sudah berakhir ${selected.contract_end} — masih di sini`)}</Badge>}
               {selected.ended_on && <Badge tone="slate">{tr("since", "sejak")} {selected.ended_on}</Badge>}
             </div>
+
+            <AssetCodePanel asset={selected} families={famList} canEdit={mayEdit}
+              onChanged={() => void refreshSelected(selected.asset_no)} />
 
             {statusForm && (
               <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
@@ -510,11 +531,57 @@ export default function AssetsPage() {
         {form && (
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
-              <div className="col-span-2">
-                <label htmlFor="as-name" className="block text-sm text-slate-600">{tr("Name", "Nama")}</label>
-                <input id="as-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder={tr("e.g. Camera — workshop gate", "mis. Kamera — gerbang workshop")} className={inputClass} />
-              </div>
+              {form.mode === "create" ? (
+                <>
+                  <div className="col-span-2">
+                    <label htmlFor="as-family" className="block text-sm text-slate-600">
+                      {tr("What kind of thing is it? (family)", "Barang jenis apa? (keluarga)")}
+                    </label>
+                    <FamilySelect id="as-family" value={form.family_code} families={famList}
+                      placeholder={tr("Pick its family first…", "Pilih keluarganya dulu…")}
+                      onChange={(f) => setForm({
+                        ...form, family_code: f?.code ?? "",
+                        category_code: f?.asset_category_code ?? form.category_code,
+                      })} />
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      {formFamily
+                        ? tr(`It gets the next code in ${formFamily.code}: ${formFamily.code}-…`, `Kodenya nomor berikutnya di ${formFamily.code}: ${formFamily.code}-…`)
+                        : tr("The family gives the code: S2 is a saw, C6 a computer. A new kind of thing gets its family on Inventory → Verify → New item.",
+                             "Keluarga menentukan kode: S2 gergaji, C6 komputer. Jenis barang baru dibuatkan keluarganya di Persediaan → Verifikasi → Barang baru.")}
+                    </p>
+                  </div>
+                  <div>
+                    <label htmlFor="as-desc-kind" className="block text-sm text-slate-600">{tr("Which one exactly", "Jenis tepatnya")}</label>
+                    <input id="as-desc-kind" value={form.descriptor} onChange={(e) => setForm({ ...form, descriptor: e.target.value })}
+                      placeholder={tr("e.g. radial arm", "mis. radial arm")} className={inputClass} />
+                  </div>
+                  <div>
+                    <label htmlFor="as-size" className="block text-sm text-slate-600">{tr("Size (optional)", "Ukuran (opsional)")}</label>
+                    <input id="as-size" value={form.size} onChange={(e) => setForm({ ...form, size: e.target.value })}
+                      placeholder={tr("e.g. large, 3 HP", "mis. besar, 3 HP")} className={inputClass} />
+                  </div>
+                  <p className="col-span-2 rounded-lg bg-slate-50 px-3 py-2 font-mono text-[13px] text-slate-800" aria-live="polite">
+                    {builtName || <span className="font-sans text-slate-400">{tr("The name appears here, as the 2013 register wrote it.", "Namanya muncul di sini, seperti di register 2013.")}</span>}
+                  </p>
+                  <div className="col-span-2">
+                    <label htmlFor="as-description" className="block text-sm text-slate-600">
+                      {tr("What it is and what it is used for — one sentence", "Apa ini dan dipakai untuk apa — satu kalimat")}
+                    </label>
+                    <input id="as-description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
+                      placeholder={tr("e.g. Cuts long boards across the grain in the machine room.", "mis. Memotong papan panjang melintang serat di ruang mesin.")}
+                      className={inputClass} />
+                  </div>
+                </>
+              ) : (
+                <div className="col-span-2">
+                  <label htmlFor="as-name" className="block text-sm text-slate-600">{tr("Name", "Nama")}</label>
+                  <input id="as-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    placeholder={tr("e.g. Camera — workshop gate", "mis. Kamera — gerbang workshop")} className={inputClass} />
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    {tr("The code, family and sentence are changed from the asset's own page.", "Kode, keluarga, dan kalimatnya diubah dari halaman aset itu sendiri.")}
+                  </p>
+                </div>
+              )}
               <div>
                 <label htmlFor="as-cat" className="block text-sm text-slate-600">{tr("Category", "Kategori")}</label>
                 <select id="as-cat" value={form.category_code} onChange={(e) => setForm({ ...form, category_code: e.target.value })}
@@ -549,7 +616,9 @@ export default function AssetsPage() {
                 <input id="as-model" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} className={inputClass} />
               </div>
               <div>
-                <label htmlFor="as-loc" className="block text-sm text-slate-600">{tr("Location", "Lokasi")}</label>
+                <label htmlFor="as-loc" className="block text-sm text-slate-600">
+                  {tr("Location", "Lokasi")}{form.mode === "create" && <span className="text-slate-400">{tr(" — required", " — wajib")}</span>}
+                </label>
                 <select id="as-loc" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })}
                   className={inputClass}>
                   <option value="">{tr("— not set —", "— belum diisi —")}</option>
@@ -662,7 +731,9 @@ export default function AssetsPage() {
                 </Button>
               )}
               <Button variant="outline" onClick={() => setForm(null)}>{tr("Cancel", "Batal")}</Button>
-              <Button onClick={save} disabled={saving || !form.name.trim() || !form.category_code}>
+              <Button onClick={save} disabled={saving || !form.category_code || (form.mode === "create"
+                ? !form.family_code || !form.descriptor.trim() || !form.description.trim() || !form.location
+                : !form.name.trim())}>
                 {saving ? tr("Saving…", "Menyimpan…") : tr("Save", "Simpan")}
               </Button>
             </div>

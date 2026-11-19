@@ -46,6 +46,8 @@ export function ItemDetails({ d, mayEdit, onSaved }: {
 
   if (!draft) {
     return (
+      <div className="space-y-2">
+      <ItemSentence d={d} mayEdit={mayEdit} onSaved={onSaved} />
       <div className="flex flex-wrap items-center gap-2 text-[12px]">
         <span className="text-slate-500">{tr("Floor name", "Nama lapangan")}</span>
         <span className="font-medium text-slate-800">{d.item_name_local ?? <span className="text-amber-700">{tr("not filled in", "belum diisi")}</span>}</span>
@@ -55,6 +57,7 @@ export function ItemDetails({ d, mayEdit, onSaved }: {
             {tr("Edit", "Ubah")}
           </Button>
         )}
+      </div>
       </div>
     );
   }
@@ -105,6 +108,52 @@ export function ItemDetails({ d, mayEdit, onSaved }: {
         <Button size="sm" disabled={busy || !draft.name.trim()} onClick={save}>{tr("Save", "Simpan")}</Button>
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => setDraft(null)}>{tr("Cancel", "Batal")}</Button>
       </div>
+    </div>
+  );
+}
+
+/** The item's sentence on what it is and what it is used for (0294, D451),
+ *  beside its code. Most of the catalogue came before the sentence existed. */
+function ItemSentence({ d, mayEdit, onSaved }: { d: StockItemDetail; mayEdit: boolean; onSaved: () => void }) {
+  const tr = useTr();
+  const { toast } = useToast();
+  const [text, setText] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (!d.code) return null;
+
+  async function save() {
+    if (text == null) return;
+    setBusy(true);
+    const res = await inventory.describeRecord("item", d.item_code, text);
+    setBusy(false);
+    if (res.error) { toast("warning", tr("Not saved", "Tidak tersimpan"), res.error.message); return; }
+    setText(null);
+    onSaved();
+  }
+
+  if (text != null) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-[12px]">
+        <label htmlFor="item-sentence" className="text-slate-500">{tr("What it is, what it is for", "Apa ini, untuk apa")}</label>
+        <input id="item-sentence" value={text} onChange={(e) => setText(e.target.value)} autoFocus
+          placeholder={tr("e.g. Grit 400 paper for the last pass before lacquer.", "mis. Amplas 400 untuk tahap akhir sebelum dipernis.")}
+          className="h-8 min-w-0 flex-1 rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none" />
+        <Button size="sm" variant="ghost" onClick={() => setText(null)}>{tr("Cancel", "Batal")}</Button>
+        <Button size="sm" onClick={save} disabled={busy}>{tr("Save", "Simpan")}</Button>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-[12px]">
+      <span className="font-mono font-semibold text-slate-800">{d.code}</span>
+      <span className={d.description ? "text-slate-700" : "italic text-slate-400"}>
+        {d.description ?? tr("No sentence yet on what it is.", "Belum ada kalimat tentang barang ini.")}
+      </span>
+      {mayEdit && (
+        <Button size="sm" variant="ghost" icon={Pencil} onClick={() => setText(d.description ?? "")}>
+          {d.description ? tr("Edit", "Ubah") : tr("Add", "Tambah")}
+        </Button>
+      )}
     </div>
   );
 }

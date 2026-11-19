@@ -102,9 +102,12 @@ export function Modal({
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[1px] animate-fade-in" onClick={onClose} />
-      <div className={cn("relative w-full rounded-2xl bg-white shadow-xl animate-fade-in", width)}>
+    /* Scrolls when the form is taller than the window: centred with `my-auto`
+       rather than `items-center`, which would push a tall panel's top (its
+       title and first fields) off the screen where no scroll can reach it. */
+    <div className="fixed inset-0 z-50 flex justify-center overflow-y-auto p-4">
+      <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[1px] animate-fade-in" onClick={onClose} />
+      <div className={cn("relative my-auto w-full rounded-2xl bg-white shadow-xl animate-fade-in", width)}>
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <h3 className="text-base font-semibold text-slate-800">{title}</h3>
           <button

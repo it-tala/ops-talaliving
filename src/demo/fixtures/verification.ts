@@ -1,5 +1,6 @@
 import type { Asset, AssetCategory, CodeFamily, StockLocation } from "@/services/inventory/contracts";
-import type { AssetCode, AssetLegacy, AssetVerificationRecord } from "../state";
+import type { AssetCode, AssetLegacy, AssetVerificationRecord, ItemCode } from "../state";
+import { ITEM_CATEGORIES, ITEMS } from "./reference";
 import { ASSETS } from "./assets";
 
 /** The asset verification flow (`0290`, `0291`, D447) in the sandbox.
@@ -152,6 +153,40 @@ export const DEMO_ASSET_CODES: AssetCode[] = (() => {
   for (const a of ASSETS) {
     const family = DEMO_CODE_FAMILIES.find((f) => f.category_default && f.asset_category_code === a.category_code)?.code;
     if (family) out.push({ asset_no: a.asset_no, code: next(family), family_code: family, description: null });
+  }
+  return out;
+})();
+
+/** One counted family per catalogue category that is not a service, groups
+ *  before their types, by name — the order 0293 makes them in, each taking its
+ *  letter's next number after the unit families. */
+export const DEMO_COUNTED_FAMILIES: CodeFamily[] = (() => {
+  const taken = DEMO_CODE_FAMILIES.map((f) => f.code);
+  const out: CodeFamily[] = [];
+  const cats = ITEM_CATEGORIES
+    .filter((c) => c.code !== "service" && (c.parent_code ?? "") !== "service")
+    .sort((a, b) => Number(a.parent_code != null) - Number(b.parent_code != null) || a.name.localeCompare(b.name) || a.code.localeCompare(b.code));
+  for (const c of cats) {
+    const type = c.name.toUpperCase();
+    const letter = /^[A-Z]/.test(type) ? type[0] : "X";
+    let digit = 1;
+    while (taken.includes(`${letter}${digit}`)) digit += 1;
+    taken.push(`${letter}${digit}`);
+    out.push(fam(`${letter}${digit}`, type, c.name, null as unknown as string, {
+      kind: "counted", asset_category_code: null, item_category_code: c.code, label_id: null,
+    }));
+  }
+  return out;
+})();
+
+/** Every catalogue item its code in its category's family, three digits. */
+export const DEMO_ITEM_CODES: ItemCode[] = (() => {
+  const out: ItemCode[] = [];
+  for (const i of [...ITEMS].sort((a, b) => a.code.localeCompare(b.code))) {
+    const f = DEMO_COUNTED_FAMILIES.find((x) => x.item_category_code === i.category_code);
+    if (!f) continue;
+    const n = out.filter((c) => c.family_code === f.code).length + 1;
+    out.push({ item_code: i.code, code: `${f.code}-${String(n).padStart(3, "0")}`, family_code: f.code, description: null });
   }
   return out;
 })();

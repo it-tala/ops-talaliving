@@ -485,6 +485,7 @@ export interface DemoState {
   /** The one code system (0293, D451): the families, and each asset's code. */
   code_families: CodeFamily[];
   asset_codes: AssetCode[];
+  item_codes: ItemCode[];
 
   /* --- inventory: timber ------------------------------------------- */
   /** Logs are bought by the load and used as boards — two quantities with a
@@ -718,6 +719,15 @@ export interface AssetVerificationRecord {
  *  `description`, 0293), kept beside the asset in the sandbox. */
 export interface AssetCode {
   asset_no: string;
+  code: string;
+  family_code: string;
+  description: string | null;
+}
+
+/** A catalogue item's code in its category's counted family
+ *  (`ops_inv.item_codes`, 0293), and its sentence (0294). */
+export interface ItemCode {
+  item_code: string;
   code: string;
   family_code: string;
   description: string | null;
