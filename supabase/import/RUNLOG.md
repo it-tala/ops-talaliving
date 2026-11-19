@@ -6,6 +6,37 @@ this file is the part a person reads first — which run, why, and what still
 needs a decision.
 
 
+## 2026-11-19 — the 2013 names, the one code system, codes everywhere (D450, D451, D452)
+
+Run against production (`hhphmfqbtwcxpvubmwbq`) after #212, #213 and #214 were
+merged, in this order, each checked before the next:
+
+1. **`14_inv_legacy_2013_names.sql`** (the file's `\copy` replaced by the same
+   163 rows inlined, because the database tool runs SQL, not psql). All 164
+   imported machines now carry the 2013 format (`SAW, RADIAL ARM/CROSSCUT`),
+   0 in another format, 164 `rename_2013` audit rows. None had been changed
+   since the import, so none was kept. A second run renames nothing: every
+   name already equals its target.
+2. **`0293_inv_code_system`**: 106 families (71 counted, one per catalogue
+   category that is not a service; a letter's highest family number is 13).
+   All 164 2013 machines coded from their labels, the breaks corrected
+   (C3-03 → C2-03, C4-04 → C2-04, U-11 → U1-11; C1-07's second unit C1-08).
+   1,497 catalogue items coded.
+3. **`15_inv_code_backfill.sql`**: the other 91 assets coded, 62 by a name
+   rule and 29 by their category's default family; 12 new families made;
+   91 `assign_code` audit rows; 0 assets and 0 items without a code. A second
+   run selects only assets without a code, so it touches nothing.
+   **To check on the floor:** `GERGAJI BENGKOK` ×2 went to the saw family
+   (S2-30, S2-31). If they are hand saws, recode them from the asset drawer.
+4. **`0294_inv_codes_everywhere`**: `v_asset` 255/255 rows with a code,
+   `v_stock_item` 946/946, both still `security_invoker`; `describe_record`
+   granted to `authenticated`, not `anon`; a label row carries its code
+   (`AST-0101` → `B1-05`) and search by `S2-29` finds it. `create_asset`
+   exercised as an inventory writer in a rolled-back transaction: with `S2`
+   → `S2-40`, without a family → `C6-15`, the reserved `C3` → `family_unknown`.
+   Nothing was left behind (255 assets before and after).
+
+
 ## 2026-11-18 — step 14 in production: 164 assets, AST-0092…AST-0255 (D447)
 
 After `0289`–`0292` were applied (same day), `13_inv_legacy_2013_register.sql`
