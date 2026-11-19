@@ -328,6 +328,13 @@ export function itemPhotoLinks(state: DemoState, itemCode: string) {
   );
 }
 
+/** An item's code, family and sentence, as `v_stock_item` reads them (0294). */
+export function itemCodeFields(state: DemoState, itemCode: string) {
+  const c = state.item_codes.find((x) => x.item_code === itemCode);
+  const f = c ? state.code_families.find((x) => x.code === c.family_code) : undefined;
+  return { code: c?.code ?? null, family_code: c?.family_code ?? null, family_label: f?.label_en ?? null, description: c?.description ?? null };
+}
+
 export function stockItems(state: DemoState): StockItemView[] {
   const byItem = new Map<string, StockMove[]>();
   for (const m of state.stock_moves) {
@@ -385,6 +392,7 @@ export function stockItems(state: DemoState): StockItemView[] {
       moves_count: moves.length,
       item_name_local: item.name_local ?? null,
       photo_count: itemPhotoLinks(state, item.code).length,
+      ...itemCodeFields(state, item.code),
     });
   }
 

@@ -11223,3 +11223,30 @@ turned up:
   `0/0` for those; in production that includes every location typed before
   0197, which may make it long until the old ones are mapped or retired.
 
+## F293 · 2026-11-19 · A modal taller than the window lost its top, and the code had to reach five reads
+
+- **The shared `Modal` centred with `items-center` and no scroll.** A form
+  taller than the window (the asset form, once it gained family, name parts
+  and a sentence) pushed its title and first fields above the screen, where
+  no scroll could reach them: on a short laptop pane the family picker, the
+  first thing to fill in, was unreachable. Now the overlay scrolls and the
+  panel centres with `my-auto`, which centres a short panel and lets a tall
+  one start at the top. Every modal in the app gets it.
+- **`v_asset` was `a.*`, frozen when it was made.** `create or replace view`
+  appends columns only at the end, and re-expanding `a.*` would put 0290's
+  `legacy_*` and 0293's code columns in the middle, which Postgres refuses.
+  0294 spells the asset columns out and appends the code ones. The legacy
+  columns other than `legacy_code` stay out of `v_asset`; the verification
+  view carries them.
+- **Labels needed one change, not three.** `label_rows` (0179, 0197) serves
+  both the signed-in list and the public card, so the code and the sentence
+  added there reach both, and searching by code or 2013 code there reaches
+  the label screen's search box.
+- **On Windows `check-view-contracts.mjs` reports ~75 false gaps**: `psql`
+  ends lines with CRLF and the working copy is CRLF, so the last column of
+  every view and the last field of every contract carry a `\r`. Stripped, it
+  reads `ok (80 views, 1 known gaps)`. CI (Linux) is unaffected.
+- **An item moved to another category keeps its code** in the old category's
+  family (`update_item_details` changes `category_code`, `item_codes` is not
+  touched). Recorded as B24 rather than solved here: whether a recategorised
+  item is renumbered (and its labels reprinted) is the owner's call.

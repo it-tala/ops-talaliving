@@ -236,6 +236,7 @@ export default function LabelPage() {
                         <tr key={r.code} onClick={() => toggle(r.code)} className="cursor-pointer border-t border-slate-100 hover:bg-slate-50">
                           <td className="px-3 py-2"><input type="checkbox" readOnly checked={picked.has(r.code)} /></td>
                           <td className="px-3 py-2">
+                            {r.display_code && <span className="font-mono text-[12px] font-semibold text-slate-700">{r.display_code}</span>}{" "}
                             <span className="font-mono text-[12px] text-slate-500">{r.code}</span>{" "}
                             <span className="font-medium text-slate-800">{r.name}</span>
                             {r.name_local && <span className="block text-[12px] text-slate-500">{r.name_local}</span>}
@@ -392,7 +393,7 @@ function Label({ r, tier, location, qr }: { r: LabelSource; tier: Sheet["tier"];
           </div>
         )}
         <p className={cn("font-mono font-bold leading-tight",
-          tier === "l" ? "mt-1 text-[16pt]" : tier === "m" ? "mt-[0.5mm] text-[11pt]" : "text-[9pt]")}>{r.code}</p>
+          tier === "l" ? "mt-1 text-[16pt]" : tier === "m" ? "mt-[0.5mm] text-[11pt]" : "text-[9pt]")}>{r.display_code ?? r.code}</p>
         <p className={cn("font-medium leading-tight",
           tier === "l" ? "line-clamp-2 text-[10pt]" : tier === "m" ? "line-clamp-2 text-[7.5pt]" : "truncate text-[6.5pt]")}>
           {r.name}
@@ -413,6 +414,12 @@ function Label({ r, tier, location, qr }: { r: LabelSource; tier: Sheet["tier"];
       {qr && (
         <div className="flex shrink-0 flex-col items-center justify-end">
           <QrCode path={r.token ? `/l/${r.token}` : detailPath(r)} title={r.code} size={64} className={qrClass} />
+          {/* The key the QR carries, which never changes (D451): under the
+              code people read, so a label printed before recoding still
+              matches the record. */}
+          {r.display_code && (
+            <span className={cn("mt-[0.5mm] font-mono leading-none text-slate-600", tier === "s" ? "text-[4.5pt]" : "text-[5.5pt]")}>{r.code}</span>
+          )}
         </div>
       )}
     </div>

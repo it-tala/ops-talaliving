@@ -121,7 +121,7 @@ export default function StockPage() {
           const shown = all
             .filter((r) => !group || r.group_code === group)
             .filter((r) => !lowOnly || r.below_min)
-            .filter((r) => !q || `${r.item_code} ${r.item_name} ${r.item_name_local ?? ""} ${r.category_name}`.toLowerCase().includes(q.toLowerCase()));
+            .filter((r) => !q || `${r.item_code} ${r.code ?? ""} ${r.item_name} ${r.item_name_local ?? ""} ${r.description ?? ""} ${r.category_name}`.toLowerCase().includes(q.toLowerCase()));
 
           const groups = [...new Map(all.map((r) => [r.group_code, r.group_name])).entries()]
             .sort((a, b) => a[1].localeCompare(b[1]));
@@ -192,7 +192,7 @@ export default function StockPage() {
                         <Search className="h-3.5 w-3.5 text-slate-400" />
                         <input
                           value={q} onChange={(e) => setQ(e.target.value)}
-                          placeholder={tr("Search items…", "Cari barang…")}
+                          placeholder={tr("Code, name…", "Kode, nama…")}
                           aria-label={tr("Search items", "Cari barang")}
                           className="h-7 w-36 text-sm focus:outline-none"
                         />
@@ -281,8 +281,12 @@ function Row({ row: r, onOpen }: { row: StockItemView; onOpen: () => void }) {
   return (
     <tr onClick={onOpen} className="cursor-pointer border-b border-slate-100 hover:bg-slate-50">
       <td className="px-4 py-2">
-        <span className="block font-medium text-slate-800">{r.item_name}</span>
+        <span className="block font-medium text-slate-800">
+          {r.code && <span className="mr-1.5 font-mono text-[12px] font-semibold text-slate-600">{r.code}</span>}
+          {r.item_name}
+        </span>
         {r.item_name_local && <span className="block text-[12px] text-slate-600">{r.item_name_local}</span>}
+        {r.description && <span className="line-clamp-1 block text-[11px] text-slate-500">{r.description}</span>}
         <span className="flex items-center gap-1.5 font-mono text-[10px] text-slate-400">
           {r.item_code} · {tr("per", "per")} {r.uom}
           {r.registered_at && <span className="font-sans">· {tr("registered", "didaftarkan")} {formatDate(new Date(r.registered_at))}</span>}

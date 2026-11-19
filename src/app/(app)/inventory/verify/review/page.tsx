@@ -79,8 +79,9 @@ export default function VerifyReviewPage() {
           <RecordPhoto attachmentId={r.record_photo_id} alt={r.name} width={120} className="h-12 w-12 shrink-0 rounded-lg" />
           <div className="min-w-0">
             <Link href={`/inventory/verify/${encodeURIComponent(r.asset_no)}`} className="font-mono text-[12px] font-semibold text-brand-700 hover:underline">
-              {r.asset_no}
+              {r.code ?? r.asset_no}
             </Link>
+            {r.code && <span className="ml-1.5 font-mono text-[10px] text-slate-400">{r.asset_no}</span>}
             <p className="truncate font-medium text-slate-800">{r.name}</p>
             {r.legacy_code && <p className="font-mono text-[11px] text-slate-500">{r.legacy_code}</p>}
             <LegacyLine row={r} />

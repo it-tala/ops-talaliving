@@ -189,7 +189,8 @@ function VerifyForm({ row, list, locations, onSaved }: {
             <ArrowLeft className="h-4 w-4" />
             {zone === NO_ZONE ? tr("No location", "Tanpa lokasi") : zone ? zone : tr("All zones", "Semua zona")}
           </Link>
-          <span className="font-mono text-base font-semibold text-slate-800">{row.asset_no}</span>
+          <span className="font-mono text-base font-semibold text-slate-800">{row.code ?? row.asset_no}</span>
+          {row.code && <span className="font-mono text-xs text-slate-400">{row.asset_no}</span>}
           {walk && at >= 0 && (
             <span className="text-sm text-slate-500">{tr(`Item ${at + 1} of ${walk.length}`, `Item ${at + 1} dari ${walk.length}`)}</span>
           )}
@@ -229,6 +230,10 @@ function VerifyForm({ row, list, locations, onSaved }: {
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0">
                 <h1 className="text-lg font-bold text-slate-800">{row.name}</h1>
+                {row.description && <p className="mt-0.5 text-sm text-slate-600">{row.description}</p>}
+                {row.family_label && (
+                  <p className="text-xs text-slate-500">{tr(`Family ${row.family_code} · ${row.family_label}`, `Famili ${row.family_code} · ${row.family_label}`)}</p>
+                )}
               </div>
               {pill}
             </div>

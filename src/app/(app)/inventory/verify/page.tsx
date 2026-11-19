@@ -129,7 +129,7 @@ function VerifyBoard({ rows, zone, tab, q, qValue, setQ, onZone, onTab, locName,
     if (!term) return rows;
     /* By number, name, brand, model — and the 2013 record: code, family
        (`S2`, *saw*), area (`M16`), department and its short code (D450). */
-    return rows.filter((r) => [r.asset_no, r.name, r.brand, r.model].some((x) => x?.toLowerCase().includes(term))
+    return rows.filter((r) => [r.code, r.asset_no, r.name, r.brand, r.model, r.description, r.family_label].some((x) => x?.toLowerCase().includes(term))
       || legacySearchText(r).includes(term));
   }, [rows, q]);
 
@@ -274,18 +274,23 @@ function VerifyBoard({ rows, zone, tab, q, qValue, setQ, onZone, onTab, locName,
                     <span className="relative block">
                       <RecordPhoto attachmentId={r.record_photo_id} alt={r.name} className="aspect-[4/3] w-full" />
                       <StatusBadge status={r.status} className="absolute left-2 top-2 bg-white" />
+                      {/* The 2013 label, for matching the photo (D451). */}
+                      {r.legacy_code && (
+                        <span className="absolute bottom-2 left-2 rounded bg-black/60 px-1.5 py-0.5 font-mono text-[10px] text-white">
+                          2013 · {r.legacy_code}
+                        </span>
+                      )}
                     </span>
                     <span className="block px-3 py-2.5">
                       <span className="flex items-baseline justify-between gap-2">
-                        <span className="font-mono text-[12px] font-semibold text-slate-800">{r.asset_no}</span>
-                        {r.legacy_code && (
-                          <span className="font-mono text-[11px] text-slate-500">{r.legacy_code}</span>
-                        )}
+                        <span className="font-mono text-[13px] font-semibold text-slate-800">{r.code ?? r.asset_no}</span>
+                        {r.code && <span className="font-mono text-[10px] text-slate-400">{r.asset_no}</span>}
                       </span>
                       <span className="mt-0.5 block truncate text-sm font-medium text-slate-800" title={r.name}>{r.name}</span>
                       <span className="block truncate text-xs text-slate-500">
                         {[r.brand, r.model].filter(Boolean).join(" · ") || "—"}
                       </span>
+                      {r.description && <span className="block truncate text-[11px] text-slate-600" title={r.description}>{r.description}</span>}
                       <LegacyLine row={r} className="mt-1" />
                     </span>
                   </Link>

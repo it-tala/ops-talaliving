@@ -110,7 +110,7 @@ export function StockDrawer({
           subtitle={
             <span className="text-[11px]">
               {d.item_name_local && <span className="mr-1 text-slate-700">{d.item_name_local} ·</span>}
-              <span className="font-mono">{d.item_code} · {d.category_name} · {tr("per", "per")} {d.uom}</span>
+              <span className="font-mono">{d.code ? <><span className="font-semibold text-slate-700">{d.code}</span>{d.family_label ? ` ${d.family_label}` : ""} · </> : null}{d.item_code} · {d.category_name} · {tr("per", "per")} {d.uom}</span>
             </span>
           }
         >

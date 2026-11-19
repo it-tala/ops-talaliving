@@ -30,8 +30,8 @@ set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-0000000e1702';
 do $$
 declare r jsonb;
 begin
-  r := ops_inv.register_found_asset('Sander, Orbital', 'tool', 'PRD', 'working',
-         array['e1700000-0000-0000-0000-000000000001']::uuid[]);
+  r := ops_inv.register_found_asset('Sander, Orbital', 'S1', 'PRD', 'working',
+         array['e1700000-0000-0000-0000-000000000001']::uuid[], p_description => 'Orbital sander for finishing flat panels');
   assert r -> 'error' ->> 'code' = 'not_permitted', 'a reader cannot register, got ' || r::text;
 end $$;
 
@@ -39,42 +39,49 @@ set local request.jwt.claim.sub = 'ffffffff-0000-0000-0000-0000000e1701';
 do $$
 declare r jsonb; p uuid[] := array['e1700000-0000-0000-0000-000000000001']::uuid[];
 begin
-  r := ops_inv.register_found_asset('  ', 'tool', 'PRD', 'working', p);
+  r := ops_inv.register_found_asset('  ', 'S1', 'PRD', 'working', p, p_description => 'Orbital sander for finishing flat panels');
   assert r -> 'error' ->> 'code' = 'name_required', 'what it is, got ' || r::text;
-  r := ops_inv.register_found_asset('Sander', 'nope', 'PRD', 'working', p);
-  assert r -> 'error' ->> 'code' = 'category_unknown', 'a real category, got ' || r::text;
-  r := ops_inv.register_found_asset('Sander', 'tool', 'E17-OLD', 'working', p);
+  r := ops_inv.register_found_asset('Sander', 'nope', 'PRD', 'working', p, p_description => 'Orbital sander for finishing flat panels');
+  assert r -> 'error' ->> 'code' = 'family_required', 'a real family, got ' || r::text;
+  r := ops_inv.register_found_asset('Sander', 'C3', 'PRD', 'working', p, p_description => 'x');
+  assert r -> 'error' ->> 'code' = 'family_required', 'not a reserved 2013 family, got ' || r::text;
+  r := ops_inv.register_found_asset('Sander', 'S1', 'PRD', 'working', p, p_description => '  ');
+  assert r -> 'error' ->> 'code' = 'description_required', 'what it is for, got ' || r::text;
+  r := ops_inv.register_found_asset('Sander', 'S1', 'E17-OLD', 'working', p, p_description => 'Orbital sander for finishing flat panels');
   assert r -> 'error' ->> 'code' = 'location_required', 'not a retired rack, got ' || r::text;
-  r := ops_inv.register_found_asset('Sander', 'tool', null, 'working', p);
+  r := ops_inv.register_found_asset('Sander', 'S1', null, 'working', p, p_description => 'Orbital sander for finishing flat panels');
   assert r -> 'error' ->> 'code' = 'location_required', 'somewhere, got ' || r::text;
-  r := ops_inv.register_found_asset('Sander', 'tool', 'PRD', null, p);
+  r := ops_inv.register_found_asset('Sander', 'S1', 'PRD', null, p, p_description => 'Orbital sander for finishing flat panels');
   assert r -> 'error' ->> 'code' = 'condition_required', 'a condition, got ' || r::text;
-  r := ops_inv.register_found_asset('Sander', 'tool', 'PRD', 'working', '{}');
+  r := ops_inv.register_found_asset('Sander', 'S1', 'PRD', 'working', '{}', p_description => 'Orbital sander for finishing flat panels');
   assert r -> 'error' ->> 'code' = 'photo_required', 'the whole thing, photographed, got ' || r::text;
-  r := ops_inv.register_found_asset('Sander', 'tool', 'PRD', 'working',
-         array(select ('e1700000-0000-0000-0000-00000000000' || n)::uuid from generate_series(1, 5) n));
+  r := ops_inv.register_found_asset('Sander', 'S1', 'PRD', 'working',
+         array(select ('e1700000-0000-0000-0000-00000000000' || n)::uuid from generate_series(1, 5) n), p_description => 'Orbital sander for finishing flat panels');
   assert r -> 'error' ->> 'code' = 'too_many_photos', 'four at most, got ' || r::text;
-  r := ops_inv.register_found_asset('Sander', 'tool', 'PRD', 'working', p || p);
+  r := ops_inv.register_found_asset('Sander', 'S1', 'PRD', 'working', p || p, p_description => 'Orbital sander for finishing flat panels');
   assert r -> 'error' ->> 'code' = 'duplicate_photo', 'the same photo twice, got ' || r::text;
-  r := ops_inv.register_found_asset('Sander', 'tool', 'PRD', 'working', p, p_status => 'lost');
+  r := ops_inv.register_found_asset('Sander', 'S1', 'PRD', 'working', p, p_status => 'lost', p_description => 'Orbital sander for finishing flat panels');
   assert r -> 'error' ->> 'code' = 'status_invalid', 'not already gone, got ' || r::text;
-  assert not exists (select 1 from ops_inv.assets where name = 'Sander'), 'nothing written by a refusal';
+  assert not exists (select 1 from ops_inv.assets where upper(name) = 'SANDER'), 'nothing written by a refusal';
 end $$;
 
 do $$
 declare r jsonb; v_no text; v_vrf text; row record;
 begin
-  r := ops_inv.register_found_asset('Sander, Orbital', 'tool', 'PRD', 'working',
+  r := ops_inv.register_found_asset('Sander, Orbital', 'S1', 'PRD', 'working',
          array['e1700000-0000-0000-0000-000000000001','e1700000-0000-0000-0000-000000000002']::uuid[],
-         p_brand => 'Makita', p_model => 'BO5030', p_note => 'On the bench by the spray booth');
+         p_brand => 'Makita', p_model => 'BO5030', p_note => 'On the bench by the spray booth', p_description => 'Orbital sander for finishing flat panels');
   assert r ->> 'outcome' = 'ok', 'registered, got ' || r::text;
   v_no := r -> 'data' ->> 'asset_no';
   v_vrf := r -> 'data' ->> 'verification_no';
   assert v_no ~ '^AST-\d{4,}$', 'the register''s own series, got ' || coalesce(v_no, 'null');
   assert v_vrf ~ '^VRF-\d{6}$', 'a first check, got ' || coalesce(v_vrf, 'null');
 
-  assert (select location = 'PRD' and status = 'in_storage' and category_code = 'tool' and brand = 'Makita'
-            from ops_inv.assets where asset_no = v_no), 'where it was found, in storage';
+  assert (select location = 'PRD' and status = 'in_storage' and category_code = 'machine' and brand = 'Makita'
+                and name = 'SANDER, ORBITAL' and family_code = 'S1' and code ~ '^S1-\d{2}$'
+                and description = 'Orbital sander for finishing flat panels'
+            from ops_inv.assets where asset_no = v_no), 'where it was found, coded in its family, named in capitals';
+  assert r -> 'data' ->> 'code' ~ '^S1-\d{2}$', 'answered with its code, got ' || r::text;
   assert (select count(*) from ops_core.attachment_links where entity = 'asset' and entity_no = v_no and kind = 'foto') = 2,
     'its record photos';
   assert (select count(*) from ops_core.attachment_links where entity = 'asset_verification' and entity_no = v_vrf) = 2,

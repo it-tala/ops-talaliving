@@ -30,6 +30,10 @@ import { useTr } from "@/lib/i18n";
  *  Counting was optional here and, when given, lands as an opname adjustment
  *  against a location (D171) — the same record the opname screen writes, not
  *  a second kind of number.
+ *
+ *  The one code system (0294, D451): the category comes first because it is
+ *  the item's family and gives its code (`S3-001`), and one sentence says what
+ *  the item is and what it is used for.
  */
 export function RegisterItem({ mayCount, initialName, onCreated, onCancel, defaultLocation }: {
   mayCount: boolean;
@@ -45,9 +49,12 @@ export function RegisterItem({ mayCount, initialName, onCreated, onCancel, defau
   const [categories] = useLoad(() => inventory.listStockedCategories(), []);
   const [uoms] = useLoad(() => procurement.listUom(), []);
   const [locations] = useLoad(() => inventory.listStockLocations(), []);
+  const [families] = useLoad(() => inventory.listCodeFamilies({ kind: "counted" }), []);
   const [form, setForm] = useState({
     name: initialName ?? "", name_local: "", category_code: "", base_uom: "pcs", location: defaultLocation ?? "", counted: 0, reason: "",
+    description: "",
   });
+  const family = families.status === "ready" ? families.data.find((f) => f.item_category_code === form.category_code) : undefined;
   const [photos, setPhotos] = useState<{ file: File; url: string }[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   /* One key per form, so a double tap on a slow network registers one item. */
@@ -89,13 +96,15 @@ export function RegisterItem({ mayCount, initialName, onCreated, onCancel, defau
       category_code: form.category_code, base_uom: form.base_uom, photo_ids: ids,
       location: counted != null ? form.location : null, counted,
       reason: form.reason || null,
+      description: form.description.trim(),
     }, key);
     setBusy(null);
     if (res.error) {
       toast(res.error.status === 409 ? "warning" : "critical", tr("Not registered", "Tidak terdaftar"), res.error.message);
       return;
     }
-    toast("success", tr(`Registered as ${res.data.item_code}`, `Terdaftar sebagai ${res.data.item_code}`),
+    const shown = res.data.code ?? res.data.item_code;
+    toast("success", tr(`Registered as ${shown}`, `Terdaftar sebagai ${shown}`),
       counted != null
         ? tr(`With ${photos.length} photos and a count of ${counted} ${res.data.uom}.`, `Dengan ${photos.length} foto dan hitungan ${counted} ${res.data.uom}.`)
         : tr(`With ${photos.length} photos.`, `Dengan ${photos.length} foto.`));
@@ -103,7 +112,7 @@ export function RegisterItem({ mayCount, initialName, onCreated, onCancel, defau
   }
 
   const countOk = !mayCount || (form.counted > 0 && !!form.location);
-  const ready = form.name.trim() && form.category_code && form.base_uom
+  const ready = form.name.trim() && form.category_code && form.base_uom && form.description.trim()
     && photos.length >= ITEM_PHOTO_MIN && photos.length <= ITEM_PHOTO_MAX && countOk;
   const field = "h-9 w-full rounded-lg border border-slate-200 px-2 text-sm focus:border-brand-400 focus:outline-none";
 
@@ -151,17 +160,7 @@ export function RegisterItem({ mayCount, initialName, onCreated, onCancel, defau
 
         <div className="grid gap-2 sm:grid-cols-2">
           <label className="text-[11px] text-slate-500">
-            {tr("Catalogue name (system)", "Nama katalog (sistem)")}
-            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="Sandpaper 240" className={`mt-1 ${field}`} />
-          </label>
-          <label className="text-[11px] text-slate-500">
-            {tr("Floor name (what the team calls it)", "Nama lapangan (yang dipakai tim)")}
-            <input value={form.name_local} onChange={(e) => setForm({ ...form, name_local: e.target.value })}
-              placeholder="Amplas 240" className={`mt-1 ${field}`} />
-          </label>
-          <label className="text-[11px] text-slate-500">
-            {tr("Category", "Kategori")}
+            {tr("Category — what kind of item (its family)", "Kategori — jenis barangnya (keluarganya)")}
             <Loaded state={categories} skeletonRows={1}>
               {(cats) => (
                 <select value={form.category_code} onChange={(e) => setForm({ ...form, category_code: e.target.value })}
@@ -179,6 +178,27 @@ export function RegisterItem({ mayCount, initialName, onCreated, onCancel, defau
                 </select>
               )}
             </Loaded>
+          </label>
+          <p className="self-end pb-2 text-[12px] text-slate-600">
+            {family
+              ? <>{tr("Its code: ", "Kodenya: ")}<span className="font-mono font-semibold text-slate-800">{family.code}-…</span>{tr(` the next ${family.label_en.toLowerCase()} number`, ` nomor ${family.label_en.toLowerCase()} berikutnya`)}</>
+              : form.category_code ? tr("This category gives no code.", "Kategori ini tidak memberi kode.") : tr("Pick the category first: it gives the code.", "Pilih kategori dulu: itu yang memberi kode.")}
+          </p>
+          <label className="text-[11px] text-slate-500">
+            {tr("Catalogue name (system)", "Nama katalog (sistem)")}
+            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="Sandpaper 240" className={`mt-1 ${field}`} />
+          </label>
+          <label className="text-[11px] text-slate-500">
+            {tr("Floor name (what the team calls it)", "Nama lapangan (yang dipakai tim)")}
+            <input value={form.name_local} onChange={(e) => setForm({ ...form, name_local: e.target.value })}
+              placeholder="Amplas 240" className={`mt-1 ${field}`} />
+          </label>
+          <label className="text-[11px] text-slate-500 sm:col-span-2">
+            {tr("What it is and what it is used for — one sentence", "Apa ini dan dipakai untuk apa — satu kalimat")}
+            <input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
+              placeholder={tr("e.g. Grit 240 paper for sanding frames before stain.", "mis. Amplas 240 untuk menghaluskan rangka sebelum diwarnai.")}
+              className={`mt-1 ${field}`} />
           </label>
           <label className="text-[11px] text-slate-500">
             {tr("Unit", "Satuan")}

@@ -634,6 +634,14 @@ export interface StockItemView {
   photo_count: number;
   /** The day the item was recorded in the catalogue (`0178`, D321). */
   registered_at?: string | null;
+  /** The code people see, search and print in the one system (0293, 0294,
+   *  D451): `S2-29`, `S3-001`. Null for a record no family numbers. */
+  code?: string | null;
+  family_code?: string | null;
+  /** The family's name, `Saw`. */
+  family_label?: string | null;
+  /** One sentence on what it is and what it is used for. */
+  description?: string | null;
 }
 
 export interface StockItemDetail extends StockItemView {
@@ -878,6 +886,17 @@ export interface AssetView extends Asset {
   next_service_due: string | null;
   service_due: boolean;
   service_count: number;
+  /** The code people see, search and print in the one system (0293, 0294,
+   *  D451): `S2-29`, `S3-001`. Null for a record no family numbers. */
+  code?: string | null;
+  family_code?: string | null;
+  /** The family's name, `Saw`. */
+  family_label?: string | null;
+  /** One sentence on what it is and what it is used for. */
+  description?: string | null;
+  family_label_id?: string | null;
+  /** The 2013 register's code, kept for matching the old photos (0290). */
+  legacy_code?: string | null;
 }
 
 export type AssetServiceKind = "service" | "repair" | "inspection" | "other";
@@ -920,6 +939,11 @@ export interface AssetServiceInput {
  *  clears a text field and `null` clears a date or number. */
 export interface AssetInput {
   name?: string;
+  /** At registration only: the family that numbers the code (D451). Picked,
+   *  the name is written uppercase; left out, the category's default family. */
+  family_code?: string | null;
+  /** At registration only; later through `describeRecord`. */
+  description?: string | null;
   category_code?: string;
   brand?: string;
   model?: string;
@@ -970,6 +994,10 @@ export interface LabelSource {
   /** The random token the label's QR carries, which opens the public card
    *  without signing in (`0179`, D322). */
   token?: string | null;
+  /** The code in the one system, printed large (`0294`, D451). `code` above
+   *  stays the key the QR and every link use. */
+  display_code?: string | null;
+  description?: string | null;
   /** What this kind adds to its label: an asset's ownership, holder, serial and
    *  contract end; a product's size in millimetres. */
   extra: {
@@ -996,6 +1024,8 @@ export interface LabelSource {
 export interface LabelCard {
   kind: LabelKind;
   code: string;
+  display_code?: string | null;
+  description?: string | null;
   name: string;
   name_local: string | null;
   category: string | null;
@@ -1102,6 +1132,12 @@ export interface AssetVerificationRow {
   verification_photo_count: number;
   /** The latest check is the first one of an asset found during the recap. */
   found_new: boolean;
+  /** The visible code in the one system (`S2-29`, 0293); `asset_no` stays the key. */
+  code: string | null;
+  family_code: string | null;
+  family_label: string | null;
+  /** One sentence on what it is and what it is used for. */
+  description: string | null;
 }
 
 /** What `verifyAsset` records. `not_found` needs only a note; anything else
@@ -1137,34 +1173,62 @@ export function verificationResultOf(checks: VerificationChecks): "match" | "mis
   return VERIFY_FIELDS.some((f) => checks[f]?.ok === false) ? "mismatch" : "match";
 }
 
-/* ── Found during the recap (0292, D448) ───────────────────────────── */
+/* ── The one code system (0293, D451) ───────────────────────────────── */
 
-/** What a found thing is, as the big tiles on the *new item* screen offer it.
- *  The type names the asset and decides its category; nothing else is stored
- *  (owner, answer 2). Machines are `machine`, tools are `tool`. */
+/** A family in the one code system: type letter + number. `unit` families
+ *  number each physical thing (`S2-29`); `counted` families number each
+ *  catalogue item (`S3-001`). */
+export interface CodeFamily {
+  code: string;
+  letter: string;
+  digit: number;
+  /** The word(s) a name in the 2013 format starts with: `SAW`, `TROLLEY`. */
+  type_name: string;
+  label_en: string;
+  label_id: string | null;
+  kind: "unit" | "counted";
+  asset_category_code: string | null;
+  category_default: boolean;
+  item_category_code: string | null;
+  reserved: boolean;
+  is_active: boolean;
+}
+
+/** A name in the 2013 register's format: `TYPE, DESCRIPTOR (SIZE)`, uppercase. */
+export function composeName(typeName: string, descriptor: string, size?: string): string {
+  const d = descriptor.trim();
+  const z = (size ?? "").trim();
+  return [typeName.trim(), d ? `, ${d}` : "", z ? ` (${z})` : ""].join("").toUpperCase();
+}
+
+/* ── Found during the recap (0292, 0293, D448, D451) ────────────────── */
+
+/** The big tiles on the *new item* screen: shortcuts to the families a find
+ *  usually belongs to, by their type word. *Other* opens the full list. */
 export type FoundAssetType =
   | "saw" | "sander" | "planer" | "router" | "drill" | "press" | "compressor" | "spray_booth" | "sewing"
-  | "power_tool" | "hand_tool" | "other";
+  | "tool" | "other";
 
-export const FOUND_ASSET_TYPES: { type: FoundAssetType; label: Message; category: string }[] = [
-  { type: "saw", label: { en: "Saw", id: "Gergaji" }, category: "machine" },
-  { type: "sander", label: { en: "Sander", id: "Amplas" }, category: "machine" },
-  { type: "planer", label: { en: "Planer", id: "Serut" }, category: "machine" },
-  { type: "router", label: { en: "Router", id: "Router" }, category: "machine" },
-  { type: "drill", label: { en: "Drill", id: "Bor" }, category: "machine" },
-  { type: "press", label: { en: "Press", id: "Press" }, category: "machine" },
-  { type: "compressor", label: { en: "Compressor", id: "Kompresor" }, category: "machine" },
-  { type: "spray_booth", label: { en: "Spray booth", id: "Spray booth" }, category: "machine" },
-  { type: "sewing", label: { en: "Sewing machine", id: "Mesin jahit" }, category: "machine" },
-  { type: "power_tool", label: { en: "Power tool", id: "Alat listrik" }, category: "tool" },
-  { type: "hand_tool", label: { en: "Hand tool", id: "Alat tangan" }, category: "tool" },
-  { type: "other", label: { en: "Other", id: "Lainnya" }, category: "other" },
+export const FOUND_ASSET_TYPES: { type: FoundAssetType; label: Message; family_type: string | null }[] = [
+  { type: "saw", label: { en: "Saw", id: "Gergaji" }, family_type: "SAW" },
+  { type: "sander", label: { en: "Sander", id: "Amplas" }, family_type: "SANDER" },
+  { type: "planer", label: { en: "Planer", id: "Serut" }, family_type: "PLANER" },
+  { type: "router", label: { en: "Router", id: "Router" }, family_type: "ROUTER" },
+  { type: "drill", label: { en: "Drill", id: "Bor" }, family_type: "DRILL" },
+  { type: "press", label: { en: "Press", id: "Press" }, family_type: "PRESS" },
+  { type: "compressor", label: { en: "Compressor", id: "Kompresor" }, family_type: "AIR COMPRESSOR" },
+  { type: "spray_booth", label: { en: "Spray booth", id: "Spray booth" }, family_type: "FINISHING" },
+  { type: "sewing", label: { en: "Sewing machine", id: "Mesin jahit" }, family_type: "UPHOLSTERY" },
+  { type: "tool", label: { en: "Tool", id: "Alat" }, family_type: "TOOL" },
+  { type: "other", label: { en: "Other…", id: "Lainnya…" }, family_type: null },
 ];
 
-/** What `registerFoundAsset` records: the asset and its first check at once. */
+/** What `registerFoundAsset` records: the asset, its code in its family, and
+ *  its first check at once. */
 export interface RegisterFoundAssetInput {
   name: string;
-  category_code: string;
+  family_code: string;
+  description: string;
   location: string;
   condition: AssetCondition;
   photo_ids: string[];
@@ -1176,6 +1240,7 @@ export interface RegisterFoundAssetInput {
 
 export interface RegisterFoundAssetAnswer {
   asset_no: string;
+  code: string;
   verification_no: string;
   photos: number;
 }

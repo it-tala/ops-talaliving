@@ -580,6 +580,30 @@ N_AUD2=$(q -Atc "select count(*) from ops_core.audit_log where action = 'rename_
 [ "$N_AUD2" = "$N_AUD" ] || fail "a second run renames nothing" "$N_AUD then $N_AUD2"
 pass "14 (second run) changed nothing"
 
+# ── 15: codes for the assets without one (D451) ──────────────────────────
+# Two assets made the way the old ones were: no code. 0293's trigger codes
+# every insert, so the code is cleared to stand for a row from before it.
+q -q -c "insert into ops_inv.assets (asset_no, name, category_code) values
+           ('AST-T151', 'RADIAL ARMSAW', 'tool'), ('AST-T152', 'TV LG', 'tool');
+         update ops_inv.assets set code = null, family_code = null where asset_no in ('AST-T151','AST-T152')"
+( cd "$HERE/../.." && q -q -f supabase/import/15_inv_code_backfill.sql >/dev/null 2>&1 ) \
+  || fail "15_inv_code_backfill (first run)" "the file did not apply"
+C_SAW=$(q -Atc "select family_code from ops_inv.assets where asset_no = 'AST-T151'")
+C_TV=$(q -Atc "select f.type_name from ops_inv.assets a join ops_inv.code_families f on f.code = a.family_code where a.asset_no = 'AST-T152'")
+C_NONE=$(q -Atc "select count(*) from ops_inv.assets where code is null")
+C_2013=$(q -Atc "select count(*) from ops_inv.assets where legacy_code is not null and code is null")
+[ "$C_SAW" = "S2" ]          || fail "a radial arm saw joins the 2013 saws" "saw '$C_SAW'"
+[ "$C_TV" = "TELEVISION" ]   || fail "a TV gets a family of its own"        "saw '$C_TV'"
+[ "$C_NONE" = "0" ]          || fail "every asset has a code"               "$C_NONE without"
+[ "$C_2013" = "0" ]          || fail "every 2013 machine has its code"      "$C_2013 without"
+pass "15 (first run): coded by rule, 2013 machines by their label"
+C_AUD=$(q -Atc "select count(*) from ops_core.audit_log where action = 'assign_code'")
+( cd "$HERE/../.." && q -q -f supabase/import/15_inv_code_backfill.sql >/dev/null 2>&1 ) \
+  || fail "15_inv_code_backfill (second run)" "the file did not apply"
+C_AUD2=$(q -Atc "select count(*) from ops_core.audit_log where action = 'assign_code'")
+[ "$C_AUD2" = "$C_AUD" ] || fail "a second run codes nothing" "$C_AUD then $C_AUD2"
+pass "15 (second run) changed nothing"
+
 echo
 echo "──"
 echo "import  ok (idempotent over two runs, $M1 legacy rows accounted for)"
