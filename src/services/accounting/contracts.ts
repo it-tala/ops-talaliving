@@ -1737,3 +1737,14 @@ export interface CashflowBillInput {
   hidden: boolean;
   note?: string | null;
 }
+
+/* ── The ledger mirror in the accounting workbook (D455) ───────────────── */
+
+export interface LedgerSheetResult {
+  tab: string;
+  spreadsheet_url: string;
+  rows: number;
+  /** True the first time: the tab was made and given its look. */
+  created: boolean;
+  synced_at: string;
+}

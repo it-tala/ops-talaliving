@@ -58,6 +58,8 @@ import { getActiveLocale, formatIDRCompact } from "@/lib/format";
 import { officeToday, officeStamp } from "@/lib/office";
 import { fail, fromSeam, fromPage, fromRows, invalid, notFound, ok, type Result } from "./_kit";
 
+import type { LedgerSheetResult } from "@/services/accounting/contracts";
+
 const SERVICE = "accounting" as const;
 
 /** The shape of `src/demo/state.ts`'s `AuditRow`, restated here rather than
@@ -2945,4 +2947,27 @@ export async function setCashflowSettings(input: CashflowSettings): Promise<Resu
     p_min_balance: input.min_balance, p_transfer_types: input.transfer_types,
   });
   return fromSeam<CashflowSettings>(SERVICE, data, error);
+}
+
+/* ── The ledger mirror (D455) ────────────────────────────────────────────
+ *
+ *  Not PostgREST: the workbook is written with the Google service account,
+ *  which cannot be in a browser, so the button makes one hop through
+ *  `/api/accounting/ledger-sheet`. Its refusals are relayed whole. */
+export async function syncLedgerSheet(): Promise<Result<LedgerSheetResult>> {
+  const refused = (code: string, message: string, status: number) => ({
+    error: { code, message, outcome: "refused", status },
+    meta: { request_id: "", service: SERVICE, version: "1", outcome: "refused" },
+  }) as unknown as Result<LedgerSheetResult>;
+  let res: Response;
+  try {
+    res = await fetch("/api/accounting/ledger-sheet", { method: "POST", credentials: "same-origin" });
+  } catch (e) {
+    return refused("sync_interrupted", `Sinkron terputus sebelum selesai. Coba lagi. (${String((e as Error).message)})`, 500);
+  }
+  const body = await res.json().catch(() => ({})) as { data?: LedgerSheetResult; error?: { code: string; message: string; status?: number } };
+  if (!res.ok || body.error || !body.data) {
+    return refused(body.error?.code ?? "sync_failed", body.error?.message ?? `Sinkron sheet ledger gagal (${res.status}).`, body.error?.status ?? res.status);
+  }
+  return ok(SERVICE, body.data);
 }
