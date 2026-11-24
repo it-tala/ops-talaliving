@@ -1755,3 +1755,42 @@ export interface ProjectEvaluation {
   /** The accepted quotation's margin — only for whoever sees costs. */
   margin_pct: number | null;
 }
+
+/* ── The PR recap sheet, read into the PR module (D454) ─────────────────── */
+
+export interface SheetSyncCounts {
+  read: number;
+  created: number;
+  approved: number;
+  matched: number;
+  unmatched: number;
+  skipped: number;
+  unknown_line: number;
+  differs: number;
+}
+
+export interface SheetSyncRow {
+  row_no: number;
+  /** `created` · `seen` · `differs` · `unknown_line` · `skipped` */
+  status: string;
+  line_no_full?: string | null;
+  trx_nos?: string | null;
+  /** `allocated` — the ledger pays it; `unmatched` — PAID AMOUNT is filled and
+   *  no single transaction fits, left for a person. */
+  paid_status?: "allocated" | "unmatched" | null;
+}
+
+export interface SheetSyncTab {
+  tab: string;
+  outcome: string;
+  message: string | null;
+  counts: SheetSyncCounts | null;
+  /** Cells written back to the sheet (LINE ID, TRX ID). */
+  written: number;
+  rows: SheetSyncRow[];
+}
+
+export interface SheetSyncResult {
+  trigger: "cron" | "manual";
+  tabs: SheetSyncTab[];
+}

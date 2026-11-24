@@ -37,6 +37,7 @@ import type {
   ClosingReason, SalesPerson, TimelineEvent, ProjectOutcome,
   FactoryOrderOutcome, FactoryVerdict, ClientVerdictInput, ClientVerdict,
   FactoryEvaluation, QcPersonEvaluation, ProjectEvaluation,
+  SheetSyncResult,
 } from "@/services/procurement/contracts";
 import type { DocKind } from "@/services/documents/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -2532,4 +2533,37 @@ export async function evalProjects(): Promise<Result<ProjectEvaluation[]>> {
   return ok(SERVICE, numeric<ProjectEvaluation>(data,
     ["factory_orders", "orders_accepted", "orders_rejected", "claims"],
     ["days_to_deal", "days_to_production", "days_to_ship", "days_to_arrive", "deal_value", "margin_pct"]));
+}
+
+/* ── The PR recap sheet (D454) ──────────────────────────────────────────
+ *
+ *  Not PostgREST: the sheet is read with the Google service account, which
+ *  cannot be in a browser, so the button makes one hop through
+ *  `/api/procurement/sheet-sync`. The route's refusals are relayed whole —
+ *  *not shared with the service account* names the thing to do. */
+export async function syncPrSheet(): Promise<Result<SheetSyncResult>> {
+  let res: Response;
+  try {
+    res = await fetch("/api/procurement/sheet-sync", { method: "POST", credentials: "same-origin" });
+  } catch (e) {
+    return {
+      error: {
+        code: "sync_interrupted",
+        message: `Sinkron terputus sebelum selesai. Coba lagi. (${String((e as Error).message)})`,
+        outcome: "refused", status: 500,
+      },
+      meta: { request_id: "", service: SERVICE, version: "1", outcome: "refused" },
+    };
+  }
+  const body = await res.json().catch(() => ({})) as { data?: SheetSyncResult; error?: Result<never>["error"] };
+  if (!res.ok || body.error || !body.data) {
+    return {
+      error: body.error ?? {
+        code: "sync_failed", message: `Sinkron sheet gagal (${res.status}).`,
+        outcome: "refused", status: res.status as never,
+      },
+      meta: { request_id: "", service: SERVICE, version: "1", outcome: "refused" },
+    } as Result<never>;
+  }
+  return ok(SERVICE, body.data);
 }
