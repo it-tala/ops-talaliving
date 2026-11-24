@@ -218,6 +218,12 @@ async function accessToken(scope: string = SCOPE): Promise<string> {
   return ((await res.json()) as { access_token: string }).access_token;
 }
 
+/** The same service account, for another Google API — the PR recap sheet
+ *  (`src/lib/sheets.ts`, D454). One key, one place it is signed. */
+export async function googleAccessToken(scope: string): Promise<string> {
+  return accessToken(scope);
+}
+
 /** Put a file in one folder of one shared drive.
  *
  *  `supportsAllDrives` is not optional: without it the Drive API pretends

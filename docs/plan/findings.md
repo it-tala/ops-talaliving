@@ -11250,3 +11250,28 @@ turned up:
   family (`update_item_details` changes `category_code`, `item_codes` is not
   touched). Recorded as B24 rather than solved here: whether a recategorised
   item is renumbered (and its labels reprinted) is the owner's call.
+
+## F295 · 2026-11-25 · Half the November PR rows matched the ledger only after the bank fee was taken out
+
+Reconciling `NOVEMBER  PR RECAP` against the ledger by hand (29 rows) taught
+the rules `0296` now applies every day:
+
+- **The fee is often inside the transfer.** Early November booked the BCA
+  admin fee as its own `BANK CHARGES` row; from mid-November the same fee is
+  folded into the payment (sheet 500.000, ledger 502.500; PLN 3.000; Telkomsel
+  1.000). An exact-amount search finds half; *amount + a known fee* finds the
+  rest. The allocation carries the sheet's figure, so the fee stays
+  unallocated rather than inflating what the line cost.
+- **One transfer pays two rows of the same day**: weekly payroll plus the
+  Grand Max rent (4.140.002 + 70.000 = 4.210.002), six IT parts from one
+  vendor. Pairs on one request date are tried after single rows.
+- **The sheet's figure and the stored line disagree** for lines imported
+  earlier (KARTU HALO EJO 471.750 stored vs 274.450 on the sheet). The sync
+  reports these as `differs` and never rewrites a line on the sheet's word.
+- **A row can be paid with the approval box unticked**; the owner's rule from
+  `08_pr_sheet.py` (approved = paid) still holds for the hand pass, but the
+  daily sync records an approval only from the tick itself.
+- **Two candidates is nobody.** Driver Fendi is paid 200.000-ish twice a
+  month; an exact amount with a shared word can still be the wrong week, so
+  ambiguity is left for a person, not resolved by date proximity.
+

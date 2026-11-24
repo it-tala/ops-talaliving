@@ -21,7 +21,7 @@ import { officeDay, officeToday } from "@/lib/office";
 import { RECEIPT_CONDITIONS } from "@/services/procurement/contracts";
 import type { DemoState, DemoReceivingInbox } from "../state";
 import { productView, workOrderView, joReferenceProblem } from "../production-derive";
-import type { PrLine as PrLineRow } from "@/services/procurement/contracts";
+import type { PrLine as PrLineRow, SheetSyncResult } from "@/services/procurement/contracts";
 import { PROBLEM_CONDITIONS, COUNTING_CONDITIONS, VARIANCE_REASON_LABELS } from "@/services/procurement/contracts";
 import type { DocKind } from "@/services/documents/contracts";
 import { REQUEST_SUPPORT_KINDS } from "@/services/documents/contracts";
@@ -4990,4 +4990,18 @@ export async function evalProjects(): Promise<Result<ProjectEvaluation[]>> {
       deal_value: deal$.grand_total, deal_currency: deal$.currency, margin_pct: seeCost ? deal$.margin_pct : null,
     };
   }).sort((a, b) => b.project_code.localeCompare(a.project_code)));
+}
+
+/* ── The PR recap sheet (D454) ──────────────────────────────────────────
+ *
+ *  The sandbox has no Google sheet and no service account. Said as itself,
+ *  not faked: a demo that pretended to read a sheet would teach somebody to
+ *  trust a sync that never ran. */
+export async function syncPrSheet(): Promise<Result<SheetSyncResult>> {
+  await latency();
+  return invalid(
+    SERVICE, "sheet_needs_live",
+    "Sinkron sheet PR hanya jalan di aplikasi live (butuh akses Google Sheet di server).",
+    { field: "sheet" },
+  );
 }

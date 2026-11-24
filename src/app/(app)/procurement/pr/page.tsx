@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import {
   ClipboardList, Plus, CheckCircle2, Clock, AlertTriangle, Circle, FileText,
-  Scale, MessageSquareQuote, Users,
+  Scale, MessageSquareQuote, Users, RefreshCw,
 } from "lucide-react";
 import { Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -66,6 +66,28 @@ export default function RequestsBoardPage() {
      part of the answer to "does this keep happening". */
   const [variances, reloadVariances] = useLoad(() => procurement.listVariances(), []);
   const mayEdit = can("procurement.create");
+  const maySync = can("procurement.update");
+  const [syncing, setSyncing] = useState(false);
+
+  /* The office still types requests into the PR recap sheet; this reads it
+     now instead of waiting for tonight's run (D454). The answer is counted,
+     not listed: the sheet itself now carries every LINE ID and TRX ID. */
+  async function syncSheet() {
+    setSyncing(true);
+    const res = await procurement.syncPrSheet();
+    setSyncing(false);
+    if (res.error) { toast("warning", tr("Sheet not synced", "Sheet tidak tersinkron"), res.error.message); return; }
+    const said = res.data.tabs.map((t) => {
+      if (!t.counts) return `${t.tab.trim()}: ${t.message ?? t.outcome}`;
+      const c = t.counts;
+      return tr(
+        `${t.tab.trim()}: ${c.created} new, ${c.approved} approved, ${c.matched} paid from the ledger, ${c.unmatched} paid but unmatched`,
+        `${t.tab.trim()}: ${c.created} baru, ${c.approved} disetujui, ${c.matched} terhubung ke ledger, ${c.unmatched} dibayar tapi belum cocok`,
+      ) + (t.message ? ` — ${t.message}` : "");
+    }).join(" · ");
+    toast("success", tr("Sheet synced", "Sheet tersinkron"), said);
+    refresh();
+  }
 
   function refresh() {
     reload();
@@ -225,6 +247,11 @@ export default function RequestsBoardPage() {
             <Link href="/procurement/pr/documents">
               <Button variant="outline" icon={FileText}>{tr("Submissions", "Pengajuan")}</Button>
             </Link>
+            {maySync && (
+              <Button variant="outline" icon={RefreshCw} onClick={syncSheet} disabled={syncing}>
+                {syncing ? tr("Syncing…", "Menyinkron…") : tr("Sync sheet", "Sinkron sheet")}
+              </Button>
+            )}
             {mayEdit && (
               <Link href="/procurement/pr/new">
                 <Button icon={Plus}>{tr("New request", "Permintaan baru")}</Button>
