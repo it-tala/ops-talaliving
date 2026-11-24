@@ -46,6 +46,8 @@ import { PRIMARY_DOC_KINDS, COMPLETION_DOC_KINDS, type DocKind } from "@/service
 import * as procurement from "./procurement";
 import { link as linkDocument } from "./documents";
 
+import type { LedgerSheetResult } from "@/services/accounting/contracts";
+
 const SERVICE = "accounting" as const;
 
 export async function listAccounts(): Promise<Result<AccountBalance[]>> {
@@ -4057,4 +4059,14 @@ export async function splitDraft(
   });
   apply((draft) => { draft.draft_apart.push(...pairs.map((p) => ({ ...p, decision_id: id }))); });
   return ok(SERVICE, { pairs: pairs.length });
+}
+
+/** The ledger mirror writes a Google Sheet from the server (D455); the sandbox has none. */
+export async function syncLedgerSheet(): Promise<Result<LedgerSheetResult>> {
+  await latency();
+  return invalid(
+    SERVICE, "sheet_needs_live",
+    "Sinkron sheet ledger hanya jalan di aplikasi live (butuh akses Google Sheet di server).",
+    { field: "sheet" },
+  );
 }

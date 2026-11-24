@@ -2,7 +2,7 @@
 
 import { TypeOptions } from "@/components/ui/type-options";
 import { useEffect, useState } from "react";
-import { BookOpen, Paperclip, AlertTriangle, ChevronLeft, ChevronRight, Plus, ArrowLeftRight } from "lucide-react";
+import { BookOpen, Paperclip, AlertTriangle, ChevronLeft, ChevronRight, Plus, ArrowLeftRight, Sheet } from "lucide-react";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Loaded, SourceBadge, useDebounced, useLoad } from "@/components/ui/loaded";
@@ -21,6 +21,7 @@ import { NewEntry } from "./NewEntry";
 import { TransferEntry } from "./TransferEntry";
 import { DraftBand } from "./DraftBand";
 import { useSession } from "@/store/session";
+import { useToast } from "@/store/toast";
 import { useTr } from "@/lib/i18n";
 import { allPages } from "@/lib/xlsx-export";
 
@@ -46,6 +47,9 @@ const PAGE_SIZE = 25;
 export default function LedgerPage() {
   const tr = useTr();
   const { hasAuthority } = useSession();
+  const { toast } = useToast();
+  /* The GL OPS tab in the accounting workbook, written by a button for now (D455). */
+  const [sheetSyncing, setSheetSyncing] = useState(false);
   const [q, setQ] = useState("");
   const [page, setPage] = useState(0);
   const [creating, setCreating] = useState(false);
@@ -108,6 +112,16 @@ export default function LedgerPage() {
     { keepPrevious: true },
   );
   const mayPost = hasAuthority("post_ledger");
+  async function syncSheet() {
+    setSheetSyncing(true);
+    const res = await accounting.syncLedgerSheet();
+    setSheetSyncing(false);
+    if (res.error) { toast("warning", tr("Sheet not updated", "Sheet tidak diperbarui"), res.error.message); return; }
+    const d = res.data;
+    toast("success", tr("Sheet updated", "Sheet diperbarui"),
+      tr(`${d.rows} rows written to ${d.tab} at ${d.synced_at} WIB.`, `${d.rows} baris ditulis ke ${d.tab} pukul ${d.synced_at} WIB.`));
+    window.open(d.spreadsheet_url, "_blank", "noopener");
+  }
   /* The documents from Chat still undecided, grouped into one draft per
      transaction (D445). Above the table and outside every balance. */
   const [drafts, reloadDrafts] = useLoad(() => accounting.listDrafts(), [], { keepPrevious: true });
@@ -293,6 +307,9 @@ export default function LedgerPage() {
         description={tr("Money that actually moved, in and out, with what it was for and what proves it. Nothing is deleted here — a wrong row is voided with a reason and stays visible.", "Uang yang benar-benar bergerak, masuk dan keluar, beserta untuk apa dan apa buktinya. Tidak ada yang dihapus di sini — baris yang salah dibatalkan (void) dengan alasan dan tetap terlihat.")}
         actions={mayPost ? (
           <div className="flex gap-2">
+            <Button variant="outline" icon={Sheet} onClick={syncSheet} disabled={sheetSyncing} data-testid="sync-ledger-sheet">
+              {sheetSyncing ? tr("Updating sheet…", "Memperbarui sheet…") : tr("Update sheet", "Perbarui sheet")}
+            </Button>
             <Button variant="outline" icon={ArrowLeftRight} onClick={() => setTransferring(true)} data-testid="open-transfer">{tr("Move money", "Pindah dana")}</Button>
             <Button icon={Plus} onClick={() => setCreating(true)}>{tr("New entry", "Entri baru")}</Button>
           </div>

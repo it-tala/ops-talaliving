@@ -11275,3 +11275,27 @@ the rules `0296` now applies every day:
   month; an exact amount with a shared word can still be the wrong week, so
   ambiguity is left for a person, not resolved by date proximity.
 
+## F296 · 2026-11-25 · A 3,800-row ledger cannot be copied into a sheet by hand, and the balance before 12 October is blank
+
+- **The data has to move server to server.** 2026 is 3,872 rows (one per
+  transaction line) and about 2.5 MB of JSON. Writing it through a
+  conversation's sheet tool would mean emitting every cell; the route writes it
+  in one `values.update` with the service account instead. The workbook must be
+  shared with `GOOGLE_SERVICE_ACCOUNT_EMAIL` as an editor, the same need as the
+  PR recap sync (`drive.file` never reaches a file the app did not make).
+- **USER_ENTERED, but text stays text.** Links have to be clickable like the
+  manual tab, which needs USER_ENTERED; every text cell is sent with a leading
+  `'` so a description starting with `=`, `+` or `-` is never a formula.
+  Dates go as the sheet's day number under a date format.
+- **Balances start where ops's balance starts.** `ledger_balance_from()` is
+  2026-10-12 in production, so J–O are blank before it, exactly as the ledger
+  screen shows no balance there. The manual tab's January–October balances
+  come from its own SUMIFS and are not reproduced.
+- **A USD account's amount is dollars** (0285), so a BCA USD 081 row keeps
+  column I empty and says `USD 2,000.00` in REMARK; the rupiah SUBTOTAL stays
+  rupiah.
+- **The rows read past `account_rows_readable`.** Following the presser's RLS
+  would make BCA 064 appear or vanish depending on who pressed last.
+- **Numbering collided across parallel branches.** `0295` and `D454` were each
+  taken by two branches on the same day (liquidation sheet, PR recap). This one
+  takes `0297`/`D455`; check `origin/main` *and* open branches before picking.
