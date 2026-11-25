@@ -1766,12 +1766,14 @@ export interface SheetSyncCounts {
   unmatched: number;
   skipped: number;
   unknown_line: number;
-  differs: number;
+  /** Lines brought to their sheet row — the sheet wins (D457); before → after
+   *  is in the audit trail. */
+  updated: number;
 }
 
 export interface SheetSyncRow {
   row_no: number;
-  /** `created` · `seen` · `differs` · `unknown_line` · `skipped` */
+  /** `created` · `seen` · `updated` · `unknown_line` · `skipped` */
   status: string;
   line_no_full?: string | null;
   trx_nos?: string | null;

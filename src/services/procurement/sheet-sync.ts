@@ -36,23 +36,18 @@ const MONTHS: string[][] = [
   ["NOVEMBER", "NOPEMBER"], ["DECEMBER", "DESEMBER"],
 ];
 
-/** The recap tabs to read on a given office day: this month's and last month's
- *  (an unpaid row is carried into the next month's tab, and the first days of a
- *  month still pay last month's). Matched by the month's English or Indonesian
- *  name and `PR RECAP`, whatever the spacing — the November tab has two spaces. */
+/** The recap tab to read on a given office day: this month's only. Since D457
+ *  the sheet wins — a row brings its line to what the row says — so reading an
+ *  old tab would rewrite last month's lines, which the owner asked to leave
+ *  alone. Matched by the month's English or Indonesian name and `PR RECAP`,
+ *  whatever the spacing — the November tab has two spaces. */
 export function pickTabs(titles: string[], today: Date): string[] {
-  const m = today.getUTCMonth();
-  const wanted = [m, (m + 11) % 12];
-  const out: string[] = [];
-  for (const idx of wanted) {
-    const names = MONTHS[idx];
-    const hit = titles.find((t) => {
-      const words = t.toUpperCase().replace(/\s+/g, " ").trim();
-      return /\bPR RECAP\b/.test(words) && names.some((n) => words.startsWith(n + " "));
-    });
-    if (hit && !out.includes(hit)) out.push(hit);
-  }
-  return out;
+  const names = MONTHS[today.getUTCMonth()];
+  const hit = titles.find((t) => {
+    const words = t.toUpperCase().replace(/\s+/g, " ").trim();
+    return /\bPR RECAP\b/.test(words) && names.some((n) => words.startsWith(n + " "));
+  });
+  return hit ? [hit] : [];
 }
 
 /** `Rp1,535,430` → 1535430; `6.5` → 6.5; blank → null. The sheet formats
