@@ -18,7 +18,7 @@ import type { LedgerSheetResult } from "@/services/accounting/contracts";
  *
  *  ## Two callers (0302, D460)
  *
- *  * **The job, every 15 minutes 06:00–22:59 WIB.** `pg_cron` →
+ *  * **The job, every 15 minutes 08:00–17:00 WIB (0303, D461).** `pg_cron` →
  *    `ops_acct.kick_ledger_sheet_sync()` → this, with `x-ops-sync-key`, as
  *    `service_role` (ADR-002's scheduled-import exception, as the PR sheet).
  *    It leaves the tab alone when the rows' md5 equals the last good write's
