@@ -1121,10 +1121,14 @@ const dayOf = (iso: string) => iso.slice(0, 10);
 const daysBetween = (from: string, to: string) =>
   Math.round((Date.parse(officeStamp(to)) - Date.parse(officeStamp(from))) / 86_400_000);
 
-/** Ledger rows in the order a bank statement has them: by day, then by the
- *  number that was minted that day. */
+/** Ledger rows in balance order (0301, D459): by day, a day's money in before
+ *  its money out, then by number. A number is minted when the row is
+ *  recorded, so a transfer recorded late would otherwise land after the
+ *  payments it paid for and the balance would dip below zero mid-day. */
 const byLedgerOrder = (a: Transaction, b: Transaction) =>
-  a.trx_date === b.trx_date ? a.trx_no.localeCompare(b.trx_no) : a.trx_date.localeCompare(b.trx_date);
+  a.trx_date !== b.trx_date ? a.trx_date.localeCompare(b.trx_date)
+  : a.direction !== b.direction ? (a.direction === "IN" ? -1 : 1)
+  : a.trx_no.localeCompare(b.trx_no);
 
 /** Did this row go out against something somebody decided — an approved
  *  request line, or a purchase order? Both are decisions; a PO payment with no

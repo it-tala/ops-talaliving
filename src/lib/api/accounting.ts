@@ -331,8 +331,11 @@ export async function listTransactions(
   if (opts.from) q = q.gte("trx_date", opts.from);
   if (opts.to) q = q.lte("trx_date", opts.to);
   if (opts.q) q = q.or(ilikeOrFilter(opts.q, "description", "trx_no"));
+  /* Newest first in balance order (0301, D459): within a day the money out
+     sits above the money in that paid for it (direction_t is IN < OUT). */
   const { data, error, count } = await q
     .order("trx_date", { ascending: false })
+    .order("direction", { ascending: false })
     .order("trx_no", { ascending: false })
     .range(offset, offset + limit - 1);
   return fromPage<TransactionView>(SERVICE, data as TransactionView[], count, error, limit, offset);
@@ -1844,10 +1847,6 @@ export async function listFundings(): Promise<Result<FundingView[]>> {
   return ok(SERVICE, ((data ?? []) as FundingRow[]).map(fundingView));
 }
 
-/** Ledger rows in the order a bank statement has them: by day, then by the
- *  number minted that day. */
-const ledgerKey = (t: { trx_date: string; trx_no: string }) => `${t.trx_date}|${t.trx_no}`;
-
 function spendGroups(
   rows: FundingSpendRow[], keyOf: (r: FundingSpendRow) => string, labelOf: (r: FundingSpendRow) => string, total: number,
 ): FundingSpendGroup[] {
@@ -1883,12 +1882,13 @@ export async function getFunding(trxNo: string): Promise<Result<FundingDetail>> 
   if (win.error) return fail(SERVICE, win.error);
   const noApprovalLimit = Number((limit.data as { value?: unknown } | null)?.value ?? 2_000_000) || 2_000_000;
 
-  /* The window is open on both ends by (date, number): a row on the same
-     day as the transfer counts only when its number came after. */
-  const after = ledgerKey(f);
-  const before = f.window_end && f.next_funding_no ? ledgerKey({ trx_date: f.window_end, trx_no: f.next_funding_no }) : null;
+  /* The window is the days from the transfer's up to the next one's (0301,
+     D459): a payment on the transfer's own day is paid from it, whatever
+     number it was given, and a payment on the next transfer's day belongs
+     to that one. Same as `v_funding`. */
+  const nextDay = f.window_end && f.next_funding_no ? f.window_end : null;
   const inWindow = ((win.data ?? []) as TransactionView[])
-    .filter((t) => ledgerKey(t) > after && (before === null || ledgerKey(t) < before));
+    .filter((t) => t.trx_date >= f.trx_date && (nextDay === null || t.trx_date < nextDay));
 
   const projectIds = [...new Set(inWindow.map((t) => t.project_id).filter((x): x is string => !!x))];
   const projects = projectIds.length

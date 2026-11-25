@@ -11366,3 +11366,23 @@ the rules `0296` now applies every day:
 - **Why the stack and not an argument.** Any argument that says *I am a
   transfer leg* can be filled in by a client calling `post_transaction`
   directly. The stack cannot.
+
+## F300 · 2026-11-25 · A row's number says when it was recorded, not when the money moved
+
+- **What happened.** The liquidation sheet for BCA 271 printed −8,613,745 on
+  2026-08-27: the payments of that day (`trx-26-08-31_006`…`_009`) came first,
+  and the transfer that paid for them (`trx-26-09-01_016`, same date) only
+  after — its number was minted four days later, when it was recorded. The
+  owner: *tidak mungkin saldo negatif dan ada fund in di tanggal yang sama*.
+- **How big.** 25 rows on BCA 271 went below zero in (date, number) order.
+  No day ever *ended* below zero, and with the day's IN rows first there is
+  not one negative row — nothing is missing, only the order is wrong. 209
+  payments also sat in the window of the fund *before* the one that paid
+  them.
+- **The rule (D459).** On a running account the order is (date, IN before
+  OUT, number). D429's "same day: posting order" still holds inside each
+  side. A fund's window is whole days: from its date up to the next fund's
+  date; two funds on one day leave the first one empty.
+- **What does not change.** An anchored account (D456) keeps (date,
+  number): its readings name the row they come after, so the order there is
+  the bank screen's and reordering it would move the reading.

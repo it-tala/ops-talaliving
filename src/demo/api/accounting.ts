@@ -329,9 +329,12 @@ export async function listTransactions(
     const q = opts.q.toLowerCase();
     rows = rows.filter((t) => t.description.toLowerCase().includes(q) || t.trx_no.includes(q));
   }
+  /* Newest first in balance order (0301, D459), like the real query. */
   const views = rows
     .map((t) => transactionView(state, t))
-    .sort((a, b) => b.trx_date.localeCompare(a.trx_date) || b.trx_no.localeCompare(a.trx_no));
+    .sort((a, b) => b.trx_date.localeCompare(a.trx_date)
+      || (a.direction === b.direction ? 0 : a.direction === "OUT" ? -1 : 1)
+      || b.trx_no.localeCompare(a.trx_no));
   return paged(SERVICE, views, opts.limit ?? 50, opts.offset ?? 0);
 }
 
