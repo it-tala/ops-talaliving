@@ -81,8 +81,11 @@ begin
          'what it said before is kept';
   assert (select count(*) from ops_procure.sheet_pr_rows s join ops_procure.pr_lines l on l.id = s.line_id
            where l.line_no_full in (l10, l11)) = 2, 'one trace row each, not one per figure';
+  /* All runs share now() inside this transaction and ids are random, so the
+     second run is found by what it did, not by when. */
   assert (select jsonb_array_length(summary->'updates') from ops_procure.sheet_sync_runs
-           order by run_at desc, id limit 1) = 2, 'the run lists what it changed';
+           where tab = 'NOVEMBER  PR RECAP' and (summary->>'updated')::int = 2) = 2,
+         'the run lists what it changed';
 end $$;
 
 /* ── third run: the same sheet changes nothing ─────────────────────────── */
