@@ -11332,3 +11332,22 @@ the rules `0296` now applies every day:
   present** (F288 again): `string_agg(column_name, ',')` has no order, and
   the trailing `\r` of psql's CRLF output lands on whichever column is last.
   `v_account_state` was reported missing `recorded_at`; the view returns it.
+
+## F298 · 2026-11-25 · The first real sync called two identical payroll rows different because of a double space
+
+- **What happened.** The first run against the real sheet (0296, superadmin's
+  button) answered 14 rows as `differs`. Two of them — *DAILY PAYROLL - WEEK2
+  NOV* and *WEEK 3 NOV* — said exactly what their lines said. The seam
+  collapsed runs of spaces in the sheet's text but compared it with the line's
+  text as stored, and those lines had been typed with two spaces.
+- **Why it matters more now.** Under D457 a difference is no longer only
+  reported — the line is rewritten to the sheet. A false difference would have
+  been a pointless audit row on every run. `0299` collapses spaces on both
+  sides before comparing.
+- **The other twelve were real.** Six amounts (the October payroll, two Kartu
+  Halo bills, Driver Fendi, Listrik Saripan) and six wordings. The owner
+  checked the November ones and chose the sheet; October is no longer read.
+- **One row was skipped, not refused.** *ONGKIR JOHAR WOOD* had a date and a
+  description but no amount yet — a real request the office had not priced.
+  Skipping it hid it; `0299` makes it a Rp 0 line that the next sync prices.
+

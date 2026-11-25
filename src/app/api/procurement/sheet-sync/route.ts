@@ -101,7 +101,7 @@ export async function POST(request: Request): Promise<Response> {
 
   const tabs = pickTabs(titles, officeToday());
   if (tabs.length === 0) {
-    return refuse(404, "no_recap_tab", "Tidak ada tab '<BULAN> PR RECAP' untuk bulan ini atau bulan lalu.");
+    return refuse(404, "no_recap_tab", "Tidak ada tab '<BULAN> PR RECAP' untuk bulan ini.");
   }
 
   const out: SheetSyncTab[] = [];

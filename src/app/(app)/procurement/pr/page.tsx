@@ -81,8 +81,8 @@ export default function RequestsBoardPage() {
       if (!t.counts) return `${t.tab.trim()}: ${t.message ?? t.outcome}`;
       const c = t.counts;
       return tr(
-        `${t.tab.trim()}: ${c.created} new, ${c.approved} approved, ${c.matched} paid from the ledger, ${c.unmatched} paid but unmatched`,
-        `${t.tab.trim()}: ${c.created} baru, ${c.approved} disetujui, ${c.matched} terhubung ke ledger, ${c.unmatched} dibayar tapi belum cocok`,
+        `${t.tab.trim()}: ${c.created} new, ${c.updated} updated from the sheet, ${c.approved} approved, ${c.matched} paid from the ledger, ${c.unmatched} paid but unmatched`,
+        `${t.tab.trim()}: ${c.created} baru, ${c.updated} diperbarui dari sheet, ${c.approved} disetujui, ${c.matched} terhubung ke ledger, ${c.unmatched} dibayar tapi belum cocok`,
       ) + (t.message ? ` — ${t.message}` : "");
     }).join(" · ");
     toast("success", tr("Sheet synced", "Sheet tersinkron"), said);
