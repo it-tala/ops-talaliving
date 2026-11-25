@@ -442,3 +442,42 @@ Custom SMTP also lifts the send limit to 30 new users per hour and lets the
 address be one people recognise, rather than a Supabase default that looks like
 phishing to anybody careful.
 
+
+## 2026-11-25 · BCA USD 081 / BCA 064: GAP voided, 18/11 redone, readings from Evin's screenshots (L25, D456)
+
+Run in production as `superadmin` (the identity earlier ledger data sessions
+used), one transaction, after a dry run in a rolled-back transaction gave the
+same totals. `0298` was applied first.
+
+**What was read.** Every file Evin sent to the leadership chat from 6/10 to
+23/11 (75 inbox rows) was opened one by one. The *Account Portfolio Summary*
+screens give both balances. 31 end-of-day readings were recorded with
+`record_account_state`, each pointing at the screenshot it was read from: 19 on
+064 and 12 on 081. The 18/11 conversion added one more.
+
+| | before | after |
+|---|---|---|
+| GAP rows | `trx-26-10-15_049` (064 IN Rp 938.602.000), `_050` (081 IN 12.595,14) | VOID, reason D456 |
+| 18/11 conversion | `trx-26-11-18_004` 081 OUT **109.374.000** (rupiah on the dollar account), `_005` 064 IN, not a pair | VOID; `record_conversion` → `trx-26-11-25_012` 081 OUT USD 6.000 / `_013` 064 IN Rp 109.374.000, all four files linked to both legs |
+| Conversion log | empty | 22/10, 30/10, 05/11 (rows inserted for the pairs already booked), 18/11 |
+| Evin 23/11 (3 files, PENDING) | — | `trx-26-11-25_014` 064 OUT Rp 25.000.000 to EJO (V-0014), the other two files ATTACHED |
+| Balance 064 / 081 | running sum incl. GAP | **Rp 69.565.568 / USD 4.211,01** = the 23/11 14:38 screenshot |
+
+**What the bank moved that no row explains** (`v_account_state.unrecorded`,
+shown only, never booked):
+
+| account | between readings | unrecorded | likely |
+|---|---|---|---|
+| 064 | 14/10 → 15/10 | −12.500 | the 15/10 conversion executed at **17.930**, the ledger has the input-screen 17.935 (44.837.500 vs 44.825.000) |
+| 064 | 15/10 → 21/10 | −25.000.000 | an outgoing transfer with no document in the chat |
+| 064 | 02/11 → 05/11 | −30.000 | monthly bank fee |
+| 064 | 05/11 → 17/11 | +36.420.000 | money in with no document. The 13/11 −20 jt to 271 would otherwise take 064 below zero |
+| 081 | 29/10 → 30/10 | −20,00 | charge on the LianLian withdrawal |
+| 081 | 02/11 → 05/11 | −5,00 | bank charge |
+| 081 | 05/11 → 17/11 | +7.940,00 | dollars in with no document |
+
+Not changed: the 15/10 conversion row still carries 17.935. Correcting it
+(void and redo at 17.930) is the owner's call.
+
+The `GL OPS 2026` tab was synced afterwards (3.871 rows). The 064 column now
+follows the readings and is blank before 6/10.
