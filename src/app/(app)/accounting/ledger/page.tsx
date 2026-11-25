@@ -320,7 +320,8 @@ export default function LedgerPage() {
         description={tr("Money that actually moved, in and out, with what it was for and what proves it. Nothing is deleted here — a wrong row is voided with a reason and stays visible.", "Uang yang benar-benar bergerak, masuk dan keluar, beserta untuk apa dan apa buktinya. Tidak ada yang dihapus di sini — baris yang salah dibatalkan (void) dengan alasan dan tetap terlihat.")}
         actions={mayPost ? (
           <div className="flex gap-2">
-            <Button variant="outline" icon={Sheet} onClick={syncSheet} disabled={sheetSyncing} data-testid="sync-ledger-sheet">
+            <Button variant="outline" icon={Sheet} onClick={syncSheet} disabled={sheetSyncing} data-testid="sync-ledger-sheet"
+              title={tr("The sheet also updates itself every 15 minutes, 06:00–23:00 WIB, when the ledger changed. Press to write it now.", "Sheet juga diperbarui sendiri tiap 15 menit, 06.00–23.00 WIB, bila ledger berubah. Tekan untuk menulisnya sekarang.")}>
               {sheetSyncing ? tr("Updating sheet…", "Memperbarui sheet…") : tr("Update sheet", "Perbarui sheet")}
             </Button>
             <Button variant="outline" icon={ArrowLeftRight} onClick={() => setTransferring(true)} data-testid="open-transfer">{tr("Move money", "Pindah dana")}</Button>

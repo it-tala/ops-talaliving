@@ -11386,3 +11386,21 @@ the rules `0296` now applies every day:
 - **What does not change.** An anchored account (D456) keeps (date,
   number): its readings name the row they come after, so the order there is
   the bank screen's and reordering it would move the reading.
+
+## F301 · 2026-11-25 · A job that no-ops without its secrets looks exactly like a job that runs
+
+- **What happened.** Building the GL OPS sheet job (0302, D460), production
+  was read for the secrets the PR job (0296) uses. Vault holds only
+  `wa_ingest_gchat_webhook`: no `ops_app_url`, no `ops_sheet_sync_key`.
+  `ops-pr-sheet-sync` is scheduled every evening and has done nothing since
+  it was scheduled. Every PR sync so far came from the button.
+- **Why nobody saw it.** The kick returns quietly when a secret is missing,
+  on purpose (so the migration can schedule it before IT sets secrets). The
+  cost: a cron row in `cron.job` reads as "this runs" to anyone looking.
+- **Rule.** A job that waits on secrets is not DONE on the board until a run
+  it made is in its runs table (`trigger = cron`). Check
+  `ledger_sheet_runs` / `sheet_sync_runs` for a cron row, not `cron.job`.
+- **Aside, from the same work.** Building a migration from an older body with
+  JavaScript `String.replace(x, str)`: `$$` in `str` becomes `$`, so every
+  plpgsql `$$` quote broke. Pass a function: `replace(x, () => str)`.
+

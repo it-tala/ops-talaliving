@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseServer, supabaseAdmin } from "@/lib/supabase/server";
 import { sheetsToken, tabTitles, tabValues, writeCells, SheetsError } from "@/lib/sheets";
 import { serviceAccountEmail } from "@/lib/drive";
+import { checkSyncKey } from "@/lib/sync-key";
 import { pickTabs, parseTab, writeBacks, type SyncedRow } from "@/services/procurement/sheet-sync";
 import type { SheetSyncResult, SheetSyncTab } from "@/services/procurement/contracts";
 
@@ -38,14 +39,6 @@ function refuse(status: number, code: string, message: string): Response {
   return envelope(status, { error: { code, message, outcome: "refused", status }, outcome: "refused" });
 }
 
-/** Constant-time enough for a 32+ character secret compared once a day. */
-function sameKey(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let d = 0;
-  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return d === 0;
-}
-
 /** Today at the office (WIB), as a Date whose UTC fields are the office's. */
 function officeToday(): Date {
   return new Date(Date.now() + 7 * 3600 * 1000);
@@ -57,11 +50,8 @@ export async function POST(request: Request): Promise<Response> {
   let trigger: "cron" | "manual";
 
   if (key !== null) {
-    const expected = process.env.OPS_SHEET_SYNC_KEY;
-    if (!expected || expected.length < 32) {
-      return refuse(501, "sync_key_not_set", "OPS_SHEET_SYNC_KEY is not set on the Worker (32+ characters).");
-    }
-    if (!sameKey(key, expected)) return refuse(401, "bad_sync_key", "The sync key does not match.");
+    const k = checkSyncKey(key);
+    if (!k.ok) return refuse(k.status, k.code, k.message);
     try { sb = supabaseAdmin(); } catch (e) {
       return refuse(501, "service_role_not_set", String((e as Error).message));
     }
