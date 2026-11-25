@@ -581,6 +581,56 @@ function formatShort(n: number): string {
 /** The database owns this number (D9). No screen recomputes it, and a screen
  *  that cannot load it shows an em dash rather than a substitute — a
  *  client-side stand-in is how a page ends up disagreeing with the books. */
+/* ------------------------------------------------------------------ */
+/* Bank readings (0298, D456)                                          */
+/* ------------------------------------------------------------------ */
+
+type StateKey = { as_of: string; after_trx_no: string | null };
+type RowKey = { trx_date: string; trx_no: string };
+
+/** `ops_acct.row_after_state`: a row moves money after a reading when it is
+ *  on a later day, or on the same day after the row the reading names. An
+ *  end-of-day reading already has the whole day in it. */
+export function rowAfterState(t: RowKey, s: StateKey): boolean {
+  return t.trx_date > s.as_of
+    || (t.trx_date === s.as_of && s.after_trx_no !== null && t.trx_no > s.after_trx_no);
+}
+
+/** Later reading first: day, then end-of-day after any named row, then the
+ *  named row, then when it was recorded. */
+function byStateDesc(a: DemoState["account_states"][number], b: DemoState["account_states"][number]): number {
+  if (a.as_of !== b.as_of) return a.as_of < b.as_of ? 1 : -1;
+  const ae = a.after_trx_no === null, be = b.after_trx_no === null;
+  if (ae !== be) return ae ? -1 : 1;
+  if ((a.after_trx_no ?? "") !== (b.after_trx_no ?? "")) return (a.after_trx_no ?? "") < (b.after_trx_no ?? "") ? 1 : -1;
+  return a.recorded_at < b.recorded_at ? 1 : -1;
+}
+
+export function liveStates(state: DemoState, accountId: string) {
+  return (state.account_states ?? []).filter((s) => s.account_id === accountId && s.voided_at === null).sort(byStateDesc);
+}
+
+/** `ops_acct.state_before_row`. */
+function stateBeforeRow(state: DemoState, accountId: string, t: RowKey) {
+  return liveStates(state, accountId).find((s) =>
+    !(s.as_of > t.trx_date || (s.as_of === t.trx_date && (s.after_trx_no === null || s.after_trx_no > t.trx_no)))) ?? null;
+}
+
+const signed = (t: Transaction) => (t.direction === "IN" ? t.amount_idr : -t.amount_idr);
+
+/** The balance of an anchored/state_only account: the latest reading plus
+ *  the rows after it. Null when the account is running or was never read. */
+export function anchoredBalance(state: DemoState, accountId: string): { balance: number; as_of: string } | null {
+  const acc = state.accounts.find((a) => a.id === accountId);
+  if (!acc || (acc.balance_mode ?? "running") === "running") return null;
+  const s = liveStates(state, accountId)[0];
+  if (!s) return null;
+  const moved = state.transactions
+    .filter((t) => t.account_id === accountId && t.status !== "VOID" && rowAfterState(t, s))
+    .reduce((sum, t) => sum + signed(t), 0);
+  return { balance: s.balance + moved, as_of: s.as_of };
+}
+
 export function accountBalances(state: DemoState): AccountBalance[] {
   return state.accounts.map((acc) => {
     const rows = state.transactions.filter(
@@ -588,6 +638,7 @@ export function accountBalances(state: DemoState): AccountBalance[] {
     );
     const total_in = rows.filter((t) => t.direction === "IN").reduce((s, t) => s + t.amount_idr, 0);
     const total_out = rows.filter((t) => t.direction === "OUT").reduce((s, t) => s + t.amount_idr, 0);
+    const anchored = anchoredBalance(state, acc.id);
     return {
       account_id: acc.id,
       code: acc.code,
@@ -600,7 +651,9 @@ export function accountBalances(state: DemoState): AccountBalance[] {
       opened_on: acc.opened_on,
       total_in,
       total_out,
-      balance: acc.opening_balance + total_in - total_out,
+      balance: anchored ? anchored.balance : acc.opening_balance + total_in - total_out,
+      balance_mode: acc.balance_mode ?? "running",
+      balance_anchored_on: anchored?.as_of ?? null,
     };
   });
 }
@@ -776,10 +829,23 @@ const LEDGER_BALANCE_FROM = "2026-10-12";
  *  Worked out from the rows each time rather than cached — a seam builds a
  *  view from its draft and keeps writing, and a cached sum would outlive it. */
 function balanceAround(state: DemoState, trx: Transaction) {
-  if (trx.status === "VOID" || trx.trx_date < settingText(state, "ledger.balance_from", LEDGER_BALANCE_FROM)) {
+  const account = state.accounts.find((a) => a.id === trx.account_id);
+  const mode = account?.balance_mode ?? "running";
+  /* 0298: state_only prints none; anchored counts from the reading before
+     the row, and rows before the first reading print none. */
+  if (mode === "state_only" || trx.status === "VOID") return { balance_before: null, balance_after: null };
+  if (mode === "anchored") {
+    const s = stateBeforeRow(state, trx.account_id, trx);
+    if (!s) return { balance_before: null, balance_after: null };
+    const balance_after = s.balance + state.transactions
+      .filter((t) => t.account_id === trx.account_id && t.status !== "VOID"
+        && rowAfterState(t, s) && !rowAfterState(t, { as_of: trx.trx_date, after_trx_no: trx.trx_no }))
+      .reduce((sum, t) => sum + signed(t), 0);
+    return { balance_before: balance_after - signed(trx), balance_after };
+  }
+  if (trx.trx_date < settingText(state, "ledger.balance_from", LEDGER_BALANCE_FROM)) {
     return { balance_before: null, balance_after: null };
   }
-  const account = state.accounts.find((a) => a.id === trx.account_id);
   const balance_before = state.transactions.reduce(
     (sum, t) => t.account_id === trx.account_id && t.status !== "VOID" && byLedgerOrder(t, trx) < 0
       ? sum + (t.direction === "IN" ? t.amount_idr : -t.amount_idr)

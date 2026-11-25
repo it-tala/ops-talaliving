@@ -151,6 +151,19 @@ export default function LedgerPage() {
       ? accountList.data.filter((a) => a.custody === "accounting").map((a) => a.account_id)
       : [],
   );
+  /* A row on a dollar account (BCA USD 081) carries dollars in its amount
+     (0285, D444) — print them as dollars, not as rupiah. */
+  const foreignCcy = new Map(
+    accountList.status === "ready"
+      ? accountList.data.filter((a) => a.currency && a.currency !== "IDR").map((a) => [a.account_id, a.currency])
+      : [],
+  );
+  const money = (t: { account_id: string; amount_idr: number }) => {
+    const ccy = foreignCcy.get(t.account_id);
+    return ccy
+      ? `${ccy === "USD" ? "$" : `${ccy} `}${t.amount_idr.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : formatIDR(t.amount_idr);
+  };
 
   function filter(next: () => void) {
     /* Any change of filter is a new first page — staying on page 4 of a list
@@ -241,7 +254,7 @@ export default function LedgerPage() {
             "tabular-nums font-medium",
             t.direction === "IN" ? "text-emerald-700" : "text-slate-800",
           )}>
-            {t.direction === "IN" ? "+" : "−"}{formatIDR(t.amount_idr)}
+            {t.direction === "IN" ? "+" : "−"}{money(t)}
           </p>
           {/* A purchase that names no request, on the row rather than in a
               report nobody runs (D88). Not a budget figure — the money is

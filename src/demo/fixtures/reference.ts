@@ -165,8 +165,8 @@ export const ACCOUNTS: Account[] = [
   { id: "acc_bni325", code: "BNI 325", name: "BNI 325 — Operations", custody: "accounting", is_paying: true, currency: "IDR", opening_balance: 42_000_000, opened_on: "2026-01-01", is_active: true },
   { id: "acc_bca271", code: "BCA 271", name: "BCA 271 — Accounting custody", custody: "accounting", is_paying: true, currency: "IDR", opening_balance: 60_000_000, opened_on: "2026-01-01", is_active: true },
   { id: "acc_jago", code: "JAGO", name: "JAGO — day-to-day operations", custody: "accounting", is_paying: true, currency: "IDR", opening_balance: 25_000_000, opened_on: "2026-01-01", is_active: true },
-  { id: "acc_bca064", code: "BCA 064", name: "BCA 064 — Leadership account", custody: "leadership", is_paying: false, currency: "IDR", opening_balance: 610_000_000, opened_on: "2026-01-01", is_active: true },
-  { id: "acc_bcausd", code: "BCA USD 081", name: "BCA USD 081 — Leadership account", custody: "leadership", is_paying: false, currency: "USD", opening_balance: 0, opened_on: "2026-01-01", is_active: true },
+  { id: "acc_bca064", code: "BCA 064", name: "BCA 064 — Leadership account", custody: "leadership", is_paying: false, currency: "IDR", opening_balance: 610_000_000, opened_on: "2026-01-01", is_active: true, balance_mode: "anchored" },
+  { id: "acc_bcausd", code: "BCA USD 081", name: "BCA USD 081 — Leadership account", custody: "leadership", is_paying: false, currency: "USD", opening_balance: 0, opened_on: "2026-01-01", is_active: true, balance_mode: "state_only" },
 ];
 
 /** Thirteen types. `is_purchase` vetoes auto-complete — goods that were bought

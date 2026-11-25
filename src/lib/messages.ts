@@ -49,6 +49,7 @@ export const MESSAGES = {
     ledger: m("Ledger", "Buku besar"),
     verification: m("Purchase verification", "Verifikasi pembelian"),
     redetail: m("Re-detailing", "Rincian ulang"),
+    leadershipAccounts: m("Leadership accounts", "Rekening pimpinan"),
     cashflow: m("Cashflow", "Cashflow"),
     calendar: m("Cash calendar", "Kalender kas"),
     monthlyBills: m("Monthly bills", "Tagihan bulanan"),

@@ -11299,3 +11299,36 @@ the rules `0296` now applies every day:
 - **Numbering collided across parallel branches.** `0295` and `D454` were each
   taken by two branches on the same day (liquidation sheet, PR recap). This one
   takes `0297`/`D455`; check `origin/main` *and* open branches before picking.
+
+## F297 · 2026-11-25 · A running balance on an account nobody sees whole is a guess that looks checked
+
+- **What production held for the two leadership accounts.** BCA 064 had a
+  GAP IN of Rp 938,6 jt and BCA USD 081 a GAP IN of USD 12.595,14 (D444),
+  added once to make the totals agree with the bank on 15/10. They agreed
+  until the next movement nobody here sees — client money into 064, dollars
+  into 081, the bank's monthly fee — and from then on the ledger printed a
+  balance beside every row that read as checked and was not.
+- **081 mixed two units in one column.** Most 081 rows carry dollars in
+  `amount_idr` (D444, 0285), but the conversion of 18/11 was booked from the
+  inbox as two loose rows, the 081 leg at **Rp 109.374.000** — a figure in
+  rupiah summed as dollars. It is not a transfer pair (`transfer_id` null).
+  The seam that would have written it right (`book_evidence_to_transfer`
+  with `billed_amount`) exists; the screen offered the ordinary road first.
+- **Evin's messages already carry the truth.** Almost every one is a caption
+  (`TR USD 4000-IDR 1 @18145 =72.580.000`), the proof, and an *Account
+  Portfolio Summary* screenshot with both balances. The screenshots were
+  filed NOTED or REJECTED: the reading of the bank was thrown away and the
+  balance recomputed from rows instead. The captions follow one shape closely
+  enough to parse (`src/services/accounting/conversion.ts`: rate after the
+  last `@`, rupiah after `=`); all four seen in production parse.
+- **Q4 answered from the data, not asked of the bank.** On 22/10 064 moved
+  from 10.995.568 to 47.051.568 — exactly USD 2.000 @ 18.028 — while 081 fell
+  to USD 295,14: 081 holds dollars only and a conversion lands in 064 whole.
+- **The local cluster on 5433 is shared by every session on the machine.**
+  `rebuild.sh` defaults to port 5433; another session's rebuild dropped this
+  branch's 0298 views mid-check. A session that needs its own ladder starts
+  its own cluster on another port (`PGPORT=5441`).
+- **`check-view-contracts` on Windows reports a missing field that is
+  present** (F288 again): `string_agg(column_name, ',')` has no order, and
+  the trailing `\r` of psql's CRLF output lands on whichever column is last.
+  `v_account_state` was reported missing `recorded_at`; the view returns it.

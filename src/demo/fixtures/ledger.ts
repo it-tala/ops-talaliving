@@ -292,6 +292,25 @@ export const EVIDENCE_INBOX: Omit<EvidenceInboxRow, "reported_by_name" | "file_k
     produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
     money_direction: "OUT",
   },
+  /** Evin's message of 22/10: a conversion and the balances after it, the
+   *  caption naming all three figures (D456). Recorded on Rekening pimpinan,
+   *  not in Verifikasi. */
+  {
+    id: "inb_ld1", ref_id: "evn_26-10-22~advice", origin: "chat", status: "PENDING",
+    attachment_id: "att_ld1", reported_by: "usr_evin", reported_at: "2026-10-22T10:05:00+07:00",
+    extracted: { vendor_name: null, document_date: "2026-10-22", amount_idr: 36_056_000, doc_type: "Payment Proof", confidence: 95,
+      note: "Transfer TALA HOME PT USD ke TALA HOME PT Rp", caption: "USD=IDR1 @2000 @ 18028= 36,056,000" },
+    produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
+    money_direction: "IN",
+  },
+  {
+    id: "inb_ld2", ref_id: "evn_26-10-22~summary", origin: "chat", status: "PENDING",
+    attachment_id: "att_ld2", reported_by: "usr_evin", reported_at: "2026-10-22T10:05:00+07:00",
+    extracted: { vendor_name: null, document_date: "2026-10-22", amount_idr: null, doc_type: "Others", confidence: 95,
+      note: "Account Portfolio Summary — 247-1141064 Rp 47.051.568, 247-1141081 USD 295,14",
+      caption: "USD=IDR1 @2000 @ 18028= 36,056,000" },
+    produced_trx_id: null, produced_pr_line_no: null, similar_trx_nos: [],
+  },
   {
     id: "inb_05", ref_id: "upl_26-09-10_03~x0", origin: "chat", status: "PENDING",
     attachment_id: "att_17", reported_by: "usr_geryle", reported_at: "2026-09-10T08:22:00+07:00",

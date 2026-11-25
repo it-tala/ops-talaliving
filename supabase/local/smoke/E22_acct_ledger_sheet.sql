@@ -43,7 +43,12 @@ select x.id::uuid, x.no, x.d::date, a.id, x.dir::ops_acct.direction_t, x.amt, 'S
 insert into ops_acct.transaction_lines (trx_id, line_no, description, qty, amount, kind, attachment_id) values
   ('77770000-0000-0000-0000-000000000291', 1, 'THING A', 1, 600000, 'item', null),
   ('77770000-0000-0000-0000-000000000291', 2, 'THING B', 1, 393500, 'item', '44440000-0000-0000-0000-000000000299'),
-  ('77770000-0000-0000-0000-000000000291', 3, 'BIAYA TRANSFER', 1, 6500, 'fee', null);
+  ('77770000-0000-0000-0000-000000000291', 3, 'BIAYA TRANSFER', 1, 6500, 'fee', null),
+  ('77770000-0000-0000-0000-000000000293', 1, 'PERTALITE', 1, 300000, 'item', null);
+
+-- 0298 reads BCA 064 from the bank (anchored); this file checks the layout and
+-- the running arithmetic, so it counts 064 from its rows here.
+update ops_acct.accounts set balance_mode = 'running' where code = 'BCA 064';
 
 insert into ops_core.attachment_links (attachment_id, entity, entity_no, kind, linked_by) values
   ('44440000-0000-0000-0000-000000000297','transaction','trx-gl-1','transfer_proof','eeee0000-0000-0000-0000-00000000e297'),
@@ -88,7 +93,8 @@ begin
   assert jsonb_array_length(mine) = 4, 'three lines + one plain row, no void, no 2027: ' || mine::text;
   assert mine->0->>'line' = 'a' and mine->1->>'line' = 'b' and mine->2->>'line' = 'c', 'lettered';
   assert mine->3->>'line' is null, 'a transaction without lines has no letter';
-  assert mine->0->>'description' = 'THING A' and (mine->0->>'amount')::numeric = 600000, 'line amount';
+  assert mine->3->>'description' = 'PLAIN IN', 'one line: the transaction''s own description, not the item';
+  assert mine->0->>'description' = 'TWO THINGS + FEE — THING A' and (mine->0->>'amount')::numeric = 600000, 'line amount';
   assert mine->2->>'type' = 'BANK CHARGES', 'fee line typed BANK CHARGES';
   assert mine->0->>'type' = 'SUPPLIERS', 'item line keeps its type';
   assert mine->0->>'account' = 'BCA 064', 'leadership account included';

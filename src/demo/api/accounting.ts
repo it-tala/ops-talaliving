@@ -30,6 +30,9 @@ import { getActiveLocale, formatIDR } from "@/lib/format";
 import { officeToday } from "@/lib/office";
 import { getState, apply, newId, nextDocNumber, writeAudit, writeOutbox } from "../store";
 import type { AuditRow, DemoDraftDecision, DemoState } from "../state";
+import type {
+  AccountStateView, FxConversionView, RecordAccountStateInput, RecordConversionInput, ConversionRecorded,
+} from "@/services/accounting/contracts";
 import { buildDrafts } from "@/services/accounting/drafts";
 import type {
   LedgerDraft, DraftAnchor, DraftConfirmInput, DraftConfirmed, DraftShown, InboxStatus,
@@ -40,6 +43,7 @@ import {
   bankStatementView, bankStatementViews, documentCoverage, transactionCoverage,
   monthlyBills, contributionAudit, orderOfLine, orderPaidByLine,
   effectiveCategory, categorySummary, currentApproval,
+  liveStates, rowAfterState,
 } from "../derive";
 import { latency, actingUser, requireAuthority, requireModule, requireLevel, conflict, replayed, remember, paged } from "./_kit";
 import { PRIMARY_DOC_KINDS, COMPLETION_DOC_KINDS, type DocKind } from "@/services/documents/contracts";
@@ -4069,4 +4073,275 @@ export async function syncLedgerSheet(): Promise<Result<LedgerSheetResult>> {
     "Sinkron sheet ledger hanya jalan di aplikasi live (butuh akses Google Sheet di server).",
     { field: "sheet" },
   );
+}
+
+/* ------------------------------------------------------------------ */
+/* Leadership accounts read from the bank's screen (0298, D456)        */
+/* ------------------------------------------------------------------ */
+
+/** `v_account_state`: every bank reading, newest first, with the one before
+ *  it and what no ledger row explained. Hidden without `approve_funds`. */
+export async function listAccountStates(accountCode?: AccountCode): Promise<Result<AccountStateView[]>> {
+  await latency();
+  const state = getState();
+  const readable = readableAccountIds(state);
+  const rows: AccountStateView[] = [];
+  for (const acc of state.accounts) {
+    if (!readable.has(acc.id) || (accountCode && acc.code !== accountCode)) continue;
+    const live = liveStates(state, acc.id);
+    for (const s of (state.account_states ?? []).filter((x) => x.account_id === acc.id)) {
+      const prev = s.voided_at === null
+        ? live.find((p) => p.id !== s.id && (p.as_of < s.as_of
+            || (p.as_of === s.as_of && s.after_trx_no === null && p.after_trx_no !== null)
+            || (p.as_of === s.as_of && p.after_trx_no !== null && s.after_trx_no !== null && p.after_trx_no < s.after_trx_no))) ?? null
+        : null;
+      const moved = prev ? state.transactions
+        .filter((t) => t.account_id === acc.id && t.status !== "VOID" && rowAfterState(t, prev) && !rowAfterState(t, s))
+        .reduce((sum, t) => sum + (t.direction === "IN" ? t.amount_idr : -t.amount_idr), 0) : null;
+      const att = s.attachment_id ? state.attachments.find((a) => a.id === s.attachment_id) : undefined;
+      rows.push({
+        id: s.id, account_id: acc.id, account_code: acc.code, currency: acc.currency,
+        as_of: s.as_of, after_trx_no: s.after_trx_no, balance: s.balance,
+        attachment_id: s.attachment_id, attachment_url: att?.url ?? null, attachment_filename: att?.filename ?? null,
+        source_ref: s.source_ref, note: s.note, recorded_by: s.recorded_by,
+        recorded_by_name: state.users.find((u) => u.id === s.recorded_by)?.full_name ?? null,
+        recorded_at: s.recorded_at, void_reason: s.void_reason, voided_at: s.voided_at,
+        previous_id: prev?.id ?? null, previous_balance: prev?.balance ?? null, previous_as_of: prev?.as_of ?? null,
+        recorded_movement: moved,
+        unrecorded: prev && moved !== null ? s.balance - prev.balance - moved : null,
+      });
+    }
+  }
+  rows.sort((a, b) => (a.as_of === b.as_of ? (a.recorded_at < b.recorded_at ? 1 : -1) : a.as_of < b.as_of ? 1 : -1));
+  return ok(SERVICE, rows);
+}
+
+/** `v_fx_conversion`: the conversion log, newest first. */
+export async function listFxConversions(): Promise<Result<FxConversionView[]>> {
+  await latency();
+  const state = getState();
+  const readable = readableAccountIds(state);
+  const live = (state.fx_conversions ?? [])
+    .filter((c) => readable.has(c.from_account_id)
+      && state.transactions.some((t) => t.trx_no === c.out_trx_no && t.status !== "VOID"))
+    .sort((a, b) => (a.trx_date === b.trx_date ? (a.out_trx_no < b.out_trx_no ? -1 : 1) : a.trx_date < b.trx_date ? -1 : 1));
+  const out: FxConversionView[] = live.map((c, i) => {
+    const prev = live.slice(0, i).reverse().find((p) => p.from_account_id === c.from_account_id) ?? null;
+    const prevAfter = prev ? prev.foreign_before - prev.foreign_amount : null;
+    const outTrx = state.transactions.find((t) => t.trx_no === c.out_trx_no);
+    const documents = outTrx ? state.attachment_links
+      .filter((k) => k.entity === "transaction" && k.entity_no === outTrx.trx_no)
+      .map((k) => {
+        const att = state.attachments.find((a) => a.id === k.attachment_id);
+        return { attachment_id: k.attachment_id, kind: k.kind as DocKind, url: att?.url ?? null, filename: att?.filename ?? null };
+      }) : [];
+    return {
+      transfer_id: c.transfer_id, trx_date: c.trx_date,
+      from_account_code: state.accounts.find((a) => a.id === c.from_account_id)?.code ?? "",
+      to_account_code: state.accounts.find((a) => a.id === c.to_account_id)?.code ?? "",
+      foreign_currency: c.foreign_currency, foreign_before: c.foreign_before, foreign_amount: c.foreign_amount,
+      foreign_after: Math.round((c.foreign_before - c.foreign_amount) * 100) / 100, rate: c.fx_rate,
+      effective_rate: Math.round((c.idr_amount / c.foreign_amount) * 100) / 100,
+      idr_amount: c.idr_amount, idr_after: c.idr_after, out_trx_no: c.out_trx_no, in_trx_no: c.in_trx_no,
+      previous_foreign_after: prevAfter,
+      foreign_jump: prevAfter === null ? null : Math.round((c.foreign_before - prevAfter) * 100) / 100,
+      recorded_by: c.recorded_by, recorded_by_name: state.users.find((u) => u.id === c.recorded_by)?.full_name ?? null,
+      recorded_at: c.recorded_at, documents,
+    };
+  });
+  return ok(SERVICE, out.reverse());
+}
+
+/** `record_account_state` (0298): the balance a bank screen showed. */
+export async function recordAccountState(
+  input: RecordAccountStateInput, idempotencyKey?: string,
+): Promise<Result<{ id: string; account_code: string; as_of: string; balance: number; already_recorded?: boolean }>> {
+  await latency();
+  const endpoint = `recordAccountState:${input.account_code}`;
+  const cached = replayed<{ id: string; account_code: string; as_of: string; balance: number }>(SERVICE, endpoint, idempotencyKey);
+  if (cached) return cached;
+  const denied = requireAuthority(SERVICE, "post_ledger");
+  if (denied) return denied;
+  const state = getState();
+  const acc = state.accounts.find((a) => a.code === input.account_code.trim());
+  if (!acc) return notFound(SERVICE, "account_not_found", "No such account.");
+  if (acc.custody === "leadership") {
+    const lead = requireAuthority(SERVICE, "approve_funds");
+    if (lead) return lead;
+  }
+  if ((acc.balance_mode ?? "running") === "running") {
+    return invalid(SERVICE, "running_account", `${acc.code} is counted from its rows; a bank reading does not set it.`, { field: "account_code" });
+  }
+  if (!input.as_of) return invalid(SERVICE, "date_required", "Which day did the bank show this balance?", { field: "as_of" });
+  if (input.balance === null || input.balance === undefined || Number.isNaN(input.balance) || input.balance < 0) {
+    return invalid(SERVICE, "balance_required", "Type the balance as the bank shows it (zero or more).", { field: "balance" });
+  }
+  const inbox = input.inbox_ref ? state.evidence_inbox.find((r) => r.ref_id === input.inbox_ref) : undefined;
+  if (input.inbox_ref && !inbox) return notFound(SERVICE, "inbox_row_not_found", "No such inbox row.");
+  const attachmentId = inbox?.attachment_id ?? input.attachment_id ?? null;
+  if (!attachmentId) {
+    return invalid(SERVICE, "evidence_required", "A balance needs the screenshot it was read from (D85).", { field: "attachment_id" });
+  }
+  const afterTrx = input.after_trx_no?.trim() || null;
+  if (afterTrx && !state.transactions.some((t) => t.trx_no === afterTrx && t.account_id === acc.id
+      && t.trx_date === input.as_of && t.status !== "VOID")) {
+    return invalid(SERVICE, "after_trx_not_here", `${afterTrx} is not a live row of ${acc.code} on ${input.as_of}.`, { field: "after_trx_no" });
+  }
+  const src = inbox ? `inbox:${inbox.ref_id}:${acc.code}` : null;
+  const existing = src ? (state.account_states ?? []).find((s) => s.source_ref === src && s.voided_at === null) : undefined;
+  if (existing) {
+    return ok(SERVICE, { id: existing.id, account_code: acc.code, as_of: existing.as_of, balance: existing.balance, already_recorded: true });
+  }
+  const id = newId("ast");
+  const me = actingUser(state).id;
+  apply((draft) => {
+    draft.account_states = draft.account_states ?? [];
+    draft.account_states.push({
+      id, account_id: acc.id, as_of: input.as_of, after_trx_no: afterTrx, balance: input.balance,
+      attachment_id: attachmentId, source_ref: src, note: input.note?.trim() || null,
+      recorded_by: me, recorded_at: new Date().toISOString(), void_reason: null, voided_at: null,
+    });
+    if (inbox && inbox.status === "PENDING") {
+      const r = draft.evidence_inbox.find((x) => x.ref_id === inbox.ref_id)!;
+      r.status = "NOTED";
+    }
+    writeAudit(draft, { service: SERVICE, entity: "account_state", entity_no: acc.code, action: "record",
+      outcome: "ok", reason: null, detail: { id, as_of: input.as_of, balance: input.balance } });
+    writeOutbox(draft, { service: SERVICE, event_type: "accounting.account_state.recorded",
+      payload: { id, account: acc.code, as_of: input.as_of, balance: input.balance } });
+  });
+  const data = { id, account_code: acc.code, as_of: input.as_of, balance: input.balance };
+  remember(SERVICE, endpoint, idempotencyKey, data);
+  return ok(SERVICE, data);
+}
+
+/** `void_account_state` (0298). */
+export async function voidAccountState(id: string, reason: string): Promise<Result<{ id: string }>> {
+  await latency();
+  const state = getState();
+  const s = (state.account_states ?? []).find((x) => x.id === id);
+  if (!s) return notFound(SERVICE, "account_state_not_found", "No such reading.");
+  const acc = state.accounts.find((a) => a.id === s.account_id)!;
+  const denied = requireAuthority(SERVICE, "post_ledger")
+    ?? (acc.custody === "leadership" ? requireAuthority(SERVICE, "approve_funds") : null);
+  if (denied) return denied;
+  if (!reason.trim()) return invalid(SERVICE, "reason_required", "Say why the reading was wrong.", { field: "reason" });
+  if (s.voided_at) return conflict(SERVICE, "already_void", "This reading is already void.");
+  apply((draft) => {
+    const r = draft.account_states.find((x) => x.id === id)!;
+    r.void_reason = reason.trim();
+    r.voided_at = new Date().toISOString();
+    writeAudit(draft, { service: SERVICE, entity: "account_state", entity_no: acc.code, action: "void",
+      outcome: "ok", reason: reason.trim(), detail: { id } });
+  });
+  return ok(SERVICE, { id });
+}
+
+/** `record_conversion` (0298): the transfer pair, the four figures, and the
+ *  state after it on each anchored side — in one act. */
+export async function recordConversion(
+  input: RecordConversionInput, idempotencyKey?: string,
+): Promise<Result<ConversionRecorded>> {
+  await latency();
+  const endpoint = `recordConversion:${input.inbox_ref ?? input.trx_date}`;
+  const cached = replayed<ConversionRecorded>(SERVICE, endpoint, idempotencyKey);
+  if (cached) return cached;
+  const denied = requireAuthority(SERVICE, "post_ledger");
+  if (denied) return denied;
+  const state = getState();
+  const from = state.accounts.find((a) => a.code === (input.from_account_code ?? "BCA USD 081"));
+  const to = state.accounts.find((a) => a.code === (input.to_account_code ?? "BCA 064"));
+  if (!from || !to) return notFound(SERVICE, "account_not_found", "One of the two accounts does not exist.");
+  if (from.custody === "leadership" || to.custody === "leadership") {
+    const lead = requireAuthority(SERVICE, "approve_funds");
+    if (lead) return lead;
+  }
+  if (from.currency === "IDR" || to.currency !== "IDR") {
+    return invalid(SERVICE, "not_a_conversion", `A conversion goes from a foreign account into a rupiah one; ${from.code} → ${to.code} is not.`, { field: "from_account_code" });
+  }
+  if (!input.trx_date) return invalid(SERVICE, "date_required", "Which day did the bank convert?", { field: "trx_date" });
+  if (!(input.foreign_amount > 0)) return invalid(SERVICE, "amount_required", `How many ${from.currency} were converted?`, { field: "foreign_amount" });
+  if (!(input.idr_amount > 0)) return invalid(SERVICE, "idr_required", "How many rupiah arrived?", { field: "idr_amount" });
+  if (!(input.foreign_before >= input.foreign_amount)) {
+    return invalid(SERVICE, "before_short", `${from.currency} awal (${input.foreign_before}) must cover the ${input.foreign_amount} converted.`, { field: "foreign_before" });
+  }
+  if (input.rate != null && Math.abs(Math.round(input.foreign_amount * input.rate) - input.idr_amount) > 1) {
+    return invalid(SERVICE, "rate_mismatch", `${input.foreign_amount} × ${input.rate} = ${Math.round(input.foreign_amount * input.rate)}, not ${input.idr_amount}.`, { field: "rate" });
+  }
+  if (input.idr_after != null && input.idr_after < 0) {
+    return invalid(SERVICE, "idr_after_negative", "The rupiah balance after cannot be negative.", { field: "idr_after" });
+  }
+  const rateText = input.rate ?? Math.round((input.idr_amount / input.foreign_amount) * 100) / 100;
+  const description = input.description?.trim() || `Konversi ${from.currency} ${input.foreign_amount} @ ${rateText} — ${from.code} → ${to.code}`;
+  let posted: Result<TransferPosted>;
+  if (input.inbox_ref) {
+    posted = await bookEvidenceToTransfer({
+      ref_id: input.inbox_ref, also_ref_ids: input.also_inbox_refs ?? [],
+      from_account_id: from.id, to_account_id: to.id, amount_idr: input.idr_amount, trx_date: input.trx_date,
+      description, billed_currency: from.currency, billed_amount: input.foreign_amount,
+    });
+  } else {
+    if (!input.documents?.length) {
+      return invalid(SERVICE, "evidence_required", "A conversion needs its bank advice: an inbox document or an attachment (D85).", { field: "documents" });
+    }
+    posted = await postTransfer({
+      from_account_id: from.id, to_account_id: to.id, amount_idr: input.idr_amount, trx_date: input.trx_date,
+      description, documents: input.documents, billed_currency: from.currency, billed_amount: input.foreign_amount,
+    });
+  }
+  if (posted.error) return posted;
+  const p = posted.data;
+  const me = actingUser(getState()).id;
+  const now = new Date().toISOString();
+  apply((draft) => {
+    const outTrx = draft.transactions.find((t) => t.trx_no === p.out_trx_no);
+    const inTrx = draft.transactions.find((t) => t.trx_no === p.in_trx_no);
+    for (const ref of (input.also_inbox_refs ?? []).filter((r) => r !== input.inbox_ref)) {
+      const row = draft.evidence_inbox.find((x) => x.ref_id === ref);
+      if (!row) continue;
+      for (const trx of [outTrx, inTrx]) {
+        if (!trx || draft.attachment_links.some((k) => k.attachment_id === row.attachment_id
+            && k.entity === "transaction" && k.entity_no === trx.trx_no)) continue;
+        draft.attachment_links.push({
+          id: newId("lnk"), attachment_id: row.attachment_id, entity: "transaction", entity_no: trx.trx_no,
+          kind: "Payment Proof", linked_by: me, linked_at: now,
+        });
+      }
+    }
+    draft.fx_conversions = draft.fx_conversions ?? [];
+    draft.fx_conversions.push({
+      transfer_id: p.transfer_id, trx_date: input.trx_date, from_account_id: from.id, to_account_id: to.id,
+      foreign_currency: from.currency, foreign_before: input.foreign_before, foreign_amount: input.foreign_amount,
+      fx_rate: input.rate ?? null, idr_amount: input.idr_amount, idr_after: input.idr_after ?? null,
+      out_trx_no: p.out_trx_no, in_trx_no: p.in_trx_no, recorded_by: me, recorded_at: now,
+    });
+    draft.account_states = draft.account_states ?? [];
+    const firstDoc = (trxNo: string | undefined) =>
+      draft.attachment_links.find((k) => k.entity === "transaction" && k.entity_no === trxNo)?.attachment_id ?? null;
+    if ((from.balance_mode ?? "running") !== "running") {
+      draft.account_states.push({
+        id: newId("ast"), account_id: from.id, as_of: input.trx_date, after_trx_no: p.out_trx_no,
+        balance: Math.round((input.foreign_before - input.foreign_amount) * 100) / 100,
+        attachment_id: firstDoc(outTrx?.trx_no), source_ref: `conversion:${p.transfer_id}:from`,
+        note: `${from.currency} awal ${input.foreign_before} − ${input.foreign_amount} dikonversi`,
+        recorded_by: me, recorded_at: now, void_reason: null, voided_at: null,
+      });
+    }
+    if (input.idr_after != null && (to.balance_mode ?? "running") !== "running") {
+      draft.account_states.push({
+        id: newId("ast"), account_id: to.id, as_of: input.trx_date, after_trx_no: p.in_trx_no,
+        balance: input.idr_after, attachment_id: firstDoc(inTrx?.trx_no), source_ref: `conversion:${p.transfer_id}:to`,
+        note: "Saldo sesudah konversi", recorded_by: me, recorded_at: now, void_reason: null, voided_at: null,
+      });
+    }
+    writeOutbox(draft, { service: SERVICE, event_type: "accounting.conversion.recorded",
+      payload: { transfer_id: p.transfer_id, foreign_amount: input.foreign_amount, idr_amount: input.idr_amount } });
+  });
+  const data: ConversionRecorded = {
+    transfer_id: p.transfer_id, out_trx_no: p.out_trx_no, in_trx_no: p.in_trx_no,
+    foreign_after: Math.round((input.foreign_before - input.foreign_amount) * 100) / 100,
+    idr_after: input.idr_after ?? null,
+  };
+  remember(SERVICE, endpoint, idempotencyKey, data);
+  return ok(SERVICE, data);
 }
