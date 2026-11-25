@@ -212,13 +212,14 @@ begin
 
   assert reach = 'answer_batch, answer_po_approval, answer_request, approval_card, '
                || 'bot_balances, extraction_reference, '
-               || 'file_evidence, outbox_delivered, outbox_due, outbox_failed, po_approval_card, '
-               || 'sheet_sync_target, sync_pr_sheet',
+               || 'file_evidence, ledger_sheet_rows, outbox_delivered, outbox_due, outbox_failed, po_approval_card, '
+               || 'record_ledger_sheet_run, sheet_sync_target, sync_pr_sheet',
     'The service_role key can execute ' || n || ' seam(s): ' || coalesce(reach, '(none)')
     || '. 0038 (capture), D299 (PO approval by Chat), 0155 (outbox to Chat), 0157 (a request '
     || 'line answered from Chat), 0159 (the meeting''s whole list, and the card that carries '
-    || 'its money) 0232 (the capture worker''s catalogue and balances) and 0296 (the daily PR recap sheet sync, D454 — '
-    || 'it writes as sheet_sync_settings.actor_id, never as nobody) name exactly these thirteen, and that sentence is the reason a service_role key '
+    || 'its money) 0232 (the capture worker''s catalogue and balances), 0296 (the daily PR recap sheet sync, D454 — '
+    || 'it writes as sheet_sync_settings.actor_id, never as nobody) and 0302 (the 15-minute GL OPS sheet job, D460 — it '
+    || 'reads the ledger rows and records how the write went, nothing else) name exactly these fifteen, and that sentence is the reason a service_role key '
     || 'is allowed to exist here at all. Widening it is a decision to write down — in the '
     || 'migration and in this list — not a grant to add in passing.';
 

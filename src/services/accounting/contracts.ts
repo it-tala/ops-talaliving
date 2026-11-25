@@ -1862,4 +1862,9 @@ export interface LedgerSheetResult {
   /** True the first time: the tab was made and given its look. */
   created: boolean;
   synced_at: string;
+  /** Who wrote: the 15-minute job (0302, D460) or a person's button. */
+  trigger?: "cron" | "manual";
+  /** The job found the rows unchanged since the last good write and left the
+   *  tab alone; `synced_at` is that write's time. Never true for a person. */
+  skipped?: boolean;
 }
