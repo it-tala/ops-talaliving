@@ -210,6 +210,11 @@ const VIEW_CONTRACTS = {
   v_cash_unplanned:       null,
   v_statement_suggestion: null,
   v_vendor_payment:       null,
+  /* Leadership accounts read from the bank (0298, D456). The readings carry
+     every field of `AccountStateView`; the conversion log is shaped by hand
+     (`fx_rate` becomes `rate`), so it is not a cast. */
+  v_account_state:        "AccountStateView",
+  v_fx_conversion:        null,
 
   /* ── inventory ───────────────────────────────────────────────────────── */
   /* `by_location`/`group_code`/`group_name` are a second and third read

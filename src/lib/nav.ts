@@ -3,7 +3,7 @@ import {
   BellRing, FileSignature,
   LayoutDashboard, Users, CalendarCheck, MapPin, FileBadge, Wallet,
   ShoppingCart, ClipboardList, FileText, PackageCheck, Boxes, TreePine,
-  Landmark, BookOpen, TrendingUp, PiggyBank, Receipt, Repeat,
+  Landmark, BookOpen, TrendingUp, PiggyBank, Receipt, Repeat, ArrowRightLeft,
   Megaphone, UserRound, Target, HandCoins, MessageSquare,
   FolderKanban, Hammer, Truck, Wrench, Stamp, Package,
   PencilRuler, ListTree, ListChecks, CalendarClock, Link2,
@@ -138,6 +138,8 @@ export const NAV: NavSection[] = [
        * a tab of it, no longer a screen of its own. */
       { label: "Summary", labelKey: "summary", href: "/accounting/ringkasan", icon: TrendingUp, authority: "approve_funds", badge: "new" },
       { label: "Cashflow", labelKey: "cashflow", href: "/accounting/cashflow", icon: Wallet, authority: "approve_funds", badge: "new" },
+      /* BCA USD 081 and BCA 064 read from the bank's screen (D456). */
+      { label: "Leadership accounts", labelKey: "leadershipAccounts", href: "/accounting/rekening-pimpinan", icon: ArrowRightLeft, authority: "approve_funds", badge: "new" },
       { label: "Payment Calendar", labelKey: "calendar", href: "/accounting/calendar", icon: PiggyBank, permission: "accounting.read", badge: "new" },
       { label: "Monthly bills", labelKey: "monthlyBills", href: "/accounting/tagihan", icon: CalendarClock, permission: "accounting.read", badge: "new" },
       { label: "Subscriptions", labelKey: "subscriptions", href: "/accounting/langganan", icon: Repeat, permission: "accounting.read", badge: "new" },

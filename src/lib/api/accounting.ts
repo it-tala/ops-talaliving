@@ -34,6 +34,7 @@ import type {
   TransactionLineView, RedetailQueueRow,
   InboxLineCandidates,
   TransferPosted,
+  AccountStateView, FxConversionView, RecordAccountStateInput, RecordConversionInput, ConversionRecorded,
   LedgerDraft, DraftAnchor, DraftApart, DraftConfirmInput, DraftConfirmed, DraftShown,
 } from "@/services/accounting/contracts";
 import type { LineKind } from "@/services/accounting/lines";
@@ -2970,4 +2971,95 @@ export async function syncLedgerSheet(): Promise<Result<LedgerSheetResult>> {
     return refused(body.error?.code ?? "sync_failed", body.error?.message ?? `Sinkron sheet ledger gagal (${res.status}).`, body.error?.status ?? res.status);
   }
   return ok(SERVICE, body.data);
+}
+
+/* ------------------------------------------------------------------ */
+/* Leadership accounts read from the bank's screen (0298, D456)        */
+/* ------------------------------------------------------------------ */
+
+const numOrNull = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
+
+/** Every bank reading, newest first, each with the one before it and what
+ *  no ledger row explained (`v_account_state`). Leadership accounts answer
+ *  only to `approve_funds` (D391); anybody else gets an empty list. */
+export async function listAccountStates(accountCode?: AccountCode): Promise<Result<AccountStateView[]>> {
+  let q = db().from("v_account_state").select("*");
+  if (accountCode) q = q.eq("account_code", accountCode);
+  const { data, error } = await q.order("as_of", { ascending: false }).order("recorded_at", { ascending: false });
+  if (error) return fromRows<AccountStateView[]>(SERVICE, null, error);
+  return ok(SERVICE, ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+    ...(r as unknown as AccountStateView),
+    balance: Number(r.balance),
+    previous_balance: numOrNull(r.previous_balance),
+    recorded_movement: numOrNull(r.recorded_movement),
+    unrecorded: numOrNull(r.unrecorded),
+  })));
+}
+
+/** The conversion log for BCA USD 081 (`v_fx_conversion`), newest first. */
+export async function listFxConversions(): Promise<Result<FxConversionView[]>> {
+  const { data, error } = await db().from("v_fx_conversion").select("*")
+    .order("trx_date", { ascending: false }).order("out_trx_no", { ascending: false });
+  if (error) return fromRows<FxConversionView[]>(SERVICE, null, error);
+  return ok(SERVICE, ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+    ...(r as unknown as FxConversionView),
+    foreign_before: Number(r.foreign_before),
+    foreign_amount: Number(r.foreign_amount),
+    foreign_after: Number(r.foreign_after),
+    rate: numOrNull(r.fx_rate),
+    effective_rate: Number(r.effective_rate),
+    idr_amount: Number(r.idr_amount),
+    idr_after: numOrNull(r.idr_after),
+    previous_foreign_after: numOrNull(r.previous_foreign_after),
+    foreign_jump: numOrNull(r.foreign_jump),
+  })));
+}
+
+/** `record_account_state`: the balance a bank screen showed, with its
+ *  screenshot — from the inbox (filed NOTED) or uploaded here. */
+export async function recordAccountState(
+  input: RecordAccountStateInput, idempotencyKey?: string,
+): Promise<Result<{ id: string; account_code: string; as_of: string; balance: number; already_recorded?: boolean }>> {
+  const { data, error } = await db().rpc("record_account_state", {
+    p_account_code:  input.account_code,
+    p_as_of:         input.as_of,
+    p_balance:       input.balance,
+    p_inbox_ref:     input.inbox_ref ?? null,
+    p_attachment_id: input.attachment_id ?? null,
+    p_after_trx_no:  input.after_trx_no ?? null,
+    p_note:          input.note?.trim() || null,
+    p_key:           idempotencyKey ?? null,
+  });
+  return fromSeam(SERVICE, data, error);
+}
+
+/** `void_account_state`: a reading that was wrong, with the reason. */
+export async function voidAccountState(id: string, reason: string): Promise<Result<{ id: string }>> {
+  const { data, error } = await db().rpc("void_account_state", { p_id: id, p_reason: reason, p_key: null });
+  return fromSeam<{ id: string }>(SERVICE, data, error);
+}
+
+/** `record_conversion`: USD awal · dikonversi · kurs · IDR diterima · IDR
+ *  sisa, the transfer pair and the state after it, in one act. */
+export async function recordConversion(
+  input: RecordConversionInput, idempotencyKey?: string,
+): Promise<Result<ConversionRecorded>> {
+  const { data, error } = await db().rpc("record_conversion", {
+    p_trx_date:          input.trx_date,
+    p_foreign_before:    input.foreign_before,
+    p_foreign_amount:    input.foreign_amount,
+    p_idr_amount:        input.idr_amount,
+    p_rate:              input.rate ?? null,
+    p_idr_after:         input.idr_after ?? null,
+    p_inbox_ref:         input.inbox_ref ?? null,
+    p_also_inbox_refs:   (input.also_inbox_refs ?? []).filter((r) => r && r !== input.inbox_ref),
+    p_documents:         input.documents && input.documents.length ? input.documents : null,
+    p_description:       input.description?.trim() || null,
+    p_from_account_code: input.from_account_code ?? "BCA USD 081",
+    p_to_account_code:   input.to_account_code ?? "BCA 064",
+    p_key:               idempotencyKey ?? null,
+  });
+  const res = fromSeam<ConversionRecorded>(SERVICE, data, error);
+  if (res.error) return res;
+  return ok(SERVICE, { ...res.data, foreign_after: Number(res.data.foreign_after), idr_after: numOrNull(res.data.idr_after) });
 }

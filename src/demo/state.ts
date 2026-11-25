@@ -294,6 +294,9 @@ export interface DemoState {
    *  how their ledger rows come to exist at all (D180). */
   bank_statements: BankStatement[];
   statement_lines: StatementLine[];
+  /** Bank readings and conversions for the leadership accounts (0298, D456). */
+  account_states: DemoAccountState[];
+  fx_conversions: DemoFxConversion[];
 
   /** The payment calendar: what repeats, what changed in one month, and which
    *  ledger row somebody says settled it. */
@@ -666,6 +669,40 @@ export interface DemoDesignApproval {
   id: string; item_id: string; decision: "approved" | "withdrawn"; decided_on: string;
   channel: ApprovalChannel; client_person: string; attachment_id: string | null;
   evidence_attachment_id: string | null; note: string | null; recorded_by: string; recorded_at: string;
+}
+
+/** `ops_acct.account_states` (0298, D456): a balance a bank screen showed. */
+export interface DemoAccountState {
+  id: string;
+  account_id: string;
+  as_of: string;
+  after_trx_no: string | null;
+  balance: number;
+  attachment_id: string | null;
+  source_ref: string | null;
+  note: string | null;
+  recorded_by: string;
+  recorded_at: string;
+  void_reason: string | null;
+  voided_at: string | null;
+}
+
+/** `ops_acct.fx_conversions` (0298, D456). */
+export interface DemoFxConversion {
+  transfer_id: string;
+  trx_date: string;
+  from_account_id: string;
+  to_account_id: string;
+  foreign_currency: string;
+  foreign_before: number;
+  foreign_amount: number;
+  fx_rate: number | null;
+  idr_amount: number;
+  idr_after: number | null;
+  out_trx_no: string;
+  in_trx_no: string;
+  recorded_by: string;
+  recorded_at: string;
 }
 
 /** `ops_acct.draft_decisions` (0286), as the demo keeps it. */

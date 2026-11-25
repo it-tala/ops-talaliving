@@ -222,6 +222,8 @@ export function initialState(): DemoState {
     evidence_inbox: EVIDENCE_INBOX,
     draft_decisions: [],
     draft_apart: [],
+    account_states: [],
+    fx_conversions: [],
 
     cash_components: CASH_COMPONENTS,
     cash_overrides: CASH_OVERRIDES,

@@ -1,6 +1,7 @@
 /** Accounting contracts — cut to `docs/plan/02-database.md`, schema `acct`. */
 
 import type { LineKind } from "./lines";
+import type { DocKind } from "@/services/documents/contracts";
 
 /* ------------------------------------------------------------------ */
 /* Vocabulary — copied verbatim. Do not tidy the spelling.             */
@@ -62,6 +63,8 @@ export interface Account {
   opening_balance: number;
   opened_on: string;
   is_active: boolean;
+  /** `0298`, D456. Absent = `running`. */
+  balance_mode?: BalanceMode;
 }
 
 export interface TransactionType {
@@ -630,8 +633,12 @@ export interface AccountBalance {
   total_out: number;
   /** opening + in − out, excluding VOID. The database owns this number (D9);
    *  no screen recomputes it, and a screen that cannot load it shows an em
-   *  dash rather than a substitute. */
+   *  dash rather than a substitute. On an `anchored`/`state_only` account it
+   *  is the latest bank reading plus the rows after it (`0298`). */
   balance: number;
+  balance_mode?: BalanceMode;
+  /** The day of the reading the balance is anchored on; null = never read. */
+  balance_anchored_on?: string | null;
 }
 
 export interface TransactionView extends Transaction {
@@ -700,6 +707,114 @@ export interface TransferPosted {
   out_trx_no: string;
   in_trx_no: string;
   fee_trx_no: string | null;
+}
+
+/** How an account's balance is known (`0298`, D456).
+ *  - `running`: opening + every row (every account but the two below).
+ *  - `anchored`: the latest bank reading + the rows after it; each row shows
+ *    its balance counted from the reading before it (BCA 064).
+ *  - `state_only`: as `anchored`, but rows show no balance (BCA USD 081). */
+export type BalanceMode = "running" | "anchored" | "state_only";
+
+/** A balance the bank's own screen showed, with the screenshot
+ *  (`v_account_state`, `0298`). `unrecorded` is what moved between this
+ *  reading and the one before it that no ledger row explains — shown,
+ *  never booked. */
+export interface AccountStateView {
+  id: string;
+  account_id: string;
+  account_code: AccountCode;
+  currency: string;
+  as_of: string;
+  /** Read right after this row; null = at the end of `as_of`. */
+  after_trx_no: string | null;
+  /** In the account's own currency. */
+  balance: number;
+  attachment_id: string | null;
+  attachment_url: string | null;
+  attachment_filename: string | null;
+  source_ref: string | null;
+  note: string | null;
+  recorded_by: string;
+  recorded_by_name: string | null;
+  recorded_at: string;
+  void_reason: string | null;
+  voided_at: string | null;
+  previous_id: string | null;
+  previous_balance: number | null;
+  previous_as_of: string | null;
+  recorded_movement: number | null;
+  unrecorded: number | null;
+}
+
+/** One conversion as the bank advice states it (`v_fx_conversion`, `0298`):
+ *  the log the owner reads for BCA USD 081. */
+export interface FxConversionView {
+  transfer_id: string;
+  trx_date: string;
+  from_account_code: AccountCode;
+  to_account_code: AccountCode;
+  foreign_currency: string;
+  /** USD awal. */
+  foreign_before: number;
+  /** Dikonversi. */
+  foreign_amount: number;
+  /** USD sisa = awal − dikonversi. */
+  foreign_after: number;
+  /** Kurs as the advice gives it (`fx_rate`); null when it gave none. */
+  rate: number | null;
+  effective_rate: number;
+  /** IDR diterima. */
+  idr_amount: number;
+  /** IDR sisa: the rupiah account's balance after it, when the screenshot shows it. */
+  idr_after: number | null;
+  out_trx_no: string;
+  in_trx_no: string;
+  previous_foreign_after: number | null;
+  /** USD awal − the previous USD sisa: money nobody saw arrive. A new state,
+   *  never a booked row. */
+  foreign_jump: number | null;
+  recorded_by: string;
+  recorded_by_name: string | null;
+  recorded_at: string;
+  documents: { attachment_id: string; kind: DocKind; url: string | null; filename: string | null }[];
+}
+
+export interface RecordAccountStateInput {
+  account_code: AccountCode;
+  as_of: string;
+  balance: number;
+  /** The screenshot from the inbox (filed NOTED), or… */
+  inbox_ref?: string | null;
+  /** …an attachment uploaded here. One of the two is required. */
+  attachment_id?: string | null;
+  after_trx_no?: string | null;
+  note?: string | null;
+}
+
+export interface RecordConversionInput {
+  trx_date: string;
+  foreign_before: number;
+  foreign_amount: number;
+  idr_amount: number;
+  rate?: number | null;
+  idr_after?: number | null;
+  /** The bank advice in the inbox, and the other files of the same message. */
+  inbox_ref?: string | null;
+  also_inbox_refs?: string[];
+  /** Or attachments uploaded here, when it did not come through Chat. */
+  documents?: { attachment_id: string; kind: DocKind }[];
+  description?: string | null;
+  from_account_code?: AccountCode;
+  to_account_code?: AccountCode;
+}
+
+export interface ConversionRecorded {
+  transfer_id: string;
+  out_trx_no: string;
+  in_trx_no: string;
+  foreign_after: number;
+  idr_after: number | null;
 }
 
 /** One allocation, with enough of the line to read it without a second call. */
