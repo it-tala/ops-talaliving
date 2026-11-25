@@ -718,6 +718,18 @@ export async function postTransaction(
     return invalid(SERVICE, "billed_amount_positive", "The billed amount is greater than zero.", { field: "billed_amount" });
   }
 
+  /* A non-rupiah account (0300, D458): its amount is in its own currency. A
+     transfer leg has had that settled by postTransfer (the seam reads its
+     call stack; the sandbox, the source_ref postTransfer writes); any other
+     row must state the currency itself. */
+  const acct = getState().accounts.find((a) => a.id === input.account_id);
+  if (acct && acct.currency !== "IDR" && !input.source_ref.startsWith("transfer:")
+      && (billedCcy !== acct.currency || billedAmt !== input.amount_idr)) {
+    return invalid(SERVICE, "foreign_account",
+      `${acct.code} is a ${acct.currency} account: an amount on it is in ${acct.currency}, never rupiah. A ${acct.currency} → IDR conversion is recorded at Leadership accounts → Record conversion; money moving to another of our accounts is a transfer. A single row here must state billed_currency ${acct.currency} with billed_amount equal to the amount.`,
+      { field: "account_code", account: acct.code, currency: acct.currency, road: "record_conversion" });
+  }
+
   if (type?.is_purchase) {
     if (lines.length === 0) {
       return invalid(

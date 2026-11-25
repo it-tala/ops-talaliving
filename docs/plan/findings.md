@@ -11351,3 +11351,18 @@ the rules `0296` now applies every day:
   description but no amount yet — a real request the office had not priced.
   Skipping it hid it; `0299` makes it a Rp 0 line that the next sync prices.
 
+## F299 · 2026-11-25 · The call stack names a function without its schema inside a seam
+
+- **What happened.** `0300` lets a leg written by `post_transfer` through the
+  new non-rupiah guard by reading `get diagnostics … = pg_context`. The first
+  version matched `function ops_acct.post_transfer(` and refused every
+  transfer leg on 081. Inside the seams `search_path` starts with
+  `ops_acct`, and Postgres prints a function **unqualified** when its schema
+  is on the path: the line reads `PL/pgSQL function post_transfer(text, …)`.
+- **The rule.** Match the stack with the schema optional —
+  `function (ops_acct.)?post_transfer(` — and pin it with a smoke test
+  that writes through the outer seam (`E25`: a transfer and a conversion on
+  081 must still be written).
+- **Why the stack and not an argument.** Any argument that says *I am a
+  transfer leg* can be filled in by a client calling `post_transaction`
+  directly. The stack cannot.

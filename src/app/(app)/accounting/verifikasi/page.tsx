@@ -754,6 +754,13 @@ function ResolvePanel({
   }, [accounts.status, lineCands.status, doc.key]);
   const tfFrom = accountRows.find((a) => a.account_id === tfFromId);
   const tfTo = accountRows.find((a) => a.account_id === tfToId);
+  /* A non-rupiah account (0300, D458): its amount is in its own currency, so
+     a single row, a payment or a plain transfer on it is not booked from
+     here. A conversion is Rekening pimpinan → Catat konversi. The seam
+     refuses too; the screen saying so first is a courtesy (D220). */
+  const chosenAccount = accountRows.find((a) => a.account_id === accountId);
+  const foreignChosen = !!chosenAccount && chosenAccount.currency !== "IDR";
+  const tfForeign = [tfFrom, tfTo].find((a) => a && a.currency !== "IDR");
 
   /* The reading proposed a vendor; the form offers it rather than making
      somebody retype a name that is already on the screen. Still a proposal:
@@ -963,13 +970,13 @@ function ResolvePanel({
   const canRun = mayResolve && (
     road === "note" || road === "reject" ? reason.trim().length > 0
       : road === "link" ? linked.length > 0
-      : road === "pay_line" ? !!payLine && !!accountId && amount > 0
-      : road === "transfer" ? !!tfFromId && !!tfToId && tfFromId !== tfToId && amount > 0 && tfFee >= 0
+      : road === "pay_line" ? !!payLine && !!accountId && amount > 0 && !foreignChosen
+      : road === "transfer" ? !!tfFromId && !!tfToId && tfFromId !== tfToId && amount > 0 && tfFee >= 0 && !tfForeign
         /* The button is disabled while the lines disagree, and the reason is
            shown beside them. The seam refuses this too — the screen refusing
            first is a courtesy, not the control (D220: the database decides). */
-        : road === "transaction" ? !!accountId && amount > 0 && linesAgree && billedValid
-          : !!accountId && amount > 0
+        : road === "transaction" ? !!accountId && amount > 0 && linesAgree && billedValid && !foreignChosen
+          : !!accountId && amount > 0 && !foreignChosen
   );
 
   return (
@@ -1085,8 +1092,9 @@ function ResolvePanel({
               <select id="rv-account" value={accountId} onChange={(e) => setAccountId(e.target.value)}
                 className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none">
                 <option value="">{tr("Choose…", "Pilih…")}</option>
-                {accountRows.map((a) => <option key={a.account_id} value={a.account_id}>{a.code} — {a.name}</option>)}
+                {accountRows.map((a) => <option key={a.account_id} value={a.account_id}>{a.code} — {a.name}{a.currency !== "IDR" ? ` · ${a.currency}` : ""}</option>)}
               </select>
+              {foreignChosen && <ForeignAccountNotice code={chosenAccount.code} currency={chosenAccount.currency} />}
             </div>
             <div>
               <label htmlFor="rv-dir" className="block text-xs text-slate-500">{tr("In or out", "Masuk atau keluar")}</label>
@@ -1344,7 +1352,7 @@ function ResolvePanel({
               <select id="rv-tf-from" value={tfFromId} onChange={(e) => setTfFromId(e.target.value)}
                 className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none">
                 <option value="">{tr("Choose…", "Pilih…")}</option>
-                {accountRows.map((a) => <option key={a.account_id} value={a.account_id}>{a.code} — {a.name}</option>)}
+                {accountRows.map((a) => <option key={a.account_id} value={a.account_id}>{a.code} — {a.name}{a.currency !== "IDR" ? ` · ${a.currency}` : ""}</option>)}
               </select>
               {outLine?.account && <p className="mt-1 text-[11px] text-slate-500">{tr("Read as", "Terbaca sebagai")} <span className="text-slate-700">{outLine.account}</span></p>}
             </div>
@@ -1353,10 +1361,11 @@ function ResolvePanel({
               <select id="rv-tf-to" value={tfToId} onChange={(e) => setTfToId(e.target.value)}
                 className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none">
                 <option value="">{tr("Choose…", "Pilih…")}</option>
-                {accountRows.filter((a) => a.account_id !== tfFromId).map((a) => <option key={a.account_id} value={a.account_id}>{a.code} — {a.name}</option>)}
+                {accountRows.filter((a) => a.account_id !== tfFromId).map((a) => <option key={a.account_id} value={a.account_id}>{a.code} — {a.name}{a.currency !== "IDR" ? ` · ${a.currency}` : ""}</option>)}
               </select>
               {inLine?.account && <p className="mt-1 text-[11px] text-slate-500">{tr("Read as", "Terbaca sebagai")} <span className="text-slate-700">{inLine.account}</span></p>}
             </div>
+            {tfForeign && <div className="sm:col-span-2"><ForeignAccountNotice code={tfForeign.code} currency={tfForeign.currency} transfer /></div>}
             <div>
               <label htmlFor="rv-tf-amount" className="block text-xs text-slate-500">{tr("Amount that arrived (IDR)", "Jumlah yang sampai (IDR)")}</label>
               <MoneyInput id="rv-tf-amount" value={amount} onChange={setAmount} className="mt-1" />
@@ -1450,8 +1459,9 @@ function ResolvePanel({
                 <select id="rv-pay-account" value={accountId} onChange={(e) => setAccountId(e.target.value)}
                   className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-brand-400 focus:outline-none">
                   <option value="">{tr("Choose…", "Pilih…")}</option>
-                  {accountRows.map((a) => <option key={a.account_id} value={a.account_id}>{a.code} — {a.name}</option>)}
+                  {accountRows.map((a) => <option key={a.account_id} value={a.account_id}>{a.code} — {a.name}{a.currency !== "IDR" ? ` · ${a.currency}` : ""}</option>)}
                 </select>
+                {foreignChosen && <ForeignAccountNotice code={chosenAccount.code} currency={chosenAccount.currency} />}
               </div>
               <div>
                 <label htmlFor="rv-pay-amount" className="block text-xs text-slate-500">{tr("Amount paid", "Jumlah dibayar")}</label>
@@ -1765,4 +1775,24 @@ function TargetRow({ trxNo }: { trxNo: string }) {
 function DecidedCoverage({ attachmentId, amount }: { attachmentId: string; amount: number | null }) {
   const [cov] = useLoad(() => accounting.coverageForDocument(attachmentId, amount), [attachmentId, amount]);
   return <Loaded state={cov}>{(c) => <Coverage c={c} />}</Loaded>;
+}
+
+/** A non-rupiah account on this screen (0300, D458): its amount is in its own
+ *  currency, and what moves on it is recorded at Rekening pimpinan — a
+ *  conversion with its four figures, a balance from the bank screen. */
+function ForeignAccountNotice({ code, currency, transfer }: { code: string; currency: string; transfer?: boolean }) {
+  const tr = useTr();
+  return (
+    <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900" data-testid="rv-foreign-account">
+      {transfer
+        ? tr(`${code} is a ${currency} account, so this is a conversion, not a rupiah transfer: one amount cannot be both dollars and rupiah. `,
+             `${code} rekening ${currency}, jadi ini konversi, bukan pindah dana rupiah: satu jumlah tidak bisa sekaligus dolar dan rupiah. `)
+        : tr(`${code} is a ${currency} account: an amount on it is in ${currency}, never rupiah, so a row is not booked on it from here. `,
+             `${code} rekening ${currency}: jumlah di sana dalam ${currency}, bukan rupiah, jadi baris di rekening ini tidak dibukukan dari sini. `)}
+      <Link href="/accounting/rekening-pimpinan" className="font-semibold underline underline-offset-2">
+        {tr("Record it at Leadership accounts → Record conversion", "Catat di Rekening pimpinan → Catat konversi")}
+      </Link>
+      {tr("; money that arrived unseen shows there from the bank reading.", "; uang masuk tanpa bukti terlihat di sana dari bacaan saldo.")}
+    </div>
+  );
 }
